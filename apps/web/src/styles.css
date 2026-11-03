@@ -123,11 +123,11 @@ kbd { font: 600 9px "DM Sans", sans-serif; padding: 2px 5px; border: 1px solid #
 .edge-label.selected { color: var(--purple-dark); border-color: var(--purple); }
 
 .semantic-tree.canvas-shell { display: flex; flex-direction: column; background: #f3f1ec; }
-.semantic-tree { --semantic-status: #68616f; }
-.semantic-tree .semantic-status-todo, .semantic-tree .semantic-status-not_started { --semantic-status: #68616f; }
-.semantic-tree .semantic-status-in_progress, .semantic-tree .semantic-status-active { --semantic-status: #9e493f; }
-.semantic-tree .semantic-status-done { --semantic-status: #326b4d; }
-.semantic-tree .semantic-status-mixed { --semantic-status: #925400; }
+.semantic-tree { --semantic-status: #625b70; }
+.semantic-tree .semantic-status-todo, .semantic-tree .semantic-status-not_started { --semantic-status: #625b70; }
+.semantic-tree .semantic-status-in_progress, .semantic-tree .semantic-status-active { --semantic-status: #b3263a; }
+.semantic-tree .semantic-status-done { --semantic-status: #16734a; }
+.semantic-tree .semantic-status-mixed { --semantic-status: #a65400; }
 .semantic-tree-toolbar { flex: 0 0 52px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 22px; border-bottom: 1px solid #dfdae2; background: rgba(255,254,251,.96); }
 .semantic-focus-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .semantic-focus-copy > span { color: #806695; font-size: 8px; font-weight: 800; letter-spacing: 1px; }
@@ -151,11 +151,11 @@ kbd { font: 600 9px "DM Sans", sans-serif; padding: 2px 5px; border: 1px solid #
 .semantic-edge-hit:focus-visible { stroke: rgba(101,81,143,.22); }
 .semantic-edge-visible { fill: none; pointer-events: none; }
 .semantic-edge-label { fill: #8a633e; font-size: 8px; text-anchor: middle; paint-order: stroke; stroke: #f3f1ec; stroke-width: 3px; pointer-events: none; }
-.semantic-tree-node { position: absolute; left: 0; top: 0; box-sizing: border-box; border: 1px solid #dcd4e1; border-top: 3px solid var(--semantic-status); border-radius: 11px; background: #fffefb; box-shadow: 0 5px 18px rgba(47,38,55,.07); overflow: hidden; transition: box-shadow 160ms; }
+.semantic-tree-node { position: absolute; left: 0; top: 0; box-sizing: border-box; border: 1px solid #dcd4e1; border-radius: 11px; background: #fffefb; box-shadow: 0 5px 18px rgba(47,38,55,.07); overflow: visible; transition: box-shadow 160ms; }
 .semantic-tree-node.is-focus { box-shadow: 0 0 0 4px rgba(98,70,130,.15), 0 10px 30px rgba(47,38,55,.13); }
 .semantic-tree-node.is-attention { border-color: #806695; box-shadow: 0 0 0 3px rgba(128,102,149,.2), 0 10px 30px rgba(47,38,55,.13); }
 .semantic-tree-node.is-selected { border-color: var(--purple); }
-.semantic-card-main { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; border: 0; background: transparent; color: var(--ink); text-align: left; overflow: hidden; transition: color 90ms linear; }
+.semantic-card-main { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; border: 0; border-radius: inherit; background: transparent; color: var(--ink); text-align: left; overflow: hidden; transition: color 90ms linear; }
 .semantic-card-main > strong { display: -webkit-box; max-width: 100%; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font: 700 12px/1.3 "Manrope", sans-serif; }
 .semantic-tree-key { color: #75637f; font-size: 9px; font-weight: 700; letter-spacing: .8px; transition: color 90ms linear; }
 .semantic-card-meta { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 6px; color: #6f6675; font-size: 9px; transition: color 90ms linear; }
@@ -169,12 +169,18 @@ kbd { font: 600 9px "DM Sans", sans-serif; padding: 2px 5px; border: 1px solid #
 .semantic-card-chip .semantic-card-main { gap: 3px; padding: 7px 10px; }
 .semantic-card-chip .semantic-card-main > strong { -webkit-line-clamp: 1; font-size: 10px; }
 .semantic-card-chip .semantic-card-progress, .semantic-card-chip .semantic-mini-track { display: none; }
+.semantic-tree-node[data-code-only="true"] .semantic-card-main { justify-content: center; }
 .semantic-card-dot { border: 2px solid #fff; border-radius: 5px; background: var(--semantic-status); box-shadow: 0 0 0 1px var(--semantic-status); }
 .semantic-card-dot .semantic-card-main { padding: 0; }
 .semantic-card-dot .semantic-color-wash { display: none; }
-.semantic-card-summary { background: #f7f2fa; border-style: dashed; }
+.semantic-card-summary { background: #f7f2fa; }
+.semantic-child-indicators { position: absolute; z-index: 4; left: 50%; top: calc(100% + 8px); display: flex; gap: 4px; transform: translateX(-50%); }
+.semantic-child-indicator { width: 20px; height: 20px; display: grid; flex: 0 0 20px; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #fff; }
+.semantic-child-indicator:focus-visible { outline: 2px solid var(--purple); outline-offset: 1px; }
+.semantic-child-indicator i { width: var(--semantic-indicator-size); height: var(--semantic-indicator-size); border-radius: 2px; box-shadow: 0 0 0 1px rgba(255,255,255,.85); }
+.semantic-child-indicator.is-group span { min-width: 20px; height: 20px; display: grid; place-items: center; padding: 0 3px; border-radius: 5px; font-size: 8px; font-weight: 800; }
 .semantic-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-.semantic-connect-handle { position: absolute; z-index: 4; left: 50%; bottom: -10px; width: 21px; height: 21px; display: grid; place-items: center; transform: translateX(-50%); border: 1px solid #cfc2dc; border-radius: 50%; background: #fff; color: var(--purple-dark); font-size: 12px; opacity: 0; box-shadow: 0 2px 8px rgba(45,39,53,.12); }
+.semantic-connect-handle { position: absolute; z-index: 4; right: 6px; bottom: -10px; width: 21px; height: 21px; display: grid; place-items: center; border: 1px solid #cfc2dc; border-radius: 50%; background: #fff; color: var(--purple-dark); font-size: 12px; opacity: 0; box-shadow: 0 2px 8px rgba(45,39,53,.12); }
 .semantic-tree-node:hover .semantic-connect-handle, .semantic-tree-node:focus-within .semantic-connect-handle, .semantic-tree-node.is-selected .semantic-connect-handle { opacity: 1; }
 .semantic-color-wash { position: absolute; z-index: 0; inset: 0; border-radius: 8px; background: var(--semantic-status); transform: scaleY(0); transform-origin: top; pointer-events: none; transition: transform 230ms cubic-bezier(.22,1,.36,1); }
 .semantic-tree.is-color-mode .semantic-color-wash { transform: scaleY(1); }

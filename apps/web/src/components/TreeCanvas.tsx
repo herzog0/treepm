@@ -68,10 +68,10 @@ export function TreeCanvas(props: TreeCanvasProps) {
   }
   const visibleCount = rendered.filter((node) => node.opacity > 0.05).length;
   const sceneBounds = rendered.length ? {
-    minX: Math.min(...rendered.map((node) => node.position.x - node.width / 2)),
+    minX: Math.min(...rendered.map((node) => node.position.x - node.layoutWidth / 2)),
     minY: Math.min(...rendered.map((node) => node.position.y)),
-    maxX: Math.max(...rendered.map((node) => node.position.x + node.width / 2)),
-    maxY: Math.max(...rendered.map((node) => node.position.y + node.height)),
+    maxX: Math.max(...rendered.map((node) => node.position.x + node.layoutWidth / 2)),
+    maxY: Math.max(...rendered.map((node) => node.position.y + node.layoutHeight)),
   } : { minX: 0, minY: 0, maxX: 1, maxY: 1 };
   const minimapViewBox = `${sceneBounds.minX - 30} ${sceneBounds.minY - 30} ${Math.max(1, sceneBounds.maxX - sceneBounds.minX + 60)} ${Math.max(1, sceneBounds.maxY - sceneBounds.minY + 60)}`;
 
@@ -139,7 +139,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
           const aggregationText = node.aggregate ? `${node.representedCount - 1} descendentes agregados` : "";
           const accessibleStatus = [label, aggregationText].filter(Boolean).join(". ");
           const displayPercent = node.aggregateTotalLeaves > 0 ? Math.round((node.aggregateDoneLeaves / node.aggregateTotalLeaves) * 100) : progress.percent;
-          return <article key={ticket.id} data-ticket-id={ticket.id} data-aggregate={node.aggregate ? "true" : "false"} data-represented-count={node.representedCount} data-aggregate-leaves={node.aggregateTotalLeaves} data-subtree-height={node.subtreeHeight} data-visual-status={status} className={`semantic-tree-node semantic-card-${node.kind} semantic-status-${status} ${ticket.id === focusId ? "is-focus" : ""} ${ticket.id === attentionId ? "is-attention" : ""} ${selected ? "is-selected" : ""}`}
+          return <article key={ticket.id} data-ticket-id={ticket.id} data-aggregate={node.aggregate ? "true" : "false"} data-represented-count={node.representedCount} data-aggregate-leaves={node.aggregateTotalLeaves} data-subtree-height={node.subtreeHeight} data-visual-status={status} data-code-only={node.codeOnly ? "true" : "false"} className={`semantic-tree-node semantic-card-${node.kind} semantic-status-${status} ${ticket.id === focusId ? "is-focus" : ""} ${ticket.id === attentionId ? "is-attention" : ""} ${selected ? "is-selected" : ""}`}
             style={{
               width: node.width,
               height: node.height,
@@ -147,6 +147,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
               pointerEvents: node.opacity < 0.05 ? "none" : "auto",
               transform: `translate3d(${node.position.x}px, ${node.position.y}px, 0) translateX(-50%)`,
               "--semantic-status": node.statusColor,
+              "--semantic-indicator-size": `${node.indicatorSize}px`,
             } as CSSProperties}
             aria-hidden={node.opacity < 0.05}
             onPointerEnter={() => setAttentionId(ticket.id)}
@@ -155,14 +156,27 @@ export function TreeCanvas(props: TreeCanvasProps) {
             <button className="semantic-card-main" tabIndex={node.opacity < 0.05 ? -1 : 0} title={`${ticket.title} — ${accessibleStatus}`} aria-label={`${ticketIdentifier(ticket, props.projectKey)} ${ticket.title}. ${accessibleStatus}. Clique para foco e detalhes`} onClick={() => activateTicket(ticket.id)}>
               {node.kind === "dot" ? <span className="semantic-sr-only">{ticket.title}. {accessibleStatus}</span> : <>
                 <span className="semantic-tree-key">{ticketIdentifier(ticket, props.projectKey)}</span>
-                <strong>{ticket.title}</strong>
-                {(node.kind === "full" || node.kind === "compact") && <span className="semantic-card-meta"><Avatars userIds={ticket.assigneeIds} users={props.users} compact /><span>{childCount > 0 ? `${childCount} ${childCount === 1 ? "filho" : "filhos"}` : "folha"}</span></span>}
-                {node.kind === "full" && !node.aggregate && ticket.components.length > 0 && <span className="semantic-card-components">{ticket.components.slice(0, 3).map((component) => component.name).join(" · ")}</span>}
-                {node.aggregate && <span className="semantic-summary-count">{aggregationText}</span>}
-                <span className="semantic-card-progress">{label}</span>
-                <span className="semantic-mini-track" role="progressbar" aria-label={accessibleStatus} aria-valuemin={0} aria-valuemax={100} aria-valuenow={displayPercent}><i style={{ width: `${displayPercent}%` }} /></span>
+                {!node.codeOnly && <>
+                  <strong>{ticket.title}</strong>
+                  {(node.kind === "full" || node.kind === "compact") && <span className="semantic-card-meta"><Avatars userIds={ticket.assigneeIds} users={props.users} compact /><span>{childCount > 0 ? `${childCount} ${childCount === 1 ? "filho" : "filhos"}` : "folha"}</span></span>}
+                  {node.kind === "full" && !node.aggregate && ticket.components.length > 0 && <span className="semantic-card-components">{ticket.components.slice(0, 3).map((component) => component.name).join(" · ")}</span>}
+                  {node.aggregate && <span className="semantic-summary-count">{aggregationText}</span>}
+                  <span className="semantic-card-progress">{label}</span>
+                  <span className="semantic-mini-track" role="progressbar" aria-label={accessibleStatus} aria-valuemin={0} aria-valuemax={100} aria-valuenow={displayPercent}><i style={{ width: `${displayPercent}%` }} /></span>
+                </>}
               </>}
             </button>
+            {node.childIndicators.length > 0 && <span className="semantic-child-indicators" aria-label="Filhos imediatos">
+              {node.childIndicators.map((indicator) => {
+                const childId = indicator.ticketIds.length === 1 ? indicator.ticketIds[0] : undefined;
+                const child = childId ? props.tickets.find((item) => item.id === childId) : undefined;
+                const statusLabel = { todo: "A fazer", not_started: "Não iniciado", in_progress: "Em andamento", active: "Em andamento", done: "Concluído", mixed: "Estado misto" }[indicator.visualStatus];
+                const indicatorLabel = child ? `${ticketIdentifier(child, props.projectKey)} ${child.title}. ${statusLabel}` : `${indicator.ticketIds.length} filhos agrupados. ${statusLabel}`;
+                return <button type="button" key={indicator.id} className={`semantic-child-indicator ${child ? "is-single" : "is-group"}`} data-indicator-ticket-id={childId} data-parent-ticket-id={ticket.id} data-visual-status={indicator.visualStatus} title={indicatorLabel} aria-label={indicatorLabel} tabIndex={node.opacity < 0.05 || indicator.opacity < 0.05 ? -1 : 0} style={{ opacity: indicator.opacity, pointerEvents: indicator.opacity < 0.05 ? "none" : "auto" }} onClick={(event) => { event.stopPropagation(); activateTicket(childId ?? ticket.id); }}>
+                  {child ? <i style={{ backgroundColor: indicator.statusColor }} /> : <span style={{ backgroundColor: indicator.statusColor }}>{indicator.ticketIds.length}</span>}
+                </button>;
+              })}
+            </span>}
             {(node.kind === "full" || node.kind === "compact") && <button className="semantic-connect-handle" aria-label={`Criar dependência a partir de ${ticket.title}`} title="Criar dependência" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setConnectionSourceId(ticket.id); }}>↗</button>}
           </article>;
         })}
@@ -176,7 +190,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
       <svg className="semantic-minimap" viewBox={minimapViewBox} aria-label="Minimapa do contexto visível">
         <rect className="semantic-minimap-viewport" x={-camera.x / camera.scale} y={-camera.y / camera.scale} width={size.width / camera.scale} height={size.height / camera.scale} />
         {visibleEdges.map(({ edge, source, target }) => <path key={edge.id} d={semanticEdgePath(source, target)} />)}
-        {rendered.filter((node) => node.opacity > 0.05).map((node) => <rect key={node.node.ticket.id} x={node.position.x - node.width / 2} y={node.position.y} width={Math.max(4, node.width)} height={Math.max(4, node.height)} rx={4} />)}
+        {rendered.filter((node) => node.opacity > 0.05).map((node) => <rect key={node.node.ticket.id} x={node.position.x - node.layoutWidth / 2} y={node.position.y} width={Math.max(4, node.layoutWidth)} height={Math.max(4, node.layoutHeight)} rx={4} />)}
       </svg>
       <div className="semantic-help">Wheel no cursor · zoom+ sobre outro card transfere atenção · <kbd>Shift</kbd> + wheel pan horizontal · arraste para pan · <kbd>C</kbd> cores</div>
     </div>

@@ -3,7 +3,7 @@ import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, 
 import { flushSync } from "react-dom";
 import { childrenOf, tidyTreeLayout } from "@treepm/domain";
 import type { Ticket } from "@treepm/domain";
-import { blendSemanticScenes, cameraForAnchor, captureWheelAnchor, createSemanticScene } from "./semanticScene.js";
+import { blendSemanticScenes, CLICK_SEMANTIC_ZOOM, cameraForAnchor, captureWheelAnchor, createSemanticScene } from "./semanticScene.js";
 import type { FocusTransition, SemanticCamera, SemanticSceneNode, WheelAnchor } from "./semanticScene.js";
 
 interface DragState {
@@ -190,24 +190,20 @@ export function useSemanticGestures(tickets: Ticket[]) {
 
   const focusTicket = (id: string) => {
     if (animationRef.current?.type === "focus" && animationRef.current.toId === id) return;
-    if (!sceneOverrideRef.current && !transitionRef.current && focusRef.current === id) return;
+    if (!sceneOverrideRef.current && !transitionRef.current && focusRef.current === id && Math.abs(cameraRef.current.zoom - CLICK_SEMANTIC_ZOOM) < 1e-9) return;
     cancelAnimation();
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       commitScene(null);
       commitFocus(id, null);
+      commitCamera({ ...cameraRef.current, zoom: CLICK_SEMANTIC_ZOOM });
       return;
     }
     const current = cameraRef.current;
     const currentFocus = focusRef.current;
     const currentNodes = currentScene();
-    if (!currentNodes.some((node) => node.node.ticket.id === id)) {
-      commitScene(null);
-      commitFocus(id, null);
-      return;
-    }
     const startedAt = performance.now();
     const initialTransition: FocusTransition = { fromId: currentFocus, toId: id, progress: 0, fromScene: currentNodes };
-    const animation: FocusAnimation = { type: "focus", toId: id, startCamera: current, endCamera: current, frameId: 0 };
+    const animation: FocusAnimation = { type: "focus", toId: id, startCamera: current, endCamera: { ...current, zoom: CLICK_SEMANTIC_ZOOM }, frameId: 0 };
     animationRef.current = animation;
     commitScene(null);
     commitFocus(currentFocus, initialTransition);
@@ -234,6 +230,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
       commitFocus(currentFocus, nextTransition);
       commitCamera({
         ...current,
+        zoom: lerp(animation.startCamera.zoom, animation.endCamera.zoom, progress),
         x: lerp(animation.startCamera.x, animation.endCamera.x, progress),
         y: lerp(animation.startCamera.y, animation.endCamera.y, progress),
       });
@@ -254,10 +251,10 @@ export function useSemanticGestures(tickets: Ticket[]) {
     cancelAnimation();
     const visible = rendered.filter((node) => node.opacity > 0.05 && node.width > 0);
     if (!visible.length) return;
-    const minX = Math.min(...visible.map((node) => node.position.x - node.width / 2));
-    const maxX = Math.max(...visible.map((node) => node.position.x + node.width / 2));
+    const minX = Math.min(...visible.map((node) => node.position.x - node.layoutWidth / 2));
+    const maxX = Math.max(...visible.map((node) => node.position.x + node.layoutWidth / 2));
     const minY = Math.min(...visible.map((node) => node.position.y));
-    const maxY = Math.max(...visible.map((node) => node.position.y + node.height));
+    const maxY = Math.max(...visible.map((node) => node.position.y + node.layoutHeight));
     const current = cameraRef.current;
     commitCamera({
       ...current,
@@ -279,8 +276,8 @@ export function useSemanticGestures(tickets: Ticket[]) {
     }
     const stage = stageRef.current?.getBoundingClientRect();
     if (!stage) return;
-    const target = event.target instanceof Element ? event.target.closest("[data-ticket-id]") : null;
-    const ticketId = target?.getAttribute("data-ticket-id") ?? null;
+    const target = event.target instanceof Element ? event.target.closest("[data-indicator-ticket-id], [data-ticket-id]") : null;
+    const ticketId = target?.getAttribute("data-indicator-ticket-id") ?? target?.getAttribute("data-ticket-id") ?? null;
     const active = animationRef.current?.type === "wheel" ? animationRef.current : null;
     const baseCamera = active?.toCamera ?? current;
     const currentFocus = active?.toFocusId ?? focusRef.current;
