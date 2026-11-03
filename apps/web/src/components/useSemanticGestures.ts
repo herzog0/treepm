@@ -108,16 +108,16 @@ export function useSemanticGestures(tickets: Ticket[]) {
     armWheelSession(session);
     wheelSessionRef.current = session;
   };
-  const followWheelPointer = (clientX: number, clientY: number) => {
+  const followWheelPointer = (clientX: number, clientY: number, modifierActive: boolean) => {
     const session = wheelSessionRef.current;
     const stage = stageRef.current?.getBoundingClientRect();
-    if (!session?.following || !stage) return false;
+    if (!modifierActive || !session?.following || !stage) return false;
     if (clientX < stage.left || clientX > stage.right || clientY < stage.top || clientY > stage.bottom) return false;
     session.anchor.cursorX = clientX - stage.left;
     session.anchor.cursorY = clientY - stage.top;
+    armWheelSession(session);
     const current = cameraRef.current;
     flushSync(() => commitCamera({ ...current, ...cameraForAnchor(session.anchor, currentScene(), current.scale) }));
-    armWheelSession(session);
     return true;
   };
   const completeAnchoredAnimation = (animation: AnchoredAnimation) => {
@@ -324,10 +324,11 @@ export function useSemanticGestures(tickets: Ticket[]) {
     suppressClickRef.current = true;
   };
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const modifierActive = event.ctrlKey || event.metaKey;
     lastPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) {
-      followWheelPointer(event.clientX, event.clientY);
+      followWheelPointer(event.clientX, event.clientY, modifierActive);
       return;
     }
     if (event.buttons === 0) {
@@ -351,7 +352,8 @@ export function useSemanticGestures(tickets: Ticket[]) {
     drag.lastY = event.clientY;
     if (!event.currentTarget.hasPointerCapture(drag.pointerId)) event.currentTarget.setPointerCapture(drag.pointerId);
     event.preventDefault();
-    if (followWheelPointer(event.clientX, event.clientY)) return;
+    if (followWheelPointer(event.clientX, event.clientY, modifierActive)) return;
+    if (wheelSessionRef.current && !modifierActive) return;
     const stage = stageRef.current?.getBoundingClientRect();
     const outside = stage && (event.clientX < stage.left || event.clientX > stage.right || event.clientY < stage.top || event.clientY > stage.bottom);
     if (outside && wheelSessionRef.current) {
