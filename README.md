@@ -62,10 +62,10 @@ Na primeira execução a API cria `apps/api/data/treepm.json` ao rodar a partir 
 ## O que já funciona
 
 - Hierarquia recursiva ilimitada com um único `parentId` nullable, múltiplos responsáveis e componentes com responsáveis próprios.
-- Status manual somente em folhas; pais mostram `doneLeaves/totalLeaves`, percentual, rótulo e cor acessível.
-- Home com a árvore A integrada: foco explícito, cards completos/compactos/chips/dots e resumos por contexto, minimapa e enquadramento.
-- Wheel semântico e `Ctrl`/`Meta` + wheel animam câmera, cards e arestas por 220 ms, preservando o card ou ponto de cena sob o cursor em todos os frames; `Shift` + wheel faz pan horizontal imediato.
-- Zoom+ sobre outro card transfere atenção progressivamente e de forma reversível. Scrolls rápidos retomam da cena visível e acumulam o destino lógico sem fila. Clique e breadcrumb usam a mesma duração coordenada, com suporte a movimento reduzido.
+- Status manual somente em folhas; pais mostram `doneLeaves/totalLeaves`, percentual, rótulo e cor acessível. Agregados homogêneos preservam a cor; combinações viram `mixed`/laranja com contagens e tooltip acessível.
+- Home com a árvore A integrada: foco explícito, compactação bottom-up por altura da subárvore (`full → compact → chip → dot → agregado`), resumos reconciliados, minimapa e enquadramento.
+- Wheel semântico e `Ctrl`/`Meta` + wheel animam câmera, cards e arestas por 180 ms com resposta no primeiro tick, preservando o card, seu agregado ou ponto de cena sob o cursor; `Shift` + wheel faz pan horizontal imediato.
+- Zoom+ sobre outro card transfere atenção progressivamente e de forma reversível. Scrolls rápidos retomam da cena visível e acumulam o destino lógico sem fila. Clique e breadcrumb animam por 220 ms, com suporte a movimento reduzido.
 - Arraste esquerdo ou do meio funciona no fundo e sobre cards após um pequeno threshold; a abertura do painel preserva a continuidade e mantém o foco fora da área coberta.
 - Conexões `TicketEdge` independentes, selecionáveis e com cor, espessura e tracejado próprios.
 - Dependências criadas por conector ou painel, removíveis sem alterar a hierarquia; ciclos e IDs inválidos são rejeitados.

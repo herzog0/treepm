@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, SyntheticEvent, WheelEvent as ReactWheelEvent } from "react";
+import { flushSync } from "react-dom";
 import { childrenOf, tidyTreeLayout } from "@treepm/domain";
 import type { Ticket } from "@treepm/domain";
 import { blendSemanticScenes, cameraForAnchor, captureWheelAnchor, createSemanticScene } from "./semanticScene.js";
@@ -31,14 +32,17 @@ interface WheelAnimation {
   toTransition: FocusTransition | null;
   anchor: WheelAnchor;
   frameId: number;
+  timerId?: number;
 }
 
 type SemanticAnimation = FocusAnimation | WheelAnimation;
 
 const clamp = (minimum: number, maximum: number, value: number) => Math.min(maximum, Math.max(minimum, value));
 const lerp = (from: number, to: number, progress: number) => from + (to - from) * progress;
-const ease = (progress: number) => progress < 0.5 ? 4 * Math.pow(progress, 3) : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-const MOTION_DURATION = 220;
+const focusEase = (progress: number) => progress < 0.5 ? 4 * Math.pow(progress, 3) : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+const wheelEase = (progress: number) => 1 - Math.pow(1 - progress, 3);
+const FOCUS_DURATION = 220;
+const WHEEL_DURATION = 180;
 
 export function useSemanticGestures(tickets: Ticket[]) {
   const layout = useMemo(() => tidyTreeLayout(tickets), [tickets]);
@@ -48,7 +52,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
   const [transition, setTransition] = useState<FocusTransition | null>(null);
   const [sceneOverride, setSceneOverride] = useState<SemanticSceneNode[] | null>(null);
   const [attentionId, setAttentionId] = useState<string | null>(null);
-  const [camera, setCamera] = useState<SemanticCamera>({ x: 0, y: 0, zoom: 0.82, scale: 1 });
+  const [camera, setCamera] = useState<SemanticCamera>({ x: 0, y: 0, zoom: 1.28, scale: 1 });
   const [size, setSize] = useState({ width: 1200, height: 700 });
   const [isDragging, setIsDragging] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -82,7 +86,9 @@ export function useSemanticGestures(tickets: Ticket[]) {
   };
   const currentScene = () => sceneOverrideRef.current ?? sceneFor(cameraRef.current, focusRef.current, transitionRef.current);
   const cancelAnimation = () => {
-    if (animationRef.current) cancelAnimationFrame(animationRef.current.frameId);
+    const animation = animationRef.current;
+    if (animation) cancelAnimationFrame(animation.frameId);
+    if (animation?.type === "wheel" && animation.timerId !== undefined) clearTimeout(animation.timerId);
     animationRef.current = null;
   };
   const completeWheelAnimation = (animation: WheelAnimation) => {
@@ -108,23 +114,30 @@ export function useSemanticGestures(tickets: Ticket[]) {
     const animation: WheelAnimation = { type: "wheel", fromScene, fromCamera, toCamera: targetCamera, toFocusId, toTransition, anchor, frameId: 0 };
     animationRef.current = animation;
     const startedAt = performance.now();
+    let firstFrame = true;
     const tick = (timestamp: number) => {
       if (animationRef.current !== animation) return;
-      const linear = clamp(0, 1, (timestamp - startedAt) / MOTION_DURATION);
+      const linear = clamp(0, 1, (timestamp - startedAt) / WHEEL_DURATION);
       if (linear >= 1 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         completeWheelAnimation(animation);
         return;
       }
-      const progress = ease(linear);
+      const progress = wheelEase(linear);
       const zoom = lerp(fromCamera.zoom, animation.toCamera.zoom, progress);
       const scale = lerp(fromCamera.scale, animation.toCamera.scale, progress);
       const targetNodes = sceneFor(animation.toCamera, animation.toFocusId, animation.toTransition);
       const nextNodes = blendSemanticScenes(layout, fromScene, targetNodes, progress, zoom, sizeRef.current.width);
-      commitScene(nextNodes);
-      commitCamera({ zoom, scale, ...cameraForAnchor(anchor, nextNodes, scale) });
+      const commitFrame = () => {
+        commitScene(nextNodes);
+        commitCamera({ zoom, scale, ...cameraForAnchor(anchor, nextNodes, scale) });
+      };
+      if (firstFrame) {
+        firstFrame = false;
+        flushSync(commitFrame);
+      } else commitFrame();
       animation.frameId = requestAnimationFrame(tick);
     };
-    animation.frameId = requestAnimationFrame(tick);
+    animation.timerId = window.setTimeout(() => tick(performance.now()), 0);
   };
 
   useEffect(() => {
@@ -211,12 +224,12 @@ export function useSemanticGestures(tickets: Ticket[]) {
         complete();
         return;
       }
-      const linear = clamp(0, 1, (timestamp - startedAt) / MOTION_DURATION);
+      const linear = clamp(0, 1, (timestamp - startedAt) / FOCUS_DURATION);
       if (linear >= 1) {
         complete();
         return;
       }
-      const progress = ease(linear);
+      const progress = focusEase(linear);
       const nextTransition = { ...initialTransition, progress };
       commitFocus(currentFocus, nextTransition);
       commitCamera({
@@ -256,9 +269,12 @@ export function useSemanticGestures(tickets: Ticket[]) {
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     event.preventDefault();
     const current = cameraRef.current;
+    const deltaUnit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? sizeRef.current.height : 1;
+    const deltaY = event.deltaY * deltaUnit;
+    const deltaX = event.deltaX * deltaUnit;
     if (event.shiftKey && !event.ctrlKey && !event.metaKey) {
       cancelAnimation();
-      commitCamera({ ...current, x: current.x - event.deltaY - event.deltaX, y: current.y });
+      commitCamera({ ...current, x: current.x - deltaY - deltaX, y: current.y });
       return;
     }
     const stage = stageRef.current?.getBoundingClientRect();
@@ -271,8 +287,8 @@ export function useSemanticGestures(tickets: Ticket[]) {
     const currentTransition = active?.toTransition ?? transitionRef.current;
     const anchor = captureWheelAnchor(event.clientX, event.clientY, stage, current, currentScene(), ticketId);
     const geometric = event.ctrlKey || event.metaKey;
-    const direction = event.deltaY < 0 ? 1 : -1;
-    const step = clamp(0.08, 0.28, Math.abs(event.deltaY) / 500);
+    const direction = deltaY < 0 ? 1 : -1;
+    const step = clamp(0.08, 0.28, Math.abs(deltaY) / 500);
     let nextFocus = currentFocus;
     let nextTransition = currentTransition;
     if (!geometric && ticketId) {
@@ -291,8 +307,8 @@ export function useSemanticGestures(tickets: Ticket[]) {
     }
     const next = {
       ...baseCamera,
-      zoom: geometric ? baseCamera.zoom : clamp(0.5, 1.4, baseCamera.zoom - event.deltaY * 0.001),
-      scale: geometric ? clamp(0.5, 1.6, baseCamera.scale - event.deltaY * 0.001) : baseCamera.scale,
+      zoom: geometric ? baseCamera.zoom : clamp(0.5, 1.4, baseCamera.zoom - deltaY * 0.001),
+      scale: geometric ? clamp(0.5, 1.6, baseCamera.scale - deltaY * 0.001) : baseCamera.scale,
     };
     startWheelAnimation(nextFocus, nextTransition, next, anchor);
   };

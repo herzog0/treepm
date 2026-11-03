@@ -9,8 +9,9 @@ A implementação de produção foi reescrita em `TreeCanvas.tsx`, `semanticScen
 - Wheel semântico e `Ctrl`/`Meta` + wheel geométrico preservam o ponto sob o cursor, inclusive durante LOD.
 - O foco é explícito; zoom+ sobre outro card interpola as duas cenas de forma progressiva e reversível. Pan e wheel no fundo não inferem um novo foco.
 - O arraste esquerdo funciona no fundo e sobre cards após threshold de 5 px, com pointer capture e limpeza em todos os encerramentos.
-- Posições, dimensões, opacidades e arestas usam o mesmo progresso temporal. Wheel semântico, `Ctrl`/`Meta` + wheel, controles, clique e breadcrumb animam a cena por 220 ms de `requestAnimationFrame`, sem trilhos CSS independentes de `transform`/`d`. FLIP com Web Animations API permanece uma evolução possível, não uma descrição do código atual.
+- Posições, dimensões, opacidades, cores e arestas usam o mesmo progresso temporal. Wheel semântico, `Ctrl`/`Meta` + wheel e controles animam por 180 ms com resposta antecipada; clique e breadcrumb usam 220 ms de `requestAnimationFrame`. Não há trilhos CSS independentes de `transform`/`d`/cor semântica. FLIP com Web Animations API permanece uma evolução possível, não uma descrição do código atual.
 - Seleção de tickets/arestas, edição de estilo, dependências, minimapa, C e reduced motion continuam integrados. Novas ações capturam a cena visual corrente e interrompem o loop anterior sem fila. Scrolls acumulam o destino lógico separadamente, enquanto cada frame recalcula a câmera para conservar a âncora sob o cursor.
+- A compactação é bottom-up por altura da subárvore: folhas viram compactas/chips/dots e então convergem no pai; a regra repete por camada. Agregados homogêneos preservam cor e combinações usam `mixed`/laranja, sempre com contagens e nome acessível.
 
 Em Chrome isolado a 1440 × 1000, a reprodução anterior apresentava deriva de 82,48 px no wheel e 243,31 px de erro no arraste iniciado sobre card. Depois da correção, os dois percursos ficaram em 0,00 px. Na transferência progressiva, a âncora teve erro máximo de 0,036 px e as arestas 0,014 px; a reversão parcial restaurou foco e larguras. Esses números cobrem o seed e os gestos exercitados, não árvores de grande escala.
 
@@ -19,6 +20,12 @@ Uma revisão posterior de `ticket-023 → ticket-027` encontrou até cinco pares
 Na animação por clique, duas execuções completas na home produziram 9–10 estados intermediários e terminaram em 219–229 ms. O painel permaneceu selecionado e o card final ficou fora da área coberta. Redirecionamentos tiveram 0,000 px de salto no microtask do evento; clique e interrupções tiveram zero overlaps e arestas com erro máximo de 0,016 px. O wheel interrompeu o loop e manteve a largura intermediária estável. Movimento reduzido concluiu sem estados espaciais intermediários. A referência A produziu 11 estados intermediários em 236 ms, também sem overlaps.
 
 Na revisão temporal do wheel, o baseline tinha zero larguras intermediárias e saltos de até 156,861 px. Depois da correção, o wheel único produziu 7 larguras intermediárias distintas em 235,2 ms; a sequência `-120/-120/+120` produziu 35 frames intermediários, conservou 24% de atenção e terminou em 234,8 ms após o último delta. O burst de cinco deltas concluiu a troca para `ticket-027`; todos os percursos tiveram salto de evento de 0,000 px e zero overlaps. A âncora máxima foi 0,263 px no burst e as arestas ficaram em até 0,016 px. Ctrl+wheel, fundo, controles, clique, pan, referência A e reduced motion também passaram; não houve long tasks no intervalo medido. São medições do seed em Chrome isolado, não uma garantia para árvores de grande escala.
+
+Na revisão bottom-up, o baseline manteve 36 nós de 140% a 50%, com pais e folhas compactados juntos e cinco deltas iniciais sem redução útil. A cena nova reduziu 36 → 16 → 7 → 2 → 1 nós, com `representedCount=36` em todos os estados finais e largura estritamente decrescente até a visão do projeto. Os irmãos `ticket-024` (done) e `ticket-025/026` (in_progress) aparecem como dots separados a 104%; a 92%, `ticket-023` vira dot `mixed`, com três descendentes e três folhas agregadas. O laranja `#925400` tem contraste 6,02:1 com branco.
+
+No zoom máximo, a primeira mudança de 1 px caiu de 116,3 ms no baseline para 8,6 ms por MutationObserver e 16,5 ms por rAF; o rótulo semântico respondeu em 26,2 ms e oito deltas continuam atravessando a faixa. Na agregação animada 104% → 92%, a primeira resposta foi 25 ms, a âncora filho→pai ficou em 0,036 px, arestas em 0,015 px, salto síncrono zero e zero overlaps. Foco raiz/profundo/folha, ramos desbalanceados, bursts, reversões, clique, pan, Ctrl+wheel, C, `deltaMode`, reduced motion e referência A passaram no seed, sem long tasks na medição final. Isso não é validação de desempenho para milhares de tickets.
+
+Evidências: [dots antes da agregação](assets/semantic-zoom/bottom-up-before.png), [convergência intermediária](assets/semantic-zoom/bottom-up-during.png) e [agregados mistos](assets/semantic-zoom/bottom-up-after.png).
 
 ## Decisão recomendada
 
@@ -196,7 +203,7 @@ Usar FLIP — First, Last, Invert, Play — com identidade estável por ticket.
 
 Duração recomendada após a revisão: **180–260 ms**, com easing `cubic-bezier(0.22, 1, 0.36, 1)`, sem bounce. O preenchimento do modo de cores usa aproximadamente 230 ms, com a mudança do texto coordenada ao avanço do fundo. Uma nova roda de zoom interrompe a animação atual e retoma do estado visual apresentado naquele instante; animações nunca ficam enfileiradas. A meta anterior de 280–420 ms foi descartada por parecer lenta na avaliação da pessoa usuária.
 
-Não usar React `setState` a cada frame. A cena muda no React; a interpolação usa refs e Web Animations API. Somente transform e opacity são animados em larga escala. Dimensões são animadas apenas no conjunto visível e limitado. Sombras e efeitos caros ficam estáticos.
+Na implementação atual, o React publica a cena completa a cada frame e refs preservam destino, identidades e callbacks canceláveis. Uma migração futura para Web Animations API pode reduzir trabalho de render em árvores grandes; transform/opacity em larga escala, dimensões limitadas ao contexto e virtualização são otimizações possíveis, não comportamento já implementado.
 
 Com `prefers-reduced-motion`, aplicar o estado final imediatamente ou uma transição mínima de opacidade, sem deslocamento espacial.
 
@@ -312,5 +319,5 @@ Repetir `pnpm lint`, `pnpm typecheck`, `pnpm build` e os fluxos HTTP existentes.
 - Ocultar irmãos para caber na tela.
 - Trocar cards por um novo conjunto com fade, sem preservar posição.
 - Manter posições verticais fixas depois da compressão.
-- Atualizar o estado do React a cada frame.
+- Misturar o estado React da cena com trilhos CSS independentes de posição, arestas ou cor semântica.
 - Colocar Jev no caminho de execução de pan, zoom ou animação.

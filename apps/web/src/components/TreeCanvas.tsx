@@ -1,12 +1,19 @@
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import { getProgress, ticketIdentifier } from "@treepm/domain";
 import type { Progress, Ticket, TicketEdge, User } from "@treepm/domain";
 import { Avatars } from "./Avatars.js";
 import { semanticEdgePath } from "./semanticScene.js";
+import type { SemanticSceneNode } from "./semanticScene.js";
 import { useSemanticGestures } from "./useSemanticGestures.js";
 
-function statusText(ticket: Ticket, progress: Progress, isLeaf: boolean): string {
-  if (!isLeaf) return progress.label;
+function statusText(ticket: Ticket, progress: Progress, isLeaf: boolean, node: SemanticSceneNode): string {
+  const mixed = node.visualStatus === "mixed" ? " · estado misto" : "";
+  if (node.aggregate && node.aggregateTotalLeaves > 0) {
+    const percent = Math.round((node.aggregateDoneLeaves / node.aggregateTotalLeaves) * 100);
+    return `${node.aggregateDoneLeaves} de ${node.aggregateTotalLeaves} folhas agregadas concluídas · ${percent}%${mixed}`;
+  }
+  if (!isLeaf) return `${progress.label}${mixed}`;
   return { todo: "A fazer", in_progress: "Em andamento", done: "Concluído" }[ticket.status];
 }
 
@@ -126,29 +133,34 @@ export function TreeCanvas(props: TreeCanvasProps) {
           const progress = getProgress(props.tickets, ticket.id);
           const childCount = props.tickets.filter((item) => item.parentId === ticket.id).length;
           const isLeaf = childCount === 0;
-          const status = isLeaf ? ticket.status : progress.status;
+          const status = node.visualStatus;
           const selected = props.selectedTicketId === ticket.id;
-          return <article key={ticket.id} data-ticket-id={ticket.id} className={`semantic-tree-node semantic-card-${node.kind} semantic-status-${status} ${ticket.id === focusId ? "is-focus" : ""} ${ticket.id === attentionId ? "is-attention" : ""} ${selected ? "is-selected" : ""}`}
+          const label = statusText(ticket, progress, isLeaf, node);
+          const aggregationText = node.aggregate ? `${node.representedCount - 1} descendentes agregados` : "";
+          const accessibleStatus = [label, aggregationText].filter(Boolean).join(". ");
+          const displayPercent = node.aggregateTotalLeaves > 0 ? Math.round((node.aggregateDoneLeaves / node.aggregateTotalLeaves) * 100) : progress.percent;
+          return <article key={ticket.id} data-ticket-id={ticket.id} data-aggregate={node.aggregate ? "true" : "false"} data-represented-count={node.representedCount} data-aggregate-leaves={node.aggregateTotalLeaves} data-subtree-height={node.subtreeHeight} data-visual-status={status} className={`semantic-tree-node semantic-card-${node.kind} semantic-status-${status} ${ticket.id === focusId ? "is-focus" : ""} ${ticket.id === attentionId ? "is-attention" : ""} ${selected ? "is-selected" : ""}`}
             style={{
               width: node.width,
               height: node.height,
               opacity: node.opacity,
               pointerEvents: node.opacity < 0.05 ? "none" : "auto",
               transform: `translate3d(${node.position.x}px, ${node.position.y}px, 0) translateX(-50%)`,
-            }}
+              "--semantic-status": node.statusColor,
+            } as CSSProperties}
             aria-hidden={node.opacity < 0.05}
             onPointerEnter={() => setAttentionId(ticket.id)}
             onPointerLeave={() => setAttentionId((currentId) => currentId === ticket.id ? null : currentId)}>
             <span className="semantic-color-wash" aria-hidden="true" />
-            <button className="semantic-card-main" tabIndex={node.opacity < 0.05 ? -1 : 0} title={`${ticket.title} — ${statusText(ticket, progress, isLeaf)}`} aria-label={`${ticketIdentifier(ticket, props.projectKey)} ${ticket.title}. ${statusText(ticket, progress, isLeaf)}. ${node.kind === "summary" ? `${node.node.descendantCount} descendentes resumidos` : "Clique para foco e detalhes"}`} onClick={() => activateTicket(ticket.id)}>
-              {node.kind === "dot" ? <span className="semantic-sr-only">{ticket.title}</span> : <>
+            <button className="semantic-card-main" tabIndex={node.opacity < 0.05 ? -1 : 0} title={`${ticket.title} — ${accessibleStatus}`} aria-label={`${ticketIdentifier(ticket, props.projectKey)} ${ticket.title}. ${accessibleStatus}. Clique para foco e detalhes`} onClick={() => activateTicket(ticket.id)}>
+              {node.kind === "dot" ? <span className="semantic-sr-only">{ticket.title}. {accessibleStatus}</span> : <>
                 <span className="semantic-tree-key">{ticketIdentifier(ticket, props.projectKey)}</span>
                 <strong>{ticket.title}</strong>
                 {(node.kind === "full" || node.kind === "compact") && <span className="semantic-card-meta"><Avatars userIds={ticket.assigneeIds} users={props.users} compact /><span>{childCount > 0 ? `${childCount} ${childCount === 1 ? "filho" : "filhos"}` : "folha"}</span></span>}
-                {node.kind === "full" && ticket.components.length > 0 && <span className="semantic-card-components">{ticket.components.slice(0, 3).map((component) => component.name).join(" · ")}</span>}
-                {node.kind === "summary" && <span className="semantic-summary-count">{node.node.descendantCount} descendentes</span>}
-                <span className="semantic-card-progress">{statusText(ticket, progress, isLeaf)}</span>
-                <span className="semantic-mini-track" role="progressbar" aria-label={progress.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress.percent}><i style={{ width: `${progress.percent}%` }} /></span>
+                {node.kind === "full" && !node.aggregate && ticket.components.length > 0 && <span className="semantic-card-components">{ticket.components.slice(0, 3).map((component) => component.name).join(" · ")}</span>}
+                {node.aggregate && <span className="semantic-summary-count">{aggregationText}</span>}
+                <span className="semantic-card-progress">{label}</span>
+                <span className="semantic-mini-track" role="progressbar" aria-label={accessibleStatus} aria-valuemin={0} aria-valuemax={100} aria-valuenow={displayPercent}><i style={{ width: `${displayPercent}%` }} /></span>
               </>}
             </button>
             {(node.kind === "full" || node.kind === "compact") && <button className="semantic-connect-handle" aria-label={`Criar dependência a partir de ${ticket.title}`} title="Criar dependência" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setConnectionSourceId(ticket.id); }}>↗</button>}

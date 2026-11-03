@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import { ticketIdentifier } from "@treepm/domain";
 import { semanticEdgePath } from "../semanticScene.js";
 import { useSemanticGestures } from "../useSemanticGestures.js";
@@ -66,27 +67,33 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
         {rendered.map((node) => {
           const ticket = node.node.ticket;
           const info = statusInfo(tickets, ticket);
-          return <button key={ticket.id} data-ticket-id={ticket.id} className={`proto-a-node proto-card-${node.kind} proto-status-${info.status} ${ticket.id === focusId ? "is-focus" : ""} ${ticket.id === attentionId ? "is-attention" : ""}`}
+          const aggregationText = node.aggregate ? `${node.representedCount - 1} descendentes agregados` : "";
+          const percent = node.aggregateTotalLeaves > 0 ? Math.round((node.aggregateDoneLeaves / node.aggregateTotalLeaves) * 100) : info.progress.percent;
+          const progressLabel = node.aggregateTotalLeaves > 0 ? `${node.aggregateDoneLeaves}/${node.aggregateTotalLeaves} folhas agregadas · ${percent}%` : info.label;
+          const label = `${progressLabel}${node.visualStatus === "mixed" ? " · estado misto" : ""}`;
+          const accessibleStatus = [label, aggregationText].filter(Boolean).join(". ");
+          return <button key={ticket.id} data-ticket-id={ticket.id} data-aggregate={node.aggregate ? "true" : "false"} data-represented-count={node.representedCount} data-aggregate-leaves={node.aggregateTotalLeaves} data-subtree-height={node.subtreeHeight} data-visual-status={node.visualStatus} className={`proto-a-node proto-card-${node.kind} proto-status-${node.visualStatus} ${ticket.id === focusId ? "is-focus" : ""} ${ticket.id === attentionId ? "is-attention" : ""}`}
             style={{
               width: node.width,
               height: node.height,
               opacity: node.opacity,
               pointerEvents: node.opacity < 0.05 ? "none" : "auto",
               transform: `translate3d(${node.position.x}px, ${node.position.y}px, 0) translateX(-50%)`,
-            }}
-            title={`${ticket.title} — ${info.label}`}
-            aria-label={`${ticket.title}. ${info.label}. ${node.kind === "summary" ? `${node.node.descendantCount} descendentes resumidos` : "Clique para fixar foco"}`}
+              "--proto-status": node.statusColor,
+            } as CSSProperties}
+            title={`${ticket.title} — ${accessibleStatus}`}
+            aria-label={`${ticket.title}. ${accessibleStatus}. Clique para fixar foco`}
             onPointerEnter={() => setAttentionId(ticket.id)}
             onPointerLeave={() => setAttentionId((current) => current === ticket.id ? null : current)}
             onClick={() => focusTicket(ticket.id)}>
             <span className="proto-a-color-wash" aria-hidden="true" />
-            {node.kind === "dot" ? <span className="proto-sr-only">{ticket.title}</span> : <>
+            {node.kind === "dot" ? <span className="proto-sr-only">{ticket.title}. {accessibleStatus}</span> : <>
               <span className="proto-card-key">{ticketIdentifier(ticket, project.key)}</span>
               <strong>{ticket.title}</strong>
               {(node.kind === "full" || node.kind === "compact") && <span className="proto-card-people">{personInitials(ticket.assigneeIds, users) || "Sem responsável"}</span>}
-              {node.kind === "summary" && <span className="proto-summary-count">{node.node.descendantCount} descendentes</span>}
-              <span className="proto-card-progress">{info.label}</span>
-              <span className="proto-mini-track"><i style={{ width: `${info.progress.percent}%` }} /></span>
+              {node.aggregate && <span className="proto-summary-count">{aggregationText}</span>}
+              <span className="proto-card-progress">{label}</span>
+              <span className="proto-mini-track"><i style={{ width: `${percent}%` }} /></span>
             </>}
           </button>;
         })}

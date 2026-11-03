@@ -6,6 +6,8 @@
 - Preserve `docs/vision.md`; registre decisões técnicas em `docs/architecture.md` e só deixe dúvidas reais em `docs/open-questions.md`. A direção A já está incorporada à home com zoom ancorado e foco progressivo; `docs/semantic-zoom-proposal.md` mantém a avaliação histórica e as próximas evoluções, sem tratar C/D como views de produção.
 - Não introduza owner único. Tickets e componentes aceitam múltiplos responsáveis.
 - Somente folhas têm status manual. Progresso de pais deriva das folhas descendentes, com texto além de cor.
+- Compactação semântica é bottom-up por altura da subárvore: folhas, depois pais e ancestrais. Não volte a usar profundidade absoluta ou esconder ramos sem agregado explícito e contagens reconciliadas.
+- Agregados homogêneos preservam a cor das folhas; combinações de status usam `mixed`/laranja na apresentação. Isso não altera `Ticket.status`, `getProgress` nem o estilo das arestas.
 - Hierarquia e dependência são entidades/arestas distintas. Nunca altere `parentId` ao criar/remover dependência.
 - Toda aresta tem estilo e seleção independentes; preserve seleção e evite edges órfãs nas transições de LOD.
 - Validação de integridade pertence à API; regras puras reutilizáveis ficam em `packages/domain`.

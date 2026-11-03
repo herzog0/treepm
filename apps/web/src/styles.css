@@ -127,6 +127,7 @@ kbd { font: 600 9px "DM Sans", sans-serif; padding: 2px 5px; border: 1px solid #
 .semantic-tree .semantic-status-todo, .semantic-tree .semantic-status-not_started { --semantic-status: #68616f; }
 .semantic-tree .semantic-status-in_progress, .semantic-tree .semantic-status-active { --semantic-status: #9e493f; }
 .semantic-tree .semantic-status-done { --semantic-status: #326b4d; }
+.semantic-tree .semantic-status-mixed { --semantic-status: #925400; }
 .semantic-tree-toolbar { flex: 0 0 52px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 22px; border-bottom: 1px solid #dfdae2; background: rgba(255,254,251,.96); }
 .semantic-focus-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .semantic-focus-copy > span { color: #806695; font-size: 8px; font-weight: 800; letter-spacing: 1px; }
@@ -150,7 +151,7 @@ kbd { font: 600 9px "DM Sans", sans-serif; padding: 2px 5px; border: 1px solid #
 .semantic-edge-hit:focus-visible { stroke: rgba(101,81,143,.22); }
 .semantic-edge-visible { fill: none; pointer-events: none; }
 .semantic-edge-label { fill: #8a633e; font-size: 8px; text-anchor: middle; paint-order: stroke; stroke: #f3f1ec; stroke-width: 3px; pointer-events: none; }
-.semantic-tree-node { position: absolute; left: 0; top: 0; box-sizing: border-box; border: 1px solid #dcd4e1; border-top: 3px solid var(--semantic-status); border-radius: 11px; background: #fffefb; box-shadow: 0 5px 18px rgba(47,38,55,.07); overflow: hidden; transition: box-shadow 160ms, border-color 160ms; }
+.semantic-tree-node { position: absolute; left: 0; top: 0; box-sizing: border-box; border: 1px solid #dcd4e1; border-top: 3px solid var(--semantic-status); border-radius: 11px; background: #fffefb; box-shadow: 0 5px 18px rgba(47,38,55,.07); overflow: hidden; transition: box-shadow 160ms; }
 .semantic-tree-node.is-focus { box-shadow: 0 0 0 4px rgba(98,70,130,.15), 0 10px 30px rgba(47,38,55,.13); }
 .semantic-tree-node.is-attention { border-color: #806695; box-shadow: 0 0 0 3px rgba(128,102,149,.2), 0 10px 30px rgba(47,38,55,.13); }
 .semantic-tree-node.is-selected { border-color: var(--purple); }

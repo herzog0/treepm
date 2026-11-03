@@ -51,33 +51,39 @@ verde   = todas as folhas done
 vermelho = qualquer início sem conclusão total
 ```
 
-O rótulo `doneLeaves de totalLeaves folhas concluídas · percent%` acompanha a cor e usa `role="progressbar"` no canvas. A cor nunca é o único canal.
+O rótulo `doneLeaves de totalLeaves folhas concluídas · percent%` acompanha a cor e usa `role="progressbar"` no canvas. A cor nunca é o único canal. Na apresentação de um agregado, folhas homogêneas preservam `todo`, `in_progress` ou `done`; qualquer combinação de status diferentes usa `mixed`/laranja `#925400` (contraste 6,02:1 com branco). Essa categoria visual não altera `AggregateStatus`, status manual nem as regras de domínio.
 
 ## Cena semântica e gestos
 
 A home usa a árvore semântica de `TreeCanvas.tsx`, implementada em DOM/SVG e integrada aos mesmos painéis, formulários e dados da aplicação. A biblioteca React Flow permanece no workspace, mas o canvas de produção não depende mais dela. O protótipo A DEV e a home compartilham duas unidades de apresentação, sem alterar o domínio:
 
-- `semanticScene.ts`: contexto visível, cards completos/compactos/chips/dots/resumos, layout por dimensões reais, interpolação entre focos e cálculo da âncora do cursor.
+- `semanticScene.ts`: contexto visível, compactação bottom-up, agregados e cores, layout por dimensões reais, interpolação e âncora do cursor.
 - `useSemanticGestures.ts`: foco explícito, atenção progressiva, câmera, wheel, pan e controles de enquadramento.
 
 `tidyTreeLayout` fornece tickets, profundidade e contagens. A cena recalcula X com as larguras efetivas e gaps adaptativos de 18–30 px, separa subárvores e centraliza pais sobre filhos visíveis. Y usa a maior altura real de cada nível mais 28–36 px. O foco e seus descendentes, ancestrais, irmãos e resumos laterais formam a cena; nenhum irmão é escondido para caber.
 
+### Compactação bottom-up e agregação
+
+Cada nó tem `subtreeHeight`: folha vale 0; um pai vale 1 mais a maior altura dos filhos. A fase global é `(1,40 − zoom) / 0,12`, e a fase local subtrai essa altura, com tolerância de `1e-9` para estabilidade de ponto flutuante. As fases produzem `full → compact → chip → dot → agregado`, com dimensões contínuas dentro de cada faixa. Assim todas as folhas se reduzem antes dos pais, independentemente da profundidade absoluta ou do balanceamento do ramo.
+
+Na fase de agregação, o descendente deixa de ser um nó independente e seu pai conserva identidade, tooltip, nome acessível, folhas concluídas/total e contagem de descendentes. `representedCount` reconcilia os tickets representados pela cena: a soma permanece igual ao total do projeto. O foco permanece completo e legível; ancestrais e resumos laterais preservam contexto. O estado semântico inicial é 1,28, com folhas compactas e pais legíveis; os limites 0,50–1,40 permitem agregar camadas até a visão do projeto.
+
 ### Wheel e foco
 
-- Wheel principal altera a semântica exatamente no ponto sob o cursor. Sobre um card, a posição relativa dentro dele é preservada; no fundo, preserva-se a coordenada de cena.
-- `Ctrl`/`Meta` + wheel altera somente a escala geométrica, com a mesma âncora. `Shift` + wheel faz pan horizontal; os controles alteram semântica e enquadram o contexto.
+- Wheel principal altera a semântica exatamente no ponto sob o cursor. Sobre um card, a posição relativa dentro dele é preservada; no fundo, preserva-se a coordenada de cena. Se o card for agregado, a âncora transfere progressivamente para o pai mais próximo representado.
+- `Ctrl`/`Meta` + wheel altera somente a escala geométrica, com a mesma âncora. `Shift` + wheel faz pan horizontal; os controles alteram semântica e enquadram o contexto. `deltaMode` é normalizado para pixels, linhas de 16 px ou páginas pela altura do stage.
 - Mirar um card indica atenção sem mutar foco. Zoom+ sobre outro card progride entre as cenas do foco atual e do candidato; deltas adicionais invertem larguras e concluem a troca. Reverter o gesto antes da conclusão retoma o foco anterior. Wheel no fundo nunca escolhe um ticket arbitrário.
 - Clique/Enter define foco e abre os detalhes do ticket. Pan, LOD e enquadramento não apagam seleção nem alteram `parentId`.
 
-Cards e arestas são calculados a partir dos mesmos retângulos no mesmo frame. Não há transições CSS independentes de `transform` e `d`, evitando dessincronia durante reversões. Durante a transferência, larguras, alturas e opacidades são interpoladas e a união das duas cenas passa por um novo layout completo: coordenadas nunca são interpoladas isoladamente, pois isso permitiria colisões. Nós que entram expandem a partir de dot e nós que saem comprimem até dot, permanecendo representados e sem usar opacidade para esconder colisões. Conexões cujos extremos não estão representados não são desenhadas.
+Cards e arestas são calculados a partir dos mesmos retângulos no mesmo frame. Não há transições CSS independentes de `transform`, `d` ou cor semântica. Durante a transferência, larguras, alturas, opacidades e cores são interpoladas e a união das duas cenas passa por um novo layout completo: coordenadas nunca são interpoladas isoladamente, pois isso permitiria colisões. Nós que entram expandem a partir de dot e nós que saem comprimem até o agregado, permanecendo representados e sem usar opacidade para esconder colisões. Conexões cujos extremos não estão representados não são desenhadas; estilos persistidos das arestas não mudam.
 
 ### Animação coordenada de zoom e foco
 
-Wheel semântico, `Ctrl`/`Meta` + wheel e os controles `+`/`−` iniciam uma animação de **220 ms** com easing simétrico de aceleração/desaceleração. `requestAnimationFrame` atualiza progresso, câmera, dimensões, posições, opacidades e arestas no mesmo frame. A âncora não é interpolada linearmente: em cada frame, `cameraForAnchor` recalcula `camera.x/y` a partir dos retângulos relayoutados, mantendo o ponto relativo do card ou a coordenada de cena sob o cursor.
+Wheel semântico, `Ctrl`/`Meta` + wheel e os controles `+`/`−` usam **180 ms** com `easeOutCubic`. Um primeiro tick cancelável por `setTimeout(0)` publica feedback com `flushSync`; os demais frames usam `requestAnimationFrame` para atualizar progresso, câmera, dimensões, posições, opacidades, cores e arestas em conjunto. A âncora é recalculada pelos retângulos relayoutados em cada frame, inclusive durante a transferência filho→agregado.
 
-Cada scroll captura a cena visual corrente em `fromScene`, inclusive retângulos e opacidades de uma animação em andamento. O destino lógico é mantido separadamente e acumula os deltas, de modo que bursts e reversões não percam intenção nem reiniciem da cena abstrata anterior. Um novo evento cancela o `requestAnimationFrame` anterior e retoma da geometria exibida, sem fila nem rAF obsoleto. O estado final equivale à sequência de deltas aplicada diretamente.
+Cada scroll captura a cena visual corrente em `fromScene`, inclusive retângulos e opacidades de uma animação em andamento. O destino lógico é mantido separadamente e acumula os deltas, de modo que bursts e reversões não percam intenção nem reiniciem da cena abstrata anterior. Um novo evento cancela o timeout/rAF anterior e retoma da geometria exibida, sem fila nem callbacks obsoletos. O estado final equivale à sequência de deltas aplicada diretamente.
 
-Clique em card ou breadcrumb usa os mesmos **220 ms** para coordenar foco e câmera. O ticket é selecionado e o painel abre imediatamente; o `ResizeObserver` compensa a mudança de largura no instante do resize e ajusta a câmera final para manter o card focado fora da área do painel. Pressionar um card congela a cena até o clique, impedindo que o alvo saia de sob o ponteiro. Pan e `Shift` + wheel continuam manipulação direta, sem easing. `prefers-reduced-motion` aplica imediatamente o estado final de foco ou zoom, sem deslocamento espacial.
+Clique em card ou breadcrumb usa **220 ms** e easing simétrico para coordenar foco e câmera. O ticket é selecionado e o painel abre imediatamente; o `ResizeObserver` compensa a mudança de largura no instante do resize e ajusta a câmera final para manter o card focado fora da área do painel. Pressionar um card congela a cena até o clique, impedindo que o alvo saia de sob o ponteiro. Pan e `Shift` + wheel continuam manipulação direta, sem easing. `prefers-reduced-motion` aplica imediatamente o estado final de foco ou zoom, sem deslocamento espacial.
 
 ### Pan e dependências
 
