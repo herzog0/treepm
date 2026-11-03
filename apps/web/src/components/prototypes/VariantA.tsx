@@ -72,7 +72,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
           const progressLabel = node.aggregateTotalLeaves > 0 ? `${node.aggregateDoneLeaves}/${node.aggregateTotalLeaves} folhas agregadas · ${percent}%` : info.label;
           const label = `${progressLabel}${node.visualStatus === "mixed" ? " · estado misto" : ""}`;
           const accessibleStatus = [label, aggregationText].filter(Boolean).join(". ");
-          return <article key={ticket.id} data-ticket-id={ticket.id} data-aggregate={node.aggregate ? "true" : "false"} data-represented-count={node.representedCount} data-aggregate-leaves={node.aggregateTotalLeaves} data-subtree-height={node.subtreeHeight} data-visual-status={node.visualStatus} data-code-only={node.codeOnly ? "true" : "false"} className={`proto-a-node proto-card-${node.kind} proto-status-${node.visualStatus} ${ticket.id === focusId ? "is-focus" : ""} ${ticket.id === attentionId ? "is-attention" : ""}`}
+          return <article key={ticket.id} data-ticket-id={ticket.id} data-aggregate={node.aggregate ? "true" : "false"} data-represented-count={node.representedCount} data-aggregate-leaves={node.aggregateTotalLeaves} data-subtree-height={node.subtreeHeight} data-visual-status={node.visualStatus} data-compact-label={node.compactLabel ? "true" : "false"} className={`proto-a-node proto-card-${node.kind} proto-status-${node.visualStatus} ${ticket.id === focusId ? "is-focus" : ""} ${ticket.id === attentionId ? "is-attention" : ""}`}
             style={{
               width: node.width,
               height: node.height,
@@ -88,8 +88,8 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
             <button className="proto-a-card-main" tabIndex={node.opacity < 0.05 ? -1 : 0} title={`${ticket.title} — ${accessibleStatus}`} aria-label={`${ticket.title}. ${accessibleStatus}. Clique para fixar foco`} onClick={() => focusTicket(ticket.id)}>
               {node.kind === "dot" ? <span className="proto-sr-only">{ticket.title}. {accessibleStatus}</span> : <>
                 <span className="proto-card-key">{ticketIdentifier(ticket, project.key)}</span>
-                {!node.codeOnly && <>
-                  <strong>{ticket.title}</strong>
+                <strong>{ticket.title}</strong>
+                {!node.compactLabel && <>
                   {(node.kind === "full" || node.kind === "compact") && <span className="proto-card-people">{personInitials(ticket.assigneeIds, users) || "Sem responsável"}</span>}
                   {node.aggregate && <span className="proto-summary-count">{aggregationText}</span>}
                   <span className="proto-card-progress">{label}</span>

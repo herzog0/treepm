@@ -36,7 +36,7 @@ interface SceneItem {
   subtreeHeight?: number;
   childIndicators?: SemanticChildIndicator[];
   indicatorSize?: number;
-  codeOnly?: boolean;
+  compactLabel?: boolean;
 }
 interface ScenePosition { x: number; y: number }
 interface SceneBounds { min: number; max: number; ids: string[] }
@@ -57,7 +57,7 @@ export interface SemanticSceneNode extends SceneItem {
   subtreeHeight: number;
   childIndicators: SemanticChildIndicator[];
   indicatorSize: number;
-  codeOnly: boolean;
+  compactLabel: boolean;
 }
 
 interface WheelAnchorTicket {
@@ -243,7 +243,7 @@ function layoutScene(items: SceneItem[], zoom: number, viewportWidth: number) {
       subtreeHeight: item.subtreeHeight ?? 0,
       childIndicators: item.childIndicators ?? [],
       indicatorSize: item.indicatorSize ?? 10,
-      codeOnly: item.codeOnly ?? false,
+      compactLabel: item.compactLabel ?? false,
       position: {
         x: viewportWidth / 2 + position.x - firstRootX,
         y: 28 + (levelTops.get(item.node.depth) ?? 0),
@@ -274,7 +274,7 @@ function focusScene(layout: Layout, tickets: Ticket[], focusId: string, zoom: nu
     infoById.set(node.ticket.id, info);
     heightById.set(node.ticket.id, height);
   }
-  const codeOnly = zoom <= CLICK_SEMANTIC_ZOOM + 1e-9;
+  const compactLabel = zoom <= CLICK_SEMANTIC_ZOOM + 1e-9;
   const makeItem = (node: LayoutNode, kind: SemanticCardKind, hiddenInfos: SubtreeInfo[] = [], dimensions?: { width: number; height: number }): SceneItem => {
     const ownInfo = infoById.get(node.ticket.id) ?? { ticketCount: 1, leaves: emptyLeaves() };
     const hidden: SubtreeInfo = { ticketCount: 0, leaves: emptyLeaves() };
@@ -286,8 +286,8 @@ function focusScene(layout: Layout, tickets: Ticket[], focusId: string, zoom: nu
     const visualStatus = aggregate ? statusForLeaves(hidden.leaves) : regularStatus(node.ticket, ownInfo);
     return {
       node,
-      kind: codeOnly && kind !== "dot" ? "chip" : kind,
-      ...(codeOnly && kind !== "dot" ? {} : dimensions),
+      kind: compactLabel && kind !== "dot" ? "chip" : kind,
+      ...(compactLabel && kind !== "dot" ? {} : dimensions),
       aggregate,
       representedCount: 1 + hidden.ticketCount,
       aggregateDoneLeaves: hidden.leaves.done,
@@ -295,7 +295,7 @@ function focusScene(layout: Layout, tickets: Ticket[], focusId: string, zoom: nu
       visualStatus,
       statusColor: STATUS_COLORS[visualStatus],
       subtreeHeight: heightById.get(node.ticket.id) ?? 0,
-      codeOnly,
+      compactLabel,
     };
   };
 
@@ -441,7 +441,7 @@ function blendScenes(layout: Layout, from: SemanticSceneNode[], to: SemanticScen
       subtreeHeight: presentation?.subtreeHeight,
       childIndicators,
       indicatorSize: lerp(source?.indicatorSize ?? target?.indicatorSize ?? 6, target?.indicatorSize ?? source?.indicatorSize ?? 6, progress),
-      codeOnly: presentation?.codeOnly,
+      compactLabel: presentation?.compactLabel,
     }];
   });
   return layoutScene(items, zoom, viewportWidth);

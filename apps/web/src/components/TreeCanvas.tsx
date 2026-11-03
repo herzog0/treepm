@@ -139,7 +139,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
           const aggregationText = node.aggregate ? `${node.representedCount - 1} descendentes agregados` : "";
           const accessibleStatus = [label, aggregationText].filter(Boolean).join(". ");
           const displayPercent = node.aggregateTotalLeaves > 0 ? Math.round((node.aggregateDoneLeaves / node.aggregateTotalLeaves) * 100) : progress.percent;
-          return <article key={ticket.id} data-ticket-id={ticket.id} data-aggregate={node.aggregate ? "true" : "false"} data-represented-count={node.representedCount} data-aggregate-leaves={node.aggregateTotalLeaves} data-subtree-height={node.subtreeHeight} data-visual-status={status} data-code-only={node.codeOnly ? "true" : "false"} className={`semantic-tree-node semantic-card-${node.kind} semantic-status-${status} ${ticket.id === focusId ? "is-focus" : ""} ${ticket.id === attentionId ? "is-attention" : ""} ${selected ? "is-selected" : ""}`}
+          return <article key={ticket.id} data-ticket-id={ticket.id} data-aggregate={node.aggregate ? "true" : "false"} data-represented-count={node.representedCount} data-aggregate-leaves={node.aggregateTotalLeaves} data-subtree-height={node.subtreeHeight} data-visual-status={status} data-compact-label={node.compactLabel ? "true" : "false"} className={`semantic-tree-node semantic-card-${node.kind} semantic-status-${status} ${ticket.id === focusId ? "is-focus" : ""} ${ticket.id === attentionId ? "is-attention" : ""} ${selected ? "is-selected" : ""}`}
             style={{
               width: node.width,
               height: node.height,
@@ -156,8 +156,8 @@ export function TreeCanvas(props: TreeCanvasProps) {
             <button className="semantic-card-main" tabIndex={node.opacity < 0.05 ? -1 : 0} title={`${ticket.title} — ${accessibleStatus}`} aria-label={`${ticketIdentifier(ticket, props.projectKey)} ${ticket.title}. ${accessibleStatus}. Clique para foco e detalhes`} onClick={() => activateTicket(ticket.id)}>
               {node.kind === "dot" ? <span className="semantic-sr-only">{ticket.title}. {accessibleStatus}</span> : <>
                 <span className="semantic-tree-key">{ticketIdentifier(ticket, props.projectKey)}</span>
-                {!node.codeOnly && <>
-                  <strong>{ticket.title}</strong>
+                <strong>{ticket.title}</strong>
+                {!node.compactLabel && <>
                   {(node.kind === "full" || node.kind === "compact") && <span className="semantic-card-meta"><Avatars userIds={ticket.assigneeIds} users={props.users} compact /><span>{childCount > 0 ? `${childCount} ${childCount === 1 ? "filho" : "filhos"}` : "folha"}</span></span>}
                   {node.kind === "full" && !node.aggregate && ticket.components.length > 0 && <span className="semantic-card-components">{ticket.components.slice(0, 3).map((component) => component.name).join(" · ")}</span>}
                   {node.aggregate && <span className="semantic-summary-count">{aggregationText}</span>}

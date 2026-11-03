@@ -56,10 +56,10 @@
 .proto-a-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .proto-a-lines path { fill: none; stroke: #c3bac9; stroke-width: 1.5; }
 .proto-a-lines path.muted { stroke-dasharray: 3 5; opacity: .55; }
-.proto-a-node { position: absolute; left: 0; top: 0; box-sizing: border-box; border: 1px solid #dcd4e1; border-radius: 11px; background: #fffefb; box-shadow: 0 5px 18px rgba(47,38,55,.07); text-align: left; overflow: visible; transition: box-shadow 160ms; }
-.proto-a-node:hover { border-color: #a592b5; box-shadow: 0 9px 24px rgba(47,38,55,.12); }
+.proto-a-node { position: absolute; left: 0; top: 0; box-sizing: border-box; border: 1px solid #dcd4e1; border-top: 3px solid var(--proto-status); border-radius: 11px; background: #fffefb; box-shadow: 0 5px 18px rgba(47,38,55,.07); text-align: left; overflow: visible; transition: box-shadow 160ms; }
+.proto-a-node:hover { border-color: #a592b5; border-top-color: var(--proto-status); box-shadow: 0 9px 24px rgba(47,38,55,.12); }
 .proto-a-node.is-focus { box-shadow: 0 0 0 4px rgba(98,70,130,.15), 0 10px 30px rgba(47,38,55,.13); }
-.proto-a-node.is-attention { border-color: #806695; box-shadow: 0 0 0 3px rgba(128,102,149,.2), 0 10px 30px rgba(47,38,55,.13); }
+.proto-a-node.is-attention { border-color: #806695; border-top-color: var(--proto-status); box-shadow: 0 0 0 3px rgba(128,102,149,.2), 0 10px 30px rgba(47,38,55,.13); }
 .proto-a-card-main { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px; border: 0; border-radius: inherit; background: transparent; color: var(--ink); text-align: left; overflow: hidden; }
 .proto-a-controls { position: absolute; top: 12px; right: 14px; display: flex; overflow: hidden; border: 1px solid #d8cfdd; border-radius: 7px; background: #fffefb; box-shadow: 0 3px 12px rgba(47,38,55,.08); }
 .proto-a-controls button { width: 30px; height: 30px; border: 0; border-right: 1px solid #e5dfe8; background: transparent; color: #65518f; font-weight: 700; }
@@ -74,7 +74,8 @@
 .proto-a-node.proto-card-chip .proto-a-card-main { gap: 3px; padding: 8px 10px; }
 .proto-a-node.proto-card-chip .proto-card-progress, .proto-a-node.proto-card-chip .proto-mini-track { display: none; }
 .proto-a-node.proto-card-chip strong { -webkit-line-clamp: 1; font-size: 10px; }
-.proto-a-node[data-code-only="true"] .proto-a-card-main { justify-content: center; }
+.proto-a-node[data-compact-label="true"] .proto-a-card-main { justify-content: center; }
+.proto-a-node[data-compact-label="true"] .proto-a-card-main > strong { display: block; min-width: 0; width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .proto-a-node.proto-card-dot { border: 2px solid #fff; border-radius: 5px; background: var(--proto-status); box-shadow: 0 0 0 1px var(--proto-status); }
 .proto-a-node.proto-card-dot .proto-a-card-main { padding: 0; }
 .proto-a-node.proto-card-summary { background: #f7f2fa; }
