@@ -15,16 +15,8 @@ interface DragState {
   active: boolean;
 }
 
-interface FocusAnimation {
-  type: "focus";
-  toId: string;
-  startCamera: SemanticCamera;
-  endCamera: SemanticCamera;
-  frameId: number;
-}
-
-interface WheelAnimation {
-  type: "wheel";
+interface AnchoredAnimation {
+  type: "focus" | "wheel";
   fromScene: SemanticSceneNode[];
   fromCamera: SemanticCamera;
   toCamera: SemanticCamera;
@@ -35,7 +27,7 @@ interface WheelAnimation {
   timerId?: number;
 }
 
-type SemanticAnimation = FocusAnimation | WheelAnimation;
+type SemanticAnimation = AnchoredAnimation;
 
 const clamp = (minimum: number, maximum: number, value: number) => Math.min(maximum, Math.max(minimum, value));
 const lerp = (from: number, to: number, progress: number) => from + (to - from) * progress;
@@ -56,6 +48,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
   const [size, setSize] = useState({ width: 1200, height: 700 });
   const [isDragging, setIsDragging] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
+  const lastPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const suppressClickRef = useRef(false);
   const suppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,10 +81,10 @@ export function useSemanticGestures(tickets: Ticket[]) {
   const cancelAnimation = () => {
     const animation = animationRef.current;
     if (animation) cancelAnimationFrame(animation.frameId);
-    if (animation?.type === "wheel" && animation.timerId !== undefined) clearTimeout(animation.timerId);
+    if (animation?.timerId !== undefined) clearTimeout(animation.timerId);
     animationRef.current = null;
   };
-  const completeWheelAnimation = (animation: WheelAnimation) => {
+  const completeAnchoredAnimation = (animation: AnchoredAnimation) => {
     const finalNodes = sceneFor(animation.toCamera, animation.toFocusId, animation.toTransition);
     const finalCamera = { ...animation.toCamera, ...cameraForAnchor(animation.anchor, finalNodes, animation.toCamera.scale) };
     animationRef.current = null;
@@ -99,7 +92,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
     commitFocus(animation.toFocusId, animation.toTransition);
     commitCamera(finalCamera);
   };
-  const startWheelAnimation = (toFocusId: string, toTransition: FocusTransition | null, toCamera: SemanticCamera, anchor: WheelAnchor) => {
+  const startAnchoredAnimation = (type: "focus" | "wheel", toFocusId: string, toTransition: FocusTransition | null, toCamera: SemanticCamera, anchor: WheelAnchor) => {
     const fromScene = currentScene();
     const fromCamera = cameraRef.current;
     cancelAnimation();
@@ -111,18 +104,19 @@ export function useSemanticGestures(tickets: Ticket[]) {
       commitCamera(targetCamera);
       return;
     }
-    const animation: WheelAnimation = { type: "wheel", fromScene, fromCamera, toCamera: targetCamera, toFocusId, toTransition, anchor, frameId: 0 };
+    const animation: AnchoredAnimation = { type, fromScene, fromCamera, toCamera: targetCamera, toFocusId, toTransition, anchor, frameId: 0 };
     animationRef.current = animation;
     const startedAt = performance.now();
     let firstFrame = true;
     const tick = (timestamp: number) => {
       if (animationRef.current !== animation) return;
-      const linear = clamp(0, 1, (timestamp - startedAt) / WHEEL_DURATION);
+      const duration = type === "focus" ? FOCUS_DURATION : WHEEL_DURATION;
+      const linear = clamp(0, 1, (timestamp - startedAt) / duration);
       if (linear >= 1 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        completeWheelAnimation(animation);
+        completeAnchoredAnimation(animation);
         return;
       }
-      const progress = wheelEase(linear);
+      const progress = type === "focus" ? focusEase(linear) : wheelEase(linear);
       const zoom = lerp(fromCamera.zoom, animation.toCamera.zoom, progress);
       const scale = lerp(fromCamera.scale, animation.toCamera.scale, progress);
       const targetNodes = sceneFor(animation.toCamera, animation.toFocusId, animation.toTransition);
@@ -139,27 +133,30 @@ export function useSemanticGestures(tickets: Ticket[]) {
     };
     animation.timerId = window.setTimeout(() => tick(performance.now()), 0);
   };
+  const capturePointerAnchor = (point?: { clientX: number; clientY: number }, ticketId?: string) => {
+    const stage = stageRef.current?.getBoundingClientRect();
+    if (!stage) return captureWheelAnchor(0, 0, new DOMRect(), cameraRef.current, currentScene(), null);
+    const candidate = point ?? lastPointerRef.current;
+    const resolved = candidate ?? { clientX: stage.left + stage.width / 2, clientY: stage.top + stage.height / 2 };
+    let resolvedTicketId = point && ticketId ? ticketId : null;
+    if (!resolvedTicketId) {
+      const target = document.elementFromPoint(resolved.clientX, resolved.clientY)?.closest("[data-indicator-ticket-id], [data-ticket-id]");
+      resolvedTicketId = target?.getAttribute("data-indicator-ticket-id") ?? target?.getAttribute("data-ticket-id") ?? null;
+    }
+    return captureWheelAnchor(resolved.clientX, resolved.clientY, stage, cameraRef.current, currentScene(), resolvedTicketId);
+  };
 
   useEffect(() => {
     if (!stageRef.current) return;
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
       const nextSize = { width: entry.contentRect.width, height: entry.contentRect.height };
-      const widthDelta = (nextSize.width - sizeRef.current.width) / 2;
+      const current = cameraRef.current;
+      const anchor = !animationRef.current && lastPointerRef.current ? capturePointerAnchor() : null;
       sizeRef.current = nextSize;
-      const animation = animationRef.current;
-      if (animation?.type === "focus" && widthDelta !== 0) {
-        animation.startCamera = { ...animation.startCamera, x: animation.startCamera.x - widthDelta };
-        const finalNodes = sceneFor(animation.endCamera, animation.toId, null, nextSize.width);
-        const focused = finalNodes.find((node) => node.node.ticket.id === animation.toId);
-        if (focused) {
-          const margin = Math.min(140, nextSize.width * 0.25);
-          const center = animation.endCamera.x + focused.position.x * animation.endCamera.scale;
-          const visibleCenter = clamp(margin, nextSize.width - margin, center);
-          animation.endCamera = { ...animation.endCamera, x: animation.endCamera.x + visibleCenter - center };
-        }
-        const current = cameraRef.current;
-        commitCamera({ ...current, x: current.x - widthDelta });
+      if (anchor) {
+        const nextNodes = sceneFor(current, focusRef.current, transitionRef.current, nextSize.width);
+        commitCamera({ ...current, ...cameraForAnchor(anchor, nextNodes, current.scale) });
       }
       setSize(nextSize);
     });
@@ -188,64 +185,20 @@ export function useSemanticGestures(tickets: Ticket[]) {
     if (suppressTimerRef.current) clearTimeout(suppressTimerRef.current);
   }, []);
 
-  const focusTicket = (id: string) => {
-    if (animationRef.current?.type === "focus" && animationRef.current.toId === id) return;
+  const focusTicket = (id: string, point?: { clientX: number; clientY: number }) => {
+    if (animationRef.current?.type === "focus" && animationRef.current.toFocusId === id) return;
     if (!sceneOverrideRef.current && !transitionRef.current && focusRef.current === id && Math.abs(cameraRef.current.zoom - CLICK_SEMANTIC_ZOOM) < 1e-9) return;
-    cancelAnimation();
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      commitScene(null);
-      commitFocus(id, null);
-      commitCamera({ ...cameraRef.current, zoom: CLICK_SEMANTIC_ZOOM });
-      return;
-    }
     const current = cameraRef.current;
-    const currentFocus = focusRef.current;
-    const currentNodes = currentScene();
-    const startedAt = performance.now();
-    const initialTransition: FocusTransition = { fromId: currentFocus, toId: id, progress: 0, fromScene: currentNodes };
-    const animation: FocusAnimation = { type: "focus", toId: id, startCamera: current, endCamera: { ...current, zoom: CLICK_SEMANTIC_ZOOM }, frameId: 0 };
-    animationRef.current = animation;
-    commitScene(null);
-    commitFocus(currentFocus, initialTransition);
-
-    const complete = () => {
-      animationRef.current = null;
-      commitScene(null);
-      commitFocus(id, null);
-      commitCamera(animation.endCamera);
-    };
-    const tick = (timestamp: number) => {
-      if (animationRef.current !== animation) return;
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        complete();
-        return;
-      }
-      const linear = clamp(0, 1, (timestamp - startedAt) / FOCUS_DURATION);
-      if (linear >= 1) {
-        complete();
-        return;
-      }
-      const progress = focusEase(linear);
-      const nextTransition = { ...initialTransition, progress };
-      commitFocus(currentFocus, nextTransition);
-      commitCamera({
-        ...current,
-        zoom: lerp(animation.startCamera.zoom, animation.endCamera.zoom, progress),
-        x: lerp(animation.startCamera.x, animation.endCamera.x, progress),
-        y: lerp(animation.startCamera.y, animation.endCamera.y, progress),
-      });
-      animation.frameId = requestAnimationFrame(tick);
-    };
-    animation.frameId = requestAnimationFrame(tick);
+    const anchor = capturePointerAnchor(point, id);
+    startAnchoredAnimation("focus", id, null, { ...current, zoom: CLICK_SEMANTIC_ZOOM }, anchor);
   };
   const zoomBy = (amount: number) => {
-    const active = animationRef.current?.type === "wheel" ? animationRef.current : null;
+    const active = animationRef.current;
     const current = cameraRef.current;
     const baseCamera = active?.toCamera ?? current;
     const next = { ...baseCamera, zoom: clamp(0.5, 1.4, baseCamera.zoom + amount) };
-    const viewport = sizeRef.current;
-    const anchor = captureWheelAnchor(viewport.width / 2, viewport.height / 2, new DOMRect(0, 0, viewport.width, viewport.height), current, currentScene(), null);
-    startWheelAnimation(active?.toFocusId ?? focusRef.current, active?.toTransition ?? transitionRef.current, next, anchor);
+    const anchor = capturePointerAnchor();
+    startAnchoredAnimation("wheel", active?.toFocusId ?? focusRef.current, active?.toTransition ?? transitionRef.current, next, anchor);
   };
   const fitContext = () => {
     cancelAnimation();
@@ -265,6 +218,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
 
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     event.preventDefault();
+    lastPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
     const current = cameraRef.current;
     const deltaUnit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? sizeRef.current.height : 1;
     const deltaY = event.deltaY * deltaUnit;
@@ -307,11 +261,12 @@ export function useSemanticGestures(tickets: Ticket[]) {
       zoom: geometric ? baseCamera.zoom : clamp(0.5, 1.4, baseCamera.zoom - deltaY * 0.001),
       scale: geometric ? clamp(0.5, 1.6, baseCamera.scale - deltaY * 0.001) : baseCamera.scale,
     };
-    startWheelAnimation(nextFocus, nextTransition, next, anchor);
+    startAnchoredAnimation("wheel", nextFocus, nextTransition, next, anchor);
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!event.isPrimary || (event.button !== 0 && event.button !== 1)) return;
+    lastPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
     if (event.button === 1) event.preventDefault();
     if (event.button === 0 && event.target instanceof Element && event.target.closest("[data-ticket-id]")) cancelAnimation();
     const current = cameraRef.current;
@@ -325,6 +280,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
     };
   };
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    lastPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (event.buttons === 0) {

@@ -88,13 +88,13 @@ export function TreeCanvas(props: TreeCanvasProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const activateTicket = (ticketId: string) => {
+  const activateTicket = (ticketId: string, point?: { clientX: number; clientY: number }) => {
     if (connectionSourceId) {
       if (connectionSourceId !== ticketId) props.onConnect(connectionSourceId, ticketId);
       setConnectionSourceId(null);
       return;
     }
-    focusTicket(ticketId);
+    focusTicket(ticketId, point);
     props.onSelectTicket(ticketId);
   };
 
@@ -153,7 +153,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
             onPointerEnter={() => setAttentionId(ticket.id)}
             onPointerLeave={() => setAttentionId((currentId) => currentId === ticket.id ? null : currentId)}>
             <span className="semantic-color-wash" aria-hidden="true" />
-            <button className="semantic-card-main" tabIndex={node.opacity < 0.05 ? -1 : 0} title={`${ticket.title} — ${accessibleStatus}`} aria-label={`${ticketIdentifier(ticket, props.projectKey)} ${ticket.title}. ${accessibleStatus}. Clique para foco e detalhes`} onClick={() => activateTicket(ticket.id)}>
+            <button className="semantic-card-main" tabIndex={node.opacity < 0.05 ? -1 : 0} title={`${ticket.title} — ${accessibleStatus}`} aria-label={`${ticketIdentifier(ticket, props.projectKey)} ${ticket.title}. ${accessibleStatus}. Clique para foco e detalhes`} onClick={(event) => activateTicket(ticket.id, event.clientX || event.clientY ? { clientX: event.clientX, clientY: event.clientY } : undefined)}>
               {node.kind === "dot" ? <span className="semantic-sr-only">{ticket.title}. {accessibleStatus}</span> : <>
                 <span className="semantic-tree-key">{ticketIdentifier(ticket, props.projectKey)}</span>
                 <strong>{ticket.title}</strong>
@@ -172,7 +172,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
                 const child = childId ? props.tickets.find((item) => item.id === childId) : undefined;
                 const statusLabel = { todo: "A fazer", not_started: "Não iniciado", in_progress: "Em andamento", active: "Em andamento", done: "Concluído", mixed: "Estado misto" }[indicator.visualStatus];
                 const indicatorLabel = child ? `${ticketIdentifier(child, props.projectKey)} ${child.title}. ${statusLabel}` : `${indicator.ticketIds.length} filhos agrupados. ${statusLabel}`;
-                return <button type="button" key={indicator.id} className={`semantic-child-indicator ${child ? "is-single" : "is-group"}`} data-indicator-ticket-id={childId} data-parent-ticket-id={ticket.id} data-visual-status={indicator.visualStatus} title={indicatorLabel} aria-label={indicatorLabel} tabIndex={node.opacity < 0.05 || indicator.opacity < 0.05 ? -1 : 0} style={{ opacity: indicator.opacity, pointerEvents: indicator.opacity < 0.05 ? "none" : "auto" }} onClick={(event) => { event.stopPropagation(); activateTicket(childId ?? ticket.id); }}>
+                return <button type="button" key={indicator.id} className={`semantic-child-indicator ${child ? "is-single" : "is-group"}`} data-indicator-ticket-id={childId} data-parent-ticket-id={ticket.id} data-visual-status={indicator.visualStatus} title={indicatorLabel} aria-label={indicatorLabel} tabIndex={node.opacity < 0.05 || indicator.opacity < 0.05 ? -1 : 0} style={{ opacity: indicator.opacity, pointerEvents: indicator.opacity < 0.05 ? "none" : "auto" }} onClick={(event) => { event.stopPropagation(); activateTicket(childId ?? ticket.id, event.clientX || event.clientY ? { clientX: event.clientX, clientY: event.clientY } : undefined); }}>
                   {child ? <i style={{ backgroundColor: indicator.statusColor }} /> : <span style={{ backgroundColor: indicator.statusColor }}>{indicator.ticketIds.length}</span>}
                 </button>;
               })}

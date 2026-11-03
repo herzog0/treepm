@@ -85,7 +85,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
             onPointerEnter={() => setAttentionId(ticket.id)}
             onPointerLeave={() => setAttentionId((current) => current === ticket.id ? null : current)}>
             <span className="proto-a-color-wash" aria-hidden="true" />
-            <button className="proto-a-card-main" tabIndex={node.opacity < 0.05 ? -1 : 0} title={`${ticket.title} — ${accessibleStatus}`} aria-label={`${ticket.title}. ${accessibleStatus}. Clique para fixar foco`} onClick={() => focusTicket(ticket.id)}>
+            <button className="proto-a-card-main" tabIndex={node.opacity < 0.05 ? -1 : 0} title={`${ticket.title} — ${accessibleStatus}`} aria-label={`${ticket.title}. ${accessibleStatus}. Clique para fixar foco`} onClick={(event) => focusTicket(ticket.id, event.clientX || event.clientY ? { clientX: event.clientX, clientY: event.clientY } : undefined)}>
               {node.kind === "dot" ? <span className="proto-sr-only">{ticket.title}. {accessibleStatus}</span> : <>
                 <span className="proto-card-key">{ticketIdentifier(ticket, project.key)}</span>
                 <strong>{ticket.title}</strong>
@@ -103,7 +103,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
                 const child = childId ? tickets.find((item) => item.id === childId) : undefined;
                 const statusLabel = { todo: "A fazer", not_started: "Não iniciado", in_progress: "Em andamento", active: "Em andamento", done: "Concluído", mixed: "Estado misto" }[indicator.visualStatus];
                 const indicatorLabel = child ? `${ticketIdentifier(child, project.key)} ${child.title}. ${statusLabel}` : `${indicator.ticketIds.length} filhos agrupados. ${statusLabel}`;
-                return <button type="button" key={indicator.id} className={`proto-a-child-indicator ${child ? "is-single" : "is-group"}`} data-indicator-ticket-id={childId} data-parent-ticket-id={ticket.id} data-visual-status={indicator.visualStatus} title={indicatorLabel} aria-label={indicatorLabel} tabIndex={node.opacity < 0.05 || indicator.opacity < 0.05 ? -1 : 0} style={{ opacity: indicator.opacity, pointerEvents: indicator.opacity < 0.05 ? "none" : "auto" }} onClick={() => focusTicket(childId ?? ticket.id)}>
+                return <button type="button" key={indicator.id} className={`proto-a-child-indicator ${child ? "is-single" : "is-group"}`} data-indicator-ticket-id={childId} data-parent-ticket-id={ticket.id} data-visual-status={indicator.visualStatus} title={indicatorLabel} aria-label={indicatorLabel} tabIndex={node.opacity < 0.05 || indicator.opacity < 0.05 ? -1 : 0} style={{ opacity: indicator.opacity, pointerEvents: indicator.opacity < 0.05 ? "none" : "auto" }} onClick={(event) => focusTicket(childId ?? ticket.id, event.clientX || event.clientY ? { clientX: event.clientX, clientY: event.clientY } : undefined)}>
                   {child ? <i style={{ backgroundColor: indicator.statusColor }} /> : <span style={{ backgroundColor: indicator.statusColor }}>{indicator.ticketIds.length}</span>}
                 </button>;
               })}
