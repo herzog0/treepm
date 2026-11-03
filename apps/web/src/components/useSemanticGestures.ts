@@ -288,20 +288,28 @@ export function useSemanticGestures(tickets: Ticket[]) {
     const geometric = event.ctrlKey || event.metaKey;
     const direction = deltaY < 0 ? 1 : -1;
     const step = clamp(0.08, 0.28, Math.abs(deltaY) / 500);
+    const navigationTicketId = anchor.ticketId;
     let nextFocus = currentFocus;
     let nextTransition = currentTransition;
-    if (!geometric && ticketId) {
+    if (!geometric && navigationTicketId) {
       if (currentTransition) {
-        const focusDirection = ticketId === currentTransition.toId ? 1 : ticketId === currentTransition.fromId ? -1 : 0;
-        const progress = clamp(0, 1, currentTransition.progress + direction * focusDirection * step);
-        if (progress >= 1) {
-          nextFocus = currentTransition.toId;
-          nextTransition = null;
+        const explicitRetarget = !samePoint && navigationTicketId !== currentTransition.toId;
+        if (explicitRetarget) {
+          nextTransition = direction > 0 && navigationTicketId !== currentFocus
+            ? { fromId: currentFocus, toId: navigationTicketId, progress: step, fromScene: currentScene() }
+            : null;
         } else {
-          nextTransition = progress <= 0 && !currentTransition.fromScene ? null : { ...currentTransition, progress };
+          const focusDirection = navigationTicketId === currentTransition.toId ? 1 : navigationTicketId === currentTransition.fromId ? -1 : 0;
+          const progress = clamp(0, 1, currentTransition.progress + direction * focusDirection * step);
+          if (progress >= 1) {
+            nextFocus = currentTransition.toId;
+            nextTransition = null;
+          } else {
+            nextTransition = progress <= 0 && !currentTransition.fromScene ? null : { ...currentTransition, progress };
+          }
         }
-      } else if (direction > 0 && ticketId !== currentFocus) {
-        nextTransition = { fromId: currentFocus, toId: ticketId, progress: step };
+      } else if (direction > 0 && navigationTicketId !== currentFocus) {
+        nextTransition = { fromId: currentFocus, toId: navigationTicketId, progress: step };
       }
     }
     const next = {
@@ -309,7 +317,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
       zoom: geometric ? baseCamera.zoom : clamp(0.5, 1.4, baseCamera.zoom - deltaY * 0.001),
       scale: geometric ? clamp(0.5, 1.6, baseCamera.scale - deltaY * 0.001) : baseCamera.scale,
     };
-    if (!geometric && direction > 0 && next.zoom === 1.4 && nextTransition && ticketId === nextTransition.toId) {
+    if (!geometric && direction > 0 && next.zoom === 1.4 && nextTransition && navigationTicketId === nextTransition.toId) {
       nextFocus = nextTransition.toId;
       nextTransition = null;
     }

@@ -66,6 +66,15 @@ interface WheelAnchorTicket {
   relativeY: number;
 }
 
+interface WheelAnchorLocal {
+  ticketId: string;
+  relativeX: number;
+  relativeY: number;
+  offsetX: number;
+  offsetY: number;
+  ancestors: string[];
+}
+
 export interface WheelAnchor {
   cursorX: number;
   cursorY: number;
@@ -77,6 +86,7 @@ export interface WheelAnchor {
   relativeX: number;
   relativeY: number;
   fallbacks: WheelAnchorTicket[];
+  local?: WheelAnchorLocal;
 }
 
 export const SEMANTIC_CARD_SIZES: Record<SemanticCardKind, { width: number; height: number }> = {
@@ -493,6 +503,19 @@ const indicatorLocation = (nodes: SemanticSceneNode[], ticketId: string | null) 
   return undefined;
 };
 
+const localPoint = (node: SemanticSceneNode, reference: WheelAnchorLocal) => ({
+  x: node.position.x - node.width / 2 + reference.relativeX * node.width + reference.offsetX,
+  y: node.position.y + reference.relativeY * node.height + reference.offsetY,
+});
+
+const localIndicatorPoint = (parent: SemanticSceneNode, indicator: SemanticChildIndicator, reference: WheelAnchorLocal) => {
+  const center = semanticChildIndicatorPoint(parent, indicator);
+  return {
+    x: center.x + (reference.relativeX - 0.5) * parent.indicatorSize + reference.offsetX,
+    y: center.y + (reference.relativeY - 0.5) * parent.indicatorSize + reference.offsetY,
+  };
+};
+
 export function captureWheelAnchor(clientX: number, clientY: number, stage: DOMRect, camera: SemanticCamera, nodes: SemanticSceneNode[], ticketId: string | null, preferIndicator = false): WheelAnchor {
   const cursorX = clientX - stage.left;
   const cursorY = clientY - stage.top;
@@ -519,6 +542,37 @@ export function captureWheelAnchor(clientX: number, clientY: number, stage: DOMR
     fallbacks.push({ ticketId: parentId, ...relative(parent) });
     parentId = parent.node.ticket.parentId;
   }
+  let local: WheelAnchorLocal | undefined;
+  if (!item && !indicator) {
+    let nearest: { node: SemanticSceneNode; x: number; y: number; distance: number } | undefined;
+    for (const node of nodes) {
+      if (node.opacity < 0.05 || node.width <= 0 || node.height <= 0) continue;
+      const left = node.position.x - node.width / 2;
+      const right = left + node.width;
+      const top = node.position.y;
+      const bottom = top + node.height;
+      const x = Math.min(right, Math.max(left, sceneX));
+      const y = Math.min(bottom, Math.max(top, sceneY));
+      const distance = Math.hypot(sceneX - x, sceneY - y);
+      if (distance <= 48 / camera.scale && (!nearest || distance < nearest.distance)) nearest = { node, x, y, distance };
+    }
+    if (nearest) {
+      const ancestors: string[] = [];
+      let ancestorId = nearest.node.node.ticket.parentId;
+      while (ancestorId && !ancestors.includes(ancestorId)) {
+        ancestors.push(ancestorId);
+        ancestorId = nodes.find((node) => node.node.ticket.id === ancestorId)?.node.ticket.parentId ?? null;
+      }
+      local = {
+        ticketId: nearest.node.node.ticket.id,
+        relativeX: (nearest.x - nearest.node.position.x + nearest.node.width / 2) / nearest.node.width,
+        relativeY: (nearest.y - nearest.node.position.y) / nearest.node.height,
+        offsetX: sceneX - nearest.x,
+        offsetY: sceneY - nearest.y,
+        ancestors,
+      };
+    }
+  }
   return {
     cursorX,
     cursorY,
@@ -530,10 +584,29 @@ export function captureWheelAnchor(clientX: number, clientY: number, stage: DOMR
     relativeX: item ? relative(item).relativeX : indicatorRelative.relativeX,
     relativeY: item ? relative(item).relativeY : indicatorRelative.relativeY,
     fallbacks,
+    local,
   };
 }
 
 export function cameraForAnchor(anchor: WheelAnchor, nodes: SemanticSceneNode[], scale: number): Pick<SemanticCamera, "x" | "y"> {
+  if (anchor.local) {
+    const reference = anchor.local;
+    const source = nodes.find((node) => node.node.ticket.id === reference.ticketId && node.opacity > 0 && node.width > 0 && node.height > 0);
+    const replacementIndicator = indicatorLocation(nodes, reference.ticketId);
+    const replacementAggregate = replacementIndicator ? undefined : reference.ancestors.map((id) => nodes.find((node) => node.node.ticket.id === id && node.aggregate && node.opacity > 0 && node.width > 0 && node.height > 0)).find((node) => node !== undefined);
+    const sourcePoint = source ? localPoint(source, reference) : undefined;
+    const replacementPoint = replacementIndicator
+      ? localIndicatorPoint(replacementIndicator.parent, replacementIndicator.indicator, reference)
+      : replacementAggregate ? localPoint(replacementAggregate, reference) : undefined;
+    let resolved = sourcePoint ?? replacementPoint ?? { x: anchor.sceneX, y: anchor.sceneY };
+    if (sourcePoint && replacementPoint && source) {
+      resolved = {
+        x: lerp(replacementPoint.x, sourcePoint.x, source.opacity),
+        y: lerp(replacementPoint.y, sourcePoint.y, source.opacity),
+      };
+    }
+    return { x: anchor.cursorX - resolved.x * scale, y: anchor.cursorY - resolved.y * scale };
+  }
   const point = (item: SemanticSceneNode, reference: WheelAnchorTicket) => ({
     x: item.position.x - item.width / 2 + reference.relativeX * item.width,
     y: item.position.y + reference.relativeY * item.height,
