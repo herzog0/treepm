@@ -63,23 +63,25 @@ Na primeira execução a API cria `apps/api/data/treepm.json` ao rodar a partir 
 
 - Hierarquia recursiva ilimitada com um único `parentId` nullable, múltiplos responsáveis e componentes com responsáveis próprios.
 - Status manual somente em folhas; pais mostram `doneLeaves/totalLeaves`, percentual, rótulo e cor acessível.
-- Layout tidy determinístico baseado nas folhas, pan, zoom, fit view, minimapa e controles.
-- Zoom semântico: cards completos, compactos, resumos por subárvore e visão do projeto. Renderização somente de elementos visíveis no canvas.
+- Home com a árvore A integrada: foco explícito, cards completos/compactos/chips/dots e resumos por contexto, minimapa e enquadramento.
+- Wheel semântico preserva o card ou ponto de cena sob o cursor; `Ctrl`/`Meta` + wheel controla escala geométrica e `Shift` + wheel faz pan horizontal.
+- Zoom+ sobre outro card transfere atenção progressivamente e de forma reversível. Arraste esquerdo ou do meio funciona no fundo e sobre cards após um pequeno threshold.
 - Conexões `TicketEdge` independentes, selecionáveis e com cor, espessura e tracejado próprios.
-- Dependências criadas por handles ou painel, removíveis sem alterar a hierarquia; ciclos e IDs inválidos são rejeitados.
+- Dependências criadas por conector ou painel, removíveis sem alterar a hierarquia; ciclos e IDs inválidos são rejeitados.
 - Criação recursiva, edição, reparenting, exclusão segura, Lista e Kanban acessíveis por tabs.
 - Seed profundo e ramificado, e backoffice consumindo a mesma API.
 
-## Protótipo descartável de UX (temporário, somente DEV)
+## Protótipos DEV de referência
 
-Com `pnpm dev`, acesse `/?variant=A`, `/?variant=B`, `/?variant=C` ou `/?variant=D` para comparar viewport adaptativa, foco explícito, dois controles e lista hierárquica. Na A, `C` ou o botão **Cores** alterna o preenchimento animado dos cards pelo status; o atalho não interfere em campos editáveis e respeita movimento reduzido. A direção aprovada é A para a árvore, com C como futura view de faixas e D como futura Lista hierárquica, ainda não promovidas às tabs de produção. O código fica isolado em `apps/web/src/components/prototypes/`, usa apenas o bootstrap em modo leitura e não representa decisão de produção. Setas ou o switcher inferior trocam de variante; a query permanece estável no reload. Sem a query válida — ou fora de DEV — a experiência de produção permanece inalterada.
+A rota `/` já abre a árvore semântica integrada à aplicação, sem query e sem switcher. Com `pnpm dev`, `/?variant=A`, `/?variant=B`, `/?variant=C` e `/?variant=D` continuam disponíveis somente como referências descartáveis. C e D representam futuras views de faixas e Lista hierárquica, ainda não promovidas. O código fica em `apps/web/src/components/prototypes/` e não altera dados.
 
-A avaliação visual, os resultados do Jev e a proposta de implementação estão em [docs/semantic-zoom-proposal.md](docs/semantic-zoom-proposal.md), com screenshots em `docs/assets/semantic-zoom/`.
+Na árvore, `C` ou o botão **Cores** alterna o preenchimento pelo status, sem interferir em campos editáveis e respeitando movimento reduzido. A avaliação histórica, as medições de gestos e os próximos passos estão em [docs/semantic-zoom-proposal.md](docs/semantic-zoom-proposal.md).
 
 ## Limites desta fatia
 
 - Sem login, permissões, billing, colaboração em tempo real, undo, auditoria ou deploy.
 - JSON é single-process; não é adequado a produção nem a múltiplas réplicas.
-- LOD agrega em profundidades fixas nesta primeira heurística; não há virtualização de Lista/Kanban nem algoritmo incremental para árvores enormes.
-- Sem testes automatizados, conforme decisão desta etapa.
+- A cena recalcula o contexto e interpola focos a cada gesto; não há layout incremental, worker nem validação de performance com árvores enormes. Lista/Kanban também não são virtualizados.
+- Pinch dedicado e animação FLIP com Web Animations API ainda não foram implementados; Ctrl/Meta + wheel e controles cobrem a escala nesta fatia.
+- Sem testes automatizados, conforme decisão desta etapa; os gestos foram verificados com harnesses temporários fora do repositório.
 - Jev com credencial depende do serviço externo; apenas o fallback sem chave é verificável offline.

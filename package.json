@@ -1,0 +1,25 @@
+{
+  "name": "treepm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "22.23.1",
+    "pnpm": "10.25.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @treepm/domain build && pnpm --parallel --filter @treepm/api --filter @treepm/web --filter @treepm/admin dev",
+    "build": "pnpm --filter @treepm/domain build && pnpm --filter @treepm/api build && pnpm --filter @treepm/web build && pnpm --filter @treepm/admin build",
+    "typecheck": "pnpm --filter @treepm/domain build && pnpm --parallel --filter @treepm/api --filter @treepm/web --filter @treepm/admin typecheck",
+    "lint": "eslint .",
+    "clean": "pnpm --parallel --filter @treepm/domain --filter @treepm/api --filter @treepm/web --filter @treepm/admin clean"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^22.19.1",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.4"
+  }
+}
