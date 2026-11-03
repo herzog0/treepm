@@ -134,8 +134,8 @@ kbd { font: 600 9px "DM Sans", sans-serif; padding: 2px 5px; border: 1px solid #
 .semantic-focus-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 12px "Manrope", sans-serif; }
 .semantic-tree-metrics { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .semantic-tree-metrics > span { max-width: 290px; overflow: hidden; text-overflow: ellipsis; padding: 5px 7px; border-radius: 5px; background: #efebf2; color: #6f6379; font-size: 9px; white-space: nowrap; }
-.semantic-color-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 5px 7px; border: 1px solid #ddd3e3; border-radius: 5px; background: #f5f0f8; color: var(--purple-dark); font-size: 9px; font-weight: 700; white-space: nowrap; }
-.semantic-color-toggle[data-color-mode="on"] { border-color: #806695; background: #e9dfef; }
+.semantic-color-toggle, .semantic-focus-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 5px 7px; border: 1px solid #ddd3e3; border-radius: 5px; background: #f5f0f8; color: var(--purple-dark); font-size: 9px; font-weight: 700; white-space: nowrap; }
+.semantic-color-toggle[data-color-mode="on"], .semantic-focus-toggle[data-focus-on-click="on"] { border-color: #806695; background: #e9dfef; }
 .semantic-breadcrumb { flex: 0 0 33px; display: flex; align-items: center; gap: 7px; overflow-x: auto; padding: 0 24px; border-bottom: 1px solid #e5e0e5; background: #faf8f5; }
 .semantic-breadcrumb > span { display: flex; gap: 7px; align-items: center; color: #a093a8; white-space: nowrap; }
 .semantic-breadcrumb button { max-width: 190px; overflow: hidden; text-overflow: ellipsis; border: 0; background: transparent; color: #756c7b; font-size: 9px; white-space: nowrap; }
@@ -171,7 +171,7 @@ kbd { font: 600 9px "DM Sans", sans-serif; padding: 2px 5px; border: 1px solid #
 .semantic-card-chip .semantic-card-progress, .semantic-card-chip .semantic-mini-track { display: none; }
 .semantic-tree-node[data-compact-label="true"] .semantic-card-main { justify-content: center; }
 .semantic-tree-node[data-compact-label="true"] .semantic-card-main > strong { display: block; min-width: 0; width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.semantic-card-dot { border: 2px solid #fff; border-radius: 5px; background: var(--semantic-status); box-shadow: 0 0 0 1px var(--semantic-status); }
+.semantic-card-dot { border: 1px solid #fff; border-radius: 5px; background: var(--semantic-status); box-shadow: 0 0 0 1px var(--semantic-status); }
 .semantic-card-dot .semantic-card-main { padding: 0; }
 .semantic-card-dot .semantic-color-wash { display: none; }
 .semantic-card-summary { background: #f7f2fa; }

@@ -32,6 +32,7 @@ interface TreeCanvasProps {
 
 export function TreeCanvas(props: TreeCanvasProps) {
   const [colorMode, setColorMode] = useState(false);
+  const [focusOnClick, setFocusOnClick] = useState(false);
   const [connectionSourceId, setConnectionSourceId] = useState<string | null>(null);
   const {
     camera,
@@ -47,7 +48,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
     zoomBy,
     fitContext,
     gestureHandlers,
-  } = useSemanticGestures(props.tickets);
+  } = useSemanticGestures(props.tickets, focusOnClick);
   const focus = props.tickets.find((ticket) => ticket.id === focusId) ?? props.tickets[0];
   const transitionTarget = transition ? props.tickets.find((ticket) => ticket.id === transition.toId) : undefined;
   const connectionSource = connectionSourceId ? props.tickets.find((ticket) => ticket.id === connectionSourceId) : undefined;
@@ -94,17 +95,18 @@ export function TreeCanvas(props: TreeCanvasProps) {
       setConnectionSourceId(null);
       return;
     }
-    focusTicket(ticketId, point);
+    if (focusOnClick) focusTicket(ticketId, point);
     props.onSelectTicket(ticketId);
   };
 
   if (!focus) return null;
   return <section className={`canvas-shell semantic-tree ${colorMode ? "is-color-mode" : ""}`} aria-label="Árvore interativa do projeto">
     <div className="semantic-tree-toolbar">
-      <div className="semantic-focus-copy"><span>FOCO EXPLÍCITO · ZOOM ANCORADO</span><strong>{ticketIdentifier(focus, props.projectKey)} · {focus.title}</strong></div>
+      <div className="semantic-focus-copy"><span>{focusOnClick ? "FOCO EXPLÍCITO · ZOOM ANCORADO" : "SOMENTE DETALHES · CENA PRESERVADA"}</span><strong>{ticketIdentifier(focus, props.projectKey)} · {focus.title}</strong></div>
       <div className="semantic-tree-metrics">
         {transitionTarget && transition && <span>atenção {Math.round(transition.progress * 100)}% → {transitionTarget.title}</span>}
         <span>{visibleCount} visíveis · {props.tickets.length - visibleCount} resumidos</span>
+        <button type="button" className="semantic-focus-toggle" data-focus-on-click={focusOnClick ? "on" : "off"} aria-pressed={focusOnClick} title="Desligado: clique abre somente detalhes. Ligado: clique focaliza a subárvore no LOD de três passos." onClick={() => setFocusOnClick((current) => !current)}>Foco no clique {focusOnClick ? "ligado" : "desligado"}</button>
         <button type="button" className="semantic-color-toggle" data-color-mode={colorMode ? "on" : "off"} aria-pressed={colorMode} aria-keyshortcuts="C" onClick={() => setColorMode((current) => !current)}>Cores {colorMode ? "ativas" : "neutras"} <kbd>C</kbd></button>
       </div>
     </div>
@@ -153,7 +155,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
             onPointerEnter={() => setAttentionId(ticket.id)}
             onPointerLeave={() => setAttentionId((currentId) => currentId === ticket.id ? null : currentId)}>
             <span className="semantic-color-wash" aria-hidden="true" />
-            <button className="semantic-card-main" tabIndex={node.opacity < 0.05 ? -1 : 0} title={`${ticket.title} — ${accessibleStatus}`} aria-label={`${ticketIdentifier(ticket, props.projectKey)} ${ticket.title}. ${accessibleStatus}. Clique para foco e detalhes`} onClick={(event) => activateTicket(ticket.id, event.clientX || event.clientY ? { clientX: event.clientX, clientY: event.clientY } : undefined)}>
+            <button className="semantic-card-main" tabIndex={node.opacity < 0.05 ? -1 : 0} title={`${ticket.title} — ${accessibleStatus}`} aria-label={`${ticketIdentifier(ticket, props.projectKey)} ${ticket.title}. ${accessibleStatus}. ${focusOnClick ? "Clique para foco e detalhes" : "Clique para abrir detalhes sem mudar a cena"}`} onClick={(event) => activateTicket(ticket.id, event.clientX || event.clientY ? { clientX: event.clientX, clientY: event.clientY } : undefined)}>
               {node.kind === "dot" ? <span className="semantic-sr-only">{ticket.title}. {accessibleStatus}</span> : <>
                 <span className="semantic-tree-key">{ticketIdentifier(ticket, props.projectKey)}</span>
                 <strong>{ticket.title}</strong>

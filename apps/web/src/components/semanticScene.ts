@@ -89,6 +89,7 @@ export const CLICK_SEMANTIC_ZOOM = 1.04;
 const INDICATOR_SLOT = 20;
 const INDICATOR_GAP = 4;
 const INDICATOR_TOP_GAP = 8;
+const INDICATOR_BORDER_BOTTOM = 1;
 const lerp = (from: number, to: number, progress: number) => from + (to - from) * progress;
 const sizeFor = (item: SceneItem) => ({
   width: item.width ?? SEMANTIC_CARD_SIZES[item.kind].width,
@@ -469,7 +470,7 @@ export function semanticChildIndicatorPoint(parent: SemanticSceneNode, indicator
   const rowWidth = count * INDICATOR_SLOT + Math.max(0, count - 1) * INDICATOR_GAP;
   return {
     x: parent.position.x - rowWidth / 2 + Math.max(0, index) * (INDICATOR_SLOT + INDICATOR_GAP) + INDICATOR_SLOT / 2,
-    y: parent.position.y + parent.height + INDICATOR_TOP_GAP + INDICATOR_SLOT / 2,
+    y: parent.position.y + parent.height - INDICATOR_BORDER_BOTTOM + INDICATOR_TOP_GAP + INDICATOR_SLOT / 2,
   };
 }
 

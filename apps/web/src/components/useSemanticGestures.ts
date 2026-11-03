@@ -36,7 +36,7 @@ const wheelEase = (progress: number) => 1 - Math.pow(1 - progress, 3);
 const FOCUS_DURATION = 220;
 const WHEEL_DURATION = 180;
 
-export function useSemanticGestures(tickets: Ticket[]) {
+export function useSemanticGestures(tickets: Ticket[], focusOnClick: boolean) {
   const layout = useMemo(() => tidyTreeLayout(tickets), [tickets]);
   const firstRoot = childrenOf(tickets, null)[0];
   const initialFocus = firstRoot?.id ?? tickets[0]?.id ?? "";
@@ -268,7 +268,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
     if (!event.isPrimary || (event.button !== 0 && event.button !== 1)) return;
     lastPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
     if (event.button === 1) event.preventDefault();
-    if (event.button === 0 && event.target instanceof Element && event.target.closest("[data-ticket-id]")) cancelAnimation();
+    if (focusOnClick && event.button === 0 && event.target instanceof Element && event.target.closest("[data-ticket-id]")) cancelAnimation();
     const current = cameraRef.current;
     dragRef.current = {
       pointerId: event.pointerId,

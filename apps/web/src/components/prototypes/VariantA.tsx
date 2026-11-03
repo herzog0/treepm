@@ -8,6 +8,8 @@ import { personInitials, statusInfo, ticketPath, visibleLabel } from "./shared.j
 
 export function VariantA({ project, tickets, users }: PrototypeData) {
   const [colorMode, setColorMode] = useState(false);
+  const [focusOnClick, setFocusOnClick] = useState(false);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const {
     camera,
     focusId,
@@ -21,7 +23,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
     zoomBy,
     fitContext,
     gestureHandlers,
-  } = useSemanticGestures(tickets);
+  } = useSemanticGestures(tickets, focusOnClick);
   const focus = tickets.find((ticket) => ticket.id === focusId) ?? tickets[0];
   const path = focus ? ticketPath(tickets, focus.id) : [];
   const visibleCount = rendered.filter((node) => node.opacity > 0.05).length;
@@ -38,16 +40,22 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  const activateTicket = (ticketId: string, point?: { clientX: number; clientY: number }) => {
+    setSelectedTicketId(ticketId);
+    if (focusOnClick) focusTicket(ticketId, point);
+  };
+
   if (!focus) return null;
   const focusedStatus = statusInfo(tickets, focus);
   const transitionTarget = transition ? tickets.find((ticket) => ticket.id === transition.toId) : undefined;
   return <div className={`proto-a ${colorMode ? "is-color-mode" : ""}`}>
     <div className="proto-statebar">
-      <div><span>FOCO EXPLÍCITO · ZOOM ANCORADO</span><strong>{ticketIdentifier(focus, project.key)} · {focus.title}</strong></div>
+      <div><span>{focusOnClick ? "FOCO EXPLÍCITO · ZOOM ANCORADO" : "SELEÇÃO LOCAL · CENA PRESERVADA"}</span><strong>{ticketIdentifier(focus, project.key)} · {focus.title}</strong></div>
       <div className="proto-state-metrics">
         {transitionTarget && transition && <span>atenção {Math.round(transition.progress * 100)}% → {transitionTarget.title}</span>}
         <span>semântica {Math.round(camera.zoom * 100)}% · escala {Math.round(camera.scale * 100)}%</span>
         <span>{visibleLabel(visibleCount, tickets.length - visibleCount)}</span>
+        <button type="button" className="proto-a-focus-toggle" data-focus-on-click={focusOnClick ? "on" : "off"} aria-pressed={focusOnClick} title="Desligado: clique somente seleciona. Ligado: clique focaliza a subárvore no LOD de três passos." onClick={() => setFocusOnClick((current) => !current)}>Foco no clique {focusOnClick ? "ligado" : "desligado"}</button>
         <button type="button" className="proto-a-color-toggle" data-color-mode={colorMode ? "on" : "off"} aria-pressed={colorMode} aria-keyshortcuts="C" onClick={() => setColorMode((current) => !current)}>
           Cores {colorMode ? "ativas" : "neutras"} <kbd>C</kbd>
         </button>
@@ -72,7 +80,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
           const progressLabel = node.aggregateTotalLeaves > 0 ? `${node.aggregateDoneLeaves}/${node.aggregateTotalLeaves} folhas agregadas · ${percent}%` : info.label;
           const label = `${progressLabel}${node.visualStatus === "mixed" ? " · estado misto" : ""}`;
           const accessibleStatus = [label, aggregationText].filter(Boolean).join(". ");
-          return <article key={ticket.id} data-ticket-id={ticket.id} data-aggregate={node.aggregate ? "true" : "false"} data-represented-count={node.representedCount} data-aggregate-leaves={node.aggregateTotalLeaves} data-subtree-height={node.subtreeHeight} data-visual-status={node.visualStatus} data-compact-label={node.compactLabel ? "true" : "false"} className={`proto-a-node proto-card-${node.kind} proto-status-${node.visualStatus} ${ticket.id === focusId ? "is-focus" : ""} ${ticket.id === attentionId ? "is-attention" : ""}`}
+          return <article key={ticket.id} data-ticket-id={ticket.id} data-aggregate={node.aggregate ? "true" : "false"} data-represented-count={node.representedCount} data-aggregate-leaves={node.aggregateTotalLeaves} data-subtree-height={node.subtreeHeight} data-visual-status={node.visualStatus} data-compact-label={node.compactLabel ? "true" : "false"} className={`proto-a-node proto-card-${node.kind} proto-status-${node.visualStatus} ${ticket.id === focusId ? "is-focus" : ""} ${ticket.id === attentionId ? "is-attention" : ""} ${selectedTicketId === ticket.id ? "is-selected" : ""}`}
             style={{
               width: node.width,
               height: node.height,
@@ -85,7 +93,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
             onPointerEnter={() => setAttentionId(ticket.id)}
             onPointerLeave={() => setAttentionId((current) => current === ticket.id ? null : current)}>
             <span className="proto-a-color-wash" aria-hidden="true" />
-            <button className="proto-a-card-main" tabIndex={node.opacity < 0.05 ? -1 : 0} title={`${ticket.title} — ${accessibleStatus}`} aria-label={`${ticket.title}. ${accessibleStatus}. Clique para fixar foco`} onClick={(event) => focusTicket(ticket.id, event.clientX || event.clientY ? { clientX: event.clientX, clientY: event.clientY } : undefined)}>
+            <button className="proto-a-card-main" tabIndex={node.opacity < 0.05 ? -1 : 0} title={`${ticket.title} — ${accessibleStatus}`} aria-label={`${ticket.title}. ${accessibleStatus}. ${focusOnClick ? "Clique para foco" : "Clique para selecionar"}`} onClick={(event) => activateTicket(ticket.id, event.clientX || event.clientY ? { clientX: event.clientX, clientY: event.clientY } : undefined)}>
               {node.kind === "dot" ? <span className="proto-sr-only">{ticket.title}. {accessibleStatus}</span> : <>
                 <span className="proto-card-key">{ticketIdentifier(ticket, project.key)}</span>
                 <strong>{ticket.title}</strong>
@@ -103,7 +111,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
                 const child = childId ? tickets.find((item) => item.id === childId) : undefined;
                 const statusLabel = { todo: "A fazer", not_started: "Não iniciado", in_progress: "Em andamento", active: "Em andamento", done: "Concluído", mixed: "Estado misto" }[indicator.visualStatus];
                 const indicatorLabel = child ? `${ticketIdentifier(child, project.key)} ${child.title}. ${statusLabel}` : `${indicator.ticketIds.length} filhos agrupados. ${statusLabel}`;
-                return <button type="button" key={indicator.id} className={`proto-a-child-indicator ${child ? "is-single" : "is-group"}`} data-indicator-ticket-id={childId} data-parent-ticket-id={ticket.id} data-visual-status={indicator.visualStatus} title={indicatorLabel} aria-label={indicatorLabel} tabIndex={node.opacity < 0.05 || indicator.opacity < 0.05 ? -1 : 0} style={{ opacity: indicator.opacity, pointerEvents: indicator.opacity < 0.05 ? "none" : "auto" }} onClick={(event) => focusTicket(childId ?? ticket.id, event.clientX || event.clientY ? { clientX: event.clientX, clientY: event.clientY } : undefined)}>
+                return <button type="button" key={indicator.id} className={`proto-a-child-indicator ${child ? "is-single" : "is-group"}`} data-indicator-ticket-id={childId} data-parent-ticket-id={ticket.id} data-visual-status={indicator.visualStatus} title={indicatorLabel} aria-label={indicatorLabel} tabIndex={node.opacity < 0.05 || indicator.opacity < 0.05 ? -1 : 0} style={{ opacity: indicator.opacity, pointerEvents: indicator.opacity < 0.05 ? "none" : "auto" }} onClick={(event) => activateTicket(childId ?? ticket.id, event.clientX || event.clientY ? { clientX: event.clientX, clientY: event.clientY } : undefined)}>
                   {child ? <i style={{ backgroundColor: indicator.statusColor }} /> : <span style={{ backgroundColor: indicator.statusColor }}>{indicator.ticketIds.length}</span>}
                 </button>;
               })}
