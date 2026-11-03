@@ -325,6 +325,11 @@ td .component-list { margin: 0; }
   .work-view { padding: 20px 14px; }
   .view-heading p { display: none; }
   .kanban-board { overflow-x: auto; }
+  .semantic-tree-toolbar { gap: 8px; padding: 0 12px; }
+  .semantic-focus-copy { display: none; }
+  .semantic-tree-metrics { width: 100%; justify-content: space-between; gap: 12px; }
+  .semantic-tree-metrics > span { display: none; }
+  .semantic-focus-toggle, .semantic-color-toggle { padding: 6px 8px; font-size: 9px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }

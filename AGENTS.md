@@ -7,6 +7,9 @@
 - Não introduza owner único. Tickets e componentes aceitam múltiplos responsáveis.
 - Somente folhas têm status manual. Progresso de pais deriva das folhas descendentes, com texto além de cor.
 - Compactação semântica é bottom-up por altura da subárvore: folhas, depois pais e ancestrais. Não volte a usar profundidade absoluta ou esconder ramos sem agregado explícito e contagens reconciliadas.
+- Todo pai mantém indicadores dos filhos imediatos, inclusive como dot/agregado. Eles são prévias acessíveis, não nós contados duas vezes; microdots têm 6 px dentro de alvos de 20 px e agrupamento explícito quando necessário.
+- O mouse é sempre a origem do zoom e do clique focalizado: preserve o ponto de cena/card/indicador sob o cursor em todos os frames. Seleção nunca recentraliza câmera; abrir/fechar o painel também usa a âncora do último ponteiro. Só use o centro como fallback acessível quando nunca houve ponteiro.
+- **Foco no clique** começa desligado: clique/Enter abre somente detalhes e preserva foco, LOD, cena e câmera. Quando ligado, o próximo clique usa o LOD estável de 104%, com identificador + título truncado e contexto bottom-up; alternar o toggle não move a cena. Breadcrumb continua foco explícito.
 - Agregados homogêneos preservam a cor das folhas; combinações de status usam `mixed`/laranja na apresentação. Isso não altera `Ticket.status`, `getProgress` nem o estilo das arestas.
 - Hierarquia e dependência são entidades/arestas distintas. Nunca altere `parentId` ao criar/remover dependência.
 - Toda aresta tem estilo e seleção independentes; preserve seleção e evite edges órfãs nas transições de LOD.

@@ -63,10 +63,11 @@ Na primeira execução a API cria `apps/api/data/treepm.json` ao rodar a partir 
 
 - Hierarquia recursiva ilimitada com um único `parentId` nullable, múltiplos responsáveis e componentes com responsáveis próprios.
 - Status manual somente em folhas; pais mostram `doneLeaves/totalLeaves`, percentual, rótulo e cor acessível. Agregados homogêneos preservam a cor; combinações viram `mixed`/laranja com contagens e tooltip acessível.
-- Home com a árvore A integrada: foco explícito, compactação bottom-up por altura da subárvore (`full → compact → chip → dot → agregado`), resumos reconciliados, minimapa e enquadramento.
-- Wheel semântico e `Ctrl`/`Meta` + wheel animam câmera, cards e arestas por 180 ms com resposta no primeiro tick, preservando o card, seu agregado ou ponto de cena sob o cursor; `Shift` + wheel faz pan horizontal imediato.
-- Zoom+ sobre outro card transfere atenção progressivamente e de forma reversível. Scrolls rápidos retomam da cena visível e acumulam o destino lógico sem fila. Clique e breadcrumb animam por 220 ms, com suporte a movimento reduzido.
-- Arraste esquerdo ou do meio funciona no fundo e sobre cards após um pequeno threshold; a abertura do painel preserva a continuidade e mantém o foco fora da área coberta.
+- Home com a árvore A integrada: compactação bottom-up por altura da subárvore (`full → compact → chip → dot → agregado`), resumos reconciliados, minimapa e enquadramento. Todo pai conserva indicadores acessíveis dos filhos imediatos; dots agregados usam microdots de 6 px com alvos de 20 px.
+- O mouse é a origem de wheel, `Ctrl`/`Meta` + wheel, clique focalizado e botões `+`/`−`: o mesmo ponto de card, indicador ou cena permanece sob o cursor em cada frame, inclusive na abertura do painel. A seleção nunca recentraliza a câmera; somente o enquadramento explícito muda essa política.
+- **Foco no clique** começa desligado: clicar ou pressionar Enter apenas abre os detalhes, sem mudar foco, LOD ou cena. Ligado, o próximo clique usa 104% (três passos semânticos de 0,12), identificador + título truncado e até três gerações de contexto no dataset atual; alternar o toggle não move a árvore. Breadcrumb continua foco explícito.
+- Zoom+ sobre outro card transfere atenção progressivamente e de forma reversível; zoom-out não troca foco para estabilizar a câmera. Scrolls rápidos retomam da cena visível sem fila. Wheel/controles animam por 180 ms e clique focalizado/breadcrumb por 220 ms, com movimento reduzido.
+- Arraste esquerdo ou do meio funciona no fundo e sobre cards após um pequeno threshold; `Shift` + wheel faz pan horizontal imediato.
 - Conexões `TicketEdge` independentes, selecionáveis e com cor, espessura e tracejado próprios.
 - Dependências criadas por conector ou painel, removíveis sem alterar a hierarquia; ciclos e IDs inválidos são rejeitados.
 - Criação recursiva, edição, reparenting, exclusão segura, Lista e Kanban acessíveis por tabs.

@@ -208,6 +208,13 @@
   .proto-c-root { display: none; }
   .proto-d-head, .proto-d-row { grid-template-columns: minmax(360px,1.4fr) minmax(180px,.8fr) 130px 140px; }
 }
+@media (max-width: 720px) {
+  .proto-statebar { gap: 8px; padding: 0 12px; }
+  .proto-statebar > div:first-child { display: none; }
+  .proto-state-metrics { width: 100%; justify-content: space-between; gap: 12px; flex-wrap: nowrap; }
+  .proto-state-metrics > span { display: none; }
+  .proto-a-focus-toggle, .proto-a-color-toggle { padding: 6px 8px !important; font-size: 9px !important; }
+}
 @media (prefers-reduced-motion: reduce) {
   .proto-experience *, .proto-experience *::before, .proto-experience *::after, .proto-switcher * { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
   .proto-a-color-wash, .proto-a-node :is(strong, .proto-card-key, .proto-card-people, .proto-card-progress, .proto-summary-count) { transition: none !important; transition-delay: 0s !important; }
