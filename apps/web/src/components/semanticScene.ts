@@ -71,6 +71,7 @@ export interface WheelAnchor {
   cursorY: number;
   sceneX: number;
   sceneY: number;
+  kind: "card" | "indicator" | "scene";
   ticketId: string | null;
   relativeX: number;
   relativeY: number;
@@ -491,12 +492,12 @@ const indicatorLocation = (nodes: SemanticSceneNode[], ticketId: string | null) 
   return undefined;
 };
 
-export function captureWheelAnchor(clientX: number, clientY: number, stage: DOMRect, camera: SemanticCamera, nodes: SemanticSceneNode[], ticketId: string | null): WheelAnchor {
+export function captureWheelAnchor(clientX: number, clientY: number, stage: DOMRect, camera: SemanticCamera, nodes: SemanticSceneNode[], ticketId: string | null, preferIndicator = false): WheelAnchor {
   const cursorX = clientX - stage.left;
   const cursorY = clientY - stage.top;
   const sceneX = (cursorX - camera.x) / camera.scale;
   const sceneY = (cursorY - camera.y) / camera.scale;
-  const item = ticketId ? nodes.find((node) => node.node.ticket.id === ticketId) : undefined;
+  const item = ticketId && !preferIndicator ? nodes.find((node) => node.node.ticket.id === ticketId) : undefined;
   const indicator = item ? undefined : indicatorLocation(nodes, ticketId);
   const relative = (node: SemanticSceneNode): Omit<WheelAnchorTicket, "ticketId"> => ({
     relativeX: node.width > 0 ? (sceneX - node.position.x + node.width / 2) / node.width : 0,
@@ -521,6 +522,7 @@ export function captureWheelAnchor(clientX: number, clientY: number, stage: DOMR
     cursorY,
     sceneX,
     sceneY,
+    kind: indicator ? "indicator" : item ? "card" : "scene",
     ticketId: item || indicator ? ticketId : null,
     relativeX: item ? relative(item).relativeX : indicatorRelative.relativeX,
     relativeY: item ? relative(item).relativeY : indicatorRelative.relativeY,
@@ -534,7 +536,7 @@ export function cameraForAnchor(anchor: WheelAnchor, nodes: SemanticSceneNode[],
     y: item.position.y + reference.relativeY * item.height,
   });
   const primaryReference = anchor.ticketId ? { ticketId: anchor.ticketId, relativeX: anchor.relativeX, relativeY: anchor.relativeY } : null;
-  const primary = primaryReference ? nodes.find((node) => node.node.ticket.id === primaryReference.ticketId && node.width > 0 && node.height > 0) : undefined;
+  const primary = primaryReference && anchor.kind !== "indicator" ? nodes.find((node) => node.node.ticket.id === primaryReference.ticketId && node.width > 0 && node.height > 0) : undefined;
   const primaryIndicator = primary ? undefined : indicatorLocation(nodes, anchor.ticketId);
   const fallbackReference = anchor.fallbacks.find((reference) => nodes.some((node) => node.node.ticket.id === reference.ticketId && node.width > 0 && node.height > 0));
   const fallback = fallbackReference ? nodes.find((node) => node.node.ticket.id === fallbackReference.ticketId && node.width > 0 && node.height > 0) : undefined;

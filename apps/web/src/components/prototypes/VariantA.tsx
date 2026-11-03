@@ -23,7 +23,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
     zoomBy,
     fitContext,
     gestureHandlers,
-  } = useSemanticGestures(tickets, focusOnClick);
+  } = useSemanticGestures(tickets);
   const focus = tickets.find((ticket) => ticket.id === focusId) ?? tickets[0];
   const path = focus ? ticketPath(tickets, focus.id) : [];
   const visibleCount = rendered.filter((node) => node.opacity > 0.05).length;

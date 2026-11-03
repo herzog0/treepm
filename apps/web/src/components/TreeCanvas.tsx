@@ -48,7 +48,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
     zoomBy,
     fitContext,
     gestureHandlers,
-  } = useSemanticGestures(props.tickets, focusOnClick);
+  } = useSemanticGestures(props.tickets);
   const focus = props.tickets.find((ticket) => ticket.id === focusId) ?? props.tickets[0];
   const transitionTarget = transition ? props.tickets.find((ticket) => ticket.id === transition.toId) : undefined;
   const connectionSource = connectionSourceId ? props.tickets.find((ticket) => ticket.id === connectionSourceId) : undefined;
