@@ -261,6 +261,10 @@ export function useSemanticGestures(tickets: Ticket[], focusOnClick: boolean) {
       zoom: geometric ? baseCamera.zoom : clamp(0.5, 1.4, baseCamera.zoom - deltaY * 0.001),
       scale: geometric ? clamp(0.5, 1.6, baseCamera.scale - deltaY * 0.001) : baseCamera.scale,
     };
+    if (!geometric && direction > 0 && next.zoom === 1.4 && nextTransition && ticketId === nextTransition.toId) {
+      nextFocus = nextTransition.toId;
+      nextTransition = null;
+    }
     startAnchoredAnimation("wheel", nextFocus, nextTransition, next, anchor);
   };
 

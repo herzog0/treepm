@@ -94,6 +94,10 @@ Botão esquerdo funciona no fundo e sobre cards; o do meio continua disponível.
 
 Cards e o SVG das arestas compartilham uma wrapper de cena transladada imediatamente pela câmera. Cada `TicketEdge` conserva ID, seleção, cor, espessura e tracejado. Dependências são criadas pelo conector do card ou pelo fluxo do painel, nunca por mudança hierárquica. O modo `C`, o minimapa, o enquadramento e `prefers-reduced-motion` permanecem disponíveis.
 
+Na revisão do dataset com 36 tickets, clique/resize passou de 156,18 px de deriva para no máximo 0,58 px; agregação terminou em 0,071 px e os frames verificados tiveram zero overlaps e arestas com erro de até 0,016 px. Wheel off-center/bursts/trackpad ficou abaixo de 0,712 px e `Ctrl`+wheel abaixo de 0,284 px. Ao atingir 140% sobre o candidato, a transferência conclui na mesma animação, sem deixar atenção pendente no teto; reversão antes do teto restaura o foco anterior. Em 390 × 844, os dois toggles ocupam o toolbar sem sobreposição e `scrollWidth=390`.
+
+Evidências: [LOD de clique a 104%](assets/semantic-zoom/click-context-104.png), [modo C e título truncado](assets/semantic-zoom/click-context-color-104.png), [agregado misto com microdots](assets/semantic-zoom/mixed-microdots-92.png), [toolbar mobile na home](assets/semantic-zoom/mobile-toolbar-home.png) e [na referência A](assets/semantic-zoom/mobile-toolbar-variant-a.png).
+
 ## API REST principal
 
 - `GET /api/health`, `/api/bootstrap`, `/api/projects`, `/api/users`, `/api/projects/:id`.
