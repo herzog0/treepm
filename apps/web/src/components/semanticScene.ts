@@ -3,7 +3,12 @@ import type { Ticket, tidyTreeLayout } from "@treepm/domain";
 
 export interface SemanticCamera { x: number; y: number; zoom: number; scale: number }
 export type SemanticCardKind = "full" | "compact" | "chip" | "dot" | "summary";
-export interface FocusTransition { fromId: string; toId: string; progress: number }
+export interface FocusTransition {
+  fromId: string;
+  toId: string;
+  progress: number;
+  fromScene?: SemanticSceneNode[];
+}
 type Layout = ReturnType<typeof tidyTreeLayout>;
 type LayoutNode = Layout["nodes"][number];
 interface SceneItem {
@@ -221,9 +226,11 @@ function blendScenes(layout: Layout, from: SemanticSceneNode[], to: SemanticScen
 }
 
 export function createSemanticScene(layout: Layout, tickets: Ticket[], focusId: string, transition: FocusTransition | null, zoom: number, viewportWidth: number) {
-  if (!transition || transition.progress <= 0 || transition.fromId === transition.toId) return focusScene(layout, tickets, focusId, zoom, viewportWidth);
+  if (!transition || (transition.fromId === transition.toId && !transition.fromScene)) return focusScene(layout, tickets, focusId, zoom, viewportWidth);
+  if (transition.progress <= 0 && transition.fromScene) return transition.fromScene;
+  if (transition.progress <= 0) return focusScene(layout, tickets, focusId, zoom, viewportWidth);
   if (transition.progress >= 1) return focusScene(layout, tickets, transition.toId, zoom, viewportWidth);
-  const from = focusScene(layout, tickets, transition.fromId, zoom, viewportWidth);
+  const from = transition.fromScene ?? focusScene(layout, tickets, transition.fromId, zoom, viewportWidth);
   const to = focusScene(layout, tickets, transition.toId, zoom, viewportWidth);
   return blendScenes(layout, from, to, transition.progress, zoom, viewportWidth);
 }

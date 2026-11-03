@@ -69,7 +69,13 @@ A home usa a árvore semântica de `TreeCanvas.tsx`, implementada em DOM/SVG e i
 - Mirar um card indica atenção sem mutar foco. Zoom+ sobre outro card progride entre as cenas do foco atual e do candidato; deltas adicionais invertem larguras e concluem a troca. Reverter o gesto antes da conclusão retoma o foco anterior. Wheel no fundo nunca escolhe um ticket arbitrário.
 - Clique/Enter define foco e abre os detalhes do ticket. Pan, LOD e enquadramento não apagam seleção nem alteram `parentId`.
 
-Cards e arestas são calculados a partir dos mesmos retângulos no mesmo render dirigido pelo gesto. Não há transições CSS independentes de `transform` e `d`, evitando dessincronia durante reversões. Nós que entram/saem convergem para o representante visível mais próximo; conexões cujos extremos não estão representados não são desenhadas.
+Cards e arestas são calculados a partir dos mesmos retângulos no mesmo render dirigido pelo gesto ou pelo tempo. Não há transições CSS independentes de `transform` e `d`, evitando dessincronia durante reversões. Durante a transferência, larguras e alturas são interpoladas e a união das duas cenas passa por um novo layout completo: coordenadas nunca são interpoladas isoladamente, pois isso permitiria colisões. Nós que entram expandem a partir de dot e nós que saem comprimem até dot, permanecendo representados e sem usar opacidade para esconder colisões. Conexões cujos extremos não estão representados não são desenhadas.
+
+### Foco dirigido por tempo
+
+Clique em card ou breadcrumb inicia uma animação de **220 ms** com easing simétrico de aceleração/desaceleração. `requestAnimationFrame` atualiza progresso, câmera, dimensões, posições e arestas no mesmo frame. O ticket é selecionado e o painel abre imediatamente; o `ResizeObserver` compensa a mudança de largura no instante do resize e ajusta a câmera final para manter o card focado fora da área do painel.
+
+Cada nova ação captura a cena visual atual em `fromScene`, evitando voltar ao foco inicial ou enfileirar animações. Wheel cancela o loop temporal e assume o progresso; pressionar um card congela a cena até o clique, impedindo que o alvo saia de sob o ponteiro. Pan começa somente após o threshold e continua manipulação direta, sem easing. `prefers-reduced-motion` aplica o foco final imediatamente, sem deslocamento espacial.
 
 ### Pan e dependências
 

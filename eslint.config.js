@@ -3,7 +3,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["**/dist/**", "**/node_modules/**", "**/data/**", "**/*.config.js", ".tmp-gesture-chrome/**", ".tmp-gesture-repro.mjs"] },
+  { ignores: ["**/dist/**", "**/node_modules/**", "**/data/**", "**/*.config.js"] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {

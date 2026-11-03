@@ -11,5 +11,3 @@ build/
 coverage/
 apps/api/data/
 *.tsbuildinfo
-.tmp-gesture-chrome/
-.tmp-gesture-repro.mjs
