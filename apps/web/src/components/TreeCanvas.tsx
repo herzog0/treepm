@@ -194,7 +194,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
         {visibleEdges.map(({ edge, source, target }) => <path key={edge.id} d={semanticEdgePath(source, target)} />)}
         {rendered.filter((node) => node.opacity > 0.05).map((node) => <rect key={node.node.ticket.id} x={node.position.x - node.layoutWidth / 2} y={node.position.y} width={Math.max(4, node.layoutWidth)} height={Math.max(4, node.layoutHeight)} rx={4} />)}
       </svg>
-      <div className="semantic-help">Wheel no cursor · zoom+ sobre outro card transfere atenção · <kbd>Shift</kbd> + wheel pan horizontal · arraste para pan · <kbd>C</kbd> cores</div>
+      <div className="semantic-help">Wheel no cursor · mova durante wheel para auto-pan · arraste e wheel combinam · <kbd>Shift</kbd> + wheel horizontal · <kbd>C</kbd> cores</div>
     </div>
   </section>;
 }
