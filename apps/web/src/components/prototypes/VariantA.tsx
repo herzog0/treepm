@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import { ticketIdentifier } from "@treepm/domain";
 import { semanticEdgePath } from "../semanticScene.js";
 import { useSemanticGestures } from "../useSemanticGestures.js";
@@ -20,6 +20,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
     isDragging,
     focusTicket,
     setAttentionId,
+    clearInteraction,
     zoomBy,
     fitContext,
     gestureHandlers,
@@ -30,9 +31,15 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== "c" || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
       const target = event.target;
-      if (target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select, [contenteditable]"))) return;
+      const editing = target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select, [contenteditable]"));
+      if (event.key === "Escape" && !editing) {
+        clearInteraction();
+        setSelectedTicketId(null);
+        setAttentionId(null);
+        return;
+      }
+      if (event.key.toLowerCase() !== "c" || event.ctrlKey || event.metaKey || event.altKey || event.repeat || editing) return;
       event.preventDefault();
       setColorMode((current) => !current);
     };
@@ -43,6 +50,13 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
   const activateTicket = (ticketId: string, point?: { clientX: number; clientY: number }) => {
     setSelectedTicketId(ticketId);
     if (focusOnClick) focusTicket(ticketId, point);
+  };
+  const clearBackground = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target;
+    const background = target === event.currentTarget || (target instanceof Element && (target.classList.contains("proto-a-scene") || target.classList.contains("proto-a-lines")));
+    if (!background) return;
+    setSelectedTicketId(null);
+    setAttentionId(null);
   };
 
   if (!focus) return null;
@@ -62,7 +76,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
       </div>
     </div>
     <div className="proto-a-path">{path.map((ticket, index) => <span key={ticket.id}>{index > 0 && "›"}{ticket.title}</span>)}</div>
-    <div className={`proto-a-stage ${isDragging ? "is-dragging" : ""}`} ref={stageRef} {...gestureHandlers}>
+    <div className={`proto-a-stage ${isDragging ? "is-dragging" : ""}`} ref={stageRef} onClick={clearBackground} {...gestureHandlers}>
       <div className="proto-a-scene" style={{ transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.scale})` }}>
         <svg className="proto-a-lines" aria-hidden="true">
           {rendered.flatMap((node) => {
@@ -124,7 +138,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
         <button onClick={fitContext} aria-label="Enquadrar contexto">⌂</button>
         <button onClick={() => zoomBy(0.08)} aria-label="Ampliar semântica">+</button>
       </div>
-      <div className="proto-a-help">Wheel semântico · Ctrl/⌘ + wheel e mova para auto-pan · C alterna cores</div>
+      <div className="proto-a-help">Wheel ancora no evento · Ctrl/⌘ só escala · sem drag+wheel · C alterna cores</div>
       <div className="proto-a-focus-readout"><span className={`proto-status-dot proto-status-${focusedStatus.status}`} />{focusedStatus.label}</div>
     </div>
   </div>;

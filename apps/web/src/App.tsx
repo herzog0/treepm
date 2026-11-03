@@ -33,6 +33,17 @@ export function App() {
     }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select, [contenteditable]"))) return;
+      setSelectedTicketId(null);
+      setSelectedEdgeId(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const project = data?.projects[0];
   const tickets = useMemo(() => data?.tickets.filter((ticket) => ticket.projectId === project?.id) ?? [], [data, project?.id]);
@@ -78,7 +89,7 @@ export function App() {
     <main className={`workspace ${!prototypeVariant && (selectedTicket || selectedEdge) ? "with-panel" : ""}`}>
       <div className="primary-view">
         {prototypeVariant && <PrototypeExperience variant={prototypeVariant} data={{ project, tickets, users: data.users }} onVariantChange={setPrototypeVariant} />}
-        {!prototypeVariant && view === "tree" && <TreeCanvas tickets={tickets} edges={edges} users={data.users} projectKey={project.key} selectedTicketId={selectedTicketId} selectedEdgeId={selectedEdgeId} linkSourceId={linkSourceId} onSelectTicket={selectTicket} onSelectEdge={(edgeId) => { setSelectedEdgeId(edgeId); setSelectedTicketId(null); }} onConnect={(sourceId, targetId) => {
+        {!prototypeVariant && view === "tree" && <TreeCanvas tickets={tickets} edges={edges} users={data.users} projectKey={project.key} selectedTicketId={selectedTicketId} selectedEdgeId={selectedEdgeId} linkSourceId={linkSourceId} onClearSelection={() => { setSelectedTicketId(null); setSelectedEdgeId(null); }} onSelectTicket={selectTicket} onSelectEdge={(edgeId) => { setSelectedEdgeId(edgeId); setSelectedTicketId(null); }} onConnect={(sourceId, targetId) => {
           void api.createDependency(project.id, sourceId, targetId).then(() => refresh("Dependência criada.")).catch(showError);
         }} />}
         {!prototypeVariant && view === "list" && <ListView project={project} tickets={tickets} users={data.users} onSelect={selectTicket} onStatus={async (ticketId, status) => { await api.updateTicket(ticketId, { status }); await refresh("Status atualizado."); }} />}

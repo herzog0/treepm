@@ -17,7 +17,6 @@ interface DragState {
 
 interface WheelSession {
   anchor: WheelAnchor;
-  following: boolean;
   timerId: number;
 }
 
@@ -55,6 +54,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
   const [size, setSize] = useState({ width: 1200, height: 700 });
   const [isDragging, setIsDragging] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
+  const attentionBlockRef = useRef(false);
   const lastPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const suppressClickRef = useRef(false);
@@ -84,6 +84,9 @@ export function useSemanticGestures(tickets: Ticket[]) {
     sceneOverrideRef.current = next;
     setSceneOverride(next);
   };
+  const updateAttentionId = (value: string | null | ((current: string | null) => string | null)) => {
+    if (!attentionBlockRef.current) setAttentionId(value);
+  };
   const currentScene = () => sceneOverrideRef.current ?? sceneFor(cameraRef.current, focusRef.current, transitionRef.current);
   const cancelAnimation = () => {
     const animation = animationRef.current;
@@ -91,10 +94,21 @@ export function useSemanticGestures(tickets: Ticket[]) {
     if (animation?.timerId !== undefined) clearTimeout(animation.timerId);
     animationRef.current = null;
   };
+  const settleAnimation = () => {
+    attentionBlockRef.current = true;
+    cancelAnimation();
+    commitScene(null);
+    commitFocus(focusRef.current, null);
+    setAttentionId(null);
+  };
   const endWheelSession = () => {
     const session = wheelSessionRef.current;
     if (session) window.clearTimeout(session.timerId);
     wheelSessionRef.current = null;
+  };
+  const clearInteraction = () => {
+    endWheelSession();
+    settleAnimation();
   };
   const armWheelSession = (session: WheelSession) => {
     window.clearTimeout(session.timerId);
@@ -104,21 +118,9 @@ export function useSemanticGestures(tickets: Ticket[]) {
   };
   const beginWheelSession = (anchor: WheelAnchor) => {
     endWheelSession();
-    const session: WheelSession = { anchor, following: true, timerId: 0 };
+    const session: WheelSession = { anchor, timerId: 0 };
     armWheelSession(session);
     wheelSessionRef.current = session;
-  };
-  const followWheelPointer = (clientX: number, clientY: number, modifierActive: boolean) => {
-    const session = wheelSessionRef.current;
-    const stage = stageRef.current?.getBoundingClientRect();
-    if (!modifierActive || !session?.following || !stage) return false;
-    if (clientX < stage.left || clientX > stage.right || clientY < stage.top || clientY > stage.bottom) return false;
-    session.anchor.cursorX = clientX - stage.left;
-    session.anchor.cursorY = clientY - stage.top;
-    armWheelSession(session);
-    const current = cameraRef.current;
-    flushSync(() => commitCamera({ ...current, ...cameraForAnchor(session.anchor, currentScene(), current.scale) }));
-    return true;
   };
   const completeAnchoredAnimation = (animation: AnchoredAnimation) => {
     const finalNodes = sceneFor(animation.toCamera, animation.toFocusId, animation.toTransition);
@@ -129,6 +131,8 @@ export function useSemanticGestures(tickets: Ticket[]) {
     commitCamera(finalCamera);
   };
   const startAnchoredAnimation = (type: "focus" | "wheel", toFocusId: string, toTransition: FocusTransition | null, toCamera: SemanticCamera, anchor: WheelAnchor) => {
+    attentionBlockRef.current = true;
+    setAttentionId(null);
     const fromScene = currentScene();
     const fromCamera = cameraRef.current;
     if (type === "wheel") beginWheelSession(anchor);
@@ -201,10 +205,12 @@ export function useSemanticGestures(tickets: Ticket[]) {
   }, [layout, tickets]);
   useEffect(() => {
     if (tickets.some((ticket) => ticket.id === focusId)) return;
-    cancelAnimation();
-    commitScene(null);
+    settleAnimation();
     commitFocus(initialFocus, null);
   }, [tickets, focusId, initialFocus]);
+  useEffect(() => {
+    if (attentionId && !rendered.some((node) => node.node.ticket.id === attentionId)) setAttentionId(null);
+  }, [rendered, attentionId]);
   useEffect(() => {
     const preventNativeGesture = (event: Event) => {
       if (dragRef.current) event.preventDefault();
@@ -238,7 +244,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
   };
   const fitContext = () => {
     endWheelSession();
-    cancelAnimation();
+    settleAnimation();
     const visible = rendered.filter((node) => node.opacity > 0.05 && node.width > 0);
     if (!visible.length) return;
     const minX = Math.min(...visible.map((node) => node.position.x - node.layoutWidth / 2));
@@ -262,19 +268,23 @@ export function useSemanticGestures(tickets: Ticket[]) {
     const deltaX = event.deltaX * deltaUnit;
     if (event.shiftKey && !event.ctrlKey && !event.metaKey) {
       endWheelSession();
-      cancelAnimation();
+      settleAnimation();
       commitCamera({ ...current, x: current.x - deltaY - deltaX, y: current.y });
       return;
     }
     const stage = stageRef.current?.getBoundingClientRect();
     if (!stage) return;
     const target = event.target instanceof Element ? event.target.closest("[data-indicator-ticket-id], [data-ticket-id]") : null;
+    const sessionAnchor = wheelSessionRef.current?.anchor;
     const ticketId = target?.getAttribute("data-indicator-ticket-id") ?? target?.getAttribute("data-ticket-id") ?? null;
+    const samePoint = sessionAnchor && event.clientX - stage.left === sessionAnchor.cursorX && event.clientY - stage.top === sessionAnchor.cursorY;
+    const anchor = sessionAnchor && samePoint
+      ? { ...sessionAnchor, cursorX: event.clientX - stage.left, cursorY: event.clientY - stage.top }
+      : captureWheelAnchor(event.clientX, event.clientY, stage, current, currentScene(), ticketId, target?.hasAttribute("data-indicator-ticket-id") ?? false);
     const active = animationRef.current?.type === "wheel" ? animationRef.current : null;
     const baseCamera = active?.toCamera ?? current;
     const currentFocus = active?.toFocusId ?? focusRef.current;
     const currentTransition = active?.toTransition ?? transitionRef.current;
-    const anchor = captureWheelAnchor(event.clientX, event.clientY, stage, current, currentScene(), ticketId, target?.hasAttribute("data-indicator-ticket-id") ?? false);
     const geometric = event.ctrlKey || event.metaKey;
     const direction = deltaY < 0 ? 1 : -1;
     const step = clamp(0.08, 0.28, Math.abs(deltaY) / 500);
@@ -324,13 +334,10 @@ export function useSemanticGestures(tickets: Ticket[]) {
     suppressClickRef.current = true;
   };
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const modifierActive = event.ctrlKey || event.metaKey;
+    attentionBlockRef.current = false;
     lastPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
     const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) {
-      followWheelPointer(event.clientX, event.clientY, modifierActive);
-      return;
-    }
+    if (!drag || drag.pointerId !== event.pointerId) return;
     if (event.buttons === 0) {
       if (drag.active) suppressDragClick();
       dragRef.current = null;
@@ -344,7 +351,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
       drag.active = true;
       deltaX = event.clientX - drag.startX;
       deltaY = event.clientY - drag.startY;
-      if (animationRef.current?.type === "focus") cancelAnimation();
+      if (animationRef.current?.type === "focus") settleAnimation();
       setIsDragging(true);
       event.currentTarget.setPointerCapture(event.pointerId);
     }
@@ -352,14 +359,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
     drag.lastY = event.clientY;
     if (!event.currentTarget.hasPointerCapture(drag.pointerId)) event.currentTarget.setPointerCapture(drag.pointerId);
     event.preventDefault();
-    if (followWheelPointer(event.clientX, event.clientY, modifierActive)) return;
-    if (wheelSessionRef.current && !modifierActive) return;
-    const stage = stageRef.current?.getBoundingClientRect();
-    const outside = stage && (event.clientX < stage.left || event.clientX > stage.right || event.clientY < stage.top || event.clientY > stage.bottom);
-    if (outside && wheelSessionRef.current) {
-      endWheelSession();
-      cancelAnimation();
-    }
+    if (wheelSessionRef.current) return;
     const current = cameraRef.current;
     commitCamera({ ...current, x: current.x + deltaX, y: current.y + deltaY });
   };
@@ -389,9 +389,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
     if (dragRef.current) event.preventDefault();
   };
   const onPointerLeaveStage = () => {
-    if (dragRef.current?.active) return;
-    const session = wheelSessionRef.current;
-    if (session) session.following = false;
+    setAttentionId(null);
   };
 
   return {
@@ -404,7 +402,8 @@ export function useSemanticGestures(tickets: Ticket[]) {
     stageRef,
     isDragging,
     focusTicket,
-    setAttentionId,
+    setAttentionId: updateAttentionId,
+    clearInteraction,
     zoomBy,
     fitContext,
     gestureHandlers: {

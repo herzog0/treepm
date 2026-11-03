@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import { getProgress, ticketIdentifier } from "@treepm/domain";
 import type { Progress, Ticket, TicketEdge, User } from "@treepm/domain";
 import { Avatars } from "./Avatars.js";
@@ -25,6 +25,7 @@ interface TreeCanvasProps {
   selectedTicketId: string | null;
   selectedEdgeId: string | null;
   linkSourceId: string | null;
+  onClearSelection: () => void;
   onSelectTicket: (ticketId: string) => void;
   onSelectEdge: (edgeId: string) => void;
   onConnect: (sourceId: string, targetId: string) => void;
@@ -45,6 +46,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
     isDragging,
     focusTicket,
     setAttentionId,
+    clearInteraction,
     zoomBy,
     fitContext,
     gestureHandlers,
@@ -80,7 +82,10 @@ export function TreeCanvas(props: TreeCanvasProps) {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target;
       const editing = target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select, [contenteditable]"));
-      if (event.key === "Escape" && !editing) setConnectionSourceId(null);
+      if (event.key === "Escape" && !editing) {
+        clearInteraction();
+        setConnectionSourceId(null);
+      }
       if (event.key.toLowerCase() !== "c" || event.ctrlKey || event.metaKey || event.altKey || event.repeat || editing) return;
       event.preventDefault();
       setColorMode((current) => !current);
@@ -97,6 +102,13 @@ export function TreeCanvas(props: TreeCanvasProps) {
     }
     if (focusOnClick) focusTicket(ticketId, point);
     props.onSelectTicket(ticketId);
+  };
+  const clearBackground = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target;
+    const background = target === event.currentTarget || (target instanceof Element && (target.classList.contains("semantic-tree-scene") || target.classList.contains("semantic-tree-lines")));
+    if (!background) return;
+    setAttentionId(null);
+    props.onClearSelection();
   };
 
   if (!focus) return null;
@@ -115,7 +127,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
       {connectionSource ? <>Dependência de <strong>{connectionSource.title}</strong>: selecione o destino.</> : <>Selecione o destino da dependência iniciada no painel.</>}
       {connectionSource && <button onClick={() => setConnectionSourceId(null)}>Cancelar</button>}
     </div>}
-    <div className={`semantic-tree-stage ${isDragging ? "is-dragging" : ""}`} ref={stageRef} {...gestureHandlers}>
+    <div className={`semantic-tree-stage ${isDragging ? "is-dragging" : ""}`} ref={stageRef} onClick={clearBackground} {...gestureHandlers}>
       <div className="semantic-tree-scene" style={{ transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.scale})` }}>
         <svg className="semantic-tree-lines" aria-label="Conexões entre tickets">
           <defs>{visibleEdges.map(({ edge }) => <marker key={edge.id} id={`semantic-arrow-${edge.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill={edge.style.color} /></marker>)}</defs>
@@ -194,7 +206,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
         {visibleEdges.map(({ edge, source, target }) => <path key={edge.id} d={semanticEdgePath(source, target)} />)}
         {rendered.filter((node) => node.opacity > 0.05).map((node) => <rect key={node.node.ticket.id} x={node.position.x - node.layoutWidth / 2} y={node.position.y} width={Math.max(4, node.layoutWidth)} height={Math.max(4, node.layoutHeight)} rx={4} />)}
       </svg>
-      <div className="semantic-help">Wheel semântico no cursor · <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + wheel e mova para auto-pan · <kbd>Shift</kbd> + wheel horizontal · <kbd>C</kbd> cores</div>
+      <div className="semantic-help">Wheel ancora no evento · mover não faz pan · <kbd>Ctrl</kbd>/<kbd>⌘</kbd> só escala · <kbd>Shift</kbd> + wheel horizontal · <kbd>C</kbd> cores</div>
     </div>
   </section>;
 }
