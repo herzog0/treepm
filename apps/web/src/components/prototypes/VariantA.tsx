@@ -124,7 +124,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
         <button onClick={fitContext} aria-label="Enquadrar contexto">⌂</button>
         <button onClick={() => zoomBy(0.08)} aria-label="Ampliar semântica">+</button>
       </div>
-      <div className="proto-a-help">Wheel no cursor · mova para auto-pan · arraste e wheel combinam · C alterna cores</div>
+      <div className="proto-a-help">Wheel semântico · Ctrl/⌘ + wheel e mova para auto-pan · C alterna cores</div>
       <div className="proto-a-focus-readout"><span className={`proto-status-dot proto-status-${focusedStatus.status}`} />{focusedStatus.label}</div>
     </div>
   </div>;
