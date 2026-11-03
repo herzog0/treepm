@@ -150,7 +150,7 @@ function layoutScene(items: SceneItem[], zoom: number, viewportWidth: number) {
     return {
       ...item,
       ...size,
-      opacity: 1,
+      opacity: item.opacity ?? 1,
       position: {
         x: viewportWidth / 2 + position.x - firstRootX,
         y: 28 + (levelTops.get(item.node.depth) ?? 0),
@@ -219,10 +219,16 @@ function blendScenes(layout: Layout, from: SemanticSceneNode[], to: SemanticScen
       kind: progress < 0.5 ? startKind : endKind,
       width: lerp(source?.width ?? dot.width, target?.width ?? dot.width, progress),
       height: lerp(source?.height ?? dot.height, target?.height ?? dot.height, progress),
-      opacity: 1,
+      opacity: lerp(source?.opacity ?? 0, target?.opacity ?? 0, progress),
     }];
   });
   return layoutScene(items, zoom, viewportWidth);
+}
+
+export function blendSemanticScenes(layout: Layout, from: SemanticSceneNode[], to: SemanticSceneNode[], progress: number, zoom: number, viewportWidth: number) {
+  if (progress <= 0) return from;
+  if (progress >= 1) return to;
+  return blendScenes(layout, from, to, progress, zoom, viewportWidth);
 }
 
 export function createSemanticScene(layout: Layout, tickets: Ticket[], focusId: string, transition: FocusTransition | null, zoom: number, viewportWidth: number) {
@@ -232,7 +238,7 @@ export function createSemanticScene(layout: Layout, tickets: Ticket[], focusId: 
   if (transition.progress >= 1) return focusScene(layout, tickets, transition.toId, zoom, viewportWidth);
   const from = transition.fromScene ?? focusScene(layout, tickets, transition.fromId, zoom, viewportWidth);
   const to = focusScene(layout, tickets, transition.toId, zoom, viewportWidth);
-  return blendScenes(layout, from, to, transition.progress, zoom, viewportWidth);
+  return blendSemanticScenes(layout, from, to, transition.progress, zoom, viewportWidth);
 }
 
 export function captureWheelAnchor(clientX: number, clientY: number, stage: DOMRect, camera: SemanticCamera, nodes: SemanticSceneNode[], ticketId: string | null): WheelAnchor {

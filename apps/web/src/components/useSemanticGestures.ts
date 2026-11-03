@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, SyntheticEvent, WheelEvent as ReactWheelEvent } from "react";
 import { childrenOf, tidyTreeLayout } from "@treepm/domain";
 import type { Ticket } from "@treepm/domain";
-import { cameraForAnchor, captureWheelAnchor, createSemanticScene } from "./semanticScene.js";
-import type { FocusTransition, SemanticCamera } from "./semanticScene.js";
+import { blendSemanticScenes, cameraForAnchor, captureWheelAnchor, createSemanticScene } from "./semanticScene.js";
+import type { FocusTransition, SemanticCamera, SemanticSceneNode, WheelAnchor } from "./semanticScene.js";
 
 interface DragState {
   pointerId: number;
@@ -15,14 +15,30 @@ interface DragState {
 }
 
 interface FocusAnimation {
+  type: "focus";
   toId: string;
   startCamera: SemanticCamera;
   endCamera: SemanticCamera;
   frameId: number;
 }
 
+interface WheelAnimation {
+  type: "wheel";
+  fromScene: SemanticSceneNode[];
+  fromCamera: SemanticCamera;
+  toCamera: SemanticCamera;
+  toFocusId: string;
+  toTransition: FocusTransition | null;
+  anchor: WheelAnchor;
+  frameId: number;
+}
+
+type SemanticAnimation = FocusAnimation | WheelAnimation;
+
 const clamp = (minimum: number, maximum: number, value: number) => Math.min(maximum, Math.max(minimum, value));
-const FOCUS_DURATION = 220;
+const lerp = (from: number, to: number, progress: number) => from + (to - from) * progress;
+const ease = (progress: number) => progress < 0.5 ? 4 * Math.pow(progress, 3) : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+const MOTION_DURATION = 220;
 
 export function useSemanticGestures(tickets: Ticket[]) {
   const layout = useMemo(() => tidyTreeLayout(tickets), [tickets]);
@@ -30,6 +46,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
   const initialFocus = firstRoot?.id ?? tickets[0]?.id ?? "";
   const [focusId, setFocusId] = useState(initialFocus);
   const [transition, setTransition] = useState<FocusTransition | null>(null);
+  const [sceneOverride, setSceneOverride] = useState<SemanticSceneNode[] | null>(null);
   const [attentionId, setAttentionId] = useState<string | null>(null);
   const [camera, setCamera] = useState<SemanticCamera>({ x: 0, y: 0, zoom: 0.82, scale: 1 });
   const [size, setSize] = useState({ width: 1200, height: 700 });
@@ -38,14 +55,16 @@ export function useSemanticGestures(tickets: Ticket[]) {
   const dragRef = useRef<DragState | null>(null);
   const suppressClickRef = useRef(false);
   const suppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const animationRef = useRef<FocusAnimation | null>(null);
+  const animationRef = useRef<SemanticAnimation | null>(null);
   const cameraRef = useRef(camera);
   const focusRef = useRef(focusId);
   const transitionRef = useRef(transition);
+  const sceneOverrideRef = useRef(sceneOverride);
   const sizeRef = useRef(size);
 
   const sceneFor = (nextCamera: SemanticCamera, nextFocusId: string, nextTransition: FocusTransition | null, viewportWidth = sizeRef.current.width) => createSemanticScene(layout, tickets, nextFocusId, nextTransition, nextCamera.zoom, viewportWidth);
-  const rendered = useMemo(() => createSemanticScene(layout, tickets, focusId, transition, camera.zoom, size.width), [layout, tickets, focusId, transition, camera.zoom, size.width]);
+  const generated = useMemo(() => createSemanticScene(layout, tickets, focusId, transition, camera.zoom, size.width), [layout, tickets, focusId, transition, camera.zoom, size.width]);
+  const rendered = sceneOverride ?? generated;
 
   const commitCamera = (next: SemanticCamera) => {
     cameraRef.current = next;
@@ -57,9 +76,55 @@ export function useSemanticGestures(tickets: Ticket[]) {
     setFocusId(nextFocusId);
     setTransition(nextTransition);
   };
-  const cancelFocusAnimation = () => {
+  const commitScene = (next: SemanticSceneNode[] | null) => {
+    sceneOverrideRef.current = next;
+    setSceneOverride(next);
+  };
+  const currentScene = () => sceneOverrideRef.current ?? sceneFor(cameraRef.current, focusRef.current, transitionRef.current);
+  const cancelAnimation = () => {
     if (animationRef.current) cancelAnimationFrame(animationRef.current.frameId);
     animationRef.current = null;
+  };
+  const completeWheelAnimation = (animation: WheelAnimation) => {
+    const finalNodes = sceneFor(animation.toCamera, animation.toFocusId, animation.toTransition);
+    const finalCamera = { ...animation.toCamera, ...cameraForAnchor(animation.anchor, finalNodes, animation.toCamera.scale) };
+    animationRef.current = null;
+    commitScene(null);
+    commitFocus(animation.toFocusId, animation.toTransition);
+    commitCamera(finalCamera);
+  };
+  const startWheelAnimation = (toFocusId: string, toTransition: FocusTransition | null, toCamera: SemanticCamera, anchor: WheelAnchor) => {
+    const fromScene = currentScene();
+    const fromCamera = cameraRef.current;
+    cancelAnimation();
+    const targetNodes = sceneFor(toCamera, toFocusId, toTransition);
+    const targetCamera = { ...toCamera, ...cameraForAnchor(anchor, targetNodes, toCamera.scale) };
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      commitScene(null);
+      commitFocus(toFocusId, toTransition);
+      commitCamera(targetCamera);
+      return;
+    }
+    const animation: WheelAnimation = { type: "wheel", fromScene, fromCamera, toCamera: targetCamera, toFocusId, toTransition, anchor, frameId: 0 };
+    animationRef.current = animation;
+    const startedAt = performance.now();
+    const tick = (timestamp: number) => {
+      if (animationRef.current !== animation) return;
+      const linear = clamp(0, 1, (timestamp - startedAt) / MOTION_DURATION);
+      if (linear >= 1 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        completeWheelAnimation(animation);
+        return;
+      }
+      const progress = ease(linear);
+      const zoom = lerp(fromCamera.zoom, animation.toCamera.zoom, progress);
+      const scale = lerp(fromCamera.scale, animation.toCamera.scale, progress);
+      const targetNodes = sceneFor(animation.toCamera, animation.toFocusId, animation.toTransition);
+      const nextNodes = blendSemanticScenes(layout, fromScene, targetNodes, progress, zoom, sizeRef.current.width);
+      commitScene(nextNodes);
+      commitCamera({ zoom, scale, ...cameraForAnchor(anchor, nextNodes, scale) });
+      animation.frameId = requestAnimationFrame(tick);
+    };
+    animation.frameId = requestAnimationFrame(tick);
   };
 
   useEffect(() => {
@@ -70,7 +135,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
       const widthDelta = (nextSize.width - sizeRef.current.width) / 2;
       sizeRef.current = nextSize;
       const animation = animationRef.current;
-      if (animation && widthDelta !== 0) {
+      if (animation?.type === "focus" && widthDelta !== 0) {
         animation.startCamera = { ...animation.startCamera, x: animation.startCamera.x - widthDelta };
         const finalNodes = sceneFor(animation.endCamera, animation.toId, null, nextSize.width);
         const focused = finalNodes.find((node) => node.node.ticket.id === animation.toId);
@@ -90,7 +155,8 @@ export function useSemanticGestures(tickets: Ticket[]) {
   }, [layout, tickets]);
   useEffect(() => {
     if (tickets.some((ticket) => ticket.id === focusId)) return;
-    cancelFocusAnimation();
+    cancelAnimation();
+    commitScene(null);
     commitFocus(initialFocus, null);
   }, [tickets, focusId, initialFocus]);
   useEffect(() => {
@@ -105,33 +171,37 @@ export function useSemanticGestures(tickets: Ticket[]) {
     };
   }, []);
   useEffect(() => () => {
-    cancelFocusAnimation();
+    cancelAnimation();
     if (suppressTimerRef.current) clearTimeout(suppressTimerRef.current);
   }, []);
 
   const focusTicket = (id: string) => {
-    if (animationRef.current?.toId === id) return;
-    if (!transitionRef.current && focusRef.current === id) return;
-    cancelFocusAnimation();
+    if (animationRef.current?.type === "focus" && animationRef.current.toId === id) return;
+    if (!sceneOverrideRef.current && !transitionRef.current && focusRef.current === id) return;
+    cancelAnimation();
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      commitScene(null);
       commitFocus(id, null);
       return;
     }
     const current = cameraRef.current;
     const currentFocus = focusRef.current;
-    const currentNodes = sceneFor(current, currentFocus, transitionRef.current);
+    const currentNodes = currentScene();
     if (!currentNodes.some((node) => node.node.ticket.id === id)) {
+      commitScene(null);
       commitFocus(id, null);
       return;
     }
     const startedAt = performance.now();
     const initialTransition: FocusTransition = { fromId: currentFocus, toId: id, progress: 0, fromScene: currentNodes };
-    const animation: FocusAnimation = { toId: id, startCamera: current, endCamera: current, frameId: 0 };
+    const animation: FocusAnimation = { type: "focus", toId: id, startCamera: current, endCamera: current, frameId: 0 };
     animationRef.current = animation;
+    commitScene(null);
     commitFocus(currentFocus, initialTransition);
 
     const complete = () => {
       animationRef.current = null;
+      commitScene(null);
       commitFocus(id, null);
       commitCamera(animation.endCamera);
     };
@@ -141,33 +211,34 @@ export function useSemanticGestures(tickets: Ticket[]) {
         complete();
         return;
       }
-      const linear = clamp(0, 1, (timestamp - startedAt) / FOCUS_DURATION);
+      const linear = clamp(0, 1, (timestamp - startedAt) / MOTION_DURATION);
       if (linear >= 1) {
         complete();
         return;
       }
-      const progress = linear < 0.5 ? 4 * Math.pow(linear, 3) : 1 - Math.pow(-2 * linear + 2, 3) / 2;
+      const progress = ease(linear);
       const nextTransition = { ...initialTransition, progress };
       commitFocus(currentFocus, nextTransition);
       commitCamera({
         ...current,
-        x: animation.startCamera.x + (animation.endCamera.x - animation.startCamera.x) * progress,
-        y: animation.startCamera.y + (animation.endCamera.y - animation.startCamera.y) * progress,
+        x: lerp(animation.startCamera.x, animation.endCamera.x, progress),
+        y: lerp(animation.startCamera.y, animation.endCamera.y, progress),
       });
       animation.frameId = requestAnimationFrame(tick);
     };
     animation.frameId = requestAnimationFrame(tick);
   };
   const zoomBy = (amount: number) => {
-    cancelFocusAnimation();
+    const active = animationRef.current?.type === "wheel" ? animationRef.current : null;
     const current = cameraRef.current;
-    const next = { ...current, zoom: clamp(0.5, 1.4, current.zoom + amount) };
-    const anchor = captureWheelAnchor(size.width / 2, size.height / 2, new DOMRect(0, 0, size.width, size.height), current, rendered, null);
-    const nextNodes = sceneFor(next, focusRef.current, transitionRef.current);
-    commitCamera({ ...next, ...cameraForAnchor(anchor, nextNodes, next.scale) });
+    const baseCamera = active?.toCamera ?? current;
+    const next = { ...baseCamera, zoom: clamp(0.5, 1.4, baseCamera.zoom + amount) };
+    const viewport = sizeRef.current;
+    const anchor = captureWheelAnchor(viewport.width / 2, viewport.height / 2, new DOMRect(0, 0, viewport.width, viewport.height), current, currentScene(), null);
+    startWheelAnimation(active?.toFocusId ?? focusRef.current, active?.toTransition ?? transitionRef.current, next, anchor);
   };
   const fitContext = () => {
-    cancelFocusAnimation();
+    cancelAnimation();
     const visible = rendered.filter((node) => node.opacity > 0.05 && node.width > 0);
     if (!visible.length) return;
     const minX = Math.min(...visible.map((node) => node.position.x - node.width / 2));
@@ -184,9 +255,9 @@ export function useSemanticGestures(tickets: Ticket[]) {
 
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     event.preventDefault();
-    cancelFocusAnimation();
     const current = cameraRef.current;
     if (event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      cancelAnimation();
       commitCamera({ ...current, x: current.x - event.deltaY - event.deltaX, y: current.y });
       return;
     }
@@ -194,10 +265,11 @@ export function useSemanticGestures(tickets: Ticket[]) {
     if (!stage) return;
     const target = event.target instanceof Element ? event.target.closest("[data-ticket-id]") : null;
     const ticketId = target?.getAttribute("data-ticket-id") ?? null;
-    const currentFocus = focusRef.current;
-    const currentTransition = transitionRef.current;
-    const currentNodes = sceneFor(current, currentFocus, currentTransition);
-    const anchor = captureWheelAnchor(event.clientX, event.clientY, stage, current, currentNodes, ticketId);
+    const active = animationRef.current?.type === "wheel" ? animationRef.current : null;
+    const baseCamera = active?.toCamera ?? current;
+    const currentFocus = active?.toFocusId ?? focusRef.current;
+    const currentTransition = active?.toTransition ?? transitionRef.current;
+    const anchor = captureWheelAnchor(event.clientX, event.clientY, stage, current, currentScene(), ticketId);
     const geometric = event.ctrlKey || event.metaKey;
     const direction = event.deltaY < 0 ? 1 : -1;
     const step = clamp(0.08, 0.28, Math.abs(event.deltaY) / 500);
@@ -218,19 +290,17 @@ export function useSemanticGestures(tickets: Ticket[]) {
       }
     }
     const next = {
-      ...current,
-      zoom: geometric ? current.zoom : clamp(0.5, 1.4, current.zoom - event.deltaY * 0.001),
-      scale: geometric ? clamp(0.5, 1.6, current.scale - event.deltaY * 0.001) : current.scale,
+      ...baseCamera,
+      zoom: geometric ? baseCamera.zoom : clamp(0.5, 1.4, baseCamera.zoom - event.deltaY * 0.001),
+      scale: geometric ? clamp(0.5, 1.6, baseCamera.scale - event.deltaY * 0.001) : baseCamera.scale,
     };
-    const nextNodes = sceneFor(next, nextFocus, nextTransition);
-    commitFocus(nextFocus, nextTransition);
-    commitCamera({ ...next, ...cameraForAnchor(anchor, nextNodes, next.scale) });
+    startWheelAnimation(nextFocus, nextTransition, next, anchor);
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!event.isPrimary || (event.button !== 0 && event.button !== 1)) return;
     if (event.button === 1) event.preventDefault();
-    if (event.button === 0 && event.target instanceof Element && event.target.closest("[data-ticket-id]")) cancelFocusAnimation();
+    if (event.button === 0 && event.target instanceof Element && event.target.closest("[data-ticket-id]")) cancelAnimation();
     const current = cameraRef.current;
     dragRef.current = {
       pointerId: event.pointerId,
@@ -254,7 +324,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
     if (!drag.active && Math.hypot(deltaX, deltaY) < 5) return;
     if (!drag.active) {
       drag.active = true;
-      cancelFocusAnimation();
+      cancelAnimation();
       setIsDragging(true);
       event.currentTarget.setPointerCapture(event.pointerId);
     }

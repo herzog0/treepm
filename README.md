@@ -64,8 +64,8 @@ Na primeira execução a API cria `apps/api/data/treepm.json` ao rodar a partir 
 - Hierarquia recursiva ilimitada com um único `parentId` nullable, múltiplos responsáveis e componentes com responsáveis próprios.
 - Status manual somente em folhas; pais mostram `doneLeaves/totalLeaves`, percentual, rótulo e cor acessível.
 - Home com a árvore A integrada: foco explícito, cards completos/compactos/chips/dots e resumos por contexto, minimapa e enquadramento.
-- Wheel semântico preserva o card ou ponto de cena sob o cursor; `Ctrl`/`Meta` + wheel controla escala geométrica e `Shift` + wheel faz pan horizontal.
-- Zoom+ sobre outro card transfere atenção progressivamente e de forma reversível. Clique e breadcrumb animam foco, câmera e arestas por 220 ms, com interrupção sem fila e suporte a movimento reduzido.
+- Wheel semântico e `Ctrl`/`Meta` + wheel animam câmera, cards e arestas por 220 ms, preservando o card ou ponto de cena sob o cursor em todos os frames; `Shift` + wheel faz pan horizontal imediato.
+- Zoom+ sobre outro card transfere atenção progressivamente e de forma reversível. Scrolls rápidos retomam da cena visível e acumulam o destino lógico sem fila. Clique e breadcrumb usam a mesma duração coordenada, com suporte a movimento reduzido.
 - Arraste esquerdo ou do meio funciona no fundo e sobre cards após um pequeno threshold; a abertura do painel preserva a continuidade e mantém o foco fora da área coberta.
 - Conexões `TicketEdge` independentes, selecionáveis e com cor, espessura e tracejado próprios.
 - Dependências criadas por conector ou painel, removíveis sem alterar a hierarquia; ciclos e IDs inválidos são rejeitados.
