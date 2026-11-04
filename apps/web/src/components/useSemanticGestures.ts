@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, SyntheticEvent, WheelEvent as ReactWheelEvent } from "react";
-import { flushSync } from "react-dom";
-import { childrenOf, tidyTreeLayout } from "@treepm/domain";
-import type { Ticket } from "@treepm/domain";
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
+import { tidyTreeLayout } from "@treepm/domain";
+import type { Ticket, TreeIndex } from "@treepm/domain";
 import { blendSemanticScenes, CLICK_SEMANTIC_ZOOM, cameraForAnchor, captureWheelAnchor, createSemanticScene } from "./semanticScene.js";
 import type { FocusTransition, SemanticCamera, SemanticSceneNode, WheelAnchor } from "./semanticScene.js";
 
@@ -24,6 +23,7 @@ interface AnchoredAnimation {
   type: "focus" | "wheel";
   fromScene: SemanticSceneNode[];
   fromCamera: SemanticCamera;
+  toScene: SemanticSceneNode[];
   toCamera: SemanticCamera;
   toFocusId: string;
   toTransition: FocusTransition | null;
@@ -42,9 +42,9 @@ const FOCUS_DURATION = 220;
 const WHEEL_DURATION = 180;
 const WHEEL_SESSION_DURATION = 240;
 
-export function useSemanticGestures(tickets: Ticket[]) {
-  const layout = useMemo(() => tidyTreeLayout(tickets), [tickets]);
-  const firstRoot = childrenOf(tickets, null)[0];
+export function useSemanticGestures(tickets: Ticket[], index: TreeIndex) {
+  const layout = useMemo(() => tidyTreeLayout(tickets, index), [tickets, index]);
+  const firstRoot = index.childrenByParentId.get(null)?.[0];
   const initialFocus = firstRoot?.id ?? tickets[0]?.id ?? "";
   const [focusId, setFocusId] = useState(initialFocus);
   const [transition, setTransition] = useState<FocusTransition | null>(null);
@@ -60,15 +60,16 @@ export function useSemanticGestures(tickets: Ticket[]) {
   const suppressClickRef = useRef(false);
   const animationRef = useRef<SemanticAnimation | null>(null);
   const wheelSessionRef = useRef<WheelSession | null>(null);
+  const wheelHandlerRef = useRef<(event: WheelEvent) => void>(() => {});
   const cameraRef = useRef(camera);
   const focusRef = useRef(focusId);
   const transitionRef = useRef(transition);
   const sceneOverrideRef = useRef(sceneOverride);
   const sizeRef = useRef(size);
 
-  const sceneFor = (nextCamera: SemanticCamera, nextFocusId: string, nextTransition: FocusTransition | null, viewportWidth = sizeRef.current.width) => createSemanticScene(layout, tickets, nextFocusId, nextTransition, nextCamera.zoom, viewportWidth);
-  const generated = useMemo(() => createSemanticScene(layout, tickets, focusId, transition, camera.zoom, size.width), [layout, tickets, focusId, transition, camera.zoom, size.width]);
-  const rendered = sceneOverride ?? generated;
+  const sceneFor = (nextCamera: SemanticCamera, nextFocusId: string, nextTransition: FocusTransition | null, viewportWidth = sizeRef.current.width) => createSemanticScene(layout, index, nextFocusId, nextTransition, nextCamera.zoom, viewportWidth);
+  const generated = useMemo(() => sceneOverrideRef.current ?? createSemanticScene(layout, index, focusId, transition, camera.zoom, size.width), [layout, index, focusId, transition, camera, size.width, sceneOverride]);
+  const rendered = generated;
 
   const commitCamera = (next: SemanticCamera) => {
     cameraRef.current = next;
@@ -80,9 +81,9 @@ export function useSemanticGestures(tickets: Ticket[]) {
     setFocusId(nextFocusId);
     setTransition(nextTransition);
   };
-  const commitScene = (next: SemanticSceneNode[] | null) => {
+  const commitScene = (next: SemanticSceneNode[] | null, sync = true) => {
     sceneOverrideRef.current = next;
-    setSceneOverride(next);
+    if (sync) setSceneOverride(next);
   };
   const updateAttentionId = (value: string | null | ((current: string | null) => string | null)) => {
     if (!attentionBlockRef.current) setAttentionId(value);
@@ -123,8 +124,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
     wheelSessionRef.current = session;
   };
   const completeAnchoredAnimation = (animation: AnchoredAnimation) => {
-    const finalNodes = sceneFor(animation.toCamera, animation.toFocusId, animation.toTransition);
-    const finalCamera = { ...animation.toCamera, ...cameraForAnchor(animation.anchor, finalNodes, animation.toCamera.scale) };
+    const finalCamera = { ...animation.toCamera, ...cameraForAnchor(animation.anchor, animation.toScene, animation.toCamera.scale) };
     animationRef.current = null;
     commitScene(null);
     commitFocus(animation.toFocusId, animation.toTransition);
@@ -146,10 +146,9 @@ export function useSemanticGestures(tickets: Ticket[]) {
       commitCamera(targetCamera);
       return;
     }
-    const animation: AnchoredAnimation = { type, fromScene, fromCamera, toCamera: targetCamera, toFocusId, toTransition, anchor, frameId: 0 };
+    const animation: AnchoredAnimation = { type, fromScene, fromCamera, toScene: targetNodes, toCamera: targetCamera, toFocusId, toTransition, anchor, frameId: 0 };
     animationRef.current = animation;
     const startedAt = performance.now();
-    let firstFrame = true;
     const tick = (timestamp: number) => {
       if (animationRef.current !== animation) return;
       const duration = type === "focus" ? FOCUS_DURATION : WHEEL_DURATION;
@@ -161,16 +160,9 @@ export function useSemanticGestures(tickets: Ticket[]) {
       const progress = type === "focus" ? focusEase(linear) : wheelEase(linear);
       const zoom = lerp(fromCamera.zoom, animation.toCamera.zoom, progress);
       const scale = lerp(fromCamera.scale, animation.toCamera.scale, progress);
-      const targetNodes = sceneFor(animation.toCamera, animation.toFocusId, animation.toTransition);
-      const nextNodes = blendSemanticScenes(layout, fromScene, targetNodes, progress, zoom, sizeRef.current.width);
-      const commitFrame = () => {
-        commitScene(nextNodes);
-        commitCamera({ zoom, scale, ...cameraForAnchor(anchor, nextNodes, scale) });
-      };
-      if (firstFrame) {
-        firstFrame = false;
-        flushSync(commitFrame);
-      } else commitFrame();
+      const nextNodes = blendSemanticScenes(layout, fromScene, animation.toScene, progress, zoom, sizeRef.current.width);
+      commitScene(nextNodes, false);
+      commitCamera({ zoom, scale, ...cameraForAnchor(anchor, nextNodes, scale) });
       animation.frameId = requestAnimationFrame(tick);
     };
     animation.timerId = window.setTimeout(() => tick(performance.now()), 0);
@@ -202,7 +194,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
     });
     observer.observe(stageRef.current);
     return () => observer.disconnect();
-  }, [layout, tickets]);
+  }, [layout, index]);
   useEffect(() => {
     if (tickets.some((ticket) => ticket.id === focusId)) return;
     settleAnimation();
@@ -259,7 +251,7 @@ export function useSemanticGestures(tickets: Ticket[]) {
     });
   };
 
-  const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+  const onWheel = (event: WheelEvent) => {
     event.preventDefault();
     lastPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
     const current = cameraRef.current;
@@ -323,6 +315,14 @@ export function useSemanticGestures(tickets: Ticket[]) {
     }
     startAnchoredAnimation("wheel", nextFocus, nextTransition, next, anchor);
   };
+  wheelHandlerRef.current = onWheel;
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const listener = (event: WheelEvent) => wheelHandlerRef.current(event);
+    stage.addEventListener("wheel", listener, { passive: false });
+    return () => stage.removeEventListener("wheel", listener);
+  }, [layout, index]);
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!event.isPrimary || (event.button !== 0 && event.button !== 1)) return;
@@ -415,7 +415,6 @@ export function useSemanticGestures(tickets: Ticket[]) {
     zoomBy,
     fitContext,
     gestureHandlers: {
-      onWheel,
       onPointerDown,
       onPointerMove,
       onPointerLeave: onPointerLeaveStage,
@@ -423,7 +422,6 @@ export function useSemanticGestures(tickets: Ticket[]) {
       onPointerCancel: (event: ReactPointerEvent<HTMLDivElement>) => finishPointer(event, false),
       onLostPointerCapture,
       onClickCapture,
-      onSelectStart: preventNativeGesture,
       onDragStart: preventNativeGesture,
     },
   };

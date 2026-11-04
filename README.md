@@ -10,7 +10,7 @@ A visão de produto está em [docs/vision.md](docs/vision.md), as decisões téc
 - `apps/web`: React, Vite e `@xyflow/react`; plataforma do usuário e canvas.
 - `apps/api`: Fastify, REST validada com zod, CORS e `@typesafe-ai/sdk` 0.7.0 (Jev).
 - `apps/admin`: React e Vite; visão operacional de projetos, tickets e usuários seed.
-- `packages/domain`: tipos e regras puras de árvore, progresso, ciclos e layout tidy.
+- `packages/domain`: tipos e regras puras de árvore, progresso, ciclos, layout tidy e `buildTreeIndex` para agregados compartilhados em O(N), além dos sorts de irmãos.
 - **Persistência desta fatia:** JSON local com seed, fila de escritas e rename atômico, isolado por `TreeRepository`. **Produção exige banco transacional**, concorrência multi-instância e migrações; o arquivo local não oferece essas garantias.
 
 Não há autenticação nem autorização. Usuários são apenas identidades seed. Auth, permissões e proteção do backoffice são a próxima etapa; não exponha esta versão.
@@ -84,7 +84,7 @@ Na árvore, `C` ou o botão **Cores** alterna o preenchimento pelo status, sem i
 
 - Sem login, permissões, billing, colaboração em tempo real, undo, auditoria ou deploy.
 - JSON é single-process; não é adequado a produção nem a múltiplas réplicas.
-- A cena recalcula o contexto e interpola focos a cada gesto; não há layout incremental, worker nem validação de performance com árvores enormes. Lista/Kanban também não são virtualizados.
+- A árvore compartilha um único índice derivado por snapshot e cacheia a cena de destino de cada animação; o layout semântico usa duas passagens lineares e o blend só percorre a união das cenas. Ainda assim, toda a cena lógica permanece em DOM/SVG, sem worker ou WebGL; a contenção de paint depende do browser, e Lista/Kanban continuam sem virtualização.
 - Pinch dedicado e animação FLIP com Web Animations API ainda não foram implementados; Ctrl/Meta + wheel e controles cobrem a escala nesta fatia.
 - Sem testes automatizados, conforme decisão desta etapa; os gestos foram verificados com harnesses temporários fora do repositório.
 - Jev com credencial depende do serviço externo; apenas o fallback sem chave é verificável offline.

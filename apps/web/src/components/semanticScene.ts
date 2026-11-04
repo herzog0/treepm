@@ -1,5 +1,4 @@
-import { childrenOf } from "@treepm/domain";
-import type { Ticket, tidyTreeLayout } from "@treepm/domain";
+import type { LeafStatusCounts, Ticket, TreeIndex, tidyTreeLayout } from "@treepm/domain";
 
 export interface SemanticCamera { x: number; y: number; zoom: number; scale: number }
 export type SemanticCardKind = "full" | "compact" | "chip" | "dot" | "summary";
@@ -19,7 +18,7 @@ export interface FocusTransition {
 }
 type Layout = ReturnType<typeof tidyTreeLayout>;
 type LayoutNode = Layout["nodes"][number];
-interface LeafCounts { todo: number; in_progress: number; done: number }
+type LeafCounts = LeafStatusCounts;
 interface SubtreeInfo { ticketCount: number; leaves: LeafCounts }
 interface SceneItem {
   node: LayoutNode;
@@ -39,7 +38,23 @@ interface SceneItem {
   compactLabel?: boolean;
 }
 interface ScenePosition { x: number; y: number }
-interface SceneBounds { min: number; max: number; ids: string[] }
+interface SceneBounds { min: number; max: number }
+interface LayoutLookup {
+  nodeById: ReadonlyMap<string, LayoutNode>;
+  orderById: ReadonlyMap<string, number>;
+}
+const layoutLookups = new WeakMap<Layout, LayoutLookup>();
+function getLayoutLookup(layout: Layout): LayoutLookup {
+  const cached = layoutLookups.get(layout);
+  if (cached) return cached;
+  const lookup = {
+    nodeById: new Map(layout.nodes.map((node) => [node.ticket.id, node])),
+    orderById: new Map(layout.nodes.map((node, index) => [node.ticket.id, index])),
+  };
+  layoutLookups.set(layout, lookup);
+  return lookup;
+}
+const childrenIn = (index: TreeIndex, parentId: string | null) => index.childrenByParentId.get(parentId) ?? [];
 
 export interface SemanticSceneNode extends SceneItem {
   position: ScenePosition;
@@ -145,6 +160,12 @@ const mixColor = (from: string, to: string, progress: number) => {
   return `#${channels.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 };
 
+interface MeasuredSceneNode extends SceneBounds {
+  item: SceneItem;
+  x: number;
+  children: { node: MeasuredSceneNode; offset: number; min: number; max: number }[];
+}
+
 function layoutScene(items: SceneItem[], zoom: number, viewportWidth: number) {
   const itemById = new Map(items.map((item) => [item.node.ticket.id, item]));
   const visibleChildren = new Map<string, SceneItem[]>();
@@ -161,54 +182,47 @@ function layoutScene(items: SceneItem[], zoom: number, viewportWidth: number) {
   }
 
   const layoutForest = (gap: number) => {
-    const positions = new Map<string, ScenePosition>();
-    const placeSubtree = (item: SceneItem): SceneBounds => {
-      const id = item.node.ticket.id;
-      const children = visibleChildren.get(id) ?? [];
-      const childBounds: SceneBounds[] = [];
+    const measureSubtree = (item: SceneItem): MeasuredSceneNode => {
+      const children = visibleChildren.get(item.node.ticket.id) ?? [];
+      const measuredChildren: MeasuredSceneNode["children"] = [];
       let right = 0;
       children.forEach((child, index) => {
-        let bounds = placeSubtree(child);
+        const measured = measureSubtree(child);
         const previous = children[index - 1];
         const separatesBranches = previous && ((visibleChildren.get(previous.node.ticket.id)?.length ?? 0) > 0 || (visibleChildren.get(child.node.ticket.id)?.length ?? 0) > 0);
-        const offset = index === 0 ? -bounds.min : right - bounds.min + gap + (separatesBranches ? 8 : 0);
-        if (offset !== 0) {
-          for (const childId of bounds.ids) {
-            const position = positions.get(childId);
-            if (position) position.x += offset;
-          }
-          bounds = { ...bounds, min: bounds.min + offset, max: bounds.max + offset };
-        }
-        right = bounds.max;
-        childBounds.push(bounds);
+        const offset = index === 0 ? -measured.min : right - measured.min + gap + (separatesBranches ? 8 : 0);
+        const min = measured.min + offset;
+        const max = measured.max + offset;
+        right = max;
+        measuredChildren.push({ node: measured, offset, min, max });
       });
-
-      const firstChild = children[0];
-      const lastChild = children[children.length - 1];
-      const firstX = firstChild ? positions.get(firstChild.node.ticket.id)?.x ?? 0 : 0;
-      const lastX = lastChild ? positions.get(lastChild.node.ticket.id)?.x ?? 0 : 0;
+      const firstChild = measuredChildren[0];
+      const lastChild = measuredChildren[measuredChildren.length - 1];
+      const firstX = firstChild ? firstChild.node.x + firstChild.offset : 0;
+      const lastX = lastChild ? lastChild.node.x + lastChild.offset : 0;
       const x = (firstX + lastX) / 2;
       const { width } = layoutSizeFor(item);
-      positions.set(id, { x, y: 0 });
-      return {
-        min: Math.min(x - width / 2, ...childBounds.map((bounds) => bounds.min)),
-        max: Math.max(x + width / 2, ...childBounds.map((bounds) => bounds.max)),
-        ids: [id, ...childBounds.flatMap((bounds) => bounds.ids)],
-      };
+      let min = x - width / 2;
+      let max = x + width / 2;
+      for (const child of measuredChildren) {
+        min = Math.min(min, child.min);
+        max = Math.max(max, child.max);
+      }
+      return { item, x, children: measuredChildren, min, max };
     };
 
+    const positions = new Map<string, ScenePosition>();
+    const placeSubtree = (measured: MeasuredSceneNode, offset: number) => {
+      positions.set(measured.item.node.ticket.id, { x: measured.x + offset, y: 0 });
+      for (const child of measured.children) placeSubtree(child.node, offset + child.offset);
+    };
     const forestBounds: SceneBounds[] = [];
     let right = 0;
     roots.forEach((root, index) => {
-      let bounds = placeSubtree(root);
-      const offset = index === 0 ? -bounds.min : right - bounds.min + gap + 8;
-      if (offset !== 0) {
-        for (const id of bounds.ids) {
-          const position = positions.get(id);
-          if (position) position.x += offset;
-        }
-        bounds = { ...bounds, min: bounds.min + offset, max: bounds.max + offset };
-      }
+      const measured = measureSubtree(root);
+      const offset = index === 0 ? -measured.min : right - measured.min + gap + 8;
+      placeSubtree(measured, offset);
+      const bounds = { min: measured.min + offset, max: measured.max + offset };
       right = bounds.max;
       forestBounds.push(bounds);
     });
@@ -265,31 +279,18 @@ function layoutScene(items: SceneItem[], zoom: number, viewportWidth: number) {
   });
 }
 
-function focusScene(layout: Layout, tickets: Ticket[], focusId: string, zoom: number, viewportWidth: number) {
-  const ticketById = new Map(tickets.map((ticket) => [ticket.id, ticket]));
-  const firstRoot = childrenOf(tickets, null)[0];
-  const focus = ticketById.get(focusId) ?? firstRoot ?? tickets[0];
+function focusScene(layout: Layout, index: TreeIndex, focusId: string, zoom: number, viewportWidth: number) {
+  const { nodeById, orderById } = getLayoutLookup(layout);
+  const roots = childrenIn(index, null);
+  const focus = index.ticketById.get(focusId) ?? roots[0] ?? index.ticketById.values().next().value;
   if (!focus) return [];
-  const infoById = new Map<string, SubtreeInfo>();
-  const heightById = new Map<string, number>();
-  for (const node of [...layout.nodes].sort((a, b) => b.depth - a.depth)) {
-    const children = childrenOf(tickets, node.ticket.id);
-    const info: SubtreeInfo = { ticketCount: 1, leaves: emptyLeaves() };
-    let height = 0;
-    if (!children.length) info.leaves[node.ticket.status] += 1;
-    for (const child of children) {
-      const childInfo = infoById.get(child.id);
-      if (!childInfo) continue;
-      info.ticketCount += childInfo.ticketCount;
-      addLeaves(info.leaves, childInfo.leaves);
-      height = Math.max(height, (heightById.get(child.id) ?? 0) + 1);
-    }
-    infoById.set(node.ticket.id, info);
-    heightById.set(node.ticket.id, height);
-  }
+  const infoFor = (id: string): SubtreeInfo => ({
+    ticketCount: index.subtreeCountById.get(id) ?? 1,
+    leaves: index.leafCountsById.get(id) ?? emptyLeaves(),
+  });
   const compactLabel = zoom <= CLICK_SEMANTIC_ZOOM + 1e-9;
   const makeItem = (node: LayoutNode, kind: SemanticCardKind, hiddenInfos: SubtreeInfo[] = [], dimensions?: { width: number; height: number }): SceneItem => {
-    const ownInfo = infoById.get(node.ticket.id) ?? { ticketCount: 1, leaves: emptyLeaves() };
+    const ownInfo = infoFor(node.ticket.id);
     const hidden: SubtreeInfo = { ticketCount: 0, leaves: emptyLeaves() };
     for (const info of hiddenInfos) {
       hidden.ticketCount += info.ticketCount;
@@ -307,7 +308,7 @@ function focusScene(layout: Layout, tickets: Ticket[], focusId: string, zoom: nu
       aggregateTotalLeaves: leafTotal(hidden.leaves),
       visualStatus,
       statusColor: STATUS_COLORS[visualStatus],
-      subtreeHeight: heightById.get(node.ticket.id) ?? 0,
+      subtreeHeight: index.subtreeHeightById.get(node.ticket.id) ?? 0,
       compactLabel,
     };
   };
@@ -318,24 +319,24 @@ function focusScene(layout: Layout, tickets: Ticket[], focusId: string, zoom: nu
   while (current && !visited.has(current.id)) {
     path.unshift(current);
     visited.add(current.id);
-    current = current.parentId ? ticketById.get(current.parentId) : undefined;
+    current = current.parentId ? index.ticketById.get(current.parentId) : undefined;
   }
   const pathIds = new Set(path.map((ticket) => ticket.id));
   const lateralSummaries = new Set<string>();
   for (const ancestor of path) {
-    for (const sibling of childrenOf(tickets, ancestor.parentId)) {
+    for (const sibling of childrenIn(index, ancestor.parentId)) {
       if (!pathIds.has(sibling.id)) lateralSummaries.add(sibling.id);
     }
   }
-  for (const root of childrenOf(tickets, null)) if (!pathIds.has(root.id)) lateralSummaries.add(root.id);
+  for (const root of roots) if (!pathIds.has(root.id)) lateralSummaries.add(root.id);
 
   const compaction = Math.max(0, (1.4 - zoom) / 0.12);
   const visit = (node: LayoutNode): { items: SceneItem[]; collapsed?: SubtreeInfo } => {
-    const ownInfo = infoById.get(node.ticket.id) ?? { ticketCount: 1, leaves: emptyLeaves() };
-    const phase = Math.round((compaction - (heightById.get(node.ticket.id) ?? 0)) * 1e9) / 1e9;
+    const ownInfo = infoFor(node.ticket.id);
+    const phase = Math.round((compaction - (index.subtreeHeightById.get(node.ticket.id) ?? 0)) * 1e9) / 1e9;
     if (node.ticket.id !== focus.id && phase >= 4) return { items: [], collapsed: ownInfo };
-    const childResults = childrenOf(tickets, node.ticket.id).flatMap((child) => {
-      const childNode = layout.nodes.find((item) => item.ticket.id === child.id);
+    const childResults = childrenIn(index, node.ticket.id).flatMap((child) => {
+      const childNode = nodeById.get(child.id);
       return childNode ? [visit(childNode)] : [];
     });
     let kind: SemanticCardKind = phase >= 3 ? "dot" : phase >= 2 ? "chip" : phase >= 1 ? "compact" : "full";
@@ -352,31 +353,28 @@ function focusScene(layout: Layout, tickets: Ticket[], focusId: string, zoom: nu
     const hidden = childResults.flatMap((result) => result.collapsed ? [result.collapsed] : []);
     return { items: [{ ...makeItem(node, kind, hidden, dimensions) }, ...childResults.flatMap((result) => result.items)] };
   };
-  const focusNode = layout.nodes.find((node) => node.ticket.id === focus.id);
+  const focusNode = nodeById.get(focus.id);
   const items: SceneItem[] = [];
   for (const ticket of path) {
     if (ticket.id === focus.id) continue;
-    const node = layout.nodes.find((item) => item.ticket.id === ticket.id);
+    const node = nodeById.get(ticket.id);
     if (node) items.push(makeItem(node, zoom < 0.66 ? "chip" : "compact"));
   }
   if (focusNode) items.push(...visit(focusNode).items);
   for (const id of lateralSummaries) {
-    const node = layout.nodes.find((item) => item.ticket.id === id);
+    const node = nodeById.get(id);
     if (!node || pathIds.has(id)) continue;
-    const hidden = childrenOf(tickets, id).flatMap((child) => {
-      const info = infoById.get(child.id);
-      return info ? [info] : [];
-    });
+    const hidden = childrenIn(index, id).map((child) => infoFor(child.id));
     items.push(makeItem(node, "summary", hidden));
   }
   const itemById = new Map(items.map((item) => [item.node.ticket.id, item]));
   for (const item of items) {
     const parentId = item.node.ticket.id;
-    const indicators = childrenOf(tickets, parentId).flatMap((child): SemanticChildIndicator[] => {
+    const indicators = childrenIn(index, parentId).flatMap((child): SemanticChildIndicator[] => {
       const childItem = itemById.get(child.id);
-      const info = infoById.get(child.id);
-      if (!info) return [];
-      const visualStatus = childItem?.visualStatus ?? statusForLeaves(info.leaves);
+      const leaves = index.leafCountsById.get(child.id);
+      if (!leaves) return [];
+      const visualStatus = childItem?.visualStatus ?? statusForLeaves(leaves);
       return [{
         id: child.id,
         ticketIds: [child.id],
@@ -406,20 +404,22 @@ function focusScene(layout: Layout, tickets: Ticket[], focusId: string, zoom: nu
     }
     item.indicatorSize = item.kind === "dot" ? 6 : 10;
   }
-  const order = new Map(layout.nodes.map((node, index) => [node.ticket.id, index]));
-  items.sort((a, b) => (order.get(a.node.ticket.id) ?? 0) - (order.get(b.node.ticket.id) ?? 0));
+  items.sort((a, b) => (orderById.get(a.node.ticket.id) ?? 0) - (orderById.get(b.node.ticket.id) ?? 0));
   return layoutScene(items, zoom, viewportWidth);
 }
 
 function blendScenes(layout: Layout, from: SemanticSceneNode[], to: SemanticSceneNode[], progress: number, zoom: number, viewportWidth: number) {
   const fromById = new Map(from.map((item) => [item.node.ticket.id, item]));
   const toById = new Map(to.map((item) => [item.node.ticket.id, item]));
+  const { orderById } = getLayoutLookup(layout);
+  const ids = new Set([...fromById.keys(), ...toById.keys()]);
+  const orderedIds = [...ids].sort((a, b) => (orderById.get(a) ?? 0) - (orderById.get(b) ?? 0));
   const dot = SEMANTIC_CARD_SIZES.dot;
-  const items = layout.nodes.flatMap((layoutNode): SceneItem[] => {
-    const id = layoutNode.ticket.id;
+  const items = orderedIds.flatMap((id): SceneItem[] => {
     const source = fromById.get(id);
     const target = toById.get(id);
-    if (!source && !target) return [];
+    const layoutNode = source?.node ?? target?.node;
+    if (!layoutNode) return [];
     const startKind = source?.kind ?? "dot";
     const endKind = target?.kind ?? "dot";
     const presentation = progress < 0.5 ? source ?? target : target ?? source;
@@ -466,13 +466,13 @@ export function blendSemanticScenes(layout: Layout, from: SemanticSceneNode[], t
   return blendScenes(layout, from, to, progress, zoom, viewportWidth);
 }
 
-export function createSemanticScene(layout: Layout, tickets: Ticket[], focusId: string, transition: FocusTransition | null, zoom: number, viewportWidth: number) {
-  if (!transition || (transition.fromId === transition.toId && !transition.fromScene)) return focusScene(layout, tickets, focusId, zoom, viewportWidth);
+export function createSemanticScene(layout: Layout, index: TreeIndex, focusId: string, transition: FocusTransition | null, zoom: number, viewportWidth: number) {
+  if (!transition || (transition.fromId === transition.toId && !transition.fromScene)) return focusScene(layout, index, focusId, zoom, viewportWidth);
   if (transition.progress <= 0 && transition.fromScene) return transition.fromScene;
-  if (transition.progress <= 0) return focusScene(layout, tickets, focusId, zoom, viewportWidth);
-  if (transition.progress >= 1) return focusScene(layout, tickets, transition.toId, zoom, viewportWidth);
-  const from = transition.fromScene ?? focusScene(layout, tickets, transition.fromId, zoom, viewportWidth);
-  const to = focusScene(layout, tickets, transition.toId, zoom, viewportWidth);
+  if (transition.progress <= 0) return focusScene(layout, index, focusId, zoom, viewportWidth);
+  if (transition.progress >= 1) return focusScene(layout, index, transition.toId, zoom, viewportWidth);
+  const from = transition.fromScene ?? focusScene(layout, index, transition.fromId, zoom, viewportWidth);
+  const to = focusScene(layout, index, transition.toId, zoom, viewportWidth);
   return blendSemanticScenes(layout, from, to, transition.progress, zoom, viewportWidth);
 }
 

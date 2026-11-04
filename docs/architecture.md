@@ -62,6 +62,16 @@ A home usa a árvore semântica de `TreeCanvas.tsx`, implementada em DOM/SVG e i
 
 `tidyTreeLayout` fornece tickets, profundidade e contagens. A cena recalcula X com as larguras efetivas e gaps adaptativos de 18–30 px, separa subárvores e centraliza pais sobre filhos visíveis. Y usa a maior altura real de cada nível mais 28–36 px. O foco e seus descendentes, ancestrais, irmãos e resumos laterais formam a cena; nenhum irmão é escondido para caber.
 
+### Índice derivado e custo de render
+
+`buildTreeIndex`, em `packages/domain/src/treeIndex.ts`, deriva uma estrutura somente leitura por referência do array de tickets: `ticketById`, filhos já ordenados por pai, profundidade, altura, contagem da subárvore/descendentes, folhas por status, `Progress` por ticket e progresso do projeto. Uma fila bottom-up calcula os agregados em O(N), além da ordenação dos irmãos, com memória O(N) e sem recursão infinita em dados inválidos. As funções antigas continuam disponíveis para a API e para validações de compatibilidade; as regras e o formato de `Progress` não mudam.
+
+O `App` constrói o índice em `useMemo` e compartilha a mesma instância com layout, cena, gestos, cards, Lista, Kanban e cabeçalho. `tidyTreeLayout` aceita esse índice opcionalmente. A cena mantém lookups de nó/ordem por layout em `WeakMap`, e o layout semântico mede e posiciona em duas passagens lineares, sem copiar IDs ou deslocar descendentes por irmão. O blend percorre somente a união das cenas de origem/destino, ordenada pelo layout original.
+
+Cada animação guarda `toScene` no início e reutiliza esse destino nos frames e na câmera final. Enquanto há `sceneOverride`, mudanças de zoom não recriam a cena gerada. O bootstrap inicial é deduplicado sob StrictMode e entra como transição React para não bloquear o primeiro gesto com uma segunda aquisição/render completa.
+
+Cards e arestas usam blocos memorizados para conteúdo e identidade. Um `useLayoutEffect` aplica somente mudanças reais de geometria, paths, classes e opacidade antes da pintura. A superfície interna dos cards usa `content-visibility` para o trabalho fora da viewport; indicadores e handles ficam fora dessa superfície e continuam interativos. O minimapa consolida seus elementos não interativos em dois paths, preservando arestas e retângulos arredondados. Não há virtualização de tickets, workers nem WebGL; toda a cena lógica continua em DOM/SVG, e Lista/Kanban continuam renderizando todos os tickets.
+
 ### Compactação bottom-up e agregação
 
 Cada nó tem `subtreeHeight`: folha vale 0; um pai vale 1 mais a maior altura dos filhos. A fase global é `(1,40 − zoom) / 0,12`, e a fase local subtrai essa altura, com tolerância de `1e-9` para estabilidade de ponto flutuante. As fases produzem `full → compact → chip → dot → agregado`, com dimensões contínuas dentro de cada faixa. Assim todas as folhas se reduzem antes dos pais, independentemente da profundidade absoluta ou do balanceamento do ramo.
@@ -83,7 +93,7 @@ Cards e arestas são calculados a partir dos mesmos retângulos no mesmo frame. 
 
 ### Animação coordenada de zoom e foco
 
-Wheel semântico, `Ctrl`/`Meta` + wheel e os controles `+`/`−` usam **180 ms** com `easeOutCubic`. Um primeiro tick cancelável por `setTimeout(0)` publica feedback com `flushSync`; os demais frames usam `requestAnimationFrame` para atualizar progresso, câmera, dimensões, posições, opacidades, cores e arestas em conjunto. A âncora é recalculada pelos retângulos relayoutados em cada frame, inclusive durante a transferência filho→agregado.
+Wheel semântico, `Ctrl`/`Meta` + wheel e os controles `+`/`−` usam **180 ms** com `easeOutCubic`. Um primeiro tick cancelável por `setTimeout(0)` e os demais `requestAnimationFrame` atualizam progresso, câmera, dimensões, posições, opacidades, cores e arestas em conjunto. Os refs são atualizados sincronamente para retargets, sem `flushSync`; a âncora é recalculada pelos retângulos relayoutados em cada frame, inclusive durante a transferência filho→agregado.
 
 Cada scroll captura a cena visual corrente em `fromScene`, inclusive retângulos e opacidades de uma animação em andamento. O destino lógico é mantido separadamente e acumula os deltas, de modo que bursts e reversões não percam intenção nem reiniciem da cena abstrata anterior. Um novo evento cancela o timeout/rAF anterior e retoma da geometria exibida, sem fila nem callbacks obsoletos. O estado final equivale à sequência de deltas aplicada diretamente.
 
@@ -144,4 +154,6 @@ Sem chave ou diante dos limites acima, a resposta é `mode="unavailable"`; falha
 
 ## Verificação e limites
 
-A fatia não contém suíte de testes por decisão explícita. `pnpm typecheck`, `pnpm lint`, `pnpm build` e chamadas reais à API são os portões mínimos. Web/admin são validados por compilação e consumo de endpoints; não há teste automatizado de browser nem validação online de Jev sem uma credencial real.
+Na carga local de 1000 tickets com uma única raiz, o harness CDP original mediu baseline de p95 de 816,6 ms para 1 scroll e 1333,4 ms para 8, com tarefas máximas de 770 ms e 1001 ms. Após índice, caches e redução de renders, a medição final foi p95 de 50 ms para 1 scroll e 16,8 ms para 8, com zero long tasks e zero erros de runtime nos dois cenários. Esses números são locais e não implicam virtualização nem garantia para árvores arbitrariamente maiores.
+
+A fatia não contém suíte de testes por decisão explícita. `pnpm typecheck`, `pnpm lint`, `pnpm build` e chamadas reais à API são os portões mínimos. Web/admin são validados por compilação e consumo de endpoints; harnesses temporários de CDP verificam home, gestos e performance sem constituir uma suíte committed. Não há validação online de Jev sem uma credencial real.

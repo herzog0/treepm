@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
-import { ticketIdentifier } from "@treepm/domain";
+import { buildTreeIndex, ticketIdentifier } from "@treepm/domain";
 import { semanticEdgePath } from "../semanticScene.js";
 import { useSemanticGestures } from "../useSemanticGestures.js";
 import type { PrototypeData } from "./shared.js";
@@ -10,6 +10,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
   const [colorMode, setColorMode] = useState(false);
   const [focusOnClick, setFocusOnClick] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const treeIndex = useMemo(() => buildTreeIndex(tickets), [tickets]);
   const {
     camera,
     focusId,
@@ -24,7 +25,7 @@ export function VariantA({ project, tickets, users }: PrototypeData) {
     zoomBy,
     fitContext,
     gestureHandlers,
-  } = useSemanticGestures(tickets);
+  } = useSemanticGestures(tickets, treeIndex);
   const focus = tickets.find((ticket) => ticket.id === focusId) ?? tickets[0];
   const path = focus ? ticketPath(tickets, focus.id) : [];
   const visibleCount = rendered.filter((node) => node.opacity > 0.05).length;

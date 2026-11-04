@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { getProjectProgress } from "@treepm/domain";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { buildTreeIndex } from "@treepm/domain";
 import type { BootstrapData, TicketEdge, TicketStatus } from "@treepm/domain";
 import { api } from "./api.js";
 import { TreeCanvas } from "./components/TreeCanvas.js";
@@ -23,16 +23,22 @@ export function App() {
   const [formParentId, setFormParentId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const initialLoadRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
-      setData(await api.bootstrap());
+      const nextData = await api.bootstrap();
+      startTransition(() => setData(nextData));
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível carregar a API.");
     }
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (initialLoadRef.current) return;
+    initialLoadRef.current = true;
+    void load();
+  }, [load]);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -47,10 +53,11 @@ export function App() {
 
   const project = data?.projects[0];
   const tickets = useMemo(() => data?.tickets.filter((ticket) => ticket.projectId === project?.id) ?? [], [data, project?.id]);
+  const treeIndex = useMemo(() => buildTreeIndex(tickets), [tickets]);
   const edges = useMemo(() => data?.edges.filter((edge) => edge.projectId === project?.id) ?? [], [data, project?.id]);
-  const selectedTicket = tickets.find((ticket) => ticket.id === selectedTicketId);
+  const selectedTicket = selectedTicketId ? treeIndex.ticketById.get(selectedTicketId) : undefined;
   const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
-  const projectProgress = tickets.length > 0 ? getProjectProgress(tickets) : null;
+  const projectProgress = tickets.length > 0 ? treeIndex.projectProgress : null;
 
   const refresh = async (message: string) => {
     await load();
@@ -85,15 +92,15 @@ export function App() {
       {projectProgress && <div className="project-progress"><span>Progresso do projeto</span><strong>{projectProgress.doneLeaves}/{projectProgress.totalLeaves} folhas</strong><div className="progress-track"><span style={{ width: `${projectProgress.percent}%` }} /></div><b>{projectProgress.percent}%</b></div>}
     </div>
     {(error || notice) && <div className={`global-notice ${error ? "error" : ""}`} role="status"><span>{error || notice}</span><button onClick={() => { setError(""); setNotice(""); }} aria-label="Dispensar aviso">×</button></div>}
-    {linkSourceId && <div className="linking-bar"><span>Criando dependência de <strong>{tickets.find((ticket) => ticket.id === linkSourceId)?.title}</strong>. Selecione o destino na árvore.</span><button onClick={() => setLinkSourceId(null)}>Cancelar</button></div>}
+    {linkSourceId && <div className="linking-bar"><span>Criando dependência de <strong>{treeIndex.ticketById.get(linkSourceId)?.title}</strong>. Selecione o destino na árvore.</span><button onClick={() => setLinkSourceId(null)}>Cancelar</button></div>}
     <main className={`workspace ${!prototypeVariant && (selectedTicket || selectedEdge) ? "with-panel" : ""}`}>
       <div className="primary-view">
         {prototypeVariant && <PrototypeExperience variant={prototypeVariant} data={{ project, tickets, users: data.users }} onVariantChange={setPrototypeVariant} />}
-        {!prototypeVariant && view === "tree" && <TreeCanvas tickets={tickets} edges={edges} users={data.users} projectKey={project.key} selectedTicketId={selectedTicketId} selectedEdgeId={selectedEdgeId} linkSourceId={linkSourceId} onClearSelection={() => { setSelectedTicketId(null); setSelectedEdgeId(null); }} onSelectTicket={selectTicket} onSelectEdge={(edgeId) => { setSelectedEdgeId(edgeId); setSelectedTicketId(null); }} onConnect={(sourceId, targetId) => {
+        {!prototypeVariant && view === "tree" && <TreeCanvas tickets={tickets} treeIndex={treeIndex} edges={edges} users={data.users} projectKey={project.key} selectedTicketId={selectedTicketId} selectedEdgeId={selectedEdgeId} linkSourceId={linkSourceId} onClearSelection={() => { setSelectedTicketId(null); setSelectedEdgeId(null); }} onSelectTicket={selectTicket} onSelectEdge={(edgeId) => { setSelectedEdgeId(edgeId); setSelectedTicketId(null); }} onConnect={(sourceId, targetId) => {
           void api.createDependency(project.id, sourceId, targetId).then(() => refresh("Dependência criada.")).catch(showError);
         }} />}
-        {!prototypeVariant && view === "list" && <ListView project={project} tickets={tickets} users={data.users} onSelect={selectTicket} onStatus={async (ticketId, status) => { await api.updateTicket(ticketId, { status }); await refresh("Status atualizado."); }} />}
-        {!prototypeVariant && view === "kanban" && <KanbanView project={project} tickets={tickets} users={data.users} onSelect={selectTicket} onStatus={async (ticketId: string, status: TicketStatus) => { try { await api.updateTicket(ticketId, { status }); await refresh("Status atualizado."); } catch (cause) { showError(cause); } }} />}
+        {!prototypeVariant && view === "list" && <ListView project={project} tickets={tickets} treeIndex={treeIndex} users={data.users} onSelect={selectTicket} onStatus={async (ticketId, status) => { await api.updateTicket(ticketId, { status }); await refresh("Status atualizado."); }} />}
+        {!prototypeVariant && view === "kanban" && <KanbanView project={project} tickets={tickets} treeIndex={treeIndex} users={data.users} onSelect={selectTicket} onStatus={async (ticketId: string, status: TicketStatus) => { try { await api.updateTicket(ticketId, { status }); await refresh("Status atualizado."); } catch (cause) { showError(cause); } }} />}
       </div>
       {!prototypeVariant && selectedTicket && <TicketPanel key={selectedTicket.id} ticket={selectedTicket} tickets={tickets} users={data.users} projectKey={project.key} onClose={() => setSelectedTicketId(null)} onSave={async (input) => { await api.updateTicket(selectedTicket.id, input); await refresh("Ticket atualizado."); }} onDelete={async (recursive) => { await api.deleteTicket(selectedTicket.id, recursive); setSelectedTicketId(null); await refresh("Exclusão concluída e conexões associadas removidas."); }} onAddSubticket={() => { setFormParentId(selectedTicket.id); setFormOpen(true); }} onStartLink={() => { setView("tree"); setLinkSourceId(selectedTicket.id); }} />}
       {!prototypeVariant && selectedEdge && <EdgeEditor key={selectedEdge.id} edge={selectedEdge} tickets={tickets} onClose={() => setSelectedEdgeId(null)} onSave={async (style: TicketEdge["style"]) => { await api.updateEdge(selectedEdge.id, style); await refresh("Estilo salvo somente nesta conexão."); }} onDelete={async () => { await api.deleteEdge(selectedEdge.id); setSelectedEdgeId(null); await refresh("Dependência removida; hierarquia preservada."); }} />}

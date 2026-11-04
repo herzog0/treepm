@@ -1,4 +1,5 @@
-import { childrenOf } from "./tree.js";
+import { buildTreeIndex } from "./treeIndex.js";
+import type { TreeIndex } from "./treeIndex.js";
 import type { Ticket } from "./types.js";
 
 export interface TreeLayoutNode {
@@ -28,21 +29,22 @@ interface MeasuredNode {
   children: MeasuredNode[];
 }
 
-function measure(tickets: Ticket[], ticket: Ticket, depth: number): MeasuredNode {
-  const children = childrenOf(tickets, ticket.id).map((child) => measure(tickets, child, depth + 1));
+function measure(ticket: Ticket, depth: number, index: TreeIndex): MeasuredNode {
+  const children = (index.childrenByParentId.get(ticket.id) ?? []).map((child) => measure(child, depth + 1, index));
   const childrenWidth = children.reduce((sum, child) => sum + child.width, 0)
     + Math.max(0, children.length - 1) * SIBLING_GAP;
   return {
     ticket,
     depth,
     width: Math.max(NODE_WIDTH, childrenWidth),
-    descendantCount: children.reduce((sum, child) => sum + child.descendantCount + 1, 0),
+    descendantCount: index.descendantCountById.get(ticket.id) ?? 0,
     children,
   };
 }
 
-export function tidyTreeLayout(tickets: Ticket[]): TreeLayout {
-  const roots = childrenOf(tickets, null).map((ticket) => measure(tickets, ticket, 0));
+export function tidyTreeLayout(tickets: Ticket[], treeIndex?: TreeIndex): TreeLayout {
+  const index = treeIndex ?? buildTreeIndex(tickets);
+  const roots = (index.childrenByParentId.get(null) ?? []).map((ticket) => measure(ticket, 0, index));
   const nodes: TreeLayoutNode[] = [];
   const totalWidth = roots.reduce((sum, root) => sum + root.width, 0)
     + Math.max(0, roots.length - 1) * ROOT_GAP;
