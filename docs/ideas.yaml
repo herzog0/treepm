@@ -154,3 +154,37 @@ ideas:
         target: IDEA-003
       - type: related_to
         target: IDEA-005
+  - id: IDEA-010
+    created_at: 2026-11-05
+    title: Importação de tasks com categorização automática opcional
+    status: proposed
+    summary: >-
+      Importar tarefas dos principais gerenciadores do mercado e oferecer
+      categorização automática como um recurso opcional de custo adicional.
+    details:
+      - Permitir a importação de tasks de GitHub, Jira, Linear e outros gerenciadores de tarefas.
+      - Oferecer categorização automática das tarefas importadas como uma opção para o usuário.
+      - Informar que o processamento adicional terá um custo, cabendo ao usuário optar por pagar para utilizá-lo.
+    relationships:
+      - type: related_to
+        target: IDEA-005
+  - id: IDEA-011
+    created_at: 2026-11-05
+    title: Estimativas automáticas de execução e revisão de PR
+    status: proposed
+    summary: >-
+      Estimar o tempo das tarefas com dados históricos e IA, medindo
+      separadamente a execução até a abertura do PR e o tempo de revisão.
+    details:
+      - Medir o tempo de execução desde a entrada do ticket em progresso até a abertura do PR, sem incluir o tempo de revisão nesse intervalo.
+      - Analisar dados como comentários do ticket, código do PR, complexidade e quantidade de linhas alteradas para embasar as estimativas.
+      - Atribuir scores de complexidade, risco e incerteza, usando incerteza como o terceiro critério para representar ambiguidades e informações insuficientes.
+      - Calibrar progressivamente as estimativas com os tempos observados, buscando prever a duração do trabalho independentemente de quem executou a tarefa.
+      - Coletar separadamente o tempo médio de revisão dos PRs e incluí-lo na estimativa geral de cada task e do produto.
+      - Manter um campo de estimativa nos metadados do ticket, preenchido pela IA em vez de exigir que o usuário o informe.
+      - Exibir uma estimativa provisória durante a calibragem e informar claramente ao usuário que as estimativas serão refinadas com o tempo.
+    relationships:
+      - type: refines
+        target: IDEA-009
+      - type: related_to
+        target: IDEA-010

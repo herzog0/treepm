@@ -3,6 +3,7 @@ import type { TreeNode } from "@treepm/engine";
 import type { RenderNodeContent, SpatialNodeContent } from "./appearance.js";
 import { IndicatorGroup } from "./IndicatorGroup.js";
 import { SpatialNode, SpatialRegion } from "./SpatialNode.js";
+import { useSceneGeometry } from "./useSceneGeometry.js";
 import { useSpatialCanvas } from "./useSpatialCanvas.js";
 import type { SpatialCanvasController, SpatialCanvasOptions } from "./useSpatialCanvas.js";
 
@@ -52,6 +53,7 @@ export function SpatialCanvas<TNode extends TreeNode>(props: SpatialCanvasProps<
 /** Compose this view with useSpatialCanvas when commands are needed outside render slots. */
 export function SpatialCanvasView<TNode extends TreeNode>({ controller, ...props }: SpatialCanvasViewProps<TNode> & { readonly controller: SpatialCanvasController<TNode> }) {
   const { scene, camera, index, filled, selectedId, selectNode, appearances, reducedMotion, mixColors } = controller;
+  const registry = useSceneGeometry(scene, props.showRegions !== false);
   const classes = props.classNames;
   const labels: SpatialCanvasLabels = { canvas: "Spatial canvas", toolbar: "Camera and colors", zoomOut: "Zoom out", reset: "Reset view", zoomIn: "Zoom in", colors: "Colors", ...props.labels };
   return <div data-spatial-canvas="" ref={controller.rootRef}
@@ -64,12 +66,14 @@ export function SpatialCanvasView<TNode extends TreeNode>({ controller, ...props
       onClick={(event) => { if (event.target === event.currentTarget) selectNode(null); }} {...controller.gestureHandlers}>
       {props.showBackground !== false && <div className={`spatial-constellation ${classes?.background ?? ""}`} aria-hidden="true" />}
       <div className={`spatial-scene ${classes?.scene ?? ""}`} style={{ transform: `translate3d(${camera.x}px, ${camera.y}px, 0)` }}>
-        {props.showRegions !== false && scene.regions.map((region) => <SpatialRegion key={region.id} {...region} className={classes?.region} />)}
-        {scene.nodes.map((node) => <SpatialNode key={node.id} {...node} selected={selectedId === node.id} index={index}
+        {props.showRegions !== false && scene.regions.map((region) => <SpatialRegion key={region.id} id={region.id} initialGeometry={region} registry={registry} className={classes?.region} />)}
+        {scene.nodes.map((node) => <SpatialNode key={node.id} id={node.id} node={node.node} lod={node.lod} aggregate={node.aggregate} representation={node.representation}
+          interactive={node.representation !== "indicator" && node.width >= 20 && node.reveal >= 0.5}
+          initialGeometry={node} registry={registry} selected={selectedId === node.id} index={index}
           appearance={appearances.get(node.id) ?? { label: node.id, color: "#6853a5" }}
           reducedMotion={reducedMotion} onSelect={selectNode} className={classes?.node}
           renderNodeContent={props.renderNodeContent} getNodeAriaLabel={props.getNodeAriaLabel} />)}
-        {scene.groups.map((group) => <IndicatorGroup key={group.id} {...group} index={index} appearances={appearances}
+        {scene.groups.map((group) => <IndicatorGroup key={group.id} id={group.id} parentId={group.parentId} childIds={group.childIds} initialGeometry={group} registry={registry} index={index} appearances={appearances}
           mixColors={mixColors} className={classes?.group} getGroupAriaLabel={props.getGroupAriaLabel} />)}
       </div>
       {props.controls !== false && (props.renderControls ? props.renderControls(controller) : <div className={`spatial-toolbar ${classes?.toolbar ?? ""}`} role="toolbar" aria-label={labels.toolbar} onPointerDown={(event) => event.stopPropagation()}>

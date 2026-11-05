@@ -136,6 +136,18 @@ Uma barra de comando permite escrever uma demanda, colar uma referência ou cria
 
 Sem IA, o fluxo continua funcionando com criação manual, seleção de pai, busca e atalhos. Se nenhum ramo fizer sentido, a demanda pode permanecer na caixa de entrada do projeto ou ser uma nova raiz, conforme permissão. Não forçar uma categoria apenas para preencher o campo pai.
 
+### Importação de trackers e categorização opcional
+
+A IDEA-010 prevê importar tarefas de GitHub, Jira, Linear e outros gerenciadores, sem tornar IA obrigatória para a migração. O primeiro conector continua dependendo da validação do piloto; suportar vários provedores não significa lançá-los todos no mesmo corte.
+
+1. Conectar a fonte com autorização e escopo explícitos, vinculando credenciais, dados e operações ao tenant ativo.
+2. Selecionar projetos, consultas ou backlogs e apresentar uma prévia com quantidade, campos disponíveis, avisos e estimativa de volume antes de gravar.
+3. Mapear identificadores, títulos, descrições, situações, pessoas, hierarquia e relações para o domínio. Preservar IDs e links de origem para reconciliação, sem criar duplicatas ao repetir a importação.
+4. Oferecer importação sem IA, com mapeamento manual e destino revisável. Estruturas incompatíveis podem chegar à caixa de entrada ou a raízes identificadas, sem inventar parentescos.
+5. Oferecer categorização automática como opção paga adicional. Antes de processar, mostrar que há custo extra, o escopo escolhido e os limites aplicáveis; a cobrança e o preço específicos continuam uma decisão comercial posterior.
+6. Quando essa opção estiver ativa, reutilizar a classificação hierárquica da IDEA-005 com o contexto autorizado. A pessoa pode revisar destinos, exceções e itens incertos; baixa confiança, indisponibilidade ou falta de quota não impede a importação manual.
+7. Executar lotes auditáveis e recuperáveis, com progresso, falhas por item, retry e cancelamento quando tecnicamente possível. Relacionar cada ticket importado à origem e registrar se sua classificação foi manual ou assistida.
+
 ### Busca semântica que leva ao contexto
 
 - Uma única entrada aceita texto livre, IDs, termos exatos e filtros visíveis. Exemplo: `o que impede o lançamento do plano anual?`.
@@ -291,6 +303,7 @@ Escolhas ainda a detalhar em desenho técnico: banco transacional, autorização
 | Relações | Dependências e associações com acesso e integridade | Agregação visual de relações, análise de impacto e duplicatas |
 | Reuniões | Roteiro stand-up editável, passos e decisões | Preparação assistida e apresentação compartilhada |
 | IA | Rascunhos e classificação revisáveis após base de dados segura | Riscos, sugestões pessoais, resumo de reunião e roteiros |
+| Importação | Primeiro conector, prévia, mapeamento manual e reconciliação | GitHub, Jira e Linear; categorização automática opt-in com custo adicional |
 | Operação | Notificações, inbox, auditoria, exportação, backup e restauração | Políticas de retenção e integrações empresariais |
 
 ### O que não entra no primeiro corte
@@ -309,7 +322,7 @@ As fases representam dependências e resultados verificáveis. Não são estimat
 | 3 — Encontrar e orientar | Busca exata/lexical, links, filtro salvo, navegação de resultados, dependências | Usuário localiza e navega a trabalho oculto por filtro; permissões e contagens permanecem corretas |
 | 4 — Reunião útil | Presets, roteiro, navegação e decisões de stand-up | Um time conduz uma reunião completa e sai com decisões ligadas aos tickets |
 | 5 — Assistência inteligente | Busca semântica, rascunho generativo e classificação Jev | Sugestões comparadas com casos reais, revisão explícita, abstinência e fallback manual; nenhum vazamento de acesso |
-| 6 — Rotina e escala | Espaço diário privado, primeiro conector, notificações refinadas, carga e operação | Piloto usa o produto na rotina; recuperação, observabilidade, acessibilidade e orçamento de desempenho comprovados |
+| 6 — Rotina e escala | Espaço diário privado, primeiro conector/importador, notificações refinadas, carga e operação | Piloto usa o produto na rotina; reimportação reconciliada sem duplicatas; recuperação, observabilidade, acessibilidade e orçamento de desempenho comprovados |
 
 A busca semântica aparece como descoberta central desde o desenho de UX, mas sua implementação depende do índice e das regras de acesso. Busca exata e navegação não precisam esperar a integração de IA. Da mesma forma, o primeiro stand-up funciona com regras e edição manual antes de receber sugestões inteligentes.
 
@@ -359,6 +372,7 @@ Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticke
 | IDEA-004 | Gestos imediatos, pan com zoom e foco explícito, inclusive em busca e roteiro |
 | IDEA-005 | Rascunho, classificação hierárquica Jev, categorias intermediárias e opção de não classificar |
 | IDEA-006 | Engine preservada como núcleo independente; produto reconstruído por fases |
+| IDEA-010 | Importação de GitHub, Jira, Linear e outros trackers, com reconciliação e categorização automática opcional de custo adicional |
 | Pedido de 2026-11-05 | Agrupamento sem `+N`, contratos genéricos, camadas headless/estilizáveis, contribuições por área, Clerk e multi-tenancy |
 
 Fontes de capacidades externas e limitações estão em [Clerk e Jev](research/platform-services.md). O restante deste documento é uma proposta de produto, não uma afirmação de disponibilidade de funções na base atual.

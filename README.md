@@ -13,6 +13,14 @@ pnpm dev
 
 Abra **http://localhost:5173**. O comando compila as bibliotecas e acompanha alterações na engine, nos componentes React e na demo.
 
+Para compilar e servir a versão de produção localmente:
+
+```bash
+pnpm start
+```
+
+Abra **http://localhost:4173**. Para servir novamente a última build sem recompilar, use `pnpm preview`.
+
 ## Navegação
 
 - Wheel aproxima ou afasta mantendo a âncora do cursor.

@@ -198,7 +198,18 @@ export function buildSpatialScene<TNode extends TreeNode>(layout: SpatialLayout<
     }
     if (frame && reveal > 0 && visible) {
       const bounds = node.slotBounds;
-      regions.push({ id, x: bounds.minX * camera.scale + camera.x, y: bounds.minY * camera.scale + camera.y, width: (bounds.maxX - bounds.minX) * camera.scale, height: (bounds.maxY - bounds.minY) * camera.scale, opacity: reveal * opacity });
+      const regionX = bounds.minX * camera.scale + camera.x;
+      const regionY = bounds.minY * camera.scale + camera.y;
+      const regionWidth = (bounds.maxX - bounds.minX) * camera.scale;
+      const regionHeight = (bounds.maxY - bounds.minY) * camera.scale;
+      const originX = viewport.x ?? 0;
+      const originY = viewport.y ?? 0;
+      // A morphing body may be onscreen while its destination slot is offscreen.
+      // Keep the original body predicate and also cull by the slot's own rectangle.
+      if (regionX + regionWidth >= originX - cullingMargin && regionX <= originX + viewport.width + cullingMargin
+        && regionY + regionHeight >= originY - cullingMargin && regionY <= originY + viewport.height + cullingMargin) {
+        regions.push({ id, x: regionX, y: regionY, width: regionWidth, height: regionHeight, opacity: reveal * opacity });
+      }
     }
     // A collapsed square does not recursively draw its descendants. Offscreen
     // parents still project children: their presented positions can be onscreen.

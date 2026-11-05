@@ -1,10 +1,21 @@
 import { memo, useCallback, useMemo } from "react";
 import type { CSSProperties } from "react";
-import type { SpatialLod, SpatialSceneNode, SpatialSceneRegion, TreeIndex, TreeNode } from "@treepm/engine";
+import { equalSemanticProps, nodeGeometryStyles, regionGeometryStyle, useGeometrySeed } from "./useGeometryStyle.js";
+import type { NodeGeometry, RegionGeometry } from "./useGeometryStyle.js";
+import type { GeometryRegistry } from "./useSceneGeometry.js";
+import type { SpatialLod, SpatialSceneNode, SpatialLayoutNode, TreeIndex, TreeNode } from "@treepm/engine";
 
 import type { NodeAppearance, RenderNodeContent, SpatialNodeContent } from "./appearance.js";
 
-interface SpatialNodeProps<TNode extends TreeNode> extends SpatialSceneNode<TNode> {
+interface SpatialNodeProps<TNode extends TreeNode> {
+  id: string;
+  node: SpatialLayoutNode<TNode>;
+  lod: SpatialLod;
+  aggregate: boolean;
+  representation: SpatialSceneNode<TNode>["representation"];
+  interactive: boolean;
+  initialGeometry: NodeGeometry;
+  registry: GeometryRegistry;
   selected: boolean;
   index: TreeIndex<TNode>;
   appearance: NodeAppearance;
@@ -15,9 +26,17 @@ interface SpatialNodeProps<TNode extends TreeNode> extends SpatialSceneNode<TNod
   onSelect: (id: string) => void;
 }
 
-export const SpatialRegion = memo(function SpatialRegion(props: SpatialSceneRegion & { className?: string }) {
-  return <div className={`spatial-region ${props.className ?? ""}`} aria-hidden="true" data-region-id={props.id} style={{ width: props.width, height: props.height, opacity: props.opacity, transform: `translate3d(${props.x}px, ${props.y}px, 0)` }} />;
-});
+interface SpatialRegionProps {
+  id: string;
+  className?: string;
+  initialGeometry: RegionGeometry;
+  registry: GeometryRegistry;
+}
+export const SpatialRegion = memo(function SpatialRegion(props: SpatialRegionProps) {
+  const { ref, initialStyle } = useGeometrySeed(regionGeometryStyle(props.initialGeometry), props.registry.regionRef, props.id);
+  return useMemo(() => <div ref={ref} className={`spatial-region ${props.className ?? ""}`} aria-hidden="true" data-region-id={props.id} style={initialStyle} />,
+    [ref, initialStyle, props.id, props.className]);
+}, equalSemanticProps);
 
 interface NodeContentProps<TNode extends TreeNode> {
   node: TNode;
@@ -49,27 +68,18 @@ function NodeContentView<TNode extends TreeNode>(props: NodeContentProps<TNode>)
 const NodeContent = memo(NodeContentView) as typeof NodeContentView;
 
 function SpatialNodeView<TNode extends TreeNode>(props: SpatialNodeProps<TNode>) {
-  const { node, lod, aggregate, reveal, representation } = props;
+  const { node, lod, aggregate, representation, interactive } = props;
   const item = node.item;
   const childCount = props.index.childrenByParentId.get(item.id)?.length ?? 0;
   const descendantCount = props.index.descendantCountById.get(item.id) ?? 0;
   const indicator = representation === "indicator";
-  const interactive = !indicator && props.width >= 20 && reveal >= 0.5;
-  const style: CSSProperties & { "--spatial-color": string } = {
+  const initial = nodeGeometryStyles(props.initialGeometry);
+  const articleGeometry = useGeometrySeed(initial.article, props.registry.articleRef, props.id, props.initialGeometry.reveal);
+  const surfaceGeometry = useGeometrySeed(initial.surface, props.registry.surfaceRef, props.id);
+  const style: CSSProperties & { "--spatial-color": string } = useMemo(() => ({
+    ...articleGeometry.initialStyle,
     "--spatial-color": props.appearance.color,
-    width: props.width, height: props.height, opacity: props.opacity,
-    transform: `translate3d(${props.x}px, ${props.y}px, 0) translateX(-50%)`,
-  };
-  // Keep the same positive local surface through the indicator/card morph.
-  const surfaceWidth = Math.max(6, props.width);
-  const surfaceHeight = Math.max(6, props.height);
-  const surfaceStyle: CSSProperties & { "--spatial-reveal": number; "--spatial-indicator-scale": number } = {
-    "--spatial-reveal": reveal,
-    "--spatial-indicator-scale": props.indicatorScale,
-    width: surfaceWidth,
-    height: surfaceHeight,
-    transform: `scale(${props.width / surfaceWidth}, ${props.height / surfaceHeight})`,
-  };
+  }), [articleGeometry.initialStyle, props.appearance.color]);
 
   const label = useMemo(
     () => props.getNodeAriaLabel?.({ node: item, label: props.appearance.label, lod, aggregate, depth: node.depth, childCount, descendantCount }) ?? `${item.id} · ${props.appearance.label}. ${childCount} children, ${descendantCount} descendants.`,
@@ -82,23 +92,24 @@ function SpatialNodeView<TNode extends TreeNode>(props: SpatialNodeProps<TNode>)
   const select = useCallback(() => {
     if (interactive) onSelect(item.id);
   }, [interactive, onSelect, item.id]);
-  const contentStyle = useMemo(() => ({ opacity: props.contentOpacity }), [props.contentOpacity]);
-  const button = useMemo(() => <button type="button" className="spatial-card-button" style={contentStyle}
+  const buttonGeometry = useGeometrySeed(initial.button, props.registry.buttonRef, props.id);
+  const button = useMemo(() => <button ref={buttonGeometry.ref} type="button" className="spatial-card-button" style={buttonGeometry.initialStyle}
     tabIndex={interactive ? 0 : -1} aria-hidden={indicator ? true : undefined}
     aria-label={label} aria-pressed={props.selected} onClick={select}>
     {content}
-  </button>, [contentStyle, interactive, indicator, label, props.selected, select, content]);
-  return <article className={`spatial-node spatial-lod-${lod} ${aggregate ? "is-aggregate" : ""} ${props.selected ? "is-selected" : ""} ${props.className ?? ""}`}
+  </button>, [buttonGeometry.ref, buttonGeometry.initialStyle, interactive, indicator, label, props.selected, select, content]);
+  return useMemo(() => <article ref={articleGeometry.ref} className={`spatial-node spatial-lod-${lod} ${aggregate ? "is-aggregate" : ""} ${props.selected ? "is-selected" : ""} ${props.className ?? ""}`}
     data-spatial-id={item.id} data-depth={node.depth} data-lod={lod}
-    data-representation={representation} data-reveal={reveal}
+    data-representation={representation} data-reveal={articleGeometry.initialReveal}
     data-lod-transition="stable"
     data-aggregate={aggregate ? "true" : "false"}
     style={style} role={indicator ? "img" : undefined}
     title={indicator ? label : undefined} aria-label={label}>
-    <div className="spatial-card-visual" style={surfaceStyle}>
+    <div ref={surfaceGeometry.ref} className="spatial-card-visual" style={surfaceGeometry.initialStyle}>
       {button}
     </div>
-  </article>;
+  </article>, [articleGeometry.ref, articleGeometry.initialReveal, surfaceGeometry.ref, surfaceGeometry.initialStyle,
+    item.id, node.depth, lod, aggregate, props.selected, props.className, representation, indicator, label, style, button]);
 }
 
-export const SpatialNode = memo(SpatialNodeView) as typeof SpatialNodeView;
+export const SpatialNode = memo(SpatialNodeView, equalSemanticProps) as typeof SpatialNodeView;

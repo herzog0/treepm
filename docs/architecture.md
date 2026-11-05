@@ -26,6 +26,10 @@ Na biblioteca React, a cena é projetada sem a translação da câmera. A origem
 
 `useSpatialCanvas` expõe estado e comandos tipados; `SpatialCanvasView` fornece DOM e slots, e `SpatialCanvas` combina ambos. Conteúdo por LOD, labels acessíveis, controles, cores, mistura e temas são substituíveis. O CSS é importação opt-in e o consumidor fornece altura do container. A demo mantém breadcrumb, métricas e painel próprios. Exemplos em [engine-usage.md](engine-usage.md).
 
+A geometria animada tem ownership separado da semântica React: refs tipadas registram somente os hosts presentes em cada instância, e um layout effect do `SpatialCanvasView` aplica as propriedades geométricas do commit atual antes da pintura. O markup inicial conserva uma seed imutável para SSR. Os componentes comparam todas as props semânticas, inclusive callbacks, exceto a seed privada usada só na montagem. Assim, frames exclusivamente geométricos não executam os componentes internos. Detach invalida o registro e seu snapshot; não há cache global de DOM, queries de layout ou rAF adicional. A preferência de movimento reduzido usa snapshot de servidor estável e sincronização no cliente. Decisão em [ADR 0018](adr/0018-geometria-e-semantica-do-renderer.md).
+
+Grupos têm uma única superfície nominal escalada. O culling dos retângulos de região testa também seus próprios bounds: o corpo em morph pode estar visível enquanto seu slot de destino está fora da viewport. Isso não autoriza podar descendentes apenas porque seu pai está fora da tela.
+
 ## Câmera e gestos
 
 Por padrão, a escala máxima deriva de `max(6, 140 / menorLarguraNormalizada)`. Ganho do wheel, limites de escala, largura de leitura, duração de foco e threshold de pan são opções do hook React; resposta temporal é opção da matemática headless. O wheel normaliza `deltaMode`, usa ganho padrão de 0,0016 e conserva o ponto mundial sob o cursor. A aproximação ao alvo usa tempo entre frames em espaço logarítmico, com resposta padrão de 32 ms; um único rAF atende gestos longos. Ao restarem menos de 0,05 px relativos à viewport, aplica o alvo exato. O retângulo do stage é reaproveitado e invalidado por resize, scroll e novo pointerdown, evitando leituras síncronas por delta.
@@ -45,3 +49,20 @@ Na otimização anterior à extração reutilizável de 2026-11-05, o probe de 1
 Esses ganhos não equivalem a uma garantia de 60 fps. No percurso de 220 frames, com até 327 nós visíveis, a build compilada teve mediana de 16,7 ms, p95 de 26,2 ms e máximo de 43,5 ms no Chrome headless local. O modo de desenvolvimento teve p95 de 42,9 ms. O cenário de pan isolado teve p95 de 16,8 ms; os trechos mais densos de zoom ainda concentram custo de layout e pintura.
 
 Na extração genérica seguinte, o layout default de 1.001 nós permaneceu idêntico e o benchmark alternado Node de 1.760 projeções mediu 59,5 ms na engine genérica, contra 62,4 ms na implementação otimizada anterior. É uma diferença pequena e sujeita a carga/JIT, sem promessa de ganho de FPS. Foram validados 44 cenários de buckets, 121 fases reversíveis, tipagem do consumidor e opções alternativas. O Chrome confirmou mistura `#bc00bc` para vermelho/azul, conservação de 13 membros em quatro slots, mixer memoizado em pan, duas instâncias sem reset global, troca de dados/configuração, gestos ancorados e leitura das 746 folhas.
+
+### Zoom dirigido ao Coral
+
+Na rodada seguinte, o repro focou a região vermelha `node-0168`, no Chrome headless local a 1440×900: cursor no centro horizontal, 7 px abaixo do card inicial; 120 deltas de wheel −18, 120 de +18 e 50 frames de settle. O ganho e a resposta permaneceram 0,0016/32 ms. Foram medidos 289 intervalos. O percurso chegou a 231 corpos e 174 grupos em instantes diferentes; nenhum corpo esteve fora da viewport mais margem. O filtro de regiões eliminou as regiões fora de seus próprios bounds, sem alterar corpos/grupos em 13.826 comparações diferenciais.
+
+| Execução | Antes | Depois |
+| --- | ---: | ---: |
+| Dev: p95 de frame | 50 ms | 33,4 ms |
+| Dev: frames acima de 25 ms | 100 | 47 |
+| Dev: tempo de script / tarefa | 3,21 / 5,85 s | 1,95 / 4,47 s |
+| Build compilada: p95 de frame | 33,3 ms | 33,3 ms |
+| Build compilada: frames acima de 25 ms | 38 | 17 |
+| Build compilada: tempo de script / tarefa | 0,54 / 3,67 s | 0,47 / 2,98 s |
+
+As builds anterior e nova usaram os mesmos fontes-base/dependências/compilador; a anterior foi reconstruída do commit `d6e4ec8`. Comparações não usam CPU profiler ativo nem throttle artificial. O alvo diagnóstico de p95 ≤25 ms **ainda falhou**, inclusive na build compilada: houve redução de trabalho e de frames lentos, sem eliminar todos os picos. Estilo, layout, pintura e montagem nas mudanças de LOD continuam relevantes. Forçar camadas adicionais com `will-change` piorou o teste e não foi adotado.
+
+Geometria, ARIA e pixels foram idênticos em escalas fixas 0,3/1,6/4,2 frente ao checkpoint visual anterior. Os testes reais preservaram identidade/reversão, seleção, preenchimento, movimento reduzido, viewport mobile, duas instâncias com IDs iguais, callbacks/renderers novos durante atualização e leitura das 746 folhas. Não há harness permanente; os artefatos temporários são removidos após validação.

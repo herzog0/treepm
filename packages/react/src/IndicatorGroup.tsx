@@ -1,10 +1,18 @@
 import { memo, useMemo } from "react";
 import type { CSSProperties } from "react";
-import type { SpatialIndicatorGroup, TreeIndex, TreeNode } from "@treepm/engine";
+import { equalSemanticProps, groupGeometryStyle, useGeometrySeed } from "./useGeometryStyle.js";
+import type { GroupGeometry } from "./useGeometryStyle.js";
+import type { GeometryRegistry } from "./useSceneGeometry.js";
+import type { TreeIndex, TreeNode } from "@treepm/engine";
 import type { MixColors, NodeAppearance } from "./appearance.js";
 import { mixIndicatorColors } from "./colors.js";
 
-interface IndicatorGroupProps<TNode extends TreeNode> extends SpatialIndicatorGroup {
+interface IndicatorGroupProps<TNode extends TreeNode> {
+  id: string;
+  parentId: string;
+  childIds: readonly string[];
+  initialGeometry: GroupGeometry;
+  registry: GeometryRegistry;
   index: TreeIndex<TNode>;
   appearances: ReadonlyMap<string, NodeAppearance>;
   mixColors?: MixColors<TNode>;
@@ -24,13 +32,10 @@ function IndicatorGroupView<TNode extends TreeNode>(props: IndicatorGroupProps<T
     const label = getGroupAriaLabel?.(members) ?? `${members.length} nodes: ${members.map((member) => `${member.id} · ${appearances.get(member.id)?.label ?? member.id}`).join(", ")}`;
     return { color, label };
   }, [childIds, index, appearances, mixColors, getGroupAriaLabel]);
-  const width = props.width * props.scale;
-  const height = props.height * props.scale;
-  return <span className={`spatial-indicator-group ${props.className ?? ""}`} role="img"
+  const { ref, initialStyle } = useGeometrySeed(groupGeometryStyle(props.initialGeometry), props.registry.groupRef, props.id);
+  const style: CSSProperties & { "--spatial-color": string } = useMemo(() => ({ ...initialStyle, "--spatial-color": appearance.color }), [initialStyle, appearance.color]);
+  return useMemo(() => <span ref={ref} className={`spatial-indicator-group spatial-indicator-group-surface ${props.className ?? ""}`} role="img"
     data-spatial-group-id={props.id} aria-label={appearance.label} title={appearance.label}
-    style={{ "--spatial-color": appearance.color, width, height, opacity: props.opacity, transform: `translate3d(${props.x - width / 2}px, ${props.y}px, 0)` } as CSSProperties}>
-    <span className="spatial-indicator-group-surface" aria-hidden="true"
-      style={{ width: props.width, height: props.height, transform: `scale(${props.scale})` }} />
-  </span>;
+    style={style} />, [ref, props.className, props.id, appearance.label, style]);
 }
-export const IndicatorGroup = memo(IndicatorGroupView) as typeof IndicatorGroupView;
+export const IndicatorGroup = memo(IndicatorGroupView, equalSemanticProps) as typeof IndicatorGroupView;
