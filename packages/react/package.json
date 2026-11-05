@@ -1,0 +1,20 @@
+{
+  "name": "@treepm/react",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./styles.css": "./src/styles.css"
+  },
+  "sideEffects": ["**/*.css"],
+  "scripts": {
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": { "@treepm/engine": "workspace:*" },
+  "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" },
+  "devDependencies": { "@types/react": "^19.2.2", "@types/react-dom": "^19.2.2", "typescript": "^5.9.3" }
+}

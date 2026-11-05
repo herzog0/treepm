@@ -14,6 +14,8 @@ A engine é independente de aplicação: recebe uma hierarquia identificada e at
 
 ## Direção futura
 
-O produto será reconstruído a partir dessa base. A visão continua incluindo trabalho hierárquico, contexto compartilhado e navegação fluida por estruturas grandes. Funcionalidades e regras de negócio serão redesenhadas quando forem retomadas, sem serem simuladas pela demo.
+O produto será reconstruído a partir dessa base. O [business blueprint](product-blueprint.md) propõe trabalho hierárquico com múltiplas pessoas por ticket, contribuições e conversas por área, busca semântica que leva ao contexto, filtros e stand-up navegável. Clerk será o provedor de identidade; tenants, times, permissões e integrações pertencem ao produto, preservando a independência da engine.
+
+O blueprint é um plano, não uma implementação da plataforma. A demo continua local e genérica. A pesquisa de [Clerk e Jev](research/platform-services.md) distingue capacidades confirmadas dos fornecedores e propostas de uso futuro.
 
 O registro de ideias em [ideas.yaml](ideas.yaml) preserva as intenções discutidas para essa reconstrução. Uma ideia proposta não significa uma funcionalidade já implementada.

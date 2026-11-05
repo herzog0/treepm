@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent, RefObject } from "react";
 import { advanceWheelCamera, cameraAtAnchor } from "@treepm/engine";
-import type { SpatialCamera, SpatialZoomAnchor, SpatialBounds, SpatialLayout, SpatialLayoutNode } from "@treepm/engine";
+import type { SpatialCamera, SpatialZoomAnchor, SpatialBounds, SpatialLayout, SpatialLayoutNode, TreeNode, SpatialCameraOptions as EngineCameraOptions } from "@treepm/engine";
 
 interface DragState {
   pointerId: number;
@@ -30,17 +30,38 @@ interface WheelAnimation {
 
 type CameraAnimation = FitAnimation | WheelAnimation;
 
-const READABLE_CARD_WIDTH = 140;
-const WHEEL_GAIN = 0.0016;
+export interface SpatialCameraOptions extends EngineCameraOptions {
+  readonly wheelGain?: number;
+  readonly minScale?: number;
+  readonly maxScale?: number;
+  readonly readableWidth?: number;
+  readonly focusDurationMs?: number;
+  readonly panThreshold?: number;
+  readonly zoomStep?: number;
+  readonly reducedMotion?: boolean;
+}
+const EMPTY_CAMERA_OPTIONS: SpatialCameraOptions = {};
+
 const clamp = (minimum: number, maximum: number, value: number) => Math.min(maximum, Math.max(minimum, value));
 const lerp = (from: number, to: number, progress: number) => from + (to - from) * progress;
 
-export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTMLDivElement | null>) {
+export function useSpatialCamera<TNode extends TreeNode>(layout: SpatialLayout<TNode>, stageRef: RefObject<HTMLDivElement | null>, options: SpatialCameraOptions = EMPTY_CAMERA_OPTIONS) {
+  const { wheelGain = 0.0016, minScale = 0.02, maxScale: explicitMaxScale, readableWidth = 140, focusDurationMs = 180, panThreshold = 5, zoomStep = 180, responseMs, reducedMotion } = options;
+  const config = useMemo(() => {
+    const positive = { wheelGain, minScale, readableWidth, zoomStep };
+    for (const [name, value] of Object.entries(positive)) {
+      if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be positive and finite`);
+    }
+    if (!Number.isFinite(focusDurationMs) || focusDurationMs < 0 || !Number.isFinite(panThreshold) || panThreshold < 0) throw new Error("Focus duration and pan threshold must be nonnegative and finite");
+    if (explicitMaxScale !== undefined && (!Number.isFinite(explicitMaxScale) || explicitMaxScale < minScale)) throw new Error("maxScale must be finite and at least minScale");
+    if (responseMs !== undefined && (!Number.isFinite(responseMs) || responseMs <= 0)) throw new Error("responseMs must be positive and finite");
+    return { wheelGain, minScale, explicitMaxScale, readableWidth, focusDurationMs, panThreshold, zoomStep, responseMs, reducedMotion };
+  }, [wheelGain, minScale, explicitMaxScale, readableWidth, focusDurationMs, panThreshold, zoomStep, responseMs, reducedMotion]);
   const maxScale = useMemo(() => {
     const minimumWidth = layout.nodes.reduce((minimum, node) => Math.min(minimum, node.width), Infinity);
-    const requiredScale = READABLE_CARD_WIDTH / minimumWidth;
-    return Number.isFinite(requiredScale) && minimumWidth > 0 ? Math.max(6, requiredScale) : 6;
-  }, [layout]);
+    const requiredScale = config.readableWidth / minimumWidth;
+    return config.explicitMaxScale ?? Math.max(config.minScale, Number.isFinite(requiredScale) && minimumWidth > 0 ? Math.max(6, requiredScale) : 6);
+  }, [layout, config]);
   const [camera, setCamera] = useState<SpatialCamera>({ x: 0, y: 0, scale: 1 });
   const [size, setSize] = useState({ width: 1200, height: 700 });
   const [focusId, setFocusId] = useState(layout.nodes[0]?.item.id ?? "");
@@ -50,7 +71,7 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
   const animationRef = useRef<CameraAnimation | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const suppressClickRef = useRef(false);
-  const motionPreference = useMemo(() => window.matchMedia("(prefers-reduced-motion: reduce)"), []);
+  const motionPreference = useMemo(() => typeof window === "undefined" ? null : window.matchMedia("(prefers-reduced-motion: reduce)"), []);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const initializedRef = useRef(false);
   const stageBoundsRef = useRef<DOMRect | null>(null);
@@ -74,7 +95,7 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
   const tickAnimation = (now: number) => {
     const animation = animationRef.current;
     if (!animation) return;
-    if (motionPreference.matches) {
+    if ((config.reducedMotion ?? motionPreference?.matches ?? false)) {
       animationRef.current = null;
       commitCamera(animation.to);
       return;
@@ -82,13 +103,13 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
     let next: SpatialCamera;
     let complete: boolean;
     if (animation.kind === "wheel") {
-      next = advanceWheelCamera(cameraRef.current, animation.to.scale, animation.anchor, now - animation.lastFrameAt);
+      next = advanceWheelCamera(cameraRef.current, animation.to.scale, animation.anchor, now - animation.lastFrameAt, config);
       animation.lastFrameAt = now;
       const viewportRadius = Math.max(sizeRef.current.width, sizeRef.current.height, 1);
       const remainingPixels = Math.abs(animation.to.scale / next.scale - 1) * viewportRadius;
       complete = remainingPixels < 0.05;
     } else {
-      const progress = clamp(0, 1, (now - animation.startedAt) / 180);
+      const progress = clamp(0, 1, (now - animation.startedAt) / config.focusDurationMs);
       const eased = 1 - Math.pow(1 - progress, 3);
       next = {
         x: lerp(animation.from.x, animation.to.x, eased),
@@ -103,7 +124,7 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
   };
   const animateTo = (target: SpatialCamera) => {
     cancelAnimation();
-    if (motionPreference.matches) {
+    if ((config.reducedMotion ?? motionPreference?.matches ?? false) || config.focusDurationMs === 0) {
       commitCamera(target);
       return;
     }
@@ -111,11 +132,11 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
     animationRef.current = animation;
     animation.frameId = requestAnimationFrame(tickAnimation);
   };
-  const fitBounds = (bounds: SpatialBounds, immediate = false, minimum = 0.02, requiredScale = 0, targetNode?: SpatialLayoutNode) => {
+  const fitBounds = (bounds: SpatialBounds, immediate = false, minimum = config.minScale, requiredScale = 0, targetNode?: SpatialLayoutNode<TNode>) => {
     const width = Math.max(1, bounds.maxX - bounds.minX + 100);
     const height = Math.max(1, bounds.maxY - bounds.minY + 100);
     const fitScale = Math.min(4, Math.min(sizeRef.current.width / width, sizeRef.current.height / height) * 0.9);
-    const scale = clamp(minimum, maxScale, Math.max(fitScale, requiredScale));
+    const scale = clamp(Math.max(config.minScale, Math.min(minimum, maxScale)), maxScale, Math.max(fitScale, requiredScale));
     const centerTarget = targetNode && requiredScale > fitScale;
     const centerX = centerTarget ? targetNode.x : (bounds.minX + bounds.maxX) / 2;
     const centerY = centerTarget ? targetNode.y + targetNode.height / 2 : (bounds.minY + bounds.maxY) / 2;
@@ -128,7 +149,7 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
     setFocusId(root?.item.id ?? "");
     if (!root) return fitBounds(layout.initialBounds, immediate, 0.45);
     const narrow = sizeRef.current.width < 700;
-    const scale = clamp(
+    const desiredScale = clamp(
       narrow ? 0.2 : 0.45,
       1.2,
       Math.min(
@@ -136,6 +157,7 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
         (sizeRef.current.height - (narrow ? 80 : 120)) / (2 * root.subtreeRadius),
       ),
     );
+    const scale = clamp(config.minScale, maxScale, desiredScale);
     const centerX = (layout.initialBounds.minX + layout.initialBounds.maxX) / 2;
     const centerY = (layout.initialBounds.minY + layout.initialBounds.maxY) / 2;
     const target = { x: sizeRef.current.width / 2 - centerX * scale, y: sizeRef.current.height / 2 - centerY * scale, scale };
@@ -146,7 +168,7 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
     const node = layout.nodeById.get(id);
     if (!node) return;
     setFocusId(id);
-    fitBounds(node.subtreeBounds, false, 0.02, READABLE_CARD_WIDTH / node.width, node);
+    fitBounds(node.subtreeBounds, false, config.minScale, config.readableWidth / node.width, node);
   };
   const pointFor = (clientX: number, clientY: number) => {
     const rect = stageBounds();
@@ -165,10 +187,10 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
     const anchor = samePoint && wheel ? wheel.anchor : measuredAnchor;
     // Keep the accumulated scale target even when the pointer moves during the gesture.
     const baseScale = wheel?.to.scale ?? cameraRef.current.scale;
-    const scale = clamp(0.02, maxScale, baseScale * Math.exp(-deltaY * WHEEL_GAIN));
+    const scale = clamp(config.minScale, maxScale, baseScale * Math.exp(-deltaY * config.wheelGain));
     const target = cameraAtAnchor(scale, anchor);
     const now = performance.now();
-    if (motionPreference.matches) {
+    if ((config.reducedMotion ?? motionPreference?.matches ?? false)) {
       cancelAnimation();
       commitCamera(target);
     } else if (wheel) {
@@ -185,8 +207,32 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
   const zoomBy = (direction: number) => {
     const rect = stageBounds();
     const point = lastPointerRef.current ?? (rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null);
-    if (point) zoomAt(point.x, point.y, direction > 0 ? -180 : 180);
+    if (point) zoomAt(point.x, point.y, direction > 0 ? -config.zoomStep : config.zoomStep);
   };
+
+  useLayoutEffect(() => {
+    // Runtime layout/options take ownership before the next animation frame.
+    cancelAnimation();
+    dragRef.current = null;
+    setIsDragging(false);
+    stageBoundsRef.current = null;
+    if (!layout.nodeById.has(focusId)) {
+      fitInitial(true);
+    } else {
+      const current = cameraRef.current;
+      const scale = clamp(config.minScale, maxScale, current.scale);
+      if (scale !== current.scale) {
+        const cursorX = sizeRef.current.width / 2;
+        const cursorY = sizeRef.current.height / 2;
+        commitCamera(cameraAtAnchor(scale, {
+          cursorX, cursorY,
+          worldX: (cursorX - current.x) / current.scale,
+          worldY: (cursorY - current.y) / current.scale,
+        }));
+      }
+    }
+    return cancelAnimation;
+  }, [layout, config, maxScale]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -209,7 +255,7 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
     });
     observer.observe(stage);
     return () => observer.disconnect();
-  }, [layout]);
+  }, [layout, config]);
   useEffect(() => {
     const invalidateBounds = () => { stageBoundsRef.current = null; };
     window.addEventListener("resize", invalidateBounds);
@@ -229,7 +275,7 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
     };
     stage.addEventListener("wheel", listener, { passive: false });
     return () => stage.removeEventListener("wheel", listener);
-  }, [layout]);
+  }, [layout, config]);
   useEffect(() => () => {
     cancelAnimation();
   }, []);
@@ -256,7 +302,7 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
     }
     let deltaX = event.clientX - drag.lastX;
     let deltaY = event.clientY - drag.lastY;
-    if (!drag.active && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
+    if (!drag.active && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < config.panThreshold) return;
     if (!drag.active) {
       drag.active = true;
       deltaX = event.clientX - drag.startX;
@@ -311,6 +357,9 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
     zoomBy,
     fitInitial,
     focusNode,
+    fitBounds,
+    zoomAt,
+    cancelMotion: cancelAnimation,
     gestureHandlers: {
       onPointerDown,
       onPointerMove,

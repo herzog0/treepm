@@ -1,0 +1,22 @@
+.spatial-context { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 22px; border-bottom: 1px solid #27324c; background: #121b31; }
+.spatial-breadcrumb { display: flex; min-width: 0; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; }
+.spatial-breadcrumb span { display: flex; min-width: 0; align-items: center; gap: 5px; }
+.spatial-breadcrumb i { color: #65718f; font-style: normal; }
+.spatial-breadcrumb button { max-width: 180px; overflow: hidden; padding: 3px 4px; border: 0; border-radius: 4px; background: transparent; color: #9aa8c9; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.spatial-breadcrumb button:hover { color: white; }
+.spatial-breadcrumb button.is-current { color: #d9ceff; font-weight: 700; }
+.spatial-metrics { display: flex; flex: 0 0 auto; gap: 14px; color: #8593b4; font-size: 9px; white-space: nowrap; }
+.spatial-help { position: absolute; z-index: 6; bottom: 14px; left: 14px; max-width: calc(100% - 230px); padding: 7px 9px; border: 1px solid #344262; border-radius: 6px; background: #16213bdd; color: #a5b2d0; font-size: 9px; pointer-events: none; }
+.spatial-selection { position: absolute; z-index: 8; top: 66px; right: 14px; display: grid; gap: 10px; width: 240px; max-width: calc(100% - 28px); padding: 14px; border: 1px solid #3a4767; border-radius: 10px; background: #16213bed; box-shadow: 0 10px 32px #050a1a55; }
+.spatial-selection > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.spatial-selection strong { font-size: 13px; }
+.spatial-selection code, .spatial-selection p { margin: 0; color: #a5b2d0; font-size: 11px; }
+.spatial-selection button { padding: 7px 10px; border: 1px solid #52638c; border-radius: 5px; background: #283758; color: white; cursor: pointer; }
+.spatial-selection button:hover { background: #3a4d75; }
+.spatial-card-button:focus-visible, .spatial-toolbar button:focus-visible, .spatial-breadcrumb button:focus-visible, .spatial-selection button:focus-visible { outline: 2px solid #d7c8ff; outline-offset: -2px; }
+@media (max-width: 700px) {
+  .spatial-context { padding: 5px 10px; }
+  .spatial-breadcrumb button { max-width: 110px; }
+  .spatial-metrics span:first-child { display: none; }
+  .spatial-help { max-width: calc(100% - 28px); font-size: 8px; }
+}

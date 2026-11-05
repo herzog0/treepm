@@ -1,13 +1,19 @@
-export interface SpatialItem {
+export interface TreeNodeIdentity {
   readonly id: string;
-  readonly parentId: string | null;
-  readonly label: string;
-  readonly color: string;
 }
 
-export interface SpatialTreeIndex {
-  readonly itemById: ReadonlyMap<string, SpatialItem>;
-  readonly childrenByParentId: ReadonlyMap<string | null, readonly SpatialItem[]>;
+export interface TreeNodeHierarchy {
+  readonly parentId: string | null;
+}
+
+export interface TreeNode extends TreeNodeIdentity, TreeNodeHierarchy {}
+
+/** Migration alias; presentation fields are supplied by the consumer. */
+export type SpatialItem = TreeNode;
+
+export interface TreeIndex<TNode extends TreeNode = TreeNode> {
+  readonly itemById: ReadonlyMap<string, TNode>;
+  readonly childrenByParentId: ReadonlyMap<string | null, readonly TNode[]>;
   readonly depthById: ReadonlyMap<string, number>;
   readonly subtreeHeightById: ReadonlyMap<string, number>;
   readonly subtreeCountById: ReadonlyMap<string, number>;
@@ -15,9 +21,9 @@ export interface SpatialTreeIndex {
 }
 
 /** Validate a forest and index it without sorting or mutating the input. */
-export function buildSpatialIndex(items: readonly SpatialItem[]): SpatialTreeIndex {
-  const itemById = new Map<string, SpatialItem>();
-  const mutableChildren = new Map<string | null, SpatialItem[]>();
+export function buildTreeIndex<TNode extends TreeNode>(items: readonly TNode[]): TreeIndex<TNode> {
+  const itemById = new Map<string, TNode>();
+  const mutableChildren = new Map<string | null, TNode[]>();
   for (const item of items) {
     if (itemById.has(item.id)) throw new Error(`Duplicate spatial item ID: "${item.id}"`);
     if (item.parentId === item.id) throw new Error(`Spatial item "${item.id}" cannot be its own parent`);
@@ -32,7 +38,7 @@ export function buildSpatialIndex(items: readonly SpatialItem[]): SpatialTreeInd
     }
   }
 
-  const childrenByParentId = new Map<string | null, readonly SpatialItem[]>();
+  const childrenByParentId = new Map<string | null, readonly TNode[]>();
   for (const [parentId, children] of mutableChildren) childrenByParentId.set(parentId, Object.freeze(children));
 
   // Breadth-first traversal keeps depth computation iterative even for deep inputs.
@@ -71,3 +77,6 @@ export function buildSpatialIndex(items: readonly SpatialItem[]): SpatialTreeInd
   }
   return { itemById, childrenByParentId, depthById, subtreeHeightById, subtreeCountById, descendantCountById };
 }
+
+export type SpatialTreeIndex<TNode extends TreeNode = TreeNode> = TreeIndex<TNode>;
+export const buildSpatialIndex = buildTreeIndex;

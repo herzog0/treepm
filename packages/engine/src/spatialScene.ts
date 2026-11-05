@@ -1,12 +1,14 @@
-import type { SpatialTreeIndex } from "./spatialIndex.js";
+import type { TreeIndex, TreeNode } from "./spatialIndex.js";
 import type { SpatialLayout, SpatialLayoutNode } from "./spatialLayout.js";
 import type { SpatialCamera } from "./spatialCameraMotion.js";
+import { normalizeSceneOptions, sceneOptionsKey } from "./spatialSceneOptions.js";
+import type { SceneConfig, SpatialSceneOptions } from "./spatialSceneOptions.js";
 
 export type SpatialLod = "full" | "compact" | "chip" | "dot";
 
-export interface SpatialSceneNode {
+export interface SpatialSceneNode<TNode extends TreeNode = TreeNode> {
   id: string;
-  node: SpatialLayoutNode;
+  node: SpatialLayoutNode<TNode>;
   x: number;
   y: number;
   width: number;
@@ -21,13 +23,15 @@ export interface SpatialSceneNode {
 }
 
 export interface SpatialIndicatorGroup {
-  parentId: string;
-  childIds: string[];
-  scale: number;
-  width: number;
-  x: number;
-  y: number;
-  opacity: number;
+  readonly id: string;
+  readonly parentId: string;
+  readonly childIds: readonly string[];
+  readonly scale: number;
+  readonly width: number;
+  readonly height: number;
+  readonly x: number;
+  readonly y: number;
+  readonly opacity: number;
 }
 
 export interface SpatialSceneRegion {
@@ -39,13 +43,13 @@ export interface SpatialSceneRegion {
   opacity: number;
 }
 
-export interface SpatialScene {
-  nodes: SpatialSceneNode[];
+export interface SpatialScene<TNode extends TreeNode = TreeNode> {
+  nodes: SpatialSceneNode<TNode>[];
   groups: SpatialIndicatorGroup[];
   regions: SpatialSceneRegion[];
 }
 
-interface Viewport {
+export interface SpatialViewport {
   readonly width: number;
   readonly height: number;
   /** Origin in scene output coordinates; defaults to zero. Only affects culling. */
@@ -53,71 +57,86 @@ interface Viewport {
   readonly y?: number;
 }
 
-const INDICATOR_SIZE = 6;
-const INDICATOR_GAP = 3;
-const MAX_INDIVIDUAL_INDICATORS = 8;
 const lerp = (from: number, to: number, progress: number) => from + (to - from) * progress;
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 const smooth = (value: number) => { const t = clamp(value); return t * t * (3 - 2 * t); };
 
-interface PreparedNode {
-  id: string;
-  node: SpatialLayoutNode;
-  threshold: number;
-  children: { node: PreparedNode | undefined; offset: number }[];
-  overflowIds: string[];
-  groupWidth: number;
-  rowWidth: number;
-  groupOffset: number;
+interface PreparedBucket {
+  readonly id: string;
+  readonly childIds: readonly string[];
+  readonly offset: number;
 }
 
-// Layout/index are immutable snapshots: replacing either prepares fresh geometry.
-// Both keys are weak so discarded snapshots and their metadata can be collected.
-const preparedByLayout = new WeakMap<SpatialLayout, WeakMap<SpatialTreeIndex, readonly PreparedNode[]>>();
+interface PreparedNode {
+  readonly id: string;
+  readonly threshold: number;
+  readonly layoutPosition: number;
+  readonly geometry: Pick<SpatialLayoutNode, "x" | "y" | "width" | "height" | "slotBounds">;
+  readonly children: readonly { node: PreparedNode | undefined; offset: number; grouped: boolean }[];
+  readonly buckets: readonly PreparedBucket[];
+  readonly mergedBuckets: readonly PreparedBucket[];
+  readonly rowWidth: number;
+}
 
-function prepareScene(layout: SpatialLayout, index: SpatialTreeIndex): readonly PreparedNode[] {
+// Metadata stores no erased consumer payload. Each visit reads its TNode directly
+// from the generic layout. Both snapshot keys are weak; configs are scoped to them.
+const preparedByLayout = new WeakMap<SpatialLayout, WeakMap<TreeIndex, Map<string, readonly PreparedNode[]>>>();
+
+function prepareScene<TNode extends TreeNode>(layout: SpatialLayout<TNode>, index: TreeIndex<TNode>, config: SceneConfig): readonly PreparedNode[] {
   let byIndex = preparedByLayout.get(layout);
-  const cached = byIndex?.get(index);
-  if (cached) return cached;
   if (!byIndex) {
     byIndex = new WeakMap();
     preparedByLayout.set(layout, byIndex);
   }
-  const prepared = new Map<string, PreparedNode>();
+  let byConfig = byIndex.get(index);
+  if (!byConfig) {
+    byConfig = new Map();
+    byIndex.set(index, byConfig);
+  }
+  const key = sceneOptionsKey(config);
+  const cached = byConfig.get(key);
+  if (cached) return cached;
+  // Internal construction remains mutable; only completed metadata is published.
+  type MutablePrepared = { -readonly [Key in keyof PreparedNode]: PreparedNode[Key] };
+  const prepared = new Map<string, MutablePrepared>();
+  const positions = new Map(layout.nodes.map((node, position) => [node.item.id, position]));
   for (const [id, node] of layout.nodeById) {
-    const children = index.childrenByParentId.get(node.item.id) ?? [];
+    const children = index.childrenByParentId.get(id) ?? [];
     const largestChildWidth = children.reduce((maximum, child) => Math.max(maximum, layout.nodeById.get(child.id)?.width ?? 0), 0);
-    const nominalThreshold = node.depth === 0 ? 100 : node.depth === 1 ? 260 : 180;
-    // Complete the handoff before even the widest child reaches its readable 140px.
-    const threshold = largestChildWidth > 0 ? Math.min(nominalThreshold, node.width / largestChildWidth * 110) : nominalThreshold;
-    const individualCount = Math.min(children.length, MAX_INDIVIDUAL_INDICATORS);
-    const overflow = children.length - individualCount;
-    const groupWidth = overflow > 0 ? Math.max(18, String(overflow).length * 5 + 8) : 0;
-    const rowWidth = individualCount * INDICATOR_SIZE + Math.max(0, individualCount - 1) * INDICATOR_GAP + (overflow > 0 ? INDICATOR_GAP + groupWidth : 0);
-    const groupOffset = individualCount * (INDICATOR_SIZE + INDICATOR_GAP) + groupWidth / 2 - rowWidth / 2;
-    prepared.set(id, { id, node, threshold, children: [], overflowIds: children.slice(individualCount).map((child) => child.id), groupWidth, rowWidth, groupOffset });
+    const nominalThreshold = node.depth === 0 ? config.rootRevealWidth : node.depth === 1 ? config.childRevealWidth : config.deeperRevealWidth;
+    const threshold = largestChildWidth > 0 ? Math.min(nominalThreshold, node.width / largestChildWidth * config.readableChildWidth) : nominalThreshold;
+    const slots = Math.min(children.length, config.maxSlots);
+    const rowWidth = slots * config.indicatorSize + Math.max(0, slots - 1) * config.indicatorGap;
+    const buckets: PreparedBucket[] = [];
+    let cursor = 0;
+    for (let bucketIndex = 0; bucketIndex < slots; bucketIndex += 1) {
+      const count = Math.floor(children.length / slots) + (bucketIndex < children.length % slots ? 1 : 0);
+      const childIds = Object.freeze(children.slice(cursor, cursor + count).map((child) => child.id));
+      buckets.push({ id: JSON.stringify([id, bucketIndex]), childIds, offset: bucketIndex * (config.indicatorSize + config.indicatorGap) + config.indicatorSize / 2 - rowWidth / 2 });
+      cursor += count;
+    }
+    prepared.set(id, { id, threshold, layoutPosition: positions.get(id) ?? -1, geometry: node, children: [], buckets, mergedBuckets: buckets.filter((bucket) => bucket.childIds.length > 1), rowWidth });
   }
   for (const entry of prepared.values()) {
-    const children = index.childrenByParentId.get(entry.id) ?? [];
-    const individualCount = Math.min(children.length, MAX_INDIVIDUAL_INDICATORS);
-    entry.children = children.map((child, childIndex) => ({
-      node: prepared.get(child.id),
-      offset: childIndex < individualCount
-        ? childIndex * (INDICATOR_SIZE + INDICATOR_GAP) + INDICATOR_SIZE / 2 - entry.rowWidth / 2
-        : entry.groupOffset,
-    }));
+    entry.children = entry.buckets.flatMap((bucket) => bucket.childIds.map((id) => ({ node: prepared.get(id), offset: bucket.offset, grouped: bucket.childIds.length > 1 })));
   }
   const roots: PreparedNode[] = [];
   for (const root of index.childrenByParentId.get(null) ?? []) {
     const entry = prepared.get(root.id);
     if (entry) roots.push(entry);
   }
-  byIndex.set(index, roots);
+  // Parameter controls may produce indefinitely many values for the same tree.
+  // Bound retained preparations without changing scene geometry or visibility.
+  if (byConfig.size >= 16) {
+    const oldest = byConfig.keys().next().value;
+    if (oldest !== undefined) byConfig.delete(oldest);
+  }
+  byConfig.set(key, roots);
   return roots;
 }
 
 interface ChildFrame {
-  parent: SpatialSceneNode;
+  x: number;
   reveal: number;
   opacity: number;
   scale: number;
@@ -129,82 +148,90 @@ interface ChildFrame {
   split: number;
 }
 
-function inViewport(x: number, y: number, width: number, height: number, viewport: Viewport) {
+function inViewport(x: number, y: number, width: number, height: number, viewport: SpatialViewport, margin: number) {
   const originX = viewport.x ?? 0;
   const originY = viewport.y ?? 0;
-  return x + width / 2 >= originX - 100 && x - width / 2 <= originX + viewport.width + 100 && y + height >= originY - 100 && y <= originY + viewport.height + 100;
+  return x + width / 2 >= originX - margin && x - width / 2 <= originX + viewport.width + margin && y + height >= originY - margin && y <= originY + viewport.height + margin;
 }
 
 /**
  * One geometric representative per item; camera scale drives the reversible morph.
  * Layout/index are readonly snapshots: rebuild/replace them after topology or
- * geometry changes. Static geometry
- * is cached by both identities; in-place edits do not invalidate that cache.
- * Returned scene arrays are fresh and can be modified independently of the cache.
+ * geometry changes. Static geometry is cached by both identities and config values; in-place edits do not invalidate that cache.
+ * Scene collections are fresh; group membership is immutable and shared by cache.
  * Optional viewport x/y move only the culling window, never the output geometry.
  */
-export function buildSpatialScene(layout: SpatialLayout, index: SpatialTreeIndex, camera: SpatialCamera, viewport: Viewport): SpatialScene {
-  const nodes: SpatialSceneNode[] = [];
+export function buildSpatialScene<TNode extends TreeNode>(layout: SpatialLayout<TNode>, index: TreeIndex<TNode>, camera: SpatialCamera, viewport: SpatialViewport, options?: SpatialSceneOptions): SpatialScene<TNode> {
+  const config = normalizeSceneOptions(options);
+  const nodes: SpatialSceneNode<TNode>[] = [];
   const groups: SpatialIndicatorGroup[] = [];
   const regions: SpatialSceneRegion[] = [];
-  const roots = prepareScene(layout, index);
+  const roots = prepareScene(layout, index, config);
 
-  const visit = (entry: PreparedNode, frame?: ChildFrame, siblingIndex = 0, offset = 0) => {
-    const { id, node, children } = entry;
+  const { revealStart, revealRange, fullWidth, compactWidth, chipWidth, contentMinWidth, contentWidthRange, cullingMargin, previewStart, previewRange, previewMinWidth, previewWidthRange, indicatorOffsetY, splitStart, splitRange, indicatorSize, translationXStart, translationXRange, translationYRange, growthStart, growthRange } = config;
+
+  const visit = (entry: PreparedNode, frame?: ChildFrame, grouped = false, offset = 0) => {
+    const { id, children } = entry;
+    const node = entry.geometry;
     const reveal = frame ? frame.reveal : 1;
     const growth = frame ? frame.growth : 1;
-    const split = frame && siblingIndex >= MAX_INDIVIDUAL_INDICATORS ? frame.split : 1;
+    const split = frame && grouped ? frame.split : 1;
     // Separate the small squares first, then grow them inside their destination regions.
     const width = frame ? lerp(frame.size, node.width * camera.scale, growth) * split : node.width * camera.scale;
     const height = frame ? lerp(frame.size, node.height * camera.scale, growth) * split : node.height * camera.scale;
-    const x = frame ? lerp(frame.parent.x + offset * frame.scale, node.x * camera.scale + camera.x, frame.translationX) : node.x * camera.scale + camera.x;
+    const x = frame ? lerp(frame.x + offset * frame.scale, node.x * camera.scale + camera.x, frame.translationX) : node.x * camera.scale + camera.x;
     const y = frame ? lerp(frame.y, node.y * camera.scale + camera.y, frame.translationY) : node.y * camera.scale + camera.y;
     const opacity = frame ? frame.opacity : 1;
-    const expansion = smooth((width / entry.threshold - 0.85) / 0.3);
-    const lod: SpatialLod = width >= 130 ? "full" : width >= 65 ? "compact" : width >= 28 ? "chip" : "dot";
-    const item: SpatialSceneNode = {
-      id, node, x, y, width, height, reveal, opacity, lod,
-      contentOpacity: growth * smooth((width - 24) / 60),
-      indicatorScale: frame ? frame.scale : 1,
-      aggregate: children.length > 0 && expansion < 1,
-      representation: reveal === 0 ? "indicator" : "card",
-    };
-    const visible = inViewport(x, y, width, height, viewport);
-    // Valid indexed forests visit each ID once, in the same preorder as the layout.
-    if (opacity > 0 && width > 0 && height > 0 && visible) nodes.push(item);
+    const expansion = children.length > 0 ? smooth((width / entry.threshold - revealStart) / revealRange) : 1;
+    const visible = inViewport(x, y, width, height, viewport, cullingMargin);
+    // Offscreen representatives still drive descendants, but need no output body.
+    if (opacity > 0 && width > 0 && height > 0 && visible) {
+      const source = layout.nodes[entry.layoutPosition] ?? layout.nodeById.get(id);
+      if (source) nodes.push({
+        id, node: source, x, y, width, height, reveal, opacity,
+        lod: width >= fullWidth ? "full" : width >= compactWidth ? "compact" : width >= chipWidth ? "chip" : "dot",
+        contentOpacity: growth * smooth((width - contentMinWidth) / contentWidthRange),
+        indicatorScale: frame ? frame.scale : 1,
+        aggregate: children.length > 0 && expansion < 1,
+        representation: reveal === 0 ? "indicator" : "card",
+      });
+    }
     if (frame && reveal > 0 && visible) {
       const bounds = node.slotBounds;
       regions.push({ id, x: bounds.minX * camera.scale + camera.x, y: bounds.minY * camera.scale + camera.y, width: (bounds.maxX - bounds.minX) * camera.scale, height: (bounds.maxY - bounds.minY) * camera.scale, opacity: reveal * opacity });
     }
     // A collapsed square does not recursively draw its descendants. Offscreen
     // parents still project children: their presented positions can be onscreen.
-    const preview = opacity * smooth((reveal - 0.7) / 0.3) * smooth((width - 4) / 8);
-    if (preview === 0 || children.length === 0) return;
+    if (children.length === 0) return;
+    const preview = opacity * smooth((reveal - previewStart) / previewRange) * smooth((width - previewMinWidth) / previewWidthRange);
+    if (preview === 0) return;
     const indicatorScale = entry.rowWidth > 0 ? Math.min(1, width / entry.rowWidth) : 1;
-    const originY = y + height + 5 * indicatorScale;
-    const groupSplit = smooth((expansion - 0.25) / 0.5);
-    if (entry.overflowIds.length > 0 && groupSplit < 1) {
-      const groupX = x + entry.groupOffset * indicatorScale;
-      const groupScale = indicatorScale * (1 - groupSplit);
-      if (inViewport(groupX, originY, entry.groupWidth * groupScale, 12 * groupScale, viewport)) {
-        groups.push({ parentId: id, childIds: entry.overflowIds.slice(), width: entry.groupWidth, scale: groupScale, x: groupX, y: originY, opacity: preview });
+    const originY = y + height + indicatorOffsetY * indicatorScale;
+    const groupSplit = entry.mergedBuckets.length > 0 ? smooth((expansion - splitStart) / splitRange) : 1;
+    if (groupSplit < 1) {
+      for (const bucket of entry.mergedBuckets) {
+        const groupX = x + bucket.offset * indicatorScale;
+        const groupScale = indicatorScale * (1 - groupSplit);
+        if (inViewport(groupX, originY, indicatorSize * groupScale, indicatorSize * groupScale, viewport, cullingMargin)) {
+          groups.push({ id: bucket.id, parentId: id, childIds: bucket.childIds, width: indicatorSize, height: indicatorSize, scale: groupScale, x: groupX, y: originY, opacity: preview });
+        }
       }
     }
     const childFrame: ChildFrame = {
-      parent: item,
+      x,
       reveal: expansion,
       opacity: preview,
       scale: indicatorScale,
-      size: INDICATOR_SIZE * indicatorScale,
+      size: indicatorSize * indicatorScale,
       y: originY,
-      translationX: smooth((expansion - 0.12) / 0.63),
-      translationY: smooth(expansion / 0.45),
-      growth: smooth((expansion - 0.25) / 0.75),
+      translationX: smooth((expansion - translationXStart) / translationXRange),
+      translationY: smooth(expansion / translationYRange),
+      growth: smooth((expansion - growthStart) / growthRange),
       split: groupSplit,
     };
     for (let childIndex = 0; childIndex < children.length; childIndex += 1) {
       const child = children[childIndex];
-      if (child?.node) visit(child.node, childFrame, childIndex, child.offset);
+      if (child?.node) visit(child.node, childFrame, child.grouped, child.offset);
     }
   };
   for (const root of roots) visit(root);

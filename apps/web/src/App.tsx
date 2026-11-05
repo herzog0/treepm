@@ -1,6 +1,5 @@
-import { SpatialCanvas } from "./canvas/SpatialCanvas.js";
-import { demoItems } from "./demo/data.js";
+import { Demo } from "./demo/Demo.js";
 
 export function App() {
-  return <SpatialCanvas items={demoItems} />;
+  return <Demo />;
 }

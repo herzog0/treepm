@@ -1,8 +1,10 @@
-export { buildSpatialIndex } from "./spatialIndex.js";
-export type { SpatialItem, SpatialTreeIndex } from "./spatialIndex.js";
-export { buildSpatialLayout } from "./spatialLayout.js";
-export type { SpatialBounds, SpatialLayout, SpatialLayoutNode } from "./spatialLayout.js";
+export { buildTreeIndex, buildSpatialIndex } from "./spatialIndex.js";
+export type { TreeNodeIdentity, TreeNodeHierarchy, TreeNode, TreeIndex, SpatialItem, SpatialTreeIndex } from "./spatialIndex.js";
+export { buildSpatialLayout, DEFAULT_SPATIAL_LAYOUT_OPTIONS } from "./spatialLayout.js";
+export type { SpatialBounds, SpatialLayout, SpatialLayoutNode, SpatialDimensions, SpatialNormalizationOptions, SpatialLayoutOptions } from "./spatialLayout.js";
 export { buildSpatialScene } from "./spatialScene.js";
-export type { SpatialScene, SpatialSceneNode, SpatialSceneRegion, SpatialIndicatorGroup, SpatialLod } from "./spatialScene.js";
-export { cameraAtAnchor, advanceWheelCamera } from "./spatialCameraMotion.js";
-export type { SpatialCamera, SpatialZoomAnchor } from "./spatialCameraMotion.js";
+export type { SpatialScene, SpatialSceneNode, SpatialSceneRegion, SpatialIndicatorGroup, SpatialLod, SpatialViewport } from "./spatialScene.js";
+export { DEFAULT_SPATIAL_SCENE_OPTIONS } from "./spatialSceneOptions.js";
+export type { SpatialSceneOptions } from "./spatialSceneOptions.js";
+export { cameraAtAnchor, advanceWheelCamera, DEFAULT_SPATIAL_CAMERA_OPTIONS } from "./spatialCameraMotion.js";
+export type { SpatialCamera, SpatialZoomAnchor, SpatialCameraOptions } from "./spatialCameraMotion.js";

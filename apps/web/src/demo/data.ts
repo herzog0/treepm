@@ -1,4 +1,10 @@
-import type { SpatialItem } from "@treepm/engine";
+import type { TreeNode } from "@treepm/engine";
+
+export interface DemoNode extends TreeNode {
+  readonly label: string;
+  readonly color: string;
+  readonly sampleValue: number;
+}
 
 const REGIONS = [
   { label: "Aurora", color: "#8459b8" },
@@ -10,19 +16,19 @@ const REGIONS = [
 ] as const;
 
 /** Fixed input order and topology: 1 root, 6 regions, 994 descendants. */
-function createDemoItems(): readonly SpatialItem[] {
-  const items: SpatialItem[] = [{ id: "node-0000", parentId: null, label: "Constelação", color: "#6853a5" }];
+function createDemoItems(): readonly DemoNode[] {
+  const items: DemoNode[] = [{ id: "node-0000", parentId: null, label: "Constelação", color: "#6853a5", sampleValue: 0 }];
   let sequence = 1;
   for (const [regionIndex, region] of REGIONS.entries()) {
     const add = (parentId: string, label: string) => {
       const id = `node-${String(sequence++).padStart(4, "0")}`;
-      items.push({ id, parentId, label, color: region.color });
+      items.push({ id, parentId, label, color: region.color, sampleValue: sequence - 1 });
       return id;
     };
     const regionId = add("node-0000", region.label);
     const budget = regionIndex < 4 ? 166 : 165;
     let created = 0;
-    // A narrow branch reaches depth 7; broad siblings exercise indicator +N.
+    // A narrow branch reaches depth 7; broad siblings exercise merged indicator buckets.
     let parentId = regionId;
     for (let level = 2; level <= 7; level++) {
       parentId = add(parentId, `${region.label} · camada ${level}`);

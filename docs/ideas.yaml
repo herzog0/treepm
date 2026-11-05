@@ -95,3 +95,62 @@ ideas:
         target: IDEA-002
       - type: related_to
         target: IDEA-004
+  - id: IDEA-007
+    created_at: 2026-11-05
+    title: Quadradinhos mesclados sem badge de quantidade
+    status: implemented
+    summary: >-
+      Substituir o quadrado +N por pequenos representantes que mesclam alguns
+      filhos e combinam suas cores pelo retorno de uma função configurável.
+    details:
+      - Particionar todos os filhos diretos em slots determinísticos e balanceados, preservando seus IDs.
+      - Manter contagem e membros acessíveis sem um contador visual de overflow.
+      - Separar mistura de cores da geometria headless e permitir que o consumidor substitua a função.
+      - Preservar a transformação contínua e reversível entre grupos, indicadores e cards.
+    relationships:
+      - type: refines
+        target: IDEA-002
+  - id: IDEA-008
+    created_at: 2026-11-05
+    title: Árvore genérica e experiência espacial reutilizável
+    status: implemented
+    summary: >-
+      Isolar uma estrutura de árvore bem tipada em TypeScript, com contratos
+      genéricos implementados por consumidores futuros e apresentação substituível.
+    details:
+      - Separar interfaces de identidade e parentesco dos campos de conteúdo e de negócio.
+      - Preservar o tipo concreto do consumidor no índice, layout, cena e renderers.
+      - Separar o núcleo headless dos componentes React e estilos opcionais.
+      - Parametrizar layout, compressão, indicadores, câmera, mistura, conteúdo e apresentação para reaproveitamento em outros projetos.
+      - O futuro produto de gerenciamento de projetos será um consumidor da engine, sem definir o contrato mínimo dela.
+    relationships:
+      - type: refines
+        target: IDEA-006
+      - type: related_to
+        target: IDEA-007
+  - id: IDEA-009
+    created_at: 2026-11-05
+    title: Plataforma de tickets multidisciplinar sobre a engine espacial
+    status: proposed
+    summary: >-
+      Planejar uma plataforma de gerenciamento de projetos que usa a mecânica
+      espacial como base, com trabalho multidisciplinar compartilhado em cada ticket.
+    details:
+      - Nesta etapa, produzir apenas business blueprint, catálogo de features e plano de implementação da plataforma.
+      - Um único ticket aceita múltiplas pessoas assinaladas e descrições de cada área envolvida.
+      - Conversas podem ser globais ou contextualizadas por área no mesmo ticket.
+      - Incluir busca semântica, seleção de resultados que navega ao contexto, filtros e suas visualizações.
+      - Planejar modo stand-up e integrar as ideias anteriores do registro.
+      - Definir informação de cards por grau de compressão e representação de relações cruzadas.
+      - Explorar como Jev e IA ajudam classificação, organização e rotina de trabalho.
+      - Planejar login com Clerk, isolamento multi-tenant, administração de times e capacidades essenciais de gerenciamento de projetos.
+      - Blueprint em docs/product-blueprint.md; capacidades de Clerk e Jev verificadas em docs/research/platform-services.md.
+    relationships:
+      - type: depends_on
+        target: IDEA-008
+      - type: related_to
+        target: IDEA-001
+      - type: related_to
+        target: IDEA-003
+      - type: related_to
+        target: IDEA-005

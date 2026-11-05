@@ -1,0 +1,67 @@
+/* Surface dimensions include borders even in consumers without a global reset. */
+:where(.spatial-shell[data-spatial-canvas]),
+:where(.spatial-shell[data-spatial-canvas])::before,
+:where(.spatial-shell[data-spatial-canvas])::after,
+:where(.spatial-shell[data-spatial-canvas]) *,
+:where(.spatial-shell[data-spatial-canvas]) *::before,
+:where(.spatial-shell[data-spatial-canvas]) *::after { box-sizing: border-box; }
+:where(.spatial-shell[data-spatial-canvas]) button { font: inherit; }
+/* Morph values are local to the surface; avoid invalidating inherited text styles. */
+@property --spatial-reveal { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --spatial-indicator-scale { syntax: "<number>"; inherits: false; initial-value: 1; }
+:where([data-spatial-canvas]).spatial-shell { height: 100%; display: flex; flex-direction: column; overflow: hidden; background: var(--spatial-background, #0d1324); color: var(--spatial-foreground, #eef2ff); font-family: var(--spatial-font-family, system-ui, sans-serif); }
+:where([data-spatial-canvas]) .spatial-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--spatial-stage-background, radial-gradient(ellipse at 45% 40%, #1b2a4a 0%, #111a31 42%, #0d1324 82%)); cursor: grab; touch-action: none; user-select: none; }
+:where([data-spatial-canvas]) .spatial-stage.is-dragging, :where([data-spatial-canvas]) .spatial-stage.is-dragging .spatial-card-button { cursor: grabbing; }
+:where([data-spatial-canvas]) .spatial-constellation { position: absolute; inset: 0; pointer-events: none; opacity: .45; background-image: radial-gradient(circle at 12% 18%, #7e8fc4 0 1px, transparent 1.5px), radial-gradient(circle at 78% 12%, #a2b0d9 0 1px, transparent 1.5px), radial-gradient(circle at 63% 78%, #6577aa 0 1px, transparent 1.5px), radial-gradient(circle at 28% 67%, #8597c7 0 1px, transparent 1.5px); background-size: 190px 170px, 270px 230px, 230px 190px, 310px 260px; }
+:where([data-spatial-canvas]) .spatial-scene { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+:where([data-spatial-canvas]) .spatial-region { position: absolute; left: 0; top: 0; z-index: 1; border: 1px dashed var(--spatial-region-border, #6376a144); border-radius: 8px; background: #1a294422; opacity: 0; pointer-events: none; }
+:where([data-spatial-canvas]) .spatial-node { position: absolute; left: 0; top: 0; z-index: 2; display: flex; flex-direction: column; color: #29243a; overflow: visible; contain: layout style; pointer-events: auto; }
+:where([data-spatial-canvas]) .spatial-node[data-representation="indicator"] { pointer-events: none; }
+:where([data-spatial-canvas]) .spatial-card-visual { position: absolute; inset: 0; display: flex; flex-direction: column; isolation: isolate; border: 1px solid #d9deee; border-top: calc(1px + 2px * var(--spatial-reveal)) solid var(--spatial-color); border-radius: calc(1px + 11px * var(--spatial-reveal)); background: color-mix(in srgb, var(--spatial-color) calc((1 - var(--spatial-reveal)) * 100%), var(--spatial-card-background, #fffefb)); box-shadow: 0 10px 32px #050a1a55; overflow: visible; opacity: 1; transform-origin: top left; transition: border-color 120ms ease; }
+/* Share the evolving outer contour, including its accent and outline. */
+:where([data-spatial-canvas]) .spatial-card-visual::before { --spatial-reveal: inherit; content: ""; position: absolute; z-index: 0; inset: calc(-1px - 2px * var(--spatial-reveal)) -1px -1px; border-radius: inherit; background: var(--spatial-color); transform: scaleY(0); transform-origin: top; pointer-events: none; transition: transform 230ms cubic-bezier(.22,1,.36,1); }
+:where([data-spatial-canvas]).spatial-shell.is-color-mode .spatial-card-visual::before { transform: scaleY(1); }
+:where([data-spatial-canvas]) .spatial-card-button { position: relative; z-index: 1; display: flex; width: 100%; height: 100%; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; overflow: hidden; border: 0; border-radius: inherit; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+:where([data-spatial-canvas]) .spatial-lod-content { display: flex; width: 100%; height: 100%; flex-direction: column; align-items: flex-start; gap: 4px; animation: spatial-content-reveal 80ms ease; }
+@keyframes spatial-content-reveal { from { opacity: .65; } to { opacity: 1; } }
+:where([data-spatial-canvas]) .spatial-lod-content > strong { display: -webkit-box; max-width: 100%; overflow: hidden; font: 700 11px/1.25 var(--spatial-font-family, system-ui, sans-serif); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+:where([data-spatial-canvas]) .spatial-key { min-width: 0; max-width: 100%; flex-shrink: 0; overflow: hidden; color: #786985; font-size: 8px; line-height: 1.2; font-weight: 800; letter-spacing: .6px; text-overflow: ellipsis; white-space: nowrap; }
+:where([data-spatial-canvas]) .spatial-card-meta { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 6px; color: #6b6075; font-size: 8px; }
+:where([data-spatial-canvas]) .spatial-card-meta > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:where([data-spatial-canvas]) .spatial-aggregate-count { color: #66527e; font-size: 8px; font-weight: 700; }
+:where([data-spatial-canvas]) .spatial-lod-compact .spatial-card-button { gap: 2px; padding: 4px 6px; }
+:where([data-spatial-canvas]) .spatial-lod-compact .spatial-lod-content { gap: 2px; }
+:where([data-spatial-canvas]) .spatial-lod-compact .spatial-lod-content > strong { display: block; min-width: 0; flex-shrink: 0; font-size: 10px; white-space: nowrap; text-overflow: ellipsis; }
+:where([data-spatial-canvas]) .spatial-lod-chip .spatial-card-button { justify-content: center; padding: 2px 4px; }
+:where([data-spatial-canvas]) .spatial-lod-chip .spatial-lod-content { flex-direction: row; align-items: center; gap: 3px; }
+:where([data-spatial-canvas]) .spatial-lod-chip .spatial-key { max-width: 40%; }
+:where([data-spatial-canvas]) .spatial-lod-chip .spatial-lod-content > strong { display: block; min-width: 0; flex: 1; overflow: hidden; font-size: 9px; white-space: nowrap; text-overflow: ellipsis; }
+:where([data-spatial-canvas]) .spatial-lod-chip .spatial-aggregate-count { display: none; }
+:where([data-spatial-canvas]) .spatial-lod-dot .spatial-card-button { padding: 0; }
+/* The article/button already name dots; their invisible text needs no layout box. */
+:where([data-spatial-canvas]) .spatial-lod-dot .spatial-lod-content { display: none; }
+/* Small cards retain elevation without the full card's 32px blur footprint. */
+:where([data-spatial-canvas]) .spatial-lod-compact .spatial-card-visual { box-shadow: 0 4px 12px #050a1a55; }
+:where([data-spatial-canvas]) .spatial-lod-chip .spatial-card-visual { box-shadow: 0 2px 4px #050a1a55; }
+:where([data-spatial-canvas]) .spatial-lod-dot .spatial-card-visual { box-shadow: none; }
+:where([data-spatial-canvas]) .spatial-node[data-representation="indicator"] .spatial-card-visual { border: 0; border-radius: calc(1px * var(--spatial-indicator-scale)); background: var(--spatial-color); box-shadow: 0 0 0 calc(1px * var(--spatial-indicator-scale)) #ffffffaa; }
+:where([data-spatial-canvas]) .spatial-node[data-representation="indicator"] .spatial-card-visual::before { display: none; }
+:where([data-spatial-canvas]) .spatial-indicator-group { position: absolute; top: 0; left: 0; z-index: 2; pointer-events: none; }
+:where([data-spatial-canvas]) .spatial-indicator-group-surface { position: absolute; top: 0; left: 0; border: 1px solid #ffffffaa; border-radius: 1px; background: var(--spatial-color); transform-origin: top left; }
+:where([data-spatial-canvas]) .spatial-card-button, :where([data-spatial-canvas]) .spatial-key, :where([data-spatial-canvas]) .spatial-card-meta, :where([data-spatial-canvas]) .spatial-aggregate-count { transition: color 120ms ease; }
+:where([data-spatial-canvas]).spatial-shell.is-color-mode .spatial-node:not(.spatial-lod-dot) .spatial-card-visual { border-color: var(--spatial-color); color: #fff; }
+:where([data-spatial-canvas]).spatial-shell.is-color-mode .spatial-card-button, :where([data-spatial-canvas]).spatial-shell.is-color-mode .spatial-key, :where([data-spatial-canvas]).spatial-shell.is-color-mode .spatial-card-meta, :where([data-spatial-canvas]).spatial-shell.is-color-mode .spatial-aggregate-count { color: #fff; transition: color 120ms ease 120ms; }
+:where([data-spatial-canvas]) .spatial-node.is-selected .spatial-card-visual { outline: 3px solid var(--spatial-selection-ring, #b6a4ff); outline-offset: 3px; }
+:where([data-spatial-canvas]) .spatial-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+:where([data-spatial-canvas]) .spatial-toolbar { position: absolute; z-index: 8; top: 14px; right: 14px; display: flex; overflow: hidden; border: 1px solid #3a4767; border-radius: 8px; background: var(--spatial-toolbar-background, #18233cdd); box-shadow: 0 5px 18px #050a1a55; }
+:where([data-spatial-canvas]) .spatial-toolbar button { width: 36px; height: 36px; border: 0; border-right: 1px solid #3a4767; background: transparent; color: #e0d8ff; font-size: 17px; cursor: pointer; }
+:where([data-spatial-canvas]) .spatial-toolbar button:last-child { border-right: 0; }
+:where([data-spatial-canvas]) .spatial-toolbar button:hover { background: #2b3960; }
+:where([data-spatial-canvas]) .spatial-toolbar .spatial-color-toggle { width: auto; padding: 0 10px; font-size: 10px; }
+:where([data-spatial-canvas]) .spatial-toolbar .spatial-color-toggle[aria-pressed="true"] { background: #4b3b78; color: #fff; }
+@media (prefers-reduced-motion: reduce) {
+  :where([data-spatial-canvas]) .spatial-lod-content { animation: none; }
+  :where([data-spatial-canvas]) .spatial-region, :where([data-spatial-canvas]) .spatial-card-visual, :where([data-spatial-canvas]) .spatial-card-visual::before, :where([data-spatial-canvas]) .spatial-lod-content, :where([data-spatial-canvas]) .spatial-card-button, :where([data-spatial-canvas]) .spatial-key, :where([data-spatial-canvas]) .spatial-card-meta, :where([data-spatial-canvas]) .spatial-aggregate-count { transition: none !important; }
+}
+
+:where([data-spatial-canvas]) .spatial-card-button:focus-visible, :where([data-spatial-canvas]) .spatial-toolbar button:focus-visible { outline: 2px solid var(--spatial-focus-ring, #d7c8ff); outline-offset: -2px; }

@@ -8,11 +8,11 @@
     "pnpm": "10.25.0"
   },
   "scripts": {
-    "dev": "pnpm --filter @treepm/engine build && pnpm --parallel --filter @treepm/engine --filter @treepm/web dev",
-    "build": "pnpm --filter @treepm/engine build && pnpm --filter @treepm/web build",
-    "typecheck": "pnpm --filter @treepm/engine build && pnpm --filter @treepm/web typecheck",
+    "dev": "pnpm --filter @treepm/engine build && pnpm --filter @treepm/react build && pnpm --parallel --filter @treepm/engine --filter @treepm/react --filter @treepm/web dev",
+    "build": "pnpm --filter @treepm/engine build && pnpm --filter @treepm/react build && pnpm --filter @treepm/web build",
+    "typecheck": "pnpm --filter @treepm/engine build && pnpm --filter @treepm/react build && pnpm --filter @treepm/web typecheck",
     "lint": "eslint .",
-    "clean": "pnpm --parallel --filter @treepm/engine --filter @treepm/web clean"
+    "clean": "pnpm --parallel --filter @treepm/engine --filter @treepm/react --filter @treepm/web clean"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

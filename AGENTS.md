@@ -4,26 +4,19 @@
 
 - Toda instrução adicionada ou alterada em `CLAUDE.md` deve ser adicionada ou alterada também em `AGENTS.md` na mesma interação, inclusive esta regra de sincronização.
 
-## Registro de ideias
-
-- Sempre que o usuário apresentar uma ideia concreta para o projeto, registre-a em `docs/ideas.yaml` na mesma interação. Se a ideia já existir, atualize-a em vez de criar uma duplicata.
-- Use IDs sequenciais e estáveis no formato `IDEA-NNN`, datas no formato `YYYY-MM-DD` e preencha os campos seguindo as entradas existentes.
-- Preserve o ID e a data original de cada ideia. Represente relações pelo ID da outra ideia, com um tipo como `related_to`, `depends_on` ou `refines`.
-- Não transforme discussões apenas sobre o formato ou o processo de registro em novas ideias.
-
 ## Base atual
 
-- O workspace contém somente `packages/engine` e `apps/web`. A engine é genérica; a demo usa dados fictícios locais. Não reintroduza modelos ou telas de produto sem uma nova solicitação explícita.
+- O workspace contém `packages/engine`, `packages/react` e `apps/web`. A engine é genérica; React e estilos são uma camada opcional, e a demo usa dados fictícios locais. O blueprint em `docs/product-blueprint.md` planeja a plataforma futura; não o trate como produto já implementado.
 - A ideia do TreePM permanece em `docs/vision.md`; `docs/ideas.yaml` registra intenções futuras. Documentação da base em `docs/platform-overview.md`, detalhes em `docs/architecture.md` e decisões atuais em `docs/adr/README.md`.
-- `@treepm/engine` é TypeScript ESM puro e não importa React. Sua entrada é `SpatialItem` com `id`, `parentId`, `label` e `color`. Relações, profundidades, alturas, contagens, layout, cena e matemática da câmera pertencem ao pacote.
+- `@treepm/engine` é TypeScript ESM puro e não importa React. `TreeNode` combina interfaces de identidade e parentesco (`id`, `parentId`); o tipo genérico concreto do consumidor atravessa índice, layout e cena. Não exija título, cor, status ou campos de ticket no contrato headless. Opções tipadas parametrizam layout, cena e câmera.
 - O índice valida IDs únicos, pais existentes e ausência de ciclos. A ordem de entrada define a ordem dos irmãos. Não esconda erros estruturais com um fallback silencioso.
-- React, eventos do navegador, pointer capture e CSS ficam em `apps/web/src/canvas`. O dataset determinístico fica em `apps/web/src/demo`; não depende de HTTP, credenciais, persistência ou sorteio em cada render.
+- React, eventos do navegador, pointer capture, renderers e CSS opcionais ficam em `packages/react`. Conteúdo, cores, mistura, slots, classes e tokens são substituíveis. `apps/web/src/demo` é um consumidor com tipo e dataset determinísticos próprios; não depende de HTTP, credenciais, persistência ou sorteio em cada render. Preserve isolamento de atalhos e estilos entre múltiplas instâncias.
 
 ## Geometria e navegação
 
 - Preserve o fundo espacial e a experiência Prezi. Cada geração é fisicamente menor, com filhos abaixo do pai, `ceil(sqrt(n))` colunas, linhas centralizadas, cards alinhados pelo topo e envelopes disjuntos. Não retome anéis, ângulos ou uma grade plana.
 - Indicador e card são a mesma representação por ID. A cena deriva translação e escala continuamente do zoom, com caminho reversível e sem fade do corpo. Culling usa as posições apresentadas, inclusive durante a transformação.
-- Preserve LOD full/compact/chip/dot e grupos `+N` com contagens explícitas. A linha de indicadores tem composição estável e se ajusta por escala contínua. Não use cortes opacos por largura nem insira corpos já grandes ao separar grupos.
+- Preserve LOD full/compact/chip/dot. Filhos são particionados em até `maxSlots` buckets contíguos e balanceados; grupos são quadradinhos mesclados, sem badge `+N`. Membership e contagens acessíveis devem reconciliar todos os filhos sem duplicação semântica no repouso. A mistura de cores é função substituível da apresentação, nunca regra do índice headless. A linha é estável e se ajusta por escala contínua; não use cortes opacos nem insira corpos já grandes ao separar grupos.
 - Cores são atributos visuais da entrada. O preenchimento começa ligado; C/Cores alterna com wash superior e texto legível. Modificadores, repeat e edição não disparam o atalho. O controle expõe `aria-pressed`.
 - Wheel normaliza `deltaMode`, usa ganho 0,0016 e acumula o alvo em um único rAF. Use a escala exibida e o tempo entre frames, sem um easing que expire no meio de uma rajada. Mover o ponteiro recaptura só a âncora, sem perder deltas.
 - Novo pointerdown assume a câmera exibida imediatamente, cancelando animação pendente sem salto ou cooldown. Durante drag, o delta incremental translada câmera, âncora e alvo do wheel juntos. Movimento reduzido aplica destinos imediatamente.
