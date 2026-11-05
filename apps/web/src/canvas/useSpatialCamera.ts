@@ -26,7 +26,6 @@ interface WheelAnimation {
   to: SpatialCamera;
   anchor: SpatialZoomAnchor;
   lastFrameAt: number;
-  lastDeltaAt: number;
 }
 
 type CameraAnimation = FitAnimation | WheelAnimation;
@@ -54,6 +53,14 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
   const motionPreference = useMemo(() => window.matchMedia("(prefers-reduced-motion: reduce)"), []);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const initializedRef = useRef(false);
+  const stageBoundsRef = useRef<DOMRect | null>(null);
+
+  const stageBounds = () => {
+    // Layout is stable between resizes/scrolls. Reading it for every wheel delta
+    // would synchronously flush the preceding camera frame's style changes.
+    stageBoundsRef.current ??= stageRef.current?.getBoundingClientRect() ?? null;
+    return stageBoundsRef.current;
+  };
 
   const commitCamera = (next: SpatialCamera) => {
     cameraRef.current = next;
@@ -79,7 +86,7 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
       animation.lastFrameAt = now;
       const viewportRadius = Math.max(sizeRef.current.width, sizeRef.current.height, 1);
       const remainingPixels = Math.abs(animation.to.scale / next.scale - 1) * viewportRadius;
-      complete = remainingPixels < 0.01 && now - animation.lastDeltaAt >= 180;
+      complete = remainingPixels < 0.05;
     } else {
       const progress = clamp(0, 1, (now - animation.startedAt) / 180);
       const eased = 1 - Math.pow(1 - progress, 3);
@@ -142,7 +149,7 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
     fitBounds(node.subtreeBounds, false, 0.02, READABLE_CARD_WIDTH / node.width, node);
   };
   const pointFor = (clientX: number, clientY: number) => {
-    const rect = stageRef.current?.getBoundingClientRect();
+    const rect = stageBounds();
     if (!rect) return null;
     const cursorX = clientX - rect.left;
     const cursorY = clientY - rect.top;
@@ -167,17 +174,16 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
     } else if (wheel) {
       wheel.to = target;
       wheel.anchor = anchor;
-      wheel.lastDeltaAt = now;
     } else {
       cancelAnimation();
-      const next: WheelAnimation = { kind: "wheel", frameId: 0, to: target, anchor, lastFrameAt: now, lastDeltaAt: now };
+      const next: WheelAnimation = { kind: "wheel", frameId: 0, to: target, anchor, lastFrameAt: now };
       animationRef.current = next;
       next.frameId = requestAnimationFrame(tickAnimation);
     }
   };
 
   const zoomBy = (direction: number) => {
-    const rect = stageRef.current?.getBoundingClientRect();
+    const rect = stageBounds();
     const point = lastPointerRef.current ?? (rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null);
     if (point) zoomAt(point.x, point.y, direction > 0 ? -180 : 180);
   };
@@ -186,6 +192,7 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
     const stage = stageRef.current;
     if (!stage) return;
     const update = (width: number, height: number) => {
+      stageBoundsRef.current = null;
       const next = { width, height };
       sizeRef.current = next;
       setSize(next);
@@ -204,6 +211,15 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
     return () => observer.disconnect();
   }, [layout]);
   useEffect(() => {
+    const invalidateBounds = () => { stageBoundsRef.current = null; };
+    window.addEventListener("resize", invalidateBounds);
+    window.addEventListener("scroll", invalidateBounds, true);
+    return () => {
+      window.removeEventListener("resize", invalidateBounds);
+      window.removeEventListener("scroll", invalidateBounds, true);
+    };
+  }, []);
+  useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
     const listener = (event: WheelEvent) => {
@@ -220,6 +236,7 @@ export function useSpatialCamera(layout: SpatialLayout, stageRef: RefObject<HTML
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!event.isPrimary || (event.button !== 0 && event.button !== 1)) return;
+    stageBoundsRef.current = null;
     // A new grab owns the displayed camera immediately; never finish an old zoom first.
     cancelAnimation();
     if (event.button === 1) event.preventDefault();

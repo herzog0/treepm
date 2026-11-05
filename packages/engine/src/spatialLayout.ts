@@ -1,29 +1,29 @@
 import type { SpatialItem, SpatialTreeIndex } from "./spatialIndex.js";
 
 export interface SpatialBounds {
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minY: number;
+  readonly maxY: number;
 }
 
 export interface SpatialLayoutNode {
-  item: SpatialItem;
-  depth: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  subtreeRadius: number;
-  subtreeBounds: SpatialBounds;
-  slotBounds: SpatialBounds;
+  readonly item: SpatialItem;
+  readonly depth: number;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly subtreeRadius: number;
+  readonly subtreeBounds: SpatialBounds;
+  readonly slotBounds: SpatialBounds;
 }
 
 export interface SpatialLayout {
-  nodes: SpatialLayoutNode[];
-  nodeById: ReadonlyMap<string, SpatialLayoutNode>;
-  bounds: SpatialBounds;
-  initialBounds: SpatialBounds;
+  readonly nodes: readonly SpatialLayoutNode[];
+  readonly nodeById: ReadonlyMap<string, SpatialLayoutNode>;
+  readonly bounds: SpatialBounds;
+  readonly initialBounds: SpatialBounds;
 }
 
 const WIDTHS = [250, 190, 142, 104, 76, 56, 44, 32, 24, 18];
@@ -35,7 +35,9 @@ function dimensions(depth: number) {
   return { width: WIDTHS[index] ?? 44, height: HEIGHTS[index] ?? 28 };
 }
 
-interface MeasuredNode extends SpatialLayoutNode {
+type MutableLayoutNode = { -readonly [Key in keyof SpatialLayoutNode]: SpatialLayoutNode[Key] };
+
+interface MeasuredNode extends MutableLayoutNode {
   children: MeasuredNode[];
 }
 

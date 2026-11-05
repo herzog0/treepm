@@ -16,7 +16,10 @@ export function SpatialCanvas({ items }: { items: readonly SpatialItem[] }) {
   const [colorMode, setColorMode] = useState(true);
   const selected = selectedId ? index.itemById.get(selectedId) : undefined;
   const reducedMotion = useReducedMotion();
-  const scene = useMemo(() => buildSpatialScene(layout, index, camera, size), [layout, index, camera, size]);
+  const scene = useMemo(() => {
+    const viewport = { ...size, x: -camera.x, y: -camera.y };
+    return buildSpatialScene(layout, index, { x: 0, y: 0, scale: camera.scale }, viewport);
+  }, [layout, index, camera.x, camera.y, camera.scale, size]);
   const visibleCount = scene.nodes.filter((node) => node.representation === "card").length;
   const breadcrumb = useMemo(() => {
     const path: SpatialItem[] = [];
@@ -57,11 +60,13 @@ export function SpatialCanvas({ items }: { items: readonly SpatialItem[] }) {
     </section>
     <section className={`spatial-stage ${isDragging ? "is-dragging" : ""}`} ref={stageRef} aria-label="Demo de navegação espacial" onClick={clearBackground} {...gestureHandlers}>
       <div className="spatial-constellation" aria-hidden="true" />
-      {scene.regions.map((region) => <SpatialRegion key={region.id} {...region} />)}
-      {scene.nodes.map((node) => <SpatialNode key={node.id} {...node} selected={selectedId === node.id} index={index} reducedMotion={reducedMotion} onSelect={setSelectedId} />)}
-      {scene.groups.map((group) => <span key={group.parentId} className="spatial-indicator-group" role="img"
-        aria-label={`${group.childIds.length} outros filhos imediatos; amplie para revelar`}
-        style={{ "--spatial-color": index.itemById.get(group.parentId)?.color ?? "#6853a5", width: group.width, opacity: group.opacity, transform: `translate3d(${group.x}px, ${group.y}px, 0) translateX(-50%) scale(${group.scale})` } as CSSProperties}>+{group.childIds.length}</span>)}
+      <div className="spatial-scene" style={{ transform: `translate3d(${camera.x}px, ${camera.y}px, 0)` }}>
+        {scene.regions.map((region) => <SpatialRegion key={region.id} {...region} />)}
+        {scene.nodes.map((node) => <SpatialNode key={node.id} {...node} selected={selectedId === node.id} index={index} reducedMotion={reducedMotion} onSelect={setSelectedId} />)}
+        {scene.groups.map((group) => <span key={group.parentId} className="spatial-indicator-group" role="img"
+          aria-label={`${group.childIds.length} outros filhos imediatos; amplie para revelar`}
+          style={{ "--spatial-color": index.itemById.get(group.parentId)?.color ?? "#6853a5", width: group.width, opacity: group.opacity, transform: `translate3d(${group.x}px, ${group.y}px, 0) translateX(-50%) scale(${group.scale})` } as CSSProperties}>+{group.childIds.length}</span>)}
+      </div>
       <div className="spatial-toolbar" role="toolbar" aria-label="Câmera e cores" onPointerDown={(event) => event.stopPropagation()}>
         <button onClick={() => zoomBy(-1)} aria-label="Reduzir zoom">−</button>
         <button onClick={() => fitInitial()} aria-label="Restaurar enquadramento">⌂</button>

@@ -45,7 +45,13 @@ export interface SpatialScene {
   regions: SpatialSceneRegion[];
 }
 
-interface Viewport { width: number; height: number }
+interface Viewport {
+  readonly width: number;
+  readonly height: number;
+  /** Origin in scene output coordinates; defaults to zero. Only affects culling. */
+  readonly x?: number;
+  readonly y?: number;
+}
 
 const INDICATOR_SIZE = 6;
 const INDICATOR_GAP = 3;
@@ -54,90 +60,153 @@ const lerp = (from: number, to: number, progress: number) => from + (to - from) 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 const smooth = (value: number) => { const t = clamp(value); return t * t * (3 - 2 * t); };
 
-function indicatorLayout(parent: SpatialSceneNode, childCount: number) {
-  const individualCount = Math.min(childCount, MAX_INDIVIDUAL_INDICATORS);
-  const overflow = childCount - individualCount;
-  const groupWidth = overflow > 0 ? Math.max(18, String(overflow).length * 5 + 8) : 0;
-  const rowWidth = individualCount * INDICATOR_SIZE + Math.max(0, individualCount - 1) * INDICATOR_GAP + (overflow > 0 ? INDICATOR_GAP + groupWidth : 0);
-  const scale = rowWidth > 0 ? Math.min(1, parent.width / rowWidth) : 1;
-  return { individualCount, overflow, groupWidth, rowWidth, scale };
+interface PreparedNode {
+  id: string;
+  node: SpatialLayoutNode;
+  threshold: number;
+  children: { node: PreparedNode | undefined; offset: number }[];
+  overflowIds: string[];
+  groupWidth: number;
+  rowWidth: number;
+  groupOffset: number;
 }
 
-function indicatorSlot(parent: SpatialSceneNode, childIndex: number, childCount: number) {
-  const { individualCount, groupWidth, rowWidth, scale } = indicatorLayout(parent, childCount);
-  const slotOffset = childIndex < individualCount
-    ? childIndex * (INDICATOR_SIZE + INDICATOR_GAP) + INDICATOR_SIZE / 2
-    : individualCount * (INDICATOR_SIZE + INDICATOR_GAP) + groupWidth / 2;
-  return { x: parent.x + (slotOffset - rowWidth / 2) * scale, y: parent.y + parent.height + 5 * scale, size: INDICATOR_SIZE * scale, scale };
-}
+// Layout/index are immutable snapshots: replacing either prepares fresh geometry.
+// Both keys are weak so discarded snapshots and their metadata can be collected.
+const preparedByLayout = new WeakMap<SpatialLayout, WeakMap<SpatialTreeIndex, readonly PreparedNode[]>>();
 
-function previewOpacity(parent: SpatialSceneNode) {
-  return parent.opacity * smooth((parent.reveal - 0.7) / 0.3) * smooth((parent.width - 4) / 8);
-}
-
-function inViewport(x: number, y: number, width: number, height: number, viewport: Viewport) {
-  return x + width / 2 >= -100 && x - width / 2 <= viewport.width + 100 && y + height >= -100 && y <= viewport.height + 100;
-}
-
-/** One geometric representative per item; camera scale drives the entire reversible morph. */
-export function buildSpatialScene(layout: SpatialLayout, index: SpatialTreeIndex, camera: SpatialCamera, viewport: Viewport): SpatialScene {
-  const projected = new Map<string, SpatialSceneNode>();
-  const groups: SpatialIndicatorGroup[] = [];
-  const regions: SpatialSceneRegion[] = [];
-  const roots = index.childrenByParentId.get(null) ?? [];
-  const childReveal = (node: SpatialLayoutNode, width: number) => {
+function prepareScene(layout: SpatialLayout, index: SpatialTreeIndex): readonly PreparedNode[] {
+  let byIndex = preparedByLayout.get(layout);
+  const cached = byIndex?.get(index);
+  if (cached) return cached;
+  if (!byIndex) {
+    byIndex = new WeakMap();
+    preparedByLayout.set(layout, byIndex);
+  }
+  const prepared = new Map<string, PreparedNode>();
+  for (const [id, node] of layout.nodeById) {
     const children = index.childrenByParentId.get(node.item.id) ?? [];
     const largestChildWidth = children.reduce((maximum, child) => Math.max(maximum, layout.nodeById.get(child.id)?.width ?? 0), 0);
     const nominalThreshold = node.depth === 0 ? 100 : node.depth === 1 ? 260 : 180;
     // Complete the handoff before even the widest child reaches its readable 140px.
     const threshold = largestChildWidth > 0 ? Math.min(nominalThreshold, node.width / largestChildWidth * 110) : nominalThreshold;
-    return smooth((width / threshold - 0.85) / 0.3);
-  };
+    const individualCount = Math.min(children.length, MAX_INDIVIDUAL_INDICATORS);
+    const overflow = children.length - individualCount;
+    const groupWidth = overflow > 0 ? Math.max(18, String(overflow).length * 5 + 8) : 0;
+    const rowWidth = individualCount * INDICATOR_SIZE + Math.max(0, individualCount - 1) * INDICATOR_GAP + (overflow > 0 ? INDICATOR_GAP + groupWidth : 0);
+    const groupOffset = individualCount * (INDICATOR_SIZE + INDICATOR_GAP) + groupWidth / 2 - rowWidth / 2;
+    prepared.set(id, { id, node, threshold, children: [], overflowIds: children.slice(individualCount).map((child) => child.id), groupWidth, rowWidth, groupOffset });
+  }
+  for (const entry of prepared.values()) {
+    const children = index.childrenByParentId.get(entry.id) ?? [];
+    const individualCount = Math.min(children.length, MAX_INDIVIDUAL_INDICATORS);
+    entry.children = children.map((child, childIndex) => ({
+      node: prepared.get(child.id),
+      offset: childIndex < individualCount
+        ? childIndex * (INDICATOR_SIZE + INDICATOR_GAP) + INDICATOR_SIZE / 2 - entry.rowWidth / 2
+        : entry.groupOffset,
+    }));
+  }
+  const roots: PreparedNode[] = [];
+  for (const root of index.childrenByParentId.get(null) ?? []) {
+    const entry = prepared.get(root.id);
+    if (entry) roots.push(entry);
+  }
+  byIndex.set(index, roots);
+  return roots;
+}
 
-  const visit = (id: string, parent?: SpatialSceneNode, siblingIndex = 0, siblingCount = 0) => {
-    const node = layout.nodeById.get(id);
-    if (!node) return;
-    const reveal = parent ? childReveal(parent.node, parent.width) : 1;
-    const origin = parent ? indicatorSlot(parent, siblingIndex, siblingCount) : { x: 0, y: 0, size: INDICATOR_SIZE, scale: 1 };
-    const grouped = siblingIndex >= MAX_INDIVIDUAL_INDICATORS;
-    const split = grouped ? smooth((reveal - 0.25) / 0.5) : 1;
+interface ChildFrame {
+  parent: SpatialSceneNode;
+  reveal: number;
+  opacity: number;
+  scale: number;
+  size: number;
+  y: number;
+  translationX: number;
+  translationY: number;
+  growth: number;
+  split: number;
+}
+
+function inViewport(x: number, y: number, width: number, height: number, viewport: Viewport) {
+  const originX = viewport.x ?? 0;
+  const originY = viewport.y ?? 0;
+  return x + width / 2 >= originX - 100 && x - width / 2 <= originX + viewport.width + 100 && y + height >= originY - 100 && y <= originY + viewport.height + 100;
+}
+
+/**
+ * One geometric representative per item; camera scale drives the reversible morph.
+ * Layout/index are readonly snapshots: rebuild/replace them after topology or
+ * geometry changes. Static geometry
+ * is cached by both identities; in-place edits do not invalidate that cache.
+ * Returned scene arrays are fresh and can be modified independently of the cache.
+ * Optional viewport x/y move only the culling window, never the output geometry.
+ */
+export function buildSpatialScene(layout: SpatialLayout, index: SpatialTreeIndex, camera: SpatialCamera, viewport: Viewport): SpatialScene {
+  const nodes: SpatialSceneNode[] = [];
+  const groups: SpatialIndicatorGroup[] = [];
+  const regions: SpatialSceneRegion[] = [];
+  const roots = prepareScene(layout, index);
+
+  const visit = (entry: PreparedNode, frame?: ChildFrame, siblingIndex = 0, offset = 0) => {
+    const { id, node, children } = entry;
+    const reveal = frame ? frame.reveal : 1;
+    const growth = frame ? frame.growth : 1;
+    const split = frame && siblingIndex >= MAX_INDIVIDUAL_INDICATORS ? frame.split : 1;
     // Separate the small squares first, then grow them inside their destination regions.
-    const translationX = smooth((reveal - 0.12) / 0.63);
-    const translationY = smooth(reveal / 0.45);
-    const growth = smooth((reveal - 0.25) / 0.75);
-    const width = parent ? lerp(origin.size, node.width * camera.scale, growth) * split : node.width * camera.scale;
-    const height = parent ? lerp(origin.size, node.height * camera.scale, growth) * split : node.height * camera.scale;
-    const x = parent ? lerp(origin.x, node.x * camera.scale + camera.x, translationX) : node.x * camera.scale + camera.x;
-    const y = parent ? lerp(origin.y, node.y * camera.scale + camera.y, translationY) : node.y * camera.scale + camera.y;
-    const opacity = parent ? previewOpacity(parent) : 1;
-    const children = index.childrenByParentId.get(id) ?? [];
+    const width = frame ? lerp(frame.size, node.width * camera.scale, growth) * split : node.width * camera.scale;
+    const height = frame ? lerp(frame.size, node.height * camera.scale, growth) * split : node.height * camera.scale;
+    const x = frame ? lerp(frame.parent.x + offset * frame.scale, node.x * camera.scale + camera.x, frame.translationX) : node.x * camera.scale + camera.x;
+    const y = frame ? lerp(frame.y, node.y * camera.scale + camera.y, frame.translationY) : node.y * camera.scale + camera.y;
+    const opacity = frame ? frame.opacity : 1;
+    const expansion = smooth((width / entry.threshold - 0.85) / 0.3);
     const lod: SpatialLod = width >= 130 ? "full" : width >= 65 ? "compact" : width >= 28 ? "chip" : "dot";
     const item: SpatialSceneNode = {
       id, node, x, y, width, height, reveal, opacity, lod,
       contentOpacity: growth * smooth((width - 24) / 60),
-      indicatorScale: origin.scale,
-      aggregate: children.length > 0 && childReveal(node, width) < 1,
+      indicatorScale: frame ? frame.scale : 1,
+      aggregate: children.length > 0 && expansion < 1,
       representation: reveal === 0 ? "indicator" : "card",
     };
-    projected.set(id, item);
-    if (parent && reveal > 0 && inViewport(x, y, width, height, viewport)) {
+    const visible = inViewport(x, y, width, height, viewport);
+    // Valid indexed forests visit each ID once, in the same preorder as the layout.
+    if (opacity > 0 && width > 0 && height > 0 && visible) nodes.push(item);
+    if (frame && reveal > 0 && visible) {
       const bounds = node.slotBounds;
       regions.push({ id, x: bounds.minX * camera.scale + camera.x, y: bounds.minY * camera.scale + camera.y, width: (bounds.maxX - bounds.minX) * camera.scale, height: (bounds.maxY - bounds.minY) * camera.scale, opacity: reveal * opacity });
     }
-    // A collapsed square does not recursively draw its descendants.
-    if (previewOpacity(item) === 0) return;
-    const expansion = childReveal(node, width);
-    const indicators = indicatorLayout(item, children.length);
+    // A collapsed square does not recursively draw its descendants. Offscreen
+    // parents still project children: their presented positions can be onscreen.
+    const preview = opacity * smooth((reveal - 0.7) / 0.3) * smooth((width - 4) / 8);
+    if (preview === 0 || children.length === 0) return;
+    const indicatorScale = entry.rowWidth > 0 ? Math.min(1, width / entry.rowWidth) : 1;
+    const originY = y + height + 5 * indicatorScale;
     const groupSplit = smooth((expansion - 0.25) / 0.5);
-    if (indicators.overflow > 0 && groupSplit < 1) {
-      const group = indicatorSlot(item, indicators.individualCount, children.length);
-      const groupScale = indicators.scale * (1 - groupSplit);
-      if (inViewport(group.x, group.y, indicators.groupWidth * groupScale, 12 * groupScale, viewport)) {
-        groups.push({ parentId: id, childIds: children.slice(indicators.individualCount).map((child) => child.id), width: indicators.groupWidth, scale: groupScale, x: group.x, y: group.y, opacity: previewOpacity(item) });
+    if (entry.overflowIds.length > 0 && groupSplit < 1) {
+      const groupX = x + entry.groupOffset * indicatorScale;
+      const groupScale = indicatorScale * (1 - groupSplit);
+      if (inViewport(groupX, originY, entry.groupWidth * groupScale, 12 * groupScale, viewport)) {
+        groups.push({ parentId: id, childIds: entry.overflowIds.slice(), width: entry.groupWidth, scale: groupScale, x: groupX, y: originY, opacity: preview });
       }
     }
-    children.forEach((child, childIndex) => visit(child.id, item, childIndex, children.length));
+    const childFrame: ChildFrame = {
+      parent: item,
+      reveal: expansion,
+      opacity: preview,
+      scale: indicatorScale,
+      size: INDICATOR_SIZE * indicatorScale,
+      y: originY,
+      translationX: smooth((expansion - 0.12) / 0.63),
+      translationY: smooth(expansion / 0.45),
+      growth: smooth((expansion - 0.25) / 0.75),
+      split: groupSplit,
+    };
+    for (let childIndex = 0; childIndex < children.length; childIndex += 1) {
+      const child = children[childIndex];
+      if (child?.node) visit(child.node, childFrame, childIndex, child.offset);
+    }
   };
-  roots.forEach((root) => visit(root.id));
-  return { nodes: [...projected.values()].filter((item) => item.opacity > 0 && item.width > 0 && item.height > 0 && inViewport(item.x, item.y, item.width, item.height, viewport)), groups, regions };
+  for (const root of roots) visit(root);
+  return { nodes, groups, regions };
 }

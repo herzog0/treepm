@@ -57,6 +57,7 @@ ideas:
       - Wheel durante o arraste mantém o ganho acumulado e o ponto mundial sob o cursor, inclusive com Ctrl ou Meta.
       - Soltar o botão encerra o drag; perda temporária de captura não interrompe a navegação.
       - Clique para detalhes e proteção contra click acidental após drag continuam disponíveis.
+      - Pan translada uma camada única e reaproveita a geometria e o conteúdo dos nós; a câmera responde ao zoom sem uma espera artificial após o gesto.
     relationships:
       - type: refines
         target: IDEA-002

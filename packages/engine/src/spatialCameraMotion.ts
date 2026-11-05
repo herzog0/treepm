@@ -11,7 +11,7 @@ export interface SpatialZoomAnchor {
   cursorY: number;
 }
 
-const WHEEL_RESPONSE_MS = 55;
+const WHEEL_RESPONSE_MS = 32;
 
 export function cameraAtAnchor(scale: number, anchor: SpatialZoomAnchor): SpatialCamera {
   return { x: anchor.cursorX - anchor.worldX * scale, y: anchor.cursorY - anchor.worldY * scale, scale };
