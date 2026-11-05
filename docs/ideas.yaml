@@ -76,3 +76,21 @@ ideas:
       - A tarefa não deve ser forçada em um ramo quando nenhum filho do card atual a contemplar.
       - Quando nenhuma categoria do nível geral contemplar a tarefa, ela pode ser criada como um ticket geral, sem pai.
     relationships: []
+  - id: IDEA-006
+    created_at: 2026-11-04
+    title: Reinício a partir da engine espacial
+    status: implemented
+    summary: >-
+      Recomeçar a implementação mantendo só a engine que desenha a estrutura,
+      seu fundo e sua lógica, com dados fictícios locais para demonstrá-la.
+    details:
+      - Remover implementações anteriores de produto e experiências alternativas.
+      - Extrair um núcleo genérico independente de modelos de negócio e de serviços.
+      - Preservar layout, LOD, culling, transformações entre indicadores e cards e navegação por pan e zoom.
+      - Manter a ideia do TreePM como direção para reconstruir o produto sobre a nova base.
+      - Separar o estado anterior e a extração em commits revisáveis no Git.
+    relationships:
+      - type: related_to
+        target: IDEA-002
+      - type: related_to
+        target: IDEA-004

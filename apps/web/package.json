@@ -11,10 +11,9 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@treepm/domain": "workspace:*",
-    "@xyflow/react": "^12.9.3",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "@treepm/engine": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^19.2.2",

@@ -9,5 +9,4 @@ build/
 .vscode/
 .idea/
 coverage/
-apps/api/data/
 *.tsbuildinfo
