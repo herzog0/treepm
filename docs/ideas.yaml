@@ -1,0 +1,78 @@
+version: 1
+ideas:
+  - id: IDEA-001
+    created_at: 2026-11-04
+    title: Árvore privada de tarefas do desenvolvedor
+    status: proposed
+    summary: >-
+      Permitir que cada desenvolvedor tenha uma árvore privada com suas tarefas
+      pessoais e do dia, separada das tarefas oficiais dos projetos.
+    details:
+      - A árvore reúne demandas próprias do desenvolvedor, incluindo tarefas de código e outras atividades que não pertencem diretamente a um projeto.
+      - A IA do produto poderia analisar o Slack da pessoa e comentários dos projetos para identificar demandas.
+      - A partir dessas informações, a IA criaria uma árvore das tarefas do dia do usuário, sem se limitar às tarefas oficiais do projeto.
+    relationships: []
+  - id: IDEA-002
+    created_at: 2026-11-04
+    title: Transformação contínua entre quadradinhos e tickets
+    status: implemented
+    summary: >-
+      Fazer os indicadores dos filhos diretos se deslocarem e crescerem até
+      virar os tickets correspondentes conforme o zoom, com caminho inverso
+      contínuo ao afastar.
+    details:
+      - Cada filho mantém uma única representação; o quadradinho se transforma no ticket sem desaparecer ou ser duplicado.
+      - Os filhos da geração seguinte aparecem como novos quadradinhos sob os tickets revelados.
+      - Gestos longos, inversões rápidas e movimentos do ponteiro preservam a suavização e os deltas acumulados.
+      - Grupos e elementos subpixel mudam de tamanho continuamente, sem reposicionamentos ou cortes abruptos.
+      - Arrastar durante o zoom não acumula deslocamentos para aplicar depois.
+    relationships: []
+  - id: IDEA-003
+    created_at: 2026-11-04
+    title: Modo stand-up com roteiro e navegação animada
+    status: proposed
+    summary: >-
+      Oferecer um modo de reunião stand-up com participantes predefinidos,
+      roteiro de falas e navegação animada entre os tickets discutidos.
+    details:
+      - Ao ativar o modo stand-up, o PM encontra em um drop-down um preset das pessoas que participam da reunião.
+      - Na organização por pessoa, o PM pode reordenar os participantes para definir a sequência das falas.
+      - Um modo alternativo organiza a reunião por tarefas em progresso, levando em conta também o setor.
+      - As tarefas podem ser agrupadas visualmente por setor e contexto, como uma borda de Engenharia ao redor dos cards correspondentes.
+      - Outra possibilidade é ordenar por ticket ou subárvore, fazendo com que todas as pessoas envolvidas falem em ciclo.
+      - Antes do início, o sistema apresenta o roteiro completo do stand-up, indicando quem falará, sobre o quê e em que momento.
+      - Ao dar play, a navegação vai ao primeiro ticket do roteiro; o comando de avançar leva ao próximo ticket a ser discutido.
+      - As transições entre tickets usam animações de navegação inspiradas no Prezi.
+    relationships: []
+  - id: IDEA-004
+    created_at: 2026-11-04
+    title: Navegação imediata com pan e zoom simultâneos
+    status: implemented
+    summary: >-
+      Permitir que o usuário comece a arrastar imediatamente após o zoom,
+      sem esperar animações, e combine wheel com drag para navegar pelo mapa.
+    details:
+      - Um novo clique e arraste assume a câmera exibida e interrompe a animação pendente sem salto.
+      - Botões esquerdo e do meio fazem pan incremental imediato no fundo e sobre cards.
+      - Wheel durante o arraste mantém o ganho acumulado e o ponto mundial sob o cursor, inclusive com Ctrl ou Meta.
+      - Soltar o botão encerra o drag; perda temporária de captura não interrompe a navegação.
+      - Clique para detalhes e proteção contra click acidental após drag continuam disponíveis.
+    relationships:
+      - type: refines
+        target: IDEA-002
+  - id: IDEA-005
+    created_at: 2026-11-04
+    title: Criador inteligente de tasks com classificação pelo Jev
+    status: proposed
+    summary: >-
+      Transformar uma descrição livre em uma task bem descrita e usar o Jev
+      para percorrer a árvore até encontrar ou criar o lugar mais adequado.
+    details:
+      - O usuário descreve a task livremente e uma IA aprimora a descrição para deixar claro o que precisa ser feito.
+      - A integração com o Jev procura na árvore e nas subárvores o ticket ao qual a nova tarefa pertence como subitem.
+      - A busca começa com o primeiro nó e seus filhos, perguntando ao Jev qual filho melhor contempla a tarefa.
+      - Depois de escolher um ticket, o sistema envia os filhos dele ao Jev e repete a pergunta, refinando a classificação em profundidade até encontrar o local mais adequado.
+      - Se o Jev identificar a necessidade de uma categoria intermediária inexistente, o sistema pode criá-la com a ajuda dele para definir sua descrição.
+      - A tarefa não deve ser forçada em um ramo quando nenhum filho do card atual a contemplar.
+      - Quando nenhuma categoria do nível geral contemplar a tarefa, ela pode ser criada como um ticket geral, sem pai.
+    relationships: []

@@ -4,7 +4,7 @@ import { ticketIdentifier } from "@treepm/domain";
 import type { Progress, Ticket, TicketEdge, TreeIndex, User } from "@treepm/domain";
 import { Avatars } from "./Avatars.js";
 import { semanticEdgePath } from "./semanticScene.js";
-import type { SemanticSceneNode } from "./semanticScene.js";
+import type { SemanticCamera, SemanticSceneNode } from "./semanticScene.js";
 import { useSemanticGestures } from "./useSemanticGestures.js";
 
 const EMPTY_PROGRESS: Progress = { doneLeaves: 0, totalLeaves: 0, percent: 0, status: "not_started", label: "Sem folhas" };
@@ -116,13 +116,22 @@ interface SemanticTreeNodeProps extends SemanticCardContentProps {
   attention: boolean;
   selected: boolean;
   nodeElements: Map<string, HTMLElement>;
+  indicatorElements: Map<string, HTMLButtonElement[]>;
   onAttention: (value: string | null | ((current: string | null) => string | null)) => void;
 }
 
 const SemanticTreeNode = memo(function SemanticTreeNode(props: SemanticTreeNodeProps) {
   const { node, ticket } = props;
   const status = node.visualStatus;
-  return <article ref={(element) => { if (element) props.nodeElements.set(ticket.id, element); else props.nodeElements.delete(ticket.id); }} data-ticket-id={ticket.id} data-aggregate={node.aggregate ? "true" : "false"} data-represented-count={node.representedCount} data-aggregate-leaves={node.aggregateTotalLeaves} data-subtree-height={node.subtreeHeight} data-visual-status={status} data-compact-label={node.compactLabel ? "true" : "false"} className={`semantic-tree-node semantic-card-${node.kind} semantic-status-${status} ${props.focused ? "is-focus" : ""} ${props.attention ? "is-attention" : ""} ${props.selected ? "is-selected" : ""}`}
+  return <article ref={(element) => {
+    if (element) {
+      props.nodeElements.set(ticket.id, element);
+      props.indicatorElements.set(ticket.id, [...element.querySelectorAll<HTMLButtonElement>(".semantic-child-indicator")]);
+    } else {
+      props.nodeElements.delete(ticket.id);
+      props.indicatorElements.delete(ticket.id);
+    }
+  }} data-ticket-id={ticket.id} data-aggregate={node.aggregate ? "true" : "false"} data-represented-count={node.representedCount} data-aggregate-leaves={node.aggregateTotalLeaves} data-subtree-height={node.subtreeHeight} data-visual-status={status} data-compact-label={node.compactLabel ? "true" : "false"} className={`semantic-tree-node semantic-card-${node.kind} semantic-status-${status} ${props.focused ? "is-focus" : ""} ${props.attention ? "is-attention" : ""} ${props.selected ? "is-selected" : ""}`}
     style={{
       width: node.width,
       height: node.height,
@@ -141,13 +150,36 @@ const SemanticTreeNode = memo(function SemanticTreeNode(props: SemanticTreeNodeP
   && previous.focused === next.focused
   && previous.attention === next.attention
   && previous.selected === next.selected
-  && previous.nodeElements === next.nodeElements);
+  && previous.nodeElements === next.nodeElements
+  && previous.indicatorElements === next.indicatorElements);
+
+interface GeometryState {
+  className: string;
+  compactLabel: string;
+  width: string;
+  height: string;
+  opacity: string;
+  pointerEvents: string;
+  transform: string;
+  statusColor: string;
+  indicatorSize: string;
+  ariaHidden: string;
+}
+interface IndicatorGeometryState {
+  opacity: string;
+  pointerEvents: string;
+  tabIndex: number;
+}
 
 interface EdgeElementRegistration {
   group: SVGGElement;
   hit: SVGPathElement;
   visible: SVGPathElement;
   label: SVGTextElement | null;
+  opacity?: string;
+  path?: string;
+  labelX?: string;
+  labelY?: string;
 }
 interface SemanticEdgeProps {
   edge: TicketEdge;
@@ -200,6 +232,7 @@ interface SemanticNodeChunkProps {
   attentionId: string | null;
   selectedTicketId: string | null;
   nodeElements: Map<string, HTMLElement>;
+  indicatorElements: Map<string, HTMLButtonElement[]>;
   onAttention: SemanticTreeNodeProps["onAttention"];
   onActivate: SemanticTreeNodeProps["onActivate"];
   onStartConnection: SemanticTreeNodeProps["onStartConnection"];
@@ -208,10 +241,10 @@ interface SemanticNodeChunkProps {
 const SemanticNodeChunk = memo(function SemanticNodeChunk(props: SemanticNodeChunkProps) {
   return <>{props.nodes.map((node) => {
     const ticket = node.node.ticket;
-    return <SemanticTreeNode key={ticket.id} node={node} ticket={ticket} progress={props.treeIndex.progressById.get(ticket.id) ?? EMPTY_PROGRESS} childCount={props.treeIndex.childrenByParentId.get(ticket.id)?.length ?? 0} treeIndex={props.treeIndex} users={props.users} projectKey={props.projectKey} focusOnClick={props.focusOnClick} connectionSourceId={props.connectionSourceId} onActivate={props.onActivate} onStartConnection={props.onStartConnection} focused={ticket.id === props.focusId} attention={ticket.id === props.attentionId} selected={props.selectedTicketId === ticket.id} nodeElements={props.nodeElements} onAttention={props.onAttention} />;
+    return <SemanticTreeNode key={ticket.id} node={node} ticket={ticket} progress={props.treeIndex.progressById.get(ticket.id) ?? EMPTY_PROGRESS} childCount={props.treeIndex.childrenByParentId.get(ticket.id)?.length ?? 0} treeIndex={props.treeIndex} users={props.users} projectKey={props.projectKey} focusOnClick={props.focusOnClick} connectionSourceId={props.connectionSourceId} onActivate={props.onActivate} onStartConnection={props.onStartConnection} focused={ticket.id === props.focusId} attention={ticket.id === props.attentionId} selected={props.selectedTicketId === ticket.id} nodeElements={props.nodeElements} indicatorElements={props.indicatorElements} onAttention={props.onAttention} />;
   })}</>;
 }, (previous, next) => {
-  if (previous.treeIndex !== next.treeIndex || previous.users !== next.users || previous.projectKey !== next.projectKey || previous.focusOnClick !== next.focusOnClick || previous.connectionSourceId !== next.connectionSourceId || previous.nodeElements !== next.nodeElements || previous.nodes.length !== next.nodes.length) return false;
+  if (previous.treeIndex !== next.treeIndex || previous.users !== next.users || previous.projectKey !== next.projectKey || previous.focusOnClick !== next.focusOnClick || previous.connectionSourceId !== next.connectionSourceId || previous.nodeElements !== next.nodeElements || previous.indicatorElements !== next.indicatorElements || previous.nodes.length !== next.nodes.length) return false;
   for (let index = 0; index < previous.nodes.length; index += 1) {
     const from = previous.nodes[index];
     const to = next.nodes[index];
@@ -264,8 +297,19 @@ export function TreeCanvas(props: TreeCanvasProps) {
   const [focusOnClick, setFocusOnClick] = useState(false);
   const [connectionSourceId, setConnectionSourceId] = useState<string | null>(null);
   const nodeElements = useRef(new Map<string, HTMLElement>());
+  const indicatorElements = useRef(new Map<string, HTMLButtonElement[]>());
   const edgeElements = useRef(new Map<string, EdgeElementRegistration>());
   const indicatorColors = useRef(new WeakMap<HTMLElement, string>());
+  const geometryStates = useRef(new WeakMap<HTMLElement, GeometryState>());
+  const indicatorGeometryStates = useRef(new WeakMap<HTMLButtonElement, IndicatorGeometryState>());
+  const lastGeometryRef = useRef<{ scene: SemanticSceneNode[]; focusId: string; attentionId: string | null; selectedTicketId: string | null } | null>(null);
+  const sceneElementRef = useRef<HTMLDivElement>(null);
+  const lodElementRef = useRef<HTMLDivElement>(null);
+  const metricsElementRef = useRef<HTMLSpanElement>(null);
+  const minimapElementRef = useRef<SVGSVGElement>(null);
+  const minimapViewportRef = useRef<SVGRectElement>(null);
+  const minimapEdgesRef = useRef<SVGPathElement>(null);
+  const minimapNodesRef = useRef<SVGPathElement>(null);
   const {
     camera,
     focusId,
@@ -281,7 +325,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
     zoomBy,
     fitContext,
     gestureHandlers,
-  } = useSemanticGestures(props.tickets, props.treeIndex);
+  } = useSemanticGestures(props.tickets, props.treeIndex, applySemanticFrame);
   const focus = props.treeIndex.ticketById.get(focusId) ?? props.tickets[0];
   const transitionTarget = transition ? props.treeIndex.ticketById.get(transition.toId) : undefined;
   const connectionSource = connectionSourceId ? props.treeIndex.ticketById.get(connectionSourceId) : undefined;
@@ -325,8 +369,8 @@ export function TreeCanvas(props: TreeCanvasProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  useLayoutEffect(() => {
-    for (const node of rendered) {
+  function updateGeometry(nodes: SemanticSceneNode[], edges: VisibleEdge[]) {
+    for (const node of nodes) {
       const element = nodeElements.current.get(node.node.ticket.id);
       if (!element) continue;
       const width = `${node.width}px`;
@@ -339,27 +383,34 @@ export function TreeCanvas(props: TreeCanvasProps) {
       const ticketId = node.node.ticket.id;
       const className = `semantic-tree-node semantic-card-${node.kind} semantic-status-${node.visualStatus} ${ticketId === focusId ? "is-focus" : ""} ${ticketId === attentionId ? "is-attention" : ""} ${props.selectedTicketId === ticketId ? "is-selected" : ""}`;
       const compactLabel = node.compactLabel ? "true" : "false";
-      if (element.className !== className) element.className = className;
-      if (element.getAttribute("data-compact-label") !== compactLabel) element.setAttribute("data-compact-label", compactLabel);
-      if (element.style.width !== width) element.style.width = width;
-      if (element.style.height !== height) element.style.height = height;
-      if (element.style.opacity !== opacity) element.style.opacity = opacity;
-      if (element.style.pointerEvents !== pointerEvents) element.style.pointerEvents = pointerEvents;
-      if (element.style.transform !== transform) element.style.transform = transform;
-      if (element.style.getPropertyValue("--semantic-status") !== node.statusColor) element.style.setProperty("--semantic-status", node.statusColor);
-      if (element.style.getPropertyValue("--semantic-indicator-size") !== indicatorSize) element.style.setProperty("--semantic-indicator-size", indicatorSize);
-      if (element.getAttribute("aria-hidden") !== ariaHidden) element.setAttribute("aria-hidden", ariaHidden);
-      const indicatorElements = node.childIndicators.length > 0 ? element.querySelectorAll<HTMLButtonElement>(".semantic-child-indicator") : [];
+      const nextState: GeometryState = { className, compactLabel, width, height, opacity, pointerEvents, transform, statusColor: node.statusColor, indicatorSize, ariaHidden };
+      const previous = geometryStates.current.get(element);
+      if (previous?.className !== className) element.className = className;
+      if (previous?.compactLabel !== compactLabel) element.setAttribute("data-compact-label", compactLabel);
+      if (previous?.width !== width) element.style.width = width;
+      if (previous?.height !== height) element.style.height = height;
+      if (previous?.opacity !== opacity) element.style.opacity = opacity;
+      if (previous?.pointerEvents !== pointerEvents) element.style.pointerEvents = pointerEvents;
+      if (previous?.transform !== transform) element.style.transform = transform;
+      if (previous?.statusColor !== node.statusColor) element.style.setProperty("--semantic-status", node.statusColor);
+      if (previous?.indicatorSize !== indicatorSize) element.style.setProperty("--semantic-indicator-size", indicatorSize);
+      if (previous?.ariaHidden !== ariaHidden) element.setAttribute("aria-hidden", ariaHidden);
+      geometryStates.current.set(element, nextState);
+      const indicators = indicatorElements.current.get(ticketId) ?? [];
       for (let index = 0; index < node.childIndicators.length; index += 1) {
         const indicator = node.childIndicators[index];
-        const indicatorElement = indicatorElements[index];
+        const indicatorElement = indicators[index];
         if (!indicator || !indicatorElement) continue;
-        const indicatorOpacity = String(indicator.opacity);
-        const indicatorPointerEvents = indicator.opacity < 0.05 ? "none" : "auto";
-        const tabIndex = node.opacity < 0.05 || indicator.opacity < 0.05 ? -1 : 0;
-        if (indicatorElement.style.opacity !== indicatorOpacity) indicatorElement.style.opacity = indicatorOpacity;
-        if (indicatorElement.style.pointerEvents !== indicatorPointerEvents) indicatorElement.style.pointerEvents = indicatorPointerEvents;
-        if (indicatorElement.tabIndex !== tabIndex) indicatorElement.tabIndex = tabIndex;
+        const nextIndicatorState: IndicatorGeometryState = {
+          opacity: String(indicator.opacity),
+          pointerEvents: indicator.opacity < 0.05 ? "none" : "auto",
+          tabIndex: node.opacity < 0.05 || indicator.opacity < 0.05 ? -1 : 0,
+        };
+        const previousIndicator = indicatorGeometryStates.current.get(indicatorElement);
+        if (previousIndicator?.opacity !== nextIndicatorState.opacity) indicatorElement.style.opacity = nextIndicatorState.opacity;
+        if (previousIndicator?.pointerEvents !== nextIndicatorState.pointerEvents) indicatorElement.style.pointerEvents = nextIndicatorState.pointerEvents;
+        if (previousIndicator?.tabIndex !== nextIndicatorState.tabIndex) indicatorElement.tabIndex = nextIndicatorState.tabIndex;
+        indicatorGeometryStates.current.set(indicatorElement, nextIndicatorState);
         const colorElement = indicatorElement.firstElementChild as HTMLElement | null;
         if (colorElement && indicatorColors.current.get(colorElement) !== indicator.statusColor) {
           colorElement.style.backgroundColor = indicator.statusColor;
@@ -367,21 +418,78 @@ export function TreeCanvas(props: TreeCanvasProps) {
         }
       }
     }
-    for (const { edge, source, target, path } of visibleEdges) {
+    for (const { edge, source, target, path } of edges) {
       const element = edgeElements.current.get(edge.id);
       if (!element) continue;
-      const pathValue = path;
       const opacity = String(Math.min(source.opacity, target.opacity));
-      if (element.group.getAttribute("opacity") !== opacity) element.group.setAttribute("opacity", opacity);
-      if (element.hit.getAttribute("d") !== pathValue) element.hit.setAttribute("d", pathValue);
-      if (element.visible.getAttribute("d") !== pathValue) element.visible.setAttribute("d", pathValue);
+      if (element.opacity !== opacity) {
+        element.group.setAttribute("opacity", opacity);
+        element.opacity = opacity;
+      }
+      if (element.path !== path) {
+        element.hit.setAttribute("d", path);
+        element.visible.setAttribute("d", path);
+        element.path = path;
+      }
       if (element.label) {
         const x = String((source.position.x + target.position.x) / 2);
         const y = String((source.position.y + source.height + target.position.y) / 2 - 7);
-        if (element.label.getAttribute("x") !== x) element.label.setAttribute("x", x);
-        if (element.label.getAttribute("y") !== y) element.label.setAttribute("y", y);
+        if (element.labelX !== x) {
+          element.label.setAttribute("x", x);
+          element.labelX = x;
+        }
+        if (element.labelY !== y) {
+          element.label.setAttribute("y", y);
+          element.labelY = y;
+        }
       }
     }
+  }
+
+  function visibleEdgesFor(nodes: SemanticSceneNode[]): VisibleEdge[] {
+    const nodeById = new Map(nodes.map((node) => [node.node.ticket.id, node]));
+    return props.edges.flatMap((edge) => {
+      const source = nodeById.get(edge.sourceId);
+      const target = nodeById.get(edge.targetId);
+      if (!source || !target || Math.min(source.opacity, target.opacity) < 0.02) return [];
+      return [{ edge, source, target, path: semanticEdgePath(source, target) }];
+    });
+  }
+
+  function applySemanticFrame(nodes: SemanticSceneNode[], nextCamera: SemanticCamera) {
+    const edges = visibleEdgesFor(nodes);
+    if (nodes.some((node) => !nodeElements.current.has(node.node.ticket.id)) || edges.some(({ edge }) => !edgeElements.current.has(edge.id))) return false;
+    updateGeometry(nodes, edges);
+    const visibleCount = nodes.filter((node) => node.opacity > 0.05).length;
+    if (metricsElementRef.current) metricsElementRef.current.textContent = `${visibleCount} visíveis · ${props.tickets.length - visibleCount} resumidos`;
+    if (lodElementRef.current) lodElementRef.current.textContent = `SEMÂNTICA${Math.round(nextCamera.zoom * 100)}% · escala ${Math.round(nextCamera.scale * 100)}%`;
+    if (sceneElementRef.current) sceneElementRef.current.style.transform = `translate3d(${nextCamera.x}px, ${nextCamera.y}px, 0) scale(${nextCamera.scale})`;
+    if (minimapViewportRef.current) {
+      minimapViewportRef.current.setAttribute("x", String(-nextCamera.x / nextCamera.scale));
+      minimapViewportRef.current.setAttribute("y", String(-nextCamera.y / nextCamera.scale));
+      minimapViewportRef.current.setAttribute("width", String(size.width / nextCamera.scale));
+      minimapViewportRef.current.setAttribute("height", String(size.height / nextCamera.scale));
+    }
+    if (minimapElementRef.current) {
+      const bounds = nodes.length ? {
+        minX: Math.min(...nodes.map((node) => node.position.x - node.layoutWidth / 2)),
+        minY: Math.min(...nodes.map((node) => node.position.y)),
+        maxX: Math.max(...nodes.map((node) => node.position.x + node.layoutWidth / 2)),
+        maxY: Math.max(...nodes.map((node) => node.position.y + node.layoutHeight)),
+      } : { minX: 0, minY: 0, maxX: 1, maxY: 1 };
+      minimapElementRef.current.setAttribute("viewBox", `${bounds.minX - 30} ${bounds.minY - 30} ${Math.max(1, bounds.maxX - bounds.minX + 60)} ${Math.max(1, bounds.maxY - bounds.minY + 60)}`);
+    }
+    minimapEdgesRef.current?.setAttribute("d", edges.map(({ path }) => path).join(" "));
+    minimapNodesRef.current?.setAttribute("d", nodes.filter((node) => node.opacity > 0.05).map(minimapNodePath).join(" "));
+    lastGeometryRef.current = { scene: nodes, focusId, attentionId, selectedTicketId: props.selectedTicketId };
+    return true;
+  }
+
+  useLayoutEffect(() => {
+    const last = lastGeometryRef.current;
+    if (last?.scene === rendered && last.focusId === focusId && last.attentionId === attentionId && last.selectedTicketId === props.selectedTicketId) return;
+    updateGeometry(rendered, visibleEdges);
+    lastGeometryRef.current = { scene: rendered, focusId, attentionId, selectedTicketId: props.selectedTicketId };
   }, [rendered, visibleEdges, focusId, attentionId, props.selectedTicketId]);
 
   const activateTicket = (ticketId: string, point?: { clientX: number; clientY: number }) => {
@@ -407,7 +515,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
       <div className="semantic-focus-copy"><span>{focusOnClick ? "FOCO EXPLÍCITO · ZOOM ANCORADO" : "SOMENTE DETALHES · CENA PRESERVADA"}</span><strong>{ticketIdentifier(focus, props.projectKey)} · {focus.title}</strong></div>
       <div className="semantic-tree-metrics">
         {transitionTarget && transition && <span>atenção {Math.round(transition.progress * 100)}% → {transitionTarget.title}</span>}
-        <span>{visibleCount} visíveis · {props.tickets.length - visibleCount} resumidos</span>
+        <span ref={metricsElementRef}>{visibleCount} visíveis · {props.tickets.length - visibleCount} resumidos</span>
         <button type="button" className="semantic-focus-toggle" data-focus-on-click={focusOnClick ? "on" : "off"} aria-pressed={focusOnClick} title="Desligado: clique abre somente detalhes. Ligado: clique focaliza a subárvore no LOD de três passos." onClick={() => setFocusOnClick((current) => !current)}>Foco no clique {focusOnClick ? "ligado" : "desligado"}</button>
         <button type="button" className="semantic-color-toggle" data-color-mode={colorMode ? "on" : "off"} aria-pressed={colorMode} aria-keyshortcuts="C" onClick={() => setColorMode((current) => !current)}>Cores {colorMode ? "ativas" : "neutras"} <kbd>C</kbd></button>
       </div>
@@ -418,23 +526,23 @@ export function TreeCanvas(props: TreeCanvasProps) {
       {connectionSource && <button onClick={() => setConnectionSourceId(null)}>Cancelar</button>}
     </div>}
     <div className={`semantic-tree-stage ${isDragging ? "is-dragging" : ""}`} ref={stageRef} onClick={clearBackground} {...gestureHandlers}>
-      <div className="semantic-tree-scene" style={{ transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.scale})` }}>
+      <div className="semantic-tree-scene" ref={sceneElementRef} style={{ transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.scale})` }}>
         <svg className="semantic-tree-lines" aria-label="Conexões entre tickets">
           <defs>{visibleEdges.filter(({ edge }) => edge.type === "dependency").map(({ edge }) => <marker key={edge.id} id={`semantic-arrow-${edge.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill={edge.style.color} /></marker>)}</defs>
           {chunkItems(visibleEdges).map((chunk, index) => <SemanticEdgeChunk key={index} edges={chunk} selectedEdgeId={props.selectedEdgeId} edgeElements={edgeElements.current} onSelect={props.onSelectEdge} />)}
         </svg>
-        {chunkItems(rendered).map((chunk, index) => <SemanticNodeChunk key={index} nodes={chunk} treeIndex={props.treeIndex} users={props.users} projectKey={props.projectKey} focusOnClick={focusOnClick} connectionSourceId={connectionSourceId} focusId={focusId} attentionId={attentionId} selectedTicketId={props.selectedTicketId} nodeElements={nodeElements.current} onAttention={setAttentionId} onActivate={activateTicket} onStartConnection={setConnectionSourceId} />)}
+        {chunkItems(rendered).map((chunk, index) => <SemanticNodeChunk key={index} nodes={chunk} treeIndex={props.treeIndex} users={props.users} projectKey={props.projectKey} focusOnClick={focusOnClick} connectionSourceId={connectionSourceId} focusId={focusId} attentionId={attentionId} selectedTicketId={props.selectedTicketId} nodeElements={nodeElements.current} indicatorElements={indicatorElements.current} onAttention={setAttentionId} onActivate={activateTicket} onStartConnection={setConnectionSourceId} />)}
       </div>
-      <div className="semantic-lod-indicator" aria-live="polite"><span>SEMÂNTICA</span>{Math.round(camera.zoom * 100)}% · escala {Math.round(camera.scale * 100)}%</div>
+      <div className="semantic-lod-indicator" ref={lodElementRef} aria-live="polite"><span>SEMÂNTICA</span>{Math.round(camera.zoom * 100)}% · escala {Math.round(camera.scale * 100)}%</div>
       <div className="semantic-controls" onPointerDown={(event) => event.stopPropagation()}>
         <button onClick={() => zoomBy(-0.08)} aria-label="Reduzir nível semântico">−</button>
         <button onClick={fitContext} aria-label="Enquadrar contexto atual">⌂</button>
         <button onClick={() => zoomBy(0.08)} aria-label="Ampliar nível semântico">+</button>
       </div>
-      <svg className="semantic-minimap" viewBox={minimapViewBox} aria-label="Minimapa do contexto visível">
-        <rect className="semantic-minimap-viewport" x={-camera.x / camera.scale} y={-camera.y / camera.scale} width={size.width / camera.scale} height={size.height / camera.scale} />
-        <path d={visibleEdges.map(({ path }) => path).join(" ")} />
-        <path className="semantic-minimap-nodes" d={rendered.filter((node) => node.opacity > 0.05).map(minimapNodePath).join(" ")} />
+      <svg className="semantic-minimap" ref={minimapElementRef} viewBox={minimapViewBox} aria-label="Minimapa do contexto visível">
+        <rect className="semantic-minimap-viewport" ref={minimapViewportRef} x={-camera.x / camera.scale} y={-camera.y / camera.scale} width={size.width / camera.scale} height={size.height / camera.scale} />
+        <path ref={minimapEdgesRef} d={visibleEdges.map(({ path }) => path).join(" ")} />
+        <path className="semantic-minimap-nodes" ref={minimapNodesRef} d={rendered.filter((node) => node.opacity > 0.05).map(minimapNodePath).join(" ")} />
       </svg>
       <div className="semantic-help">Wheel ancora no evento · mover não faz pan · <kbd>Ctrl</kbd>/<kbd>⌘</kbd> só escala · <kbd>Shift</kbd> + wheel horizontal · <kbd>C</kbd> cores</div>
     </div>

@@ -1,8 +1,8 @@
 # TreePM
 
-Plataforma de gerenciamento de projetos cuja visão principal é uma **árvore top-down**. Esta fatia executável inclui canvas com zoom semântico, tickets recursivos, dependências independentes, Lista e Kanban, API REST e backoffice inicial.
+Plataforma de gerenciamento de projetos com **home espacial Prezi** em `/` e experiência completa de **árvore top-down** em `/legacy`. Inclui tickets recursivos, dependências independentes no legado, Lista e Kanban, API REST e backoffice inicial.
 
-A visão de produto está em [docs/vision.md](docs/vision.md), as decisões técnicas em [docs/architecture.md](docs/architecture.md) e as perguntas ainda reais em [docs/open-questions.md](docs/open-questions.md).
+Comece por [docs/platform-overview.md](docs/platform-overview.md) para uma visão geral navegável e por [docs/adr/README.md](docs/adr/README.md) para as decisões duradouras. A visão de produto está em [docs/vision.md](docs/vision.md), os detalhes técnicos em [docs/architecture.md](docs/architecture.md) e as perguntas ainda reais em [docs/open-questions.md](docs/open-questions.md).
 
 ## Stack e arquitetura
 
@@ -62,9 +62,11 @@ Na primeira execução a API cria `apps/api/data/treepm.json` ao rodar a partir 
 ## O que já funciona
 
 - Hierarquia recursiva ilimitada com um único `parentId` nullable, múltiplos responsáveis e componentes com responsáveis próprios.
+- Home `/` com regiões retangulares Prezi: filhos abaixo do pai em slots uniformes, gerações fisicamente menores, zero overlaps e contornos discretos sem arestas. Zoom contínuo acumula microdeltas com ganho 0,0016 e alcance adaptativo (`max(6, 140 / menorLarguraNormalizada)`) para toda folha ficar legível por wheel ou **Explorar ramo**. Inclui LOD full/compact/chip/dot, culling, pan, fit/reset, breadcrumb e modo de cores por `c`/`C` com wash animado. `/legacy` continua com árvore, Lista e Kanban.
 - Status manual somente em folhas; pais mostram `doneLeaves/totalLeaves`, percentual, rótulo e cor acessível. Agregados homogêneos preservam a cor; combinações viram `mixed`/laranja com contagens e tooltip acessível.
-- Home com a árvore A integrada: compactação bottom-up por altura da subárvore (`full → compact → chip → dot → agregado`), resumos reconciliados, minimapa e enquadramento. Todo pai conserva indicadores acessíveis dos filhos imediatos; dots agregados usam microdots de 6 px com alvos de 20 px.
-- Numa sessão curta com as **mesmas coordenadas**, a `WheelAnchor` inteira é preservada — identidade, tipo, presença do nó, razão relativa, cena e fallbacks — mesmo se a animação colocar um alvo sob o mouse parado. Coordenadas novas capturam alvo explícito, referência local de borda a até 48 px ou cena crua somente em fundo livre. Um novo alvo troca a transição a partir da cena visível; a navegação usa `anchor.ticketId`, nunca um hit acidental do DOM. A referência local segue card → indicador → agregado, sem misturar o ancestral antes da prévia desaparecer. Depois do evento não há follow nem drag+wheel, com ou sem `Ctrl`/`Meta`; `Ctrl`/`Meta` altera somente escala geométrica. A seleção nunca recentraliza a câmera; somente o enquadramento explícito muda essa política.
+- Legado com a árvore A integrada: compactação bottom-up por altura da subárvore (`full → compact → chip → dot → agregado`), resumos reconciliados, minimapa e enquadramento. Todo pai conserva indicadores acessíveis dos filhos imediatos; dots agregados usam microdots de 6 px com alvos de 20 px.
+- Wheel negativo sobre ticket resume progressivamente só sua subárvore até dot+indicadores, preservando irmãos e permitindo reversão com wheel+. Em fundo livre, a compactação global cobre a altura máxima até a raiz. O afastamento geométrico acompanha a cena, e a referência de fundo é remapeada pelo envelope a cada frame, sem fit/center.
+- Numa sessão curta com as **mesmas coordenadas**, a `WheelAnchor` inteira é preservada — identidade, tipo, presença do nó, razão relativa, cena, envelope e fallbacks — mesmo se a animação colocar um alvo sob o mouse parado. Coordenadas novas capturam alvo explícito, referência local de borda a até 48 px ou cena crua somente em fundo livre. Um novo alvo troca a transição a partir da cena visível; a navegação usa `anchor.ticketId`, nunca um hit acidental do DOM. A referência local segue card → indicador → agregado, sem misturar o ancestral antes da prévia desaparecer. Depois do evento não há follow nem drag+wheel, com ou sem `Ctrl`/`Meta`; `Ctrl`/`Meta` altera somente escala geométrica. A seleção nunca recentraliza a câmera; somente o enquadramento explícito muda essa política.
 - **Foco no clique** começa desligado: clicar ou pressionar Enter apenas abre os detalhes, sem mudar foco, LOD ou cena. Ligado, o próximo clique usa 104% (três passos semânticos de 0,12), identificador + título truncado e até três gerações de contexto no dataset atual; alternar o toggle não move a árvore. Breadcrumb continua foco explícito.
 - Zoom+ sobre outro card transfere atenção progressivamente e de forma reversível; zoom-out não troca foco para estabilizar a câmera. Scrolls rápidos retomam da cena visível sem fila. Wheel/controles animam por 180 ms e clique focalizado/breadcrumb por 220 ms, com movimento reduzido.
 - Arraste esquerdo ou do meio funciona no fundo e sobre cards após um pequeno threshold. Durante qualquer wheel, o zoom tem prioridade e nenhum drag compõe pan, com ou sem `Ctrl`/`Meta`. `lostpointercapture` não interrompe o gesto com botão pressionado; `Shift` + wheel faz pan horizontal imediato.
@@ -76,7 +78,7 @@ Na primeira execução a API cria `apps/api/data/treepm.json` ao rodar a partir 
 
 ## Protótipos DEV de referência
 
-A rota `/` já abre a árvore semântica integrada à aplicação, sem query e sem switcher. Com `pnpm dev`, `/?variant=A`, `/?variant=B`, `/?variant=C` e `/?variant=D` continuam disponíveis somente como referências descartáveis. C e D representam futuras views de faixas e Lista hierárquica, ainda não promovidas. O código fica em `apps/web/src/components/prototypes/` e não altera dados.
+A home `/` abre a constelação espacial; a árvore semântica integrada fica em `/legacy`. Com `pnpm dev`, `/legacy?variant=A`, `/legacy?variant=B`, `/legacy?variant=C` e `/legacy?variant=D` continuam disponíveis somente como referências descartáveis. C e D representam futuras views de faixas e Lista hierárquica, ainda não promovidas. O código fica em `apps/web/src/components/prototypes/` e não altera dados.
 
 Na árvore, `C` ou o botão **Cores** alterna o preenchimento pelo status, sem interferir em campos editáveis e respeitando movimento reduzido. A avaliação histórica, as medições de gestos e os próximos passos estão em [docs/semantic-zoom-proposal.md](docs/semantic-zoom-proposal.md).
 
@@ -86,5 +88,5 @@ Na árvore, `C` ou o botão **Cores** alterna o preenchimento pelo status, sem i
 - JSON é single-process; não é adequado a produção nem a múltiplas réplicas.
 - A árvore compartilha um único índice derivado por snapshot e cacheia a cena de destino de cada animação; o layout semântico usa duas passagens lineares e o blend só percorre a união das cenas. Ainda assim, toda a cena lógica permanece em DOM/SVG, sem worker ou WebGL; a contenção de paint depende do browser, e Lista/Kanban continuam sem virtualização.
 - Pinch dedicado e animação FLIP com Web Animations API ainda não foram implementados; Ctrl/Meta + wheel e controles cobrem a escala nesta fatia.
-- Sem testes automatizados, conforme decisão desta etapa; os gestos foram verificados com harnesses temporários fora do repositório.
+- Não há suíte automatizada permanente nesta etapa; os gestos são verificados com harnesses CDP temporários, sem constituir uma suíte committed.
 - Jev com credencial depende do serviço externo; apenas o fallback sem chave é verificável offline.

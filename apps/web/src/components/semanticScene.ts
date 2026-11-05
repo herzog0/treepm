@@ -16,6 +16,11 @@ export interface FocusTransition {
   progress: number;
   fromScene?: SemanticSceneNode[];
 }
+export interface SemanticCompaction {
+  ticketId: string;
+  progress: number;
+  fromScale?: number;
+}
 type Layout = ReturnType<typeof tidyTreeLayout>;
 type LayoutNode = Layout["nodes"][number];
 type LeafCounts = LeafStatusCounts;
@@ -90,6 +95,15 @@ interface WheelAnchorLocal {
   ancestors: string[];
 }
 
+interface WheelAnchorEnvelope {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  relativeX: number;
+  relativeY: number;
+}
+
 export interface WheelAnchor {
   cursorX: number;
   cursorY: number;
@@ -102,7 +116,10 @@ export interface WheelAnchor {
   relativeY: number;
   fallbacks: WheelAnchorTicket[];
   local?: WheelAnchorLocal;
+  envelope?: WheelAnchorEnvelope;
 }
+
+const sceneEnvelopeCache = new WeakMap<SemanticSceneNode[], Omit<WheelAnchorEnvelope, "relativeX" | "relativeY">>();
 
 export const SEMANTIC_CARD_SIZES: Record<SemanticCardKind, { width: number; height: number }> = {
   full: { width: 246, height: 142 },
@@ -160,12 +177,6 @@ const mixColor = (from: string, to: string, progress: number) => {
   return `#${channels.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 };
 
-interface MeasuredSceneNode extends SceneBounds {
-  item: SceneItem;
-  x: number;
-  children: { node: MeasuredSceneNode; offset: number; min: number; max: number }[];
-}
-
 function layoutScene(items: SceneItem[], zoom: number, viewportWidth: number) {
   const itemById = new Map(items.map((item) => [item.node.ticket.id, item]));
   const visibleChildren = new Map<string, SceneItem[]>();
@@ -182,47 +193,75 @@ function layoutScene(items: SceneItem[], zoom: number, viewportWidth: number) {
   }
 
   const layoutForest = (gap: number) => {
-    const measureSubtree = (item: SceneItem): MeasuredSceneNode => {
+    const indexes = new Map(items.map((item, index) => [item.node.ticket.id, index]));
+    const xs = new Array<number>(items.length);
+    const mins = new Array<number>(items.length);
+    const maxs = new Array<number>(items.length);
+    const offsets = new Array<number>(items.length);
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index];
+      if (!item) continue;
       const children = visibleChildren.get(item.node.ticket.id) ?? [];
-      const measuredChildren: MeasuredSceneNode["children"] = [];
       let right = 0;
-      children.forEach((child, index) => {
-        const measured = measureSubtree(child);
-        const previous = children[index - 1];
+      let firstX = 0;
+      let lastX = 0;
+      let min = 0;
+      let max = 0;
+      children.forEach((child, childIndex) => {
+        const childIndexInItems = indexes.get(child.node.ticket.id);
+        if (childIndexInItems === undefined) return;
+        const previous = children[childIndex - 1];
         const separatesBranches = previous && ((visibleChildren.get(previous.node.ticket.id)?.length ?? 0) > 0 || (visibleChildren.get(child.node.ticket.id)?.length ?? 0) > 0);
-        const offset = index === 0 ? -measured.min : right - measured.min + gap + (separatesBranches ? 8 : 0);
-        const min = measured.min + offset;
-        const max = measured.max + offset;
-        right = max;
-        measuredChildren.push({ node: measured, offset, min, max });
+        const offset = childIndex === 0 ? -(mins[childIndexInItems] ?? 0) : right - (mins[childIndexInItems] ?? 0) + gap + (separatesBranches ? 8 : 0);
+        offsets[childIndexInItems] = offset;
+        const childMin = (mins[childIndexInItems] ?? 0) + offset;
+        const childMax = (maxs[childIndexInItems] ?? 0) + offset;
+        const childX = (xs[childIndexInItems] ?? 0) + offset;
+        if (childIndex === 0) {
+          firstX = childX;
+          min = childMin;
+          max = childMax;
+        } else {
+          min = Math.min(min, childMin);
+          max = Math.max(max, childMax);
+        }
+        lastX = childX;
+        right = childMax;
       });
-      const firstChild = measuredChildren[0];
-      const lastChild = measuredChildren[measuredChildren.length - 1];
-      const firstX = firstChild ? firstChild.node.x + firstChild.offset : 0;
-      const lastX = lastChild ? lastChild.node.x + lastChild.offset : 0;
       const x = (firstX + lastX) / 2;
       const { width } = layoutSizeFor(item);
-      let min = x - width / 2;
-      let max = x + width / 2;
-      for (const child of measuredChildren) {
-        min = Math.min(min, child.min);
-        max = Math.max(max, child.max);
-      }
-      return { item, x, children: measuredChildren, min, max };
-    };
+      xs[index] = x;
+      mins[index] = Math.min(x - width / 2, min);
+      maxs[index] = Math.max(x + width / 2, max);
+    }
 
     const positions = new Map<string, ScenePosition>();
-    const placeSubtree = (measured: MeasuredSceneNode, offset: number) => {
-      positions.set(measured.item.node.ticket.id, { x: measured.x + offset, y: 0 });
-      for (const child of measured.children) placeSubtree(child.node, offset + child.offset);
-    };
     const forestBounds: SceneBounds[] = [];
     let right = 0;
-    roots.forEach((root, index) => {
-      const measured = measureSubtree(root);
-      const offset = index === 0 ? -measured.min : right - measured.min + gap + 8;
-      placeSubtree(measured, offset);
-      const bounds = { min: measured.min + offset, max: measured.max + offset };
+    roots.forEach((root, rootIndex) => {
+      const index = indexes.get(root.node.ticket.id);
+      if (index === undefined) return;
+      const offset = rootIndex === 0 ? -(mins[index] ?? 0) : right - (mins[index] ?? 0) + gap + 8;
+      const pending = [index];
+      const pendingOffsets = [offset];
+      while (pending.length > 0) {
+        const current = pending.pop();
+        const parentOffset = pendingOffsets.pop();
+        if (current === undefined || parentOffset === undefined) continue;
+        const item = items[current];
+        if (!item) continue;
+        positions.set(item.node.ticket.id, { x: (xs[current] ?? 0) + parentOffset, y: 0 });
+        const children = visibleChildren.get(item.node.ticket.id) ?? [];
+        for (let childIndex = children.length - 1; childIndex >= 0; childIndex -= 1) {
+          const child = children[childIndex];
+          if (!child) continue;
+          const childIndexInItems = indexes.get(child.node.ticket.id);
+          if (childIndexInItems === undefined) continue;
+          pending.push(childIndexInItems);
+          pendingOffsets.push(parentOffset + (offsets[childIndexInItems] ?? 0));
+        }
+      }
+      const bounds = { min: (mins[index] ?? 0) + offset, max: (maxs[index] ?? 0) + offset };
       right = bounds.max;
       forestBounds.push(bounds);
     });
@@ -251,16 +290,29 @@ function layoutScene(items: SceneItem[], zoom: number, viewportWidth: number) {
     levelTops.set(depth, top);
     top += (levelHeights.get(depth) ?? 0) + verticalGap;
   }
-  return items.map((item): SemanticSceneNode => {
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  const scene = items.map((item): SemanticSceneNode => {
     const position = positions.get(item.node.ticket.id) ?? { x: 0, y: 0 };
     const size = sizeFor(item);
     const layoutSize = layoutSizeFor(item);
+    const opacity = item.opacity ?? 1;
+    const x = viewportWidth / 2 + position.x - firstRootX;
+    const y = 28 + (levelTops.get(item.node.depth) ?? 0);
+    if (opacity >= 0.05 && size.width > 0 && size.height > 0) {
+      minX = Math.min(minX, x - layoutSize.width / 2);
+      maxX = Math.max(maxX, x + layoutSize.width / 2);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y + layoutSize.height);
+    }
     return {
       ...item,
       ...size,
       layoutWidth: layoutSize.width,
       layoutHeight: layoutSize.height,
-      opacity: item.opacity ?? 1,
+      opacity,
       aggregate: item.aggregate ?? false,
       representedCount: item.representedCount ?? 1,
       aggregateDoneLeaves: item.aggregateDoneLeaves ?? 0,
@@ -271,19 +323,20 @@ function layoutScene(items: SceneItem[], zoom: number, viewportWidth: number) {
       childIndicators: item.childIndicators ?? [],
       indicatorSize: item.indicatorSize ?? 10,
       compactLabel: item.compactLabel ?? false,
-      position: {
-        x: viewportWidth / 2 + position.x - firstRootX,
-        y: 28 + (levelTops.get(item.node.depth) ?? 0),
-      },
+      position: { x, y },
     };
   });
+  if (Number.isFinite(minX) && Number.isFinite(minY)) sceneEnvelopeCache.set(scene, { minX, maxX, minY, maxY });
+  return scene;
 }
 
-function focusScene(layout: Layout, index: TreeIndex, focusId: string, zoom: number, viewportWidth: number) {
+function focusScene(layout: Layout, index: TreeIndex, focusId: string, zoom: number, viewportWidth: number, localCompaction: SemanticCompaction | null = null) {
   const { nodeById, orderById } = getLayoutLookup(layout);
   const roots = childrenIn(index, null);
   const focus = index.ticketById.get(focusId) ?? roots[0] ?? index.ticketById.values().next().value;
   if (!focus) return [];
+  const targetId = localCompaction?.ticketId ?? null;
+  const targetProgress = localCompaction?.progress ?? 0;
   const infoFor = (id: string): SubtreeInfo => ({
     ticketCount: index.subtreeCountById.get(id) ?? 1,
     leaves: index.leafCountsById.get(id) ?? emptyLeaves(),
@@ -322,26 +375,47 @@ function focusScene(layout: Layout, index: TreeIndex, focusId: string, zoom: num
     current = current.parentId ? index.ticketById.get(current.parentId) : undefined;
   }
   const pathIds = new Set(path.map((ticket) => ticket.id));
+  const targetOnPath = targetId !== null && pathIds.has(targetId);
+  const membership = new Map<string, boolean>();
+  const inTarget = (id: string): boolean => {
+    if (!targetId || targetProgress <= 0) return false;
+    const cached = membership.get(id);
+    if (cached !== undefined) return cached;
+    let ticket = index.ticketById.get(id);
+    const seen = new Set<string>();
+    let result = false;
+    while (ticket && !seen.has(ticket.id)) {
+      if (ticket.id === targetId) {
+        result = true;
+        break;
+      }
+      seen.add(ticket.id);
+      ticket = ticket.parentId ? index.ticketById.get(ticket.parentId) : undefined;
+    }
+    membership.set(id, result);
+    return result;
+  };
   const lateralSummaries = new Set<string>();
   for (const ancestor of path) {
     for (const sibling of childrenIn(index, ancestor.parentId)) {
-      if (!pathIds.has(sibling.id)) lateralSummaries.add(sibling.id);
+      if (!pathIds.has(sibling.id) && (!inTarget(sibling.id) || sibling.id === targetId)) lateralSummaries.add(sibling.id);
     }
   }
-  for (const root of roots) if (!pathIds.has(root.id)) lateralSummaries.add(root.id);
+  for (const root of roots) if (!pathIds.has(root.id) && (!inTarget(root.id) || root.id === targetId)) lateralSummaries.add(root.id);
 
   const compaction = Math.max(0, (1.4 - zoom) / 0.12);
-  const visit = (node: LayoutNode): { items: SceneItem[]; collapsed?: SubtreeInfo } => {
+  const visit = (node: LayoutNode, localBranch = false): { items: SceneItem[]; collapsed?: SubtreeInfo } => {
+    const local = localBranch || (targetProgress > 0 && node.ticket.id === targetId);
     const ownInfo = infoFor(node.ticket.id);
-    const phase = Math.round((compaction - (index.subtreeHeightById.get(node.ticket.id) ?? 0)) * 1e9) / 1e9;
-    if (node.ticket.id !== focus.id && phase >= 4) return { items: [], collapsed: ownInfo };
+    const phase = Math.round((compaction - (index.subtreeHeightById.get(node.ticket.id) ?? 0) + (local ? targetProgress : 0)) * 1e9) / 1e9;
+    if (node.ticket.id !== targetId && (local || node.ticket.id !== focus.id) && phase >= 4) return { items: [], collapsed: ownInfo };
     const childResults = childrenIn(index, node.ticket.id).flatMap((child) => {
       const childNode = nodeById.get(child.id);
-      return childNode ? [visit(childNode)] : [];
+      return childNode ? [visit(childNode, local)] : [];
     });
     let kind: SemanticCardKind = phase >= 3 ? "dot" : phase >= 2 ? "chip" : phase >= 1 ? "compact" : "full";
     let dimensions: { width: number; height: number } | undefined;
-    if (node.ticket.id === focus.id) kind = "full";
+    if (node.ticket.id === focus.id && node.ticket.id !== targetId) kind = "full";
     else if (phase > 0 && phase < 3) {
       const kinds = ["full", "compact", "chip", "dot"] as const;
       const index = Math.floor(phase);
@@ -354,18 +428,30 @@ function focusScene(layout: Layout, index: TreeIndex, focusId: string, zoom: num
     return { items: [{ ...makeItem(node, kind, hidden, dimensions) }, ...childResults.flatMap((result) => result.items)] };
   };
   const focusNode = nodeById.get(focus.id);
+  const targetNode = targetId ? nodeById.get(targetId) : undefined;
   const items: SceneItem[] = [];
+  let targetIncluded = false;
   for (const ticket of path) {
+    if (targetOnPath && inTarget(ticket.id)) {
+      if (!targetIncluded && targetNode) {
+        items.push(...visit(targetNode).items);
+        targetIncluded = true;
+      }
+      continue;
+    }
     if (ticket.id === focus.id) continue;
     const node = nodeById.get(ticket.id);
     if (node) items.push(makeItem(node, zoom < 0.66 ? "chip" : "compact"));
   }
-  if (focusNode) items.push(...visit(focusNode).items);
+  if (!targetIncluded && focusNode) items.push(...visit(focusNode).items);
   for (const id of lateralSummaries) {
     const node = nodeById.get(id);
-    if (!node || pathIds.has(id)) continue;
-    const hidden = childrenIn(index, id).map((child) => infoFor(child.id));
-    items.push(makeItem(node, "summary", hidden));
+    if (!node || pathIds.has(id) || (inTarget(id) && id !== targetId)) continue;
+    if (id === targetId && targetProgress > 0) items.push(...visit(node).items);
+    else {
+      const hidden = childrenIn(index, id).map((child) => infoFor(child.id));
+      items.push(makeItem(node, "summary", hidden));
+    }
   }
   const itemById = new Map(items.map((item) => [item.node.ticket.id, item]));
   for (const item of items) {
@@ -412,8 +498,26 @@ function blendScenes(layout: Layout, from: SemanticSceneNode[], to: SemanticScen
   const fromById = new Map(from.map((item) => [item.node.ticket.id, item]));
   const toById = new Map(to.map((item) => [item.node.ticket.id, item]));
   const { orderById } = getLayoutLookup(layout);
-  const ids = new Set([...fromById.keys(), ...toById.keys()]);
-  const orderedIds = [...ids].sort((a, b) => (orderById.get(a) ?? 0) - (orderById.get(b) ?? 0));
+  const orderedIds: string[] = [];
+  let fromIndex = 0;
+  let toIndex = 0;
+  while (fromIndex < from.length || toIndex < to.length) {
+    const fromId = from[fromIndex]?.node.ticket.id;
+    const toId = to[toIndex]?.node.ticket.id;
+    if (fromId !== undefined && fromId === toId) {
+      orderedIds.push(fromId);
+      fromIndex += 1;
+      toIndex += 1;
+    } else if (toId === undefined
+      || (fromId !== undefined && (orderById.get(fromId) ?? 0) < (orderById.get(toId) ?? 0))
+    ) {
+      orderedIds.push(fromId!);
+      fromIndex += 1;
+    } else {
+      orderedIds.push(toId!);
+      toIndex += 1;
+    }
+  }
   const dot = SEMANTIC_CARD_SIZES.dot;
   const items = orderedIds.flatMap((id): SceneItem[] => {
     const source = fromById.get(id);
@@ -466,13 +570,13 @@ export function blendSemanticScenes(layout: Layout, from: SemanticSceneNode[], t
   return blendScenes(layout, from, to, progress, zoom, viewportWidth);
 }
 
-export function createSemanticScene(layout: Layout, index: TreeIndex, focusId: string, transition: FocusTransition | null, zoom: number, viewportWidth: number) {
-  if (!transition || (transition.fromId === transition.toId && !transition.fromScene)) return focusScene(layout, index, focusId, zoom, viewportWidth);
+export function createSemanticScene(layout: Layout, index: TreeIndex, focusId: string, transition: FocusTransition | null, zoom: number, viewportWidth: number, localCompaction: SemanticCompaction | null = null) {
+  if (!transition || (transition.fromId === transition.toId && !transition.fromScene)) return focusScene(layout, index, focusId, zoom, viewportWidth, localCompaction);
   if (transition.progress <= 0 && transition.fromScene) return transition.fromScene;
-  if (transition.progress <= 0) return focusScene(layout, index, focusId, zoom, viewportWidth);
-  if (transition.progress >= 1) return focusScene(layout, index, transition.toId, zoom, viewportWidth);
-  const from = transition.fromScene ?? focusScene(layout, index, transition.fromId, zoom, viewportWidth);
-  const to = focusScene(layout, index, transition.toId, zoom, viewportWidth);
+  if (transition.progress <= 0) return focusScene(layout, index, focusId, zoom, viewportWidth, localCompaction);
+  if (transition.progress >= 1) return focusScene(layout, index, transition.toId, zoom, viewportWidth, localCompaction);
+  const from = transition.fromScene ?? focusScene(layout, index, transition.fromId, zoom, viewportWidth, localCompaction);
+  const to = focusScene(layout, index, transition.toId, zoom, viewportWidth, localCompaction);
   return blendSemanticScenes(layout, from, to, transition.progress, zoom, viewportWidth);
 }
 
@@ -513,6 +617,48 @@ const localIndicatorPoint = (parent: SemanticSceneNode, indicator: SemanticChild
   return {
     x: center.x + (reference.relativeX - 0.5) * parent.indicatorSize + reference.offsetX,
     y: center.y + (reference.relativeY - 0.5) * parent.indicatorSize + reference.offsetY,
+  };
+};
+
+const captureEnvelope = (nodes: SemanticSceneNode[], sceneX: number, sceneY: number): WheelAnchorEnvelope => {
+  const cached = sceneEnvelopeCache.get(nodes);
+  if (cached && cached.maxX > cached.minX && cached.maxY > cached.minY) {
+    return {
+      ...cached,
+      relativeX: (sceneX - cached.minX) / (cached.maxX - cached.minX),
+      relativeY: (sceneY - cached.minY) / (cached.maxY - cached.minY),
+    };
+  }
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const node of nodes) {
+    if (node.opacity < 0.05 || node.width <= 0 || node.height <= 0) continue;
+    minX = Math.min(minX, node.position.x - node.layoutWidth / 2);
+    maxX = Math.max(maxX, node.position.x + node.layoutWidth / 2);
+    minY = Math.min(minY, node.position.y);
+    maxY = Math.max(maxY, node.position.y + node.layoutHeight);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || maxX <= minX || maxY <= minY) {
+    return { minX: sceneX, maxX: sceneX + 1, minY: sceneY, maxY: sceneY + 1, relativeX: 0, relativeY: 0 };
+  }
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    relativeX: (sceneX - minX) / (maxX - minX),
+    relativeY: (sceneY - minY) / (maxY - minY),
+  };
+};
+
+const pointFromEnvelope = (anchor: WheelAnchor, nodes: SemanticSceneNode[]) => {
+  if (!anchor.envelope) return { x: anchor.sceneX, y: anchor.sceneY };
+  const current = captureEnvelope(nodes, anchor.envelope.relativeX * (anchor.envelope.maxX - anchor.envelope.minX) + anchor.envelope.minX, anchor.envelope.relativeY * (anchor.envelope.maxY - anchor.envelope.minY) + anchor.envelope.minY);
+  return {
+    x: current.minX + anchor.envelope.relativeX * (current.maxX - current.minX),
+    y: current.minY + anchor.envelope.relativeY * (current.maxY - current.minY),
   };
 };
 
@@ -585,6 +731,7 @@ export function captureWheelAnchor(clientX: number, clientY: number, stage: DOMR
     relativeY: item ? relative(item).relativeY : indicatorRelative.relativeY,
     fallbacks,
     local,
+    envelope: captureEnvelope(nodes, sceneX, sceneY),
   };
 }
 
@@ -598,7 +745,7 @@ export function cameraForAnchor(anchor: WheelAnchor, nodes: SemanticSceneNode[],
     const replacementPoint = replacementIndicator
       ? localIndicatorPoint(replacementIndicator.parent, replacementIndicator.indicator, reference)
       : replacementAggregate ? localPoint(replacementAggregate, reference) : undefined;
-    let resolved = sourcePoint ?? replacementPoint ?? { x: anchor.sceneX, y: anchor.sceneY };
+    let resolved = sourcePoint ?? replacementPoint ?? pointFromEnvelope(anchor, nodes);
     if (sourcePoint && replacementPoint && source) {
       resolved = {
         x: lerp(replacementPoint.x, sourcePoint.x, source.opacity),
@@ -619,7 +766,7 @@ export function cameraForAnchor(anchor: WheelAnchor, nodes: SemanticSceneNode[],
   const fallbackIndicator = fallback && primaryReference ? fallback.childIndicators.find((indicator) => indicator.ticketIds.includes(primaryReference.ticketId)) : undefined;
   const fallbackPoint = () => {
     if (fallback && fallbackIndicator && primaryReference) return indicatorPoint(fallback, fallbackIndicator, primaryReference);
-    return fallback && fallbackReference ? point(fallback, fallbackReference) : { x: anchor.sceneX, y: anchor.sceneY };
+    return fallback && fallbackReference ? point(fallback, fallbackReference) : pointFromEnvelope(anchor, nodes);
   };
   let sceneX = anchor.sceneX;
   let sceneY = anchor.sceneY;
@@ -642,6 +789,10 @@ export function cameraForAnchor(anchor: WheelAnchor, nodes: SemanticSceneNode[],
   } else if (fallback) {
     sceneX = fallbackPoint().x;
     sceneY = fallbackPoint().y;
+  } else {
+    const resolved = pointFromEnvelope(anchor, nodes);
+    sceneX = resolved.x;
+    sceneY = resolved.y;
   }
   return { x: anchor.cursorX - sceneX * scale, y: anchor.cursorY - sceneY * scale };
 }

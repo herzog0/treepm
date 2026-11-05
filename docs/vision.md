@@ -6,9 +6,18 @@ Projetos não são listas. São árvores de trabalho e relações: quando as fol
 
 ## Proposta
 
-Uma plataforma cujo modo **principal** de visualização é uma **árvore top-down**. Lista e Kanban continuam disponíveis como visões secundárias, sem tomar o protagonismo do canvas.
+Uma plataforma cuja home `/` usa uma **constelação espacial Prezi** para viajar por regiões de trabalho. A experiência de **árvore top-down**, Lista e Kanban permanece completa em `/legacy`, sem que a antiga apresentação imponha sua composição à nova home.
 
-### Visualização em árvore
+### Visualização espacial `/`
+
+- Hierarquia expressa por proximidade, tamanho decrescente e agregação, sem arestas top-down ou disposição Kanban. Cada pai organiza os filhos abaixo de si em regiões retangulares delimitadas, com slots uniformes e gerações menores; a home continua Prezi, não um grid plano.
+- Zoom contínuo preserva o ponto mundial sob o cursor e acumula rolagens rápidas ou curtas sem perder microdeltas. Cards completos, títulos compactos, chips e dots/agregados aparecem conforme há espaço, com progresso acessível.
+- Root e ramos próximos aparecem primeiro; zoom-in revela níveis menores. Clique simples abre detalhes; “Explorar ramo” no painel e breadcrumb controlam o mergulho, enquanto pan, fit/reset e movimento reduzido permanecem disponíveis.
+- A navegação responde imediatamente ao clique e arraste após zoom. Arraste e wheel podem ser combinados para viajar pelo mapa sem esperar animações terminarem, preservando a âncora do cursor.
+- `c`/`C` e o botão Cores alternam preenchimento pela cor de status com wash animado e texto legível, sem interferir em atalhos modificados ou edição.
+- O mapa deriva posições uma vez por snapshot e limita o DOM à viewport/LOD, evitando uma coleção de mil cards completos.
+
+### Visualização em árvore `/legacy`
 
 - Raiz no topo, profundidade crescendo verticalmente e irmãos distribuídos horizontalmente por layout determinístico baseado nas formas visíveis.
 - Cards familiares com identificador, título, múltiplos responsáveis, componentes, filhos e progresso acessível.

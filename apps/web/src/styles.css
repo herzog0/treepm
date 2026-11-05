@@ -151,7 +151,7 @@ kbd { font: 600 9px "DM Sans", sans-serif; padding: 2px 5px; border: 1px solid #
 .semantic-edge-hit:focus-visible { stroke: rgba(101,81,143,.22); }
 .semantic-edge-visible { fill: none; pointer-events: none; }
 .semantic-edge-label { fill: #8a633e; font-size: 8px; text-anchor: middle; paint-order: stroke; stroke: #f3f1ec; stroke-width: 3px; pointer-events: none; }
-.semantic-tree-node { position: absolute; left: 0; top: 0; box-sizing: border-box; overflow: visible; }
+.semantic-tree-node { position: absolute; left: 0; top: 0; box-sizing: border-box; overflow: visible; contain: layout style; }
 .semantic-card-surface { position: absolute; inset: 0; display: block; box-sizing: border-box; border: 1px solid #dcd4e1; border-top: 3px solid var(--semantic-status); border-radius: 11px; background: #fffefb; box-shadow: 0 5px 18px rgba(47,38,55,.07); transition: box-shadow 160ms; content-visibility: auto; contain-intrinsic-size: 246px 142px; }
 .semantic-tree-node.is-focus .semantic-card-surface { box-shadow: 0 0 0 4px rgba(98,70,130,.15), 0 10px 30px rgba(47,38,55,.13); }
 .semantic-tree-node.is-attention .semantic-card-surface { border-color: #806695; border-top-color: var(--semantic-status); box-shadow: 0 0 0 3px rgba(128,102,149,.2), 0 10px 30px rgba(47,38,55,.13); }
