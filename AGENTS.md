@@ -32,3 +32,11 @@
 - Use harnesses temporários para validar geometria, gestos, overlaps, console e viewport no navegador. Não adicione uma suíte permanente sem alinhar a convenção; remova artefatos de diagnóstico ao terminar.
 - Pare somente processos de teste iniciados por você. Não leia nem copie `.env` e não inclua segredos no Git.
 - Use Git para mudanças revisáveis e reversíveis. Na refatoração atual, o usuário autorizou uma branch, um checkpoint anterior à limpeza e um commit separado para a extração da engine. Não reescreva história, não faça push e não inclua trabalho alheio em commits sem autorização.
+
+## Delegação e executores
+
+- A sessão coordenadora (Claude Fable) escreve briefs, revisa diffs, roda as verificações e faz os commits. A implementação é delegada a executores em panes do herdr, um por tarefa, em aba própria e sem roubar o foco do pane principal.
+- Ordem de preferência (ranking provisório de 2026-11-07, recalibrar comparando dois executores na mesma tarefa): Codex `gpt-6.1-sol` para TypeScript difícil, geometria, perf e gestos; Kimi `k3.1-pro` para refatorações multi-arquivo, docs e contexto grande; modelos gratuitos do OpenCode `opencode/deepseek-v4.1-flash-free`, `glm-5.3-flash-free`, `big-pickle` e `mimo-v2.6-flash-free` para testes, scaffolding, refatorações mecânicas e lint; `nemotron-3.5-super-vl-free` para verificações com screenshot. Outros modelos Claude só como último recurso.
+- Cota: só `opencode/*-free` é gratuito. Não rodar Kimi por dentro do OpenCode (`kimi-code-plan-global/*`) e não usar `k3.1-pro-highspeed` (custo dobrado). Não usar modelos locais (Ollama) em nenhuma CLI.
+- Modo não assistido: `-y` no Kimi, `--auto` no OpenCode, `--approve-for-me` no Codex. Forçar modelo no OpenCode: `OPENCODE_CONFIG_CONTENT='{"model":"opencode/<modelo>"}' opencode --standalone`. Headless para tarefas pequenas: `codex exec`, `kimi -p`, `opencode run -m`.
+- Executores trabalham em branch ou worktree próprios e não fazem commit. Em 2026-11-07 Teodoro autorizou a coordenação a criar branches, worktrees, panes e commits locais à vontade; push e deploy continuam dependendo de autorização explícita.
