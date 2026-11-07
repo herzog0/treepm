@@ -163,6 +163,16 @@ Pessoas atualizam suas contribuições no mesmo ticket. Revisões e aceites apon
 
 Marcos, prazos, prioridade, esforço opcional, capacidade e metas ajudam a planejar. Notificações, inbox e preferências evitam transformar cada comentário em interrupção. Atualizações em tempo real devem indicar alterações concorrentes, presença e conflitos de edição sem sobrescrever texto silenciosamente.
 
+### Estimativas automáticas de execução e revisão
+
+A IDEA-011 separa dois intervalos: **execução**, da entrada do ticket em progresso até a abertura do PR, e **revisão**, medida separadamente ao longo do processo de review. O tempo de revisão não entra na duração de execução; os dois podem ser compostos depois na estimativa geral da task e do produto.
+
+- A IA analisa sinais autorizados como comentários do ticket, código do PR, complexidade e quantidade de linhas alteradas, atribuindo scores de **complexidade, risco e incerteza**. Incerteza representa ambiguidades e informações insuficientes.
+- As estimativas são calibradas com os tempos observados ao longo do histórico, buscando prever a duração do trabalho independentemente de quem o executou. Os dados não devem virar ranking individual de produtividade.
+- O tempo médio de revisão de PR alimenta uma estimativa própria, permitindo mostrar execução, revisão e total sem misturar suas bases.
+- O campo de estimativa nos metadados do ticket é preenchido pela IA. Durante a calibragem, a interface apresenta uma estimativa provisória e informa que ela será refinada com novos dados, sem apresentá-la como compromisso ou precisão garantida.
+- A ausência de histórico, integração ou IA não bloqueia planejamento e acompanhamento; o sistema deve deixar explícita a indisponibilidade da estimativa automática.
+
 ## 5. Filtros e perspectivas
 
 Filtros são uma linguagem de consulta estruturada, com representação visual editável. Texto gerado pela IA vira essa representação para conferência; não uma consulta livre executável contra o banco.
@@ -222,6 +232,7 @@ O Jev considerado aqui é o da TypeSafe AI, conforme a pesquisa de [capacidades 
 | Sugerir áreas e pessoas | Avaliar habilidades, participação e contexto autorizado | Não assinalar nem notificar alguém automaticamente no primeiro corte |
 | Preparar stand-up | Propor roteiro, mudanças relevantes e perguntas de bloqueio | Condutor revisa ordem, participantes e conteúdo |
 | Entender riscos | Identificar pendências, estagnação e inconsistência entre dependências e planos | Diferenciar fato, hipótese e sinal; revisar antes de agir |
+| Estimar execução e revisão | Analisar histórico, comentários e PRs; pontuar complexidade, risco e incerteza | Separar os dois intervalos, identificar estimativas provisórias e calibrar sem ranking individual |
 | Planejar o dia | Sugerir demandas a partir de trabalho e integrações autorizadas | Espaço privado revisável; não criar compromissos em nome de colegas |
 
 ### Pipeline de classificação da IDEA-005
@@ -297,7 +308,7 @@ Escolhas ainda a detalhar em desenho técnico: banco transacional, autorização
 | Administração | Times, áreas, memberships e papéis iniciais | Delegação fina e templates organizacionais |
 | Tickets | CRUD, árvore, descrição global, múltiplas pessoas, contribuições por área | Templates, campos personalizados, recorrência e operações em lote |
 | Conversas | Comentários globais e por área, threads, menções, histórico | Decisões estruturadas e conhecimento relacionado |
-| Planejamento | Situação de folhas, progresso derivado, prioridade, prazos, marcos e bloqueios | Estimativas, capacidade, ciclos e cenários de planejamento |
+| Planejamento | Situação de folhas, progresso derivado, prioridade, prazos, marcos e bloqueios | Estimativas automáticas separadas de execução e revisão, capacidade, ciclos e cenários de planejamento |
 | Navegação | Mapa, detalhes, busca por ID/texto, links e foco explícito | Busca semântica, comando por intenção e histórico refinado |
 | Filtros | Campos essenciais e visões salvas na árvore | Perspectivas por pessoa/área, fluxo e calendário |
 | Relações | Dependências e associações com acesso e integridade | Agregação visual de relações, análise de impacto e duplicatas |
@@ -373,6 +384,7 @@ Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticke
 | IDEA-005 | Rascunho, classificação hierárquica Jev, categorias intermediárias e opção de não classificar |
 | IDEA-006 | Engine preservada como núcleo independente; produto reconstruído por fases |
 | IDEA-010 | Importação de GitHub, Jira, Linear e outros trackers, com reconciliação e categorização automática opcional de custo adicional |
+| IDEA-011 | Estimativas por IA com scores de complexidade, risco e incerteza, separando execução até o PR e tempo de revisão |
 | Pedido de 2026-11-05 | Agrupamento sem `+N`, contratos genéricos, camadas headless/estilizáveis, contribuições por área, Clerk e multi-tenancy |
 
 Fontes de capacidades externas e limitações estão em [Clerk e Jev](research/platform-services.md). O restante deste documento é uma proposta de produto, não uma afirmação de disponibilidade de funções na base atual.
