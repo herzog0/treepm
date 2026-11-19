@@ -16,6 +16,8 @@ A projeção produz indicadores, cards e grupos com membership explícito. Filho
 
 `apps/web` define seu próprio tipo com rótulo, cor e campos adicionais, carrega dados fictícios e consome a biblioteca. Breadcrumb, contagens técnicas e painel da demo são composição local, não exigências da engine.
 
+O modo `?demo` abre o mapa sem credenciais. Com a chave pública configurada, a entrada padrão usa o Clerk e abre o mesmo mapa na organização ativa.
+
 Uma nova interação assume a câmera exibida imediatamente. Durante drag, o pan translada a câmera e a âncora do wheel juntos. Soltar o ponteiro encerra o drag, sem iniciar movimentos automáticos de acompanhamento.
 
 ## Desenvolvimento

@@ -19,7 +19,7 @@
 - A ideia do TreePM permanece em `docs/vision.md`; `docs/ideas.yaml` registra intenções futuras. Documentação da base em `docs/platform-overview.md`, detalhes em `docs/architecture.md` e decisões atuais em `docs/adr/README.md`.
 - `@treepm/engine` é TypeScript ESM puro e não importa React. `TreeNode` combina interfaces de identidade e parentesco (`id`, `parentId`); o tipo genérico concreto do consumidor atravessa índice, layout e cena. Não exija título, cor, status ou campos de ticket no contrato headless. Opções tipadas parametrizam layout, cena e câmera.
 - O índice valida IDs únicos, pais existentes e ausência de ciclos. A ordem de entrada define a ordem dos irmãos. Não esconda erros estruturais com um fallback silencioso.
-- React, eventos do navegador, pointer capture, renderers e CSS opcionais ficam em `packages/react`. Conteúdo, cores, mistura, slots, classes e tokens são substituíveis. `apps/web/src/demo` é um consumidor com tipo e dataset determinísticos próprios; não depende de HTTP, credenciais, persistência ou sorteio em cada render. Preserve isolamento de atalhos e estilos entre múltiplas instâncias.
+- React, eventos do navegador, pointer capture, renderers e CSS opcionais ficam em `packages/react`. Conteúdo, cores, mistura, slots, classes e tokens são substituíveis. `apps/web` oferece login Clerk mediante configuração da chave pública. Em `?demo`, `apps/web/src/demo` é um consumidor com tipo e dataset determinísticos próprios, sem dependência de HTTP, credenciais, persistência ou sorteio em cada render. Preserve isolamento de atalhos e estilos entre múltiplas instâncias.
 
 ## Geometria e navegação
 

@@ -6,6 +6,8 @@
 
 Requisitos: Node **22.23.1** e pnpm **10.25.0**.
 
+Para usar o login, defina `VITE_CLERK_PUBLISHABLE_KEY` em `apps/web/.env.local`, conforme `apps/web/.env.example`. Para abrir a demo sem credenciais, acrescente `?demo` à URL.
+
 ```bash
 pnpm install
 pnpm dev

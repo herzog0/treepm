@@ -11,10 +11,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "@clerk/react": "^6.19.1",
     "@treepm/engine": "workspace:*",
-    "@treepm/react": "workspace:*"
+    "@treepm/react": "workspace:*",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.2",
