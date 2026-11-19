@@ -74,6 +74,19 @@ Regras transversais:
 
 Erros: 401 sem sessão; 403 sem organização ativa ou sem permissão; 404 para recurso inexistente **ou** invisível ao chamador, para não revelar projetos privados.
 
+## Leituras adotadas na implementação (2026-11-19)
+
+Pontos que este documento não definia e que a API resolveu pela leitura mais restritiva. Valem até decisão em contrário.
+
+- Alterar o papel de quem já é membro de um time segue a mesma regra de incluir e remover membros: administrador da organização ou administrador daquele time. Um administrador de time pode, portanto, promover outro membro do próprio time.
+- Quem cria um projeto não vira gestor automaticamente. Só o administrador da organização cria projetos, e ele já tem acesso total.
+- Projeto privado sem papel devolve 404 em qualquer rota, inclusive nas mutações. 403 só aparece para projeto visível sem permissão.
+- `POST` devolve 201, `PUT` devolve 200 com corpo e é idempotente, `DELETE` devolve 204. Remover ou desassociar algo inexistente devolve 404.
+- Pessoa inativa como alvo de membership devolve 409 (`person_inactive`). Conflitos de unicidade usam `team_name_taken`, `area_name_taken` e `project_key_taken`.
+- A chave do projeto segue `^[A-Z][A-Z0-9]{1,9}$`. Corpos com campo desconhecido devolvem 400.
+- Não há endpoint de contagem: lista e detalhe de projeto trazem membros e times já filtrados pela visibilidade.
+- `people.active` só passa a `false` quando houver sincronização com o Clerk (webhooks, ADR futura). Até lá, quem sai da organização perde o acesso porque o token deixa de trazer a organização.
+
 ## Casos negativos obrigatórios
 
 1. Com organização A no contexto, o papel `treepm_app` não lê, altera, remove nem insere linhas de B, em nenhuma tabela.
