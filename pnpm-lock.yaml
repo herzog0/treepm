@@ -26,6 +26,9 @@ importers:
       typescript-eslint:
         specifier: ^8.46.4
         version: 8.72.1(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
+      vitest:
+        specifier: ^5.1.1
+        version: 5.1.1(@types/node@22.20.5)(vite@7.3.7(@types/node@22.20.5)(jiti@2.7.0))
 
   apps/web:
     dependencies:
@@ -85,6 +88,8 @@ importers:
       vitest:
         specifier: ^5.1.1
         version: 5.1.1(@types/node@22.20.5)(vite@7.3.7(@types/node@22.20.5)(jiti@2.7.0))
+
+  packages/domain: {}
 
   packages/engine: {}
 
