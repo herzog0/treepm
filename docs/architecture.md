@@ -2,7 +2,7 @@
 
 ## Fronteiras
 
-`packages/engine` é TypeScript ESM puro, sem React ou conceitos de negócio. `packages/react` integra a engine com DOM e apresentação opcional; `apps/web` é uma demonstração consumidora com dados locais. O HTML final é estático e não depende de serviços.
+`packages/engine` é TypeScript ESM puro, sem React ou conceitos de negócio. `packages/react` integra a engine com DOM e apresentação opcional; `apps/web` consome a biblioteca com dados locais. O HTML final é estático. No navegador, apenas o caminho autenticado de `apps/web` carrega o Clerk e remonta o mapa quando muda a organização ativa. O caminho `?demo` roda sem serviços externos.
 
 A entrada é uma lista de `TNode extends TreeNode`. `TreeNode` combina `TreeNodeIdentity` e `TreeNodeHierarchy`, com `id` e `parentId`, sem rótulo ou cor obrigatórios. A ordem de entrada define os irmãos. `buildTreeIndex` valida a estrutura e deriva mapas por ID, filhos, profundidade, altura e contagens. O tipo concreto é preservado no índice, layout e cena. Os nomes espaciais antigos são aliases de migração, sem lógica duplicada.
 
