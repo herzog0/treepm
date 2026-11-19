@@ -42,5 +42,5 @@ COPY --from=build --chown=node:node /out/api /app
 COPY --from=build --chown=node:node /repo/apps/web/dist /app/web
 ENV WEB_DIST_DIR=/app/web
 USER node
-EXPOSE 3000
+EXPOSE 4310
 CMD ["node", "dist/main.js"]

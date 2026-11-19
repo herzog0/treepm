@@ -19,7 +19,7 @@ const schema = z.object({
   }),
   CLERK_JWT_KEY: z.string().min(1).optional(),
   WEB_DIST_DIR: z.string().min(1).optional(),
-  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  PORT: z.coerce.number().int().min(1).max(65535).default(4310),
 });
 
 export type AppConfig = z.output<typeof schema>;

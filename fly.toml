@@ -17,7 +17,7 @@ primary_region = "gru" # São Paulo, junto do Neon (ADR 0022)
   # Só valores não secretos. Secrets (CLERK_SECRET_KEY, CLERK_PUBLISHABLE_KEY,
   # DATABASE_URL) ficam em `fly secrets`; ver docs/deploy.md.
   NODE_ENV = "production"
-  PORT = "3000"
+  PORT = "4310"
   WEB_DIST_DIR = "/app/web"
   APP_ORIGIN = "https://treepm.ai"
 
@@ -28,7 +28,7 @@ primary_region = "gru" # São Paulo, junto do Neon (ADR 0022)
 # migrações. Ver docs/deploy.md.
 
 [http_service]
-  internal_port = 3000
+  internal_port = 4310
   force_https = true
   # Custo mínimo: a máquina para sem tráfego e acorda na primeira requisição;
   # nenhuma fica ligada de graça (a primeira requisição paga o cold start).
