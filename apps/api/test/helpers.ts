@@ -88,7 +88,7 @@ export async function createTestApp(
     .useValue(directory)
     .compile();
   const app = moduleRef.createNestApplication({ logger: false });
-  configureApp(app);
+  configureApp(app, config);
   await app.init();
   return { app, directory, verifier };
 }

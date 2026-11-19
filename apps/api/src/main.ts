@@ -7,8 +7,8 @@ import type { AppConfig } from "./config.js";
 
 async function main(): Promise<void> {
   const app = await NestFactory.create(AppModule);
-  configureApp(app);
   const config = app.get<AppConfig>(CONFIG);
+  configureApp(app, config);
   await app.listen(config.PORT);
 }
 
