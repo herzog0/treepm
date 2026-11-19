@@ -10,16 +10,33 @@ import {
   useAuth,
   useSession,
 } from "@clerk/react";
+import { useEffect } from "react";
 import { Demo } from "./demo/Demo.js";
 import { Loading } from "./Loading.js";
+
+const localization = {
+  ...ptBR,
+  formFieldInputPlaceholder__signUpPassword: "Crie uma senha",
+} satisfies typeof ptBR;
 
 function OrganizationGate({ appUrl }: { appUrl: string }) {
   const { isLoaded, isSignedIn, orgId } = useAuth();
   const { session } = useSession();
+  const mustChooseOrganization = session?.currentTask?.key === "choose-organization";
+
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn || !orgId || mustChooseOrganization) return;
+
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("auth")) return;
+
+    url.searchParams.delete("auth");
+    window.history.replaceState(window.history.state, "", url);
+  }, [isLoaded, isSignedIn, orgId, mustChooseOrganization]);
 
   if (!isLoaded) return <Loading />;
 
-  if (session?.currentTask?.key === "choose-organization") {
+  if (mustChooseOrganization) {
     return (
       <main className="entry-screen">
         <h1>Escolha ou crie uma organização</h1>
@@ -70,7 +87,7 @@ export default function AuthenticatedApp({ publishableKey }: { publishableKey: s
   return (
     <ClerkProvider
       publishableKey={publishableKey}
-      localization={ptBR}
+      localization={localization}
       signInUrl={appUrl}
       signUpUrl={`${appUrl}?auth=sign-up`}
       signInFallbackRedirectUrl={appUrl}
