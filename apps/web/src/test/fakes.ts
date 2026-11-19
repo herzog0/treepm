@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { ApiClient, ApiResult, Area, Me, Project, Team } from "../api/client.js";
+import type { ApiClient, ApiResult, Area, Me, Person, Project, Team } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid", code?: string): ApiResult<never> => ({
@@ -24,6 +24,7 @@ interface FakeData {
   projects?: Project[];
   areas?: Area[];
   teams?: Team[];
+  people?: Person[];
 }
 
 /** Cliente falso: cada método lança se não for configurado, para o teste dizer o que precisa. */
@@ -32,7 +33,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     throw new Error(`chamada inesperada: ${name}`);
   });
   const names = [
-    "listPeople", "createTeam", "renameTeam", "removeTeam", "putTeamMember", "removeTeamMember",
+    "createTeam", "renameTeam", "removeTeam", "putTeamMember", "removeTeamMember",
     "createArea", "renameArea", "removeArea", "getProject", "createProject", "updateProject",
     "putProjectMember", "removeProjectMember", "putProjectTeam", "removeProjectTeam",
   ] as const;
@@ -43,5 +44,6 @@ export function makeClient(data: FakeData = {}): ApiClient {
     listProjects: vi.fn(async () => ok(data.projects ?? [])),
     listAreas: vi.fn(async () => ok(data.areas ?? [])),
     listTeams: vi.fn(async () => ok(data.teams ?? [])),
+    listPeople: vi.fn(async () => ok(data.people ?? [])),
   };
 }

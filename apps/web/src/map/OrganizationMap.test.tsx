@@ -88,9 +88,10 @@ describe("OrganizationMap", () => {
       await userEvent.click(await screen.findByRole("button", { name: /BETA · Projeto Beta/ }));
       const panel = screen.getByRole("complementary", { name: "Áreas e projetos" });
       expect(within(panel).getByRole("tab", { name: "Projetos" })).toHaveAttribute("aria-selected", "true");
-      const selected = within(panel).getByText("Projeto Beta").closest("li");
-      expect(selected).toHaveAttribute("aria-current", "true");
-      expect(within(panel).getByText("Projeto Alfa").closest("li")).not.toHaveAttribute("aria-current");
+      expect(within(panel).getByRole("heading", { name: "Projeto Beta" })).toBeInTheDocument();
+      expect(within(panel).getByText("BETA")).toBeInTheDocument();
+      expect(within(panel).queryByRole("heading", { name: "Projeto Alfa" })).not.toBeInTheDocument();
+      expect(within(panel).getByRole("button", { name: "Voltar para a lista" })).toBeInTheDocument();
     });
 
     it("does not open for the organization root", async () => {
