@@ -34,4 +34,6 @@ button { font: inherit; }
   color: #121b31;
 }
 .tenant-controls { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.tenant-api-status { font-size: 0.8125rem; color: #44516e; }
+.tenant-api-status:empty { position: absolute; }
 .tenant-map { min-width: 0; }

@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "preview": "vite preview --port 5173",
+    "test": "vitest run",
     "clean": "rm -rf dist"
   },
   "dependencies": {
