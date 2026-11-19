@@ -1,0 +1,195 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ClerkRole {
+  admin
+  member
+
+  @@map("clerk_role")
+}
+
+enum TeamRole {
+  admin
+  member
+
+  @@map("team_role")
+}
+
+enum ProjectVisibility {
+  organization
+  private
+
+  @@map("project_visibility")
+}
+
+enum ProjectRole {
+  manager
+  contributor
+  reader
+
+  @@map("project_role")
+}
+
+model Organization {
+  orgId     String   @id @map("org_id")
+  name      String
+  slug      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  people             Person[]
+  teams              Team[]
+  teamMemberships    TeamMembership[]
+  areas              Area[]
+  projects           Project[]
+  projectTeams       ProjectTeam[]
+  projectMemberships ProjectMembership[]
+  activityEvents     ActivityEvent[]
+
+  @@map("organizations")
+}
+
+model Person {
+  orgId       String    @map("org_id")
+  id          String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  clerkUserId String    @map("clerk_user_id")
+  displayName String    @map("display_name")
+  email       String
+  avatarUrl   String?   @map("avatar_url")
+  clerkRole   ClerkRole @map("clerk_role")
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization       Organization        @relation(fields: [orgId], references: [orgId])
+  teamMemberships    TeamMembership[]
+  projectMemberships ProjectMembership[]
+  activityEvents     ActivityEvent[]
+
+  @@id([orgId, id])
+  @@unique([orgId, clerkUserId])
+  @@map("people")
+}
+
+model Team {
+  orgId     String   @map("org_id")
+  id        String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization     @relation(fields: [orgId], references: [orgId])
+  memberships  TeamMembership[]
+  projectTeams ProjectTeam[]
+
+  @@id([orgId, id])
+  @@unique([orgId, name])
+  @@map("teams")
+}
+
+model TeamMembership {
+  orgId     String   @map("org_id")
+  teamId    String   @map("team_id") @db.Uuid
+  personId  String   @map("person_id") @db.Uuid
+  role      TeamRole @default(member)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  team         Team         @relation(fields: [orgId, teamId], references: [orgId, id], onDelete: Cascade)
+  person       Person       @relation(fields: [orgId, personId], references: [orgId, id], onDelete: Cascade)
+
+  @@id([orgId, teamId, personId])
+  @@map("team_memberships")
+}
+
+model Area {
+  orgId     String   @map("org_id")
+  id        String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+
+  @@id([orgId, id])
+  @@unique([orgId, name])
+  @@map("areas")
+}
+
+model Project {
+  orgId      String            @map("org_id")
+  id         String            @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  name       String
+  key        String
+  visibility ProjectVisibility @default(organization)
+  archivedAt DateTime?         @map("archived_at") @db.Timestamptz(3)
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization        @relation(fields: [orgId], references: [orgId])
+  teams        ProjectTeam[]
+  memberships  ProjectMembership[]
+
+  @@id([orgId, id])
+  @@unique([orgId, key])
+  @@map("projects")
+}
+
+model ProjectTeam {
+  orgId     String   @map("org_id")
+  projectId String   @map("project_id") @db.Uuid
+  teamId    String   @map("team_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  project      Project      @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
+  team         Team         @relation(fields: [orgId, teamId], references: [orgId, id], onDelete: Cascade)
+
+  @@id([orgId, projectId, teamId])
+  @@map("project_teams")
+}
+
+model ProjectMembership {
+  orgId     String      @map("org_id")
+  projectId String      @map("project_id") @db.Uuid
+  personId  String      @map("person_id") @db.Uuid
+  role      ProjectRole
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  project      Project      @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
+  person       Person       @relation(fields: [orgId, personId], references: [orgId, id], onDelete: Cascade)
+
+  @@id([orgId, projectId, personId])
+  @@map("project_memberships")
+}
+
+model ActivityEvent {
+  orgId         String   @map("org_id")
+  id            String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  actorPersonId String?  @map("actor_person_id") @db.Uuid
+  kind          String
+  subjectType   String   @map("subject_type")
+  subjectId     String   @map("subject_id")
+  payload       Json     @default("{}")
+  occurredAt    DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  actor        Person?      @relation(fields: [orgId, actorPersonId], references: [orgId, id])
+
+  @@id([orgId, id])
+  @@map("activity_events")
+}

@@ -1,0 +1,20 @@
+# PostgreSQL só para os testes de @treepm/db. Contêiner e porta próprios:
+# não toca em outros bancos da máquina.
+name: treepm-test
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: treepm-test-postgres
+    environment:
+      POSTGRES_USER: treepm_owner
+      POSTGRES_PASSWORD: treepm_owner_test
+      POSTGRES_DB: treepm_test
+    ports:
+      - "127.0.0.1:54329:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U treepm_owner -d treepm_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
