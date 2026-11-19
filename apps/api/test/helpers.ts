@@ -24,10 +24,17 @@ export const TEST_CONFIG: AppConfig = {
 
 /** Verificador falso: a sessão vem do cabeçalho `x-test-session` (JSON); ausente = sem sessão. */
 export class FakeSessionVerifier implements SessionVerifier {
+  /** Pares `userId:orgId` removidos no Clerk: o verificador deixa de devolver aquela organização. */
+  readonly removed = new Set<string>();
+
   verify(request: { headers: Record<string, string | string[] | undefined> }): Promise<VerifiedSession | null> {
     const raw = request.headers["x-test-session"];
     if (typeof raw !== "string") return Promise.resolve(null);
-    return Promise.resolve(JSON.parse(raw) as VerifiedSession);
+    const session = JSON.parse(raw) as VerifiedSession;
+    if (session.orgId && this.removed.has(`${session.userId}:${session.orgId}`)) {
+      return Promise.resolve({ ...session, orgId: null, orgRole: null });
+    }
+    return Promise.resolve(session);
   }
 }
 
@@ -45,16 +52,20 @@ export type DirectoryCalls = { users: string[]; organizations: string[] };
 /** Diretório falso determinístico, com chamadas registradas. */
 export class FakeDirectory implements DirectoryProvider {
   readonly calls: DirectoryCalls = { users: [], organizations: [] };
-  getUser(userId: string) {
+  /** Gancho executado a cada consulta (por exemplo, para observar o banco). */
+  onCall: (() => Promise<void>) | null = null;
+  async getUser(userId: string) {
     this.calls.users.push(userId);
+    await this.onCall?.();
     return Promise.resolve({
       displayName: `Nome de ${userId}`,
       email: `${userId}@exemplo.test`,
       avatarUrl: `https://img.test/${userId}.png`,
     });
   }
-  getOrganization(orgId: string) {
+  async getOrganization(orgId: string) {
     this.calls.organizations.push(orgId);
+    await this.onCall?.();
     return Promise.resolve({ name: `Organização ${orgId}`, slug: orgId.toLowerCase() });
   }
 }
@@ -62,8 +73,9 @@ export class FakeDirectory implements DirectoryProvider {
 export async function createTestApp(
   extraControllers: Type<unknown>[] = [],
   config: AppConfig = TEST_CONFIG,
-): Promise<{ app: INestApplication; directory: FakeDirectory }> {
+): Promise<{ app: INestApplication; directory: FakeDirectory; verifier: FakeSessionVerifier }> {
   const directory = new FakeDirectory();
+  const verifier = new FakeSessionVerifier();
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
     controllers: extraControllers,
@@ -71,14 +83,14 @@ export async function createTestApp(
     .overrideProvider(CONFIG)
     .useValue(config)
     .overrideProvider(SESSION_VERIFIER)
-    .useValue(new FakeSessionVerifier())
+    .useValue(verifier)
     .overrideProvider(DIRECTORY_PROVIDER)
     .useValue(directory)
     .compile();
   const app = moduleRef.createNestApplication({ logger: false });
   configureApp(app);
   await app.init();
-  return { app, directory };
+  return { app, directory, verifier };
 }
 
 export function ownerPoolWithCleanup(): pg.Pool {
