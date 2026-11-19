@@ -10,5 +10,6 @@
 | [0021 — Neon PostgreSQL e RLS por organização](0021-neon-postgres-e-rls-por-organizacao.md) | 2026-11-19 | Neon com Prisma, papel de aplicação sem bypass, política por `org_id`, contexto transacional por requisição e suíte de testes permanente. |
 | [0022 — API NestJS na Fly.io](0022-api-nestjs-e-hospedagem-na-fly.md) | 2026-11-19 | API NestJS com Zod em `apps/api`, uma origem em `treepm.ai`, região São Paulo. |
 | [0023 — Telas de administração e mapa da organização](0023-telas-de-administracao-e-mapa-da-organizacao.md) | 2026-11-19 | Times em área dedicada (`?view=teams`), áreas e projetos em painel lateral, mapa com a organização na raiz e cliente da API sem cache. |
+| [0024 — Tickets: primeiro recorte e importação por lista](0024-tickets-primeiro-recorte-e-importacao-por-lista.md) | 2026-11-19 | Recorte da Fase 2: `tickets` e `ticket_assignees` com RLS, número por projeto, situação só em folha e progresso derivado, permissões por papel de projeto, API de tickets e importação atômica de uma lista em Markdown interpretada na web. |
 
-A base anterior foi preservada no checkpoint Git `33c4702`; seus documentos de implementação foram removidos junto com o produto. Novas decisões usam números sequenciais a partir de 0024.
+A base anterior foi preservada no checkpoint Git `33c4702`; seus documentos de implementação foram removidos junto com o produto. Novas decisões usam números sequenciais a partir de 0025.
