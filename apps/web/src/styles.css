@@ -37,3 +37,11 @@ button { font: inherit; }
 .tenant-api-status { font-size: 0.8125rem; color: #44516e; }
 .tenant-api-status:empty { position: absolute; }
 .tenant-map { min-width: 0; }
+.tenant-brand { display: flex; align-items: center; gap: 18px; }
+.app-nav { display: flex; gap: 4px; }
+.app-nav a { padding: 4px 10px; border-radius: 6px; color: #44516e; font-size: 0.875rem; text-decoration: none; }
+.app-nav a:hover { background: #dde3f5; }
+.app-nav a[aria-current="page"] { background: #121b31; color: #eef2ff; }
+.app-nav a:focus-visible { outline: 2px solid #6853a5; outline-offset: 1px; }
+.teams-screen { min-width: 0; padding: 24px clamp(10px, 2vw, 22px); color: #eef2ff; }
+.teams-screen h1 { margin: 0; font-size: 1.25rem; }

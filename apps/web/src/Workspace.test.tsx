@@ -1,0 +1,80 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { Workspace } from "./Workspace.js";
+
+function orgFetch() {
+  return vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+    const token = new Headers(init?.headers).get("Authorization");
+    const orgId = token?.replace("Bearer ", "") ?? "";
+    const name = orgId === "org-1" ? "Org Alfa" : "Org Beta";
+    if (input === "/api/me") {
+      return Response.json({
+        person: { id: "p", displayName: "Ana", email: "a@x.com", avatarUrl: null },
+        organization: { orgId, name, slug: name },
+        roles: { clerk: "admin", teams: [], projects: [] },
+      });
+    }
+    if (input === "/api/projects") {
+      return Response.json([{ id: `${orgId}-proj`, name: `Projeto de ${name}`, key: "PRJ", visibility: "organization", archivedAt: null, members: [], teamIds: [] }]);
+    }
+    return new Response(null, { status: 404 });
+  });
+}
+
+describe("Workspace", () => {
+  it("shows the map by default and the teams shell for the teams view", async () => {
+    const fetchImpl = orgFetch();
+    const getToken = async () => "org-1";
+    const { rerender } = render(<Workspace orgId="org-1" view="map" getToken={getToken} fetch={fetchImpl} />);
+    expect(await screen.findByRole("button", { name: /Projeto de Org Alfa/ })).toBeInTheDocument();
+    expect(screen.getByRole("main")).toBeInTheDocument();
+
+    rerender(<Workspace orgId="org-1" view="teams" getToken={getToken} fetch={fetchImpl} />);
+    expect(await screen.findByRole("heading", { name: "Times", level: 1 })).toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /Projeto de/ })).not.toBeInTheDocument();
+  });
+
+  it("shows an error with retry when /api/me fails", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 503 }));
+    render(<Workspace orgId="org-1" view="map" getToken={async () => "t"} fetch={fetchImpl} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("API indisponível");
+    expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeInTheDocument();
+  });
+
+  it.each(["map", "teams"] as const)("discards the previous organization's data and refetches when orgId changes (%s)", async (view) => {
+    const fetchImpl = orgFetch();
+    let token = "org-1";
+    const getToken = async () => token;
+    const { rerender } = render(<Workspace orgId="org-1" view={view} getToken={getToken} fetch={fetchImpl} />);
+    if (view === "map") await screen.findByRole("button", { name: /Projeto de Org Alfa/ });
+    else await screen.findByRole("heading", { name: "Times" });
+    const callsBefore = fetchImpl.mock.calls.filter(([url]) => url === "/api/me").length;
+
+    token = "org-2";
+    rerender(<Workspace orgId="org-2" view={view} getToken={getToken} fetch={fetchImpl} />);
+    // Os dados da organização anterior somem na hora, antes da nova resposta.
+    expect(screen.queryByRole("button", { name: /Org Alfa/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeInTheDocument();
+
+    if (view === "map") expect(await screen.findByRole("button", { name: /Projeto de Org Beta/ })).toBeInTheDocument();
+    await waitFor(() => expect(fetchImpl.mock.calls.filter(([url]) => url === "/api/me").length).toBe(callsBefore + 1));
+    if (view === "map") expect(fetchImpl.mock.calls.filter(([url]) => url === "/api/projects").length).toBe(2);
+    expect(screen.queryByText(/Org Alfa/)).not.toBeInTheDocument();
+  });
+
+  it("closes the side panel and drops its data when the organization changes", async () => {
+    const fetchImpl = orgFetch();
+    let token = "org-1";
+    const getToken = async () => token;
+    const { rerender } = render(<Workspace orgId="org-1" view="map" getToken={getToken} fetch={fetchImpl} />);
+    const { default: userEvent } = await import("@testing-library/user-event");
+    await userEvent.click(await screen.findByRole("button", { name: /Projeto de Org Alfa/ }));
+    expect(screen.getByRole("complementary", { name: "Áreas e projetos" })).toBeInTheDocument();
+
+    token = "org-2";
+    rerender(<Workspace orgId="org-2" view="map" getToken={getToken} fetch={fetchImpl} />);
+    await screen.findByRole("button", { name: /Projeto de Org Beta/ });
+    expect(screen.queryByRole("complementary", { name: "Áreas e projetos" })).not.toBeInTheDocument();
+  });
+});
