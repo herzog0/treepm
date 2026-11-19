@@ -188,3 +188,17 @@ ideas:
         target: IDEA-009
       - type: related_to
         target: IDEA-010
+  - id: IDEA-012
+    created_at: 2026-11-09
+    title: Visão geral em BPMN com análise de regras de negócio
+    status: proposed
+    summary: >-
+      Complementar a visão geral em árvore com um modelo BPMN gerado a partir
+      das regras de negócio aprendidas pela IA, destacando pontos de falha e gaps.
+    details:
+      - Assim como a estrutura de árvore oferece uma visão geral do projeto, um modelo BPMN poderia oferecer uma visão geral dos processos e regras de negócio.
+      - O modelo BPMN seria renderizado de acordo com as regras de negócio aprendidas pela IA do projeto.
+      - A visualização alertaria sobre pontos de falha, gaps e outros problemas identificados.
+    relationships:
+      - type: depends_on
+        target: IDEA-009

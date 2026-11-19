@@ -1,6 +1,6 @@
 # TreePM — business blueprint da plataforma
 
-**Data:** 2026-11-05. **Estado:** proposta de produto e plano de implementação; a plataforma abaixo ainda não foi implementada. Os itens atuais de engenharia são a engine reutilizável e os indicadores mesclados. Login, API, persistência, busca e IA continuam fora desta entrega.
+**Data:** 2026-11-05. **Última atualização:** 2026-11-19. **Estado:** proposta de produto e plano de implementação; a plataforma abaixo ainda não foi implementada. Os itens atuais de engenharia são a engine reutilizável e os indicadores mesclados. Login, API, persistência, busca e IA continuam fora desta entrega.
 
 ## 1. Tese de produto
 
@@ -167,10 +167,12 @@ Marcos, prazos, prioridade, esforço opcional, capacidade e metas ajudam a plane
 
 A IDEA-011 separa dois intervalos: **execução**, da entrada do ticket em progresso até a abertura do PR, e **revisão**, medida separadamente ao longo do processo de review. O tempo de revisão não entra na duração de execução; os dois podem ser compostos depois na estimativa geral da task e do produto.
 
-- A IA analisa sinais autorizados como comentários do ticket, código do PR, complexidade e quantidade de linhas alteradas, atribuindo scores de **complexidade, risco e incerteza**. Incerteza representa ambiguidades e informações insuficientes.
+- Antes da execução, a previsão usa apenas sinais já disponíveis, como descrição, critérios e comentários do ticket. Código do PR e quantidade de linhas alteradas só existem depois da abertura do PR: servem para calibrar o modelo com o histórico e para estimar a revisão, não para prever a execução do próprio ticket.
+- A IA analisa esses sinais autorizados e a complexidade, atribuindo scores de **complexidade, risco e incerteza**. Incerteza representa ambiguidades e informações insuficientes.
 - As estimativas são calibradas com os tempos observados ao longo do histórico, buscando prever a duração do trabalho independentemente de quem o executou. Os dados não devem virar ranking individual de produtividade.
 - O tempo médio de revisão de PR alimenta uma estimativa própria, permitindo mostrar execução, revisão e total sem misturar suas bases.
 - O campo de estimativa nos metadados do ticket é preenchido pela IA. Durante a calibragem, a interface apresenta uma estimativa provisória e informa que ela será refinada com novos dados, sem apresentá-la como compromisso ou precisão garantida.
+- A medição depende de uma integração de código/PR, ainda não escolhida (dúvida 6 da seção 15); sem ela, a capacidade não entra em nenhuma fase.
 - A ausência de histórico, integração ou IA não bloqueia planejamento e acompanhamento; o sistema deve deixar explícita a indisponibilidade da estimativa automática.
 
 ## 5. Filtros e perspectivas
@@ -191,6 +193,14 @@ Filtros iniciais: organização ativa, projeto, time, área, participante, autor
 
 Uma visualização salva pode ser pessoal ou compartilhada. Tem nome, filtros, perspectiva, campos visíveis e acesso; permissões dos dados continuam sendo aplicadas ao abrir. O usuário pode comparar recorte e todo, identificar quantos resultados estão ocultos e limpar filtros com uma ação acessível.
 
+### Visão geral de processos em BPMN
+
+A IDEA-012 complementa a visão geral hierárquica da árvore com uma visão geral dos processos do projeto em BPMN. Enquanto a árvore apresenta a decomposição do trabalho, o modelo BPMN é renderizado a partir das regras de negócio aprendidas pela IA do projeto.
+
+A visualização em BPMN alerta sobre pontos de falha, gaps e outros problemas identificados nas regras de negócio, oferecendo uma leitura complementar para compreender o projeto.
+
+**Estado: exploratória, fora das fases da seção 13.** Ainda não está definido de onde a IA aprende as regras de negócio nem como o modelo é revisado (dúvida 8 da seção 15). Valem as salvaguardas da seção 8: o modelo gerado é rascunho até confirmação, alertas distinguem fato, hipótese e sinal, só conteúdo autorizado entra no contexto e a indisponibilidade da IA não afeta a árvore.
+
 ## 6. Relações cruzadas sem destruir a árvore
 
 Parentesco responde `de que entrega isto faz parte?`. Dependência responde `o que precisa acontecer antes?`. Associação responde `que trabalho tem contexto em comum?`. São relações distintas, com IDs, tipos, metadados, autoria e seleção próprios.
@@ -210,11 +220,12 @@ Implementar a IDEA-003 completa em etapas, preservando sua intenção:
 
 1. Presets com participantes, times, áreas, projetos e período relevante.
 2. Roteiro por pessoa, por ticket ou por trabalho em andamento. Reordenar participantes e passos antes de iniciar.
-3. Prévia mostra quem fala, quais tickets serão visitados, bloqueios e contribuições envolvidas. O condutor pode editar e remover sugestões.
-4. Play inicia no primeiro destino. Avançar, voltar, pular, pausar e navegação manual têm comportamento previsível; sem avanço automático obrigatório nem câmera em movimento durante a fala.
-5. Num ticket multidisciplinar, o modo por ticket percorre as áreas/pessoas relevantes sem duplicar a entrega. No modo por pessoa, uma referência indica quando o ticket já foi discutido.
-6. Registrar decisões, compromissos e bloqueios no ticket ou área de origem. Notas de reunião continuam ligadas ao contexto.
-7. Fechamento apresenta pendências, mudanças e próximos passos para revisão. Resumo por IA é rascunho até confirmação.
+3. No modo por trabalho em andamento, os cards podem ser agrupados visualmente por setor e contexto, como uma borda de Engenharia ao redor dos cards correspondentes.
+4. Prévia mostra quem fala, quais tickets serão visitados, bloqueios e contribuições envolvidas. O condutor pode editar e remover sugestões.
+5. Play inicia no primeiro destino. Avançar, voltar, pular, pausar e navegação manual têm comportamento previsível; sem avanço automático obrigatório nem câmera em movimento durante a fala.
+6. Num ticket multidisciplinar, o modo por ticket percorre as áreas/pessoas relevantes sem duplicar a entrega. No modo por pessoa, uma referência indica quando o ticket já foi discutido.
+7. Registrar decisões, compromissos e bloqueios no ticket ou área de origem. Notas de reunião continuam ligadas ao contexto.
+8. Fechamento apresenta pendências, mudanças e próximos passos para revisão. Resumo por IA é rascunho até confirmação.
 
 Começar com um condutor local e roteiro determinístico. Coapresentação sincronizada, timer opcional e modo espectador vêm depois; acompanhar a câmera de outra pessoa é opt-in. Nenhuma gravação, transcrição de voz ou envio automático de mensagens faz parte do primeiro corte.
 
@@ -233,6 +244,7 @@ O Jev considerado aqui é o da TypeSafe AI, conforme a pesquisa de [capacidades 
 | Preparar stand-up | Propor roteiro, mudanças relevantes e perguntas de bloqueio | Condutor revisa ordem, participantes e conteúdo |
 | Entender riscos | Identificar pendências, estagnação e inconsistência entre dependências e planos | Diferenciar fato, hipótese e sinal; revisar antes de agir |
 | Estimar execução e revisão | Analisar histórico, comentários e PRs; pontuar complexidade, risco e incerteza | Separar os dois intervalos, identificar estimativas provisórias e calibrar sem ranking individual |
+| Visão de processos em BPMN (exploratória) | Propor o modelo a partir de regras de negócio e apontar pontos de falha e gaps | Revisar e confirmar o modelo; tratar alertas como hipóteses; fonte das regras ainda indefinida |
 | Planejar o dia | Sugerir demandas a partir de trabalho e integrações autorizadas | Espaço privado revisável; não criar compromissos em nome de colegas |
 
 ### Pipeline de classificação da IDEA-005
@@ -308,12 +320,13 @@ Escolhas ainda a detalhar em desenho técnico: banco transacional, autorização
 | Administração | Times, áreas, memberships e papéis iniciais | Delegação fina e templates organizacionais |
 | Tickets | CRUD, árvore, descrição global, múltiplas pessoas, contribuições por área | Templates, campos personalizados, recorrência e operações em lote |
 | Conversas | Comentários globais e por área, threads, menções, histórico | Decisões estruturadas e conhecimento relacionado |
-| Planejamento | Situação de folhas, progresso derivado, prioridade, prazos, marcos e bloqueios | Estimativas automáticas separadas de execução e revisão, capacidade, ciclos e cenários de planejamento |
+| Planejamento | Situação de folhas, progresso derivado, prioridade, prazos, marcos e bloqueios | Estimativas automáticas separadas de execução e revisão (dependem de integração de código/PR), capacidade, ciclos e cenários de planejamento |
 | Navegação | Mapa, detalhes, busca por ID/texto, links e foco explícito | Busca semântica, comando por intenção e histórico refinado |
 | Filtros | Campos essenciais e visões salvas na árvore | Perspectivas por pessoa/área, fluxo e calendário |
 | Relações | Dependências e associações com acesso e integridade | Agregação visual de relações, análise de impacto e duplicatas |
 | Reuniões | Roteiro stand-up editável, passos e decisões | Preparação assistida e apresentação compartilhada |
 | IA | Rascunhos e classificação revisáveis após base de dados segura | Riscos, sugestões pessoais, resumo de reunião e roteiros |
+| Processos | — | Visão geral em BPMN (IDEA-012), exploratória e sem fase definida |
 | Importação | Primeiro conector, prévia, mapeamento manual e reconciliação | GitHub, Jira e Linear; categorização automática opt-in com custo adicional |
 | Operação | Notificações, inbox, auditoria, exportação, backup e restauração | Políticas de retenção e integrações empresariais |
 
@@ -336,6 +349,8 @@ As fases representam dependências e resultados verificáveis. Não são estimat
 | 6 — Rotina e escala | Espaço diário privado, primeiro conector/importador, notificações refinadas, carga e operação | Piloto usa o produto na rotina; reimportação reconciliada sem duplicatas; recuperação, observabilidade, acessibilidade e orçamento de desempenho comprovados |
 
 A busca semântica aparece como descoberta central desde o desenho de UX, mas sua implementação depende do índice e das regras de acesso. Busca exata e navegação não precisam esperar a integração de IA. Da mesma forma, o primeiro stand-up funciona com regras e edição manual antes de receber sugestões inteligentes.
+
+Duas ideias ainda não têm fase. As estimativas automáticas (IDEA-011) só podem ser planejadas depois que existir uma integração de código/PR, que não chega antes do primeiro conector da Fase 6. A visão de processos em BPMN (IDEA-012) é exploratória até que a fonte das regras de negócio esteja definida.
 
 Cada fase termina com demonstração de uma jornada real, testes de integridade e autorização adequados, migração/rollback de dados e verificação no mapa. Só avançar adicionando IA a um domínio cujas operações manuais já sejam confiáveis.
 
@@ -370,6 +385,7 @@ Hipótese comercial inicial: assinatura B2B por organização, com uma unidade d
 5. Que dados podem ser enviados a provedores de IA, com qual retenção e contrato? Quais volumes/latências e orçamento precisam ser suportados?
 6. Qual integração oferece mais valor ao piloto: código/PR, mensagens, calendário ou importação de backlog?
 7. Quais requisitos de retenção, backup/restauração, exportação e disponibilidade precisam ser atendidos antes de dados reais?
+8. Na visão em BPMN (IDEA-012), de onde a IA do projeto aprende as regras de negócio (tickets, critérios, documentos, código) e quem revisa o modelo gerado?
 
 Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticket multidisciplinar/busca/stand-up, modelo de domínio e matriz de permissões, plano de dados e migrações, contrato de comandos/eventos, orçamento de desempenho e backlog por fase. Nenhum desses deve reintroduzir dependências do produto na engine headless.
 
@@ -383,8 +399,12 @@ Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticke
 | IDEA-004 | Gestos imediatos, pan com zoom e foco explícito, inclusive em busca e roteiro |
 | IDEA-005 | Rascunho, classificação hierárquica Jev, categorias intermediárias e opção de não classificar |
 | IDEA-006 | Engine preservada como núcleo independente; produto reconstruído por fases |
+| IDEA-007 | Quadradinhos mesclados sem badge `+N`, com mistura de cores substituível (seção 2) |
+| IDEA-008 | Árvore genérica e camadas headless/React reutilizáveis (seção 11) |
+| IDEA-009 | Este blueprint: tickets multidisciplinares, busca, filtros, stand-up, Clerk e multi-tenancy |
 | IDEA-010 | Importação de GitHub, Jira, Linear e outros trackers, com reconciliação e categorização automática opcional de custo adicional |
 | IDEA-011 | Estimativas por IA com scores de complexidade, risco e incerteza, separando execução até o PR e tempo de revisão |
+| IDEA-012 | Visão geral de processos em BPMN, renderizada a partir das regras de negócio aprendidas pela IA, com alertas de pontos de falha e gaps; exploratória, sem fase definida |
 | Pedido de 2026-11-05 | Agrupamento sem `+N`, contratos genéricos, camadas headless/estilizáveis, contribuições por área, Clerk e multi-tenancy |
 
 Fontes de capacidades externas e limitações estão em [Clerk e Jev](research/platform-services.md). O restante deste documento é uma proposta de produto, não uma afirmação de disponibilidade de funções na base atual.

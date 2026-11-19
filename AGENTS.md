@@ -4,6 +4,15 @@
 
 - Toda instrução adicionada ou alterada em `CLAUDE.md` deve ser adicionada ou alterada também em `AGENTS.md` na mesma interação, inclusive esta regra de sincronização.
 
+## Coordenação, decisões e fluxos
+
+- A sessão coordenadora (aba `TreePM Master` do herdr, Claude Fable) nunca escreve código: escreve briefs, ADRs e documentação, revisa diffs, roda as verificações e faz commits locais. A implementação é delegada a executores mais leves em abas do herdr, em paralelo quando as tarefas forem independentes. Detalhes em `AGENTS.md`, seção `Delegação e executores`.
+- Toda decisão arquitetural vira um ADR em `docs/adr/`, numerado em sequência a partir de 0019 e listado em `docs/adr/README.md`, antes de a implementação correspondente começar. Outros documentos técnicos necessários ficam em `docs/`.
+- O board do Whimsical [TreePM — Fluxos e processos (estilo BPMN)](https://whimsical.com/89u9ZSgv1LAMphWoQUFQny) registra todo fluxo, processo, evento ou ação visível novo ou alterado, em raias, com o estado (`IMPLEMENTADO`, `PROPOSTO` ou `VIGENTE`) e a fonte no título. No início de cada sessão, leia os comentários do board; as decisões tomadas ali são refletidas em ADR, blueprint ou no próprio fluxo.
+- Em 2026-11-19 Teodoro deu à sessão coordenadora autoridade de dona do repositório: commits, branches, push, PRs e comentários na issue #1 do GitHub (canal com a coordenação operacional, o grokbot) não dependem de nova autorização. Merge de PR que tenha aprovação como critério de aceite espera essa aprovação. Painel do Clerk, DNS, chaves e contratação de planos ficam com a coordenação operacional; segredos nunca entram no Git nem na issue, e `.env*` não é lido.
+- A interface e a usabilidade atuais do mapa foram aprovadas por Teodoro em 2026-11-19 e são a referência. Não altere a interação existente sem pedido explícito; novas capacidades se somam a ela.
+- A direção de produto (mapa espacial como mecânica central e tickets multidisciplinares) foi decidida por Teodoro em 2026-11-19. Não proponha protótipos ou etapas para validar essa tese; as dúvidas abertas da seção 15 do blueprint continuam abertas.
+
 ## Base atual
 
 - O workspace contém `packages/engine`, `packages/react` e `apps/web`. A engine é genérica; React e estilos são uma camada opcional, e a demo usa dados fictícios locais. O blueprint em `docs/product-blueprint.md` planeja a plataforma futura; não o trate como produto já implementado.
@@ -31,7 +40,7 @@
 - `pnpm dev` acompanha engine e demo; o site usa a porta 5173. `pnpm typecheck`, `pnpm lint`, `pnpm build` e `git diff --check` são obrigatórios antes de concluir mudanças.
 - Use harnesses temporários para validar geometria, gestos, overlaps, console e viewport no navegador. Não adicione uma suíte permanente sem alinhar a convenção; remova artefatos de diagnóstico ao terminar.
 - Pare somente processos de teste iniciados por você. Não leia nem copie `.env` e não inclua segredos no Git.
-- Use Git para mudanças revisáveis e reversíveis. Na refatoração atual, o usuário autorizou uma branch, um checkpoint anterior à limpeza e um commit separado para a extração da engine. Não reescreva história, não faça push e não inclua trabalho alheio em commits sem autorização.
+- Use Git para mudanças revisáveis e reversíveis. Na refatoração atual, o usuário autorizou uma branch, um checkpoint anterior à limpeza e um commit separado para a extração da engine. Não reescreva história e não inclua trabalho alheio em commits sem autorização; executores não fazem push.
 
 ## Delegação e executores
 
@@ -39,4 +48,5 @@
 - Ordem de preferência (ranking provisório de 2026-11-07, recalibrar comparando dois executores na mesma tarefa): Codex `gpt-6.1-sol` para TypeScript difícil, geometria, perf e gestos; Kimi `k3.1-pro` para refatorações multi-arquivo, docs e contexto grande; modelos gratuitos do OpenCode `opencode/deepseek-v4.1-flash-free`, `glm-5.3-flash-free`, `big-pickle` e `mimo-v2.6-flash-free` para testes, scaffolding, refatorações mecânicas e lint; `nemotron-3.5-super-vl-free` para verificações com screenshot. Outros modelos Claude só como último recurso.
 - Cota: só `opencode/*-free` é gratuito. Não rodar Kimi por dentro do OpenCode (`kimi-code-plan-global/*`) e não usar `k3.1-pro-highspeed` (custo dobrado). Não usar modelos locais (Ollama) em nenhuma CLI.
 - Modo não assistido: `-y` no Kimi, `--auto` no OpenCode, `--approve-for-me` no Codex. Forçar modelo no OpenCode: `OPENCODE_CONFIG_CONTENT='{"model":"opencode/<modelo>"}' opencode --standalone`. Headless para tarefas pequenas: `codex exec`, `kimi -p`, `opencode run -m`.
-- Executores trabalham em branch ou worktree próprios e não fazem commit. Em 2026-11-07 Teodoro autorizou a coordenação a criar branches, worktrees, panes e commits locais à vontade; push e deploy continuam dependendo de autorização explícita.
+- Receita do herdr verificada em 2026-11-19 (a sintaxe vem de `herdr agent`, `herdr tab` e `herdr pane`; IDs sempre lidos do JSON ou de `$HERDR_*`): `herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label <tarefa> --no-focus` devolve `.result.root_pane.pane_id`; `herdr agent start <nome> --kind codex --pane <id>`; `herdr agent prompt <nome> "<brief>" --wait --timeout <ms>`; `herdr agent read <nome> --source visible`; `herdr tab close <tab_id>` só para abas criadas pela coordenação. Se o agente ficar `blocked`, ler a tela antes de enviar teclas. Não tocar em workspaces de outros projetos.
+- Executores trabalham em branch ou worktree próprios e não fazem commit. Em 2026-11-07 Teodoro autorizou a coordenação a criar branches, worktrees, panes e commits locais à vontade; push foi liberado em 2026-11-19 (ver `Coordenação, decisões e fluxos`); deploy continua dependendo de autorização explícita.
