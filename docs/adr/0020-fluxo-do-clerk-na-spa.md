@@ -1,6 +1,6 @@
 # ADR 0020 — Fluxo do Clerk dentro da SPA
 
-**Status:** Proposta; depende do teste com a instância real do Clerk. **Data:** 2026-11-19.
+**Status:** Aceita. **Data:** 2026-11-19.
 
 ## Contexto
 
@@ -14,4 +14,4 @@ O portão renderiza a tarefa a partir da sessão, inclusive quando ela está pen
 
 ## Verificação
 
-O retorno com Google e a conclusão da tarefa precisam ser verificados com a instância de desenvolvimento do Clerk.
+Testado pela coordenação em 2026-11-19 com a instância de desenvolvimento (issue #1): entrada e cadastro em português, tarefa de organização aberta na origem do app para um usuário novo criado por e-mail de teste, retorno ao mapa, saída e `?demo` sem requisições ao Clerk. O retorno do Google para uma conta sem organização não foi exercitado, porque a conta Google usada já tinha organizações.
