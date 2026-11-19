@@ -16,15 +16,6 @@ button { font: inherit; }
 }
 .entry-screen h1, .entry-screen p { margin: 0; }
 .entry-screen a { color: #d9ceff; }
-.entry-actions, .tenant-controls { display: flex; align-items: center; gap: 12px; }
-.entry-actions > button {
-  padding: 8px 14px;
-  border: 1px solid #52638c;
-  border-radius: 6px;
-  background: #283758;
-  color: #eef2ff;
-  cursor: pointer;
-}
 
 .tenant-shell {
   display: grid;
@@ -42,5 +33,5 @@ button { font: inherit; }
   background: #eef2ff;
   color: #121b31;
 }
-.tenant-controls { min-width: 0; }
+.tenant-controls { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .tenant-map { min-width: 0; }
