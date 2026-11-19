@@ -1,6 +1,6 @@
 # Modelo de domínio e permissões — Fase 1 (organização segura)
 
-**Estado:** proposta para implementação da Fase 1 do [blueprint](product-blueprint.md). Baseia-se nas ADRs [0019](adr/0019-clerk-organizacao-como-tenant.md), [0021](adr/0021-neon-postgres-e-rls-por-organizacao.md) e [0022](adr/0022-api-fastify-e-hospedagem-na-fly.md). Tickets, contribuições e comentários são da Fase 2 e não aparecem aqui.
+**Estado:** proposta para implementação da Fase 1 do [blueprint](product-blueprint.md). Baseia-se nas ADRs [0019](adr/0019-clerk-organizacao-como-tenant.md), [0021](adr/0021-neon-postgres-e-rls-por-organizacao.md) e [0022](adr/0022-api-nestjs-e-hospedagem-na-fly.md). Tickets, contribuições e comentários são da Fase 2 e não aparecem aqui.
 
 ## Escopo
 
