@@ -1,6 +1,6 @@
 # Modelo de domínio e permissões — Fase 1 (organização segura)
 
-**Estado:** proposta para implementação da Fase 1 do [blueprint](product-blueprint.md). Baseia-se nas ADRs [0019](adr/0019-clerk-organizacao-como-tenant.md), [0021](adr/0021-neon-postgres-e-rls-por-organizacao.md) e [0022](adr/0022-api-nestjs-e-hospedagem-na-fly.md). Tickets, contribuições e comentários são da Fase 2 e não aparecem aqui.
+**Estado:** proposta para implementação da Fase 1 do [blueprint](product-blueprint.md). Baseia-se nas ADRs [0019](adr/0019-clerk-organizacao-como-tenant.md), [0021](adr/0021-neon-postgres-e-rls-por-organizacao.md) e [0022](adr/0022-api-nestjs-e-hospedagem-na-fly.md). Contribuições por área e comentários são da Fase 2 e não aparecem aqui. O primeiro recorte de tickets (dados, permissões e API) está na [ADR 0024](adr/0024-tickets-primeiro-recorte-e-importacao-por-lista.md).
 
 ## Escopo
 
@@ -99,4 +99,4 @@ Pontos que este documento não definia e que a API resolveu pela leitura mais re
 
 ## Fora da Fase 1
 
-Tickets e árvore persistida, comentários, convidados externos com escopo fino, administradores delegados além do time, webhooks do Clerk, exclusão definitiva e exportação.
+Tickets e árvore persistida (primeiro recorte na [ADR 0024](adr/0024-tickets-primeiro-recorte-e-importacao-por-lista.md)), comentários, convidados externos com escopo fino, administradores delegados além do time, webhooks do Clerk, exclusão definitiva e exportação.
