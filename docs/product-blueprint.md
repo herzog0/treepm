@@ -1,6 +1,6 @@
 # TreePM — business blueprint da plataforma
 
-**Data:** 2026-11-05. **Última atualização:** 2026-11-19. **Estado:** proposta de produto e plano de implementação; a plataforma abaixo ainda não foi implementada. Os itens atuais de engenharia são a engine reutilizável e os indicadores mesclados. Login, API, persistência, busca e IA continuam fora desta entrega.
+**Data:** 2026-11-05. **Última atualização:** 2026-11-19. **Estado:** proposta de produto e plano de implementação; a plataforma abaixo ainda não foi implementada. Já existem a engine reutilizável, os indicadores mesclados e o login com Clerk e organizações em `apps/web` (ADRs 0019 e 0020). API e persistência estão decididas nas ADRs 0021 e 0022 e ainda não implementadas; busca e IA continuam fora.
 
 ## 1. Tese de produto
 
