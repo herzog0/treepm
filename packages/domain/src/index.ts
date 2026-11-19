@@ -1,0 +1,82 @@
+export type ClerkRole = "admin" | "member";
+export type TeamRole = "admin" | "member";
+export type ProjectRole = "manager" | "contributor" | "reader";
+export type ProjectVisibility = "organization" | "private";
+
+/** Holds the caller's roles in the current organization. */
+export interface Actor {
+  readonly clerkRole: ClerkRole;
+  readonly teamRoles: ReadonlyMap<string, TeamRole>;
+  readonly projectRoles: ReadonlyMap<string, ProjectRole>;
+}
+
+/** Identifies a project and its visibility within the current organization. */
+export interface ProjectAccess {
+  readonly id: string;
+  readonly visibility: ProjectVisibility;
+}
+
+/** Allows organization members to view people, teams, and areas. */
+export function canViewDirectory(actor: Actor): boolean {
+  return actor.clerkRole === "admin" || actor.clerkRole === "member";
+}
+
+/** Allows organization admins to create teams. */
+export function canCreateTeam(actor: Actor): boolean {
+  return actor.clerkRole === "admin";
+}
+
+/** Allows organization admins and the target team's admins to rename it. */
+export function canRenameTeam(actor: Actor, teamId: string): boolean {
+  return actor.clerkRole === "admin" || actor.teamRoles.get(teamId) === "admin";
+}
+
+/** Allows organization admins to remove teams. */
+export function canRemoveTeam(actor: Actor): boolean {
+  return actor.clerkRole === "admin";
+}
+
+/** Allows organization admins and the target team's admins to add or remove its members. */
+export function canManageTeamMembers(actor: Actor, teamId: string): boolean {
+  return actor.clerkRole === "admin" || actor.teamRoles.get(teamId) === "admin";
+}
+
+/** Allows organization admins to create, rename, and remove areas. */
+export function canManageAreas(actor: Actor): boolean {
+  return actor.clerkRole === "admin";
+}
+
+/** Allows organization admins to create projects. */
+export function canCreateProject(actor: Actor): boolean {
+  return actor.clerkRole === "admin";
+}
+
+/** Allows organization-wide access to shared projects and role-based access to private projects. */
+export function canViewProject(actor: Actor, project: ProjectAccess): boolean {
+  return actor.clerkRole === "admin"
+    || project.visibility === "organization"
+    || actor.projectRoles.has(project.id);
+}
+
+/** Allows organization admins and project managers to rename, change visibility, or archive the project. */
+export function canManageProject(actor: Actor, projectId: string): boolean {
+  return actor.clerkRole === "admin" || actor.projectRoles.get(projectId) === "manager";
+}
+
+/** Allows organization admins and project managers to grant or revoke project roles, including the last manager. */
+export function canGrantProjectRole(actor: Actor, projectId: string): boolean {
+  return canManageProject(actor, projectId);
+}
+
+/** Allows organization admins and project managers to associate teams with the project. */
+export function canAttachTeamToProject(actor: Actor, projectId: string): boolean {
+  return canManageProject(actor, projectId);
+}
+
+/** Keeps only projects the caller can view, preserving their order and fields. */
+export function visibleProjects<Project extends ProjectAccess>(
+  actor: Actor,
+  projects: readonly Project[],
+): Project[] {
+  return projects.filter((project) => canViewProject(actor, project));
+}
