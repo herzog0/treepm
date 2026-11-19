@@ -11,9 +11,9 @@ const valid = {
 };
 
 describe("loadConfig", () => {
-  it("aceita o mínimo, com PORT padrão 3000", () => {
+  it("aceita o mínimo, com PORT padrão 4310", () => {
     const config = loadConfig(valid);
-    expect(config.PORT).toBe(3000);
+    expect(config.PORT).toBe(4310);
     expect(config.APP_ORIGIN).toBe("https://treepm.ai");
     expect(config.CLERK_JWT_KEY).toBeUndefined();
   });

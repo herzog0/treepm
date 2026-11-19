@@ -19,7 +19,7 @@ export const TEST_CONFIG: AppConfig = {
   CLERK_SECRET_KEY: "sk_test_fake",
   CLERK_PUBLISHABLE_KEY: "pk_test_fake",
   APP_ORIGIN: "http://localhost:5173",
-  PORT: 3000,
+  PORT: 4310,
 };
 
 /** Verificador falso: a sessão vem do cabeçalho `x-test-session` (JSON); ausente = sem sessão. */

@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
-const proxy = { "/api": "http://localhost:3000" };
+const proxy = { "/api": "http://localhost:4310" };
 
 export default defineConfig({
   plugins: [react()],
