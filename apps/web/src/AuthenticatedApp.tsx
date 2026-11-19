@@ -10,7 +10,9 @@ import {
   useAuth,
   useSession,
 } from "@clerk/react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { fetchMe, getMeIndicatorText } from "./api/me.js";
+import type { MeResult } from "./api/me.js";
 import { Demo } from "./demo/Demo.js";
 import { Loading } from "./Loading.js";
 
@@ -19,8 +21,24 @@ const localization = {
   formFieldInputPlaceholder__signUpPassword: "Crie uma senha",
 } satisfies typeof ptBR;
 
+function MeIndicator({ getToken }: { getToken: () => Promise<string | null> }) {
+  const [result, setResult] = useState<MeResult | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void fetchMe(getToken).then((response) => {
+      if (active) setResult(response);
+    });
+    return () => {
+      active = false;
+    };
+  }, [getToken]);
+
+  return <span className="tenant-api-status" role="status">{getMeIndicatorText(result)}</span>;
+}
+
 function OrganizationGate({ appUrl }: { appUrl: string }) {
-  const { isLoaded, isSignedIn, orgId } = useAuth();
+  const { isLoaded, isSignedIn, orgId, getToken } = useAuth();
   const { session } = useSession();
   const mustChooseOrganization = session?.currentTask?.key === "choose-organization";
 
@@ -71,6 +89,7 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
         <strong>TreePM</strong>
         <div className="tenant-controls">
           <OrganizationSwitcher hidePersonal />
+          <MeIndicator key={orgId} getToken={getToken} />
           <UserButton />
         </div>
       </header>
