@@ -1,0 +1,32 @@
+{
+  "name": "@treepm/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "generate": "prisma generate",
+    "build": "prisma generate && tsc -p tsconfig.build.json",
+    "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "db:test:up": "docker compose -f docker-compose.test.yml up -d --wait",
+    "db:test:down": "docker compose -f docker-compose.test.yml down -v",
+    "migrate:deploy": "prisma migrate deploy",
+    "clean": "rm -rf dist src/generated"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "prisma": "^7.10.1",
+    "vitest": "^5.1.1"
+  }
+}
