@@ -1,6 +1,6 @@
 # ADR 0019 — Organização do Clerk como tenant e papéis no domínio
 
-**Status:** Proposta; aguarda aprovação na issue #1. **Data:** 2026-11-19.
+**Status:** Aceita (aprovada por Teodoro na issue #1 em 2026-11-19, com os limites do Hobby aceitos para o piloto). **Data:** 2026-11-19.
 
 ## Contexto
 
