@@ -13,8 +13,9 @@ import {
 import { useEffect, useState } from "react";
 import { fetchMe, getMeIndicatorText } from "./api/me.js";
 import type { MeResult } from "./api/me.js";
-import { Demo } from "./demo/Demo.js";
 import { Loading } from "./Loading.js";
+import { AppNav, useView } from "./nav/navigation.js";
+import { Workspace } from "./Workspace.js";
 
 const localization = {
   ...ptBR,
@@ -40,6 +41,7 @@ function MeIndicator({ getToken }: { getToken: () => Promise<string | null> }) {
 function OrganizationGate({ appUrl }: { appUrl: string }) {
   const { isLoaded, isSignedIn, orgId, getToken } = useAuth();
   const { session } = useSession();
+  const [view, navigate] = useView();
   const mustChooseOrganization = session?.currentTask?.key === "choose-organization";
 
   useEffect(() => {
@@ -86,16 +88,17 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
   return (
     <div className="tenant-shell">
       <header className="tenant-header">
-        <strong>TreePM</strong>
+        <div className="tenant-brand">
+          <strong>TreePM</strong>
+          <AppNav view={view} onNavigate={navigate} />
+        </div>
         <div className="tenant-controls">
           <OrganizationSwitcher hidePersonal />
           <MeIndicator key={orgId} getToken={getToken} />
           <UserButton />
         </div>
       </header>
-      <main className="tenant-map" key={orgId}>
-        <Demo />
-      </main>
+      <Workspace orgId={orgId} view={view} getToken={getToken} />
     </div>
   );
 }

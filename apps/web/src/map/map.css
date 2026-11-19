@@ -1,0 +1,10 @@
+.map-state { display: flex; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 12px; margin: 0; color: #eef2ff; }
+.map-state .load-error { display: grid; justify-items: center; gap: 10px; }
+.map-state p { margin: 0; }
+.map-state button, .map-panel-toggle, .map-create-first { padding: 7px 10px; border: 1px solid #52638c; border-radius: 5px; background: #283758; color: white; font-size: 12px; cursor: pointer; }
+.map-state button:hover, .map-panel-toggle:hover, .map-create-first:hover { background: #3a4d75; }
+.map-panel-toggle { flex: 0 0 auto; padding: 4px 9px; font-size: 11px; }
+.map-panel-toggle:focus-visible, .map-create-first:focus-visible, .map-state button:focus-visible { outline: 2px solid #d7c8ff; outline-offset: -2px; }
+.map-create-first { position: absolute; z-index: 7; bottom: 64px; left: 50%; transform: translateX(-50%); padding: 10px 16px; font-size: 14px; }
+.spatial-selection.is-beside-panel { right: 408px; }
+@media (max-width: 700px) { .spatial-selection.is-beside-panel { right: 14px; } }
