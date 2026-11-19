@@ -7,6 +7,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./test/support.ts",
+      "import": "./test/support.ts"
     }
   },
   "scripts": {
