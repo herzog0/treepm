@@ -34,6 +34,10 @@ Um teste automatizado conecta como `treepm_app` e demonstra: com organização A
 - **Região:** Neon `aws-sa-east-1` (São Paulo). O plano Free do Neon tem o mesmo preço em qualquer região, e a diferença na Fly é pequena (ADR 0022).
 - **Testes:** o projeto trabalha com TDD. A suíte é permanente, com Vitest, e os testes de isolamento rodam contra um PostgreSQL em contêiner Docker próprio, em porta dedicada, sem tocar em bancos de outros projetos.
 
+## Migrações fora da Fly
+
+Na Fly, um secret é variável de ambiente de todas as máquinas do app, inclusive a que executa o `release_command`. Para que `DATABASE_MIGRATION_URL` nunca exista no processo da API, as migrações rodam fora da Fly, antes de cada deploy, no ambiente do mantenedor ou de uma CI, e esse secret não é criado lá. A imagem de produção não contém o CLI do Prisma nem as migrações. O procedimento está em [deploy.md](../deploy.md).
+
 ## Consequências
 
 - Um erro de consulta na API não vaza dados entre organizações, porque o filtro está no banco.
