@@ -7,9 +7,10 @@
 ## Coordenação, decisões e fluxos
 
 - A sessão coordenadora (aba `TreePM Master` do herdr, Claude Fable) nunca escreve código: escreve briefs, ADRs e documentação, revisa diffs, roda as verificações e faz commits locais. A implementação é delegada a executores em painéis laterais do herdr (Claude quando a qualidade do código for melhor, até 60% da capacidade semanal; depois disso, Codex), na mesma aba da coordenação para Teodoro acompanhar, em paralelo quando as tarefas forem independentes. Detalhes em `AGENTS.md`, seção `Delegação e executores`.
-- Toda decisão arquitetural vira um ADR em `docs/adr/`, numerado em sequência (o próximo é 0021) e listado em `docs/adr/README.md`, antes de a implementação correspondente começar. Outros documentos técnicos necessários ficam em `docs/`.
+- Toda decisão arquitetural vira um ADR em `docs/adr/`, numerado em sequência (o próximo é 0023) e listado em `docs/adr/README.md`, antes de a implementação correspondente começar. Outros documentos técnicos necessários ficam em `docs/`.
 - O board do Whimsical [TreePM — Fluxos e processos (estilo BPMN)](https://whimsical.com/89u9ZSgv1LAMphWoQUFQny) registra todo fluxo, processo, evento ou ação visível novo ou alterado, em raias, com o estado (`IMPLEMENTADO`, `PROPOSTO` ou `VIGENTE`) e a fonte no título. No início de cada sessão, a sessão coordenadora (só ela; executores não acessam o board nem a rede para isso) lê os comentários do board; as decisões tomadas ali são refletidas em ADR, blueprint ou no próprio fluxo.
 - Em 2026-11-19 Teodoro deu à sessão coordenadora autoridade de dona do repositório: commits, branches, push, PRs e comentários na issue #1 do GitHub (canal com a coordenação operacional, o grokbot) não dependem de nova autorização. Merge de PR que tenha aprovação como critério de aceite espera essa aprovação. Painel do Clerk, DNS, chaves e contratação de planos ficam com a coordenação operacional; segredos nunca entram no Git nem na issue, e `.env*` não é lido.
+- O projeto trabalha com TDD (decisão de Teodoro em 2026-11-19): todo comportamento novo começa por um teste que falha, e a suíte permanente (Vitest; PostgreSQL em contêiner Docker próprio para os testes de banco) faz parte das verificações obrigatórias. Briefs para executores pedem o teste antes da implementação.
 - A interface e a usabilidade atuais do mapa foram aprovadas por Teodoro em 2026-11-19 e são a referência. Não altere a interação existente sem pedido explícito; novas capacidades se somam a ela.
 - A direção de produto (mapa espacial como mecânica central e tickets multidisciplinares) foi decidida por Teodoro em 2026-11-19. Não proponha protótipos ou etapas para validar essa tese; as dúvidas abertas da seção 15 do blueprint continuam abertas.
 
@@ -37,8 +38,8 @@
 
 - Node **22.23.1**, pnpm **10.25.0**, workspaces, ESM e TypeScript estrito. A demo usa React + Vite.
 - Imports relativos TypeScript/Node usam extensão `.js`. Use `import type` e tipos explícitos nas fronteiras públicas. Não acrescente bibliotecas sem necessidade e manifest correspondente.
-- `pnpm dev` acompanha engine e demo; o site usa a porta 5173. `pnpm typecheck`, `pnpm lint`, `pnpm build` e `git diff --check` são obrigatórios antes de concluir mudanças.
-- Use harnesses temporários para validar geometria, gestos, overlaps, console e viewport no navegador. Não adicione uma suíte permanente sem alinhar a convenção; remova artefatos de diagnóstico ao terminar.
+- `pnpm dev` acompanha engine e demo; o site usa a porta 5173. `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` e `git diff --check` são obrigatórios antes de concluir mudanças.
+- Testes automatizados são permanentes e vêm antes do código (TDD). Harnesses temporários no navegador continuam válidos para medir geometria, gestos, overlaps, console e viewport quando um teste automatizado não cobre o caso; remova esses artefatos de diagnóstico ao terminar.
 - Pare somente processos de teste iniciados por você. Não leia nem copie `.env` e não inclua segredos no Git.
 - Use Git para mudanças revisáveis e reversíveis. Na refatoração atual, o usuário autorizou uma branch, um checkpoint anterior à limpeza e um commit separado para a extração da engine. Não reescreva história e não inclua trabalho alheio em commits sem autorização; executores não fazem push.
 
