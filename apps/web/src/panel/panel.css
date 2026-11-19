@@ -15,3 +15,22 @@
 .panel-list code, .panel-list small { color: #a5b2d0; }
 .side-panel .load-error p { color: #ffb4a8; }
 @media (max-width: 700px) { .side-panel { top: 56px; width: calc(100% - 28px); } }
+
+/* Formulários e linhas de ação das seções do painel. */
+.side-panel h3 { margin: 16px 0 8px; font-size: 12px; color: #c9d3ee; }
+.side-panel .panel-form { display: grid; gap: 8px; margin: 0 0 12px; font-size: 12px; }
+.side-panel .panel-form.inline { grid-template-columns: 1fr auto auto; align-items: center; margin: 0; }
+.side-panel label { display: grid; gap: 4px; color: #a5b2d0; font-size: 12px; }
+.side-panel input, .side-panel select { padding: 6px 8px; border: 1px solid #52638c; border-radius: 5px; background: #0f1830; color: #eef2ff; font: inherit; }
+.side-panel input:focus-visible, .side-panel select:focus-visible { outline: 2px solid #d7c8ff; outline-offset: 1px; }
+.side-panel input[aria-invalid="true"] { border-color: #ff8e7a; }
+.side-panel button:disabled, .side-panel select:disabled { opacity: 0.55; cursor: not-allowed; }
+.side-panel [role="alert"] { margin: 0; color: #ffb4a8; font-size: 12px; }
+.side-panel .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.side-panel .row-actions, .side-panel .confirm-action { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.side-panel .panel-item { display: block; width: 100%; border: 0; background: transparent; text-align: left; padding: 0; }
+.side-panel .panel-item:hover { background: transparent; }
+.side-panel .panel-add, .side-panel .panel-back { margin: 0 0 10px; }
+.side-panel .badge { margin-left: 6px; padding: 1px 6px; border: 1px solid #52638c; border-radius: 9px; color: #c9d3ee; font-size: 11px; }
+.side-panel .danger { border-color: #ff8e7a; }
+.side-panel .panel-manage { display: grid; gap: 10px; margin-bottom: 8px; }
