@@ -11,6 +11,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@clerk/localizations": "^4.26.0",
     "@clerk/react": "^6.19.1",
     "@treepm/engine": "workspace:*",
     "@treepm/react": "workspace:*",
