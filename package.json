@@ -8,13 +8,13 @@
     "pnpm": "10.25.0"
   },
   "scripts": {
-    "dev": "pnpm --filter @treepm/domain build && pnpm --filter @treepm/engine build && pnpm --filter @treepm/react build && pnpm --parallel --filter @treepm/domain --filter @treepm/engine --filter @treepm/react --filter @treepm/web dev",
+    "dev": "pnpm --filter @treepm/domain build && pnpm --filter @treepm/db build && pnpm --filter @treepm/engine build && pnpm --filter @treepm/react build && pnpm --parallel --filter @treepm/domain --filter @treepm/engine --filter @treepm/react --filter @treepm/web --filter @treepm/api dev",
     "start": "pnpm build && pnpm preview",
     "preview": "pnpm --filter @treepm/web preview --port 4173",
-    "build": "pnpm --filter @treepm/domain build && pnpm --filter @treepm/engine build && pnpm --filter @treepm/react build && pnpm --filter @treepm/web build",
-    "typecheck": "pnpm --filter @treepm/domain typecheck && pnpm --filter @treepm/engine build && pnpm --filter @treepm/react build && pnpm --filter @treepm/web typecheck",
+    "build": "pnpm --filter @treepm/domain build && pnpm --filter @treepm/db build && pnpm --filter @treepm/api build && pnpm --filter @treepm/engine build && pnpm --filter @treepm/react build && pnpm --filter @treepm/web build",
+    "typecheck": "pnpm --filter @treepm/domain build && pnpm --filter @treepm/db typecheck && pnpm --filter @treepm/db build && pnpm --filter @treepm/api typecheck && pnpm --filter @treepm/engine build && pnpm --filter @treepm/react build && pnpm --filter @treepm/web typecheck",
     "lint": "eslint .",
-    "clean": "pnpm --parallel --filter @treepm/domain --filter @treepm/engine --filter @treepm/react --filter @treepm/web clean",
+    "clean": "pnpm --parallel --filter @treepm/domain --filter @treepm/db --filter @treepm/api --filter @treepm/engine --filter @treepm/react --filter @treepm/web clean",
     "test": "pnpm -r --if-present test"
   },
   "devDependencies": {
