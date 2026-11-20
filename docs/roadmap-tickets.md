@@ -17,30 +17,47 @@
     Pessoa, papel e time só são nomeados pelo rótulo que os envolve, e o nome acessível inclui a opção selecionada.
   - [ ] Registrar arquivar, desarquivar e renomear projeto como eventos distintos
     Hoje os três ficam como `project.updated`.
+  - [ ] Reduzir as idas ao banco por requisição
+    Medido em teste: 17 comandos SQL no detalhe de um ticket e na importação, 19 na edição e 23 na criação e na atribuição, a maior parte de controle da transação. No teste com sessão real, 6 itens levaram 4,2 segundos, contra o limite de 5 da transação.
 - Design da plataforma
   Tema escuro e moderno, na linha do Linear, mantendo a constelação do mapa.
-  - [/] Proposta visual em alta fidelidade
-    Base visual, sequência de zoom do mapa, página do ticket, conversa de novo ticket, times e importação.
-  - [ ] ADR 0025 com a base visual aprovada
-  - [ ] Aplicar a base visual ao cabeçalho, ao painel lateral e à tela de times
-  - [ ] Aplicar a base visual aos cards do mapa
-    Mexe em `packages/react`, que a ADR 0023 manteve intocado. Depende de aprovação explícita.
+  - [r] Proposta visual em alta fidelidade
+    A base visual e a sequência de zoom do mapa estão aprovadas. Página do ticket, conversa de novo ticket e mudança de lugar ao editar aguardam revisão de Teodoro.
+  - [x] ADR 0025 com a base visual aprovada
+  - [x] Aplicar a base visual ao cabeçalho, ao painel lateral e à tela de times
+  - [x] Aplicar a base visual aos cards do mapa
+    Feito pela web, sem mexer em `packages/engine` nem em `packages/react`.
+  - [ ] Card em nível "detalhe" no mapa
+    O quinto nível dos quadros, para o card grande. O conteúdo do nó só recebe os quatro níveis atuais, sem a largura projetada; pede mudança em `packages/react` ou outra técnica.
+  - [ ] Decidir se "cancelado" e "a fazer" têm cores diferentes no mapa
+    Hoje os dois usam o mesmo cinza nos quadrados de resumo.
 - Tickets no mapa (recorte da Fase 2)
   - [x] ADR 0024: modelo de ticket e importação por lista
   - [x] Banco: tabelas de ticket com RLS
   - [x] API de tickets com permissões por papel de projeto
   - [x] Cliente da API e interpretador da lista na web
   - [x] Tickets como nós abaixo do projeto no mapa
-    Com o card atual e a cor do projeto. A aparência definitiva vem com o design.
+    Card escuro, com a cor do nó indicando a situação.
   - [x] Aplicar a migration de tickets no banco de desenvolvimento
+  - [x] Tela de importação de lista com prévia
+  - [x] Inserir em lote na importação
+    Todos os tickets entram em uma única inserção; o número de comandos não cresce com a lista.
+  - [/] Importar esta lista no projeto TreePM
+    Falta repetir a importação com sessão real depois da correção do lote.
   - [ ] Página lateral do ticket com deslize e foco
-    Abrir um ticket desliza o mapa, abre a página com detalhes e foca nele (IDEA-013). Inclui criar, editar, situação, pai e pessoas.
-  - [ ] Tela de importação de lista com prévia
-  - [ ] Importar esta lista no projeto TreePM
-  - [ ] Inserir em lote na importação
-    Hoje a importação grava um ticket por vez na transação. Perto do limite de 500 itens, pode passar do tempo máximo da transação.
+    Abrir um ticket desliza o mapa, abre a página com detalhes e foca nele (IDEA-013). Inclui criar, editar, situação, pai e pessoas. Falta decidir o gesto que abre o ticket.
   - [ ] Serializar mudanças de pai simultâneas
     A detecção de ciclo vale por requisição. Duas mudanças ao mesmo tempo no mesmo projeto não se enxergam.
+- IA da plataforma
+  Novo ticket pela conversa e mudança de lugar ao editar (IDEA-005 e IDEA-014).
+  - [ ] ADR da IA: modelo generativo, Jev, memória e mapa de conteúdo
+    Decide o que a memória guarda, os provedores e as chaves. Depende das dúvidas 5, 9, 10 e 11 do blueprint.
+  - [ ] Botão "Novo ticket" e painel de conversa
+    A IA formata o texto e faz perguntas antes de procurar o lugar do ticket.
+  - [ ] Busca do caminho do topo até a folha
+    Testa em cada nível qual ramo se enquadra melhor e propõe onde criar o ticket.
+  - [ ] Mudança de pai quando a edição muda a categoria
+    Falta decidir se é automática ou confirmada ao salvar.
 - Fase 2 completa: trabalho multidisciplinar
   - [ ] Contribuições por área no ticket
   - [ ] Critérios de aceite e regra de conclusão
