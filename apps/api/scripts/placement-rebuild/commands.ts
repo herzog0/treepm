@@ -228,10 +228,17 @@ async function rebuildOne(
     conversation = await call<Conversation>("open", "abrir conversa", () =>
       ctx.client.request("POST", `/projects/${ctx.project}/ticket-conversations`, { message }),
     );
-    appendFileSync(startedPath(ctx.dir, ctx.project), `${JSON.stringify({ oldId: ticket.id, conversationId: conversation.id } satisfies StartedMark)}\n`);
   }
   const lastAssistant = [...conversation.messages].reverse().find((m) => m.author === "assistant");
-  const claude = { draftTitle: conversation.draft?.title ?? null, ready: conversation.ready, message: lastAssistant?.body ?? "" };
+  // Numa conversa reaproveitada, o rascunho já foi trocado pelo do gabarito: vale o que a marca guardou.
+  const claude = (reusedId ? state.startedMarks.get(ticket.id)?.claude : undefined) ?? {
+    draftTitle: conversation.draft?.title ?? null,
+    ready: conversation.ready,
+    message: lastAssistant?.body ?? "",
+  };
+  if (!reusedId) {
+    appendFileSync(startedPath(ctx.dir, ctx.project), `${JSON.stringify({ oldId: ticket.id, conversationId: conversation.id, claude } satisfies StartedMark)}\n`);
+  }
 
   const finish = (created: Detail, outcome: Outcome | null, judgments: RunRecord["judgments"], resumed: boolean): RunRecord => {
     const chosen = outcome ? outcome.destination.parentId : created.parentId;
@@ -279,10 +286,11 @@ async function rebuildOne(
     ctx.client.request("PATCH", `/ticket-conversations/${conversation.id}/draft`, { title: ticket.title, description: ticket.description }),
   );
   // 3. procura do caminho
-  ctx.recorder.reset();
-  const outcome = await call<Outcome>("placement", "procurar o caminho", () =>
-    ctx.client.request("POST", `/ticket-conversations/${conversation.id}/placement`),
-  );
+  // O reset fica dentro do fecho: uma tentativa que deu 503 no meio da descida não deixa julgamentos para a próxima.
+  const outcome = await call<Outcome>("placement", "procurar o caminho", () => {
+    ctx.recorder.reset();
+    return ctx.client.request("POST", `/ticket-conversations/${conversation.id}/placement`);
+  });
   const judgments = ctx.recorder.take();
   // 4. cria o ticket no destino
   const created = await call<{ ticket: Detail }>("ticket", "criar ticket", () =>

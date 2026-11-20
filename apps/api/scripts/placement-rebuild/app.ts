@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { randomBytes } from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { Test } from "@nestjs/testing";
@@ -63,6 +64,8 @@ export type BootOptions = {
   role: string;
   fakeProviders: boolean;
   fake503First: number;
+  /** Faz a N-ésima chamada do juiz falso responder 503 (uma vez), só no ensaio. */
+  fake503JudgeAt: number;
   /** O comando precisa da IA de verdade (todos os que chamam conversa ou procura). */
   needsAi: boolean;
 };
@@ -106,7 +109,7 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
       .overrideProvider(BRANCH_SUMMARIZER)
       .useValue(new FakeSummarizer())
       .overrideProvider(BRANCH_JUDGE)
-      .useValue(new RecordingJudge(new FakeJudge(), recorder));
+      .useValue(new RecordingJudge(new FakeJudge(options.fake503JudgeAt), recorder));
   } else {
     builder = builder.overrideProvider(BRANCH_JUDGE).useFactory({
       inject: [CONFIG],
@@ -119,6 +122,12 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
   }
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication({ logger: false });
+  // O cabeçalho aleatório é exigido em TODA requisição (inclusive rotas públicas), antes de qualquer rota.
+  app.use((req: IncomingMessage, res: ServerResponse, next: () => void) => {
+    if (req.headers[TOKEN_HEADER] === token) return next();
+    res.statusCode = 401;
+    res.end();
+  });
   configureApp(app, baseConfig);
   await app.init();
   await app.listen(0, "127.0.0.1");

@@ -44,7 +44,13 @@ const words = (text: string): Set<string> =>
   );
 
 export class FakeJudge implements BranchJudge {
+  private calls = 0;
+  /** `failAt` > 0: a chamada de número `failAt` (contada desde o início) responde 503 uma vez. */
+  constructor(private readonly failAt = 0) {}
+
   judge(input: { draft: { title: string; description: string }; candidates: readonly BranchCandidate[] }): Promise<BranchJudgment> {
+    this.calls += 1;
+    if (this.failAt > 0 && this.calls === this.failAt) return Promise.reject(new AssistantUnavailableError("fake_503_judge"));
     const draftWords = words(`${input.draft.title} ${input.draft.description}`);
     const scores = input.candidates.map((c) => [...words(`${c.title} ${c.summary}`)].filter((w) => draftWords.has(w)).length);
     const weights = scores.map((s) => s + 0.05);

@@ -70,7 +70,8 @@ export type RunRecord = {
   attempts: Record<Step, number>;
 };
 
-export type StartedMark = { oldId: string; conversationId: string };
+/** Marca gravada logo depois de abrir a conversa; guarda a resposta do Claude, que depois o rascunho do gabarito apaga. */
+export type StartedMark = { oldId: string; conversationId: string; claude?: RunRecord["claude"] };
 
 // ---- árvore ----------------------------------------------------------------------------------------------------
 
@@ -179,14 +180,20 @@ export function buildImportTree(tickets: readonly GabaritoTicket[]): { items: Im
 export type ResumeState = {
   done: Set<string>;
   startedConversation: Map<string, string>;
+  startedMarks: Map<string, StartedMark>;
   newToOld: Map<string, string>;
 };
 
 export function resumeState(records: readonly RunRecord[], started: readonly StartedMark[]): ResumeState {
   const done = new Set(records.map((r) => r.oldId));
   const startedConversation = new Map<string, string>();
-  for (const mark of started) if (!done.has(mark.oldId)) startedConversation.set(mark.oldId, mark.conversationId);
-  return { done, startedConversation, newToOld: new Map(records.map((r) => [r.newId, r.oldId])) };
+  const startedMarks = new Map<string, StartedMark>();
+  for (const mark of started) {
+    if (done.has(mark.oldId)) continue;
+    startedConversation.set(mark.oldId, mark.conversationId);
+    startedMarks.set(mark.oldId, mark);
+  }
+  return { done, startedConversation, startedMarks, newToOld: new Map(records.map((r) => [r.newId, r.oldId])) };
 }
 
 /** `limit` vale para a ordem inteira (os N primeiros); os já registrados saem em seguida. */
@@ -244,6 +251,7 @@ export type CliOptions = {
   role?: string;
   retryDelaysMs?: number[];
   fake503First?: number;
+  fake503JudgeAt?: number;
 };
 
 export type ParsedArgs = { ok: true; command: Command; options: CliOptions } | { ok: false; error: string };
@@ -274,6 +282,7 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--role": "role",
   "--retry-delays-ms": "retryDelaysMs",
   "--fake-503-first": "fake503First",
+  "--fake-503-judge-at": "fake503JudgeAt",
 };
 
 const usage = `Comandos: ${COMMANDS.join(", ")}.`;
@@ -295,7 +304,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     }
     const value = rest[++i];
     if (value === undefined) return fail(`A opção ${flag} precisa de um valor.`);
-    if (key === "limit" || key === "fake503First") {
+    if (key === "limit" || key === "fake503First" || key === "fake503JudgeAt") {
       const parsed = Number(value);
       if (!Number.isInteger(parsed) || parsed < 0) return fail(`${flag} deve ser um número inteiro.`);
       options[key] = parsed;
@@ -346,7 +355,10 @@ export type Stats = {
     alternatives: string[][];
     alternativeWouldMatch: boolean;
   }[];
-  misplaced: { oldId: string; title: string; group: PlacementGroup; expectedPath: string[]; chosenPath: string[] }[];
+  /** `chosenPath` é `null` quando o registro foi retomado (a procura não foi registrada). */
+  misplaced: { oldId: string; title: string; group: PlacementGroup; expectedPath: string[]; chosenPath: string[] | null }[];
+  /** Registros retomados após interrupção: ficam fora das medianas de tempo. */
+  resumed: number;
   claude: { ready: number; noDraft: number };
   timing: Record<Step, { median: number; max: number }> & { totalMs: number };
   belongsByBand: Record<Band, { hit: number; miss: number }>;
@@ -394,7 +406,7 @@ export function computeStats(gabarito: readonly GabaritoTicket[], records: reado
         title: record.title,
         group: record.group,
         expectedPath: pathTitles(record.expectedParentOldId),
-        chosenPath: record.destinationPath.map((n) => n.title),
+        chosenPath: record.resumed ? null : record.destinationPath.map((n) => n.title),
       });
     }
     if (record.claude.draftTitle === null) noDraft += 1;
@@ -405,13 +417,14 @@ export function computeStats(gabarito: readonly GabaritoTicket[], records: reado
   }
 
   const timing = { totalMs: 0 } as Stats["timing"];
+  const measured = records.filter((r) => !r.resumed);
   for (const step of STEPS) {
-    const values = records.map((r) => r.timingsMs[step]);
+    const values = measured.map((r) => r.timingsMs[step]);
     timing[step] = { median: median(values), max: values.length ? Math.max(...values) : 0 };
     timing.totalMs += values.reduce((sum, v) => sum + v, 0);
   }
 
-  return { total: records.length, groups, byDepth, uncertain, misplaced, claude: { ready, noDraft }, timing, belongsByBand };
+  return { total: records.length, groups, byDepth, uncertain, misplaced, resumed: records.length - measured.length, claude: { ready, noDraft }, timing, belongsByBand };
 }
 
 export type CalibrationRow = {
@@ -483,7 +496,7 @@ export function renderReport(gabarito: readonly GabaritoTicket[], records: reado
     out("| Título | Grupo | Caminho esperado | Caminho escolhido |");
     out("| --- | --- | --- | --- |");
     for (const m of stats.misplaced) {
-      out(`| ${cell(m.title)} | ${m.group} | ${cell(pathText(m.expectedPath))} | ${cell(pathText(m.chosenPath))} |`);
+      out(`| ${cell(m.title)} | ${m.group} | ${cell(pathText(m.expectedPath))} | ${cell(m.chosenPath === null ? "(não registrado: retomado)" : pathText(m.chosenPath))} |`);
     }
   }
   out();
@@ -515,7 +528,7 @@ export function renderReport(gabarito: readonly GabaritoTicket[], records: reado
   out();
   out("## Tempos");
   out();
-  out(`Total: ${(stats.timing.totalMs / 1000).toFixed(1)} s.`);
+  out(`Total: ${(stats.timing.totalMs / 1000).toFixed(1)} s${stats.resumed > 0 ? ` (${stats.resumed} registro(s) retomado(s) ficam de fora dos tempos)` : ""}.`);
   out();
   out("| Passo | Mediana (ms) | Máximo (ms) |");
   out("| --- | ---: | ---: |");

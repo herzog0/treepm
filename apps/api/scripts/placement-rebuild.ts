@@ -50,6 +50,7 @@ async function main(): Promise<number> {
     role: options.role ?? "org:admin",
     fakeProviders: options.fakeProviders ?? false,
     fake503First: options.fake503First ?? 0,
+    fake503JudgeAt: options.fake503JudgeAt ?? 0,
     needsAi: command === "rebuild",
   });
   try {

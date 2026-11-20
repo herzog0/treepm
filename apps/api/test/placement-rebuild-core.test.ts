@@ -148,6 +148,12 @@ describe("resumeState e pendingTickets", () => {
     expect(pendingTickets(order, state).map((x) => x.id)).not.toContain("a");
   });
 
+  it("guarda os dados do Claude da marca de conversa iniciada, para o registro retomado não perdê-los", () => {
+    const claude = { draftTitle: "Proposta do Claude", ready: false, message: "Qual é o escopo?" };
+    const state = resumeState([], [{ oldId: "f", conversationId: "conv-f", claude }]);
+    expect(state.startedMarks.get("f")?.claude).toEqual(claude);
+  });
+
   it("mapeia o id novo para o do gabarito a partir dos registros", () => {
     const state = resumeState([makeRecord({ oldId: "a", newId: "na" })], []);
     expect(state.newToOld.get("na")).toBe("a");
@@ -275,6 +281,16 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["create-project", "--org", "o", "--user", "u", "--dir", "d", "--key", "ENS", "--name", "Ensaio"]).ok).toBe(true);
     expect(parseCliArgs(["report", "--project", "p", "--dir", "d"]).ok).toBe(true);
   });
+  it("aceita as opções ocultas de ensaio (--retry-delays-ms, --fake-503-first, --fake-503-judge-at, --role)", () => {
+    const parsed = parseCliArgs([
+      "rebuild", "--org", "o", "--user", "u", "--project", "p", "--dir", "d",
+      "--retry-delays-ms", "1,2,3", "--fake-503-first", "2", "--fake-503-judge-at", "3", "--role", "org:member",
+    ]);
+    expect(parsed).toMatchObject({
+      ok: true,
+      options: { retryDelaysMs: [1, 2, 3], fake503First: 2, fake503JudgeAt: 3, role: "org:member" },
+    });
+  });
   it("limit inválido é erro", () => {
     expect(parseCliArgs(["rebuild", "--org", "o", "--user", "u", "--project", "p", "--dir", "d", "--limit", "x"]).ok).toBe(false);
   });
@@ -388,6 +404,24 @@ describe("computeStats", () => {
     );
   });
 
+  it("registro retomado fica fora das medianas de tempo e não tem caminho escolhido registrado", () => {
+    const withResumed = computeStats(gabarito, [
+      ...records,
+      makeRecord({
+        oldId: "e",
+        resumed: true,
+        group: "elsewhere",
+        expectedParentOldId: "b",
+        destinationPath: [],
+        timingsMs: { open: 0, draft: 0, placement: 0, ticket: 5 },
+      }),
+    ]);
+    expect(withResumed.timing.open).toEqual(stats.timing.open);
+    expect(withResumed.timing.ticket.median).toBe(stats.timing.ticket.median);
+    expect(withResumed.misplaced.find((m) => m.oldId === "e")?.chosenPath).toBeNull();
+    expect(withResumed.resumed).toBe(1);
+  });
+
   it("cruza as faixas de belongs com acerto", () => {
     expect(stats.belongsByBand).toEqual({
       low: { hit: 0, miss: 1 },
@@ -419,6 +453,12 @@ describe("calibrationRows", () => {
 });
 
 describe("renderReport", () => {
+  it("mostra 'não registrado' no caminho escolhido de um registro retomado", () => {
+    const gabarito = computeDepths([t("a", 1, null), t("b", 2, "a")]);
+    const markdown = renderReport(gabarito, [makeRecord({ oldId: "b", resumed: true, group: "elsewhere", expectedParentOldId: "a" })], "PROJ");
+    expect(markdown).toContain("não registrado");
+  });
+
   it("gera o markdown com as seções pedidas", () => {
     const gabarito = computeDepths([t("a", 1, null), t("b", 2, "a")]);
     const records = [
