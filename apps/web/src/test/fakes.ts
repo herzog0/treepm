@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { ApiClient, ApiResult, Area, Me, Person, Project, Team } from "../api/client.js";
+import type { ApiClient, ApiResult, Area, Me, Person, Project, Team, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid", code?: string): ApiResult<never> => ({
@@ -19,12 +19,19 @@ export function makeProject(id: string, key: string, name: string, extra: Partia
   return { id, key, name, visibility: "organization", archivedAt: null, members: [], teamIds: [], ...extra };
 }
 
+export function makeTicket(id: string, projectId: string, number: number, title: string, extra: Partial<TicketSummary> = {}): TicketSummary {
+  const key = extra.key ?? `${projectId.toUpperCase()}-${number}`;
+  return { id, projectId, number, key, parentId: null, title, status: "todo", progress: null, assigneeIds: [], ...extra };
+}
+
 interface FakeData {
   me?: Me;
   projects?: Project[];
   areas?: Area[];
   teams?: Team[];
   people?: Person[];
+  /** Tickets por ID de projeto, na ordem da listagem. */
+  tickets?: Record<string, TicketSummary[]>;
 }
 
 /** Cliente falso: cada método lança se não for configurado, para o teste dizer o que precisa. */
@@ -36,6 +43,8 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "createTeam", "renameTeam", "removeTeam", "putTeamMember", "removeTeamMember",
     "createArea", "renameArea", "removeArea", "getProject", "createProject", "updateProject",
     "putProjectMember", "removeProjectMember", "putProjectTeam", "removeProjectTeam",
+    "getTicket", "createTicket", "updateTicket", "removeTicket", "putTicketAssignee", "removeTicketAssignee",
+    "importTickets",
   ] as const;
   const base = Object.fromEntries(names.map((name) => [name, unexpected(name)])) as unknown as ApiClient;
   return {
@@ -45,5 +54,6 @@ export function makeClient(data: FakeData = {}): ApiClient {
     listAreas: vi.fn(async () => ok(data.areas ?? [])),
     listTeams: vi.fn(async () => ok(data.teams ?? [])),
     listPeople: vi.fn(async () => ok(data.people ?? [])),
+    listTickets: vi.fn(async (projectId: string) => ok(data.tickets?.[projectId] ?? [])),
   };
 }

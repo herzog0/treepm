@@ -40,6 +40,24 @@ const projectSchema = z.object({
   teamIds: z.array(z.string()),
 });
 const projectTeamSchema = z.object({ projectId: z.string(), teamId: z.string() });
+const ticketStatus = z.enum(["todo", "in_progress", "in_review", "done", "cancelled"]);
+const ticketSummarySchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  number: z.number(),
+  key: z.string(),
+  parentId: z.string().nullable(),
+  title: z.string(),
+  status: ticketStatus.nullable(),
+  progress: z.object({ done: z.number(), total: z.number(), excluded: z.number() }).nullable(),
+  assigneeIds: z.array(z.string()),
+});
+const ticketDetailSchema = ticketSummarySchema.extend({
+  description: z.string(),
+  createdByPersonId: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
 const errorBodySchema = z.object({ error: z.object({ code: z.string() }) });
 
 export type Me = z.output<typeof meSchema>;
@@ -53,6 +71,33 @@ export type ProjectVisibility = z.output<typeof visibility>;
 export type ProjectMember = z.output<typeof projectMemberSchema>;
 export type Project = z.output<typeof projectSchema>;
 export type ProjectTeam = z.output<typeof projectTeamSchema>;
+export type TicketStatus = z.output<typeof ticketStatus>;
+export type TicketSummary = z.output<typeof ticketSummarySchema>;
+export type TicketDetail = z.output<typeof ticketDetailSchema>;
+
+export interface ImportItem {
+  title: string;
+  description?: string;
+  status?: TicketStatus;
+  children?: ImportItem[];
+}
+export interface ImportTicketsBody {
+  parentId?: string | null;
+  items: ImportItem[];
+}
+export interface CreateTicketBody {
+  title: string;
+  description?: string;
+  parentId?: string | null;
+  status?: TicketStatus;
+  assigneeIds?: string[];
+}
+export interface UpdateTicketBody {
+  title?: string;
+  description?: string;
+  status?: TicketStatus;
+  parentId?: string | null;
+}
 
 export type ApiErrorKind =
   | "unauthenticated"
@@ -132,6 +177,7 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
 
   const team = (id: string) => `/api/teams/${id}`;
   const project = (id: string) => `/api/projects/${id}`;
+  const ticket = (id: string) => `/api/tickets/${id}`;
 
   return {
     getMe: () => request("GET", "/api/me", meSchema),
@@ -163,6 +209,19 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       request("PUT", `${project(projectId)}/teams/${teamId}`, projectTeamSchema),
     removeProjectTeam: (projectId: string, teamId: string) =>
       request("DELETE", `${project(projectId)}/teams/${teamId}`, null),
+
+    listTickets: (projectId: string) => request("GET", `${project(projectId)}/tickets`, z.array(ticketSummarySchema)),
+    getTicket: (id: string) => request("GET", ticket(id), ticketDetailSchema),
+    createTicket: (projectId: string, body: CreateTicketBody) =>
+      request("POST", `${project(projectId)}/tickets`, ticketDetailSchema, body),
+    updateTicket: (id: string, body: UpdateTicketBody) => request("PATCH", ticket(id), ticketDetailSchema, body),
+    removeTicket: (id: string) => request("DELETE", ticket(id), null),
+    putTicketAssignee: (id: string, personId: string) =>
+      request("PUT", `${ticket(id)}/assignees/${personId}`, ticketDetailSchema),
+    removeTicketAssignee: (id: string, personId: string) =>
+      request("DELETE", `${ticket(id)}/assignees/${personId}`, null),
+    importTickets: (projectId: string, body: ImportTicketsBody) =>
+      request("POST", `${project(projectId)}/tickets/import`, z.array(ticketSummarySchema), body),
   };
 }
 
@@ -173,6 +232,10 @@ const MESSAGE_BY_CODE: Record<string, string> = {
   area_name_taken: "Já existe uma área com esse nome.",
   project_key_taken: "Já existe um projeto com essa chave.",
   person_inactive: "A pessoa não está mais na organização.",
+  ticket_has_children: "Este ticket tem filhos: a situação dele vem do progresso deles, e só se remove ticket sem filhos.",
+  ticket_cycle: "Um ticket não pode ser pai de si mesmo nem de um ancestral.",
+  project_archived: "O projeto está arquivado e só aceita leitura.",
+  person_without_project_access: "A pessoa ainda não tem acesso ao projeto. Conceda um papel no projeto antes de atribuir.",
 };
 
 const MESSAGE_BY_KIND: Record<ApiErrorKind, string> = {

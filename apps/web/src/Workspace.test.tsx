@@ -17,6 +17,7 @@ function orgFetch() {
     if (input === "/api/projects") {
       return Response.json([{ id: `${orgId}-proj`, name: `Projeto de ${name}`, key: "PRJ", visibility: "organization", archivedAt: null, members: [], teamIds: [] }]);
     }
+    if (typeof input === "string" && /^\/api\/projects\/[^/]+\/tickets$/.test(input)) return Response.json([]);
     return new Response(null, { status: 404 });
   });
 }
