@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist",
-    "verify:providers": "tsx --env-file-if-exists=.env.local --tsconfig tsconfig.json scripts/verify-providers.ts"
+    "verify:providers": "tsx --env-file-if-exists=.env.local --tsconfig tsconfig.json scripts/verify-providers.ts",
+    "placement:rebuild": "tsx --env-file-if-exists=.env.local --tsconfig tsconfig.json scripts/placement-rebuild.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.11.0",
