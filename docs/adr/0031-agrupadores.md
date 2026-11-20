@@ -137,6 +137,18 @@ Na raiz, a decisão que as duas rodadas têm em comum:
   - Falso: "O trabalho de `draft` trata de um assunto que o agrupador `scope` não cobre: seria encontrado em outra parte do projeto."
   - Quando o escopo não tem agrupadores filhos, a requisição leva só essa pergunta. O escopo vive no estado do painel e não é gravado na conversa.
 
+**Medição da conferência do escopo (2026-11-20).** Em outra cópia da árvore original (projeto `ESCOPO`), cada um dos 39 tickets foi procurado com o escopo no agrupador original e com o escopo no agrupador seguinte da lista. Uma rodada só.
+
+| Escopo | Avisou "fora do escopo" | `Noul` abaixo de 0,3 | De 0,3 a 0,7 | Acima de 0,7 |
+| --- | ---: | ---: | ---: | ---: |
+| Agrupador original | 1 de 39 | 1 | 10 | 28 |
+| Outro agrupador | 19 de 39 | 19 | 13 | 7 |
+
+- O aviso quase não acusa o agrupador certo (1 de 39), então raramente incomoda à toa.
+- Ele pega cerca de metade dos escopos errados. Os que escapam são vizinhos de assunto, como itens de "Design da plataforma" procurados dentro de "Tickets no mapa". O aviso é uma ajuda, não uma garantia.
+- O "outro agrupador" foi sempre o seguinte da lista, e nesta árvore vários vizinhos são de assunto próximo. Não houve medição separada para agrupadores de assunto distante.
+- A procura normal desta rodada pôs 22 de 39 no agrupador original; na rodada "depois" tinham sido 23. A diferença dá a medida da variação entre rodadas.
+
 ### A IA propõe um agrupador novo
 
 Decisão de Teodoro em 2026-11-20: a IA também forma agrupadores, inclusive dentro do agrupador selecionado, e quem confirma é a pessoa.
