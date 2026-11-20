@@ -37,6 +37,12 @@ export type Step = (typeof STEPS)[number];
 export type JudgmentRecord = {
   /** Título do nó atual; `null` na raiz. */
   current: string | null;
+  /** Id do nó atual (`null` na raiz). Ausente em execuções antigas ou quando o juiz não conseguiu resolvê-lo. */
+  currentId?: string | null;
+  /** Ids dos candidatos, na ordem em que foram oferecidos. Ausente em execuções antigas. */
+  candidateIds?: string[];
+  /** Probabilidade do `Choice` por id do candidato. Ausente em execuções antigas. */
+  choiceById?: Record<string, number>;
   candidateCount: number;
   belongs: number;
   /** Probabilidade por título do candidato. */
@@ -108,24 +114,25 @@ export function removalOrder(tickets: readonly { id: string; parentId: string | 
     .map((x) => x.id);
 }
 
+/**
+ * Compara o destino da procura com o pai esperado, na árvore RECONSTRUÍDA (não na do gabarito):
+ * `same_parent` é o ticket novo que corresponde ao pai esperado; `deeper` é um caminho que passa por ele sem
+ * terminar nele; o resto é `elsewhere`. Ticket de raiz no gabarito só pode ser `same_parent` ou `elsewhere`.
+ */
 export function classifyPlacement(input: {
   expectedParentOldId: string | null;
   chosenNewParentId: string | null;
+  /** Caminho do destino da procura, com ids novos, da raiz até o pai escolhido. */
+  destinationPath: readonly PathNode[];
   newToOld: ReadonlyMap<string, string>;
-  oldParents: ReadonlyMap<string, string | null>;
 }): PlacementGroup {
-  const { expectedParentOldId: expected, chosenNewParentId: chosen, newToOld, oldParents } = input;
-  if (chosen === null) return expected === null ? "same_parent" : "elsewhere";
-  const chosenOld = newToOld.get(chosen);
-  if (chosenOld === undefined) return "elsewhere";
-  if (chosenOld === expected) return "same_parent";
-  if (expected === null) return "deeper"; // a raiz é ancestral de qualquer ticket
-  let cursor = oldParents.get(chosenOld) ?? null;
-  for (let guard = 0; cursor !== null && guard <= oldParents.size; guard++) {
-    if (cursor === expected) return "deeper";
-    cursor = oldParents.get(cursor) ?? null;
-  }
-  return "elsewhere";
+  const { expectedParentOldId: expected, chosenNewParentId: chosen, destinationPath, newToOld } = input;
+  if (expected === null) return chosen === null ? "same_parent" : "elsewhere";
+  if (chosen === null) return "elsewhere";
+  if (newToOld.get(chosen) === expected) return "same_parent";
+  const expectedNewIds = new Set([...newToOld].filter(([, old]) => old === expected).map(([id]) => id));
+  const passesThrough = destinationPath.slice(0, -1).some((node) => expectedNewIds.has(node.id));
+  return passesThrough ? "deeper" : "elsewhere";
 }
 
 export type LiveTicket = { id: string; title: string; parentId: string | null; status: string | null };
@@ -235,6 +242,7 @@ export const COMMANDS = [
   "restore-original",
   "create-project",
   "archive-project",
+  "leave-one-out",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -248,10 +256,16 @@ export type CliOptions = {
   key?: string;
   name?: string;
   fakeProviders?: boolean;
+  /** `report`: lê a execução do `leave-one-out` em vez da do `rebuild`. */
+  loo?: boolean;
   role?: string;
   retryDelaysMs?: number[];
   fake503First?: number;
   fake503JudgeAt?: number;
+  /** Ensaio do `leave-one-out`: interrompe o processo logo depois de remover o N-ésimo ticket desta execução. */
+  looCrashAfterRemove?: number;
+  /** Ensaio do `leave-one-out`: interrompe depois de gravar o rascunho do N-ésimo ticket (a conversa fica aberta). */
+  looCrashAfterDraft?: number;
 };
 
 export type ParsedArgs = { ok: true; command: Command; options: CliOptions } | { ok: false; error: string };
@@ -267,6 +281,7 @@ const REQUIRED: Record<Command, readonly (keyof CliOptions)[]> = {
   "restore-original": [...APP_REQUIRED, "project"],
   "create-project": [...APP_REQUIRED, "key", "name"],
   "archive-project": [...APP_REQUIRED, "project"],
+  "leave-one-out": [...APP_REQUIRED, "project"],
 };
 
 const FLAGS: Record<string, keyof CliOptions> = {
@@ -279,10 +294,13 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--key": "key",
   "--name": "name",
   "--fake-providers": "fakeProviders",
+  "--loo": "loo",
   "--role": "role",
   "--retry-delays-ms": "retryDelaysMs",
   "--fake-503-first": "fake503First",
   "--fake-503-judge-at": "fake503JudgeAt",
+  "--loo-crash-after-remove": "looCrashAfterRemove",
+  "--loo-crash-after-draft": "looCrashAfterDraft",
 };
 
 const usage = `Comandos: ${COMMANDS.join(", ")}.`;
@@ -298,13 +316,13 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     const flag = rest[i] as string;
     const key = FLAGS[flag];
     if (!key) return fail(`Opção desconhecida: ${flag}.`);
-    if (key === "fakeProviders") {
+    if (key === "fakeProviders" || key === "loo") {
       options[key] = true;
       continue;
     }
     const value = rest[++i];
     if (value === undefined) return fail(`A opção ${flag} precisa de um valor.`);
-    if (key === "limit" || key === "fake503First" || key === "fake503JudgeAt") {
+    if (key === "limit" || key === "fake503First" || key === "fake503JudgeAt" || key === "looCrashAfterRemove" || key === "looCrashAfterDraft") {
       const parsed = Number(value);
       if (!Number.isInteger(parsed) || parsed < 0) return fail(`${flag} deve ser um número inteiro.`);
       options[key] = parsed;
@@ -455,16 +473,37 @@ const cell = (text: string): string => text.replace(/\|/g, "\\|").replace(/\n/g,
 const pct = (n: number): string => n.toFixed(2);
 const pathText = (titles: string[]): string => (titles.length === 0 ? "(raiz)" : titles.join(" › "));
 
-export function renderReport(gabarito: readonly GabaritoTicket[], records: readonly RunRecord[], projectKey: string): string {
+const LABEL_TEXT: Record<JudgmentLabel, string> = {
+  deveria_descer: "o pai esperado é um dos candidatos ou está dentro de um deles",
+  deveria_parar: "o nó atual é o pai esperado",
+  fora_do_caminho: "o nó atual não é o pai esperado nem ancestral dele",
+};
+
+export type RenderOptions = {
+  /** Árvore em que a procura rodou; por padrão, a reconstruída a partir dos registros. */
+  view?: TreeView;
+  /** Relatório do `leave-one-out`. */
+  loo?: boolean;
+};
+
+export function renderReport(
+  gabarito: readonly GabaritoTicket[],
+  recordedRecords: readonly RunRecord[],
+  projectKey: string,
+  options: RenderOptions = {},
+): string {
+  const view = options.view ?? rebuildView(gabarito, recordedRecords);
+  // Não confia no `group` gravado: recalcula pelo caminho do destino e pela correspondência de ids.
+  const records = recomputeGroups(recordedRecords, view);
   const stats = computeStats(gabarito, records);
   const lines: string[] = [];
   const out = (line = ""): void => void lines.push(line);
 
-  out(`# Relatório da reconstrução — ${projectKey}`);
+  out(`# Relatório ${options.loo ? "do leave-one-out" : "da reconstrução"} — ${projectKey}`);
   out();
   out("## Resumo");
   out();
-  out(`Tickets no gabarito: ${gabarito.length}. Reinseridos: ${stats.total}.`);
+  out(`Tickets no gabarito: ${gabarito.length}. ${options.loo ? "Medidos" : "Reinseridos"}: ${stats.total}.`);
   out();
   out("| Grupo | Total |");
   out("| --- | ---: |");
@@ -503,12 +542,43 @@ export function renderReport(gabarito: readonly GabaritoTicket[], records: reado
   out("## Calibração");
   out();
   const rows = calibrationRows(records);
+  const labeled = labeledJudgments(records, view);
   if (rows.length === 0) out("Nenhum julgamento registrado.");
   else {
-    out("| Ticket | Nó atual | belongs | Maior choice | A procura | Bateu com o gabarito |");
-    out("| --- | --- | ---: | ---: | --- | --- |");
-    for (const row of rows) {
-      out(`| ${cell(row.title)} | ${cell(row.current ?? "(raiz)")} | ${pct(row.belongs)} | ${pct(row.topChoice)} | ${row.action} | ${row.hit ? "sim" : "não"} |`);
+    out("| Ticket | Nó atual | Rótulo | belongs | Maior choice | A procura | Bateu com o gabarito |");
+    out("| --- | --- | --- | ---: | ---: | --- | --- |");
+    rows.forEach((row, index) => {
+      const label = (labeled[index] as LabeledRow).label;
+      out(`| ${cell(row.title)} | ${cell(row.current ?? "(raiz)")} | ${label} | ${pct(row.belongs)} | ${pct(row.topChoice)} | ${row.action} | ${row.hit ? "sim" : "não"} |`);
+    });
+  }
+  out();
+  out("## Rótulos dos julgamentos");
+  out();
+  if (labeled.length === 0) out("Nenhum julgamento registrado.");
+  else {
+    const byLabel = labelStats(labeled);
+    const sentence = LABELS.map((label) => `\`${label}\`: ${LABEL_TEXT[label]}`).join("; ");
+    out(`${sentence}.`);
+    out();
+    out("| Rótulo | Julgamentos | belongs < 0,3 | 0,3 a 0,7 | > 0,7 | Mediana de belongs |");
+    out("| --- | ---: | ---: | ---: | ---: | ---: |");
+    for (const label of LABELS) {
+      const x = byLabel[label];
+      out(`| ${label} | ${x.count} | ${x.bands.low} | ${x.bands.mid} | ${x.bands.high} | ${pct(x.medianBelongs)} |`);
+    }
+    const topChoice = byLabel.deveria_descer.topChoice;
+    if (topChoice) {
+      out();
+      out("Em `deveria_descer`, o candidato mais votado do `Choice` era o certo (o pai esperado ou o candidato que o contém):");
+      out();
+      out(`- até 10 candidatos: ${topChoice.upTo10.right} de ${topChoice.upTo10.total}`);
+      out(`- mais de 10 candidatos: ${topChoice.over10.right} de ${topChoice.over10.total}`);
+    }
+    const byTitle = labeled.filter((row) => row.byTitle).length;
+    if (byTitle > 0) {
+      out();
+      out(`Aviso: ${byTitle} julgamento(s) estão sem ids (execução antiga ou nó atual não resolvido) e foram rotulados por título; títulos repetidos podem confundir o rótulo.`);
     }
   }
   out();
@@ -535,4 +605,201 @@ export function renderReport(gabarito: readonly GabaritoTicket[], records: reado
   for (const step of STEPS) out(`| ${step} | ${stats.timing[step].median} | ${stats.timing[step].max} |`);
   out();
   return lines.join("\n");
+}
+
+// ---- árvore viva, grupos recalculados e rótulos dos julgamentos --------------------------------------------------
+
+/** A árvore em que a procura rodou, em ids novos, mais a correspondência com os ids do gabarito. */
+export type TreeView = {
+  oldToNew: ReadonlyMap<string, string>;
+  parentOfNew: ReadonlyMap<string, string | null>;
+  titleOfNew: ReadonlyMap<string, string>;
+};
+
+const invert = (map: ReadonlyMap<string, string>): Map<string, string> => new Map([...map].map(([k, v]) => [v, k]));
+
+/** Árvore do `rebuild`: o pai de cada ticket novo é o que a procura escolheu. */
+export function rebuildView(gabarito: readonly GabaritoTicket[], records: readonly RunRecord[]): TreeView {
+  void gabarito;
+  return {
+    oldToNew: new Map(records.map((r) => [r.oldId, r.newId])),
+    parentOfNew: new Map(records.map((r) => [r.newId, r.chosenParentNewId])),
+    titleOfNew: new Map(records.map((r) => [r.newId, r.title])),
+  };
+}
+
+/** Árvore do `leave-one-out`: a do gabarito, com os ids vivos. */
+export function looView(gabarito: readonly GabaritoTicket[], oldToNew: ReadonlyMap<string, string>): TreeView {
+  const parentOfNew = new Map<string, string | null>();
+  const titleOfNew = new Map<string, string>();
+  for (const ticket of gabarito) {
+    const id = oldToNew.get(ticket.id);
+    if (id === undefined) continue;
+    parentOfNew.set(id, ticket.parentId === null ? null : (oldToNew.get(ticket.parentId) ?? null));
+    titleOfNew.set(id, ticket.title);
+  }
+  return { oldToNew, parentOfNew, titleOfNew };
+}
+
+/** Recalcula `group` de cada registro a partir do caminho do destino e da correspondência de ids, sem confiar no gravado. */
+export function recomputeGroups(records: readonly RunRecord[], view: TreeView): RunRecord[] {
+  const newToOld = invert(view.oldToNew);
+  return records.map((record) => ({
+    ...record,
+    group: classifyPlacement({
+      expectedParentOldId: record.expectedParentOldId,
+      chosenNewParentId: record.chosenParentNewId,
+      destinationPath: record.destinationPath,
+      newToOld,
+    }),
+  }));
+}
+
+export type JudgmentLabel = "deveria_descer" | "deveria_parar" | "fora_do_caminho";
+export const LABELS: readonly JudgmentLabel[] = ["deveria_descer", "deveria_parar", "fora_do_caminho"];
+
+/** O pai esperado e seus ancestrais (o esperado primeiro), na árvore em que a procura rodou. Vazio: o esperado é a raiz. */
+export type ExpectedChain = { ids: string[]; titles: string[]; expectedIsRoot: boolean };
+
+export function expectedChain(expectedParentOldId: string | null, view: TreeView): ExpectedChain {
+  if (expectedParentOldId === null) return { ids: [], titles: [], expectedIsRoot: true };
+  const ids: string[] = [];
+  const titles: string[] = [];
+  let cursor: string | null | undefined = view.oldToNew.get(expectedParentOldId);
+  for (let guard = 0; cursor && guard <= view.parentOfNew.size; guard++) {
+    ids.push(cursor);
+    titles.push(view.titleOfNew.get(cursor) ?? "");
+    cursor = view.parentOfNew.get(cursor);
+  }
+  return { ids, titles, expectedIsRoot: false };
+}
+
+export type LabeledJudgment = {
+  label: JudgmentLabel;
+  /** Rotulado por título porque o registro não tem ids (execução antiga). */
+  byTitle: boolean;
+  /** Só para `deveria_descer`: o candidato mais votado do `Choice` era o certo. `null` nos outros rótulos. */
+  topChoiceRight: boolean | null;
+  belongs: number;
+  candidateCount: number;
+};
+
+/** Tira o sufixo ` [id]` que o invólucro põe em títulos repetidos. */
+const stripSuffix = (key: string): string => key.replace(/ \[[^\]]+\]$/, "");
+
+export function labelJudgment(judgment: JudgmentRecord, chain: ExpectedChain): LabeledJudgment {
+  const byTitle = judgment.currentId === undefined || judgment.candidateIds === undefined;
+  const keys = byTitle ? chain.titles : chain.ids;
+  const currentKey = byTitle ? judgment.current : (judgment.currentId ?? null);
+  const candidateKeys = byTitle ? Object.keys(judgment.choice).map(stripSuffix) : (judgment.candidateIds as string[]);
+  const base = { byTitle, belongs: judgment.belongs, candidateCount: judgment.candidateIds?.length ?? judgment.candidateCount };
+
+  const stop = chain.expectedIsRoot ? currentKey === null : currentKey !== null && currentKey === keys[0];
+  if (stop) return { ...base, label: "deveria_parar", topChoiceRight: null };
+
+  const isRight = (candidate: string): boolean => keys.includes(candidate);
+  if (!chain.expectedIsRoot && candidateKeys.some(isRight)) {
+    const votes: [string, number][] = byTitle
+      ? Object.entries(judgment.choice).map(([key, p]) => [stripSuffix(key), p])
+      : Object.entries(judgment.choiceById ?? {});
+    const top = votes.reduce<[string, number] | null>((best, vote) => (best === null || vote[1] > best[1] ? vote : best), null);
+    return { ...base, label: "deveria_descer", topChoiceRight: top === null ? null : isRight(top[0]) };
+  }
+  return { ...base, label: "fora_do_caminho", topChoiceRight: null };
+}
+
+export type LabeledRow = LabeledJudgment & { oldId: string; title: string; current: string | null };
+
+export function labeledJudgments(records: readonly RunRecord[], view: TreeView): LabeledRow[] {
+  return records.flatMap((record) => {
+    const chain = expectedChain(record.expectedParentOldId, view);
+    return record.judgments.map((judgment) => ({
+      ...labelJudgment(judgment, chain),
+      oldId: record.oldId,
+      title: record.title,
+      current: judgment.current,
+    }));
+  });
+}
+
+export type LabelStats = {
+  count: number;
+  bands: Record<Band, number>;
+  medianBelongs: number;
+  /** Só `deveria_descer`: acerto do candidato mais votado, por tamanho da lista. */
+  topChoice?: { upTo10: { right: number; total: number }; over10: { right: number; total: number } };
+};
+
+export function labelStats(rows: readonly LabeledRow[]): Record<JudgmentLabel, LabelStats> {
+  const result = {} as Record<JudgmentLabel, LabelStats>;
+  for (const label of LABELS) {
+    const own = rows.filter((row) => row.label === label);
+    const bands: Record<Band, number> = { low: 0, mid: 0, high: 0 };
+    for (const row of own) bands[judgmentBand(row.belongs)] += 1;
+    const stats: LabelStats = { count: own.length, bands, medianBelongs: median(own.map((row) => row.belongs)) };
+    if (label === "deveria_descer") {
+      const tally = { upTo10: { right: 0, total: 0 }, over10: { right: 0, total: 0 } };
+      for (const row of own) {
+        if (row.topChoiceRight === null) continue;
+        const bucket = row.candidateCount <= 10 ? tally.upTo10 : tally.over10;
+        bucket.total += 1;
+        if (row.topChoiceRight) bucket.right += 1;
+      }
+      stats.topChoice = tally;
+    }
+    result[label] = stats;
+  }
+  return result;
+}
+
+/** Descobre o id do nó atual do juiz entre os candidatos já vistos nesta procura (pelo título e pelo resumo). */
+export function resolveCurrentId(
+  current: { title: string; summary: string } | null,
+  seen: readonly { id: string; title: string; summary: string }[],
+): string | null | undefined {
+  if (current === null) return null;
+  for (let i = seen.length - 1; i >= 0; i--) {
+    const candidate = seen[i] as { id: string; title: string; summary: string };
+    if (candidate.title === current.title && candidate.summary === current.summary) return candidate.id;
+  }
+  return undefined;
+}
+
+// ---- leave-one-out ---------------------------------------------------------------------------------------------
+
+/** Só os tickets sem filhos, na ordem do número original. */
+export function looLeaves(tickets: readonly GabaritoTicket[]): GabaritoTicket[] {
+  const parents = new Set(tickets.map((x) => x.parentId).filter((id): id is string => id !== null));
+  return tickets.filter((x) => !parents.has(x.id)).sort((a, b) => a.number - b.number);
+}
+
+/** `limit` vale para a lista inteira (as N primeiras folhas); as já registradas saem em seguida. */
+export function pendingLoo(leaves: readonly GabaritoTicket[], doneOldIds: ReadonlySet<string>, limit?: number): GabaritoTicket[] {
+  const window = limit === undefined ? leaves : leaves.slice(0, limit);
+  return window.filter((ticket) => !doneOldIds.has(ticket.id));
+}
+
+export type LooMark = {
+  oldId: string;
+  title: string;
+  /** Id do ticket no projeto no momento da marca (antes da remoção). */
+  ticketId: string;
+  expectedParentNewId: string | null;
+  conversationId?: string;
+};
+
+/** Marcas sem resultado correspondente; vale a última marca de cada ticket. */
+export function pendingMarks(marks: readonly LooMark[], resultOldIds: ReadonlySet<string>): LooMark[] {
+  const latest = new Map<string, LooMark>();
+  for (const mark of marks) latest.set(mark.oldId, mark);
+  return [...latest.values()].filter((mark) => !resultOldIds.has(mark.oldId));
+}
+
+export type LooResume = { kind: "present"; ticketId: string } | { kind: "recreated"; ticketId: string } | { kind: "missing" };
+
+/** O ticket da marca ainda existe (mesmo id), foi recriado (mesmo título e pai, outro id) ou sumiu? */
+export function looResumeAction(mark: LooMark, live: readonly LiveTicket[]): LooResume {
+  if (live.some((x) => x.id === mark.ticketId)) return { kind: "present", ticketId: mark.ticketId };
+  const recreated = live.find((x) => x.title === mark.title && x.parentId === mark.expectedParentNewId);
+  return recreated ? { kind: "recreated", ticketId: recreated.id } : { kind: "missing" };
 }

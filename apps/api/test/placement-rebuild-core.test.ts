@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
   buildImportTree,
   calibrationRows,
+  expectedChain,
+  labelJudgment,
+  labelStats,
+  labeledJudgments,
+  looLeaves,
+  looResumeAction,
+  looView,
+  pendingLoo,
+  pendingMarks,
+  rebuildView,
+  recomputeGroups,
+  resolveCurrentId,
   classifyPlacement,
   compareTrees,
   computeDepths,
@@ -15,7 +27,7 @@ import {
   resumeState,
   withRetry503,
 } from "../scripts/placement-rebuild/core.js";
-import type { GabaritoTicket, RunRecord } from "../scripts/placement-rebuild/core.js";
+import type { GabaritoTicket, JudgmentLabel, JudgmentRecord, LabeledRow, LiveTicket, LooMark, RunRecord } from "../scripts/placement-rebuild/core.js";
 
 const t = (
   id: string,
@@ -85,45 +97,261 @@ describe("removalOrder", () => {
 });
 
 describe("classifyPlacement", () => {
-  // gabarito: a(raiz) > b > d ; e raiz
-  const oldParents = new Map<string, string | null>([
-    ["a", null],
-    ["b", "a"],
-    ["d", "b"],
-    ["e", null],
-  ]);
+  // gabarito: a(raiz) > b > d ; a > c ; e raiz. Ids novos: na, nb, nc, nd, ne.
   const newToOld = new Map([
     ["na", "a"],
     ["nb", "b"],
+    ["nc", "c"],
     ["nd", "d"],
+    ["ne", "e"],
   ]);
-  const classify = (expected: string | null, chosen: string | null) =>
-    classifyPlacement({ expectedParentOldId: expected, chosenNewParentId: chosen, newToOld, oldParents });
+  const path = (...ids: string[]) => ids.map((id) => ({ id, title: id }));
+  const classify = (expected: string | null, chosen: string | null, destination: string[]) =>
+    classifyPlacement({ expectedParentOldId: expected, chosenNewParentId: chosen, destinationPath: path(...destination), newToOld });
 
   it("ticket de raiz que ficou na raiz é same_parent", () => {
-    expect(classify(null, null)).toBe("same_parent");
+    expect(classify(null, null, [])).toBe("same_parent");
   });
-  it("pai escolhido que corresponde ao esperado é same_parent", () => {
-    expect(classify("b", "nb")).toBe("same_parent");
+  it("pai escolhido que é o ticket novo do pai esperado é same_parent", () => {
+    expect(classify("b", "nb", ["na", "nb"])).toBe("same_parent");
+    expect(classify("b", "nb", ["nb"])).toBe("same_parent"); // mesmo sem o caminho passar pelo gabarito
   });
-  it("pai esperado é ancestral do pai escolhido: deeper", () => {
-    expect(classify("a", "nd")).toBe("deeper");
-    expect(classify("b", "nd")).toBe("deeper");
+  it("caminho que passa pelo ticket novo do pai esperado e continua é deeper", () => {
+    expect(classify("a", "nd", ["na", "nb", "nd"])).toBe("deeper");
+    expect(classify("b", "nd", ["na", "nb", "nd"])).toBe("deeper");
   });
-  it("ticket de raiz que desceu para qualquer ticket é deeper (a raiz é ancestral de tudo)", () => {
-    expect(classify(null, "nb")).toBe("deeper");
+  it("pai escolhido que no gabarito era irmão sob o pai esperado, mas na árvore nova está fora dele, é elsewhere", () => {
+    // esperado b; escolhido c (no gabarito c é filho de a, como b); na árvore nova c ficou na raiz
+    expect(classify("b", "nc", ["nc"])).toBe("elsewhere");
+    // esperado a; escolhido nd, mas o caminho novo é só [nb, nd]: não passa por na
+    expect(classify("a", "nd", ["nb", "nd"])).toBe("elsewhere");
+  });
+  it("ticket que no gabarito é de raiz nunca é deeper: se não ficou na raiz, é elsewhere", () => {
+    expect(classify(null, "nb", ["na", "nb"])).toBe("elsewhere");
+    expect(classify(null, "ne", ["ne"])).toBe("elsewhere");
   });
   it("pai mais raso que o esperado ou em outro ramo é elsewhere", () => {
-    expect(classify("d", "nb")).toBe("elsewhere");
-    expect(classify("b", "na")).toBe("elsewhere");
-    expect(classify("e", "nb")).toBe("elsewhere");
+    expect(classify("d", "nb", ["na", "nb"])).toBe("elsewhere");
+    expect(classify("b", "na", ["na"])).toBe("elsewhere");
+    expect(classify("e", "nb", ["na", "nb"])).toBe("elsewhere");
   });
   it("esperava um pai mas ficou na raiz: elsewhere", () => {
-    expect(classify("b", null)).toBe("elsewhere");
+    expect(classify("b", null, [])).toBe("elsewhere");
   });
-  it("pai escolhido sem correspondência no gabarito: elsewhere", () => {
-    expect(classify("a", "desconhecido")).toBe("elsewhere");
-    expect(classify(null, "desconhecido")).toBe("elsewhere");
+  it("o caminho passa pelo pai esperado mesmo que o pai escolhido não tenha correspondência: deeper", () => {
+    expect(classify("a", "desconhecido", ["na", "desconhecido"])).toBe("deeper");
+    expect(classify("a", "desconhecido", ["desconhecido"])).toBe("elsewhere");
+  });
+  it("pai esperado sem ticket novo correspondente: elsewhere", () => {
+    expect(classify("z", "nb", ["na", "nb"])).toBe("elsewhere");
+  });
+});
+
+// ---- árvore viva, grupos recalculados, rótulos ----------------------------------------------------------------
+
+describe("recomputeGroups", () => {
+  const gabarito = computeDepths([t("a", 1, null), t("b", 2, "a"), t("c", 3, "a"), t("d", 4, "b")]);
+  const pathOf = (...ids: string[]) => ids.map((id) => ({ id, title: `Título ${id.slice(1)}` }));
+
+  it("ignora o group gravado e recalcula pelo caminho do destino e pela correspondência dos registros", () => {
+    const records = [
+      makeRecord({ oldId: "a", newId: "na", expectedParentOldId: null, chosenParentNewId: null, group: "elsewhere" }),
+      // gravado como deeper (regra antiga: c é irmão de b sob a), mas na árvore nova c ficou na raiz: elsewhere
+      makeRecord({ oldId: "b", newId: "nb", expectedParentOldId: "a", chosenParentNewId: "na", destinationPath: pathOf("na"), group: "deeper" }),
+      makeRecord({ oldId: "c", newId: "nc", expectedParentOldId: "a", chosenParentNewId: null, destinationPath: [], group: "deeper" }),
+      // gravado como elsewhere; o caminho passa pelo pai esperado (b) e continua em c... não: passa por nb e termina em nc
+      makeRecord({ oldId: "d", newId: "nd", expectedParentOldId: "a", chosenParentNewId: "nb", destinationPath: pathOf("na", "nb"), group: "elsewhere" }),
+    ];
+    const recomputed = recomputeGroups(records, rebuildView(gabarito, records));
+    expect(recomputed.map((r) => [r.oldId, r.group])).toEqual([
+      ["a", "same_parent"],
+      ["b", "same_parent"],
+      ["c", "elsewhere"],
+      ["d", "deeper"],
+    ]);
+  });
+
+  it("não altera os registros de entrada", () => {
+    const records = [makeRecord({ oldId: "a", newId: "na", group: "deeper" })];
+    recomputeGroups(records, rebuildView(gabarito, records));
+    expect(records[0]!.group).toBe("deeper");
+  });
+});
+
+describe("rebuildView e looView", () => {
+  const gabarito = computeDepths([t("a", 1, null), t("b", 2, "a")]);
+  it("rebuildView: pais e títulos da árvore reconstruída vêm do que a procura escolheu", () => {
+    const records = [
+      makeRecord({ oldId: "a", newId: "na", chosenParentNewId: null }),
+      makeRecord({ oldId: "b", newId: "nb", chosenParentNewId: "na" }),
+    ];
+    const view = rebuildView(gabarito, records);
+    expect(view.oldToNew.get("b")).toBe("nb");
+    expect(view.parentOfNew.get("nb")).toBe("na");
+    expect(view.parentOfNew.get("na")).toBeNull();
+    expect(view.titleOfNew.get("nb")).toBe("Título b");
+  });
+  it("looView: a árvore viva tem a forma do gabarito, com os ids novos", () => {
+    const view = looView(gabarito, new Map([["a", "na"], ["b", "nb"]]));
+    expect(view.parentOfNew.get("nb")).toBe("na");
+    expect(view.parentOfNew.get("na")).toBeNull();
+    expect(view.titleOfNew.get("na")).toBe("Título a");
+  });
+});
+
+describe("rótulos dos julgamentos", () => {
+  // árvore em que a procura rodou: n1 > n2 > n3 ; n1 > n4 ; n5 raiz
+  const gabarito = computeDepths([t("a", 1, null), t("b", 2, "a"), t("c", 3, "b"), t("d", 4, "a"), t("e", 5, null)]);
+  const oldToNew = new Map([["a", "n1"], ["b", "n2"], ["c", "n3"], ["d", "n4"], ["e", "n5"]]);
+  const view = looView(gabarito, oldToNew);
+  const judgment = (extra: Partial<JudgmentRecord>): JudgmentRecord => ({
+    current: null,
+    currentId: null,
+    candidateIds: ["n1", "n5"],
+    candidateCount: 2,
+    belongs: 0.9,
+    choice: { "Título a": 0.7, "Título e": 0.3 },
+    choiceById: { n1: 0.7, n5: 0.3 },
+    ...extra,
+  });
+
+  it("expectedChain: o pai esperado e os ancestrais, na árvore da procura", () => {
+    expect(expectedChain("c", view)).toMatchObject({ ids: ["n3", "n2", "n1"], expectedIsRoot: false });
+    expect(expectedChain(null, view)).toMatchObject({ ids: [], expectedIsRoot: true });
+  });
+
+  it("deveria_descer: o pai esperado é um dos candidatos", () => {
+    const labeled = labelJudgment(judgment({ candidateIds: ["n1", "n5"] }), expectedChain("a", view));
+    expect(labeled.label).toBe("deveria_descer");
+  });
+  it("deveria_descer: o pai esperado está dentro de um dos candidatos", () => {
+    const labeled = labelJudgment(judgment({}), expectedChain("c", view));
+    expect(labeled.label).toBe("deveria_descer");
+    expect(labeled.topChoiceRight).toBe(true); // o mais votado (n1) contém o esperado
+  });
+  it("deveria_descer: acerto do Choice é falso quando o mais votado não contém o esperado", () => {
+    const labeled = labelJudgment(judgment({ choiceById: { n1: 0.2, n5: 0.8 } }), expectedChain("c", view));
+    expect(labeled.topChoiceRight).toBe(false);
+  });
+  it("deveria_parar: o nó atual é o pai esperado", () => {
+    const labeled = labelJudgment(judgment({ current: "Título b", currentId: "n2", candidateIds: ["n3"] }), expectedChain("b", view));
+    expect(labeled.label).toBe("deveria_parar");
+    expect(labeled.topChoiceRight).toBeNull();
+  });
+  it("deveria_parar: nó atual é a raiz e o pai esperado é a raiz", () => {
+    expect(labelJudgment(judgment({}), expectedChain(null, view)).label).toBe("deveria_parar");
+  });
+  it("fora_do_caminho: o nó atual não é o pai esperado nem ancestral dele", () => {
+    const labeled = labelJudgment(judgment({ current: "Título d", currentId: "n4", candidateIds: [] }), expectedChain("c", view));
+    expect(labeled.label).toBe("fora_do_caminho");
+  });
+  it("fora_do_caminho: ticket de raiz, nó atual não é a raiz", () => {
+    const labeled = labelJudgment(judgment({ current: "Título a", currentId: "n1", candidateIds: ["n2", "n4"] }), expectedChain(null, view));
+    expect(labeled.label).toBe("fora_do_caminho");
+  });
+  it("registro antigo sem ids é rotulado por título", () => {
+    const old: JudgmentRecord = {
+      current: "Título b",
+      candidateCount: 1,
+      belongs: 0.2,
+      choice: { "Título c": 1 },
+    };
+    const labeled = labelJudgment(old, expectedChain("b", view));
+    expect(labeled).toMatchObject({ label: "deveria_parar", byTitle: true });
+    const rootOld: JudgmentRecord = { current: null, candidateCount: 2, belongs: 0.9, choice: { "Título a": 0.6, "Título e [n5]": 0.4 } };
+    expect(labelJudgment(rootOld, expectedChain("c", view))).toMatchObject({ label: "deveria_descer", byTitle: true, topChoiceRight: true });
+  });
+  it("labeledJudgments percorre os registros e usa o pai esperado de cada um", () => {
+    const records = [
+      makeRecord({ oldId: "c", expectedParentOldId: "b", judgments: [judgment({}), judgment({ current: "Título a", currentId: "n1", candidateIds: ["n2", "n4"], choiceById: { n2: 0.6, n4: 0.4 } })] }),
+    ];
+    const rows = labeledJudgments(records, view);
+    expect(rows.map((r) => [r.oldId, r.label])).toEqual([["c", "deveria_descer"], ["c", "deveria_descer"]]);
+  });
+});
+
+describe("labelStats", () => {
+  const row = (label: JudgmentLabel, belongs: number, candidateCount: number, topChoiceRight: boolean | null): LabeledRow => ({
+    label,
+    byTitle: false,
+    topChoiceRight,
+    belongs,
+    candidateCount,
+    oldId: "x",
+    title: "x",
+    current: null,
+  });
+  it("conta por rótulo, distribui belongs nas faixas, tira a mediana e separa o acerto do Choice por tamanho da lista", () => {
+    const stats = labelStats([
+      row("deveria_descer", 0.9, 5, true),
+      row("deveria_descer", 0.5, 10, false),
+      row("deveria_descer", 0.2, 11, true),
+      row("deveria_descer", 0.8, 30, false),
+      row("deveria_parar", 0.1, 3, null),
+      row("deveria_parar", 0.3, 3, null),
+    ]);
+    expect(stats.deveria_descer.count).toBe(4);
+    expect(stats.deveria_descer.bands).toEqual({ low: 1, mid: 1, high: 2 });
+    expect(stats.deveria_descer.medianBelongs).toBeCloseTo(0.65);
+    expect(stats.deveria_descer.topChoice).toEqual({ upTo10: { right: 1, total: 2 }, over10: { right: 1, total: 2 } });
+    expect(stats.deveria_parar).toMatchObject({ count: 2, bands: { low: 1, mid: 1, high: 0 } });
+    expect(stats.deveria_parar.medianBelongs).toBeCloseTo(0.2);
+    expect(stats.fora_do_caminho).toMatchObject({ count: 0, bands: { low: 0, mid: 0, high: 0 }, medianBelongs: 0 });
+  });
+});
+
+describe("resolveCurrentId", () => {
+  const seen = [
+    { id: "n1", title: "A", summary: "resumo A" },
+    { id: "n2", title: "B", summary: "resumo B" },
+    { id: "n3", title: "B", summary: "outro resumo" },
+  ];
+  it("raiz: null", () => {
+    expect(resolveCurrentId(null, seen)).toBeNull();
+  });
+  it("acha o candidato já visto pelo título e pelo resumo (distingue títulos repetidos)", () => {
+    expect(resolveCurrentId({ title: "B", summary: "outro resumo" }, seen)).toBe("n3");
+    expect(resolveCurrentId({ title: "A", summary: "resumo A" }, seen)).toBe("n1");
+  });
+  it("sem correspondência: undefined (o relatório cai no título)", () => {
+    expect(resolveCurrentId({ title: "Z", summary: "" }, seen)).toBeUndefined();
+  });
+});
+
+// ---- leave-one-out --------------------------------------------------------------------------------------------
+
+describe("leave-one-out: ordem, seleção e retomada", () => {
+  const tickets = computeDepths([t("a", 1, null), t("b", 2, "a"), t("c", 3, "a"), t("f", 4, null), t("d", 5, "b"), t("e", 6, null)]);
+  it("só os tickets sem filhos, na ordem do número original", () => {
+    expect(looLeaves(tickets).map((x) => x.id)).toEqual(["c", "f", "d", "e"]); // a e b têm filhos: ficam de fora
+  });
+  it("--limit vale para a lista inteira e depois pula os já registrados", () => {
+    const leaves = looLeaves(tickets);
+    expect(pendingLoo(leaves, new Set(["c"]), 2).map((x) => x.id)).toEqual(["f"]);
+    expect(pendingLoo(leaves, new Set()).map((x) => x.id)).toEqual(["c", "f", "d", "e"]);
+    expect(pendingLoo(leaves, new Set(["c", "f", "d", "e"])).map((x) => x.id)).toEqual([]);
+  });
+  const mark = (oldId: string, extra: Partial<LooMark> = {}): LooMark => ({ oldId, title: `Título ${oldId}`, ticketId: `n${oldId}`, expectedParentNewId: "na", ...extra });
+  it("marca sem resultado é pendente; vale a última marca de cada ticket", () => {
+    const pending = pendingMarks([mark("c"), mark("d"), mark("c", { conversationId: "conv-c" })], new Set(["d"]));
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ oldId: "c", conversationId: "conv-c" });
+  });
+  it("marca com resultado não é pendente", () => {
+    expect(pendingMarks([mark("c")], new Set(["c"]))).toEqual([]);
+  });
+  const live = (id: string, title: string, parentId: string | null): LiveTicket => ({ id, title, parentId, status: "todo" });
+  it("retomada: ticket ainda no projeto com o mesmo id", () => {
+    expect(looResumeAction(mark("c"), [live("nc", "Título c", "na")])).toEqual({ kind: "present", ticketId: "nc" });
+  });
+  it("retomada: ticket recriado (mesmo título e pai, outro id)", () => {
+    expect(looResumeAction(mark("c"), [live("novo", "Título c", "na")])).toEqual({ kind: "recreated", ticketId: "novo" });
+  });
+  it("retomada: ticket sumiu (título igual em outro pai não conta)", () => {
+    expect(looResumeAction(mark("c"), [live("outro", "Título c", "nb"), live("na", "Título a", null)])).toEqual({ kind: "missing" });
+  });
+  it("retomada: ticket de raiz recriado na raiz", () => {
+    expect(looResumeAction(mark("e", { expectedParentNewId: null }), [live("novo", "Título e", null)])).toEqual({ kind: "recreated", ticketId: "novo" });
   });
 });
 
@@ -486,5 +714,82 @@ describe("renderReport", () => {
     }
     expect(markdown).toContain("same_parent");
     expect(markdown).toContain("Título b");
+  });
+});
+
+describe("renderReport: grupos recalculados e rótulos", () => {
+  const gabarito = computeDepths([t("a", 1, null), t("b", 2, "a"), t("c", 3, "a")]);
+  const records = [
+    makeRecord({ oldId: "a", newId: "na", chosenParentNewId: null }),
+    // gravado como same_parent, mas o caminho do destino não é o pai esperado: o relatório recalcula
+    makeRecord({
+      oldId: "b",
+      newId: "nb",
+      expectedParentOldId: "a",
+      chosenParentNewId: null,
+      destinationPath: [],
+      group: "same_parent",
+      judgments: [
+        { current: null, currentId: null, candidateIds: ["na"], candidateCount: 1, belongs: 0.2, choice: { "Título a": 1 }, choiceById: { na: 1 } },
+      ],
+    }),
+    makeRecord({
+      oldId: "c",
+      newId: "nc",
+      expectedParentOldId: "a",
+      chosenParentNewId: "na",
+      destinationPath: [{ id: "na", title: "Título a" }],
+      group: "same_parent",
+      judgments: [
+        { current: null, currentId: null, candidateIds: ["na"], candidateCount: 1, belongs: 0.9, choice: { "Título a": 1 }, choiceById: { na: 1 } },
+        { current: "Título a", candidateCount: 1, belongs: 0.1, choice: { "Título b": 1 } }, // registro antigo, sem ids
+      ],
+    }),
+  ];
+
+  it("recalcula o grupo do arquivo de execução em vez de usar o gravado", () => {
+    const markdown = renderReport(gabarito, records, "PROJ");
+    expect(markdown).toMatch(/\| same_parent \| 2 \|/);
+    expect(markdown).toMatch(/\| elsewhere \| 1 \|/);
+    expect(markdown).toMatch(/\| Título b \| elsewhere \|/);
+  });
+
+  it("traz a seção de rótulos com contagem, faixas, mediana e acerto do Choice por tamanho da lista", () => {
+    const markdown = renderReport(gabarito, records, "PROJ");
+    expect(markdown).toContain("## Rótulos dos julgamentos");
+    expect(markdown).toMatch(/\| deveria_descer \| 2 \|/);
+    expect(markdown).toMatch(/\| deveria_parar \| 1 \|/);
+    expect(markdown).toContain("até 10 candidatos");
+    expect(markdown).toContain("mais de 10 candidatos");
+  });
+
+  it("avisa quando algum julgamento foi rotulado por título (execução antiga, sem ids)", () => {
+    expect(renderReport(gabarito, records, "PROJ")).toMatch(/sem ids.*título/i);
+    const clean = renderReport(gabarito, [records[1] as RunRecord], "PROJ");
+    expect(clean).not.toMatch(/sem ids/i);
+  });
+
+  it("a tabela de calibração ganha a coluna do rótulo", () => {
+    expect(renderReport(gabarito, records, "PROJ")).toMatch(/\| Rótulo \|/);
+  });
+
+  it("modo leave-one-out: título próprio e árvore viva", () => {
+    const view = looView(gabarito, new Map([["a", "na"], ["b", "nb"], ["c", "nc"]]));
+    const markdown = renderReport(gabarito, records, "PROJ", { view, loo: true });
+    expect(markdown).toContain("# Relatório do leave-one-out — PROJ");
+  });
+});
+
+describe("parseCliArgs: leave-one-out e report --loo", () => {
+  it("leave-one-out exige org, user, project e dir e aceita --limit", () => {
+    expect(parseCliArgs(["leave-one-out", "--org", "o", "--user", "u", "--project", "p", "--dir", "d", "--limit", "4"])).toMatchObject({
+      ok: true,
+      command: "leave-one-out",
+      options: { limit: 4 },
+    });
+    expect(parseCliArgs(["leave-one-out", "--org", "o", "--user", "u", "--dir", "d"]).ok).toBe(false);
+  });
+  it("report aceita --loo (sem valor)", () => {
+    expect(parseCliArgs(["report", "--project", "p", "--dir", "d", "--loo"])).toMatchObject({ ok: true, options: { loo: true } });
   });
 });
