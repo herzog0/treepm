@@ -4,6 +4,7 @@ import type { ApiClient, ImportItem, Me } from "../api/client.js";
 import { describeApiError } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
+import { plural } from "../plural.js";
 import { StatusMark } from "../map/StatusMark.js";
 import { STATUS_TEXT } from "../map/nodeContent.js";
 import { useAction } from "../panel/useAction.js";
@@ -27,7 +28,6 @@ const MARKERS: readonly { marker: string; meaning: string }[] = [
   { marker: "- [-]", meaning: "cancelado" },
 ];
 
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 function countItems(items: readonly ImportItem[]): { total: number; leaves: number } {
   let total = 0;

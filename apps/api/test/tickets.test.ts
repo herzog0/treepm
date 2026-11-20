@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import pg from "pg";
+import { describe, expect, it, vi } from "vitest";
 import { useHarness } from "./harness.js";
 import { as } from "./world.js";
 import type { Who } from "./world.js";
@@ -515,6 +516,58 @@ describe("importação em lote", () => {
     const ok = await importTo({ items: [chain(20)] });
     expect(ok.status).toBe(201);
     expect(ok.body).toHaveLength(20);
+  });
+
+  it("importa 500 itens em árvore de profundidade variada, com números em pré-ordem e pais corretos", async () => {
+    type Node = { title: string; children?: Node[] };
+    const expected: { title: string; parent: string | null }[] = [];
+    let seq = 0;
+    // Pré-ordem determinística: cada nó tem 0 a 3 filhos conforme o contador, até 500 nós e profundidade 20.
+    const build = (parent: string | null, depth: number): Node | null => {
+      if (seq >= 500) return null;
+      const title = `n${seq++}`;
+      expected.push({ title, parent });
+      const node: Node = { title };
+      const kids = depth >= 20 ? 0 : (seq * 7) % 4;
+      for (let i = 0; i < kids; i++) {
+        const child = build(title, depth + 1);
+        if (child) (node.children ??= []).push(child);
+      }
+      return node;
+    };
+    const items: Node[] = [];
+    while (seq < 500) {
+      const node = build(null, 1);
+      if (node) items.push(node);
+    }
+    const res = await importTo({ items });
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(201);
+    expect(res.body).toHaveLength(500);
+    expect(res.body.map((t: Body) => t.number)).toEqual(Array.from({ length: 500 }, (_, i) => i + 1));
+    expect(res.body.map((t: Body) => t.title)).toEqual(expected.map((e) => e.title));
+    const idByTitle = new Map<string, string>(res.body.map((t: Body) => [t.title as string, t.id as string]));
+    expect(res.body.map((t: Body) => t.parentId)).toEqual(expected.map((e) => (e.parent === null ? null : idByTitle.get(e.parent))));
+    expect(expected.some((e) => e.parent !== null)).toBe(true);
+    expect(await events("ticket.imported")).toHaveLength(1);
+    expect(await count("select count(*) from tickets")).toBe(500);
+  });
+
+  it("usa o mesmo número de comandos SQL para 5 e para 200 itens", async () => {
+    const pairs = (n: number) => ({ items: Array.from({ length: n }, (_, i) => ({ title: `t${i}`, children: [{ title: `c${i}` }] })) });
+    const small5 = { items: [{ title: "a", children: [{ title: "a1" }] }, { title: "b", children: [{ title: "b1" }] }, { title: "c" }] };
+    await importTo({ items: [{ title: "aquecimento" }] }); // identidade e diretório só custam na primeira chamada
+    const spy = vi.spyOn(pg.Client.prototype, "query");
+    try {
+      expect((await importTo(small5)).status).toBe(201); // 5 itens
+      const small = spy.mock.calls.length;
+      spy.mockClear();
+      expect((await importTo(pairs(100))).status).toBe(201); // 200 itens
+      const large = spy.mock.calls.length;
+      expect(small).toBeGreaterThan(0);
+      expect(large).toBe(small);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("grava um único evento ticket.imported com o projeto como assunto", async () => {

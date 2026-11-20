@@ -191,25 +191,36 @@ export class TicketsController {
     walk(body.items, null);
 
     const first = await this.allocateNumbers(tx, project, flat.length);
-    const ids: string[] = [];
-    const rows: TicketRow[] = [];
-    for (const [index, { item, parentIndex }] of flat.entries()) {
-      const created = await tx.ticket.create({
-        data: {
+    // IDs gerados pelo banco (`app_uuid_v7()`, o mesmo padrão da coluna) em UMA consulta; com eles, pais e filhos
+    // entram na mesma inserção em lote (a FK do pai é verificada no fim do comando). Total de idas ao banco
+    // da importação: constante, independente da quantidade de itens.
+    const generated = await tx.$queryRaw<{ id: string }[]>`select app_uuid_v7() as id from generate_series(1, ${flat.length}::int)`;
+    const ids = generated.map((row) => row.id);
+    const rows: TicketRow[] = flat.map(({ item, parentIndex }, index) => ({
+      id: ids[index] as string,
+      projectId,
+      number: first + index,
+      parentId: parentIndex === null ? (body.parentId ?? null) : (ids[parentIndex] ?? null),
+      title: item.title,
+      status: item.status ?? "todo",
+      assignees: [],
+    }));
+    await tx.ticket.createMany({
+      data: flat.map(({ item }, index) => {
+        const row = rows[index] as TicketRow;
+        return {
+          id: row.id,
           orgId: project.orgId,
           projectId,
-          number: first + index,
-          parentId: parentIndex === null ? (body.parentId ?? null) : (ids[parentIndex] ?? null),
-          title: item.title,
+          number: row.number,
+          parentId: row.parentId,
+          title: row.title,
           description: item.description ?? "",
-          status: item.status ?? "todo",
+          status: row.status,
           createdByPersonId: principal.person.id,
-        },
-        select: summarySelect,
-      });
-      ids.push(created.id);
-      rows.push(created);
-    }
+        };
+      }),
+    });
     await this.activity.record(tx, principal, {
       kind: "ticket.imported",
       subjectType: "project",

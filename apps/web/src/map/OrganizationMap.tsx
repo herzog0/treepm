@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import type { ApiClient, ApiResult, Me, Project, TicketSummary } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
+import { plural } from "../plural.js";
 import { SidePanel } from "../panel/SidePanel.js";
 import type { PanelTab } from "../panel/SidePanel.js";
 import { buildMapItems, mixMapColors } from "./items.js";
@@ -27,12 +28,12 @@ const labels: SpatialCanvasLabels = {
 const describeNode = (node: MapNode) => (node.key ? `${node.key} · ${node.label}` : node.label);
 const getNodeAriaLabel = ({ node, childCount }: SpatialNodeContent<MapNode>) =>
   node.kind === "organization"
-    ? `${node.label}. Organização com ${childCount} ${childCount === 1 ? "projeto" : "projetos"}.`
+    ? `${node.label}. Organização com ${plural(childCount, "projeto", "projetos")}.`
     : node.kind === "ticket"
       ? `${describeNode(node)}. Ticket.`
       : `${describeNode(node)}. Projeto.`;
 const getGroupAriaLabel = (members: readonly MapNode[]) =>
-  `${members.length} ${members.every((member) => member.kind === "project") ? "projetos" : "itens"} agrupados: ${members.map(describeNode).join(", ")}. Amplie para revelar.`;
+  `${members.every((member) => member.kind === "project") ? plural(members.length, "projeto", "projetos") : plural(members.length, "item", "itens")} agrupados: ${members.map(describeNode).join(", ")}. Amplie para revelar.`;
 interface PanelState {
   open: boolean;
   tab: PanelTab;

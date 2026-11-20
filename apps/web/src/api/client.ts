@@ -105,6 +105,7 @@ export type ApiErrorKind =
   | "not_found"
   | "conflict"
   | "invalid"
+  | "server_error"
   | "unavailable";
 export interface ApiError {
   kind: ApiErrorKind;
@@ -135,6 +136,7 @@ const KIND_BY_STATUS: Record<number, ApiErrorKind> = {
   403: "forbidden",
   404: "not_found",
   409: "conflict",
+  500: "server_error",
 };
 
 const fail = (kind: ApiErrorKind, code?: string): { ok: false; error: ApiError } => ({
@@ -244,6 +246,7 @@ const MESSAGE_BY_KIND: Record<ApiErrorKind, string> = {
   not_found: "Não encontramos esse item. Ele pode ter sido removido.",
   conflict: "Esta alteração conflita com o estado atual. Recarregue e tente novamente.",
   invalid: "Os dados informados não são válidos.",
+  server_error: "O servidor encontrou um erro. Tente de novo; se continuar, avise quem administra.",
   unavailable: "A API está indisponível. Tente novamente em instantes.",
 };
 

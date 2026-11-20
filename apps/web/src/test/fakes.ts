@@ -2,7 +2,7 @@ import { vi } from "vitest";
 import type { ApiClient, ApiResult, Area, Me, Person, Project, Team, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
-export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid", code?: string): ApiResult<never> => ({
+export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid" | "server_error", code?: string): ApiResult<never> => ({
   ok: false,
   error: code === undefined ? { kind } : { kind, code },
 });
