@@ -10,3 +10,6 @@ build/
 .idea/
 coverage/
 *.tsbuildinfo
+
+# Arquivos locais de coordenação (briefs e relatórios de executores)
+*.local.md
