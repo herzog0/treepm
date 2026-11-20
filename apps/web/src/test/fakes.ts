@@ -15,13 +15,17 @@ export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; 
   };
 }
 
+export function makePerson(id: string, displayName: string, extra: Partial<Person> = {}): Person {
+  return { id, displayName, email: `${id}@example.com`, avatarUrl: null, clerkRole: "member", active: true, ...extra };
+}
+
 export function makeProject(id: string, key: string, name: string, extra: Partial<Project> = {}): Project {
   return { id, key, name, visibility: "organization", archivedAt: null, members: [], teamIds: [], ...extra };
 }
 
 export function makeTicket(id: string, projectId: string, number: number, title: string, extra: Partial<TicketSummary> = {}): TicketSummary {
   const key = extra.key ?? `${projectId.toUpperCase()}-${number}`;
-  return { id, projectId, number, key, parentId: null, title, status: "todo", progress: null, assigneeIds: [], ...extra };
+  return { id, projectId, number, key, parentId: null, title, status: "todo", progress: null, assigneeIds: [], descriptionExcerpt: "", ...extra };
 }
 
 interface FakeData {

@@ -33,6 +33,7 @@ const ticketSummary = {
   status: "todo",
   progress: null,
   assigneeIds: [OTHER],
+  descriptionExcerpt: "Trecho da descrição",
 };
 const ticketDetail = {
   ...ticketSummary,
@@ -226,6 +227,16 @@ describe("describeApiError", () => {
 });
 
 describe("ticket responses", () => {
+  it("keeps descriptionExcerpt from the ticket listing", async () => {
+    const { client } = setup(() => Response.json([ticketSummary]));
+    expect(await client.listTickets(ID)).toEqual({ ok: true, data: [expect.objectContaining({ descriptionExcerpt: "Trecho da descrição" })] });
+  });
+
+  it("rejects a listing entry without descriptionExcerpt", async () => {
+    const { client } = setup(() => Response.json([{ ...ticketSummary, descriptionExcerpt: undefined }]));
+    expect(await client.listTickets(ID)).toEqual({ ok: false, error: { kind: "unavailable" } });
+  });
+
   it("rejects a ticket with an unknown status", async () => {
     const { client } = setup(() => Response.json([{ ...ticketSummary, status: "blocked" }]));
     expect(await client.listTickets(ID)).toEqual({ ok: false, error: { kind: "unavailable" } });

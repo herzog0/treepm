@@ -1,41 +1,25 @@
-import type { RenderNodeContent } from "@treepm/react";
-import type { TicketStatus, TicketSummary } from "../api/client.js";
+import type { RenderNodeContent, SpatialNodeContent } from "@treepm/react";
 import { plural } from "../plural.js";
 import type { MapNode } from "./items.js";
-import { StatusMark } from "./StatusMark.js";
+import { DetailCard } from "./DetailCard.js";
+import { useIsDetail } from "./detail.js";
+import { TicketMark, stateText } from "./ticketState.js";
 
-export const STATUS_TEXT: Record<TicketStatus, string> = {
-  todo: "A fazer",
-  in_progress: "Em andamento",
-  in_review: "Em revisão",
-  done: "Concluído",
-  cancelled: "Cancelado",
-};
+export { STATUS_TEXT, TicketMark, describeTicketState } from "./ticketState.js";
 
-/** Situação em texto; ticket com filhos mostra o progresso com a base (ADR 0024). */
-export function describeTicketState(ticket: TicketSummary): string {
-  if (ticket.progress) {
-    const { done, total, excluded } = ticket.progress;
-    const base = `${done} de ${total} concluídos`;
-    return excluded > 0 ? `${base} · ${excluded} ${excluded === 1 ? "cancelado" : "cancelados"}` : base;
-  }
-  return ticket.status ? STATUS_TEXT[ticket.status] : "";
+/**
+ * Conteúdo do nó por nível de detalhe (ADR 0025): completo, compacto, chip e ponto; mais o "detalhe" da
+ * ADR 0027, que só existe dentro do nível completo e é decidido por nó (ver `detail.tsx`).
+ */
+export const renderNodeContent: RenderNodeContent<MapNode> = (context) =>
+  context.lod === "full" ? <FullContent context={context} /> : renderCardContent(context);
+
+function FullContent({ context }: { context: SpatialNodeContent<MapNode> }) {
+  const detail = useIsDetail(context.node.id);
+  return detail ? <DetailCard node={context.node} childCount={context.childCount} /> : renderCardContent(context);
 }
 
-/** Marcador da situação do ticket: progresso quando tem filhos, situação própria nos demais. */
-export function TicketMark({ ticket }: { ticket: TicketSummary }) {
-  if (ticket.progress) return <StatusMark progress={ticket.progress} />;
-  return ticket.status ? <StatusMark status={ticket.status} /> : null;
-}
-
-/** Texto curto da situação no card completo (sem a contagem de cancelados, que cabe no cartão de seleção). */
-function stateText(ticket: TicketSummary): string {
-  if (ticket.progress) return `${ticket.progress.done} de ${ticket.progress.total} concluídos`;
-  return ticket.status ? STATUS_TEXT[ticket.status] : "";
-}
-
-/** Conteúdo do nó por nível de detalhe (ADR 0025): completo, compacto, chip e ponto. */
-export const renderNodeContent: RenderNodeContent<MapNode> = ({ node, lod, childCount, aggregate, descendantCount }) => {
+function renderCardContent({ node, lod, childCount, aggregate, descendantCount }: SpatialNodeContent<MapNode>) {
   if (lod === "dot") return null;
   const ticket = node.ticket;
   const aggregateCount = aggregate && (
@@ -69,4 +53,4 @@ export const renderNodeContent: RenderNodeContent<MapNode> = ({ node, lod, child
       {aggregateCount}
     </>
   );
-};
+}
