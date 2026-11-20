@@ -42,7 +42,9 @@ Não exigir que todos os clientes adotem a mesma metodologia. Fluxos, vocabulár
 - Afastar comprime filhos em pequenos representantes. Quando vários filhos compartilham um quadrado mesclado, a apresentação guarda exatamente quais IDs ele representa; a cor vem de uma função configurável. Não há badge visual `+N`.
 - Aproximar separa os representantes e os transforma nos cards correspondentes. A mesma mecânica funciona na volta.
 - Seleção é um estado; navegação é uma intenção explícita. Clicar no card abre contexto sem mover a câmera. Escolher um resultado de busca, uma referência ou um item de roteiro pode selecionar **e navegar**, porque essa ação declara o destino.
-- Abrir um ticket é uma intenção explícita, diferente de selecionar (IDEA-013): o mapa desliza para a esquerda, uma página lateral se abre com mais detalhes do ticket e a câmera foca nele, com zoom grande. O clique continua selecionando sem mover a câmera; o ticket abre por Enter, por um segundo clique no ticket já selecionado ou pelo botão "Abrir" do cartão de seleção (decisão de Teodoro em 2026-11-20). O que acontece com a câmera ao fechar a página é dúvida aberta da seção 15.
+- Abrir um ticket é uma intenção explícita, diferente de selecionar (IDEA-013): o mapa desliza para a esquerda, uma página lateral se abre com mais detalhes do ticket e a câmera foca nele, com zoom grande. O clique continua selecionando sem mover a câmera; o ticket abre por Enter, por um segundo clique no ticket já selecionado ou pelo botão "Abrir" do cartão de seleção (decisão de Teodoro em 2026-11-20). Ao fechar a página, a câmera volta ao lugar de antes; a pessoa pode escolher, na página de configurações, que ela fique onde está (ADR 0028).
+- O zoom controla o detalhe da informação (IDEA-016): quanto maior o card na tela, mais conteúdo e mais legível. No nível mais alto o card mostra título maior, descrição e pessoas (ADR 0027); a página do ticket mostra tudo.
+- Comportamento de interface que é questão de gosto é preferência de cada pessoa, não regra da plataforma (IDEA-015). As preferências ficam em uma página de configurações, por seção.
 - A navegação oferece Voltar/Avançar entre destinos, breadcrumbs e links diretos. Restaurar um link valida acesso antes de carregar o contexto do ticket.
 
 ### O que aparece em cada compressão
@@ -402,7 +404,7 @@ Hipótese comercial inicial: assinatura B2B por organização, com uma unidade d
 9. Resolvida em 2026-11-20: na reclassificação ao editar (IDEA-014), a mudança de pai é confirmada ao salvar, e, quando realmente fizer sentido, o ticket não é salvo sem mudar de lugar primeiro. Continua aberto o critério que decide quando a mudança "realmente faz sentido"; ele pertence à ADR da IA.
 10. O que a memória da IA guarda (conversas, resumos de ramos, decisões), por quanto tempo, com que acesso por projeto e como é apagada? Depende também da dúvida 5.
 11. A conversa de novo ticket e a reclassificação são antecipadas para logo depois das telas de ticket, antes das Fases 3 e 4, ou ficam na Fase 5?
-12. Resolvida em parte em 2026-11-20: o clique continua selecionando sem mover a câmera, e o ticket abre (IDEA-013) por Enter, segundo clique no ticket selecionado ou botão "Abrir" no cartão de seleção. Continua aberto: ao fechar a página, a câmera volta ao lugar de antes ou fica no ticket? A ADR 0026 adota, de forma provisória, que ela fica onde está.
+12. Resolvida em 2026-11-20: o clique continua selecionando sem mover a câmera, e o ticket abre (IDEA-013) por Enter, segundo clique no ticket selecionado ou botão "Abrir" no cartão de seleção. Ao fechar a página, a câmera volta ao lugar de antes por padrão, e isso é uma preferência da pessoa na página de configurações (ADR 0028, IDEA-015).
 
 Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticket multidisciplinar/busca/stand-up, modelo de domínio e matriz de permissões, plano de dados e migrações, contrato de comandos/eventos, orçamento de desempenho e backlog por fase. Nenhum desses deve reintroduzir dependências do produto na engine headless.
 
@@ -424,6 +426,8 @@ Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticke
 | IDEA-012 | Visão geral de processos em BPMN, renderizada a partir das regras de negócio aprendidas pela IA, com alertas de pontos de falha e gaps; exploratória, sem fase definida |
 | IDEA-013 | Abrir ticket com deslize do mapa, página lateral de detalhes e foco com zoom grande (seções 2 e 12) |
 | IDEA-014 | Reclassificação quando a edição muda a categoria do ticket (seções 4 e 8), confirmada ao salvar |
+| IDEA-015 | Preferências por usuário e página de configurações (seção 2; ADR 0028) |
+| IDEA-016 | Zoom como controle do detalhe de informação e card em nível "detalhe" (seção 2; ADR 0027) |
 | Pedido de 2026-11-05 | Agrupamento sem `+N`, contratos genéricos, camadas headless/estilizáveis, contribuições por área, Clerk e multi-tenancy |
 
 Fontes de capacidades externas e limitações estão em [Clerk e Jev](research/platform-services.md). O restante deste documento é uma proposta de produto, não uma afirmação de disponibilidade de funções na base atual.

@@ -241,3 +241,30 @@ ideas:
     relationships:
       - type: refines
         target: IDEA-005
+  - id: IDEA-015
+    created_at: 2026-11-20
+    title: Página de configurações com preferências por usuário
+    status: proposed
+    summary: >-
+      Comportamentos de interface que são questão de gosto ficam sob controle
+      de cada usuário, em uma página de configurações com seções.
+    details:
+      - Ao fechar um ticket, a câmera volta ao lugar de antes; isso é uma configuração, na seção Câmera.
+      - O usuário tem controle sobre todo esse tipo de coisa, a nível de usuário e não de plataforma.
+    relationships:
+      - type: related_to
+        target: IDEA-013
+  - id: IDEA-016
+    created_at: 2026-11-20
+    title: Zoom como controle do detalhe de informação
+    status: proposed
+    summary: >-
+      O nível máximo de zoom mostra todo o conteúdo de um card folha, grande,
+      com texto maior, descrição e pessoas.
+    details:
+      - O zoom máximo permite ver todo o conteúdo de um card folha, grande, como se vê um card pai quando os filhos já aparecem.
+      - O card grande é um card de detalhe, com texto maior, descrição e pessoas.
+      - Zoom é controle de detalhe de informação.
+    relationships:
+      - type: refines
+        target: IDEA-004

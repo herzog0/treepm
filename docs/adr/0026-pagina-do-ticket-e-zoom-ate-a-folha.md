@@ -23,7 +23,7 @@ Hoje o limite de zoom vem do pacote: a câmera para quando o menor nó do mapa c
 O mapa da organização passa a permitir zoom até o menor nó chegar a **440 px** de largura na tela, a mesma largura do card em foco no quadro aprovado. O limite é calculado na web a partir do layout dos itens e passado ao mapa como escala máxima. O piso de escala que o pacote já aplica (6) é mantido: em árvore pequena, só com a organização e projetos, o zoom continua indo até onde já ia, além dos 440 px.
 
 - "Explorar ramo", o enquadramento inicial, os gestos, o passo dos botões de zoom e os limiares de nível de detalhe não mudam.
-- O card cresce, mas o conteúdo é o do nível "completo" (chave, título, marcador com situação ou progresso) no mesmo tamanho de letra de hoje, no canto do card; o resto do card fica vazio. É como o card de um ticket pai já aparece quando está grande. Texto maior e mais conteúdo são o nível "detalhe" da ADR 0025, que continua pendente.
+- O card cresce, mas o conteúdo é o do nível "completo" (chave, título, marcador com situação ou progresso) no mesmo tamanho de letra de hoje, no canto do card; o resto do card fica vazio. É como o card de um ticket pai já aparece quando está grande. Texto maior e mais conteúdo são o nível "detalhe", decidido depois na [ADR 0027](0027-card-detalhe-no-mapa.md).
 - `?demo` não muda.
 
 ### Abrir um ticket
@@ -44,7 +44,7 @@ Com a página aberta, o mapa ocupa só a área à esquerda dela e a câmera enqu
 - Ao abrir, o ticket fica selecionado e a câmera o leva a cerca de 440 px de largura, ou ao que couber na área visível, inteiro e com os filhos aparecendo abaixo. A animação é a da câmera do pacote e respeita a preferência de movimento reduzido.
 - A página substitui o cartão de seleção do ticket aberto e fecha o painel de áreas e projetos. Abrir o painel fecha a página.
 - Com a página aberta, clicar em outro nó segue a regra de sempre: seleciona, mostra o cartão de seleção ao lado da página e não troca o ticket aberto. Abrir o outro ticket troca a página.
-- **Fechar:** botão "Fechar e voltar ao mapa", Esc (fora de edição) ou voltar do navegador. O mapa volta a ocupar a largura inteira. **Provisório:** fechar não move a câmera, que fica onde estava no ticket. Se ela deve voltar ao lugar de antes é a parte ainda aberta da dúvida 12 do blueprint.
+- **Fechar:** botão "Fechar e voltar ao mapa", Esc (fora de edição) ou voltar do navegador. O mapa volta a ocupar a largura inteira. Substituído pela [ADR 0028](0028-preferencias-por-usuario-e-pagina-de-configuracoes.md): por padrão a câmera volta ao lugar de antes, e a pessoa pode escolher que ela fique onde está.
 - O foco do teclado vai para o título da página ao abrir e volta ao mapa ao fechar. A página é uma região complementar com nome, não um diálogo modal.
 
 ### Conteúdo da página
