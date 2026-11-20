@@ -167,7 +167,7 @@ Regras que a coordenação acrescentou *(escolhas da coordenação)*:
 2. **O código decide.** Os tickets com `Noul` acima de 0,7 formam o grupo proposto. Basta um ticket existente além do novo. Sem nenhum, não há proposta.
 3. **Claude escreve o nome e a descrição do agrupador**, a partir do rascunho e dos tickets do grupo. É uma chamada curta (Opus 5.5, esforço `low`, saída estruturada), como a do resumo de ramo, e só acontece quando há grupo. O texto enviado é o mesmo tipo de dado que a ADR 0029 já autoriza: texto de tickets do projeto e do rascunho.
 
-**Texto da pergunta (provisório).**
+**Texto da pergunta.**
 
 - Pergunta: "O trabalho descrito em `draft` e o ticket `ticket` desta pergunta fazem parte de um mesmo assunto, mais específico que o de `destination`, a ponto de a equipe guardá-los juntos em um agrupador próprio?"
 - Verdadeiro: "Os dois são partes de uma mesma entrega ou de um mesmo assunto específico: faria sentido um agrupador só para eles e para outros parecidos."
@@ -175,7 +175,7 @@ Regras que a coordenação acrescentou *(escolhas da coordenação)*:
 
 O critério falso nomeia o caso que mais confunde: dois tickets que só têm em comum o agrupador em que já estão não formam um agrupador novo.
 
-**Texto enviado ao Claude para o nome (provisório).** Prompt de sistema:
+**Texto enviado ao Claude para o nome.** Prompt de sistema:
 
 > Você dá nome a agrupadores de uma árvore de tickets da plataforma TreePM. Um agrupador reúne tickets que tratam de um mesmo assunto ou de uma mesma entrega. Você recebe o lugar onde o agrupador vai ficar e os tickets que ele vai reunir (título e um trecho da descrição de cada um), e escreve o título e a descrição do agrupador.
 >
@@ -196,6 +196,22 @@ A mensagem leva, em JSON, o lugar (`destination`, com o título), o ticket novo 
 **Ao confirmar.** Em uma só transação: cria o agrupador no destino, move para ele os tickets escolhidos e cria o ticket novo dentro dele. Antes, confere de novo que cada ticket escolhido ainda é um ticket solto daquele destino; se algum mudou, 409 `grouping_changed` e nada é criado. A rota continua idempotente: repetir a chamada depois de o ticket ter sido criado devolve o ticket criado e ignora o agrupador pedido. Grava os eventos de sempre (criação do agrupador, mudança de pai de cada ticket movido, criação do ticket), com a origem `assistant`.
 
 **Limites.** A IA não propõe agrupador com tickets de níveis diferentes, não move agrupadores e não reorganiza o que já está agrupado. O limiar de 0,7 e o tamanho mínimo do grupo são iniciais e se ajustam por medição: desfazer um agrupador de uma cópia da árvore, deixar os tickets soltos e ver se a IA propõe o grupo de volta.
+
+**Medição da proposta (2026-11-20).** Em uma cópia achatada da árvore original (projeto `PLANO`: os 39 tickets soltos na raiz, sem agrupadores), cada ticket foi removido, procurado e devolvido, sem confirmar proposta nenhuma. Em cada procura o Jev julgou a afinidade com os outros 38 tickets. Uma rodada só.
+
+| Pares julgados | Total | Abaixo de 0,3 | De 0,3 a 0,7 | Acima de 0,7 |
+| --- | ---: | ---: | ---: | ---: |
+| Eram do mesmo agrupador na árvore original | 266 | 180 | 76 | 10 |
+| Eram de agrupadores diferentes | 1.216 | 1.143 | 67 | 6 |
+
+- Houve proposta em 11 das 39 procuras; nas outras 28 nenhum ticket passou do limiar. Nenhuma falha de provedor, nenhum nome inválido.
+- Dos 16 pares acima de 0,7, 10 eram do mesmo agrupador original e 6 não. Dos 266 pares que eram do mesmo agrupador, só 10 passaram.
+- **A proposta é conservadora e estreita.** Ela não refaz os agrupadores largos da árvore original; propõe subgrupos pequenos e específicos, de um a três tickets além do novo, como "Importação de tickets por lista" e "Base visual aprovada e sua aplicação na interface". É o que a pergunta pede ("um mesmo assunto, mais específico que o do destino").
+- Algumas propostas que cruzam os agrupadores originais são defensáveis, como "Visual dos cards de tickets no mapa", que junta um item de "Tickets no mapa" com um de "Design da plataforma". O agrupamento original não é a única organização razoável.
+- Os nomes escritos pelo Claude descrevem o que os tickets têm em comum; nenhum passou dos limites.
+- O limiar de 0,7 não foi mexido.
+
+Organizar uma lista inteira em agrupadores largos continua sendo outra funcionalidade (IDEA-010): julgar pares, um ticket por vez, não a substitui.
 
 ### Ferramenta de medição
 
