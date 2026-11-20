@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach } from "vitest";
 import { createTestApp, ownerPoolWithCleanup, truncateAll } from "./helpers.js";
 import type { FakeSessionVerifier } from "./helpers.js";
 import type { AppConfig } from "../src/config.js";
-import type { FakeConversationProvider } from "./assistant-fakes.js";
+import type { FakeBranchJudge, FakeBranchSummarizer, FakeConversationProvider } from "./assistant-fakes.js";
 import { seedWorld } from "./world.js";
 import type { World } from "./world.js";
 
@@ -15,6 +15,8 @@ export type Harness = {
   verifier: () => FakeSessionVerifier;
   world: () => World;
   conversation: () => FakeConversationProvider;
+  judge: () => FakeBranchJudge;
+  summarizer: () => FakeBranchSummarizer;
   call: (method: string, path: string, session: string, body?: unknown) => Promise<request.Response>;
 };
 
@@ -25,9 +27,11 @@ export function useHarness(config?: AppConfig): Harness {
   let verifier: FakeSessionVerifier;
   let world: World;
   let conversation: FakeConversationProvider;
+  let judge: FakeBranchJudge;
+  let summarizer: FakeBranchSummarizer;
 
   beforeAll(async () => {
-    ({ app, verifier, conversation } = await createTestApp([], config));
+    ({ app, verifier, conversation, judge, summarizer } = await createTestApp([], config));
   });
   afterAll(async () => {
     await app.close();
@@ -40,6 +44,15 @@ export function useHarness(config?: AppConfig): Harness {
     conversation.onCall = null;
     conversation.reply = null;
     conversation.fail = false;
+    judge.calls.length = 0;
+    judge.onCall = null;
+    judge.verdict = null;
+    judge.fail = false;
+    summarizer.calls.length = 0;
+    summarizer.onCall = null;
+    summarizer.delayMs = 0;
+    summarizer.fail = false;
+    summarizer.maxConcurrent = 0;
     world = await seedWorld(pool);
   });
 
@@ -49,6 +62,8 @@ export function useHarness(config?: AppConfig): Harness {
     verifier: () => verifier,
     world: () => world,
     conversation: () => conversation,
+    judge: () => judge,
+    summarizer: () => summarizer,
     call: (method, path, session, body) => {
       const agent = request(app.getHttpServer());
       const verb = method.toLowerCase() as "get" | "post" | "put" | "patch" | "delete";

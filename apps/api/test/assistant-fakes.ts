@@ -3,6 +3,7 @@ import type {
   BranchJudge,
   BranchJudgment,
   BranchSummarizer,
+  BranchSummaryInput,
   ConversationProvider,
   ConversationTurn,
   ConversationTurnInput,
@@ -33,16 +34,46 @@ export class FakeConversationProvider implements ConversationProvider {
   }
 }
 
-/** Para a Parte 2: juiz e resumidor falsos, já declarados. */
+type JudgeInput = Parameters<BranchJudge["judge"]>[0];
+
+/** Juiz falso: por padrão pertence (0,95) e prefere o primeiro candidato (0,9). */
 export class FakeBranchJudge implements BranchJudge {
-  answers: BranchJudgment[] = [];
-  async judge(): Promise<BranchJudgment> {
-    return this.answers.shift() ?? { belongs: 0, choice: {} };
+  readonly calls: JudgeInput[] = [];
+  onCall: (() => Promise<void>) | null = null;
+  verdict: ((input: JudgeInput) => BranchJudgment) | null = null;
+  fail = false;
+  async judge(input: JudgeInput): Promise<BranchJudgment> {
+    this.calls.push(structuredClone(input) as JudgeInput);
+    await this.onCall?.();
+    if (this.fail) throw new AssistantUnavailableError("fake");
+    if (this.verdict) return this.verdict(input);
+    const rest = input.candidates.length > 1 ? 0.1 / (input.candidates.length - 1) : 0;
+    return {
+      belongs: 0.95,
+      choice: Object.fromEntries(input.candidates.map((c, i) => [c.id, input.candidates.length === 1 ? 1 : i === 0 ? 0.9 : rest])),
+    };
   }
 }
 
+/** Resumidor falso: `Resumo de <título>`; registra as chamadas e a concorrência máxima. */
 export class FakeBranchSummarizer implements BranchSummarizer {
-  async summarize(input: { title: string }): Promise<{ summary: string; model: string }> {
-    return { summary: `Resumo de ${input.title}`, model: "fake-model" };
+  readonly calls: BranchSummaryInput[] = [];
+  onCall: (() => Promise<void>) | null = null;
+  delayMs = 0;
+  fail = false;
+  maxConcurrent = 0;
+  private running = 0;
+  async summarize(input: BranchSummaryInput): Promise<{ summary: string; model: string }> {
+    this.calls.push(structuredClone(input) as BranchSummaryInput);
+    this.running += 1;
+    this.maxConcurrent = Math.max(this.maxConcurrent, this.running);
+    try {
+      if (this.delayMs) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
+      await this.onCall?.();
+      if (this.fail) throw new AssistantUnavailableError("fake");
+      return { summary: `Resumo de ${input.title}`, model: "fake-model" };
+    } finally {
+      this.running -= 1;
+    }
   }
 }

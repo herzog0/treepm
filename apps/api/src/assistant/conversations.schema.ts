@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { idSchema } from "../common/schemas.js";
+import { ticketDetailSchema } from "../tickets/tickets.schema.js";
 import { ticketDescriptionSchema, ticketTitleSchema } from "../tickets/tickets.schema.js";
 
 export const MAX_PERSON_MESSAGE = 4000;
@@ -10,6 +12,9 @@ export const conversationMessageBodySchema = z
 export const draftBodySchema = z
   .object({ title: ticketTitleSchema, description: ticketDescriptionSchema.default("") })
   .strict();
+
+/** O pai escolhido (ou `null`: ticket de raiz). Título e descrição vêm sempre do rascunho da conversa. */
+export const createTicketBodySchema = z.object({ parentId: idSchema.nullable() }).strict();
 
 const draftSchema = z.object({ title: z.string(), description: z.string() }).nullable();
 const statusSchema = z.enum(["open", "ticket_created", "discarded"]);
@@ -39,3 +44,20 @@ export const conversationDetailSchema = conversationSummarySchema.extend({
 
 export type ConversationSummary = z.output<typeof conversationSummarySchema>;
 export type ConversationDetail = z.output<typeof conversationDetailSchema>;
+
+const targetSchema = z.object({
+  parentId: z.string().nullable(),
+  path: z.array(z.object({ id: z.string(), title: z.string() })),
+});
+
+export const placementOutcomeSchema = z.object({
+  destination: targetSchema,
+  alternatives: z.array(targetSchema).max(2),
+  discarded: z.array(z.object({ level: z.number(), parentId: z.string().nullable(), ticketId: z.string(), title: z.string() })),
+  uncertain: z.boolean(),
+  stoppedEarly: z
+    .object({ reason: z.enum(["candidates_too_large", "max_levels"]), level: z.number(), parentId: z.string().nullable() })
+    .nullable(),
+});
+
+export const createdTicketSchema = z.object({ conversation: conversationDetailSchema, ticket: ticketDetailSchema });

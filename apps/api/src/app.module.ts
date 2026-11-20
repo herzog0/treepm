@@ -13,11 +13,12 @@ import { MeController } from "./me/me.controller.js";
 import { MeService } from "./me/me.service.js";
 import { PeopleController } from "./people/people.controller.js";
 import { ProjectsController } from "./projects/projects.controller.js";
+import { TicketsModule } from "./tickets/tickets.module.js";
 import { TicketsController } from "./tickets/tickets.controller.js";
 import { TeamsController } from "./teams/teams.controller.js";
 
 @Module({
-  imports: [ConfigModule, AuthModule, AccessModule, DbModule, AssistantModule],
+  imports: [ConfigModule, AuthModule, AccessModule, DbModule, TicketsModule, AssistantModule],
   controllers: [
     HealthController,
     MeController,

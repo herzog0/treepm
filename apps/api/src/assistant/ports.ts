@@ -52,7 +52,7 @@ export interface BranchJudge {
     draft: TicketDraft;
     current: { title: string; summary: string } | null;
     candidates: readonly BranchCandidate[];
-  }): Promise<BranchJudgment>;
+  }, options?: { signal?: AbortSignal }): Promise<BranchJudgment>;
 }
 
 export const BRANCH_JUDGE = Symbol("BRANCH_JUDGE");

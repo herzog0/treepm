@@ -11,8 +11,8 @@ import type { DirectoryProvider } from "../src/auth/directory-provider.js";
 import { DIRECTORY_PROVIDER } from "../src/auth/directory-provider.js";
 import type { SessionVerifier, VerifiedSession } from "../src/auth/session-verifier.js";
 import { SESSION_VERIFIER } from "../src/auth/session-verifier.js";
-import { CONVERSATION_PROVIDER } from "../src/assistant/ports.js";
-import { FakeConversationProvider } from "./assistant-fakes.js";
+import { BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER } from "../src/assistant/ports.js";
+import { FakeBranchJudge, FakeBranchSummarizer, FakeConversationProvider } from "./assistant-fakes.js";
 
 export { OWNER_URL };
 
@@ -84,15 +84,27 @@ export async function createTestApp(
   directory: FakeDirectory;
   verifier: FakeSessionVerifier;
   conversation: FakeConversationProvider;
+  judge: FakeBranchJudge;
+  summarizer: FakeBranchSummarizer;
 }> {
   const directory = new FakeDirectory();
   const verifier = new FakeSessionVerifier();
   const conversation = new FakeConversationProvider();
+  const judge = new FakeBranchJudge();
+  const summarizer = new FakeBranchSummarizer();
   let builder = Test.createTestingModule({
     imports: [AppModule],
     controllers: extraControllers,
   });
-  if (!options.realAssistant) builder = builder.overrideProvider(CONVERSATION_PROVIDER).useValue(conversation);
+  if (!options.realAssistant) {
+    builder = builder
+      .overrideProvider(CONVERSATION_PROVIDER)
+      .useValue(conversation)
+      .overrideProvider(BRANCH_JUDGE)
+      .useValue(judge)
+      .overrideProvider(BRANCH_SUMMARIZER)
+      .useValue(summarizer);
+  }
   const moduleRef = await builder
     .overrideProvider(CONFIG)
     .useValue(config)
@@ -104,7 +116,7 @@ export async function createTestApp(
   const app = moduleRef.createNestApplication({ logger: false });
   configureApp(app, config);
   await app.init();
-  return { app, directory, verifier, conversation };
+  return { app, directory, verifier, conversation, judge, summarizer };
 }
 
 export function ownerPoolWithCleanup(): pg.Pool {
