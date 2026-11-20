@@ -30,7 +30,7 @@ Fatos conferidos na documentação em 2026-11-20:
 
 ### Configuração
 
-`ANTHROPIC_API_KEY` e `TYPESAFE_API_KEY` entram na configuração da API como opcionais. Sem as duas, a IA fica desligada: `GET /api/me` informa `assistant.enabled: false`, a web não mostra o botão, e as rotas da IA respondem 503 `assistant_not_configured`. A API não sobe em erro por falta delas.
+`ANTHROPIC_API_KEY` e `TYPESAFE_API_KEY` entram na configuração da API como opcionais. Sem as duas, a IA fica desligada: `GET /api/me` informa `assistant.enabled: false`, a web não mostra o botão, e as rotas que chamam um provedor respondem 503 `assistant_not_configured`. Ler, ajustar o rascunho e apagar as próprias conversas continua funcionando sem as chaves, para a pessoa não perder o acesso aos seus dados. A API não sobe em erro por falta delas.
 
 ### Chamada a provedor fora de transação
 
@@ -85,7 +85,7 @@ O código lê as respostas assim (limiares iniciais, a calibrar com casos reais)
 
 Tabelas com `org_id` e RLS, como as demais:
 
-- **Conversas de criação:** projeto, pessoa autora, situação (aberta, ticket criado, descartada), rascunho atual, ticket criado e datas.
+- **Conversas de criação:** projeto, pessoa autora, situação (aberta, ticket criado, descartada), rascunho atual, se a IA considerou o rascunho pronto no último turno, ticket criado e datas.
 - **Mensagens da conversa:** autor (pessoa ou assistente), texto e data.
 - **Resumos de ramo:** ticket, resumo, marca do conteúdo, modelo e data.
 
@@ -113,7 +113,8 @@ Todas exigem poder criar ticket no projeto (administrador da organização, gest
 
 - **Criação idempotente:** cada conversa cria no máximo um ticket. Repetir a chamada devolve o ticket já criado.
 - A criação grava `ticket.created` com a origem "assistente" e a conversa no evento.
-- Erros novos: 503 `assistant_not_configured`; 503 `assistant_unavailable` (provedor fora do ar, lento demais ou recusa sem alternativa); 409 `conversation_closed`.
+- Erros novos: 503 `assistant_not_configured`; 503 `assistant_unavailable` (provedor fora do ar, lento demais, recusa sem alternativa ou resposta fora dos limites do ticket, que nunca é cortada); 409 `conversation_closed`; 409 `conversation_changed`, quando outra mensagem entrou na mesma conversa enquanto o provedor respondia.
+- O ajuste manual do rascunho não muda a marca de "pronto"; ela é só a opinião da IA no último turno, e a pessoa pode pedir a procura do lugar a qualquer momento.
 - Tempo máximo: 60 segundos por turno de conversa e 30 por procura.
 
 ### Web
@@ -142,5 +143,5 @@ Os testes automáticos usam provedores falsos. Antes de a web ser construída em
 - Texto de tickets e de conversas sai da plataforma. É a primeira vez; fica restrito ao projeto que a pessoa vê.
 - O custo é por uso: um turno de conversa e cada resumo de ramo no Claude Opus 5.5 (US$ 4 por milhão de tokens de entrada e US$ 20 de saída) e as perguntas ao Jev (US$ 0,042 por milhão de tokens de entrada).
 - A API ganha rotas que não cabem em uma transação só. A regra de conferir de novo na escrita vira parte do padrão.
-- A migration 0005 precisa estar no Neon antes de o servidor local receber o código que a usa.
+- A migration 0005 precisa estar no Neon antes de o servidor local receber o código que a usa. Ela exige PostgreSQL 15 ou mais novo.
 - Os limiares de 0,3 e 0,7 e a regra de "incerto" são ponto de partida; a calibração com casos reais é trabalho posterior.
