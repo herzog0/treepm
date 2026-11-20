@@ -42,6 +42,7 @@ Não exigir que todos os clientes adotem a mesma metodologia. Fluxos, vocabulár
 - Afastar comprime filhos em pequenos representantes. Quando vários filhos compartilham um quadrado mesclado, a apresentação guarda exatamente quais IDs ele representa; a cor vem de uma função configurável. Não há badge visual `+N`.
 - Aproximar separa os representantes e os transforma nos cards correspondentes. A mesma mecânica funciona na volta.
 - Seleção é um estado; navegação é uma intenção explícita. Clicar no card abre contexto sem mover a câmera. Escolher um resultado de busca, uma referência ou um item de roteiro pode selecionar **e navegar**, porque essa ação declara o destino.
+- Abrir um ticket é uma intenção explícita, diferente de selecionar (IDEA-013): o mapa desliza para a esquerda, uma página lateral se abre com mais detalhes do ticket e a câmera foca nele, com zoom grande. Fechar a página devolve o mapa ao lugar de antes.
 - A navegação oferece Voltar/Avançar entre destinos, breadcrumbs e links diretos. Restaurar um link valida acesso antes de carregar o contexto do ticket.
 
 ### O que aparece em cada compressão
@@ -132,7 +133,11 @@ Threads, menções, reações, anexos, citações de critérios e decisões reso
 
 ### Captura e triagem
 
-Uma barra de comando permite escrever uma demanda, colar uma referência ou criar uma captura rápida. O rascunho recebe descrição global, possíveis áreas, pessoas sugeridas, critérios e local provável. A pessoa vê o caminho sugerido, alternativas e mudanças propostas antes de salvar.
+Um botão de novo ticket, sempre visível na tela do mapa, abre um painel lateral direito com uma conversa com a IA da plataforma (IDEA-005). A pessoa descreve a demanda em texto livre. Antes de procurar o lugar da demanda, a IA faz as perguntas que faltam e formata o texto em um rascunho, que a pessoa pode ajustar. Só então a plataforma procura o caminho: do topo até a base, testa em cada nível qual ramo se enquadra melhor com o que a pessoa vai trabalhar, até o ponto em que a demanda entra como folha. O mapa navega até esse lugar e mostra onde o ticket vai ficar. A pessoa vê o caminho, os ramos descartados e as alternativas antes de criar.
+
+A IA tem memória e um mapa mental de qual ticket está onde e sobre qual conteúdo. É isso que permite reconhecer que uma demanda nova toca em trabalho já registrado. O que essa memória guarda, por quanto tempo e com que acesso é uma dúvida aberta da seção 15.
+
+Editar o conteúdo de um ticket é sempre possível. Quando a edição muda o assunto a ponto de o ticket pertencer a outra categoria, a mudança de pai tem que acontecer (IDEA-014): a plataforma refaz a procura do caminho com o texto novo e o ticket vai para o novo lugar. Se isso acontece sozinho ou depende de confirmação ao salvar é uma dúvida aberta da seção 15.
 
 Sem IA, o fluxo continua funcionando com criação manual, seleção de pai, busca e atalhos. Se nenhum ramo fizer sentido, a demanda pode permanecer na caixa de entrada do projeto ou ser uma nova raiz, conforme permissão. Não forçar uma categoria apenas para preencher o campo pai.
 
@@ -235,8 +240,11 @@ O Jev considerado aqui é o da TypeSafe AI, conforme a pesquisa de [capacidades 
 
 | Capacidade | Papel da IA | Papel do produto e da pessoa |
 | --- | --- | --- |
+| Conversar para criar um ticket | Modelo generativo conduz a conversa do painel lateral, faz as perguntas que faltam e formata o texto antes de qualquer procura de caminho | A pessoa responde, ajusta o rascunho e decide quando procurar o lugar; a criação manual continua disponível |
 | Melhorar um rascunho | Modelo generativo propõe título, descrição, critérios e perguntas faltantes | Mostrar diff, preservar texto original e confirmar alterações |
 | Encontrar o lugar da demanda | Retrieval recupera caminhos autorizados; Jev avalia opções de filhos e permanência | Validar parentesco, oferecer alternativas e confirmar destino |
+| Lembrar a árvore e as conversas | Memória e mapa de qual ticket está onde e sobre qual conteúdo, limitados ao que a pessoa pode ver | Definir o que é guardado, por quanto tempo e como é apagado; nunca cruzar tenants nem projetos privados |
+| Reclassificar ao editar | Refazer a procura do caminho quando o conteúdo de um ticket muda de assunto | Mostrar o lugar atual e o novo; a mudança de pai é uma operação de domínio auditável, com as mesmas validações de parentesco |
 | Criar categoria intermediária | Geração propõe nome/descrição; Jev pode avaliar aderência das alternativas | Validar permissão, não duplicar categorias e confirmar reestruturação |
 | Busca por intenção | Recuperação semântica encontra evidências; decisão estruturada pode reordenar candidatos | Aplicar filtros e acesso antes de expor resultados; permitir busca exata |
 | Detectar duplicatas | Sugerir pares e explicar evidências | Pessoa decide consolidar e escolhe o ticket canônico |
@@ -249,12 +257,15 @@ O Jev considerado aqui é o da TypeSafe AI, conforme a pesquisa de [capacidades 
 
 ### Pipeline de classificação da IDEA-005
 
-1. Receber rascunho e escopo autorizado de organização/projeto.
-2. Recuperar candidatos e contexto dos caminhos, com orçamento de profundidade, quantidade e latência.
-3. Perguntar por filho apropriado, `ficar neste nível` ou `nenhum apropriado`. Manter algumas alternativas quando houver ambiguidade, em vez de comprometer todo o resultado com uma primeira escolha ruim.
-4. Se necessário, propor nova categoria ou nova raiz usando a camada generativa e regras de domínio.
-5. Mostrar destino, alternativas, participantes/áreas sugeridas e diff da descrição.
-6. Na confirmação, revalidar versão, acesso, pai e integridade e então executar uma operação de domínio auditável. Se a árvore mudou, recalcular ou pedir revisão do destino afetado.
+1. Na conversa, fazer as perguntas que faltam e formatar o texto. A procura do caminho só começa com o rascunho aceito pela pessoa.
+2. Receber rascunho e escopo autorizado de organização/projeto.
+3. Recuperar candidatos e contexto dos caminhos, com orçamento de profundidade, quantidade e latência.
+4. Perguntar por filho apropriado, `ficar neste nível` ou `nenhum apropriado`. Manter algumas alternativas quando houver ambiguidade, em vez de comprometer todo o resultado com uma primeira escolha ruim.
+5. Se necessário, propor nova categoria ou nova raiz usando a camada generativa e regras de domínio.
+6. Mostrar destino, alternativas, participantes/áreas sugeridas e diff da descrição, e levar o mapa até o lugar encontrado.
+7. Na confirmação, revalidar versão, acesso, pai e integridade e então executar uma operação de domínio auditável. Se a árvore mudou, recalcular ou pedir revisão do destino afetado.
+
+O mesmo pipeline, a partir do passo 2, roda de novo quando a edição de um ticket muda o assunto dele (IDEA-014).
 
 O produto deve funcionar quando IA estiver indisponível, lenta, sem quota ou insegura da resposta. Sugestões podem se abster. `confidence` do Jev não será apresentada como probabilidade de acerto: a documentação dá uma definição específica baseada na distribuição. [Confidence oficial](https://docs.typesafe.ai/confidence).
 
@@ -321,11 +332,11 @@ Escolhas ainda a detalhar em desenho técnico: banco transacional, autorização
 | Tickets | CRUD, árvore, descrição global, múltiplas pessoas, contribuições por área | Templates, campos personalizados, recorrência e operações em lote |
 | Conversas | Comentários globais e por área, threads, menções, histórico | Decisões estruturadas e conhecimento relacionado |
 | Planejamento | Situação de folhas, progresso derivado, prioridade, prazos, marcos e bloqueios | Estimativas automáticas separadas de execução e revisão (dependem de integração de código/PR), capacidade, ciclos e cenários de planejamento |
-| Navegação | Mapa, detalhes, busca por ID/texto, links e foco explícito | Busca semântica, comando por intenção e histórico refinado |
+| Navegação | Mapa, página lateral do ticket com deslize e foco (IDEA-013), busca por ID/texto, links e foco explícito | Busca semântica, comando por intenção e histórico refinado |
 | Filtros | Campos essenciais e visões salvas na árvore | Perspectivas por pessoa/área, fluxo e calendário |
 | Relações | Dependências e associações com acesso e integridade | Agregação visual de relações, análise de impacto e duplicatas |
 | Reuniões | Roteiro stand-up editável, passos e decisões | Preparação assistida e apresentação compartilhada |
-| IA | Rascunhos e classificação revisáveis após base de dados segura | Riscos, sugestões pessoais, resumo de reunião e roteiros |
+| IA | Conversa de novo ticket com perguntas, rascunho e caminho do topo até a base; reclassificação ao editar; tudo após base de dados segura | Riscos, sugestões pessoais, resumo de reunião e roteiros |
 | Processos | — | Visão geral em BPMN (IDEA-012), exploratória e sem fase definida |
 | Importação | Primeiro conector, prévia, mapeamento manual e reconciliação | GitHub, Jira e Linear; categorização automática opt-in com custo adicional |
 | Operação | Notificações, inbox, auditoria, exportação, backup e restauração | Políticas de retenção e integrações empresariais |
@@ -349,6 +360,8 @@ As fases representam dependências e resultados verificáveis. Não são estimat
 | 6 — Rotina e escala | Espaço diário privado, primeiro conector/importador, notificações refinadas, carga e operação | Piloto usa o produto na rotina; reimportação reconciliada sem duplicatas; recuperação, observabilidade, acessibilidade e orçamento de desempenho comprovados |
 
 A busca semântica aparece como descoberta central desde o desenho de UX, mas sua implementação depende do índice e das regras de acesso. Busca exata e navegação não precisam esperar a integração de IA. Da mesma forma, o primeiro stand-up funciona com regras e edição manual antes de receber sugestões inteligentes.
+
+A página lateral do ticket com deslize e foco (IDEA-013) não depende de IA e entra junto com as telas de ticket da Fase 2. A conversa de novo ticket e a reclassificação ao editar (IDEA-005 e IDEA-014) dependem de modelo generativo, do Jev e da memória da árvore, e pertencem à Fase 5; antecipá-las é uma decisão registrada como dúvida na seção 15.
 
 Duas ideias ainda não têm fase. As estimativas automáticas (IDEA-011) só podem ser planejadas depois que existir uma integração de código/PR, que não chega antes do primeiro conector da Fase 6. A visão de processos em BPMN (IDEA-012) é exploratória até que a fonte das regras de negócio esteja definida.
 
@@ -386,6 +399,9 @@ Hipótese comercial inicial: assinatura B2B por organização, com uma unidade d
 6. Qual integração oferece mais valor ao piloto: código/PR, mensagens, calendário ou importação de backlog?
 7. Quais requisitos de retenção, backup/restauração, exportação e disponibilidade precisam ser atendidos antes de dados reais?
 8. Na visão em BPMN (IDEA-012), de onde a IA do projeto aprende as regras de negócio (tickets, critérios, documentos, código) e quem revisa o modelo gerado?
+9. Na reclassificação ao editar (IDEA-014), a mudança de pai acontece sozinha ao salvar ou depende de confirmação? A pesquisa de serviços recomenda que nenhuma resposta de modelo altere o parentesco por conta própria; a proposta visual de 2026-11-19 mostra a mudança como parte do salvar, com o lugar atual e o novo à vista.
+10. O que a memória da IA guarda (conversas, resumos de ramos, decisões), por quanto tempo, com que acesso por projeto e como é apagada? Depende também da dúvida 5.
+11. A conversa de novo ticket e a reclassificação são antecipadas para logo depois das telas de ticket, antes das Fases 3 e 4, ou ficam na Fase 5?
 
 Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticket multidisciplinar/busca/stand-up, modelo de domínio e matriz de permissões, plano de dados e migrações, contrato de comandos/eventos, orçamento de desempenho e backlog por fase. Nenhum desses deve reintroduzir dependências do produto na engine headless.
 
@@ -397,7 +413,7 @@ Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticke
 | IDEA-002 | Compressão contínua, conteúdo por LOD e representantes mesclados |
 | IDEA-003 | Presets, ordenação e roteiro de stand-up por pessoa/ticket, com navegação e decisões |
 | IDEA-004 | Gestos imediatos, pan com zoom e foco explícito, inclusive em busca e roteiro |
-| IDEA-005 | Rascunho, classificação hierárquica Jev, categorias intermediárias e opção de não classificar |
+| IDEA-005 | Botão de novo ticket que abre a conversa com a IA no painel lateral; perguntas e rascunho antes da procura; classificação hierárquica Jev do topo até a base; memória e mapa da árvore; categorias intermediárias e opção de não classificar |
 | IDEA-006 | Engine preservada como núcleo independente; produto reconstruído por fases |
 | IDEA-007 | Quadradinhos mesclados sem badge `+N`, com mistura de cores substituível (seção 2) |
 | IDEA-008 | Árvore genérica e camadas headless/React reutilizáveis (seção 11) |
@@ -405,6 +421,8 @@ Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticke
 | IDEA-010 | Importação de GitHub, Jira, Linear e outros trackers, com reconciliação e categorização automática opcional de custo adicional |
 | IDEA-011 | Estimativas por IA com scores de complexidade, risco e incerteza, separando execução até o PR e tempo de revisão |
 | IDEA-012 | Visão geral de processos em BPMN, renderizada a partir das regras de negócio aprendidas pela IA, com alertas de pontos de falha e gaps; exploratória, sem fase definida |
+| IDEA-013 | Abrir ticket com deslize do mapa, página lateral de detalhes e foco com zoom grande (seções 2 e 12) |
+| IDEA-014 | Reclassificação quando a edição muda a categoria do ticket (seções 4 e 8), com a forma da mudança em aberto na seção 15 |
 | Pedido de 2026-11-05 | Agrupamento sem `+N`, contratos genéricos, camadas headless/estilizáveis, contribuições por área, Clerk e multi-tenancy |
 
 Fontes de capacidades externas e limitações estão em [Clerk e Jev](research/platform-services.md). O restante deste documento é uma proposta de produto, não uma afirmação de disponibilidade de funções na base atual.

@@ -20,7 +20,7 @@
 - Design da plataforma
   Tema escuro e moderno, na linha do Linear, mantendo a constelação do mapa.
   - [/] Proposta visual em alta fidelidade
-    Base visual, mapa com painel, ticket e tela de times.
+    Base visual, sequência de zoom do mapa, página do ticket, conversa de novo ticket, times e importação.
   - [ ] ADR 0025 com a base visual aprovada
   - [ ] Aplicar a base visual ao cabeçalho, ao painel lateral e à tela de times
   - [ ] Aplicar a base visual aos cards do mapa
@@ -32,9 +32,9 @@
   - [x] Cliente da API e interpretador da lista na web
   - [x] Tickets como nós abaixo do projeto no mapa
     Com o card atual e a cor do projeto. A aparência definitiva vem com o design.
-  - [/] Aplicar a migration de tickets no banco de desenvolvimento
-    Pedido à coordenação operacional na issue #1. Até lá, o servidor local fica no código anterior aos tickets.
-  - [ ] Painel do ticket: criar, editar, situação, pai e pessoas
+  - [x] Aplicar a migration de tickets no banco de desenvolvimento
+  - [ ] Página lateral do ticket com deslize e foco
+    Abrir um ticket desliza o mapa, abre a página com detalhes e foca nele (IDEA-013). Inclui criar, editar, situação, pai e pessoas.
   - [ ] Tela de importação de lista com prévia
   - [ ] Importar esta lista no projeto TreePM
   - [ ] Inserir em lote na importação
