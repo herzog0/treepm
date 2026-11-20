@@ -123,7 +123,18 @@ Todas exigem poder criar ticket no projeto (administrador da organização, gest
 
 ### Web
 
-Fica para um brief próprio, depois da API: o botão "Novo ticket" dos quadros aprovados, o painel de conversa de 440 px, o rascunho, o caminho com alternativas, o card tracejado no lugar proposto, e "Criar aqui", "Um nível acima" e "Escolher no mapa".
+Segue os quadros aprovados "Novo ticket 1" e "Novo ticket 2". `packages/engine` e `packages/react` não mudam.
+
+- **Botão "Novo ticket":** flutuante, no canto inferior direito do mapa, só quando `assistant.enabled` é verdadeiro e a pessoa pode criar ticket em algum projeto não arquivado. É a ação principal do mapa.
+- **Projeto da conversa:** o do ticket ou projeto selecionado; sem seleção, o único projeto em que a pessoa pode criar; havendo mais de um, o painel pede a escolha antes da primeira mensagem.
+- **Painel de 440 px à direita,** no lugar da página do ticket e do painel de áreas e projetos (um de cada vez). O mapa estreita como na página do ticket.
+- **Conversa:** as mensagens, o campo de texto e o rascunho (título e descrição editáveis à mão). Enquanto a IA responde, o painel mostra que está aguardando e não aceita outra mensagem. "Procurar o lugar" fica disponível assim que existe rascunho, mesmo que a IA ainda pergunte.
+- **Memória visível:** ao abrir o painel em um projeto, a conversa aberta mais recente da pessoa nesse projeto continua de onde parou. "Nova conversa" começa outra; "Apagar conversa" apaga a atual, com o segundo clique no mesmo lugar.
+- **Caminho encontrado:** o painel mostra o caminho do topo até a base, as alternativas e, quando for o caso, o aviso de incerto ou de parada antecipada. O mapa vai até o ramo de destino e mostra ali um **card tracejado** com o título do rascunho, que não é um ticket e não abre página. Escolher uma alternativa leva o card e a câmera para ela.
+- **Ações:** "Criar aqui" cria no destino mostrado; "Um nível acima" passa o destino para o pai do atual (ou a raiz do projeto); "Escolher no mapa" faz o próximo clique em um ticket ou no projeto virar o destino. Depois de criar, o painel fecha e a página do ticket novo abre.
+- **Falhas:** `assistant_unavailable` mostra a mensagem e "Tentar de novo", mantendo o texto digitado, e oferece a criação manual. `conversation_changed` recarrega a conversa.
+- **Câmera ao fechar o painel sem criar:** segue a mesma preferência "Ao fechar um ticket" da [ADR 0028](0028-preferencias-por-usuario-e-pagina-de-configuracoes.md).
+- A web aceita `GET /api/me` sem o campo `assistant` (API antiga) e trata como desligado.
 
 ### Privacidade e registro
 
