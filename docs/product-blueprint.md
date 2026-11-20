@@ -397,13 +397,13 @@ Hipótese comercial inicial: assinatura B2B por organização, com uma unidade d
 2. Qual a regra de convidados, projetos privados e criação de organizações? Times terão administradores delegados desde o piloto?
 3. Que critérios obrigam aceite de uma área e quem pode registrar uma exceção de conclusão?
 4. O espaço privado cobre apenas trabalho da empresa ou também tarefas pessoais independentes? Uma visão entre empresas é desejada futuramente?
-5. Que dados podem ser enviados a provedores de IA, com qual retenção e contrato? Quais volumes/latências e orçamento precisam ser suportados?
+5. Resolvida em parte em 2026-11-20 (ADR 0029): para a conversa de novo ticket, Teodoro autorizou Claude (Anthropic) e Jev (TypeSafe), com o texto dos tickets do projeto e da conversa. Continuam abertos: retenção e contrato com os provedores antes de dados reais de clientes, e volumes, latências e orçamento a suportar.
 6. Qual integração oferece mais valor ao piloto: código/PR, mensagens, calendário ou importação de backlog?
 7. Quais requisitos de retenção, backup/restauração, exportação e disponibilidade precisam ser atendidos antes de dados reais?
 8. Na visão em BPMN (IDEA-012), de onde a IA do projeto aprende as regras de negócio (tickets, critérios, documentos, código) e quem revisa o modelo gerado?
 9. Resolvida em 2026-11-20: na reclassificação ao editar (IDEA-014), a mudança de pai é confirmada ao salvar, e, quando realmente fizer sentido, o ticket não é salvo sem mudar de lugar primeiro. Continua aberto o critério que decide quando a mudança "realmente faz sentido"; ele pertence à ADR da IA.
-10. O que a memória da IA guarda (conversas, resumos de ramos, decisões), por quanto tempo, com que acesso por projeto e como é apagada? Depende também da dúvida 5.
-11. A conversa de novo ticket e a reclassificação são antecipadas para logo depois das telas de ticket, antes das Fases 3 e 4, ou ficam na Fase 5?
+10. Resolvida em 2026-11-20 (ADR 0029): a memória guarda o resumo do que cada ramo cobre, atualizado quando o ramo muda, e as conversas de criação, por pessoa e projeto, apagáveis pela própria pessoa. Sem prazo de expiração por enquanto.
+11. Resolvida em 2026-11-20: a conversa de novo ticket é antecipada para logo depois da página do ticket (ADR 0029). A reclassificação ao editar espera medição com edições reais.
 12. Resolvida em 2026-11-20: o clique continua selecionando sem mover a câmera, e o ticket abre (IDEA-013) por Enter, segundo clique no ticket selecionado ou botão "Abrir" no cartão de seleção. Ao fechar a página, a câmera volta ao lugar de antes por padrão, e isso é uma preferência da pessoa na página de configurações (ADR 0028, IDEA-015).
 
 Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticket multidisciplinar/busca/stand-up, modelo de domínio e matriz de permissões, plano de dados e migrações, contrato de comandos/eventos, orçamento de desempenho e backlog por fase. Nenhum desses deve reintroduzir dependências do produto na engine headless.
