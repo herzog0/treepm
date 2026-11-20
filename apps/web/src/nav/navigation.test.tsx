@@ -72,3 +72,52 @@ describe("AppNav", () => {
     expect(screen.getByRole("link", { name: "Times" })).toHaveAttribute("href", "/?view=teams");
   });
 });
+
+describe("import route", () => {
+  it("builds ?view=import&project=<id> and drops both when going back to the map", () => {
+    expect(viewHref("import", "https://x.test/app?foo=1#h", "p1")).toBe("/app?foo=1&view=import&project=p1#h");
+    expect(viewHref("map", "https://x.test/app?view=import&project=p1&foo=1")).toBe("/app?foo=1");
+    expect(viewHref("teams", "https://x.test/app?view=import&project=p1")).toBe("/app?view=teams");
+  });
+
+  it("reads the view and the project from the URL", () => {
+    setUrl("/?view=import&project=p1");
+    const { result } = renderHook(() => useView());
+    expect(result.current[0]).toBe("import");
+    expect(result.current[2]).toBe("p1");
+    setUrl("/?view=import");
+    expect(renderHook(() => useView()).result.current[2]).toBeNull();
+    setUrl("/?view=teams&project=p1");
+    expect(renderHook(() => useView()).result.current[2]).toBeNull();
+  });
+
+  it("pushes the entry on navigate and follows back and forward", () => {
+    const { result } = renderHook(() => useView());
+    const before = window.history.length;
+    act(() => result.current[1]("import", "p1"));
+    expect(result.current.slice(0, 1)).toEqual(["import"]);
+    expect(result.current[2]).toBe("p1");
+    expect(window.location.search).toBe("?view=import&project=p1");
+    expect(window.history.length).toBe(before + 1);
+
+    act(() => result.current[1]("import", "p1"));
+    expect(window.history.length).toBe(before + 1);
+
+    act(() => result.current[1]("map"));
+    expect(window.location.search).toBe("");
+    expect(result.current[2]).toBeNull();
+
+    act(() => {
+      setUrl("/?view=import&project=p1");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(result.current[0]).toBe("import");
+    expect(result.current[2]).toBe("p1");
+  });
+
+  it("keeps Mapa as the current section while importing", () => {
+    setUrl("/?view=import&project=p1");
+    render(<AppNav view="import" onNavigate={() => undefined} />);
+    expect(screen.getByRole("link", { name: "Mapa" })).toHaveAttribute("aria-current", "page");
+  });
+});

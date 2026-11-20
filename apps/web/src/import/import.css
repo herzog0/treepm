@@ -1,0 +1,36 @@
+/* Tela de importação (ADR 0025). */
+.import-screen { min-width: 0; max-width: 1200px; margin: 0 auto; padding: 24px clamp(10px, 2vw, 22px) 96px; color: var(--tp-text); }
+.import-header { display: grid; gap: 8px; margin-bottom: 24px; }
+.import-header h1 { margin: 0; font-size: 22px; font-weight: 600; }
+.import-header p { max-width: 70ch; margin: 0; color: var(--tp-text-2); }
+.import-path { display: flex; align-items: center; gap: 8px; color: var(--tp-text-3); font-size: 12px; }
+.import-path code { font-size: 11.5px; font-weight: 500; }
+.import-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.import-input, .import-preview { display: grid; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--tp-divider); border-radius: var(--tp-radius-panel); background: var(--tp-surface); }
+.import-input { grid-template-rows: auto 1fr auto; }
+.import-preview h2, .import-label-row > label:first-child { margin: 0; color: var(--tp-text-3); font-size: 12px; font-weight: 500; }
+.import-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.import-file { display: inline-flex; min-height: 28px; align-items: center; padding: 0 12px; border-radius: var(--tp-radius-control); color: var(--tp-accent-soft); cursor: pointer; }
+.import-file:hover, .import-file:focus-within { background: var(--tp-selected); }
+.import-file input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+#import-list { width: 100%; min-height: 320px; height: clamp(320px, calc(100vh - 470px), 720px); padding: 12px; border-radius: var(--tp-radius-field); font-family: var(--tp-font-mono); font-size: 12.5px; line-height: 1.6; resize: vertical; tab-size: 2; white-space: pre; overflow-x: auto; }
+.import-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; color: var(--tp-text-3); font-size: 12px; list-style: none; }
+.import-legend code { color: var(--tp-text-2); font-size: 11.5px; }
+.import-muted { margin: 0; color: var(--tp-text-3); }
+.import-summary { margin: 0; color: var(--tp-text-2); font-size: 13px; }
+.import-errors, .import-warnings { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.import-errors li { padding: 6px 10px; border-left: 2px solid var(--tp-danger); border-radius: var(--tp-radius-control); background: var(--tp-bar); color: var(--tp-danger-text); }
+.import-warnings li { padding: 6px 10px; border-left: 2px solid var(--tp-review); border-radius: var(--tp-radius-control); background: var(--tp-bar); color: var(--tp-text-2); }
+.import-tree, .import-tree ul { margin: 0; padding: 0; list-style: none; }
+.import-tree ul { margin-left: 12px; padding-left: 12px; border-left: 1px solid var(--tp-divider); }
+.import-tree-row { display: flex; min-height: 32px; align-items: center; gap: 8px; }
+.import-tree-row.is-parent .import-tree-title { font-weight: 500; }
+.import-tree-title { min-width: 0; overflow-wrap: anywhere; }
+.import-tree-row small { margin-left: auto; flex: none; color: var(--tp-text-3); font-size: 12px; }
+.import-tree .status-mark { --mark-size: 12px; }
+.import-footer { position: fixed; right: 0; bottom: 0; left: 0; z-index: 5; display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px clamp(10px, 2vw, 22px); border-top: 1px solid var(--tp-divider); background: var(--tp-bar); }
+.import-footer [role="alert"] { margin-right: auto; }
+.import-error-text { margin: 0; color: var(--tp-danger-text); font-size: 12px; }
+.import-unavailable { display: grid; justify-items: start; gap: 12px; }
+.import-unavailable p { margin: 0; color: var(--tp-text-2); }
+@media (max-width: 800px) { .import-columns { grid-template-columns: 1fr; } #import-list { min-height: 240px; height: 40vh; } }

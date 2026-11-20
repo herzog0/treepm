@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Project, TicketSummary } from "../api/client.js";
-import { buildMapItems, projectColor } from "./items.js";
+import { ACCENT_COLOR, STATUS_COLORS, buildMapItems, mixMapColors, mixWeightedColors } from "./items.js";
 
 const org = { orgId: "org_1", name: "Equipe Alfa", slug: "alfa" };
 const project = (id: string, key: string, name: string, archivedAt: string | null = null): Project => ({
@@ -13,14 +13,14 @@ const project = (id: string, key: string, name: string, archivedAt: string | nul
   teamIds: [],
 });
 
-const ticket = (id: string, projectId: string, number: number, title: string, parentId: string | null = null): TicketSummary => ({
+const ticket = (id: string, projectId: string, number: number, title: string, parentId: string | null = null, status: TicketSummary["status"] = "todo"): TicketSummary => ({
   id,
   projectId,
   number,
   key: `K-${number}`,
   parentId,
   title,
-  status: "todo",
+  status,
   progress: null,
   assigneeIds: [],
 });
@@ -76,10 +76,10 @@ describe("buildMapItems with tickets", () => {
     expect(items.filter((item) => item.parentId === "a").map((item) => item.id)).toEqual(["t1", "t2"]);
   });
 
-  it("shows key and title, carries the summary and uses the color of the project", () => {
+  it("shows key and title and carries the summary", () => {
     const items = buildMapItems(org, [a], tickets);
     const node = items.find((item) => item.id === "t3");
-    expect(node).toMatchObject({ kind: "ticket", key: "K-3", label: "Filho do um", color: projectColor("a") });
+    expect(node).toMatchObject({ kind: "ticket", key: "K-3", label: "Filho do um" });
     expect(node?.ticket).toEqual(tickets.a[2]);
     expect(items.find((item) => item.id === "a")?.ticket).toBeNull();
   });
@@ -95,14 +95,79 @@ describe("buildMapItems with tickets", () => {
   });
 });
 
-describe("projectColor", () => {
-  it("is deterministic and stable across calls", () => {
-    expect(projectColor("project-id-1")).toBe(projectColor("project-id-1"));
-    expect(projectColor("project-id-1")).toMatch(/^#[0-9a-f]{6}$/);
+describe("node colors", () => {
+  const a = project("a", "AAA", "Alfa");
+  const colorOf = (items: ReturnType<typeof buildMapItems>, id: string) => items.find((item) => item.id === id)?.color;
+
+  it("paints the organization and the projects with the accent", () => {
+    const items = buildMapItems(org, [a], {});
+    expect(colorOf(items, "org_1")).toBe(ACCENT_COLOR);
+    expect(colorOf(items, "a")).toBe(ACCENT_COLOR);
   });
 
-  it("varies across different seeds", () => {
-    const colors = new Set(Array.from({ length: 40 }, (_, i) => projectColor(`project-${i}`)));
-    expect(colors.size).toBeGreaterThan(3);
+  it("paints a leaf ticket with the color of its status", () => {
+    const tickets = { a: (["todo", "in_progress", "in_review", "done", "cancelled"] as const).map((status, i) => ticket(`t${i}`, "a", i + 1, "X", null, status)) };
+    const items = buildMapItems(org, [a], tickets);
+    expect(["t0", "t1", "t2", "t3", "t4"].map((id) => colorOf(items, id))).toEqual([
+      STATUS_COLORS.todo,
+      STATUS_COLORS.in_progress,
+      STATUS_COLORS.in_review,
+      STATUS_COLORS.done,
+      STATUS_COLORS.cancelled,
+    ]);
+  });
+
+  it("paints a ticket with children with the mix of its descendant leaves, ignoring the intermediate levels", () => {
+    const tickets = {
+      a: [
+        ticket("p", "a", 1, "Pai", null, null),
+        ticket("m", "a", 2, "Meio", "p", null),
+        ticket("l1", "a", 3, "Folha 1", "m", "done"),
+        ticket("l2", "a", 4, "Folha 2", "m", "done"),
+        ticket("l3", "a", 5, "Folha 3", "p", "in_review"),
+      ],
+    };
+    const items = buildMapItems(org, [a], tickets);
+    expect(colorOf(items, "p")).toBe(mixWeightedColors([{ color: STATUS_COLORS.done, weight: 2 }, { color: STATUS_COLORS.in_review, weight: 1 }]));
+    expect(colorOf(items, "m")).toBe(STATUS_COLORS.done);
+    expect(colorOf(items, "p")).not.toBe(STATUS_COLORS.done);
+  });
+});
+
+describe("mixWeightedColors", () => {
+  it("returns the same color for equal colors and the midpoint in linear light for two", () => {
+    expect(mixWeightedColors([{ color: "#4fc48c", weight: 3 }, { color: "#4fc48c", weight: 1 }])).toBe("#4fc48c");
+    expect(mixWeightedColors([{ color: "#000000", weight: 1 }, { color: "#ffffff", weight: 1 }])).toBe("#bcbcbc");
+  });
+
+  it("weights by leaf count and does not depend on the order", () => {
+    const x = { color: "#6ea8ff", weight: 3 };
+    const y = { color: "#e7b450", weight: 1 };
+    expect(mixWeightedColors([x, y])).toBe(mixWeightedColors([y, x]));
+    expect(mixWeightedColors([x, y])).not.toBe(mixWeightedColors([{ ...x, weight: 1 }, y]));
+  });
+});
+
+describe("mixMapColors (merged squares)", () => {
+  const a = project("a", "AAA", "Alfa");
+  it("mixes the member colors weighted by how many leaves each member holds", () => {
+    const tickets = {
+      a: [
+        ticket("p", "a", 1, "Pai", null, null),
+        ticket("l1", "a", 2, "F1", "p", "done"),
+        ticket("l2", "a", 3, "F2", "p", "done"),
+        ticket("solo", "a", 4, "Solo", null, "todo"),
+      ],
+    };
+    const items = buildMapItems(org, [a], tickets);
+    const members = [items.find((item) => item.id === "p")!, items.find((item) => item.id === "solo")!];
+    const colors = members.map((member) => ({ color: member.color, weight: 1 }));
+    const expected = mixWeightedColors([{ color: STATUS_COLORS.done, weight: 2 }, { color: STATUS_COLORS.todo, weight: 1 }]);
+    expect(mixMapColors(colors, members)).toBe(expected);
+  });
+
+  it("counts a project or the organization as one leaf", () => {
+    const items = buildMapItems(org, [a], {});
+    expect(mixMapColors([{ color: ACCENT_COLOR, weight: 1 }], [items[1]!])).toBe(ACCENT_COLOR);
   });
 });

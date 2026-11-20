@@ -1,0 +1,31 @@
+/* Base visual "Constelação" (ADR 0025). Única fonte de cor da aplicação autenticada. */
+:root {
+  color-scheme: dark;
+  --tp-bg: #08090d;
+  --tp-bar: #0b0c11;
+  --tp-surface: #0e1016;
+  --tp-card: #12151d;
+  --tp-raised: #14171f;
+  --tp-selected: #1a1e2b;
+  --tp-divider: #1c1f28;
+  --tp-border: #272c38;
+  --tp-border-strong: #343a49;
+  --tp-text: #eceef2;
+  --tp-text-2: #a0a6b4;
+  --tp-text-3: #8b92a3;
+  --tp-accent: #a99bff;
+  --tp-accent-soft: #d6ceff;
+  --tp-on-accent: #121019;
+  --tp-todo: #8b92a3;
+  --tp-doing: #6ea8ff;
+  --tp-review: #e7b450;
+  --tp-done: #4fc48c;
+  --tp-danger: #e5687a;
+  --tp-danger-text: #f0919b;
+
+  --tp-font: "Inter Variable", system-ui, sans-serif;
+  --tp-font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --tp-radius-control: 6px;
+  --tp-radius-field: 8px;
+  --tp-radius-panel: 10px;
+}

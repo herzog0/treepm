@@ -1,0 +1,15 @@
+/* Marcador de situação (ADR 0025): quadrado com borda que se enche de baixo para cima. */
+.status-mark {
+  --mark: var(--tp-todo);
+  display: inline-block;
+  flex: none;
+  width: var(--mark-size, 10px);
+  height: var(--mark-size, 10px);
+  border: 1.5px solid var(--mark);
+  border-radius: 2px;
+  background: linear-gradient(to top, var(--mark) calc(var(--fill, 0) * 100%), transparent calc(var(--fill, 0) * 100%));
+}
+.status-mark[data-state="in_progress"] { --mark: var(--tp-doing); }
+.status-mark[data-state="in_review"] { --mark: var(--tp-review); }
+.status-mark[data-state="done"], .status-mark[data-state="progress"] { --mark: var(--tp-done); }
+.status-mark[data-state="cancelled"] { border-style: dashed; background: none; }

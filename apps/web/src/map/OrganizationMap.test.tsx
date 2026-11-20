@@ -107,13 +107,13 @@ describe("OrganizationMap", () => {
       render(<OrganizationMap client={makeClient({ projects })} me={makeMe()} />);
       await userEvent.click(await screen.findByRole("button", { name: /ALFA/ }));
       const toggle = screen.getByRole("button", { name: "Cores" });
-      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
 
       const panel = screen.getByRole("complementary", { name: "Áreas e projetos" });
       // Foco em um botão (não editável) dentro do painel: o atalho do mapa continuaria valendo sem o isolamento.
       within(panel).getByRole("tab", { name: "Projetos" }).focus();
       await userEvent.keyboard("cC");
-      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
 
       await userEvent.keyboard("{Escape}");
       expect(screen.queryByRole("complementary", { name: "Áreas e projetos" })).not.toBeInTheDocument();
@@ -126,7 +126,7 @@ describe("OrganizationMap", () => {
       await screen.findByRole("button", { name: /ALFA/ });
       screen.getByRole("region", { name: "Mapa da organização" }).focus();
       await userEvent.keyboard("c");
-      expect(screen.getByRole("button", { name: "Cores" })).toHaveAttribute("aria-pressed", "false");
+      expect(screen.getByRole("button", { name: "Cores" })).toHaveAttribute("aria-pressed", "true");
     });
   });
   describe("tickets", () => {
@@ -236,6 +236,45 @@ describe("OrganizationMap", () => {
       await userEvent.click(await screen.findByRole("button", { name: /ALFA · Projeto Alfa/ }));
       const panel = screen.getByRole("complementary", { name: "Áreas e projetos" });
       expect(within(panel).getByRole("heading", { name: "Projeto Alfa" })).toBeInTheDocument();
+    });
+  });
+
+  describe("theme and import entry", () => {
+    it("starts with the dark card (Cores off), as ADR 0025 describes", async () => {
+      render(<OrganizationMap client={makeClient({ projects })} me={makeMe()} />);
+      await screen.findByRole("button", { name: /ALFA/ });
+      expect(screen.getByRole("button", { name: "Cores" })).toHaveAttribute("aria-pressed", "false");
+      expect(document.querySelector(".spatial-shell")).not.toHaveClass("is-color-mode");
+    });
+
+    it("scopes the map theme to the organization map root", async () => {
+      render(<OrganizationMap client={makeClient({ projects })} me={makeMe()} />);
+      await screen.findByRole("button", { name: /ALFA/ });
+      expect(document.querySelector(".spatial-shell")).toHaveClass("org-map");
+    });
+
+    it("shows the status mark in the selection card, next to the status in words", async () => {
+      const tickets = [
+        makeTicket("t1", "p1", 1, "Fechar a fase", { key: "ALFA-1", status: null, progress: { done: 3, total: 8, excluded: 0 } }),
+        makeTicket("t2", "p1", 2, "Escrever", { key: "ALFA-2", parentId: "t1", status: "in_review" }),
+      ];
+      render(<OrganizationMap client={makeClient({ projects, tickets: { p1: tickets } })} me={makeMe()} />);
+      await userEvent.click(await screen.findByRole("button", { name: /ALFA · Projeto Alfa/ }));
+      await userEvent.click(within(screen.getByRole("complementary", { name: "Nó selecionado" })).getByRole("button", { name: "Explorar ramo" }));
+      const node = await screen.findByRole("button", { name: /ALFA-1 · Fechar a fase/ }, { timeout: SLOW });
+      await waitFor(() => expect(node).toHaveAttribute("tabindex", "0"), { timeout: SLOW });
+      await userEvent.click(node);
+      const card = screen.getByRole("complementary", { name: "Nó selecionado" });
+      expect(within(card).getByText("3 de 8 concluídos")).toBeInTheDocument();
+      expect(card.querySelector("[data-state='progress']")).toHaveAttribute("aria-hidden", "true");
+    });
+
+    it("hands the project to onImport from 'Importar lista' in the side panel", async () => {
+      const onImport = vi.fn();
+      render(<OrganizationMap client={makeClient({ projects })} me={makeMe()} onImport={onImport} />);
+      await userEvent.click(await screen.findByRole("button", { name: /ALFA · Projeto Alfa/ }));
+      await userEvent.click(await screen.findByRole("button", { name: "Importar lista" }));
+      expect(onImport).toHaveBeenCalledWith("p1");
     });
   });
 });

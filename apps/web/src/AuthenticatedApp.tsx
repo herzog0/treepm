@@ -41,7 +41,7 @@ function MeIndicator({ getToken }: { getToken: () => Promise<string | null> }) {
 function OrganizationGate({ appUrl }: { appUrl: string }) {
   const { isLoaded, isSignedIn, orgId, getToken } = useAuth();
   const { session } = useSession();
-  const [view, navigate] = useView();
+  const [view, navigate, projectId] = useView();
   const mustChooseOrganization = session?.currentTask?.key === "choose-organization";
 
   useEffect(() => {
@@ -98,7 +98,7 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
           <UserButton />
         </div>
       </header>
-      <Workspace orgId={orgId} view={view} getToken={getToken} />
+      <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} getToken={getToken} />
     </div>
   );
 }

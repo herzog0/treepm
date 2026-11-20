@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { Workspace } from "./Workspace.js";
 
@@ -77,5 +78,17 @@ describe("Workspace", () => {
     rerender(<Workspace orgId="org-2" view="map" getToken={getToken} fetch={fetchImpl} />);
     await screen.findByRole("button", { name: /Projeto de Org Beta/ });
     expect(screen.queryByRole("complementary", { name: "Áreas e projetos" })).not.toBeInTheDocument();
+  });
+
+  it("shows the import screen for the import view and leaves for the map through onNavigate", async () => {
+    const fetchImpl = orgFetch();
+    const onNavigate = vi.fn();
+    render(<Workspace orgId="org-1" view="import" projectId="org-1-proj" onNavigate={onNavigate} getToken={async () => "org-1"} fetch={fetchImpl} />);
+    expect(await screen.findByRole("heading", { name: "Importar lista", level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Lista" })).toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /Projeto de/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(onNavigate).toHaveBeenCalledWith("map");
   });
 });

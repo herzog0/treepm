@@ -1,10 +1,87 @@
-.map-state { display: flex; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 12px; margin: 0; color: #eef2ff; }
+.map-state { display: flex; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 12px; margin: 0; color: var(--tp-text); }
 .map-state .load-error { display: grid; justify-items: center; gap: 10px; }
 .map-state p { margin: 0; }
-.map-state button, .map-panel-toggle, .map-create-first { padding: 7px 10px; border: 1px solid #52638c; border-radius: 5px; background: #283758; color: white; font-size: 12px; cursor: pointer; }
-.map-state button:hover, .map-panel-toggle:hover, .map-create-first:hover { background: #3a4d75; }
-.map-panel-toggle { flex: 0 0 auto; padding: 4px 9px; font-size: 11px; }
-.map-panel-toggle:focus-visible, .map-create-first:focus-visible, .map-state button:focus-visible { outline: 2px solid #d7c8ff; outline-offset: -2px; }
-.map-create-first { position: absolute; z-index: 7; bottom: 64px; left: 50%; transform: translateX(-50%); padding: 10px 16px; font-size: 14px; }
-.spatial-selection.is-beside-panel { right: 408px; }
+.map-panel-toggle, .map-create-first { min-height: 28px; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-raised); color: var(--tp-text); font: 400 12px/1.2 var(--tp-font); cursor: pointer; }
+.map-panel-toggle:hover { background: var(--tp-selected); border-color: var(--tp-border-strong); }
+.map-panel-toggle { flex: 0 0 auto; }
+.map-panel-toggle:focus-visible, .map-create-first:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
+.map-create-first { position: absolute; z-index: 7; bottom: 64px; left: 50%; transform: translateX(-50%); min-height: 36px; padding: 0 16px; border-color: transparent; background: var(--tp-accent); color: var(--tp-on-accent); font-size: 14px; font-weight: 500; }
+.map-create-first:hover { background: var(--tp-accent-soft); }
+.spatial-selection.is-beside-panel { right: 394px; }
 @media (max-width: 700px) { .spatial-selection.is-beside-panel { right: 14px; } }
+
+/*
+ * Tema do mapa da organização (ADR 0025). Tudo com escopo em `.org-map`, para a demo continuar como está.
+ * As variáveis `--spatial-*` são as que o pacote expõe; as regras abaixo vencem os seletores `:where()` do pacote.
+ */
+.org-map {
+  --spatial-background: var(--tp-bg);
+  --spatial-foreground: var(--tp-text);
+  --spatial-font-family: var(--tp-font);
+  --spatial-stage-background: var(--tp-bg);
+  --spatial-card-background: var(--tp-card);
+  --spatial-region-border: var(--tp-divider);
+  --spatial-selection-ring: var(--tp-accent);
+  --spatial-focus-ring: var(--tp-accent);
+  --spatial-toolbar-background: var(--tp-bar);
+}
+.org-map .spatial-constellation { opacity: 0.3; }
+.org-map .spatial-node { color: var(--tp-text); }
+.org-map .spatial-card-visual {
+  border-right-color: var(--tp-border);
+  border-bottom-color: var(--tp-border);
+  border-left-color: var(--tp-border);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--tp-bg) 80%, transparent);
+}
+.org-map .spatial-lod-compact .spatial-card-visual { box-shadow: 0 4px 12px color-mix(in srgb, var(--tp-bg) 80%, transparent); }
+.org-map .spatial-lod-chip .spatial-card-visual { box-shadow: 0 2px 4px color-mix(in srgb, var(--tp-bg) 80%, transparent); }
+.org-map .spatial-lod-dot .spatial-card-visual { box-shadow: none; }
+/*
+ * Card ainda recolhido (reveal < 1) é uma mancha da cor do nó: o texto escurece para ler sobre ela e
+ * clareia conforme o card se abre. `--spatial-reveal` não herda, então o botão o busca no card.
+ */
+.org-map .spatial-card-button { --spatial-reveal: inherit; color: color-mix(in srgb, var(--tp-on-accent) calc((1 - var(--spatial-reveal)) * 100%), var(--tp-text)); }
+.org-map .spatial-lod-content > strong { color: inherit; font-weight: 600; }
+.org-map .spatial-key, .org-map .spatial-card-meta, .org-map .spatial-aggregate-count { color: inherit; opacity: 0.72; }
+/* Modo "Cores" (padrão do mapa): o card é a cor do nó inteira, então o texto é o escuro do token sobre ela. */
+.org-map.spatial-shell.is-color-mode :is(.spatial-card-button, .spatial-key, .spatial-card-meta, .spatial-aggregate-count) { color: var(--tp-on-accent); }
+.org-map .spatial-key { font-family: var(--tp-font-mono); font-weight: 500; letter-spacing: 0; }
+.org-map .node-state { display: flex; color: inherit; min-width: 0; max-width: 100%; align-items: center; gap: 4px; font-size: 8px; line-height: 1.2; white-space: nowrap; }
+.org-map .node-state > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.org-map .node-state .status-mark { --mark-size: 9px; }
+/* Card cheio: o marcador usa o escuro do token, porque a cor da situação já é a do fundo. */
+.org-map.is-color-mode .spatial-card-button .status-mark { --mark: var(--tp-on-accent); }
+/* Card completo é largo o bastante para o tamanho de texto da ADR (13 na interface, 11,5 na chave). */
+.org-map .spatial-lod-full .spatial-lod-content > strong { font-size: 13px; }
+.org-map .spatial-lod-full .spatial-key { font-size: 11.5px; }
+.org-map .spatial-lod-full .spatial-card-meta, .org-map .spatial-lod-full .spatial-aggregate-count, .org-map .spatial-lod-full .node-state { font-size: 11px; }
+.org-map .spatial-lod-full .node-state .status-mark { --mark-size: 11px; }
+.org-map .spatial-lod-chip .status-mark { --mark-size: 6px; }
+.org-map .spatial-lod-compact .status-mark { --mark-size: 7px; }
+
+/* Palco focável por teclado: anel de foco do tema, só com :focus-visible (o padrão do navegador é azul). */
+.org-map .spatial-stage:focus { outline: none; }
+.org-map .spatial-stage:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: -2px; }
+
+/* Barra de caminho, barra de ferramentas, dica e cartão de seleção. */
+.org-map .spatial-context { min-height: 40px; padding: 4px clamp(10px, 2vw, 22px); border-bottom-color: var(--tp-divider); background: var(--tp-bar); }
+.org-map .spatial-breadcrumb i { color: var(--tp-text-3); }
+.org-map .spatial-breadcrumb button { padding: 4px 6px; border-radius: var(--tp-radius-control); color: var(--tp-text-2); font: 400 12px/1.2 var(--tp-font); }
+.org-map .spatial-breadcrumb button:hover { background: var(--tp-raised); color: var(--tp-text); }
+.org-map .spatial-breadcrumb button.is-current { color: var(--tp-text); font-weight: 500; }
+.org-map .spatial-breadcrumb button:focus-visible, .org-map .spatial-selection button:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
+.org-map .spatial-toolbar { border-color: var(--tp-border); border-radius: var(--tp-radius-field); box-shadow: none; }
+.org-map .spatial-toolbar button { border-right-color: var(--tp-border); color: var(--tp-text-2); }
+.org-map .spatial-toolbar button:hover { background: var(--tp-selected); color: var(--tp-text); }
+.org-map .spatial-toolbar .spatial-color-toggle[aria-pressed="true"] { background: var(--tp-selected); color: var(--tp-accent-soft); }
+.org-map:has(.side-panel) .spatial-toolbar { right: 394px; }
+@media (max-width: 700px) { .org-map:has(.side-panel) .spatial-toolbar { right: 14px; } }
+.org-map .spatial-help { border-color: var(--tp-divider); background: var(--tp-bar); color: var(--tp-text-3); font-size: 11px; }
+.org-map .spatial-selection { gap: 8px; border-color: var(--tp-border); border-radius: var(--tp-radius-panel); background: var(--tp-card); box-shadow: 0 8px 24px color-mix(in srgb, var(--tp-bg) 80%, transparent); }
+.org-map .spatial-selection strong { color: var(--tp-text); font-size: 13px; font-weight: 600; }
+.org-map .spatial-selection code { color: var(--tp-text-3); font-size: 11.5px; font-weight: 500; }
+.org-map .spatial-selection p { color: var(--tp-text-2); font-size: 12px; }
+.org-map .spatial-selection .selection-state { display: flex; align-items: center; gap: 8px; }
+.org-map .spatial-selection .status-mark { --mark-size: 12px; }
+.org-map .spatial-selection button { min-height: 28px; padding: 0 12px; border-color: var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-raised); color: var(--tp-text); font-size: 12px; }
+.org-map .spatial-selection button:hover { background: var(--tp-selected); border-color: var(--tp-border-strong); }
