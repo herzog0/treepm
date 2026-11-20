@@ -5,7 +5,7 @@ import type { Principal } from "../access/principal.js";
 export type ActivityInput = {
   /** Identificador estável em inglês, ex.: `team.created`. */
   kind: string;
-  subjectType: "team" | "area" | "project";
+  subjectType: "team" | "area" | "project" | "ticket";
   subjectId: string;
   payload?: Prisma.InputJsonObject;
 };

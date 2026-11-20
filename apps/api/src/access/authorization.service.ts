@@ -1,8 +1,13 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import {
+  canAssignTicket,
   canAttachTeamToProject,
   canCreateProject,
+  canCreateTicket,
+  canEditTicket,
+  canImportTickets,
+  canRemoveTicket,
   canCreateTeam,
   canGrantProjectRole,
   canManageAreas,
@@ -70,6 +75,22 @@ export class AuthorizationService {
   }
   attachTeamToProject(actor: Actor, projectId: string): void {
     this.require(canAttachTeamToProject(actor, projectId));
+  }
+
+  createTicket(actor: Actor, projectId: string): void {
+    this.require(canCreateTicket(actor, projectId));
+  }
+  editTicket(actor: Actor, projectId: string): void {
+    this.require(canEditTicket(actor, projectId));
+  }
+  assignTicket(actor: Actor, projectId: string): void {
+    this.require(canAssignTicket(actor, projectId));
+  }
+  importTickets(actor: Actor, projectId: string): void {
+    this.require(canImportTickets(actor, projectId));
+  }
+  removeTicket(actor: Actor, projectId: string): void {
+    this.require(canRemoveTicket(actor, projectId));
   }
 
   canView(actor: Actor, project: ProjectAccess): boolean {

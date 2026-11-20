@@ -80,3 +80,4 @@ export function visibleProjects<Project extends ProjectAccess>(
 ): Project[] {
   return projects.filter((project) => canViewProject(actor, project));
 }
+export * from "./tickets.js";

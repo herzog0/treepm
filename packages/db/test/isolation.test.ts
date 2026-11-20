@@ -85,6 +85,22 @@ const TABLES: TableSpec[] = [
     appCanUpdateAndDelete: true,
   },
   {
+    table: "tickets",
+    insert:
+      "insert into tickets (org_id, project_id, number, title, created_by_person_id) values ($1, gen_random_uuid(), 99, 'X', gen_random_uuid())",
+    update: "update tickets set title = 'hacked' where org_id = $1",
+    remove: "delete from tickets where org_id = $1",
+    appCanUpdateAndDelete: true,
+  },
+  {
+    table: "ticket_assignees",
+    insert:
+      "insert into ticket_assignees (org_id, ticket_id, person_id) values ($1, gen_random_uuid(), gen_random_uuid())",
+    update: "update ticket_assignees set updated_at = now() where org_id = $1",
+    remove: "delete from ticket_assignees where org_id = $1",
+    appCanUpdateAndDelete: true,
+  },
+  {
     table: "activity_events",
     insert:
       "insert into activity_events (org_id, kind, subject_type, subject_id) values ($1, 'k', 't', 's')",
@@ -196,7 +212,7 @@ describe.each(TABLES)("isolamento por organização em $table", (spec) => {
     expect(affected).toBe(0);
     expect(await ownerCount(spec.table, ORG_B)).toBeGreaterThan(0);
     const hacked = await owner.query(
-      `select 1 from ${spec.table} where org_id = $1 and (to_jsonb(${spec.table}) ->> 'name' = 'hacked' or to_jsonb(${spec.table}) ->> 'kind' = 'hacked' or to_jsonb(${spec.table}) ->> 'display_name' = 'hacked')`,
+      `select 1 from ${spec.table} where org_id = $1 and (to_jsonb(${spec.table}) ->> 'name' = 'hacked' or to_jsonb(${spec.table}) ->> 'title' = 'hacked' or to_jsonb(${spec.table}) ->> 'kind' = 'hacked' or to_jsonb(${spec.table}) ->> 'display_name' = 'hacked')`,
       [ORG_B],
     );
     expect(hacked.rowCount).toBe(0);

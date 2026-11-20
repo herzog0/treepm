@@ -27,6 +27,7 @@ export type Ids = {
   team: string;
   area: string;
   project: string;
+  ticket: string;
   event: string;
 };
 
@@ -71,9 +72,17 @@ export async function seedOrg(
     "insert into project_memberships (org_id, project_id, person_id, role) values ($1, $2, $3, 'manager')",
     [orgId, project, person],
   );
+  const ticket = await q(
+    "insert into tickets (org_id, project_id, number, title, created_by_person_id) values ($1, $2, 1, 'Ticket', $3) returning id",
+    [orgId, project, person],
+  );
+  await pool.query(
+    "insert into ticket_assignees (org_id, ticket_id, person_id) values ($1, $2, $3)",
+    [orgId, ticket, person],
+  );
   const event = await q(
     "insert into activity_events (org_id, actor_person_id, kind, subject_type, subject_id) values ($1, $2, 'created', 'project', $3) returning id",
     [orgId, person, project],
   );
-  return { person, team, area, project, event };
+  return { person, team, area, project, ticket, event };
 }
