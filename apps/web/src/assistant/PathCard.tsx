@@ -16,6 +16,8 @@ interface PathCardProps {
   busy: boolean;
   error: ApiError | null;
   whereStopped: (parentId: string | null) => string;
+  /** O destino é um ticket que ainda não tem subtickets na árvore carregada (nunca a raiz do projeto). */
+  targetIsLeaf: boolean;
   onUse: (destination: Destination) => void;
   onUp: () => void;
   onChoose: () => void;
@@ -46,6 +48,9 @@ export function PathCard(props: PathCardProps) {
           </li>
         ))}
       </ol>
+      {props.targetIsLeaf && target.path.length > 0 && (
+        <p className="assistant-notice">«{target.path.at(-1)?.title}» ainda não tem subtickets. O ticket novo será o primeiro.</p>
+      )}
       {outcome.uncertain && (
         <p className="assistant-notice">Não tenho certeza do lugar: mais de um ramo serve. Escolha uma das opções abaixo, suba um nível ou use «Escolher no mapa».</p>
       )}

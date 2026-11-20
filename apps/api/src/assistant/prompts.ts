@@ -27,20 +27,20 @@ export function draftBlock(draft: TicketDraft | null): string {
   return `Rascunho atual do ticket (dados, em JSON; null se ainda não houver): ${JSON.stringify(draft)}`;
 }
 
-// ---- Jev: a procura do caminho (ADR 0029) ----------------------------------------------------------------
-// Estado com campos nomeados; opções com nomes descritivos (o título do ramo); critérios do Noul como
-// situações concretas. Os ids dos tickets nunca saem: o código liga cada opção de volta ao seu ramo.
+// ---- Jev: a procura do caminho (ADR 0029, ADR 0030) -------------------------------------------------------
+// Estado com campos nomeados; opções com nomes descritivos (o título do ticket); critérios do Noul como
+// situações concretas. Os ids dos tickets nunca saem: o código liga cada opção de volta ao seu ticket.
 
 export const JEV_MODEL = "jev-1.14.0";
 
 export const JEV_BELONGS_QUESTION =
-  "O trabalho descrito em `draft` cabe dentro do assunto de pelo menos um dos ramos de `candidate_branches`?";
+  "O trabalho descrito em `draft` é uma parte do trabalho de pelo menos um dos tickets de `candidates`?";
 export const JEV_BELONGS_TRUE =
-  "O trabalho de `draft` trata de um assunto que um dos ramos de `candidate_branches` cobre, como um item que a equipe esperaria encontrar dentro desse ramo.";
+  "`draft` descreve um pedaço do que um dos tickets de `candidates` abrange: a equipe esperaria encontrá-lo como subticket desse ticket.";
 export const JEV_BELONGS_FALSE =
-  "O trabalho de `draft` trata de um assunto que nenhum dos ramos de `candidate_branches` cobre: é mais geral que todos eles ou é um assunto novo, e seria encontrado direto no nível em que estamos.";
-export const JEV_BRANCH_QUESTION =
-  "Qual dos ramos de `candidate_branches` cobre o trabalho descrito em `draft`?";
+  "`draft` não é um pedaço de nenhum dos tickets de `candidates`. Ele é mais geral que todos eles, trata de um assunto novo, ou é um trabalho vizinho de um deles: do mesmo tema, mas que se faz e se conclui de forma independente. Nesses casos ele ficaria ao lado dos tickets de `candidates`, e não dentro de um deles.";
+export const JEV_CHOICE_QUESTION =
+  "De qual dos tickets de `candidates` o trabalho descrito em `draft` é uma parte?";
 
 // ---- Resumo de ramo (Claude Opus 5.5, esforço low) -------------------------------------------------------
 

@@ -8,7 +8,7 @@ import {
   JEV_BELONGS_FALSE,
   JEV_BELONGS_QUESTION,
   JEV_BELONGS_TRUE,
-  JEV_BRANCH_QUESTION,
+  JEV_CHOICE_QUESTION,
   JEV_MODEL,
 } from "./prompts.js";
 
@@ -34,14 +34,14 @@ export function judgeInputFits(input: JudgeInput): boolean {
   return estimateTokens(JSON.stringify(buildJudgeRequest(input).request)) <= JEV_TOKEN_BUDGET;
 }
 
-/** Os nomes das opções são os títulos dos ramos (descrevem o conteúdo); repetidos ganham " (2)", " (3)"… */
-function labelCandidates(candidates: JudgeInput["candidates"]): { label: string; id: string; summary: string; title: string }[] {
+/** Os nomes das opções são os títulos dos tickets (descrevem o conteúdo); repetidos ganham " (2)", " (3)"… */
+function labelCandidates(candidates: JudgeInput["candidates"]): { label: string; id: string; summary: string; hasChildren: boolean }[] {
   const used = new Set<string>();
   return candidates.map((candidate) => {
     let label = candidate.title;
     for (let n = 2; used.has(label); n++) label = `${candidate.title} (${n})`;
     used.add(label);
-    return { label, id: candidate.id, title: candidate.title, summary: candidate.summary };
+    return { label, id: candidate.id, summary: candidate.summary, hasChildren: candidate.hasChildren };
   });
 }
 
@@ -51,14 +51,17 @@ export function buildJudgeRequest(input: JudgeInput) {
     model: JEV_MODEL,
     state: {
       draft: { title: input.draft.title, description: input.draft.description },
-      ...(input.current ? { current_branch: { title: input.current.title, summary: input.current.summary } } : {}),
-      candidate_branches: labelled.map(({ label, summary }) => ({ title: label, summary })),
+      ...(input.current ? { current_ticket: { title: input.current.title, subtickets_summary: input.current.summary } } : {}),
+      // Ticket com filhos: resumo do ramo; folha: trecho da descrição, e sem o campo quando é vazio.
+      candidates: labelled.map(({ label, summary, hasChildren }): Record<string, string> =>
+        hasChildren ? { title: label, subtickets_summary: summary } : summary === "" ? { title: label } : { title: label, description: summary },
+      ),
     },
     questions: {
       belongs: noul(JEV_BELONGS_QUESTION, { true: JEV_BELONGS_TRUE, false: JEV_BELONGS_FALSE }),
       branch: choice(
-        JEV_BRANCH_QUESTION,
-        Object.fromEntries(labelled.map(({ label, summary }) => [label, summary])),
+        JEV_CHOICE_QUESTION,
+        Object.fromEntries(labelled.map(({ label, summary, hasChildren }) => [label, !hasChildren && summary === "" ? null : summary])),
       ),
     },
   };
@@ -80,7 +83,7 @@ const answersSchema = z.object({
   branch: z.object({ probabilities: z.record(z.string(), z.number().min(0).max(1)) }),
 });
 
-/** Adaptador do Jev para a escolha do ramo (ADR 0029). Nunca registra o texto enviado nem o recebido. */
+/** Adaptador do Jev para a escolha do pai do ticket novo (ADR 0029, ADR 0030). Nunca registra o texto enviado nem o recebido. */
 export class JevBranchJudge implements BranchJudge {
   private readonly logger = new Logger("JevBranchJudge");
 

@@ -363,6 +363,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 busy={busy}
                 error={create.error}
                 whereStopped={whereStopped}
+                targetIsLeaf={target.parentId !== null && !list.some((entry) => entry.parentId === target.parentId)}
                 onUse={setTarget}
                 onUp={() => up && setTarget(up)}
                 onChoose={() => setChoosing(true)}
