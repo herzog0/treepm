@@ -5,7 +5,7 @@ import { searchPlacement } from "../src/assistant/placement-search.js";
 import type { PlacementDeps } from "../src/assistant/placement-search.js";
 
 const draft = { title: "Corrigir login", description: "O botão não responde" };
-const cand = (id: string): BranchCandidate => ({ id, title: `Ramo ${id}`, summary: `Resumo ${id}` });
+const cand = (id: string): BranchCandidate => ({ id, title: `Ramo ${id}`, summary: `Resumo ${id}`, hasChildren: true });
 
 /** Árvore e juiz roteirizados: a chave é o id do ramo atual ("root" na raiz). */
 function setup(
@@ -237,5 +237,22 @@ describe("searchPlacement — limites", () => {
     };
     await searchPlacement(draft, deps);
     expect(seen).toEqual({ title: "Ramo A", summary: "Resumo A" });
+  });
+});
+
+describe("searchPlacement — folha como candidata (ADR 0030)", () => {
+  it("o juiz escolhe uma folha: o destino é ela, com o caminho, e o juiz é chamado uma vez só nesse ramo", async () => {
+    const { deps, calls } = setup(
+      { root: ["A", "B"], A: ["F"], F: [] },
+      {
+        root: { belongs: 0.95, choice: { A: 0.9, B: 0.1 } },
+        A: { belongs: 0.95, choice: { F: 1 } },
+      },
+    );
+    const out = await searchPlacement(draft, deps);
+    expect(out.destination.parentId).toBe("F");
+    expect(ids(out.destination)).toEqual(["A", "F"]);
+    expect(calls.map((c) => c.current)).toEqual(["root", "A"]);
+    expect(out.stoppedEarly).toBeNull();
   });
 });

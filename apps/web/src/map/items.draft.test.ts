@@ -17,6 +17,14 @@ describe("buildMapItems with the assistant draft", () => {
     expect(items.at(-1)).toBe(ghost);
   });
 
+  it("enters as the only child of a leaf ticket (ADR 0030)", () => {
+    const items = buildMapItems(org, [project], tickets, { projectId: "p1", parentId: "t2", title: "Primeiro subticket" });
+    expect(items.filter((item) => item.parentId === "t2")).toEqual([
+      expect.objectContaining({ id: DRAFT_NODE_ID, kind: "draft", parentId: "t2", label: "Primeiro subticket" }),
+    ]);
+    expect(items.find((item) => item.id === "t2")).toMatchObject({ kind: "ticket" });
+  });
+
   it("puts the node under the project when the destination is the project root", () => {
     const items = buildMapItems(org, [project], tickets, { projectId: "p1", parentId: null, title: "Raiz" });
     expect(items.find((item) => item.id === DRAFT_NODE_ID)?.parentId).toBe("p1");

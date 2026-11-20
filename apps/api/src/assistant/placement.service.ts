@@ -62,8 +62,10 @@ export class PlacementService {
     });
 
     const candidates = async (parentId: string | null): Promise<BranchCandidate[]> => {
-      // Candidatos são só os filhos que já têm filhos; ticket folha não é candidato.
-      const branches = (childrenOf.get(parentId) ?? []).filter((child) => (childrenOf.get(child.id) ?? []).length > 0);
+      // Candidatos são todos os filhos diretos (ADR 0030). Só os que têm filhos passam pelo resumidor; a folha
+      // entra com o trecho da descrição.
+      const children = childrenOf.get(parentId) ?? [];
+      const branches = children.filter((child) => (childrenOf.get(child.id) ?? []).length > 0);
       const stale = branches
         .map((ticket) => ({ ticket, input: summaryInput(ticket) }))
         .map((entry) => ({ ...entry, mark: branchContentMark(entry.input) }))
@@ -90,7 +92,15 @@ export class PlacementService {
         });
         for (const { ticket, mark, result } of written) summaries.set(ticket.id, { summary: result.summary, contentMark: mark });
       }
-      return branches.map((ticket) => ({ id: ticket.id, title: ticket.title, summary: summaries.get(ticket.id)?.summary ?? "" }));
+      return children.map((ticket) => {
+        const hasChildren = (childrenOf.get(ticket.id) ?? []).length > 0;
+        return {
+          id: ticket.id,
+          title: ticket.title,
+          summary: hasChildren ? (summaries.get(ticket.id)?.summary ?? "") : descriptionExcerpt(ticket.description),
+          hasChildren,
+        };
+      });
     };
 
     return searchPlacement(draft, {
