@@ -8,6 +8,7 @@ import { plural } from "../plural.js";
 import { SidePanel } from "../panel/SidePanel.js";
 import type { PanelTab } from "../panel/SidePanel.js";
 import { buildMapItems, mixMapColors } from "./items.js";
+import { computeMapMaxScale } from "./zoom.js";
 import type { MapNode } from "./items.js";
 import { TicketMark, describeTicketState, renderNodeContent } from "./nodeContent.js";
 import "@treepm/react/styles.css";
@@ -57,7 +58,10 @@ function MapView({ client, me, projects, ticketsByProject, onChanged, onImport }
     if (node?.kind === "project") setPanel({ open: true, tab: "projects", projectId: node.id });
   }, []);
 
-  const canvas = useSpatialCanvas({ items, getLabel, getColor, mixColors: mixMapColors, defaultFilled: false, onSelectionChange });
+  // Memoizado por itens: um objeto novo a cada render reiniciaria a câmera do pacote.
+  const cameraOptions = useMemo(() => ({ maxScale: computeMapMaxScale(items) }), [items]);
+
+  const canvas = useSpatialCanvas({ items, getLabel, getColor, mixColors: mixMapColors, defaultFilled: false, cameraOptions, onSelectionChange });
   const { index, selected, focusId, breadcrumb, focusNode, selectNode } = canvas;
   const canCreateProject = me.roles.clerk === "admin";
   const showCreateFirst = items.length === 1 && canCreateProject;
