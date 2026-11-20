@@ -167,7 +167,7 @@ Regras que a coordenação acrescentou *(escolhas da coordenação)*:
 2. **O código decide.** Os tickets com `Noul` acima de 0,7 formam o grupo proposto. Basta um ticket existente além do novo. Sem nenhum, não há proposta.
 3. **Claude escreve o nome e a descrição do agrupador**, a partir do rascunho e dos tickets do grupo. É uma chamada curta (Opus 5.5, esforço `low`, saída estruturada), como a do resumo de ramo, e só acontece quando há grupo. O texto enviado é o mesmo tipo de dado que a ADR 0029 já autoriza: texto de tickets do projeto e do rascunho.
 
-**Texto da pergunta.**
+**Texto da pergunta (provisório).**
 
 - Pergunta: "O trabalho descrito em `draft` e o ticket `ticket` desta pergunta fazem parte de um mesmo assunto, mais específico que o de `destination`, a ponto de a equipe guardá-los juntos em um agrupador próprio?"
 - Verdadeiro: "Os dois são partes de uma mesma entrega ou de um mesmo assunto específico: faria sentido um agrupador só para eles e para outros parecidos."
@@ -175,7 +175,7 @@ Regras que a coordenação acrescentou *(escolhas da coordenação)*:
 
 O critério falso nomeia o caso que mais confunde: dois tickets que só têm em comum o agrupador em que já estão não formam um agrupador novo.
 
-**Texto enviado ao Claude para o nome.** Prompt de sistema:
+**Texto enviado ao Claude para o nome (provisório).** Prompt de sistema:
 
 > Você dá nome a agrupadores de uma árvore de tickets da plataforma TreePM. Um agrupador reúne tickets que tratam de um mesmo assunto ou de uma mesma entrega. Você recebe o lugar onde o agrupador vai ficar e os tickets que ele vai reunir (título e um trecho da descrição de cada um), e escreve o título e a descrição do agrupador.
 >
@@ -212,6 +212,12 @@ A mensagem leva, em JSON, o lugar (`destination`, com o título), o ticket novo 
 - O limiar de 0,7 não foi mexido.
 
 Organizar uma lista inteira em agrupadores largos continua sendo outra funcionalidade (IDEA-010): julgar pares, um ticket por vez, não a substitui.
+
+Lendo as 11 propostas uma a uma: em 5, todos os tickets propostos eram do mesmo agrupador original do ticket novo; em 2, parte era; em 4, nenhum era. Por isso os dois textos acima continuam provisórios: têm uma rodada só e nada com que comparar.
+
+**Proposta com destino dentro de um agrupador (2026-11-20).** A rodada acima só exercitou o destino na raiz. Em outra cópia da árvore original, com os agrupadores (projeto `GRUPOS`), 16 tickets foram medidos pela procura normal: 6 ficaram sem resultado firme e não tiveram verificação; em 5 ninguém passou do limiar; em 5 houve proposta, todas dentro de "Design da plataforma", com um a três tickets do mesmo agrupador (por exemplo "Base visual aprovada: proposta em alta fidelidade e aplicação nas telas"). Nenhuma falha de provedor e nenhum caso de "todos os soltos passaram".
+
+**Tempo.** Na cópia achatada, a procura levou 0,5 s de mediana quando não houve proposta e 2,8 s quando houve: a pergunta de afinidade ao Jev quase não pesa, e a chamada ao Claude para o nome acrescenta perto de 2,3 s.
 
 ### Ferramenta de medição
 
