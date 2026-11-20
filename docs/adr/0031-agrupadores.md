@@ -1,6 +1,6 @@
 # ADR 0031 — Agrupadores: tipo declarado, só agrupador tem filhos, e a procura desce por agrupadores
 
-**Status:** Aceita. O texto das perguntas ao Jev é provisório até a medição de antes e depois. **Data:** 2026-11-20.
+**Status:** Aceita. A medição de antes e depois está registrada abaixo; o texto das perguntas da procura ficou como está. **Data:** 2026-11-20.
 
 ## Contexto
 
@@ -70,7 +70,7 @@ Substitui a regra de candidatos da ADR 0030.
 - Limiares, número de caminhos, nota, limites e a regra da faixa do meio continuam os da ADR 0029.
 - O aviso "ainda não tem subtickets" da ADR 0030 deixa de existir.
 
-**Texto enviado ao Jev (provisório).** Estado: `draft` (`title`, `description`); `current_group` (`title`, `summary`), ausente na raiz ou no escopo sem resumo; `candidate_groups`, cada um com `title` e `summary` (com filhos) ou `title` e `description` (vazio; sem o campo quando não há descrição).
+**Texto enviado ao Jev.** Estado: `draft` (`title`, `description`); `current_group` (`title`, `summary`), ausente na raiz ou no escopo sem resumo; `candidate_groups`, cada um com `title` e `summary` (com filhos) ou `title` e `description` (vazio; sem o campo quando não há descrição).
 
 - `Noul`: "O trabalho descrito em `draft` cabe dentro do assunto de pelo menos um dos agrupadores de `candidate_groups`?"
   - Verdadeiro: "O trabalho de `draft` trata de um assunto que um dos agrupadores de `candidate_groups` cobre, como um item que a equipe esperaria encontrar dentro dele."
@@ -97,6 +97,35 @@ Rodada "tira um, recoloca" com a regra da ADR 0030 (todo filho é candidato), em
 Para a comparação de depois só serve a decisão na raiz, em que os candidatos são os mesmos seis agrupadores nas duas regras. Juntando as duas respostas na raiz: grupo certo com `Noul` acima de 0,7 em 21 tickets; grupo certo na faixa do meio em 9; grupo errado com `Noul` acima de 0,7 em 3; grupo errado na faixa do meio em 5; abaixo de 0,3 em 1. Com só agrupadores como candidatos e as mesmas respostas, isso daria 21 de 39 no lugar original sem intervenção, e mais 9 com o lugar original oferecido como alternativa. É uma conta, não uma medição: o texto das perguntas muda, e só a rodada de depois diz o efeito.
 
 O agrupamento original continua sendo uma referência imperfeita: ele foi montado com conhecimento do projeto que não está no texto dos tickets.
+
+### Medição de depois (2026-11-20)
+
+A mesma rodada "tira um, recoloca", com esta ADR implementada (só agrupadores como candidatos e o texto acima), em outra cópia da árvore original (projeto `DEPOIS`). Uma rodada só.
+
+| | Antes (ADR 0030) | Depois (esta ADR) |
+| --- | ---: | ---: |
+| No agrupador original | 10 | 23 |
+| Dentro do agrupador original, como filho de outro ticket | 11 | 0 |
+| Na raiz | 15 | 13 |
+| Em outro agrupador | 3 | 3 |
+| Resultados incertos | 27 | 12 |
+| Lugar original no destino ou nas alternativas | 19 | 33 |
+
+Na raiz, a decisão que as duas rodadas têm em comum:
+
+| | Antes | Depois |
+| --- | ---: | ---: |
+| `Choice` apontou o agrupador original | 31 de 39 | 31 de 39 |
+| Agrupador certo com `Noul` acima de 0,7 | 21 | 23 |
+| Agrupador certo na faixa do meio | 9 | 7 |
+| Agrupador errado com `Noul` acima de 0,7 | 3 | 3 |
+| Agrupador errado na faixa do meio | 5 | 4 |
+| `Noul` abaixo de 0,3 | 1 | 2 |
+
+- **O ganho vem da estrutura, não do texto.** Na raiz, o texto novo das perguntas deu o mesmo acerto do anterior (31 de 39); nove tickets trocaram de faixa ou de escolha entre as rodadas, para os dois lados, o que é a variação de uma rodada para outra. O que mudou o resultado final foi ticket deixar de ser candidato: os 11 que desciam para dentro de um vizinho agora param no agrupador.
+- O texto das perguntas fica como está. Com uma rodada de cada lado, o que se pode dizer é que ele não ficou pior que o anterior nesta árvore.
+- Dos 16 que não ficaram no agrupador original, 13 ficaram na raiz, quase todos na faixa do meio, com o agrupador original oferecido como alternativa em 10. É o caso que a regra da faixa do meio decide, e ela não foi mexida.
+- A procura levou 3,1 s de mediana por ticket, quase tudo em resumos refeitos pelo Claude depois de cada remoção; em uso normal o resumo só é refeito quando o agrupador muda.
 
 ### Escopo pela seleção
 
