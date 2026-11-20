@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { fetchMe, getMeIndicatorText } from "./api/me.js";
 import type { MeResult } from "./api/me.js";
 import { Loading } from "./Loading.js";
+import { ClerkPreferencesProvider } from "./preferences/ClerkPreferences.js";
 import { AppNav, useView } from "./nav/navigation.js";
 import { Workspace } from "./Workspace.js";
 
@@ -104,7 +105,9 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
           <UserButton />
         </div>
       </header>
-      <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} ticketId={ticketId} onOpenTicket={openTicket} getToken={getToken} />
+      <ClerkPreferencesProvider>
+        <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} ticketId={ticketId} onOpenTicket={openTicket} getToken={getToken} />
+      </ClerkPreferencesProvider>
     </div>
   );
 }

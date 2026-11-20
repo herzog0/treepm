@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ApiClient, ApiResult, Me, Person, Project, TicketSummary } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
+import { usePreferences } from "../preferences/context.js";
 import { plural } from "../plural.js";
 import { SidePanel } from "../panel/SidePanel.js";
 import { ticketFocus } from "../ticket/focus.js";
@@ -12,6 +13,7 @@ import type { CreateRequest } from "../ticket/TicketPage.js";
 import type { PanelTab } from "../panel/SidePanel.js";
 import { MapDetailProvider, buildDetailData, createMapScaleStore } from "./detail.js";
 import { buildMapItems, mixMapColors } from "./items.js";
+import { useRestoreCameraPlace } from "./cameraPlace.js";
 import { computeMapMaxScale } from "./zoom.js";
 import type { MapNode } from "./items.js";
 import { TicketMark, describeTicketState, renderNodeContent } from "./nodeContent.js";
@@ -139,6 +141,15 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
       cancelAnimationFrame(inner);
     };
   }, [openTicketId, layout]);
+
+  // Ao fechar a página, a câmera volta ao lugar de antes, se a pessoa não preferir ficar onde está (ADR 0028).
+  const { preferences } = usePreferences();
+  useRestoreCameraPlace({
+    pageOpen,
+    mode: preferences.camera.onTicketClose,
+    getView: () => ({ camera: canvasRef.current.camera, size: canvasRef.current.size }),
+    restore: ({ bounds, requiredScale }) => canvasRef.current.fitBounds(bounds, false, undefined, requiredScale),
+  });
 
   // Fechar a página devolve o foco ao mapa (a menos que o painel tenha tomado o lugar dela).
   const wasOpen = useRef(false);

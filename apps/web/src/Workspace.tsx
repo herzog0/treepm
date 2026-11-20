@@ -5,6 +5,7 @@ import { LoadError } from "./LoadError.js";
 import { ImportScreen } from "./import/ImportScreen.js";
 import { OrganizationMap } from "./map/OrganizationMap.js";
 import type { View } from "./nav/navigation.js";
+import { SettingsScreen } from "./settings/SettingsScreen.js";
 import { TeamsScreen } from "./teams/TeamsScreen.js";
 
 export interface WorkspaceProps {
@@ -30,6 +31,8 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
   );
   const { state, retry } = useApiResource(() => client.getMe());
 
+  // As configurações são da pessoa, não da organização: não esperam a API.
+  if (view === "settings") return <main className="tenant-settings"><SettingsScreen /></main>;
   if (state.status === "loading") return <p className="map-state" role="status">Carregando organização…</p>;
   if (state.status === "error") {
     return (
