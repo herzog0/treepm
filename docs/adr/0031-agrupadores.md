@@ -79,6 +79,25 @@ Substitui a regra de candidatos da ADR 0030.
 
 É o texto da ADR 0029 com "agrupador" no lugar de "ramo". Ele só se confirma depois de uma medição do tipo "tira um, recoloca" antes e depois da mudança, na mesma árvore. Os julgamentos do segundo nível da medição de antes não servem de comparação, porque medem candidatos que esta ADR elimina.
 
+### Medição de antes (2026-11-20)
+
+Rodada "tira um, recoloca" com a regra da ADR 0030 (todo filho é candidato), em uma cópia da árvore original do `TREEPM` (projeto `BASE`), com Claude e Jev reais: cada um dos 39 tickets foi removido, a procura foi pedida para o texto dele e ele foi devolvido ao lugar. Uma rodada só.
+
+| Onde a procura pôs o ticket | Tickets |
+| --- | ---: |
+| No agrupador original | 10 |
+| Dentro do agrupador original, mas como filho de outro ticket | 11 |
+| Em outro lugar | 18 (15 deles na raiz) |
+
+- 27 dos 39 resultados vieram incertos.
+- **Na raiz**, onde os candidatos são os seis grupos: o `Choice` apontou o grupo original em 31 de 39. O `Noul` ficou acima de 0,7 em 24, entre 0,3 e 0,7 em 14 e abaixo de 0,3 em 1.
+- **Dentro do grupo certo**, onde a procura deveria parar (33 julgamentos): o `Noul` passou de 0,7 em 13 e ficou na faixa do meio em 17. É o caso que esta ADR elimina, porque ticket deixa de ser candidato.
+- Tempo: 6 min e 39 s; a procura levou 3,4 s de mediana por ticket, quase tudo em resumos refeitos pelo Claude depois de cada remoção.
+
+Para a comparação de depois só serve a decisão na raiz, em que os candidatos são os mesmos seis agrupadores nas duas regras. Juntando as duas respostas na raiz: grupo certo com `Noul` acima de 0,7 em 21 tickets; grupo certo na faixa do meio em 9; grupo errado com `Noul` acima de 0,7 em 3; grupo errado na faixa do meio em 5; abaixo de 0,3 em 1. Com só agrupadores como candidatos e as mesmas respostas, isso daria 21 de 39 no lugar original sem intervenção, e mais 9 com o lugar original oferecido como alternativa. É uma conta, não uma medição: o texto das perguntas muda, e só a rodada de depois diz o efeito.
+
+O agrupamento original continua sendo uma referência imperfeita: ele foi montado com conhecimento do projeto que não está no texto dos tickets.
+
 ### Escopo pela seleção
 
 - Quando a pessoa abre o painel de novo ticket com um **agrupador selecionado**, a procura começa nele em vez da raiz do projeto. O painel mostra o escopo e oferece "Procurar no projeto inteiro".
