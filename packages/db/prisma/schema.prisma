@@ -52,6 +52,8 @@ model Organization {
   projects           Project[]
   projectTeams       ProjectTeam[]
   projectMemberships ProjectMembership[]
+  tickets            Ticket[]
+  ticketAssignees    TicketAssignee[]
   activityEvents     ActivityEvent[]
 
   @@map("organizations")
@@ -72,6 +74,8 @@ model Person {
   organization       Organization        @relation(fields: [orgId], references: [orgId])
   teamMemberships    TeamMembership[]
   projectMemberships ProjectMembership[]
+  createdTickets     Ticket[]
+  ticketAssignees    TicketAssignee[]
   activityEvents     ActivityEvent[]
 
   @@id([orgId, id])
@@ -126,18 +130,20 @@ model Area {
 }
 
 model Project {
-  orgId      String            @map("org_id")
-  id         String            @default(dbgenerated("app_uuid_v7()")) @db.Uuid
-  name       String
-  key        String
-  visibility ProjectVisibility @default(organization)
-  archivedAt DateTime?         @map("archived_at") @db.Timestamptz(3)
-  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  orgId            String            @map("org_id")
+  id               String            @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  name             String
+  key              String
+  visibility       ProjectVisibility @default(organization)
+  archivedAt       DateTime?         @map("archived_at") @db.Timestamptz(3)
+  nextTicketNumber Int               @default(1) @map("next_ticket_number")
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   organization Organization        @relation(fields: [orgId], references: [orgId])
   teams        ProjectTeam[]
   memberships  ProjectMembership[]
+  tickets      Ticket[]
 
   @@id([orgId, id])
   @@unique([orgId, key])
@@ -173,6 +179,48 @@ model ProjectMembership {
 
   @@id([orgId, projectId, personId])
   @@map("project_memberships")
+}
+
+model Ticket {
+  orgId             String   @map("org_id")
+  id                String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId         String   @map("project_id") @db.Uuid
+  number            Int
+  parentId          String?  @map("parent_id") @db.Uuid
+  title             String
+  description       String   @default("")
+  /// todo | in_progress | in_review | done | cancelled (check no banco)
+  status            String   @default("todo")
+  createdByPersonId String   @map("created_by_person_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization     @relation(fields: [orgId], references: [orgId])
+  project      Project          @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
+  parent       Ticket?          @relation("TicketTree", fields: [orgId, projectId, parentId], references: [orgId, projectId, id], onDelete: Restrict)
+  children     Ticket[]         @relation("TicketTree")
+  createdBy    Person           @relation(fields: [orgId, createdByPersonId], references: [orgId, id])
+  assignees    TicketAssignee[]
+
+  @@id([orgId, id])
+  @@unique([orgId, projectId, id])
+  @@unique([orgId, projectId, number])
+  @@map("tickets")
+}
+
+model TicketAssignee {
+  orgId     String   @map("org_id")
+  ticketId  String   @map("ticket_id") @db.Uuid
+  personId  String   @map("person_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  ticket       Ticket       @relation(fields: [orgId, ticketId], references: [orgId, id], onDelete: Cascade)
+  person       Person       @relation(fields: [orgId, personId], references: [orgId, id], onDelete: Cascade)
+
+  @@id([orgId, ticketId, personId])
+  @@map("ticket_assignees")
 }
 
 model ActivityEvent {

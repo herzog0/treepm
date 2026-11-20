@@ -1,0 +1,126 @@
+import { describe, expect, it } from "vitest";
+import type { Actor } from "./index.js";
+import {
+  canAssignTicket,
+  canCreateTicket,
+  canEditTicket,
+  canImportTickets,
+  canRemoveTicket,
+  canViewTickets,
+  parentWouldCreateCycle,
+  ticketProgress,
+} from "./tickets.js";
+import type { TicketNode } from "./tickets.js";
+
+const privateProject = { id: "internal", visibility: "private" } as const;
+const organizationProject = { id: "roadmap", visibility: "organization" } as const;
+
+const member: Actor = { clerkRole: "member", teamRoles: new Map([["design", "member"]]), projectRoles: new Map() };
+const orgAdmin: Actor = { ...member, clerkRole: "admin" };
+const teamAdmin: Actor = { ...member, teamRoles: new Map([["design", "admin"]]) };
+const manager: Actor = { ...member, projectRoles: new Map([[privateProject.id, "manager"]]) };
+const contributor: Actor = { ...member, projectRoles: new Map([[privateProject.id, "contributor"]]) };
+const reader: Actor = { ...member, projectRoles: new Map([[privateProject.id, "reader"]]) };
+
+const roles = [
+  ["organization admin", orgAdmin],
+  ["team admin", teamAdmin],
+  ["project manager", manager],
+  ["contributor", contributor],
+  ["reader", reader],
+  ["member without project role", member],
+] as const;
+
+describe.each([
+  { action: "view tickets of a private project", check: (a: Actor) => canViewTickets(a, privateProject), allowed: [true, false, true, true, true, false] },
+  { action: "view tickets of an organization project", check: (a: Actor) => canViewTickets(a, organizationProject), allowed: [true, true, true, true, true, true] },
+  { action: "create a ticket", check: (a: Actor) => canCreateTicket(a, privateProject.id), allowed: [true, false, true, true, false, false] },
+  { action: "edit a ticket", check: (a: Actor) => canEditTicket(a, privateProject.id), allowed: [true, false, true, true, false, false] },
+  { action: "assign people", check: (a: Actor) => canAssignTicket(a, privateProject.id), allowed: [true, false, true, true, false, false] },
+  { action: "import a list", check: (a: Actor) => canImportTickets(a, privateProject.id), allowed: [true, false, true, true, false, false] },
+  { action: "remove a ticket", check: (a: Actor) => canRemoveTicket(a, privateProject.id), allowed: [true, false, true, false, false, false] },
+])("$action", ({ check, allowed }) => {
+  it.each(roles.map(([name, actor], index) => [name, actor, allowed[index]] as const))("%s", (_name, actor, expected) => {
+    expect(check(actor)).toBe(expected);
+  });
+});
+
+it("ties the project role to the target project", () => {
+  expect(canEditTicket(contributor, organizationProject.id)).toBe(false);
+  expect(canRemoveTicket(manager, organizationProject.id)).toBe(false);
+  expect(canEditTicket(orgAdmin, organizationProject.id)).toBe(true);
+});
+
+const node = (id: string, parentId: string | null, status: TicketNode["status"] = "todo"): TicketNode => ({
+  id,
+  parentId,
+  status,
+});
+
+describe("ticketProgress", () => {
+  it("returns null for a leaf and for an empty list", () => {
+    expect(ticketProgress([]).size).toBe(0);
+    expect(ticketProgress([node("a", null, "done")]).get("a")).toBeUndefined();
+  });
+
+  it("counts descendant leaves: done, total without cancelled, and excluded", () => {
+    const tickets = [
+      node("root", null),
+      node("a", "root", "done"),
+      node("b", "root", "in_progress"),
+      node("c", "root", "cancelled"),
+      node("d", "root", "in_review"),
+      node("e", "root", "todo"),
+    ];
+    expect(ticketProgress(tickets).get("root")).toEqual({ done: 1, total: 4, excluded: 1 });
+  });
+
+  it("ignores the stored status of tickets with children and recurses through levels", () => {
+    const tickets = [
+      node("root", null, "done"),
+      node("mid", "root", "cancelled"),
+      node("leaf1", "mid", "done"),
+      node("leaf2", "mid", "todo"),
+      node("leaf3", "root", "cancelled"),
+    ];
+    const progress = ticketProgress(tickets);
+    expect(progress.get("root")).toEqual({ done: 1, total: 2, excluded: 1 });
+    expect(progress.get("mid")).toEqual({ done: 1, total: 2, excluded: 0 });
+    expect(progress.has("leaf1")).toBe(false);
+  });
+
+  it("does not depend on the input order", () => {
+    const tickets = [node("leaf", "root", "done"), node("root", null)];
+    expect(ticketProgress(tickets).get("root")).toEqual({ done: 1, total: 1, excluded: 0 });
+  });
+
+  it("handles all leaves cancelled", () => {
+    const tickets = [node("root", null), node("a", "root", "cancelled")];
+    expect(ticketProgress(tickets).get("root")).toEqual({ done: 0, total: 0, excluded: 1 });
+  });
+});
+
+describe("parentWouldCreateCycle", () => {
+  const parents = new Map<string, string | null>([
+    ["a", null],
+    ["b", "a"],
+    ["c", "b"],
+    ["x", null],
+  ]);
+
+  it("rejects the ticket itself as parent", () => {
+    expect(parentWouldCreateCycle(parents, "a", "a")).toBe(true);
+  });
+
+  it("rejects a descendant as parent", () => {
+    expect(parentWouldCreateCycle(parents, "a", "b")).toBe(true);
+    expect(parentWouldCreateCycle(parents, "a", "c")).toBe(true);
+  });
+
+  it("accepts siblings, ancestors, other trees and root", () => {
+    expect(parentWouldCreateCycle(parents, "c", "a")).toBe(false);
+    expect(parentWouldCreateCycle(parents, "b", "x")).toBe(false);
+    expect(parentWouldCreateCycle(parents, "c", null)).toBe(false);
+    expect(parentWouldCreateCycle(parents, "x", "a")).toBe(false);
+  });
+});
