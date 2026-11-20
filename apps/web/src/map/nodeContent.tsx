@@ -1,5 +1,6 @@
 import type { RenderNodeContent } from "@treepm/react";
 import type { TicketStatus, TicketSummary } from "../api/client.js";
+import { plural } from "../plural.js";
 import type { MapNode } from "./items.js";
 import { StatusMark } from "./StatusMark.js";
 
@@ -39,7 +40,7 @@ export const renderNodeContent: RenderNodeContent<MapNode> = ({ node, lod, child
   const ticket = node.ticket;
   const aggregateCount = aggregate && (
     <span className="spatial-aggregate-count">
-      {descendantCount} {node.kind === "organization" && descendantCount === childCount ? "projetos" : "itens"}
+      {node.kind === "organization" && descendantCount === childCount ? plural(descendantCount, "projeto", "projetos") : plural(descendantCount, "item", "itens")}
     </span>
   );
 

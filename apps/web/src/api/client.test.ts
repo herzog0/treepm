@@ -131,7 +131,7 @@ describe("createApiClient", () => {
     [409, { error: { code: "team_name_taken", message: "x" } }, { kind: "conflict", code: "team_name_taken" }],
     [409, { error: { code: "person_inactive", message: "x" } }, { kind: "conflict", code: "person_inactive" }],
     [400, { error: { code: "validation_error", message: "x" } }, { kind: "invalid", code: "validation_error" }],
-    [500, { error: { code: "internal_error", message: "x" } }, { kind: "unavailable", code: "internal_error" }],
+    [500, { error: { code: "internal_error", message: "x" } }, { kind: "server_error", code: "internal_error" }],
     [502, null, { kind: "unavailable" }],
     [409, "<html>", { kind: "conflict" }],
   ])("maps HTTP %i with body %j to %j", async (status, body, error) => {
@@ -176,6 +176,29 @@ describe("createApiClient", () => {
   it("treats a non-JSON success body as unavailable", async () => {
     const { client } = setup(() => new Response("<html>"));
     expect(await client.listTeams()).toEqual({ ok: false, error: { kind: "unavailable" } });
+  });
+});
+
+describe("5xx responses", () => {
+  it.each([502, 503, 504])("maps %i to unavailable", async (status) => {
+    const { client } = setup(() => new Response("bad gateway", { status }));
+    expect(await client.listTeams()).toEqual({ ok: false, error: { kind: "unavailable" } });
+  });
+
+  it("maps 500 to server_error, keeping the API code", async () => {
+    const { client } = setup(() => Response.json({ error: { code: "internal" } }, { status: 500 }));
+    expect(await client.listTeams()).toEqual({ ok: false, error: { kind: "server_error", code: "internal" } });
+  });
+
+  it("maps 500 without a JSON body to server_error", async () => {
+    const { client } = setup(() => new Response("boom", { status: 500 }));
+    expect(await client.listTeams()).toEqual({ ok: false, error: { kind: "server_error" } });
+  });
+
+  it("describes server_error apart from unavailable", () => {
+    expect(describeApiError({ kind: "server_error" })).toBe(
+      "O servidor encontrou um erro. Tente de novo; se continuar, avise quem administra.",
+    );
   });
 });
 

@@ -79,4 +79,11 @@ describe("renderNodeContent", () => {
   it("shows the aggregate count when the node stands for its collapsed branch", () => {
     expect(content(projectNode, "compact", { aggregate: true, descendantCount: 7 })).toHaveTextContent("7 itens");
   });
+
+  it("uses the singular for a single aggregated item or project", () => {
+    const count = (container: HTMLElement) => container.querySelector(".spatial-aggregate-count")?.textContent;
+    expect(count(content(projectNode, "compact", { aggregate: true, descendantCount: 1 }))).toBe("1 item");
+    expect(count(content(orgNode, "compact", { aggregate: true, descendantCount: 1, childCount: 1 }))).toBe("1 projeto");
+    expect(content(orgNode, "full", { childCount: 1 })).toHaveTextContent("1 projeto");
+  });
 });
