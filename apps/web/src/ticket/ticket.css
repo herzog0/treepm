@@ -1,0 +1,74 @@
+/* Página do ticket (ADR 0026): região à direita do mapa; o palco do mapa estreita para dar lugar a ela. */
+.map-workspace { position: relative; height: 100%; min-width: 0; overflow: hidden; }
+.map-workspace > .org-map { height: 100%; }
+@media (min-width: 1000px) {
+  .map-workspace.has-ticket-page > .org-map { margin-right: 620px; }
+}
+
+.ticket-page {
+  position: absolute; z-index: 10; top: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column; width: 620px; max-width: 100%;
+  border-left: 1px solid var(--tp-divider); background: var(--tp-surface); color: var(--tp-text);
+  box-shadow: -24px 0 56px color-mix(in srgb, var(--tp-bg) 45%, transparent);
+  font: 400 13px/1.5 var(--tp-font); cursor: default; user-select: text; outline: none;
+}
+@media (max-width: 999px) { .ticket-page { width: 100%; } }
+
+.ticket-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px 0 28px; }
+.ticket-crumbs { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--tp-text-3); font-size: 12px; }
+.ticket-crumbs [aria-hidden="true"] { color: var(--tp-border-strong); }
+.ticket-key { flex: none; color: var(--tp-accent-soft); font: 500 12px var(--tp-font-mono); }
+.ticket-path { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ticket-page .ticket-close { display: grid; place-items: center; flex: none; width: 30px; height: 30px; padding: 0; border: 0; border-radius: var(--tp-radius-control); background: transparent; color: var(--tp-text-2); }
+.ticket-page .ticket-close:hover { background: var(--tp-selected); color: var(--tp-text); }
+
+.ticket-body { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.ticket-scroll { padding: 10px 28px 24px; }
+.ticket-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ticket-title { margin: 0; font-size: 24px; font-weight: 600; line-height: 1.25; letter-spacing: -0.02em; outline: none; }
+.ticket-muted { margin: 4px 0 0; color: var(--tp-text-3); }
+.ticket-notice { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-field); background: var(--tp-raised); color: var(--tp-text-2); font-size: 12px; }
+.ticket-error { margin: 6px 0 0; color: var(--tp-danger-text); font-size: 12px; }
+
+.ticket-fields { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px 12px; align-items: start; margin: 20px 0 0; }
+.ticket-fields dt { padding-top: 5px; color: var(--tp-text-3); font-size: 12px; }
+.ticket-fields dd { margin: 0; min-width: 0; }
+.ticket-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 28px; padding: 0 10px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-raised); font-weight: 500; }
+.ticket-page .ticket-chip .status-mark { --mark-size: 13px; }
+.ticket-status-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.ticket-page .ticket-status-group button { gap: 8px; }
+.ticket-page .ticket-status-group button[aria-pressed="true"] { border-color: var(--tp-border-strong); background: var(--tp-selected); font-weight: 500; }
+.ticket-page .ticket-status-group .status-mark { --mark-size: 11px; }
+.ticket-people { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ticket-person { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 4px; border: 1px solid var(--tp-border); border-radius: 14px; background: var(--tp-raised); font-weight: 500; }
+.ticket-avatar { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--tp-selected); color: var(--tp-accent-soft); font-size: 9px; font-weight: 600; }
+.ticket-page .ticket-person-remove { min-height: 20px; width: 20px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--tp-text-3); }
+.ticket-person:not(:has(.ticket-person-remove)) { padding-right: 10px; }
+.ticket-page .ticket-dashed { min-height: 28px; border-style: dashed; border-color: var(--tp-border-strong); border-radius: 14px; background: transparent; color: var(--tp-text-2); }
+.ticket-parent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 28px; }
+.ticket-page .ticket-chip-button { cursor: pointer; font-weight: 400; }
+.ticket-chip-button .ticket-key { color: var(--tp-text-3); font-size: 11px; }
+.ticket-child-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ticket-picker { display: grid; gap: 6px; margin-top: 8px; padding: 8px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-field); background: var(--tp-card); }
+.ticket-picker-list { display: grid; max-height: 220px; overflow: auto; gap: 2px; }
+.ticket-page .ticket-picker-list button { justify-content: flex-start; gap: 8px; border-color: transparent; background: transparent; text-align: left; }
+.ticket-picker-list .ticket-key { color: var(--tp-text-3); font-size: 11px; }
+
+.ticket-section { margin-top: 24px; }
+.ticket-section:first-of-type { margin-top: 22px; }
+.ticket-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 26px; }
+.ticket-section h2 { margin: 0; color: var(--tp-text-3); font-size: 12px; font-weight: 400; }
+.ticket-description { margin: 6px 0 0; padding: 12px 14px; border: 1px solid var(--tp-divider); border-radius: var(--tp-radius-field); background: var(--tp-bar); color: var(--tp-text); font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; }
+.ticket-children { margin: 6px 0 0; padding: 4px; border: 1px solid var(--tp-divider); border-radius: var(--tp-radius-field); list-style: none; }
+.ticket-page .ticket-child { display: flex; width: 100%; min-height: 36px; justify-content: space-between; gap: 10px; padding: 0 10px; border: 0; background: transparent; text-align: left; }
+.ticket-child-main { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.ticket-child .ticket-key { color: var(--tp-text-3); font-size: 11px; }
+.ticket-page .ticket-child .status-mark { --mark-size: 12px; }
+.ticket-child-state { flex: none; color: var(--tp-text-3); font-size: 12px; }
+
+.ticket-edit, .ticket-form { display: grid; gap: 8px; margin-top: 6px; }
+.ticket-form label { display: grid; gap: 4px; color: var(--tp-text-3); font-size: 12px; }
+.ticket-page textarea { padding: 8px 10px; line-height: 1.5; resize: vertical; }
+.ticket-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ticket-danger { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--tp-divider); }
+.ticket-danger p { margin: 6px 0 0; }

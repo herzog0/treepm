@@ -14,11 +14,14 @@ export interface WorkspaceProps {
   projectId?: string | null;
   /** Troca de tela feita de dentro do espaço de trabalho; a URL e o histórico são de quem a fornece. */
   onNavigate?: (view: View, projectId?: string | null) => void;
+  /** Ticket aberto na página do mapa (`?ticket=<id>`); a URL e o histórico são de quem o fornece. */
+  ticketId?: string | null;
+  onOpenTicket?: (ticketId: string | null) => void;
   getToken: () => Promise<string | null>;
   fetch?: typeof fetch;
 }
 
-function OrganizationWorkspace({ view, projectId = null, onNavigate, getToken, fetch: fetchImpl }: Omit<WorkspaceProps, "orgId">) {
+function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, onOpenTicket, getToken, fetch: fetchImpl }: Omit<WorkspaceProps, "orgId">) {
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
   const client = useMemo(
@@ -45,6 +48,7 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, getToken, f
         client={client}
         me={state.data}
         {...(onNavigate ? { onImport: (id: string) => onNavigate("import", id) } : {})}
+        {...(ticketId !== undefined && onOpenTicket ? { openTicketId: ticketId, onOpenTicketChange: onOpenTicket } : {})}
       />
     </main>
   );

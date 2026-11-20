@@ -85,3 +85,11 @@
 .org-map .spatial-selection .status-mark { --mark-size: 12px; }
 .org-map .spatial-selection button { min-height: 28px; padding: 0 12px; border-color: var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-raised); color: var(--tp-text); font-size: 12px; }
 .org-map .spatial-selection button:hover { background: var(--tp-selected); border-color: var(--tp-border-strong); }
+
+/*
+ * O conteúdo do card não encolhe: com pouca altura (card agregado em nível completo, 139×77 px) o flex
+ * espremia o título a 2 px, atrás da situação e da contagem. Sobrando conteúdo, é o fim da coluna (a
+ * contagem de itens) que corta, nunca o título.
+ */
+.org-map .spatial-lod-content > * { flex: none; max-width: 100%; }
+.org-map .spatial-lod-content { overflow: hidden; }

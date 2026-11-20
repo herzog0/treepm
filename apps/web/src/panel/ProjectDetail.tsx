@@ -18,12 +18,14 @@ interface ProjectDetailProps {
   onBack: () => void;
   /** Abre a tela de importação deste projeto; sem ela a ação não aparece. */
   onImport?: ((projectId: string) => void) | undefined;
+  /** Abre a página do ticket em modo de criação, na raiz deste projeto; sem ela a ação não aparece. */
+  onCreateTicket?: ((projectId: string) => void) | undefined;
 }
 
 const ActionError = ({ error }: { error: ReturnType<typeof useAction>["error"] }) =>
   error ? <p role="alert">{describeApiError(error)}</p> : null;
 
-export function ProjectDetail({ client, me, project, onChanged, onBack, onImport }: ProjectDetailProps) {
+export function ProjectDetail({ client, me, project, onChanged, onBack, onImport, onCreateTicket }: ProjectDetailProps) {
   const canManage =
     me.roles.clerk === "admin" ||
     me.roles.projects.some((entry) => entry.projectId === project.id && entry.role === "manager");
@@ -42,10 +44,19 @@ export function ProjectDetail({ client, me, project, onChanged, onBack, onImport
         {project.archivedAt !== null && <small className="badge">Arquivado</small>}
       </p>
 
-      {onImport && canCreateTickets(me, project) && (
-        <button type="button" className="panel-import primary" onClick={() => onImport(project.id)}>
-          Importar lista
-        </button>
+      {canCreateTickets(me, project) && (onCreateTicket || onImport) && (
+        <div className="panel-ticket-actions">
+          {onCreateTicket && (
+            <button type="button" className="panel-new-ticket primary" onClick={() => onCreateTicket(project.id)}>
+              Novo ticket
+            </button>
+          )}
+          {onImport && (
+            <button type="button" className="panel-import" onClick={() => onImport(project.id)}>
+              Importar lista
+            </button>
+          )}
+        </div>
       )}
 
       {canManage ? (

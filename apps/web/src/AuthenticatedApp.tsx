@@ -10,7 +10,7 @@ import {
   useAuth,
   useSession,
 } from "@clerk/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchMe, getMeIndicatorText } from "./api/me.js";
 import type { MeResult } from "./api/me.js";
 import { Loading } from "./Loading.js";
@@ -41,7 +41,13 @@ function MeIndicator({ getToken }: { getToken: () => Promise<string | null> }) {
 function OrganizationGate({ appUrl }: { appUrl: string }) {
   const { isLoaded, isSignedIn, orgId, getToken } = useAuth();
   const { session } = useSession();
-  const [view, navigate, projectId] = useView();
+  const [view, navigate, projectId, ticketId, openTicket] = useView();
+  // Trocar de organização descarta o ticket aberto (ADR 0026): o ID não existe na outra.
+  const previousOrgId = useRef(orgId);
+  useEffect(() => {
+    if (previousOrgId.current && orgId && previousOrgId.current !== orgId && ticketId !== null) openTicket(null);
+    previousOrgId.current = orgId;
+  }, [orgId, ticketId, openTicket]);
   const mustChooseOrganization = session?.currentTask?.key === "choose-organization";
 
   useEffect(() => {
@@ -98,7 +104,7 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
           <UserButton />
         </div>
       </header>
-      <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} getToken={getToken} />
+      <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} ticketId={ticketId} onOpenTicket={openTicket} getToken={getToken} />
     </div>
   );
 }

@@ -2,7 +2,7 @@
  * Controles compartilhados pelas telas da aplicação autenticada (ADR 0025).
  * Escopo explícito nas regiões da web: nunca em `button` global, que atingiria o mapa da demo e o Clerk.
  */
-:is(.side-panel, .teams-screen, .import-screen, .map-state) button {
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen, .map-state) button {
   display: inline-flex;
   min-height: 28px;
   align-items: center;
@@ -16,34 +16,34 @@
   font: 400 13px/1.2 var(--tp-font);
   cursor: pointer;
 }
-:is(.side-panel, .teams-screen, .import-screen, .map-state) button:hover:not(:disabled) { background: var(--tp-selected); border-color: var(--tp-border-strong); }
-:is(.side-panel, .teams-screen, .import-screen, .map-state) button:disabled { opacity: 0.5; cursor: not-allowed; }
-:is(.side-panel, .teams-screen, .import-screen, .map-state) :is(button, input, select, textarea, a):focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen, .map-state) button:hover:not(:disabled) { background: var(--tp-selected); border-color: var(--tp-border-strong); }
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen, .map-state) button:disabled { opacity: 0.5; cursor: not-allowed; }
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen, .map-state) :is(button, input, select, textarea, a):focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
 
 /* Principal: uma por tela. */
-:is(.side-panel, .teams-screen, .import-screen, .map-state) button.primary {
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen, .map-state) button.primary {
   border-color: transparent;
   background: var(--tp-accent);
   color: var(--tp-on-accent);
   font-weight: 500;
 }
-:is(.side-panel, .teams-screen, .import-screen, .map-state) button.primary:hover:not(:disabled) { background: var(--tp-accent-soft); border-color: transparent; }
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen, .map-state) button.primary:hover:not(:disabled) { background: var(--tp-accent-soft); border-color: transparent; }
 
 /* De texto. */
-:is(.side-panel, .teams-screen, .import-screen) button.text {
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen) button.text {
   border-color: transparent;
   background: transparent;
   color: var(--tp-accent-soft);
 }
-:is(.side-panel, .teams-screen, .import-screen) button.text:hover:not(:disabled) { background: var(--tp-selected); border-color: transparent; }
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen) button.text:hover:not(:disabled) { background: var(--tp-selected); border-color: transparent; }
 
 /* Destrutivo: texto de erro em repouso; no segundo clique, fundo de erro. */
-:is(.side-panel, .teams-screen) button.destructive { color: var(--tp-danger-text); }
-:is(.side-panel, .teams-screen) :is(button.danger, button.teams-destructive),
-:is(.side-panel, .teams-screen) :is(button.danger, button.teams-destructive):hover:not(:disabled) { border-color: transparent; background: var(--tp-danger); color: var(--tp-on-accent); font-weight: 500; }
+:is(.side-panel, .ticket-page, .teams-screen) button.destructive { color: var(--tp-danger-text); }
+:is(.side-panel, .ticket-page, .teams-screen) :is(button.danger, button.teams-destructive),
+:is(.side-panel, .ticket-page, .teams-screen) :is(button.danger, button.teams-destructive):hover:not(:disabled) { border-color: transparent; background: var(--tp-danger); color: var(--tp-on-accent); font-weight: 500; }
 
 /* Campos. */
-:is(.side-panel, .teams-screen, .import-screen) :is(input:not([type="file"]), select, textarea) {
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen) :is(input:not([type="file"]), select, textarea) {
   min-height: 32px;
   padding: 0 10px;
   border: 1px solid var(--tp-border);
@@ -52,10 +52,10 @@
   color: var(--tp-text);
   font: 400 13px/1.4 var(--tp-font);
 }
-:is(.side-panel, .teams-screen, .import-screen) :is(input, select, textarea)::placeholder { color: var(--tp-text-3); }
-:is(.side-panel, .teams-screen, .import-screen) :is(input, select, textarea)[aria-invalid="true"] { border-color: var(--tp-danger); }
-:is(.side-panel, .teams-screen, .import-screen) :is(input, select):disabled { opacity: 0.5; cursor: not-allowed; }
-:is(.side-panel, .teams-screen, .import-screen) label { color: var(--tp-text-2); font-size: 12px; }
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen) :is(input, select, textarea)::placeholder { color: var(--tp-text-3); }
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen) :is(input, select, textarea)[aria-invalid="true"] { border-color: var(--tp-danger); }
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen) :is(input, select):disabled { opacity: 0.5; cursor: not-allowed; }
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen) label { color: var(--tp-text-2); font-size: 12px; }
 
 /* Erros e avisos. */
-:is(.side-panel, .teams-screen, .import-screen, .map-state) :is([role="alert"], .teams-error, .load-error p) { margin: 0; color: var(--tp-danger-text); font-size: 12px; }
+:is(.side-panel, .ticket-page, .teams-screen, .import-screen, .map-state) :is([role="alert"], .teams-error, .load-error p) { margin: 0; color: var(--tp-danger-text); font-size: 12px; }

@@ -1,11 +1,14 @@
 import { SpatialCanvasView, useSpatialCanvas } from "@treepm/react";
 import type { SpatialCanvasLabels, SpatialNodeContent } from "@treepm/react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient, ApiResult, Me, Project, TicketSummary } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
 import { plural } from "../plural.js";
 import { SidePanel } from "../panel/SidePanel.js";
+import { ticketFocus } from "../ticket/focus.js";
+import { TicketPage } from "../ticket/TicketPage.js";
+import type { CreateRequest } from "../ticket/TicketPage.js";
 import type { PanelTab } from "../panel/SidePanel.js";
 import { buildMapItems, mixMapColors } from "./items.js";
 import { computeMapMaxScale } from "./zoom.js";
@@ -48,25 +51,122 @@ interface MapViewProps {
   ticketsByProject: Readonly<Record<string, readonly TicketSummary[]>>;
   onChanged: () => void;
   onImport: ((projectId: string) => void) | undefined;
+  openTicketId: string | null;
+  onOpenTicketChange: (ticketId: string | null) => void;
 }
 
-function MapView({ client, me, projects, ticketsByProject, onChanged, onImport }: MapViewProps) {
+function MapView({ client, me, projects, ticketsByProject, onChanged, onImport, openTicketId, onOpenTicketChange }: MapViewProps) {
   const items = useMemo(() => buildMapItems(me.organization, projects, ticketsByProject), [me.organization, projects, ticketsByProject]);
   const [panel, setPanel] = useState<PanelState>({ open: false, tab: "areas", projectId: null });
 
+  const [creating, setCreating] = useState<CreateRequest | null>(null);
+  const pageOpen = openTicketId !== null || creating !== null;
+  // Valores que os ouvintes (seleção, teclado) leem sem precisar ser refeitos a cada render.
+  const live = useRef({ selectedId: null as string | null, selected: null as MapNode | null, pageOpen, openTicketId, creating, panelOpen: false });
+
+  const openTicket = useCallback((id: string) => {
+    setCreating(null);
+    setPanel((current) => (current.open ? { ...current, open: false } : current));
+    onOpenTicketChange(id);
+  }, [onOpenTicketChange]);
+  const closePage = useCallback(() => {
+    setCreating(null);
+    if (live.current.openTicketId !== null) onOpenTicketChange(null);
+  }, [onOpenTicketChange]);
+
   const onSelectionChange = useCallback((node: MapNode | null) => {
     if (node?.kind === "project") setPanel({ open: true, tab: "projects", projectId: node.id });
-  }, []);
+    // Ativar um ticket que já está selecionado (clique ou Enter no nó) o abre; o primeiro clique só seleciona.
+    if (node?.kind === "ticket" && node.id === live.current.selectedId) openTicket(node.id);
+  }, [openTicket]);
 
   // Memoizado por itens: um objeto novo a cada render reiniciaria a câmera do pacote.
   const cameraOptions = useMemo(() => ({ maxScale: computeMapMaxScale(items) }), [items]);
 
   const canvas = useSpatialCanvas({ items, getLabel, getColor, mixColors: mixMapColors, defaultFilled: false, cameraOptions, onSelectionChange });
-  const { index, selected, focusId, breadcrumb, focusNode, selectNode } = canvas;
+  const { index, layout, selected, selectedId, focusId, breadcrumb, focusNode, selectNode } = canvas;
+  const canvasRef = useRef(canvas);
+  canvasRef.current = canvas;
+  live.current = { selectedId, selected, pageOpen, openTicketId, creating, panelOpen: panel.open };
+  const hasOpenNode = openTicketId !== null && index.itemById.has(openTicketId);
+
+  // Abrir o painel de áreas e projetos fecha a página; abrir um ticket fecha o painel (também pela URL).
+  useEffect(() => {
+    if (panel.open && live.current.pageOpen) closePage();
+  }, [panel.open, closePage]);
+  useEffect(() => {
+    if (openTicketId !== null) setPanel((current) => (current.open ? { ...current, open: false } : current));
+  }, [openTicketId]);
+
+  // O ticket aberto fica selecionado. Sem nó (projeto arquivado, ticket inexistente) não há o que selecionar.
+  useEffect(() => {
+    if (openTicketId !== null && hasOpenNode && live.current.selectedId !== openTicketId) selectNode(openTicketId);
+  }, [openTicketId, hasOpenNode]);
+
+  // A câmera enquadra o ticket aberto na área visível, uma vez por abertura, e de novo quando uma mudança o
+  // tira do lugar no mapa (por exemplo, trocar o pai). Mudanças que não o deslocam deixam a câmera onde está.
+  const framed = useRef<{ id: string; frame: string } | null>(null);
+  useEffect(() => {
+    const node = openTicketId === null ? undefined : layout.nodeById.get(openTicketId);
+    if (!node || openTicketId === null) {
+      framed.current = null;
+      return;
+    }
+    const frame = `${node.x}|${node.y}|${node.width}`;
+    if (framed.current?.id === openTicketId && framed.current.frame === frame) return;
+    let inner = 0;
+    // Dois quadros: o palco estreita (CSS) e o observador de tamanho do pacote atualiza antes de enquadrar.
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        const current = canvasRef.current;
+        const target = current.layout.nodeById.get(openTicketId);
+        const rect = current.stageRef.current?.getBoundingClientRect();
+        if (!target || !rect) return;
+        framed.current = { id: openTicketId, frame };
+        const { bounds, requiredScale } = ticketFocus(target, { width: rect.width, height: rect.height });
+        current.fitBounds(bounds, false, undefined, requiredScale);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [openTicketId, layout]);
+
+  // Fechar a página devolve o foco ao mapa (a menos que o painel tenha tomado o lugar dela).
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !pageOpen && !live.current.panelOpen) canvasRef.current.stageRef.current?.focus();
+    wasOpen.current = pageOpen;
+  }, [pageOpen]);
+
+  // Esc fecha a página (ou cancela a criação) e Enter abre o ticket selecionado, com o foco no mapa.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      if (event.key === "Escape" && live.current.pageOpen) {
+        if (live.current.creating) setCreating(null);
+        else closePage();
+        return;
+      }
+      if (event.key !== "Enter" || event.repeat) return;
+      const target = event.target;
+      const ticket = live.current.selected;
+      if (!ticket || ticket.kind !== "ticket" || !(target instanceof Element)) return;
+      if (target.closest("input, textarea, select, button, a, [contenteditable]")) return;
+      if (!canvasRef.current.rootRef.current?.contains(target)) return;
+      event.preventDefault();
+      openTicket(ticket.id);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [closePage, openTicket]);
+
   const canCreateProject = me.roles.clerk === "admin";
   const showCreateFirst = items.length === 1 && canCreateProject;
 
   return (
+    <div className={`map-workspace ${pageOpen ? "has-ticket-page" : ""}`}>
     <SpatialCanvasView
       controller={canvas}
       className="org-map"
@@ -103,7 +203,7 @@ function MapView({ client, me, projects, ticketsByProject, onChanged, onImport }
       )}
       renderOverlay={() => (
         <>
-          {selected && (
+          {selected && selected.id !== openTicketId && (
             <aside
               className={`spatial-selection ${panel.open ? "is-beside-panel" : ""}`}
               aria-label="Nó selecionado"
@@ -123,6 +223,7 @@ function MapView({ client, me, projects, ticketsByProject, onChanged, onImport }
                 <p>{index.childrenByParentId.get(selected.id)?.length ?? 0} {selected.kind === "project" ? "tickets" : "projetos"}</p>
               )}
               <button onClick={() => focusNode(selected.id)}>Explorar ramo</button>
+              {selected.kind === "ticket" && <button onClick={() => openTicket(selected.id)}>Abrir</button>}
             </aside>
           )}
           {showCreateFirst && (
@@ -146,12 +247,37 @@ function MapView({ client, me, projects, ticketsByProject, onChanged, onImport }
               onClose={() => setPanel((current) => ({ ...current, open: false }))}
               onChanged={onChanged}
               {...(onImport ? { onImportProject: onImport } : {})}
+              onCreateTicket={(projectId) => {
+                setPanel((current) => ({ ...current, open: false }));
+                setCreating({ projectId, parentId: null });
+                if (live.current.openTicketId !== null) onOpenTicketChange(null);
+              }}
             />
           )}
           <div className="spatial-help">Wheel para zoom · arraste para pan · combine os dois · clique para selecionar · Explorar ramo para focar · C cores · Esc limpar</div>
         </>
       )}
     />
+    {pageOpen && (
+      <TicketPage
+        client={client}
+        me={me}
+        projects={projects}
+        ticketId={openTicketId}
+        creating={creating}
+        onOpenTicket={openTicket}
+        onClose={closePage}
+        onChanged={onChanged}
+        onRemoved={() => {
+          closePage();
+          selectNode(null);
+        }}
+        onStartCreate={setCreating}
+        onCancelCreate={() => setCreating(null)}
+        onCreated={openTicket}
+      />
+    )}
+    </div>
   );
 }
 
@@ -160,6 +286,9 @@ export interface OrganizationMapProps {
   me: Me;
   /** Abre a tela de importação do projeto (ADR 0025). Sem ela, o painel não oferece a ação. */
   onImport?: (projectId: string) => void;
+  /** Ticket aberto na página (`?ticket=` da URL). Sem esta prop, o mapa guarda o estado sozinho. */
+  openTicketId?: string | null;
+  onOpenTicketChange?: (ticketId: string | null) => void;
 }
 
 interface MapData {
@@ -181,8 +310,14 @@ async function loadMapData(client: ApiClient): Promise<ApiResult<MapData>> {
   return { ok: true, data: { projects: projects.data, ticketsByProject } };
 }
 
-export function OrganizationMap({ client, me, onImport }: OrganizationMapProps) {
+export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTicketChange }: OrganizationMapProps) {
   const { state, reload, retry } = useApiResource(() => loadMapData(client));
+  const [ownTicketId, setOwnTicketId] = useState<string | null>(null);
+  const controlled = openTicketId !== undefined;
+  const changeTicket = useCallback((id: string | null) => {
+    if (!controlled) setOwnTicketId(id);
+    onOpenTicketChange?.(id);
+  }, [controlled, onOpenTicketChange]);
 
   if (state.status === "loading") {
     return <p className="map-state" role="status">Carregando mapa…</p>;
@@ -194,5 +329,5 @@ export function OrganizationMap({ client, me, onImport }: OrganizationMapProps) 
       </div>
     );
   }
-  return <MapView client={client} me={me} projects={state.data.projects} ticketsByProject={state.data.ticketsByProject} onChanged={reload} onImport={onImport} />;
+  return <MapView client={client} me={me} projects={state.data.projects} ticketsByProject={state.data.ticketsByProject} onChanged={reload} onImport={onImport} openTicketId={controlled ? openTicketId : ownTicketId} onOpenTicketChange={changeTicket} />;
 }
