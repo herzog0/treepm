@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { MouseEvent } from "react";
 
-export type View = "map" | "teams" | "import";
+export type View = "map" | "teams" | "settings" | "import";
 
 /** Seções da barra; a tela de importação é aberta pelo detalhe do projeto e conta como parte do mapa. */
 type NavView = Exclude<View, "import">;
@@ -9,6 +9,7 @@ type NavView = Exclude<View, "import">;
 const LINKS: readonly { view: NavView; label: string }[] = [
   { view: "map", label: "Mapa" },
   { view: "teams", label: "Times" },
+  { view: "settings", label: "Configurações" },
 ];
 
 interface Route {
@@ -22,6 +23,7 @@ function parseRoute(search: string): Route {
   const params = new URLSearchParams(search);
   const view = params.get("view");
   if (view === "teams") return { view: "teams", projectId: null, ticketId: null };
+  if (view === "settings") return { view: "settings", projectId: null, ticketId: null };
   if (view === "import") return { view: "import", projectId: params.get("project") || null, ticketId: null };
   return { view: "map", projectId: null, ticketId: params.get("ticket") || null };
 }

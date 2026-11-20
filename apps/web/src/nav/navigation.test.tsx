@@ -27,6 +27,12 @@ describe("useView", () => {
     expect(renderHook(() => useView()).result.current[0]).toBe("map");
   });
 
+  it("reads ?view=settings", () => {
+    setUrl("/?view=settings");
+    expect(renderHook(() => useView()).result.current[0]).toBe("settings");
+    expect(viewHref("settings", "https://x.test/app?ticket=t1")).toBe("/app?view=settings");
+  });
+
   it("navigates with pushState and follows popstate", () => {
     setUrl("/?foo=1#hash");
     const { result } = renderHook(() => useView());
@@ -54,6 +60,14 @@ describe("useView", () => {
 });
 
 describe("AppNav", () => {
+  it("offers Configurações after Times", () => {
+    render(<AppNav view="settings" onNavigate={() => undefined} />);
+    const links = screen.getAllByRole("link").map((link) => link.textContent);
+    expect(links).toEqual(["Mapa", "Times", "Configurações"]);
+    expect(screen.getByRole("link", { name: "Configurações" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Configurações" })).toHaveAttribute("href", "/?view=settings");
+  });
+
   it("marks the active destination with aria-current and navigates on click", async () => {
     function Harness() {
       const [view, navigate] = useView();

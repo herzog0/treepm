@@ -1,0 +1,9 @@
+.settings-screen { min-width: 0; max-width: 640px; padding: 24px clamp(10px, 2vw, 22px); color: var(--tp-text); }
+.settings-screen h1 { margin: 0 0 20px; font-size: 22px; font-weight: 600; }
+.settings-screen h2 { margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--tp-divider); font-size: 15px; font-weight: 600; }
+.settings-group { display: grid; gap: 8px; }
+.settings-label { color: var(--tp-text-2); font-size: 13px; }
+.settings-option { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+.settings-option input { accent-color: var(--tp-accent); }
+.settings-option input:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 2px; }
+.settings-error { margin: 12px 0 0; color: var(--tp-danger-text); font-size: 13px; }

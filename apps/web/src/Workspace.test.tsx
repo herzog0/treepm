@@ -44,6 +44,14 @@ describe("Workspace", () => {
     expect(screen.queryByRole("button", { name: /Projeto de/ })).not.toBeInTheDocument();
   });
 
+  it("shows the settings page for the settings view, without waiting for the API", () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    render(<Workspace orgId="org-1" view="settings" getToken={async () => "t"} fetch={fetchImpl} />);
+    expect(screen.getByRole("heading", { name: "Configurações", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Ao fechar um ticket" })).toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
   it("shows an error with retry when /api/me fails", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 503 }));
     render(<Workspace orgId="org-1" view="map" getToken={async () => "t"} fetch={fetchImpl} />);
