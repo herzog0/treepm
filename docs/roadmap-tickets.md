@@ -21,8 +21,8 @@
     Medido em teste: 17 comandos SQL no detalhe de um ticket e na importação, 19 na edição e 23 na criação e na atribuição, a maior parte de controle da transação. No teste com sessão real, 6 itens levaram 4,2 segundos, contra o limite de 5 da transação.
 - Design da plataforma
   Tema escuro e moderno, na linha do Linear, mantendo a constelação do mapa.
-  - [r] Proposta visual em alta fidelidade
-    A base visual e a sequência de zoom do mapa estão aprovadas. Página do ticket, conversa de novo ticket e mudança de lugar ao editar aguardam revisão de Teodoro.
+  - [x] Proposta visual em alta fidelidade
+    Aprovada por Teodoro em 2026-11-20: base visual, sequência de zoom do mapa, página do ticket, conversa de novo ticket e mudança de lugar ao editar.
   - [x] ADR 0025 com a base visual aprovada
   - [x] Aplicar a base visual ao cabeçalho, ao painel lateral e à tela de times
   - [x] Aplicar a base visual aos cards do mapa
@@ -42,10 +42,10 @@
   - [x] Tela de importação de lista com prévia
   - [x] Inserir em lote na importação
     Todos os tickets entram em uma única inserção; o número de comandos não cresce com a lista.
-  - [/] Importar esta lista no projeto TreePM
-    Falta repetir a importação com sessão real depois da correção do lote.
+  - [x] Importar esta lista no projeto TreePM
+    Importada em 2026-11-20 pela API, no projeto TREEPM da organização de Teodoro.
   - [ ] Página lateral do ticket com deslize e foco
-    Abrir um ticket desliza o mapa, abre a página com detalhes e foca nele (IDEA-013). Inclui criar, editar, situação, pai e pessoas. Falta decidir o gesto que abre o ticket.
+    Abrir um ticket desliza o mapa, abre a página com detalhes e foca nele (IDEA-013). Inclui criar, editar, situação, pai e pessoas. O clique continua selecionando sem mover a câmera; o ticket abre por Enter, segundo clique ou botão "Abrir".
   - [ ] Serializar mudanças de pai simultâneas
     A detecção de ciclo vale por requisição. Duas mudanças ao mesmo tempo no mesmo projeto não se enxergam.
 - IA da plataforma
@@ -57,7 +57,7 @@
   - [ ] Busca do caminho do topo até a folha
     Testa em cada nível qual ramo se enquadra melhor e propõe onde criar o ticket.
   - [ ] Mudança de pai quando a edição muda a categoria
-    Falta decidir se é automática ou confirmada ao salvar.
+    Confirmada ao salvar. Quando a mudança realmente fizer sentido, o ticket não é salvo sem mudar de lugar primeiro.
 - Fase 2 completa: trabalho multidisciplinar
   - [ ] Contribuições por área no ticket
   - [ ] Critérios de aceite e regra de conclusão

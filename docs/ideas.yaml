@@ -221,6 +221,7 @@ ideas:
       - Ao abrir um ticket, o mapa desliza para a esquerda.
       - Uma página lateral se abre com mais detalhes do ticket.
       - O mapa foca no ticket aberto, com zoom grande nele.
+      - "Em 2026-11-20: o clique continua selecionando; o ticket abre por Enter, segundo clique ou botão Abrir."
     relationships:
       - type: refines
         target: IDEA-004
@@ -236,6 +237,7 @@ ideas:
     details:
       - A edição do conteúdo de uma task é possível.
       - Se o conteúdo for alterado a ponto de a task mudar de categoria, isto é, mudar de pai, essa mudança tem que acontecer.
+      - "Em 2026-11-20: a mudança é confirmada ao salvar e, se realmente fizer sentido, não deixa salvar sem mudar de lugar primeiro."
     relationships:
       - type: refines
         target: IDEA-005
