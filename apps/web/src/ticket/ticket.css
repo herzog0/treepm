@@ -72,3 +72,7 @@
 .ticket-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .ticket-danger { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--tp-divider); }
 .ticket-danger p { margin: 6px 0 0; }
+
+.ticket-kind { flex: none; padding: 1px 6px; border: 1px solid var(--tp-border-strong); border-radius: 4px; color: var(--tp-text-2); font-size: 11px; }
+.ticket-section-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 12px; }
+.ticket-kind-change { margin-top: 24px; }

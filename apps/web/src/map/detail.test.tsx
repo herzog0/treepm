@@ -2,7 +2,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import { Profiler } from "react";
 import type { SpatialNodeContent } from "@treepm/react";
 import { describe, expect, it, vi } from "vitest";
-import { makePerson, makeProject, makeTicket } from "../test/fakes.js";
+import { makePerson, makeProject, makeGroup, makeTicket } from "../test/fakes.js";
 import { buildMapItems } from "./items.js";
 import type { MapNode } from "./items.js";
 import { DETAIL_MIN_WIDTH, MapDetailProvider, buildDetailData, createMapScaleStore } from "./detail.js";
@@ -13,13 +13,14 @@ const project = makeProject("alfa", "ALFA", "Projeto Alfa");
 const people = [makePerson("p-ana", "Ana Souza"), makePerson("p-teo", "Teodoro"), makePerson("p-bia", "Bia")];
 
 const tickets = [
-  makeTicket("raiz", "alfa", 1, "Publicar o site", { status: null, progress: { done: 2, total: 5, excluded: 0 }, descriptionExcerpt: "Texto do pai" }),
+  makeGroup("raiz", "alfa", 1, "Publicar o site", { progress: { done: 2, total: 5, excluded: 0 }, descriptionExcerpt: "Texto do pai" }),
   makeTicket("a", "alfa", 2, "Escrever", { parentId: "raiz", status: "done" }),
   makeTicket("b", "alfa", 3, "Revisar", { parentId: "raiz", status: "in_review" }),
   makeTicket("c", "alfa", 4, "Montar", { parentId: "raiz", status: "in_progress" }),
   makeTicket("d", "alfa", 5, "Testar", { parentId: "raiz", status: "done" }),
   makeTicket("e", "alfa", 6, "Publicar", { parentId: "raiz", status: "todo" }),
   makeTicket("f", "alfa", 7, "Cancelado", { parentId: "raiz", status: "cancelled" }),
+  makeGroup("vazio", "alfa", 9, "Fase 2", { descriptionExcerpt: "Segunda etapa da entrega." }),
   makeTicket("folha", "alfa", 8, "Ajustar o rodapé", {
     status: "in_progress",
     descriptionExcerpt: "Trocar o texto legal do rodapé e conferir os links.",
@@ -76,18 +77,30 @@ describe("card em detalhe (ADR 0027)", () => {
     const { ui } = setup(4);
     const { container } = render(ui("raiz", "full", 6));
     const card = container.querySelector(".node-detail")!;
-    expect(card).toHaveTextContent("6 subtickets");
+    expect(card).toHaveTextContent("6 itens");
     expect(card).toHaveTextContent("2 de 5 concluídos");
     expect(card).toHaveTextContent("Texto do pai");
     expect(card.querySelector(".node-detail-breakdown")).toHaveTextContent("1 em revisão · 1 em andamento · 1 a fazer");
     expect(container.querySelector("[data-state]")).toHaveAttribute("data-state", "progress");
   });
 
-  it("uses the singular for one subticket", () => {
+  it("an empty group shows 'vazio', no count and no breakdown", () => {
+    const { ui } = setup(4);
+    const { container } = render(ui("vazio", "full", 0));
+    const card = container.querySelector(".node-detail")!;
+    expect(card).toHaveTextContent("vazio");
+    expect(card).not.toHaveTextContent("0 de 0");
+    expect(card).not.toHaveTextContent(/\bitens?\b/);
+    expect(card).toHaveTextContent("Segunda etapa da entrega.");
+    expect(card.querySelector(".node-detail-breakdown")).toBeNull();
+    expect(container.querySelector("[data-state]")).toHaveAttribute("data-fill", "0");
+  });
+
+  it("uses the singular for one item", () => {
     const { ui } = setup(4);
     const { container } = render(ui("raiz", "full", 1));
-    expect(container.querySelector(".node-detail")).toHaveTextContent("1 subticket");
-    expect(container.querySelector(".node-detail")).not.toHaveTextContent("1 subtickets");
+    expect(container.querySelector(".node-detail")).toHaveTextContent("1 item");
+    expect(container.querySelector(".node-detail")).not.toHaveTextContent("1 itens");
   });
 
   it("omits the description block when the excerpt is empty", () => {
@@ -101,10 +114,17 @@ describe("card em detalhe (ADR 0027)", () => {
     const { container } = render(ui("alfa", "full", 1));
     const card = container.querySelector(".node-detail")!;
     expect(card).toHaveTextContent("ALFA");
-    expect(card).toHaveTextContent("1 ticket na raiz");
+    expect(card).toHaveTextContent("1 item na raiz");
+    expect(card).not.toHaveTextContent("ticket");
     expect(within(card as HTMLElement).getByText("Projeto Alfa")).toBeInTheDocument();
     expect(card.querySelector(".node-detail-description, .node-detail-people")).toBeNull();
     expect(container.querySelector("[data-state]")).toBeNull();
+  });
+
+  it("a project with several children says 'itens na raiz'", () => {
+    const { ui } = setup(2);
+    const { container } = render(ui("alfa", "full", 4));
+    expect(container.querySelector(".node-detail")).toHaveTextContent("4 itens na raiz");
   });
 
   it("the organization shows its projects count", () => {

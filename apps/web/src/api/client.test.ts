@@ -30,6 +30,7 @@ const ticketSummary = {
   key: "TREE-12",
   parentId: null,
   title: "Ticket",
+  kind: "ticket",
   status: "todo",
   progress: null,
   assigneeIds: [OTHER],
@@ -42,7 +43,7 @@ const ticketDetail = {
   createdAt: "2026-11-19T10:00:00.000Z",
   updatedAt: "2026-11-19T10:00:00.000Z",
 };
-const parentSummary = { ...ticketSummary, status: null, progress: { done: 3, total: 8, excluded: 2 } };
+const parentSummary = { ...ticketSummary, kind: "group", status: null, progress: { done: 3, total: 8, excluded: 2 } };
 
 function setup(respond: () => Response | Promise<Response> = () => Response.json({})) {
   const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async () => respond());
@@ -243,9 +244,38 @@ describe("ticket responses", () => {
   });
 });
 
+describe("ticket kind", () => {
+  it("keeps kind group from the listing, with the progress", async () => {
+    const { client } = setup(() => Response.json([parentSummary]));
+    expect(await client.listTickets(ID)).toEqual({ ok: true, data: [expect.objectContaining({ kind: "group", status: null, progress: { done: 3, total: 8, excluded: 2 } })] });
+  });
+
+  it("rejects a listing entry without kind or with an unknown kind", async () => {
+    for (const kind of [undefined, "folder"]) {
+      const { client } = setup(() => Response.json([{ ...ticketSummary, kind }]));
+      expect(await client.listTickets(ID)).toEqual({ ok: false, error: { kind: "unavailable" } });
+    }
+  });
+
+  it("sends kind when creating and when updating", async () => {
+    const created = setup(() => Response.json({ ...ticketDetail, kind: "group", status: null, progress: { done: 0, total: 0, excluded: 0 } }, { status: 201 }));
+    await created.client.createTicket(ID, { title: "Fase 1", kind: "group" });
+    expect(JSON.parse(String(created.fetchImpl.mock.calls[0]![1]!.body))).toEqual({ title: "Fase 1", kind: "group" });
+    const updated = setup(() => Response.json(ticketDetail));
+    await updated.client.updateTicket(ID, { kind: "ticket" });
+    expect(JSON.parse(String(updated.fetchImpl.mock.calls[0]![1]!.body))).toEqual({ kind: "ticket" });
+  });
+});
+
 describe("describeApiError for tickets", () => {
+  it("words ticket_has_children for a removal as a removal", () => {
+    expect(describeApiError({ kind: "conflict", code: "ticket_has_children" }, "remove")).toBe("Este agrupador tem itens. Mova ou remova os itens antes de removê-lo.");
+  });
+
   it.each([
-    ["ticket_has_children", "filhos"],
+    ["ticket_has_children", "Mova ou remova os itens antes de transformá-lo em ticket"],
+    ["parent_not_group", "Só um agrupador pode ter itens dentro dele."],
+    ["group_has_no_status", "Agrupador não tem situação própria."],
     ["ticket_cycle", "ancestral"],
     ["project_archived", "arquivado"],
     ["person_without_project_access", "acesso ao projeto"],

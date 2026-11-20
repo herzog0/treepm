@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { OrganizationMap } from "./OrganizationMap.js";
-import { failed, makeClient, makeMe, makeProject, makeTicket } from "../test/fakes.js";
+import { failed, makeClient, makeMe, makeProject, makeGroup, makeTicket } from "../test/fakes.js";
 
 const projects = [makeProject("p1", "ALFA", "Projeto Alfa"), makeProject("p2", "BETA", "Projeto Beta")];
 
@@ -143,7 +143,7 @@ describe("OrganizationMap", () => {
   });
   describe("tickets", () => {
     const alfaTickets = [
-      makeTicket("t1", "p1", 1, "Fechar a fase", { key: "ALFA-1", status: null, progress: { done: 3, total: 8, excluded: 2 } }),
+      makeGroup("t1", "p1", 1, "Fechar a fase", { key: "ALFA-1", progress: { done: 3, total: 8, excluded: 2 } }),
       makeTicket("t2", "p1", 2, "Escrever o teste", { key: "ALFA-2", parentId: "t1", status: "in_review" }),
       makeTicket("t3", "p1", 3, "Publicar", { key: "ALFA-3", status: "cancelled" }),
     ];
@@ -202,6 +202,20 @@ describe("OrganizationMap", () => {
       expect(await screen.findByRole("button", { name: /ALFA-3 · Publicar/ }, { timeout: SLOW })).toBeInTheDocument();
     });
 
+    it("selecting a project counts its root children as 'itens', since the root mixes tickets and groups", async () => {
+      render(<OrganizationMap client={makeClient({ projects, tickets: { p1: [makeGroup("g1", "p1", 1, "Fase", { key: "ALFA-1" }), makeTicket("t2", "p1", 2, "Solto", { key: "ALFA-2" })] } })} me={makeMe()} />);
+      await userEvent.click(await screen.findByRole("button", { name: /ALFA · Projeto Alfa/ }));
+      const card = screen.getByRole("complementary", { name: "Nó selecionado" });
+      expect(within(card).getByText("2 itens")).toBeInTheDocument();
+      expect(within(card).queryByText(/tickets/)).not.toBeInTheDocument();
+    });
+
+    it("selecting a project with a single root child says '1 item'", async () => {
+      render(<OrganizationMap client={makeClient({ projects, tickets: { p1: [makeTicket("t2", "p1", 2, "Solto", { key: "ALFA-2" })] } })} me={makeMe()} />);
+      await userEvent.click(await screen.findByRole("button", { name: /ALFA · Projeto Alfa/ }));
+      expect(within(screen.getByRole("complementary", { name: "Nó selecionado" })).getByText("1 item")).toBeInTheDocument();
+    });
+
     it("selecting a leaf ticket shows key, title and the status in words, leaving the panel on the project", async () => {
       await openAlfa();
       await selectTicket(/ALFA-3 · Publicar/);
@@ -223,8 +237,23 @@ describe("OrganizationMap", () => {
       expect(within(card).queryByText("Cancelado")).not.toBeInTheDocument();
     });
 
+    it("selecting an empty group shows 'vazio' with the empty progress mark", async () => {
+      await openAlfa(makeClient({ projects, tickets: { p1: [makeGroup("g1", "p1", 1, "Fase 2", { key: "ALFA-1" })] } }));
+      await selectTicket(/ALFA-1 · Fase 2/);
+      const card = screen.getByRole("complementary", { name: "Nó selecionado" });
+      expect(within(card).getByText("vazio")).toBeInTheDocument();
+      expect(within(card).queryByText(/0 de 0/)).not.toBeInTheDocument();
+      expect(card.querySelector("[data-state='progress']")).toHaveAttribute("data-fill", "0");
+    });
+
+    it("selecting a group that only holds an empty group is not 'vazio'", async () => {
+      await openAlfa(makeClient({ projects, tickets: { p1: [makeGroup("g1", "p1", 1, "Fase 2", { key: "ALFA-1" }), makeGroup("g2", "p1", 2, "Subfase", { key: "ALFA-2", parentId: "g1" })] } }));
+      await selectTicket(/ALFA-1 · Fase 2/);
+      expect(within(screen.getByRole("complementary", { name: "Nó selecionado" })).getByText("0 de 0 concluídos")).toBeInTheDocument();
+    });
+
     it("omits the cancelled count when there is none", async () => {
-      const tickets = [makeTicket("t1", "p1", 1, "Pai", { key: "ALFA-1", status: null, progress: { done: 0, total: 1, excluded: 0 } }), makeTicket("t2", "p1", 2, "Filho", { key: "ALFA-2", parentId: "t1" })];
+      const tickets = [makeGroup("t1", "p1", 1, "Pai", { key: "ALFA-1", progress: { done: 0, total: 1, excluded: 0 } }), makeTicket("t2", "p1", 2, "Filho", { key: "ALFA-2", parentId: "t1" })];
       await openAlfa(makeClient({ projects, tickets: { p1: tickets } }));
       await selectTicket(/ALFA-1 · Pai/);
       expect(within(screen.getByRole("complementary", { name: "Nó selecionado" })).getByText("0 de 1 concluídos")).toBeInTheDocument();
@@ -267,7 +296,7 @@ describe("OrganizationMap", () => {
 
     it("shows the status mark in the selection card, next to the status in words", async () => {
       const tickets = [
-        makeTicket("t1", "p1", 1, "Fechar a fase", { key: "ALFA-1", status: null, progress: { done: 3, total: 8, excluded: 0 } }),
+        makeGroup("t1", "p1", 1, "Fechar a fase", { key: "ALFA-1", progress: { done: 3, total: 8, excluded: 0 } }),
         makeTicket("t2", "p1", 2, "Escrever", { key: "ALFA-2", parentId: "t1", status: "in_review" }),
       ];
       render(<OrganizationMap client={makeClient({ projects, tickets: { p1: tickets } })} me={makeMe()} />);

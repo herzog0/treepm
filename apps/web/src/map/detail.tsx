@@ -57,7 +57,7 @@ export type LeafStatusCounts = Readonly<Partial<Record<Exclude<TicketStatus, "do
 
 export interface MapDetailData {
   readonly people: ReadonlyMap<string, Person>;
-  /** Folhas por situação sob cada ticket com filhos (sem as concluídas e as canceladas, que o progresso já conta). */
+  /** Folhas por situação sob cada agrupador (sem as concluídas e as canceladas, que o progresso já conta). */
   readonly leaves: ReadonlyMap<string, LeafStatusCounts>;
 }
 
@@ -69,13 +69,12 @@ export function buildDetailData(items: readonly MapNode[], people: readonly Pers
     if (siblings) siblings.push(item);
     else childrenOf.set(item.parentId, [item]);
   }
-  const leavesUnder = (node: MapNode): MapNode[] => {
-    const below = childrenOf.get(node.id);
-    return below ? below.flatMap(leavesUnder) : [node];
-  };
+  // Folhas são os tickets sob o agrupador; agrupador (vazio ou não) nunca conta como folha.
+  const leavesUnder = (node: MapNode): MapNode[] =>
+    node.ticket?.kind === "group" ? (childrenOf.get(node.id) ?? []).flatMap(leavesUnder) : [node];
   const leaves = new Map<string, LeafStatusCounts>();
   for (const item of items) {
-    if (item.kind !== "ticket" || !childrenOf.has(item.id)) continue;
+    if (item.ticket?.kind !== "group") continue;
     const counts: Partial<Record<"todo" | "in_progress" | "in_review", number>> = {};
     for (const leaf of leavesUnder(item)) {
       const status = leaf.ticket?.status;

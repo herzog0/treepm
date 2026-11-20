@@ -13,3 +13,4 @@
 .status-mark[data-state="in_review"] { --mark: var(--tp-review); }
 .status-mark[data-state="done"], .status-mark[data-state="progress"] { --mark: var(--tp-done); }
 .status-mark[data-state="cancelled"] { border-style: dashed; background: none; }
+.status-mark[data-state="progress"][data-empty="true"] { --mark: var(--tp-todo); }

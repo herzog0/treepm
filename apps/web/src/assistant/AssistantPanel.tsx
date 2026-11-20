@@ -149,6 +149,8 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const [outcome, setOutcome] = useState<PlacementOutcome | null>(null);
   const [target, setTarget] = useState<Destination | null>(null);
   const [pickNotice, setPickNotice] = useState("");
+  // Frase que explica por que o destino escolhido no mapa não é o nó em que a pessoa clicou (ADR 0031).
+  const [pickedNote, setPickedNote] = useState("");
   const sendingRef = useRef(false);
   const scroller = useRef<HTMLDivElement>(null);
   const save = useAction();
@@ -176,17 +178,21 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     if (element) element.scrollTop = element.scrollHeight;
   }, [conversation?.messages.length, outcome, sendError]);
 
-  // "Escolher no mapa": o próximo clique em ticket ou projeto do mesmo projeto vira o destino.
+  // "Escolher no mapa": o próximo clique em agrupador ou projeto do mesmo projeto vira o destino. Um ticket não tem
+  // itens (ADR 0031): clicar nele escolhe o agrupador que o contém, ou a raiz do projeto, e o painel diz isso.
   const register = useRef(registerPicker);
   register.current = registerPicker;
   const pick = useRef<(node: MapNode) => void>(() => undefined);
   pick.current = (node) => {
-    const parentId = node.kind === "project" && node.id === project.id ? null : node.kind === "ticket" && node.ticket?.projectId === project.id ? node.id : undefined;
+    const clicked = node.kind === "ticket" && node.ticket?.projectId === project.id ? node.ticket : null;
+    const parentId = node.kind === "project" && node.id === project.id ? null : clicked ? (clicked.kind === "group" ? clicked.id : clicked.parentId) : undefined;
     if (parentId === undefined) {
-      setPickNotice(`Esta conversa é do projeto ${project.name}. Clique em um ticket ou no próprio projeto.`);
+      setPickNotice(`Esta conversa é do projeto ${project.name}. Clique em um agrupador ou no próprio projeto.`);
       return;
     }
-    setTarget(destinationUnder(list, parentId));
+    const destination = destinationUnder(list, parentId);
+    setTarget(destination);
+    setPickedNote(clicked && clicked.kind === "ticket" ? `«${clicked.title}» é um ticket. O destino passou a ser ${destination.path.length === 0 ? "a raiz do projeto" : `«${destination.path.at(-1)!.title}»`}.` : "");
     setPickNotice("");
     setChoosing(false);
   };
@@ -198,6 +204,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   }, [choosing, setChoosing]);
 
   const clearPlacement = () => {
+    setPickedNote("");
     setOutcome(null);
     setTarget(null);
     setChoosing(false);
@@ -264,6 +271,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     }
     const result = await search.run(() => client.findPlacement(current.id));
     if (!result.ok) return;
+    setPickedNote("");
     setOutcome(result.data);
     setTarget(result.data.destination);
   };
@@ -363,9 +371,15 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 busy={busy}
                 error={create.error}
                 whereStopped={whereStopped}
-                targetIsLeaf={target.parentId !== null && !list.some((entry) => entry.parentId === target.parentId)}
-                onUse={setTarget}
-                onUp={() => up && setTarget(up)}
+                pickedNote={pickedNote}
+                onUse={(destination) => {
+                  setPickedNote("");
+                  setTarget(destination);
+                }}
+                onUp={() => {
+                  setPickedNote("");
+                  if (up) setTarget(up);
+                }}
                 onChoose={() => setChoosing(true)}
                 onCancelChoose={() => setChoosing(false)}
                 onCreate={() => void createHere()}

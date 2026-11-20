@@ -5,9 +5,10 @@ import { ACCENT_COLOR, DRAFT_NODE_ID, buildMapItems } from "./items.js";
 const org = { orgId: "org_1", name: "Equipe Alfa", slug: "alfa" };
 const project: Project = { id: "p1", name: "Alfa", key: "ALFA", visibility: "organization", archivedAt: null, members: [], teamIds: [] };
 const ticket = (id: string, number: number, parentId: string | null, status: TicketSummary["status"]): TicketSummary => ({
-  id, projectId: "p1", number, key: `ALFA-${number}`, parentId, title: `T${number}`, status, progress: null, assigneeIds: [], descriptionExcerpt: "",
+  id, projectId: "p1", number, key: `ALFA-${number}`, parentId, title: `T${number}`, kind: "ticket", status, progress: null, assigneeIds: [], descriptionExcerpt: "",
 });
-const tickets = { p1: [ticket("t1", 1, null, "done"), ticket("t2", 2, "t1", "done")] };
+const group = (id: string, number: number, parentId: string | null): TicketSummary => ({ ...ticket(id, number, parentId, null), kind: "group", progress: { done: 1, total: 1, excluded: 0 } });
+const tickets = { p1: [group("t1", 1, null), ticket("t2", 2, "t1", "done"), { ...group("g3", 3, null), progress: { done: 0, total: 0, excluded: 0 } }] };
 
 describe("buildMapItems with the assistant draft", () => {
   it("adds a dashed-card node as the last child of the destination ticket", () => {
@@ -17,12 +18,12 @@ describe("buildMapItems with the assistant draft", () => {
     expect(items.at(-1)).toBe(ghost);
   });
 
-  it("enters as the only child of a leaf ticket (ADR 0030)", () => {
-    const items = buildMapItems(org, [project], tickets, { projectId: "p1", parentId: "t2", title: "Primeiro subticket" });
-    expect(items.filter((item) => item.parentId === "t2")).toEqual([
-      expect.objectContaining({ id: DRAFT_NODE_ID, kind: "draft", parentId: "t2", label: "Primeiro subticket" }),
+  it("enters as the only child of an empty group (ADR 0031)", () => {
+    const items = buildMapItems(org, [project], tickets, { projectId: "p1", parentId: "g3", title: "Primeiro item" });
+    expect(items.filter((item) => item.parentId === "g3")).toEqual([
+      expect.objectContaining({ id: DRAFT_NODE_ID, kind: "draft", parentId: "g3", label: "Primeiro item" }),
     ]);
-    expect(items.find((item) => item.id === "t2")).toMatchObject({ kind: "ticket" });
+    expect(items.find((item) => item.id === "g3")?.ticket).toMatchObject({ kind: "group" });
   });
 
   it("puts the node under the project when the destination is the project root", () => {

@@ -46,7 +46,7 @@ function renderCardContent({ node, lod, childCount, aggregate, descendantCount }
       {ticket && (
         <span className="node-state">
           <TicketMark ticket={ticket} />
-          {lod === "full" && <span>{stateText(ticket)}</span>}
+          {lod === "full" && <span>{stateText(ticket, childCount)}</span>}
         </span>
       )}
       {lod === "full" && node.kind === "organization" && (

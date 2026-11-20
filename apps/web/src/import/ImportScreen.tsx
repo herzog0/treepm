@@ -50,6 +50,7 @@ function PreviewTree({ items, label }: { items: readonly ImportItem[]; label?: s
             <div className={`import-tree-row ${children.length > 0 ? "is-parent" : ""}`}>
               {children.length === 0 && <StatusMark status={item.status ?? "todo"} />}
               <span className="import-tree-title">{item.title}</span>
+              {children.length > 0 && <span className="import-tree-kind">Agrupador</span>}
               <small>{children.length === 0 ? STATUS_TEXT[item.status ?? "todo"] : plural(children.length, "subitem", "subitens")}</small>
             </div>
             {children.length > 0 && <PreviewTree items={children} />}
@@ -136,7 +137,7 @@ function ImportForm({ client, projectId, projectKey, projectName, onExit }: Impo
           <span>{projectName}</span>
         </nav>
         <h1>Importar lista</h1>
-        <p>Cole uma lista em Markdown: cada item vira um ticket e o recuo define quem é filho de quem. Marcadores opcionais definem a situação das folhas.</p>
+        <p>Cole uma lista em Markdown: cada item vira um ticket, o recuo define quem é filho de quem, e o item com filhos vira um agrupador. Marcadores opcionais definem a situação dos tickets.</p>
       </header>
 
       <div className="import-columns">

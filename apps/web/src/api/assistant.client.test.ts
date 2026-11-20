@@ -18,7 +18,7 @@ const detail = {
 const target = { parentId: ID, path: [{ id: ID, title: "Ramo" }] };
 const outcome = { destination: target, alternatives: [], discarded: [], uncertain: false, stoppedEarly: null };
 const ticketDetail = {
-  id: ID, projectId: OTHER, number: 1, key: "K-1", parentId: null, title: "T", status: "todo", progress: null,
+  id: ID, projectId: OTHER, number: 1, key: "K-1", parentId: null, title: "T", kind: "ticket", status: "todo", progress: null,
   assigneeIds: [], descriptionExcerpt: "", description: "", createdByPersonId: OTHER, createdAt: "x", updatedAt: "y",
 };
 

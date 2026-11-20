@@ -19,8 +19,8 @@ export function initialsOf(name: string): string {
 
 function describeChildren(node: MapNode, childCount: number): string {
   if (node.kind === "organization") return plural(childCount, "projeto", "projetos");
-  if (node.kind === "project") return `${childCount} ${childCount === 1 ? "ticket" : "tickets"} na raiz`;
-  return childCount === 0 ? "" : plural(childCount, "subticket", "subtickets");
+  if (node.kind === "project") return `${plural(childCount, "item", "itens")} na raiz`;
+  return childCount === 0 ? "" : plural(childCount, "item", "itens");
 }
 
 function describeLeaves(counts: LeafStatusCounts | undefined): string {
@@ -99,7 +99,7 @@ export function DetailCard({ node, childCount }: { node: MapNode; childCount: nu
       {ticket && (
         <span className="node-detail-state">
           <TicketMark ticket={ticket} />
-          <span>{stateText(ticket)}</span>
+          <span>{stateText(ticket, childCount)}</span>
         </span>
       )}
       {excerpt !== "" && <Description text={excerpt} />}
