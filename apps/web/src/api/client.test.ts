@@ -23,6 +23,26 @@ const project = {
   teamIds: [ID],
 };
 
+const ticketSummary = {
+  id: ID,
+  projectId: OTHER,
+  number: 12,
+  key: "TREE-12",
+  parentId: null,
+  title: "Ticket",
+  status: "todo",
+  progress: null,
+  assigneeIds: [OTHER],
+};
+const ticketDetail = {
+  ...ticketSummary,
+  description: "Texto",
+  createdByPersonId: OTHER,
+  createdAt: "2026-11-19T10:00:00.000Z",
+  updatedAt: "2026-11-19T10:00:00.000Z",
+};
+const parentSummary = { ...ticketSummary, status: null, progress: { done: 3, total: 8, excluded: 2 } };
+
 function setup(respond: () => Response | Promise<Response> = () => Response.json({})) {
   const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async () => respond());
   const getToken = vi.fn<() => Promise<string | null>>().mockResolvedValue("tok");
@@ -62,6 +82,14 @@ const cases: Case[] = [
   { name: "removeProjectMember", call: (c) => c.removeProjectMember(ID, OTHER), method: "DELETE", path: `/api/projects/${ID}/members/${OTHER}`, status: 204 },
   { name: "putProjectTeam", call: (c) => c.putProjectTeam(ID, OTHER), method: "PUT", path: `/api/projects/${ID}/teams/${OTHER}`, response: { projectId: ID, teamId: OTHER } },
   { name: "removeProjectTeam", call: (c) => c.removeProjectTeam(ID, OTHER), method: "DELETE", path: `/api/projects/${ID}/teams/${OTHER}`, status: 204 },
+  { name: "listTickets", call: (c) => c.listTickets(ID), method: "GET", path: `/api/projects/${ID}/tickets`, response: [ticketSummary, parentSummary] },
+  { name: "getTicket", call: (c) => c.getTicket(ID), method: "GET", path: `/api/tickets/${ID}`, response: ticketDetail },
+  { name: "createTicket", call: (c) => c.createTicket(ID, { title: "Ticket", parentId: null }), method: "POST", path: `/api/projects/${ID}/tickets`, body: { title: "Ticket", parentId: null }, status: 201, response: ticketDetail },
+  { name: "updateTicket", call: (c) => c.updateTicket(ID, { status: "done" }), method: "PATCH", path: `/api/tickets/${ID}`, body: { status: "done" }, response: ticketDetail },
+  { name: "removeTicket", call: (c) => c.removeTicket(ID), method: "DELETE", path: `/api/tickets/${ID}`, status: 204 },
+  { name: "putTicketAssignee", call: (c) => c.putTicketAssignee(ID, OTHER), method: "PUT", path: `/api/tickets/${ID}/assignees/${OTHER}`, response: ticketDetail },
+  { name: "removeTicketAssignee", call: (c) => c.removeTicketAssignee(ID, OTHER), method: "DELETE", path: `/api/tickets/${ID}/assignees/${OTHER}`, status: 204 },
+  { name: "importTickets", call: (c) => c.importTickets(ID, { items: [{ title: "A", children: [{ title: "B", status: "done" }] }] }), method: "POST", path: `/api/projects/${ID}/tickets/import`, body: { items: [{ title: "A", children: [{ title: "B", status: "done" }] }] }, status: 201, response: [ticketSummary] },
 ];
 
 describe("createApiClient", () => {
@@ -171,5 +199,25 @@ describe("describeApiError", () => {
     [{ kind: "conflict", code: "unknown_code" }, "Esta alteração conflita com o estado atual. Recarregue e tente novamente."],
   ] as const)("translates %j generically", (error, message) => {
     expect(describeApiError(error)).toBe(message);
+  });
+});
+
+describe("ticket responses", () => {
+  it("rejects a ticket with an unknown status", async () => {
+    const { client } = setup(() => Response.json([{ ...ticketSummary, status: "blocked" }]));
+    expect(await client.listTickets(ID)).toEqual({ ok: false, error: { kind: "unavailable" } });
+  });
+});
+
+describe("describeApiError for tickets", () => {
+  it.each([
+    ["ticket_has_children", "filhos"],
+    ["ticket_cycle", "ancestral"],
+    ["project_archived", "arquivado"],
+    ["person_without_project_access", "acesso ao projeto"],
+  ])("explains %s in Portuguese", (code, fragment) => {
+    const message = describeApiError({ kind: "conflict", code });
+    expect(message).toContain(fragment);
+    expect(message).not.toMatch(/Recarregue e tente/);
   });
 });

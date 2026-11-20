@@ -1,7 +1,7 @@
 import { SpatialCanvasView, useSpatialCanvas } from "@treepm/react";
 import type { RenderNodeContent, SpatialCanvasLabels, SpatialNodeContent } from "@treepm/react";
 import { useCallback, useMemo, useState } from "react";
-import type { ApiClient, Me, Project } from "../api/client.js";
+import type { ApiClient, ApiResult, Me, Project, TicketStatus, TicketSummary } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
 import { SidePanel } from "../panel/SidePanel.js";
@@ -22,13 +22,33 @@ const labels: SpatialCanvasLabels = {
   zoomIn: "Ampliar zoom",
   colors: "Cores",
 };
+const STATUS_TEXT: Record<TicketStatus, string> = {
+  todo: "A fazer",
+  in_progress: "Em andamento",
+  in_review: "Em revisão",
+  done: "Concluído",
+  cancelled: "Cancelado",
+};
+
+/** Situação em texto; ticket com filhos mostra o progresso com a base (ADR 0024). */
+function describeTicketState(ticket: TicketSummary): string {
+  if (ticket.progress) {
+    const { done, total, excluded } = ticket.progress;
+    const base = `${done} de ${total} concluídos`;
+    return excluded > 0 ? `${base} · ${excluded} ${excluded === 1 ? "cancelado" : "cancelados"}` : base;
+  }
+  return ticket.status ? STATUS_TEXT[ticket.status] : "";
+}
+
 const describeNode = (node: MapNode) => (node.key ? `${node.key} · ${node.label}` : node.label);
 const getNodeAriaLabel = ({ node, childCount }: SpatialNodeContent<MapNode>) =>
   node.kind === "organization"
     ? `${node.label}. Organização com ${childCount} ${childCount === 1 ? "projeto" : "projetos"}.`
-    : `${describeNode(node)}. Projeto.`;
+    : node.kind === "ticket"
+      ? `${describeNode(node)}. Ticket.`
+      : `${describeNode(node)}. Projeto.`;
 const getGroupAriaLabel = (members: readonly MapNode[]) =>
-  `${members.length} projetos agrupados: ${members.map(describeNode).join(", ")}. Amplie para revelar.`;
+  `${members.length} ${members.every((member) => member.kind === "project") ? "projetos" : "itens"} agrupados: ${members.map(describeNode).join(", ")}. Amplie para revelar.`;
 const renderNodeContent: RenderNodeContent<MapNode> = ({ node, lod, childCount, aggregate, descendantCount }) =>
   lod === "dot" ? null : (
     <>
@@ -37,7 +57,11 @@ const renderNodeContent: RenderNodeContent<MapNode> = ({ node, lod, childCount, 
       {lod === "full" && node.kind === "organization" && (
         <span className="spatial-card-meta">{childCount} {childCount === 1 ? "projeto" : "projetos"}</span>
       )}
-      {aggregate && <span className="spatial-aggregate-count">{descendantCount} projetos</span>}
+      {aggregate && (
+        <span className="spatial-aggregate-count">
+          {descendantCount} {node.kind === "organization" && descendantCount === childCount ? "projetos" : "itens"}
+        </span>
+      )}
     </>
   );
 
@@ -51,11 +75,12 @@ interface MapViewProps {
   client: ApiClient;
   me: Me;
   projects: readonly Project[];
+  ticketsByProject: Readonly<Record<string, readonly TicketSummary[]>>;
   onChanged: () => void;
 }
 
-function MapView({ client, me, projects, onChanged }: MapViewProps) {
-  const items = useMemo(() => buildMapItems(me.organization, projects), [me.organization, projects]);
+function MapView({ client, me, projects, ticketsByProject, onChanged }: MapViewProps) {
+  const items = useMemo(() => buildMapItems(me.organization, projects, ticketsByProject), [me.organization, projects, ticketsByProject]);
   const [panel, setPanel] = useState<PanelState>({ open: false, tab: "areas", projectId: null });
 
   const onSelectionChange = useCallback((node: MapNode | null) => {
@@ -114,7 +139,11 @@ function MapView({ client, me, projects, onChanged }: MapViewProps) {
                 <button onClick={() => selectNode(null)} aria-label="Fechar seleção">×</button>
               </div>
               <strong>{selected.label}</strong>
-              <p>{index.childrenByParentId.get(selected.id)?.length ?? 0} projetos</p>
+              {selected.ticket ? (
+                <p>{describeTicketState(selected.ticket)}</p>
+              ) : (
+                <p>{index.childrenByParentId.get(selected.id)?.length ?? 0} {selected.kind === "project" ? "tickets" : "projetos"}</p>
+              )}
               <button onClick={() => focusNode(selected.id)}>Explorar ramo</button>
             </aside>
           )}
@@ -152,8 +181,27 @@ export interface OrganizationMapProps {
   me: Me;
 }
 
+interface MapData {
+  projects: readonly Project[];
+  ticketsByProject: Readonly<Record<string, readonly TicketSummary[]>>;
+}
+
+/** Projetos primeiro; depois os tickets de cada projeto visível e não arquivado, em paralelo. Qualquer falha falha a carga. */
+async function loadMapData(client: ApiClient): Promise<ApiResult<MapData>> {
+  const projects = await client.listProjects();
+  if (!projects.ok) return projects;
+  const visible = projects.data.filter((project) => project.archivedAt === null);
+  const lists = await Promise.all(visible.map((project) => client.listTickets(project.id)));
+  const ticketsByProject: Record<string, readonly TicketSummary[]> = {};
+  for (const [position, list] of lists.entries()) {
+    if (!list.ok) return list;
+    ticketsByProject[visible[position]!.id] = list.data;
+  }
+  return { ok: true, data: { projects: projects.data, ticketsByProject } };
+}
+
 export function OrganizationMap({ client, me }: OrganizationMapProps) {
-  const { state, reload, retry } = useApiResource(() => client.listProjects());
+  const { state, reload, retry } = useApiResource(() => loadMapData(client));
 
   if (state.status === "loading") {
     return <p className="map-state" role="status">Carregando mapa…</p>;
@@ -165,5 +213,5 @@ export function OrganizationMap({ client, me }: OrganizationMapProps) {
       </div>
     );
   }
-  return <MapView client={client} me={me} projects={state.data} onChanged={reload} />;
+  return <MapView client={client} me={me} projects={state.data.projects} ticketsByProject={state.data.ticketsByProject} onChanged={reload} />;
 }
