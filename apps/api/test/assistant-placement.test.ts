@@ -338,3 +338,145 @@ describe("placement — sem as chaves", () => {
     expect(errorOf(res)).toBe("assistant_not_configured");
   });
 });
+
+describe("placement — escopo pela seleção (ADR 0031)", () => {
+  const scoped = (id: string, scopeId: string | null, who: Who | "outsider" = "contributor", org = "org_A") =>
+    h.call("POST", `/api/ticket-conversations/${id}/placement`, as(who, org), { scopeId });
+  const groupIn = async (projectId: string, orgId: string, number: number, title: string, kind = "group") =>
+    (await rows(
+      "insert into tickets (org_id, project_id, number, kind, title, created_by_person_id) values ($1,$2,$3,$4,$5,(select id from people where org_id = $1 limit 1)) returning id",
+      [orgId, projectId, number, kind, title],
+    ))[0].id as string;
+
+  it("sem corpo e com scopeId nulo o resultado é o de hoje, com scope nulo", async () => {
+    const id = await start();
+    const bare = await placement(id);
+    h.judge().calls.length = 0;
+    const nulled = await scoped(id, null);
+    expect(bare.status).toBe(201);
+    expect(nulled.status).toBe(201);
+    expect(nulled.body).toEqual(bare.body);
+    expect(bare.body.scope).toBeNull();
+    expect(h.judge().calls[0]?.scope).toBeUndefined();
+  });
+
+  it("corpo com campo desconhecido: 400", async () => {
+    const id = await start();
+    const res = await h.call("POST", `/api/ticket-conversations/${id}/placement`, as("contributor"), { scopeId: null, outro: 1 });
+    expect(res.status).toBe(400);
+  });
+
+  it("escopo com filhos: a procura começa nele, o caminho vem desde a raiz e o resumo do escopo é escrito e gravado", async () => {
+    const id = await start();
+    const res = await scoped(id, tree.auth);
+    expect(res.status).toBe(201);
+    const first = h.judge().calls[0]!;
+    expect(first.scope).toEqual({ id: tree.auth, title: "Auth", summary: "Resumo de Auth", hasChildren: true });
+    expect(first.current).toBeNull();
+    expect(first.candidates.map((c) => c.title)).toEqual(["SSO"]);
+    expect(res.body.destination).toEqual({ parentId: tree.sso, path: [{ id: tree.auth, title: "Auth" }, { id: tree.sso, title: "SSO" }] });
+    expect(res.body.scope).toEqual({ id: tree.auth, title: "Auth", outOfScope: false });
+    expect(res.body.stoppedEarly).toBeNull();
+    expect((await summaryRows()).map((r) => r.title)).toContain("Auth");
+    expect(h.judge().calls).toHaveLength(1); // SSO só tem um ticket: não há mais o que perguntar
+  });
+
+  it("escopo no segundo nível: o caminho do destino começa pelos ancestrais", async () => {
+    const id = await start();
+    const res = await scoped(id, tree.sso);
+    expect(res.status).toBe(201);
+    expect(res.body.destination.path).toEqual([{ id: tree.auth, title: "Auth" }, { id: tree.sso, title: "SSO" }]);
+    expect(res.body.alternatives).toEqual([]);
+  });
+
+  it("escopo sem agrupadores filhos: o juiz recebe só a pergunta do escopo, com a descrição, e o destino é o escopo", async () => {
+    const id = await start();
+    const res = await scoped(id, tree.billing);
+    expect(res.status).toBe(201);
+    expect(h.judge().calls).toHaveLength(1);
+    expect(h.judge().calls[0]).toMatchObject({ candidates: [], current: null, scope: { id: tree.billing, title: "Billing", hasChildren: true } });
+    expect(res.body.destination).toEqual({ parentId: tree.billing, path: [{ id: tree.billing, title: "Billing" }] });
+  });
+
+  it("agrupador vazio como escopo: vai o trecho da descrição, sem resumidor", async () => {
+    const [empty] = await seedGroups(h.pool, h.world(), [{ title: "Acesso", description: "Quem entra" }]);
+    const id = await open();
+    const res = await scoped(id, empty!);
+    expect(res.status).toBe(201);
+    expect(h.judge().calls[0]?.scope).toEqual({ id: empty, title: "Acesso", summary: "Quem entra", hasChildren: false });
+    expect(h.summarizer().calls).toHaveLength(0);
+    expect(res.body.destination.path).toEqual([{ id: empty, title: "Acesso" }]);
+  });
+
+  it("Noul do escopo abaixo de 0,3: outOfScope verdadeiro e a probabilidade não sai na resposta", async () => {
+    const id = await start();
+    h.judge().verdict = (input) => ({
+      belongs: 0.95,
+      choice: Object.fromEntries(input.candidates.map((c) => [c.id, 1])),
+      ...(input.scope ? { scopeFit: 0.1 } : {}),
+    });
+    const res = await scoped(id, tree.auth);
+    expect(res.body.scope).toEqual({ id: tree.auth, title: "Auth", outOfScope: true });
+    expect(JSON.stringify(res.body)).not.toContain("0.1");
+    expect(res.body.destination.path[0]).toEqual({ id: tree.auth, title: "Auth" });
+  });
+
+  it("escopo inexistente: 404", async () => {
+    const id = await start();
+    const res = await scoped(id, "0199aaaa-bbbb-7ccc-8ddd-eeeeffff0000");
+    expect(res.status).toBe(404);
+    expect(h.judge().calls).toHaveLength(0);
+  });
+
+  it("escopo de outro projeto da mesma organização: 404", async () => {
+    const id = await start();
+    const foreign = await groupIn(h.world().projects.org, "org_A", 1, "De outro projeto");
+    const res = await scoped(id, foreign);
+    expect(res.status).toBe(404);
+    expect(h.judge().calls).toHaveLength(0);
+    expect(h.summarizer().calls).toHaveLength(0);
+  });
+
+  it("escopo de outra organização: 404, igual ao inexistente", async () => {
+    const id = await start();
+    const foreign = await groupIn(h.world().other.project, "org_B", 1, "De outra organização");
+    const res = await scoped(id, foreign);
+    expect(res.status).toBe(404);
+    expect(h.judge().calls).toHaveLength(0);
+  });
+
+  it("escopo do tipo ticket: 409 scope_not_group", async () => {
+    const id = await start();
+    for (const ticket of [tree.login, tree.loose]) {
+      const res = await scoped(id, ticket);
+      expect(res.status).toBe(409);
+      expect(errorOf(res)).toBe("scope_not_group");
+    }
+    expect(h.judge().calls).toHaveLength(0);
+  });
+
+  it("projeto que a pessoa deixou de ver: 404 mesmo com escopo", async () => {
+    const id = await start();
+    await h.pool.query("delete from project_memberships where person_id = $1", [h.world().people.contributor]);
+    const res = await scoped(id, tree.auth);
+    expect(res.status).toBe(404);
+    expect(res.body.error.message).toBe("Projeto não encontrado.");
+    expect(h.judge().calls).toHaveLength(0);
+  });
+
+  it("outra organização não procura com escopo na conversa alheia (404)", async () => {
+    const id = await start();
+    const res = await scoped(id, tree.auth, "outsider", "org_B");
+    expect(res.status).toBe(404);
+    expect(res.body.error.message).toBe("Conversa não encontrada.");
+    expect(h.judge().calls).toHaveLength(0);
+  });
+
+  it("não grava o escopo na conversa nem muda a árvore", async () => {
+    const id = await start();
+    await scoped(id, tree.auth);
+    expect((await rows("select count(*)::int as n from tickets"))[0].n).toBe(7);
+    const row = (await rows("select * from ticket_conversations where id = $1", [id]))[0];
+    expect(JSON.stringify(row)).not.toContain(tree.auth);
+  });
+});

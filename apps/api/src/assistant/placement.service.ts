@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { descriptionExcerpt } from "@treepm/domain";
 import { branchContentMark } from "./branch-mark.js";
 import { searchPlacement } from "./placement-search.js";
-import type { PlacementOutcome } from "./placement-search.js";
+import type { PlacementDeps, PlacementOutcome } from "./placement-search.js";
 import { judgeInputFits } from "./jev-branch-judge.js";
 import type { BranchCandidate, BranchJudge, BranchSummarizer, BranchSummaryInput, TicketDraft } from "./ports.js";
 import type { TenantRunner } from "../db/own-transactions.js";
@@ -37,6 +37,8 @@ export class PlacementService {
     draft: TicketDraft,
     snapshot: PlacementSnapshot,
     deps: {
+      /** Agrupador de escopo (ADR 0031), já validado por quem chama: do projeto da conversa e do tipo agrupador. */
+      scopeId?: string | null;
       judge: BranchJudge;
       summarizer: BranchSummarizer;
       tenant: TenantRunner;
@@ -61,10 +63,8 @@ export class PlacementService {
       })),
     });
 
-    const candidates = async (parentId: string | null): Promise<BranchCandidate[]> => {
-      // Candidatos são os filhos diretos do tipo agrupador (ADR 0031); ticket nunca é candidato. Só o agrupador com
-      // filhos passa pelo resumidor; o vazio entra com o trecho da descrição.
-      const children = (childrenOf.get(parentId) ?? []).filter((child) => child.kind === "group");
+    /** Os agrupadores como o juiz os vê. Só o agrupador com filhos passa pelo resumidor; o vazio entra com o trecho da descrição. */
+    const describe = async (children: readonly TreeTicket[]): Promise<BranchCandidate[]> => {
       const branches = children.filter((child) => (childrenOf.get(child.id) ?? []).length > 0);
       const stale = branches
         .map((ticket) => ({ ticket, input: summaryInput(ticket) }))
@@ -103,9 +103,26 @@ export class PlacementService {
       });
     };
 
+    // Candidatos são os filhos diretos do tipo agrupador (ADR 0031); ticket nunca é candidato.
+    const candidates = (parentId: string | null): Promise<BranchCandidate[]> =>
+      describe((childrenOf.get(parentId) ?? []).filter((child) => child.kind === "group"));
+
+    const byId = new Map(snapshot.tickets.map((ticket) => [ticket.id, ticket]));
+    const scopeTicket = deps.scopeId ? byId.get(deps.scopeId) : undefined;
+    let scope: PlacementDeps["scope"];
+    if (scopeTicket) {
+      const ancestors: { id: string; title: string }[] = [];
+      for (let up = scopeTicket.parentId ? byId.get(scopeTicket.parentId) : undefined; up; up = up.parentId ? byId.get(up.parentId) : undefined) {
+        ancestors.unshift({ id: up.id, title: up.title });
+      }
+      const [node] = await describe([scopeTicket]);
+      scope = { node: node as BranchCandidate, ancestors };
+    }
+
     return searchPlacement(draft, {
       judge: deps.judge,
       candidates,
+      ...(scope ? { scope } : {}),
       fits: judgeInputFits,
       ...(deps.timeoutMs ? { timeoutMs: deps.timeoutMs } : {}),
     });

@@ -12,6 +12,7 @@ import {
   looTickets,
   looResumeAction,
   looView,
+  otherScopeGroup,
   pendingLoo,
   pendingMarks,
   pendingGroups,
@@ -25,7 +26,7 @@ import {
   resumeState,
   withRetry503,
 } from "./core.js";
-import type { Gabarito, GabaritoTicket, LooMark, NodeKind, RunRecord, StartedMark, Step, TicketStatus } from "./core.js";
+import type { Gabarito, GabaritoTicket, LooMark, NodeKind, RunRecord, ScopeCheckRecord, StartedMark, Step, TicketStatus } from "./core.js";
 
 type Summary = {
   id: string;
@@ -53,6 +54,7 @@ type Outcome = {
   alternatives: Target[];
   uncertain: boolean;
   stoppedEarly: { reason: string; level: number; parentId: string | null } | null;
+  scope: { id: string; title: string; outOfScope: boolean } | null;
 };
 
 export type Context = {
@@ -66,6 +68,8 @@ export type Context = {
   /** Ensaio: interrompe o `leave-one-out` logo depois da N-ésima remoção da execução. */
   looCrashAfterRemove?: number;
   looCrashAfterDraft?: number;
+  /** `leave-one-out`: faz também as duas procuras com escopo de cada ticket. */
+  scopeCheck?: boolean;
 };
 
 const MAX_MESSAGE = 4000;
@@ -525,7 +529,7 @@ export async function leaveOneOutCommand(ctx: Context, limit: number | undefined
     if (ctx.looCrashAfterRemove !== undefined && removedThisRun === ctx.looCrashAfterRemove) {
       throw new Error("Interrupção de ensaio: o processo parou depois de remover o ticket e antes de recolocá-lo.");
     }
-    const record = await looOne(ctx, ticket, mark, expectedParentNewId, map, ctx.looCrashAfterDraft === removedThisRun);
+    const record = await looOne(ctx, ticket, mark, expectedParentNewId, map, ctx.looCrashAfterDraft === removedThisRun, gabarito.tickets);
     map.set(ticket.id, record.newId);
     saveMap();
     appendFileSync(looPath(ctx.dir, ctx.project), `${JSON.stringify(record)}\n`);
@@ -579,6 +583,7 @@ async function looOne(
   expectedParentNewId: string | null,
   map: ReadonlyMap<string, string>,
   crashAfterDraft: boolean,
+  tree: readonly GabaritoTicket[],
 ): Promise<RunRecord> {
   const timingsMs: Timings = { open: 0, draft: 0, placement: 0, ticket: 0 };
   const attempts: Timings = { open: 0, draft: 0, placement: 0, ticket: 0 };
@@ -600,6 +605,7 @@ async function looOne(
     return ctx.client.request("POST", `/ticket-conversations/${conversation.id}/placement`);
   });
   const judgments = ctx.recorder.take();
+  const scopeChecks = ctx.scopeCheck && ticket.parentId !== null ? await scopeChecksFor(ctx, call, conversation.id, ticket, tree, map) : undefined;
   // Não cria no destino da procura: recoloca no pai original, para a árvore ficar igual à de antes.
   const created = (
     await call<{ ticket: Detail }>("ticket", "recriar ticket", () =>
@@ -638,7 +644,37 @@ async function looOne(
     claude,
     timingsMs,
     attempts,
+    ...(scopeChecks ? { scopeChecks } : {}),
   };
+}
+
+/**
+ * Duas procuras com escopo para o mesmo rascunho: no agrupador pai original e em outro agrupador do mesmo nível.
+ * O Noul do escopo sai do julgamento gravado; os julgamentos dessas procuras não entram na calibração da procura normal.
+ */
+async function scopeChecksFor(
+  ctx: Context,
+  call: ReturnType<typeof makeCaller>,
+  conversationId: string,
+  ticket: GabaritoTicket,
+  tree: readonly GabaritoTicket[],
+  map: ReadonlyMap<string, string>,
+): Promise<NonNullable<RunRecord["scopeChecks"]>> {
+  const searchWithScope = async (scopeOldId: string): Promise<ScopeCheckRecord | null> => {
+    const scopeNewId = map.get(scopeOldId);
+    const group = tree.find((x) => x.id === scopeOldId);
+    if (scopeNewId === undefined || !group) return null;
+    const outcome = await call<Outcome>("placement", "procurar o caminho com escopo", () => {
+      ctx.recorder.reset();
+      return ctx.client.request("POST", `/ticket-conversations/${conversationId}/placement`, { scopeId: scopeNewId });
+    });
+    const fit = ctx.recorder.take().find((j) => j.scopeFit !== undefined)?.scopeFit ?? null;
+    return { scopeOldId, scopeTitle: group.title, fit, outOfScope: outcome.scope?.outOfScope ?? false };
+  };
+  const original = await searchWithScope(ticket.parentId as string);
+  const otherGroup = otherScopeGroup(tree, ticket.parentId as string);
+  const other = otherGroup ? await searchWithScope(otherGroup.id) : null;
+  return { original, other };
 }
 
 /** Compara o projeto vivo com o gabarito traduzido para os ids vivos (as situações do gabarito não entram). */

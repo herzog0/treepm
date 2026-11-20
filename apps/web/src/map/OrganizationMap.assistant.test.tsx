@@ -124,6 +124,39 @@ describe("opening the panel", () => {
     expect(screen.queryByRole("heading", { name: "Em qual projeto?" })).not.toBeInTheDocument();
   }, SLOW);
 
+  it("a selected group is the scope of the conversation", async () => {
+    render(<Host client={makeFullClient()} me={adminMe()} />);
+    await exploreAlfa();
+    await userEvent.click(await node(/ALFA-1 · Acesso/));
+    await userEvent.click(screen.getByRole("button", { name: "Novo ticket" }));
+    await message();
+    expect(assistant()).toHaveTextContent("Procurando dentro de «Acesso»");
+  }, SLOW);
+
+  it("a selected ticket gives no scope", async () => {
+    render(<Host client={makeFullClient()} me={adminMe()} />);
+    await exploreAlfa();
+    await userEvent.click(await node(/ALFA-3 · Publicar/));
+    await userEvent.click(screen.getByRole("button", { name: "Novo ticket" }));
+    await message();
+    expect(assistant()).not.toHaveTextContent("Procurando dentro de");
+  }, SLOW);
+
+  it("a selected project gives no scope", async () => {
+    render(<Host client={makeFullClient()} me={adminMe()} />);
+    await userEvent.click(await screen.findByRole("button", { name: /ALFA · Projeto Alfa/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Novo ticket" }));
+    await message();
+    expect(assistant()).not.toHaveTextContent("Procurando dentro de");
+  }, SLOW);
+
+  it("no selection gives no scope", async () => {
+    render(<Host client={makeFullClient()} me={withAssistant(makePanelMe("member", [{ projectId: "p1", role: "manager" }]))} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Novo ticket" }));
+    await message();
+    expect(assistant()).not.toHaveTextContent("Procurando dentro de");
+  }, SLOW);
+
   it("narrows the map and hides the floating button while the panel is open", async () => {
     render(<Host client={makeFullClient()} me={withAssistant(makePanelMe("member", [{ projectId: "p1", role: "manager" }]))} />);
     await userEvent.click(await screen.findByRole("button", { name: "Novo ticket" }));

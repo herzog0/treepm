@@ -256,3 +256,129 @@ describe("searchPlacement — folha como candidata (ADR 0030)", () => {
     expect(out.stoppedEarly).toBeNull();
   });
 });
+
+describe("searchPlacement — escopo pela seleção (ADR 0031)", () => {
+  type Verdict = { belongs: number; choice: Record<string, number>; scopeFit?: number };
+  const scopeNode = (hasChildren = true): BranchCandidate => ({ id: "S", title: "Ramo S", summary: "Resumo S", hasChildren });
+  const ancestors = [{ id: "P", title: "Pai" }];
+
+  /** Juiz roteirizado pelo ramo atual; no primeiro nível do escopo `current` é nulo e vale `scope`. */
+  function scoped(tree: Record<string, string[]>, verdicts: Record<string, Verdict>, extra: Partial<PlacementDeps> = {}) {
+    const calls: { at: string; candidates: string[]; scope: string | null; current: string | null }[] = [];
+    const judge: BranchJudge = {
+      async judge(input) {
+        const at = input.scope ? input.scope.id : input.current ? input.current.title.replace("Ramo ", "") : "root";
+        calls.push({ at, candidates: input.candidates.map((c) => c.id), scope: input.scope?.id ?? null, current: input.current?.title ?? null });
+        const verdict = verdicts[at];
+        if (!verdict) throw new Error(`sem veredito roteirizado para ${at}`);
+        return verdict as BranchJudgment;
+      },
+    };
+    const deps: PlacementDeps = {
+      judge,
+      candidates: async (parentId) => (tree[parentId ?? "root"] ?? []).map(cand),
+      fits: () => true,
+      scope: { node: scopeNode(), ancestors },
+      ...extra,
+    };
+    return { deps, calls };
+  }
+
+  it("a descida começa no escopo: os candidatos do primeiro nível são os filhos dele, e a raiz nem é consultada", async () => {
+    const { deps, calls } = scoped({ S: ["A", "B"], root: ["X"] }, { S: { belongs: 0.1, choice: { A: 0.5, B: 0.5 }, scopeFit: 0.9 } });
+    await searchPlacement(draft, deps);
+    expect(calls).toEqual([{ at: "S", candidates: ["A", "B"], scope: "S", current: null }]);
+  });
+
+  it("o caminho vem desde a raiz: ancestrais, escopo e o que a descida acrescenta", async () => {
+    const { deps } = scoped(
+      { S: ["A", "B"], A: ["C"] },
+      { S: { belongs: 0.95, choice: { A: 0.9, B: 0.1 }, scopeFit: 0.9 }, A: { belongs: 0.95, choice: { C: 1 } } },
+    );
+    const out = await searchPlacement(draft, deps);
+    expect(out.destination).toEqual({
+      parentId: "C",
+      path: [{ id: "P", title: "Pai" }, { id: "S", title: "Ramo S" }, { id: "A", title: "Ramo A" }, { id: "C", title: "Ramo C" }],
+    });
+    expect(out.alternatives.map((t) => ids(t))).toEqual([["P", "S", "B"]]);
+  });
+
+  it("depois do primeiro nível o juiz volta a receber current e não recebe mais scope", async () => {
+    const { deps, calls } = scoped(
+      { S: ["A"], A: ["C"] },
+      { S: { belongs: 0.95, choice: { A: 1 }, scopeFit: 0.9 }, A: { belongs: 0.95, choice: { C: 1 } } },
+    );
+    await searchPlacement(draft, deps);
+    expect(calls.map((c) => [c.scope, c.current])).toEqual([["S", null], [null, "Ramo A"]]);
+  });
+
+  it("nada serve dentro do escopo: o destino é o próprio escopo, com o caminho dos ancestrais", async () => {
+    const { deps } = scoped({ S: ["A", "B"] }, { S: { belongs: 0.1, choice: { A: 0.5, B: 0.5 }, scopeFit: 0.9 } });
+    const out = await searchPlacement(draft, deps);
+    expect(out.destination).toEqual({ parentId: "S", path: [{ id: "P", title: "Pai" }, { id: "S", title: "Ramo S" }] });
+    expect(out.discarded.map((d) => [d.level, d.parentId, d.ticketId])).toEqual([[1, "S", "A"], [1, "S", "B"]]);
+  });
+
+  it("não sobe: nenhum destino nem alternativa fica fora do escopo, mesmo na faixa do meio", async () => {
+    const { deps } = scoped({ S: ["A", "B"], A: [] }, { S: { belongs: 0.5, choice: { A: 0.9, B: 0.1 }, scopeFit: 0.9 } });
+    const out = await searchPlacement(draft, deps);
+    for (const target of [out.destination, ...out.alternatives]) {
+      expect(ids(target).slice(0, 2)).toEqual(["P", "S"]);
+      expect(target.parentId).not.toBeNull();
+    }
+    expect([out.destination, ...out.alternatives].map((t) => t.parentId).sort()).toEqual(["A", "S"]);
+  });
+
+  it("escopo sem agrupadores filhos: o juiz é chamado só com a pergunta do escopo e o destino é o escopo", async () => {
+    const { deps, calls } = scoped({ S: [] }, { S: { belongs: 0, choice: {}, scopeFit: 0.8 } }, { scope: { node: scopeNode(false), ancestors } });
+    const out = await searchPlacement(draft, deps);
+    expect(calls).toEqual([{ at: "S", candidates: [], scope: "S", current: null }]);
+    expect(out.destination).toEqual({ parentId: "S", path: [{ id: "P", title: "Pai" }, { id: "S", title: "Ramo S" }] });
+    expect(out.alternatives).toEqual([]);
+    expect(out.scope).toEqual({ id: "S", title: "Ramo S", outOfScope: false, fit: 0.8 });
+  });
+
+  it("escopo na raiz do projeto (sem ancestrais): o caminho começa no escopo", async () => {
+    const { deps } = scoped({ S: [] }, { S: { belongs: 0, choice: {}, scopeFit: 0.8 } }, { scope: { node: scopeNode(false), ancestors: [] } });
+    expect((await searchPlacement(draft, deps)).destination.path).toEqual([{ id: "S", title: "Ramo S" }]);
+  });
+
+  it.each([
+    [0.29, true],
+    [0.3, false],
+    [0.31, false],
+    [0.95, false],
+    [0, true],
+  ])("Noul do escopo %s: fora do escopo = %s (abaixo de 0,3)", async (scopeFit, outOfScope) => {
+    const { deps } = scoped({ S: ["A"] }, { S: { belongs: 0.95, choice: { A: 1 }, scopeFit } });
+    const out = await searchPlacement(draft, deps);
+    expect(out.scope).toEqual({ id: "S", title: "Ramo S", outOfScope, fit: scopeFit });
+  });
+
+  it("a procura não sobe sozinha quando está fora do escopo: o destino continua dentro dele", async () => {
+    const { deps } = scoped({ S: ["A"], root: ["X"] }, { S: { belongs: 0.1, choice: { A: 1 }, scopeFit: 0.05 } });
+    const out = await searchPlacement(draft, deps);
+    expect(out.scope?.outOfScope).toBe(true);
+    expect(out.destination.parentId).toBe("S");
+  });
+
+  it("sem escopo o resultado traz scope nulo", async () => {
+    const { deps } = setup({ root: ["A"] }, { root: { belongs: 0.1, choice: { A: 1 } } });
+    expect((await searchPlacement(draft, deps)).scope).toBeNull();
+  });
+
+  it("a requisição do escopo não cabe no limite: para no escopo, diz, e o aviso de fora do escopo não é dado", async () => {
+    const { deps, calls } = scoped({ S: ["A"] }, {}, { fits: () => false });
+    const out = await searchPlacement(draft, deps);
+    expect(calls).toEqual([]);
+    expect(out.destination.parentId).toBe("S");
+    expect(out.stoppedEarly).toEqual({ reason: "candidates_too_large", level: 1, parentId: "S" });
+    expect(out.scope).toEqual({ id: "S", title: "Ramo S", outOfScope: false, fit: null });
+  });
+
+  it("escopo sem filhos e requisição grande demais: para no escopo e diz", async () => {
+    const { deps } = scoped({ S: [] }, {}, { fits: () => false, scope: { node: scopeNode(false), ancestors } });
+    const out = await searchPlacement(draft, deps);
+    expect(out.stoppedEarly).toEqual({ reason: "candidates_too_large", level: 1, parentId: "S" });
+  });
+});

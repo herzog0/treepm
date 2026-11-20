@@ -36,7 +36,7 @@ export class FakeConversationProvider implements ConversationProvider {
 
 type JudgeInput = Parameters<BranchJudge["judge"]>[0];
 
-/** Juiz falso: por padrão pertence (0,95) e prefere o primeiro candidato (0,9). */
+/** Juiz falso: por padrão pertence (0,95) e prefere o primeiro candidato (0,9); o escopo, quando perguntado, cabe (0,95). */
 export class FakeBranchJudge implements BranchJudge {
   readonly calls: JudgeInput[] = [];
   onCall: (() => Promise<void>) | null = null;
@@ -47,10 +47,12 @@ export class FakeBranchJudge implements BranchJudge {
     await this.onCall?.();
     if (this.fail) throw new AssistantUnavailableError("fake");
     if (this.verdict) return this.verdict(input);
+    const scopeFit = input.scope ? { scopeFit: 0.95 } : {};
     const rest = input.candidates.length > 1 ? 0.1 / (input.candidates.length - 1) : 0;
     return {
       belongs: 0.95,
       choice: Object.fromEntries(input.candidates.map((c, i) => [c.id, input.candidates.length === 1 ? 1 : i === 0 ? 0.9 : rest])),
+      ...scopeFit,
     };
   }
 }

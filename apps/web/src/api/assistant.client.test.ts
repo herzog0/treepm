@@ -16,7 +16,7 @@ const detail = {
   messages: [{ id: "m1", author: "person", body: "Oi", model: null, createdAt: "2026-11-20T10:00:00.000Z" }],
 };
 const target = { parentId: ID, path: [{ id: ID, title: "Ramo" }] };
-const outcome = { destination: target, alternatives: [], discarded: [], uncertain: false, stoppedEarly: null };
+const outcome = { destination: target, alternatives: [], discarded: [], uncertain: false, stoppedEarly: null, scope: null };
 const ticketDetail = {
   id: ID, projectId: OTHER, number: 1, key: "K-1", parentId: null, title: "T", kind: "ticket", status: "todo", progress: null,
   assigneeIds: [], descriptionExcerpt: "", description: "", createdByPersonId: OTHER, createdAt: "x", updatedAt: "y",
@@ -72,6 +72,19 @@ describe("ticket conversation calls", () => {
     const result = await client.findPlacement(ID);
     expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/placement`, method: "POST", body: undefined });
     expect(result).toEqual({ ok: true, data: outcome });
+  });
+  it("sends the scope group in the body when there is one", async () => {
+    const { client, fetchImpl } = setup({ ...outcome, scope: { id: "t1", title: "Acesso", outOfScope: true } });
+    const result = await client.findPlacement(ID, "t1");
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/placement`, method: "POST", body: { scopeId: "t1" } });
+    expect(result.ok && result.data.scope).toEqual({ id: "t1", title: "Acesso", outOfScope: true });
+  });
+  it("reads an outcome from an API without the scope field as having no scope", async () => {
+    const old: Record<string, unknown> = { ...outcome };
+    delete old.scope;
+    const { client } = setup(old);
+    const result = await client.findPlacement(ID);
+    expect(result.ok && result.data.scope).toBeNull();
   });
   it("rejects a placement outcome with more than two alternatives", async () => {
     const { client } = setup({ ...outcome, alternatives: [target, target, target] });

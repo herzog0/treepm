@@ -16,6 +16,9 @@ export const draftBodySchema = z
 /** O pai escolhido (ou `null`: ticket de raiz). Título e descrição vêm sempre do rascunho da conversa. */
 export const createTicketBodySchema = z.object({ parentId: idSchema.nullable() }).strict();
 
+/** Corpo opcional da procura: o agrupador de escopo (ou `null`: o projeto inteiro). */
+export const placementBodySchema = z.object({ scopeId: idSchema.nullable().optional() }).strict();
+
 const draftSchema = z.object({ title: z.string(), description: z.string() }).nullable();
 const statusSchema = z.enum(["open", "ticket_created", "discarded"]);
 
@@ -58,6 +61,8 @@ export const placementOutcomeSchema = z.object({
   stoppedEarly: z
     .object({ reason: z.enum(["candidates_too_large", "max_levels"]), level: z.number(), parentId: z.string().nullable() })
     .nullable(),
+  /** `null` sem escopo. A probabilidade da conferência não sai daqui. */
+  scope: z.object({ id: z.string(), title: z.string(), outOfScope: z.boolean() }).nullable(),
 });
 
 export const createdTicketSchema = z.object({ conversation: conversationDetailSchema, ticket: ticketDetailSchema });

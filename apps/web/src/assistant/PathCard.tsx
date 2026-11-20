@@ -18,6 +18,9 @@ interface PathCardProps {
   whereStopped: (parentId: string | null) => string;
   /** Explica que o clique em um ticket, no mapa, escolheu o agrupador que o contém; vazio quando não se aplica. */
   pickedNote: string;
+  /** O agrupador de escopo que o resultado diz não caber; `null` quando não há aviso. */
+  outOfScope: { title: string } | null;
+  onWholeProject: () => void;
   onUse: (destination: Destination) => void;
   onUp: () => void;
   onChoose: () => void;
@@ -27,7 +30,7 @@ interface PathCardProps {
 
 /** O caminho do topo até a base, em palavras: sem probabilidades (ADR 0029). */
 export function PathCard(props: PathCardProps) {
-  const { project, target, outcome, options, draftTitle, choosing, pickNotice } = props;
+  const { project, target, outcome, options, draftTitle, choosing, pickNotice, busy } = props;
   const others = options.filter((option) => option.parentId !== target.parentId);
   const steps = [
     { name: project.name, note: target.path.length === 0 ? "Raiz do projeto" : "" },
@@ -48,6 +51,12 @@ export function PathCard(props: PathCardProps) {
           </li>
         ))}
       </ol>
+      {props.outOfScope && (
+        <p className="assistant-notice" role="status">
+          Este ticket talvez não caiba em «{props.outOfScope.title}».{" "}
+          <button type="button" className="text" disabled={busy} onClick={props.onWholeProject}>Procurar no projeto inteiro</button>
+        </p>
+      )}
       {props.pickedNote !== "" && <p className="assistant-notice" role="status">{props.pickedNote}</p>}
       {outcome.uncertain && (
         <p className="assistant-notice">Não tenho certeza do lugar: mais de um agrupador serve. Escolha uma das opções abaixo, suba um nível ou use «Escolher no mapa».</p>
@@ -77,7 +86,7 @@ export function PathCard(props: PathCardProps) {
       {choosing && pickNotice !== "" && <p role="alert">{pickNotice}</p>}
       {props.error && <p role="alert">{describeApiError(props.error)}</p>}
       <div className="assistant-actions">
-        <button type="button" className="primary" disabled={props.busy} onClick={props.onCreate}>Criar aqui</button>
+        <button type="button" className="primary" disabled={busy} onClick={props.onCreate}>Criar aqui</button>
         <button type="button" disabled={!props.canGoUp} onClick={props.onUp}>Um nível acima</button>
         {choosing ? (
           <button type="button" className="text" onClick={props.onCancelChoose}>Cancelar escolha</button>

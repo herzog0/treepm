@@ -571,3 +571,110 @@ describe("closing", () => {
     expect(await screen.findByRole("textbox", { name: "Mensagem para o assistente" })).toHaveFocus();
   });
 });
+
+describe("scope from the selection (ADR 0031)", () => {
+  const resumed = (placements: PlacementOutcome[], extra: Partial<Record<keyof ApiClient, unknown>> = {}) => {
+    const findPlacement = vi.fn();
+    for (const placement of placements) findPlacement.mockResolvedValueOnce(ok(placement));
+    findPlacement.mockResolvedValue(ok(placements.at(-1)!));
+    return clientWith({ listConversations: vi.fn(async () => ok([{ ...makeConversation("c1", "p1"), messages: undefined }])), findPlacement, ...extra });
+  };
+  const line = () => screen.queryByText(/Procurando dentro de/);
+  const search = async () => userEvent.click(await screen.findByRole("button", { name: "Procurar o lugar" }));
+  const scoped = (extra: Partial<PlacementOutcome> = {}) => makePlacement({ destination: target("t1", "t2"), scope: { id: "t1", title: "Acesso", outOfScope: false }, ...extra });
+  const whole = () => makePlacement({ destination: target("t4") });
+
+  it("shows the fixed line with the group title and the action, above the draft", async () => {
+    setup(resumed([scoped()]), { initialScopeId: "t1" });
+    const draft = await screen.findByRole("region", { name: "Rascunho do ticket" });
+    expect(line()).toHaveTextContent("Procurando dentro de «Acesso»");
+    expect(screen.getByRole("button", { name: "Procurar no projeto inteiro" })).toBeInTheDocument();
+    expect(line()!.compareDocumentPosition(draft) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the line even before there is a conversation", async () => {
+    setup(clientWith(), { initialScopeId: "t1" });
+    await screen.findByRole("textbox", { name: "Mensagem para o assistente" });
+    expect(line()).toHaveTextContent("«Acesso»");
+  });
+
+  it("sends the scope with the search", async () => {
+    const client = resumed([scoped()]);
+    setup(client, { initialScopeId: "t1" });
+    await search();
+    await waitFor(() => expect(client.findPlacement).toHaveBeenCalledWith("c1", "t1"));
+  });
+
+  it("without a scope there is no line and the search sends nothing more", async () => {
+    const client = resumed([whole()]);
+    setup(client, { initialScopeId: null });
+    await search();
+    await waitFor(() => expect(client.findPlacement).toHaveBeenCalledWith("c1"));
+    expect(line()).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["a ticket", "t5"],
+    ["a group of another project", "t99"],
+    ["an unknown id", "nada"],
+  ])("a scope that is %s is no scope", async (_name, id) => {
+    const client = resumed([whole()]);
+    setup(client, { initialScopeId: id });
+    await search();
+    await waitFor(() => expect(client.findPlacement).toHaveBeenCalledWith("c1"));
+    expect(line()).not.toBeInTheDocument();
+  });
+
+  it("Procurar no projeto inteiro removes the scope; the next search goes without it", async () => {
+    const client = resumed([whole()]);
+    setup(client, { initialScopeId: "t1" });
+    await screen.findByRole("region", { name: "Rascunho do ticket" });
+    await userEvent.click(screen.getByRole("button", { name: "Procurar no projeto inteiro" }));
+    expect(line()).not.toBeInTheDocument();
+    expect(client.findPlacement).not.toHaveBeenCalled();
+    await search();
+    await waitFor(() => expect(client.findPlacement).toHaveBeenCalledWith("c1"));
+  });
+
+  it("with a result already on screen, removing the scope searches again without it", async () => {
+    const client = resumed([scoped(), whole()]);
+    setup(client, { initialScopeId: "t1" });
+    await search();
+    await screen.findByRole("region", { name: "Caminho encontrado" });
+    await userEvent.click(screen.getByRole("button", { name: "Procurar no projeto inteiro" }));
+    await waitFor(() => expect(client.findPlacement).toHaveBeenCalledTimes(2));
+    expect(client.findPlacement).toHaveBeenLastCalledWith("c1");
+    expect(line()).not.toBeInTheDocument();
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Caminho encontrado" })).getByText("Relatórios")).toBeInTheDocument());
+  });
+
+  it("warns when the result is out of scope, with the same action", async () => {
+    const client = resumed([scoped({ scope: { id: "t1", title: "Acesso", outOfScope: true } }), whole()]);
+    setup(client, { initialScopeId: "t1" });
+    await search();
+    const card = await screen.findByRole("region", { name: "Caminho encontrado" });
+    expect(card).toHaveTextContent("Este ticket talvez não caiba em «Acesso».");
+    await userEvent.click(within(card).getByRole("button", { name: "Procurar no projeto inteiro" }));
+    await waitFor(() => expect(client.findPlacement).toHaveBeenLastCalledWith("c1"));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Caminho encontrado" })).not.toHaveTextContent("talvez não caiba"));
+    expect(line()).not.toBeInTheDocument();
+  });
+
+  it("no warning when the result fits the scope", async () => {
+    setup(resumed([scoped()]), { initialScopeId: "t1" });
+    await search();
+    await screen.findByRole("region", { name: "Caminho encontrado" });
+    expect(screen.queryByText(/talvez não caiba/)).not.toBeInTheDocument();
+  });
+
+  it("the person can still pick a destination outside the scope: up one level and the map", async () => {
+    const props = setup(resumed([scoped({ destination: target("t1") })]), { initialScopeId: "t1" });
+    await search();
+    await screen.findByRole("region", { name: "Caminho encontrado" });
+    await userEvent.click(screen.getByRole("button", { name: "Um nível acima" }));
+    expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: null, title: "Corrigir o login" });
+    await userEvent.click(screen.getByRole("button", { name: "Escolher no mapa" }));
+    act(() => lastPicker(props).pick(ticketNode("t4")));
+    expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t4", title: "Corrigir o login" });
+  });
+});
