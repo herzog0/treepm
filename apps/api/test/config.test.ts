@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ConfigError, loadConfig } from "../src/config.js";
+import { ConfigError, assistantEnabled, loadConfig } from "../src/config.js";
 
 const valid = {
   DATABASE_URL: "postgresql://treepm_app:x@localhost:5432/db",
@@ -45,6 +45,25 @@ describe("loadConfig", () => {
 
   it("normaliza APP_ORIGIN para a origem", () => {
     expect(loadConfig({ ...valid, APP_ORIGIN: "https://treepm.ai/" }).APP_ORIGIN).toBe("https://treepm.ai");
+  });
+
+  it("as chaves da IA são opcionais: a API sobe sem elas e a IA fica desligada", () => {
+    const config = loadConfig(valid);
+    expect(config.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(config.TYPESAFE_API_KEY).toBeUndefined();
+    expect(assistantEnabled(config)).toBe(false);
+  });
+
+  it("a IA só liga com as duas chaves", () => {
+    const only = (name: string) => loadConfig({ ...valid, [name]: "chave" });
+    expect(assistantEnabled(only("ANTHROPIC_API_KEY"))).toBe(false);
+    expect(assistantEnabled(only("TYPESAFE_API_KEY"))).toBe(false);
+    expect(assistantEnabled(loadConfig({ ...valid, ANTHROPIC_API_KEY: "a", TYPESAFE_API_KEY: "t" }))).toBe(true);
+  });
+
+  it("chave vazia vale como ausente", () => {
+    const config = loadConfig({ ...valid, ANTHROPIC_API_KEY: "", TYPESAFE_API_KEY: "" });
+    expect(assistantEnabled(config)).toBe(false);
   });
 
   it("ignora DATABASE_MIGRATION_URL do ambiente", () => {

@@ -29,6 +29,7 @@ export type Ids = {
   project: string;
   ticket: string;
   event: string;
+  conversation: string;
 };
 
 /** Semeia uma organização completa pelo papel dono (que não é o caminho da API). */
@@ -84,5 +85,17 @@ export async function seedOrg(
     "insert into activity_events (org_id, actor_person_id, kind, subject_type, subject_id) values ($1, $2, 'created', 'project', $3) returning id",
     [orgId, person, project],
   );
-  return { person, team, area, project, ticket, event };
+  const conversation = await q(
+    "insert into ticket_conversations (org_id, project_id, author_person_id, status) values ($1, $2, $3, 'open') returning id",
+    [orgId, project, person],
+  );
+  await pool.query(
+    "insert into ticket_conversation_messages (org_id, conversation_id, position, author, body) values ($1, $2, 1, 'person', 'Olá')",
+    [orgId, conversation],
+  );
+  await pool.query(
+    "insert into branch_summaries (org_id, project_id, ticket_id, summary, content_mark, model) values ($1, $2, $3, 'Resumo', 'marca', 'claude-opus-5-5')",
+    [orgId, project, ticket],
+  );
+  return { person, team, area, project, ticket, event, conversation };
 }

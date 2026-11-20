@@ -9,8 +9,11 @@ import { AuthorizationService } from "../access/authorization.service.js";
 import { IdentityService } from "../access/identity.service.js";
 import type { Identity } from "../access/identity.service.js";
 import { PRINCIPAL_KEY, REFRESH_IDENTITY } from "../access/principal.js";
+import type { Principal } from "../access/principal.js";
 import { SESSION_KEY } from "../auth/auth.guard.js";
 import type { AuthenticatedSession, RequestWithSession } from "../auth/auth.guard.js";
+import { OWN_TRANSACTIONS, TENANT_RUNNER_KEY } from "./own-transactions.js";
+import type { TenantRunner } from "./own-transactions.js";
 import { PRISMA } from "./prisma.provider.js";
 import { TX_KEY } from "./tx.decorator.js";
 
@@ -22,6 +25,9 @@ type Request = RequestWithSession & Record<string, unknown>;
  *
  * A consulta ao Clerk (rede) acontece ANTES da transação: o diretório só é
  * lido no primeiro acesso, quando o papel mudou, ou em rotas `@RefreshIdentity()`.
+ *
+ * Rotas `@OwnTransactions()` (ADR 0029) não rodam dentro da transação: o interceptor só resolve o
+ * `Principal` numa transação curta e entrega um `TenantRunner` para o handler abrir as suas.
  */
 @Injectable()
 export class TenantInterceptor implements NestInterceptor {
@@ -41,13 +47,15 @@ export class TenantInterceptor implements NestInterceptor {
       context.getHandler(),
       context.getClass(),
     ]);
-    return from(this.run(request, session, Boolean(refresh), next));
+    const own = this.reflector.get<boolean | undefined>(OWN_TRANSACTIONS, context.getHandler());
+    return from(this.run(request, session, Boolean(refresh), Boolean(own), next));
   }
 
   private async run(
     request: Request,
     session: AuthenticatedSession,
     refresh: boolean,
+    own: boolean,
     next: CallHandler,
   ): Promise<unknown> {
     const clerkRole = this.identities.clerkRoleOf(session);
@@ -58,6 +66,18 @@ export class TenantInterceptor implements NestInterceptor {
       identity = await this.identities.fetch(session); // fora de qualquer transação.
     }
 
+    if (own) {
+      // Transação curta só para provisionar e montar o Principal; o handler abre as dele.
+      const principal = await withTenant(this.prisma, tenant, async (tx) => {
+        const { person, organization } = await this.identities.provision(tx, session, clerkRole, identity);
+        const actor = await this.authorization.loadActor(tx, person.id, clerkRole);
+        return { session, person, organization, actor } satisfies Principal;
+      });
+      request[PRINCIPAL_KEY] = principal;
+      request[TENANT_RUNNER_KEY] = this.runner(tenant, principal);
+      return lastValueFrom(next.handle(), { defaultValue: undefined });
+    }
+
     return withTenant(this.prisma, tenant, async (tx) => {
       const { person, organization } = await this.identities.provision(tx, session, clerkRole, identity);
       const actor = await this.authorization.loadActor(tx, person.id, clerkRole);
@@ -65,5 +85,15 @@ export class TenantInterceptor implements NestInterceptor {
       request[PRINCIPAL_KEY] = { session, person, organization, actor };
       return lastValueFrom(next.handle(), { defaultValue: undefined });
     });
+  }
+
+  private runner(tenant: { orgId: string; userId: string }, principal: Principal): TenantRunner {
+    return {
+      run: (fn) =>
+        withTenant(this.prisma, tenant, async (tx) => {
+          const actor = await this.authorization.loadActor(tx, principal.person.id, principal.actor.clerkRole);
+          return fn(tx, { ...principal, actor });
+        }),
+    };
   }
 }

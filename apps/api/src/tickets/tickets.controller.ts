@@ -13,8 +13,7 @@ import {
   Put,
 } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { descriptionExcerpt, parentWouldCreateCycle, ticketProgress } from "@treepm/domain";
-import type { TicketNode, TicketStatus } from "@treepm/domain";
+import { parentWouldCreateCycle, ticketProgress } from "@treepm/domain";
 import type { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { CurrentPrincipal } from "../access/principal.js";
@@ -26,38 +25,12 @@ import { Tx } from "../db/tx.decorator.js";
 import {
   createTicketSchema,
   importTicketsSchema,
-  ticketDetailSchema,
-  ticketStatusSchema,
   ticketSummarySchema,
   updateTicketSchema,
 } from "./tickets.schema.js";
 import type { ImportItem, TicketDetail, TicketSummary } from "./tickets.schema.js";
-
-type ProjectRow = {
-  orgId: string;
-  id: string;
-  key: string;
-  visibility: "organization" | "private";
-  archivedAt: Date | null;
-};
-
-type TicketRow = {
-  id: string;
-  projectId: string;
-  number: number;
-  parentId: string | null;
-  title: string;
-  description: string;
-  status: string;
-  assignees: { personId: string }[];
-};
-type TicketDetailRow = TicketRow & {
-  createdByPersonId: string;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-type Progress = ReturnType<typeof ticketProgress>;
+import { TicketsService, statusOf, toSummary } from "./tickets.service.js";
+import type { ProjectRow, TicketRow } from "./tickets.service.js";
 
 const summarySelect = {
   id: true,
@@ -70,41 +43,12 @@ const summarySelect = {
   assignees: { select: { personId: true } },
 } as const;
 
-function statusOf(row: { status: string }): TicketStatus {
-  return ticketStatusSchema.parse(row.status);
-}
-
-function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, progress: Progress): TicketSummary {
-  const own = progress.get(row.id) ?? null;
-  return {
-    id: row.id,
-    projectId: row.projectId,
-    number: row.number,
-    key: `${project.key}-${row.number}`,
-    parentId: row.parentId,
-    title: row.title,
-    descriptionExcerpt: descriptionExcerpt(row.description),
-    status: own ? null : statusOf(row),
-    progress: own,
-    assigneeIds: row.assignees.map((assignee) => assignee.personId).sort(),
-  };
-}
-
-function toDetail(project: Pick<ProjectRow, "key">, row: TicketDetailRow, progress: Progress): TicketDetail {
-  return parseOutput(ticketDetailSchema, {
-    ...toSummary(project, row, progress),
-    description: row.description,
-    createdByPersonId: row.createdByPersonId,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  });
-}
-
 @Controller()
 export class TicketsController {
   constructor(
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(ActivityService) private readonly activity: ActivityService,
+    @Inject(TicketsService) private readonly tickets: TicketsService,
   ) {}
 
   @Get("projects/:projectId/tickets")
@@ -133,41 +77,13 @@ export class TicketsController {
     const project = await this.findVisibleProject(tx, principal.actor, projectId);
     this.authorization.createTicket(principal.actor, projectId);
     this.requireActive(project);
-    if (body.parentId) await this.requireParent(tx, projectId, body.parentId);
-    const assigneeIds = [...new Set(body.assigneeIds ?? [])];
-    for (const personId of assigneeIds) await this.requireAssignable(tx, project, personId);
-
-    const number = await this.allocateNumbers(tx, project, 1);
-    const created = await tx.ticket.create({
-      data: {
-        orgId: project.orgId,
-        projectId,
-        number,
-        parentId: body.parentId ?? null,
-        title: body.title,
-        description: body.description ?? "",
-        status: body.status ?? "todo",
-        createdByPersonId: principal.person.id,
-      },
+    return this.tickets.create(tx, principal, project, {
+      title: body.title,
+      description: body.description ?? "",
+      parentId: body.parentId ?? null,
+      status: body.status ?? "todo",
+      assigneeIds: body.assigneeIds ?? [],
     });
-    if (assigneeIds.length > 0) {
-      await tx.ticketAssignee.createMany({
-        data: assigneeIds.map((personId) => ({ orgId: project.orgId, ticketId: created.id, personId })),
-      });
-    }
-    await this.activity.record(tx, principal, {
-      kind: "ticket.created",
-      subjectType: "ticket",
-      subjectId: created.id,
-      payload: {
-        key: `${project.key}-${number}`,
-        title: created.title,
-        parentId: created.parentId,
-        status: created.status,
-        assigneeIds: assigneeIds.sort(),
-      },
-    });
-    return this.detail(tx, project, created.id);
   }
 
   @Post("projects/:projectId/tickets/import")
@@ -180,7 +96,7 @@ export class TicketsController {
     const project = await this.findVisibleProject(tx, principal.actor, projectId);
     this.authorization.importTickets(principal.actor, projectId);
     this.requireActive(project);
-    if (body.parentId) await this.requireParent(tx, projectId, body.parentId);
+    if (body.parentId) await this.tickets.requireParent(tx, projectId, body.parentId);
 
     // Pré-ordem: o pai antes dos filhos, irmãos na ordem recebida.
     const flat: { item: ImportItem; parentIndex: number | null }[] = [];
@@ -192,7 +108,7 @@ export class TicketsController {
     };
     walk(body.items, null);
 
-    const first = await this.allocateNumbers(tx, project, flat.length);
+    const first = await this.tickets.allocateNumbers(tx, project, flat.length);
     // IDs gerados pelo banco (`app_uuid_v7()`, o mesmo padrão da coluna) em UMA consulta; com eles, pais e filhos
     // entram na mesma inserção em lote (a FK do pai é verificada no fim do comando). Total de idas ao banco
     // da importação: constante, independente da quantidade de itens.
@@ -241,7 +157,7 @@ export class TicketsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
   ): Promise<TicketDetail> {
     const { project } = await this.findVisibleTicket(tx, actor, id);
-    return this.detail(tx, project, id);
+    return this.tickets.detail(tx, project, id);
   }
 
   @Patch("tickets/:id")
@@ -262,7 +178,7 @@ export class TicketsController {
       });
     }
     if (body.parentId !== undefined && body.parentId !== null) {
-      await this.requireParent(tx, project.id, body.parentId);
+      await this.tickets.requireParent(tx, project.id, body.parentId);
     }
     if (body.parentId !== undefined && body.parentId !== ticket.parentId) {
       const all = await tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, parentId: true } });
@@ -304,7 +220,7 @@ export class TicketsController {
         payload: { key: `${project.key}-${ticket.number}`, fields, ...changes },
       });
     }
-    return this.detail(tx, project, id);
+    return this.tickets.detail(tx, project, id);
   }
 
   @Delete("tickets/:id")
@@ -339,7 +255,7 @@ export class TicketsController {
     const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
     this.authorization.assignTicket(principal.actor, project.id);
     this.requireActive(project);
-    await this.requireAssignable(tx, project, personId);
+    await this.tickets.requireAssignable(tx, project, personId);
     const key = { orgId_ticketId_personId: { orgId: project.orgId, ticketId: id, personId } };
     if (!(await tx.ticketAssignee.findUnique({ where: key }))) {
       await tx.ticketAssignee.create({ data: { orgId: project.orgId, ticketId: id, personId } });
@@ -350,7 +266,7 @@ export class TicketsController {
         payload: { key: `${project.key}-${ticket.number}`, personId },
       });
     }
-    return this.detail(tx, project, id);
+    return this.tickets.detail(tx, project, id);
   }
 
   @Delete("tickets/:id/assignees/:personId")
@@ -402,53 +318,11 @@ export class TicketsController {
     }
   }
 
-  /** Pai de outro projeto, de outra organização ou inexistente: 404. */
-  private async requireParent(tx: TenantClient, projectId: string, parentId: string): Promise<void> {
-    const parent = await tx.ticket.findFirst({ where: { id: parentId, projectId }, select: { id: true } });
-    if (!parent) throw new NotFoundException("Ticket pai não encontrado.");
-  }
 
-  /** A pessoa precisa existir, estar ativa e já enxergar o projeto; atribuir nunca concede acesso. */
-  private async requireAssignable(tx: TenantClient, project: ProjectRow, personId: string): Promise<void> {
-    const person = await tx.person.findFirst({ where: { id: personId } });
-    if (!person) throw new NotFoundException("Pessoa não encontrada.");
-    if (!person.active) {
-      throw new ConflictException({ code: "person_inactive", message: "A pessoa não está mais na organização." });
-    }
-    const personActor = await this.authorization.loadActor(tx, person.id, person.clerkRole);
-    if (!this.authorization.canView(personActor, project)) {
-      throw new ConflictException({
-        code: "person_without_project_access",
-        message: "A pessoa não tem acesso ao projeto; conceda um papel antes de atribuir.",
-      });
-    }
-  }
 
   private async hasChildren(tx: TenantClient, id: string): Promise<boolean> {
     return (await tx.ticket.count({ where: { parentId: id } })) > 0;
   }
 
-  /**
-   * Reserva `count` números consecutivos e devolve o primeiro. O UPDATE trava a linha do projeto até o fim da
-   * transação, o que serializa criações simultâneas; números nunca são reutilizados.
-   */
-  private async allocateNumbers(tx: TenantClient, project: ProjectRow, count: number): Promise<number> {
-    const updated = await tx.project.update({
-      where: { orgId_id: { orgId: project.orgId, id: project.id } },
-      data: { nextTicketNumber: { increment: count } },
-      select: { nextTicketNumber: true },
-    });
-    return updated.nextTicketNumber - count;
-  }
 
-  private async detail(tx: TenantClient, project: ProjectRow, id: string): Promise<TicketDetail> {
-    const [row, nodes] = await Promise.all([
-      tx.ticket.findFirstOrThrow({ where: { id }, include: { assignees: { select: { personId: true } } } }),
-      tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, parentId: true, status: true } }),
-    ]);
-    const progress = ticketProgress(
-      nodes.map((node): TicketNode => ({ id: node.id, parentId: node.parentId, status: statusOf(node) })),
-    );
-    return toDetail(project, row, progress);
-  }
 }

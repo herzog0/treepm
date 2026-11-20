@@ -45,16 +45,19 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  people             Person[]
-  teams              Team[]
-  teamMemberships    TeamMembership[]
-  areas              Area[]
-  projects           Project[]
-  projectTeams       ProjectTeam[]
-  projectMemberships ProjectMembership[]
-  tickets            Ticket[]
-  ticketAssignees    TicketAssignee[]
-  activityEvents     ActivityEvent[]
+  people                     Person[]
+  teams                      Team[]
+  teamMemberships            TeamMembership[]
+  areas                      Area[]
+  projects                   Project[]
+  projectTeams               ProjectTeam[]
+  projectMemberships         ProjectMembership[]
+  tickets                    Ticket[]
+  ticketAssignees            TicketAssignee[]
+  activityEvents             ActivityEvent[]
+  ticketConversations        TicketConversation[]
+  ticketConversationMessages TicketConversationMessage[]
+  branchSummaries            BranchSummary[]
 
   @@map("organizations")
 }
@@ -71,12 +74,13 @@ model Person {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization       Organization        @relation(fields: [orgId], references: [orgId])
-  teamMemberships    TeamMembership[]
-  projectMemberships ProjectMembership[]
-  createdTickets     Ticket[]
-  ticketAssignees    TicketAssignee[]
-  activityEvents     ActivityEvent[]
+  organization        Organization         @relation(fields: [orgId], references: [orgId])
+  teamMemberships     TeamMembership[]
+  projectMemberships  ProjectMembership[]
+  createdTickets      Ticket[]
+  ticketAssignees     TicketAssignee[]
+  activityEvents      ActivityEvent[]
+  ticketConversations TicketConversation[]
 
   @@id([orgId, id])
   @@unique([orgId, clerkUserId])
@@ -140,10 +144,12 @@ model Project {
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization Organization        @relation(fields: [orgId], references: [orgId])
-  teams        ProjectTeam[]
-  memberships  ProjectMembership[]
-  tickets      Ticket[]
+  organization        Organization         @relation(fields: [orgId], references: [orgId])
+  teams               ProjectTeam[]
+  memberships         ProjectMembership[]
+  tickets             Ticket[]
+  ticketConversations TicketConversation[]
+  branchSummaries     BranchSummary[]
 
   @@id([orgId, id])
   @@unique([orgId, key])
@@ -195,12 +201,14 @@ model Ticket {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization Organization     @relation(fields: [orgId], references: [orgId])
-  project      Project          @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
-  parent       Ticket?          @relation("TicketTree", fields: [orgId, projectId, parentId], references: [orgId, projectId, id], onDelete: Restrict)
-  children     Ticket[]         @relation("TicketTree")
-  createdBy    Person           @relation(fields: [orgId, createdByPersonId], references: [orgId, id])
-  assignees    TicketAssignee[]
+  organization         Organization         @relation(fields: [orgId], references: [orgId])
+  project              Project              @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
+  parent               Ticket?              @relation("TicketTree", fields: [orgId, projectId, parentId], references: [orgId, projectId, id], onDelete: Restrict)
+  children             Ticket[]             @relation("TicketTree")
+  createdBy            Person               @relation(fields: [orgId, createdByPersonId], references: [orgId, id])
+  assignees            TicketAssignee[]
+  conversationsCreated TicketConversation[]
+  branchSummaries      BranchSummary[]
 
   @@id([orgId, id])
   @@unique([orgId, projectId, id])
@@ -240,4 +248,71 @@ model ActivityEvent {
 
   @@id([orgId, id])
   @@map("activity_events")
+}
+
+/// open | ticket_created | discarded (check no banco). Remover o ticket criado só anula `createdTicketId`
+/// (ON DELETE SET NULL (created_ticket_id), ação que o Prisma não modela: ver a migration 0005).
+model TicketConversation {
+  orgId            String    @map("org_id")
+  id               String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId        String    @map("project_id") @db.Uuid
+  authorPersonId   String    @map("author_person_id") @db.Uuid
+  status           String    @default("open")
+  draftTitle       String?   @map("draft_title")
+  draftDescription String?   @map("draft_description")
+  ready            Boolean   @default(false)
+  createdTicketId  String?   @map("created_ticket_id") @db.Uuid
+  closedAt         DateTime? @map("closed_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization  Organization                @relation(fields: [orgId], references: [orgId])
+  project       Project                     @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
+  author        Person                      @relation(fields: [orgId, authorPersonId], references: [orgId, id], onDelete: Cascade)
+  createdTicket Ticket?                     @relation(fields: [orgId, projectId, createdTicketId], references: [orgId, projectId, id], onDelete: Restrict)
+  messages      TicketConversationMessage[]
+
+  @@id([orgId, id])
+  @@index([orgId, projectId, authorPersonId, updatedAt(sort: Desc)])
+  @@index([orgId, authorPersonId])
+  @@map("ticket_conversations")
+}
+
+model TicketConversationMessage {
+  orgId          String   @map("org_id")
+  id             String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  position       Int
+  /// person | assistant (check no banco)
+  author         String
+  body           String
+  /// Modelo que produziu a resposta; só nas mensagens do assistente.
+  model          String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization       @relation(fields: [orgId], references: [orgId])
+  conversation TicketConversation @relation(fields: [orgId, conversationId], references: [orgId, id], onDelete: Cascade)
+
+  @@id([orgId, id])
+  @@unique([orgId, conversationId, position])
+  @@map("ticket_conversation_messages")
+}
+
+model BranchSummary {
+  orgId       String   @map("org_id")
+  projectId   String   @map("project_id") @db.Uuid
+  ticketId    String   @map("ticket_id") @db.Uuid
+  summary     String
+  contentMark String   @map("content_mark")
+  model       String
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  project      Project      @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
+  ticket       Ticket       @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+
+  @@id([orgId, ticketId])
+  @@index([orgId, projectId])
+  @@map("branch_summaries")
 }

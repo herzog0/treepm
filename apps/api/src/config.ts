@@ -19,10 +19,19 @@ const schema = z.object({
   }),
   CLERK_JWT_KEY: z.string().min(1).optional(),
   WEB_DIST_DIR: z.string().min(1).optional(),
+  /** Chave da Anthropic (conversa e resumos). Opcional: sem as duas chaves, a IA fica desligada (ADR 0029). */
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  /** Chave da TypeSafe (Jev, procura do caminho). Opcional, como a da Anthropic. */
+  TYPESAFE_API_KEY: z.string().min(1).optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(4310),
 });
 
 export type AppConfig = z.output<typeof schema>;
+
+/** A IA está ligada só com as duas chaves. */
+export function assistantEnabled(config: Pick<AppConfig, "ANTHROPIC_API_KEY" | "TYPESAFE_API_KEY">): boolean {
+  return Boolean(config.ANTHROPIC_API_KEY && config.TYPESAFE_API_KEY);
+}
 
 export class ConfigError extends Error {
   constructor(message: string) {
