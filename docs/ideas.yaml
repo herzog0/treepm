@@ -268,3 +268,67 @@ ideas:
     relationships:
       - type: refines
         target: IDEA-004
+  - id: IDEA-017
+    created_at: 2026-11-20
+    title: Agrupadores como tipo próprio na árvore
+    status: proposed
+    summary: >-
+      Separar tickets de agrupadores: o card pai não é exatamente um ticket,
+      é um agrupador que engloba uma subárvore e representa um mini produto.
+    details:
+      - Um agrupador engloba uma subárvore de tickets que, juntos, representam um mini produto, como "Entrega da Fase 1".
+      - Só agrupador tem filhos; agrupadores ficam dentro de agrupadores sem limite.
+      - Decidido por Teodoro em 2026-11-20 e registrado na ADR 0031.
+    relationships:
+      - type: refines
+        target: IDEA-005
+  - id: IDEA-018
+    created_at: 2026-11-20
+    title: Procura do lugar do ticket só na subárvore do agrupador selecionado
+    status: proposed
+    summary: >-
+      Quando a pessoa cria um ticket com um agrupador selecionado, a IA busca
+      o lugar só dentro dele, o que resolve a ambiguidade do nível mais alto.
+    details:
+      - A pessoa resolve a decisão mais ambígua (qual agrupador) e a IA refina dali para baixo.
+      - Criar ticket sem agrupador selecionado continua permitido, com a procura a partir da raiz do projeto.
+      - Decidido por Teodoro em 2026-11-20 e registrado na ADR 0031.
+    relationships:
+      - type: refines
+        target: IDEA-005
+      - type: related_to
+        target: IDEA-017
+  - id: IDEA-019
+    created_at: 2026-11-20
+    title: Hidratação do ticket novo por uma IA
+    status: proposed
+    summary: >-
+      Todo ticket novo passa por uma IA que analisa o pedido, verifica quanto
+      envolve de back-end, front-end e outras áreas, e define melhor cada parte.
+    details:
+      - A IA executa procedimentos de criação de ticket e devolve um ticket mais completo.
+      - Um ticket mais completo é mais fácil de categorizar e vira contexto melhor para os seguintes.
+      - Sem acesso ao código, a análise por área depende de perguntar à pessoa; com repositório ligado (IDEA-020), pode se apoiar no código.
+      - Em 2026-11-20 ficou combinado tratar a análise por área junto das contribuições por área da Fase 2.
+    relationships:
+      - type: related_to
+        target: IDEA-005
+      - type: related_to
+        target: IDEA-020
+  - id: IDEA-020
+    created_at: 2026-11-20
+    title: Ligação com repositórios de código (GitHub primeiro)
+    status: proposed
+    summary: >-
+      Plugar GitHub, GitLab e talvez Bitbucket para rastrear branches e dar
+      visibilidade geral do repositório a partir da plataforma.
+    details:
+      - Começar pelo GitHub; GitLab e Bitbucket depois, se for fácil conectar todos.
+      - Rastreio de branch e visibilidade geral do repositório a partir da plataforma.
+      - A IA da plataforma passa a poder consultar o código para hidratar tickets.
+      - Enviar código a um provedor de IA exige autorização própria, fora do que a ADR 0029 autorizou.
+    relationships:
+      - type: related_to
+        target: IDEA-019
+      - type: related_to
+        target: IDEA-011
