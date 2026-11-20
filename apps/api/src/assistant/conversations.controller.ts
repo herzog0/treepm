@@ -39,8 +39,24 @@ import {
 } from "./conversations.schema.js";
 import type { ConversationDetail, ConversationSummary } from "./conversations.schema.js";
 import { PlacementService } from "./placement.service.js";
-import { AssistantUnavailableError, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER } from "./ports.js";
-import type { BranchJudge, BranchSummarizer, ConversationProvider, ConversationTurn } from "./ports.js";
+import {
+  AFFINITY_JUDGE,
+  AssistantUnavailableError,
+  BRANCH_JUDGE,
+  BRANCH_SUMMARIZER,
+  CONVERSATION_PROVIDER,
+  GROUP_NAMER,
+  PLACEMENT_TIMEOUTS,
+} from "./ports.js";
+import type {
+  AffinityJudge,
+  BranchJudge,
+  BranchSummarizer,
+  ConversationProvider,
+  ConversationTurn,
+  GroupNamer,
+  PlacementTimeouts,
+} from "./ports.js";
 import { TicketsService } from "../tickets/tickets.service.js";
 import type { TicketDetail } from "../tickets/tickets.schema.js";
 import type { ProjectRow } from "../tickets/tickets.service.js";
@@ -89,6 +105,9 @@ export class TicketConversationsController {
     @Optional() @Inject(CONVERSATION_PROVIDER) private readonly provider: ConversationProvider | null,
     @Optional() @Inject(BRANCH_JUDGE) private readonly judge: BranchJudge | null,
     @Optional() @Inject(BRANCH_SUMMARIZER) private readonly summarizer: BranchSummarizer | null,
+    @Optional() @Inject(AFFINITY_JUDGE) private readonly affinity: AffinityJudge | null,
+    @Optional() @Inject(GROUP_NAMER) private readonly namer: GroupNamer | null,
+    @Optional() @Inject(PLACEMENT_TIMEOUTS) private readonly timeouts: PlacementTimeouts | null,
     @Inject(PlacementService) private readonly placementService: PlacementService,
     @Inject(TicketsService) private readonly tickets: TicketsService,
   ) {}
@@ -183,11 +202,12 @@ export class TicketConversationsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(placementBodySchema.default({}))) body: z.output<typeof placementBodySchema>,
   ): Promise<z.output<typeof placementOutcomeSchema>> {
-    const { judge, summarizer } = this.requirePlacementProviders();
+    const { judge, summarizer, affinity, namer } = this.requirePlacementProviders();
     const seen = await tenant.run(async (tx, principal) => {
       const { conversation } = await this.requireWritable(tx, principal, id);
       if (conversation.draftTitle === null) throw this.draftRequired();
-      const [tickets, summaries] = await Promise.all([
+      const [project, tickets, summaries] = await Promise.all([
+        tx.project.findFirstOrThrow({ where: { id: conversation.projectId }, select: { name: true } }),
         tx.ticket.findMany({
           where: { projectId: conversation.projectId },
           select: { id: true, parentId: true, kind: true, number: true, title: true, description: true },
@@ -206,20 +226,32 @@ export class TicketConversationsController {
         draft: { title: conversation.draftTitle, description: conversation.draftDescription ?? "" },
         snapshot: {
           projectId: conversation.projectId,
+          projectName: project.name,
           tickets,
           summaries: new Map(summaries.map((s) => [s.ticketId, { summary: s.summary, contentMark: s.contentMark }])),
         },
       };
     });
     try {
+      const recheck = (tx: TenantClient, principal: Principal) => this.requireWritable(tx, principal, id);
       const outcome = await this.placementService.search(seen.draft, seen.snapshot, {
         judge,
         summarizer,
         tenant,
-        recheck: (tx, principal) => this.requireWritable(tx, principal, id),
+        recheck,
         ...(body.scopeId ? { scopeId: body.scopeId } : {}),
+        ...(this.timeouts?.descentMs ? { timeoutMs: this.timeouts.descentMs } : {}),
       });
-      return parseOutput(placementOutcomeSchema, outcome);
+      // A proposta tem prazo próprio e nunca derruba a procura: falha do provedor vira `unavailable` no resultado.
+      const proposal = await this.placementService.propose(seen.draft, seen.snapshot, outcome, {
+        affinity,
+        namer,
+        summarizer,
+        tenant,
+        recheck,
+        ...(this.timeouts?.proposalMs ? { timeoutMs: this.timeouts.proposalMs } : {}),
+      });
+      return parseOutput(placementOutcomeSchema, { ...outcome, ...proposal });
     } catch (error) {
       if (error instanceof AssistantUnavailableError) {
         this.logger.warn(`assistente indisponível motivo=${error.reason}`);
@@ -251,6 +283,12 @@ export class TicketConversationsController {
       throw new ConflictException({ code: "conversation_closed", message: "A conversa já foi encerrada." });
     }
     if (conversation.draftTitle === null) throw this.draftRequired();
+    const origin = { origin: "assistant", conversationId: id };
+    let parentId = body.parentId;
+    if (body.group) {
+      this.authorization.editTicket(principal.actor, project.id);
+      parentId = await this.tickets.createGroupAndMove(tx, principal, project, body.parentId, body.group, origin);
+    }
     const ticket = await this.tickets.create(
       tx,
       principal,
@@ -258,11 +296,11 @@ export class TicketConversationsController {
       {
         title: conversation.draftTitle,
         description: conversation.draftDescription ?? "",
-        parentId: body.parentId,
+        parentId,
         status: "todo",
         assigneeIds: [],
       },
-      { origin: "assistant", conversationId: id },
+      origin,
     );
     await tx.ticketConversation.update({
       where: { orgId_id: { orgId: conversation.orgId, id } },
@@ -320,14 +358,14 @@ export class TicketConversationsController {
     return this.provider;
   }
 
-  private requirePlacementProviders(): { judge: BranchJudge; summarizer: BranchSummarizer } {
-    if (!assistantEnabled(this.config) || !this.judge || !this.summarizer) {
+  private requirePlacementProviders(): { judge: BranchJudge; summarizer: BranchSummarizer; affinity: AffinityJudge; namer: GroupNamer } {
+    if (!assistantEnabled(this.config) || !this.judge || !this.summarizer || !this.affinity || !this.namer) {
       throw new ServiceUnavailableException({
         code: "assistant_not_configured",
         message: "O assistente não está configurado neste ambiente.",
       });
     }
-    return { judge: this.judge, summarizer: this.summarizer };
+    return { judge: this.judge, summarizer: this.summarizer, affinity: this.affinity, namer: this.namer };
   }
 
   private draftRequired(): ConflictException {

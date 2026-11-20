@@ -16,7 +16,7 @@ const detail = {
   messages: [{ id: "m1", author: "person", body: "Oi", model: null, createdAt: "2026-11-20T10:00:00.000Z" }],
 };
 const target = { parentId: ID, path: [{ id: ID, title: "Ramo" }] };
-const outcome = { destination: target, alternatives: [], discarded: [], uncertain: false, stoppedEarly: null, scope: null };
+const outcome = { destination: target, alternatives: [], discarded: [], uncertain: false, stoppedEarly: null, scope: null, groupProposal: null, groupProposalSkipped: null };
 const ticketDetail = {
   id: ID, projectId: OTHER, number: 1, key: "K-1", parentId: null, title: "T", kind: "ticket", status: "todo", progress: null,
   assigneeIds: [], descriptionExcerpt: "", description: "", createdByPersonId: OTHER, createdAt: "x", updatedAt: "y",
@@ -85,6 +85,36 @@ describe("ticket conversation calls", () => {
     const { client } = setup(old);
     const result = await client.findPlacement(ID);
     expect(result.ok && result.data.scope).toBeNull();
+  });
+  it("reads the group proposal and the reason it was skipped", async () => {
+    const proposal = { title: "Redefinição de senha", description: "Fluxos de senha.", tickets: [{ id: ID, number: 3, title: "Senha esquecida" }] };
+    const { client } = setup({ ...outcome, groupProposal: proposal, groupProposalSkipped: null });
+    const result = await client.findPlacement(ID);
+    expect(result.ok && result.data.groupProposal).toEqual(proposal);
+    const skipped = await setup({ ...outcome, groupProposal: null, groupProposalSkipped: "unavailable" }).client.findPlacement(ID);
+    expect(skipped.ok && [skipped.data.groupProposal, skipped.data.groupProposalSkipped]).toEqual([null, "unavailable"]);
+  });
+  it("reads an outcome from an API without the proposal fields as having no proposal", async () => {
+    const old: Record<string, unknown> = { ...outcome };
+    delete old.groupProposal;
+    delete old.groupProposalSkipped;
+    const { client } = setup(old);
+    const result = await client.findPlacement(ID);
+    expect(result.ok && [result.data.groupProposal, result.data.groupProposalSkipped]).toEqual([null, null]);
+  });
+  it("rejects a proposal with an unknown skip reason or without tickets", async () => {
+    expect(await setup({ ...outcome, groupProposalSkipped: "outro" }).client.findPlacement(ID)).toEqual({ ok: false, error: { kind: "unavailable" } });
+    const empty = { title: "T", description: "", tickets: [] };
+    expect(await setup({ ...outcome, groupProposal: empty }).client.findPlacement(ID)).toEqual({ ok: false, error: { kind: "unavailable" } });
+  });
+  it("sends the new group with the confirmation", async () => {
+    const { client, fetchImpl } = setup({ conversation: detail, ticket: ticketDetail });
+    const group = { title: "Redefinição", description: "Fluxos.", ticketIds: [OTHER, ID] };
+    await client.createTicketFromConversation(ID, { parentId: OTHER, group });
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/ticket`, method: "POST", body: { parentId: OTHER, group } });
+  });
+  it("explains grouping_changed in words", () => {
+    expect(describeApiError({ kind: "conflict", code: "grouping_changed" })).toBe("Algum desses tickets mudou de lugar. Procure de novo.");
   });
   it("rejects a placement outcome with more than two alternatives", async () => {
     const { client } = setup({ ...outcome, alternatives: [target, target, target] });

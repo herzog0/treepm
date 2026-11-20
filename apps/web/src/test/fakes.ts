@@ -54,7 +54,7 @@ export function makeConversation(id: string, projectId: string, extra: Partial<C
 }
 
 export function makePlacement(extra: Partial<PlacementOutcome> = {}): PlacementOutcome {
-  return { destination: { parentId: null, path: [] }, alternatives: [], discarded: [], uncertain: false, stoppedEarly: null, scope: null, ...extra };
+  return { destination: { parentId: null, path: [] }, alternatives: [], discarded: [], uncertain: false, stoppedEarly: null, scope: null, groupProposal: null, groupProposalSkipped: null, ...extra };
 }
 
 interface FakeData {

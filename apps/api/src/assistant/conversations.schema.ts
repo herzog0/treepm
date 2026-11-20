@@ -13,8 +13,23 @@ export const draftBodySchema = z
   .object({ title: ticketTitleSchema, description: ticketDescriptionSchema.default("") })
   .strict();
 
-/** O pai escolhido (ou `null`: ticket de raiz). Título e descrição vêm sempre do rascunho da conversa. */
-export const createTicketBodySchema = z.object({ parentId: idSchema.nullable() }).strict();
+/** O agrupador novo a criar em `parentId`, com os tickets soltos que vão para ele (ADR 0031). */
+export const newGroupSchema = z
+  .object({
+    title: ticketTitleSchema,
+    description: ticketDescriptionSchema.default(""),
+    ticketIds: z
+      .array(idSchema)
+      .min(1)
+      .refine((ids) => new Set(ids).size === ids.length, "Ticket repetido."),
+  })
+  .strict();
+
+/**
+ * O pai escolhido (ou `null`: ticket de raiz). Título e descrição do ticket vêm sempre do rascunho da conversa.
+ * Com `group`, o ticket nasce dentro de um agrupador novo criado em `parentId`.
+ */
+export const createTicketBodySchema = z.object({ parentId: idSchema.nullable(), group: newGroupSchema.optional() }).strict();
 
 /** Corpo opcional da procura: o agrupador de escopo (ou `null`: o projeto inteiro). */
 export const placementBodySchema = z.object({ scopeId: idSchema.nullable().optional() }).strict();
@@ -63,6 +78,18 @@ export const placementOutcomeSchema = z.object({
     .nullable(),
   /** `null` sem escopo. A probabilidade da conferência não sai daqui. */
   scope: z.object({ id: z.string(), title: z.string(), outOfScope: z.boolean() }).nullable(),
+  /** Agrupador novo que a IA propõe no destino (ADR 0031), ou `null`. As probabilidades que o motivaram não saem daqui. */
+  groupProposal: z
+    .object({
+      title: z.string(),
+      description: z.string(),
+      tickets: z.array(z.object({ id: z.string(), number: z.number(), title: z.string() })).min(1),
+    })
+    .nullable(),
+  /** `null` quando há proposta ou quando ninguém passou do limiar; senão, por que a proposta não houve. */
+  groupProposalSkipped: z
+    .enum(["not_settled", "no_loose_tickets", "too_large", "same_as_destination", "invalid_name", "unavailable"])
+    .nullable(),
 });
 
 export const createdTicketSchema = z.object({ conversation: conversationDetailSchema, ticket: ticketDetailSchema });

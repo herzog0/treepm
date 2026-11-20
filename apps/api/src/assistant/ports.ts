@@ -80,3 +80,39 @@ export interface BranchSummarizer {
 }
 
 export const BRANCH_SUMMARIZER = Symbol("BRANCH_SUMMARIZER");
+
+// ---- Proposta de agrupador (ADR 0031, passo 4) ---------------------------------------------------------------
+
+/** Ticket solto do destino, como o juiz de afinidade o vê (o `id` não sai: o código liga a resposta de volta). */
+export type AffinityTicket = { id: string; title: string; descriptionExcerpt: string };
+
+export type AffinityInput = {
+  draft: TicketDraft;
+  /** Na raiz, só o nome do projeto; em agrupador, o título e o resumo dele. */
+  destination: { title: string; summary?: string };
+  tickets: readonly AffinityTicket[];
+};
+
+/** Jev: o rascunho e cada ticket solto formam um assunto próprio? Devolve o `Noul` por id de ticket. Quem decide é o código. */
+export interface AffinityJudge {
+  judge(input: AffinityInput, options?: { signal?: AbortSignal }): Promise<Readonly<Record<string, number>>>;
+}
+
+export const AFFINITY_JUDGE = Symbol("AFFINITY_JUDGE");
+
+export type GroupNameInput = {
+  destinationTitle: string;
+  newTicket: { title: string; descriptionExcerpt: string };
+  existingTickets: readonly { title: string; descriptionExcerpt: string }[];
+};
+
+/** Claude: escreve o título e a descrição do agrupador proposto. */
+export interface GroupNamer {
+  name(input: GroupNameInput, options?: { signal?: AbortSignal }): Promise<{ title: string; description: string; model: string }>;
+}
+
+export const GROUP_NAMER = Symbol("GROUP_NAMER");
+
+/** Prazos da procura em milissegundos (a descida e a proposta); sem valor, valem os da ADR (30 s e 20 s). Os testes trocam. */
+export type PlacementTimeouts = { descentMs?: number; proposalMs?: number };
+export const PLACEMENT_TIMEOUTS = Symbol("PLACEMENT_TIMEOUTS");

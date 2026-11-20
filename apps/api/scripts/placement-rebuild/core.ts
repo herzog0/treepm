@@ -55,6 +55,13 @@ export type JudgmentRecord = {
   choice: Record<string, number>;
 };
 
+/** O que a verificação de afinidade fez numa procura (ADR 0031): os pares julgados e o que saiu. Os ids são os do gabarito. */
+export type AffinityRecord = {
+  pairs: { ticketOldId: string; title: string; noul: number }[];
+  proposal: { title: string; ticketOldIds: string[] } | null;
+  skipped: string | null;
+};
+
 export type PathNode = { id: string; title: string };
 export type AlternativeRecord = { parentNewId: string | null; parentOldId: string | null; path: PathNode[] };
 
@@ -80,6 +87,10 @@ export type RunRecord = {
   claude: { draftTitle: string | null; ready: boolean; message: string };
   timingsMs: Record<Step, number>;
   attempts: Record<Step, number>;
+  /** Afinidade desta procura; ausente em execução antiga. */
+  affinity?: AffinityRecord;
+  /** `leave-one-out --flat`: a procura rodou na árvore achatada (a ferramenta nunca confirma a proposta). */
+  flat?: true;
   /** `leave-one-out --scope-check`: as duas procuras com escopo. `null`: não coube fazer (sem outro agrupador no nível). Ausente: sem `--scope-check` ou ticket na raiz. */
   scopeChecks?: { original: ScopeCheckRecord | null; other: ScopeCheckRecord | null };
 };
@@ -298,6 +309,8 @@ export type CliOptions = {
   loo?: boolean;
   /** `leave-one-out`: além da procura normal, duas procuras com escopo (no pai original e em outro agrupador do mesmo nível). */
   scopeCheck?: boolean;
+  /** `leave-one-out`: importa o gabarito achatado (só tickets, todos na raiz) e mede a proposta de agrupador. */
+  flat?: boolean;
   role?: string;
   retryDelaysMs?: number[];
   fake503First?: number;
@@ -336,6 +349,7 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--fake-providers": "fakeProviders",
   "--loo": "loo",
   "--scope-check": "scopeCheck",
+  "--flat": "flat",
   "--role": "role",
   "--retry-delays-ms": "retryDelaysMs",
   "--fake-503-first": "fake503First",
@@ -357,7 +371,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     const flag = rest[i] as string;
     const key = FLAGS[flag];
     if (!key) return fail(`Opção desconhecida: ${flag}.`);
-    if (key === "fakeProviders" || key === "loo" || key === "scopeCheck") {
+    if (key === "fakeProviders" || key === "loo" || key === "scopeCheck" || key === "flat") {
       options[key] = true;
       continue;
     }
@@ -375,6 +389,8 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
       options[key] = value;
     }
   }
+  if (options["flat"] !== undefined && command !== "leave-one-out") return fail("--flat só existe no leave-one-out.");
+  if (options["flat"] !== undefined && options["scopeCheck"] !== undefined) return fail("--flat não combina com --scope-check.");
   const missing = REQUIRED[command as Command].filter((key) => options[key] === undefined);
   if (missing.length > 0) return fail(`Faltam opções para ${command}: ${missing.map((k) => `--${k}`).join(", ")}.`);
   return { ok: true, command: command as Command, options: options as CliOptions };
@@ -652,6 +668,7 @@ export function renderReport(
     }
     out();
   }
+  renderProposalSection(out, gabarito, records);
   out("## Rascunhos do Claude");
   out();
   out(`- Com \`ready\` verdadeiro: ${stats.claude.ready}`);
@@ -906,4 +923,146 @@ export function scopeCheckStats(records: readonly RunRecord[]): { original: Scop
     }
   }
   return result;
+}
+
+// ---- proposta de agrupador (ADR 0031, passo 4) ------------------------------------------------------------------
+
+export const PROPOSAL_REASONS = ["none_passed", "not_settled", "no_loose_tickets", "too_large", "same_as_destination", "invalid_name", "unavailable"] as const;
+
+/** O gabarito achatado: só os nós do tipo ticket, todos na raiz do projeto, sem agrupadores, na ordem do número. */
+export function flattenGabarito(tickets: readonly GabaritoTicket[]): GabaritoTicket[] {
+  return tickets
+    .filter((x) => x.kind === "ticket")
+    .sort((a, b) => a.number - b.number)
+    .map((x) => ({ ...x, parentId: null, depth: 0 }));
+}
+
+export type PairLabel = "same_group" | "other_group" | "unlabeled";
+export type PairBands = Record<Band, number> & { total: number };
+export type AffinityTicketStats = {
+  oldId: string;
+  title: string;
+  proposed: boolean;
+  /** Do grupo proposto, quantos eram do mesmo agrupador do ticket no gabarito e quantos não. */
+  same: number;
+  other: number;
+  /** Quantos outros tickets do agrupador original ficaram fora do grupo proposto. */
+  leftOut: number;
+  proposedTitle: string | null;
+  originalTitle: string | null;
+};
+export type AffinityStats = {
+  flat: boolean;
+  /** Procuras que registraram a afinidade. */
+  searches: number;
+  proposals: number;
+  reasons: Record<(typeof PROPOSAL_REASONS)[number], number>;
+  pairs: Record<PairLabel, PairBands> & { labeled: boolean };
+  perTicket: AffinityTicketStats[];
+};
+
+const emptyBands = (): PairBands => ({ low: 0, mid: 0, high: 0, total: 0 });
+
+/**
+ * Números da seção "Proposta de agrupador". `parentOf` devolve o agrupador do ticket no gabarito original (`null`: raiz;
+ * `undefined`: ticket desconhecido). Só a execução `--flat` rotula os pares e fala de ticket por ticket.
+ */
+export function affinityStats(
+  records: readonly RunRecord[],
+  parentOf: (oldId: string) => string | null | undefined,
+  flat: boolean,
+  groupTitle: (groupOldId: string) => string | undefined = () => undefined,
+  ticketsOfGroup: (groupOldId: string) => readonly string[] = () => [],
+): AffinityStats {
+  const reasons = Object.fromEntries(PROPOSAL_REASONS.map((r) => [r, 0])) as AffinityStats["reasons"];
+  const pairs: AffinityStats["pairs"] = { same_group: emptyBands(), other_group: emptyBands(), unlabeled: emptyBands(), labeled: flat };
+  const perTicket: AffinityTicketStats[] = [];
+  let searches = 0;
+  let proposals = 0;
+  for (const record of records) {
+    const affinity = record.affinity;
+    if (!affinity) continue;
+    searches += 1;
+    if (affinity.proposal) proposals += 1;
+    else reasons[(affinity.skipped ?? "none_passed") as keyof typeof reasons] += 1;
+    const own = parentOf(record.oldId) ?? null;
+    for (const pair of affinity.pairs) {
+      const label: PairLabel = !flat ? "unlabeled" : own !== null && parentOf(pair.ticketOldId) === own ? "same_group" : "other_group";
+      const bucket = pairs[label];
+      bucket[judgmentBand(pair.noul)] += 1;
+      bucket.total += 1;
+    }
+    if (!flat) continue;
+    const members = new Set(affinity.proposal?.ticketOldIds ?? []);
+    const same = [...members].filter((id) => own !== null && parentOf(id) === own).length;
+    const mates = own === null ? [] : ticketsOfGroup(own).filter((id) => id !== record.oldId);
+    perTicket.push({
+      oldId: record.oldId,
+      title: record.title,
+      proposed: affinity.proposal !== null,
+      same,
+      other: members.size - same,
+      leftOut: mates.filter((id) => !members.has(id)).length,
+      proposedTitle: affinity.proposal?.title ?? null,
+      originalTitle: own === null ? null : (groupTitle(own) ?? null),
+    });
+  }
+  return { flat, searches, proposals, reasons, pairs, perTicket };
+}
+
+const PAIR_LABEL_TEXT: Record<PairLabel, string> = {
+  same_group: "Mesmo agrupador no gabarito",
+  other_group: "Outro agrupador no gabarito",
+  unlabeled: "Sem rótulo",
+};
+
+function renderProposalSection(out: (line?: string) => void, gabarito: readonly GabaritoTicket[], records: readonly RunRecord[]): void {
+  const byId = new Map(gabarito.map((x) => [x.id, x]));
+  const flat = records.some((r) => r.flat === true);
+  const stats = affinityStats(
+    records,
+    (id) => (byId.has(id) ? (byId.get(id)?.parentId ?? null) : undefined),
+    flat,
+    (id) => byId.get(id)?.title,
+    (id) => gabarito.filter((x) => x.parentId === id && x.kind === "ticket").map((x) => x.id),
+  );
+  out("## Proposta de agrupador");
+  out();
+  if (stats.searches === 0) {
+    out("Nenhuma procura registrou a afinidade (execução anterior à proposta de agrupador).");
+    out();
+    return;
+  }
+  out(`Procuras com afinidade: ${stats.searches}. Com proposta: ${stats.proposals}.`);
+  out();
+  out("| Motivo de não haver proposta | Procuras |");
+  out("| --- | ---: |");
+  for (const reason of PROPOSAL_REASONS) out(`| ${reason} | ${stats.reasons[reason]} |`);
+  out();
+  out(`Pares julgados${stats.pairs.labeled ? ", rotulados por terem ou não o mesmo agrupador no gabarito" : " (execução normal: sem rótulo)"}. Noul por faixa:`);
+  out();
+  out("| Pares | Total | < 0,3 | 0,3 a 0,7 | > 0,7 |");
+  out("| --- | ---: | ---: | ---: | ---: |");
+  for (const label of stats.pairs.labeled ? (["same_group", "other_group"] as const) : (["unlabeled"] as const)) {
+    const x = stats.pairs[label];
+    out(`| ${PAIR_LABEL_TEXT[label]} | ${x.total} | ${x.low} | ${x.mid} | ${x.high} |`);
+  }
+  out();
+  if (!stats.flat) return;
+  out("### Por ticket");
+  out();
+  out("| Ticket | Proposta | Do mesmo agrupador | De outro | Do original, de fora |");
+  out("| --- | --- | ---: | ---: | ---: |");
+  for (const t of stats.perTicket) out(`| ${cell(t.title)} | ${t.proposed ? "sim" : "não"} | ${t.same} | ${t.other} | ${t.leftOut} |`);
+  out();
+  out("### Títulos propostos");
+  out();
+  const named = stats.perTicket.filter((t) => t.proposedTitle !== null);
+  if (named.length === 0) out("Nenhum.");
+  else {
+    out("| Ticket | Título proposto pelo Claude | Agrupador original |");
+    out("| --- | --- | --- |");
+    for (const t of named) out(`| ${cell(t.title)} | ${cell(t.proposedTitle as string)} | ${cell(t.originalTitle ?? "(raiz)")} |`);
+  }
+  out();
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import type { ApiClient, ApiError, ApiResult, ConversationDetail, PlacementOutcome, Project, TicketSummary } from "../api/client.js";
+import type { ApiClient, ApiError, ApiResult, ConversationDetail, NewGroup, PlacementOutcome, Project, TicketSummary } from "../api/client.js";
 import { describeApiError } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
@@ -160,6 +160,9 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const [pickNotice, setPickNotice] = useState("");
   // Frase que explica por que o destino escolhido no mapa não é o nó em que a pessoa clicou (ADR 0031).
   const [pickedNote, setPickedNote] = useState("");
+  // A proposta de agrupador (ADR 0031) vale só para o destino da procura: trocar o destino, procurar de novo ou o 409 a descartam.
+  const [proposalDropped, setProposalDropped] = useState(false);
+  const [unchecked, setUnchecked] = useState<string[]>([]);
   const sendingRef = useRef(false);
   const scroller = useRef<HTMLDivElement>(null);
   const save = useAction();
@@ -201,6 +204,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     }
     const destination = destinationUnder(list, parentId);
     setTarget(destination);
+    setProposalDropped(true);
     setPickedNote(clicked && clicked.kind === "ticket" ? `«${clicked.title}» é um ticket. O destino passou a ser ${destination.path.length === 0 ? "a raiz do projeto" : `«${destination.path.at(-1)!.title}»`}.` : "");
     setPickNotice("");
     setChoosing(false);
@@ -279,9 +283,12 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
       if (!saved) return false;
       current = saved;
     }
+    setProposalDropped(true);
     const result = await search.run(() => (scopeId === null ? client.findPlacement(current.id) : client.findPlacement(current.id, scopeId)));
     if (!result.ok) return false;
     setPickedNote("");
+    setProposalDropped(false);
+    setUnchecked([]);
     setOutcome(result.data);
     setTarget(result.data.destination);
     return true;
@@ -297,7 +304,8 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     }
   };
 
-  const createHere = async () => {
+  /** `group`: a proposta confirmada; sem ele, o ticket nasce solto no destino. */
+  const createHere = async (group?: NewGroup) => {
     if (!conversation || !target || busy) return;
     let current = conversation;
     if (dirty) {
@@ -305,8 +313,12 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
       if (!saved) return;
       current = saved;
     }
-    const result = await create.run(() => client.createTicketFromConversation(current.id, { parentId: target.parentId }));
-    if (!result.ok) return;
+    const result = await create.run(() => client.createTicketFromConversation(current.id, group ? { parentId: target.parentId, group } : { parentId: target.parentId }));
+    if (!result.ok) {
+      // Algum ticket da proposta mudou de lugar: a proposta sai, o resto do card fica.
+      if (result.error.code === "grouping_changed") setProposalDropped(true);
+      return;
+    }
     onChanged();
     onCreated(result.data.ticket.id);
   };
@@ -330,6 +342,12 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const canCreateManually = retryable || sendError?.code === "assistant_not_configured";
   const up = target ? oneLevelUp(target) : null;
   const options = outcome ? [outcome.destination, ...outcome.alternatives] : [];
+  const proposal = outcome && target && !proposalDropped && target.parentId === outcome.destination.parentId ? outcome.groupProposal : null;
+  const confirmGroup = () => {
+    if (!proposal) return;
+    const ticketIds = proposal.tickets.filter((ticket) => !unchecked.includes(ticket.id)).map((ticket) => ticket.id);
+    void createHere({ title: proposal.title, description: proposal.description, ticketIds });
+  };
   const whereStopped = (parentId: string | null) => (parentId === null ? project.name : list.find((entry) => entry.id === parentId)?.title ?? project.name);
 
   return (
@@ -401,11 +419,17 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 pickedNote={pickedNote}
                 outOfScope={scope && outcome.scope?.outOfScope && outcome.scope.id === scope.id ? { title: scope.title } : null}
                 onWholeProject={() => void searchWholeProject()}
+                proposal={proposal}
+                unchecked={unchecked}
+                onToggle={(ticketId) => setUnchecked((current) => (current.includes(ticketId) ? current.filter((id) => id !== ticketId) : [...current, ticketId]))}
+                onCreateGroup={confirmGroup}
                 onUse={(destination) => {
+                  setProposalDropped(true);
                   setPickedNote("");
                   setTarget(destination);
                 }}
                 onUp={() => {
+                  setProposalDropped(true);
                   setPickedNote("");
                   if (up) setTarget(up);
                 }}

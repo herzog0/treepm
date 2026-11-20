@@ -1,5 +1,7 @@
 import { AssistantUnavailableError } from "../src/assistant/ports.js";
 import type {
+  AffinityInput,
+  AffinityJudge,
   BranchJudge,
   BranchJudgment,
   BranchSummarizer,
@@ -7,6 +9,8 @@ import type {
   ConversationProvider,
   ConversationTurn,
   ConversationTurnInput,
+  GroupNameInput,
+  GroupNamer,
 } from "../src/assistant/ports.js";
 
 /** Conversa falsa e determinística: registra as chamadas e responde sem rede. */
@@ -77,5 +81,41 @@ export class FakeBranchSummarizer implements BranchSummarizer {
     } finally {
       this.running -= 1;
     }
+  }
+}
+
+/** Afinidade falsa: por padrão ninguém passa (0,1 para todos), então nenhum teste antigo vê proposta. */
+export class FakeAffinityJudge implements AffinityJudge {
+  readonly calls: AffinityInput[] = [];
+  onCall: (() => Promise<void>) | null = null;
+  /** Probabilidade por ticket; o padrão devolve 0,1 para todos. */
+  verdict: ((input: AffinityInput) => Record<string, number>) | null = null;
+  fail = false;
+  /** Nunca responde (a chamada só termina pelo prazo de quem chama). */
+  hang = false;
+  async judge(input: AffinityInput): Promise<Record<string, number>> {
+    this.calls.push(structuredClone(input) as AffinityInput);
+    await this.onCall?.();
+    if (this.hang) await new Promise<never>(() => undefined);
+    if (this.fail) throw new AssistantUnavailableError("fake");
+    if (this.verdict) return this.verdict(input);
+    return Object.fromEntries(input.tickets.map((t) => [t.id, 0.1]));
+  }
+}
+
+/** Escritor de nome falso: título e descrição previsíveis, a menos que `reply` mande outra coisa. */
+export class FakeGroupNamer implements GroupNamer {
+  readonly calls: GroupNameInput[] = [];
+  onCall: (() => Promise<void>) | null = null;
+  reply: ((input: GroupNameInput) => { title: string; description: string }) | null = null;
+  fail = false;
+  hang = false;
+  async name(input: GroupNameInput): Promise<{ title: string; description: string; model: string }> {
+    this.calls.push(structuredClone(input) as GroupNameInput);
+    await this.onCall?.();
+    if (this.hang) await new Promise<never>(() => undefined);
+    if (this.fail) throw new AssistantUnavailableError("fake");
+    const out = this.reply ? this.reply(input) : { title: `Grupo de ${input.newTicket.title}`, description: "Tickets do mesmo assunto." };
+    return { ...out, model: "fake-model" };
   }
 }

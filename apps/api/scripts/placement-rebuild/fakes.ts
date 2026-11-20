@@ -5,6 +5,8 @@
  */
 import { AssistantUnavailableError } from "../../src/assistant/ports.js";
 import type {
+  AffinityInput,
+  AffinityJudge,
   BranchCandidate,
   BranchJudge,
   BranchJudgment,
@@ -13,6 +15,8 @@ import type {
   ConversationProvider,
   ConversationTurn,
   ConversationTurnInput,
+  GroupNameInput,
+  GroupNamer,
 } from "../../src/assistant/ports.js";
 import type { DirectoryProvider } from "../../src/auth/directory-provider.js";
 
@@ -83,5 +87,21 @@ export class FakeDirectoryProvider implements DirectoryProvider {
   }
   getOrganization(orgId: string) {
     return Promise.resolve({ name: `Organização ${orgId}`, slug: orgId.toLowerCase() });
+  }
+}
+
+/** Afinidade falsa do ensaio: 0,9 quando o ticket divide alguma palavra com o rascunho, senão 0,1. */
+export class FakeAffinity implements AffinityJudge {
+  judge(input: AffinityInput): Promise<Record<string, number>> {
+    const draftWords = words(`${input.draft.title} ${input.draft.description}`);
+    return Promise.resolve(
+      Object.fromEntries(input.tickets.map((t) => [t.id, [...words(`${t.title} ${t.descriptionExcerpt}`)].some((w) => draftWords.has(w)) ? 0.9 : 0.1])),
+    );
+  }
+}
+
+export class FakeNamer implements GroupNamer {
+  name(input: GroupNameInput): Promise<{ title: string; description: string; model: string }> {
+    return Promise.resolve({ title: `Grupo de ${input.newTicket.title}`.slice(0, 80), description: "Agrupador do ensaio.", model: "fake-model" });
   }
 }
