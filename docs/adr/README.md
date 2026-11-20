@@ -11,5 +11,6 @@
 | [0022 — API NestJS na Fly.io](0022-api-nestjs-e-hospedagem-na-fly.md) | 2026-11-19 | API NestJS com Zod em `apps/api`, uma origem em `treepm.ai`, região São Paulo. |
 | [0023 — Telas de administração e mapa da organização](0023-telas-de-administracao-e-mapa-da-organizacao.md) | 2026-11-19 | Times em área dedicada (`?view=teams`), áreas e projetos em painel lateral, mapa com a organização na raiz e cliente da API sem cache. |
 | [0024 — Tickets: primeiro recorte e importação por lista](0024-tickets-primeiro-recorte-e-importacao-por-lista.md) | 2026-11-19 | Recorte da Fase 2: `tickets` e `ticket_assignees` com RLS, número por projeto, situação só em folha e progresso derivado, permissões por papel de projeto, API de tickets e importação atômica de uma lista em Markdown interpretada na web. |
+| [0025 — Base visual "Constelação", tema do mapa pela web e tela de importação](0025-base-visual-constelacao-e-tema-do-mapa.md) | 2026-11-19 | Tokens escuros com destaque lilás, Inter e JetBrains Mono servidas pela aplicação, marcador de situação em quadrado que se enche, card escuro e cor por situação no mapa sem mudar os pacotes, e a tela `?view=import`. |
 
-A base anterior foi preservada no checkpoint Git `33c4702`; seus documentos de implementação foram removidos junto com o produto. Novas decisões usam números sequenciais a partir de 0025.
+A base anterior foi preservada no checkpoint Git `33c4702`; seus documentos de implementação foram removidos junto com o produto. Novas decisões usam números sequenciais a partir de 0026.
