@@ -314,10 +314,13 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               {selected.ticket ? (
                 <p className="selection-state">
                   <TicketMark ticket={selected.ticket} />
-                  <span>{describeTicketState(selected.ticket)}</span>
+                  <span>{describeTicketState(selected.ticket, index.childrenByParentId.get(selected.id)?.length ?? 0)}</span>
                 </p>
               ) : (
-                <p>{index.childrenByParentId.get(selected.id)?.length ?? 0} {selected.kind === "project" ? "tickets" : "projetos"}</p>
+                <p>{(() => {
+                  const count = index.childrenByParentId.get(selected.id)?.length ?? 0;
+                  return selected.kind === "project" ? plural(count, "item", "itens") : `${count} projetos`;
+                })()}</p>
               )}
               <button onClick={() => focusNode(selected.id)}>Explorar ramo</button>
               {selected.kind === "ticket" && <button onClick={() => openTicket(selected.id)}>Abrir</button>}
@@ -356,9 +359,9 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               onChanged={onChanged}
               {...(onImport ? { onImportProject: onImport } : {})}
               assistantAvailable={assistantAvailable}
-              onCreateTicket={(projectId) => {
+              onCreateTicket={(projectId, kind) => {
                 setPanel((current) => ({ ...current, open: false }));
-                setCreating({ projectId, parentId: null });
+                setCreating({ projectId, parentId: null, kind });
                 if (live.current.openTicketId !== null) onOpenTicketChange(null);
               }}
             />

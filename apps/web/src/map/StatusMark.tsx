@@ -24,5 +24,7 @@ export type StatusMarkProps = { readonly status: TicketStatus } | { readonly pro
 export function StatusMark(props: StatusMarkProps) {
   const [state, fill] = "status" in props ? [props.status, FILL[props.status]] : (["progress", progressFraction(props.progress)] as const);
   const style = { "--fill": String(fill) } as CSSProperties;
-  return <span className="status-mark" aria-hidden="true" data-state={state} data-fill={String(fill)} style={style} />;
+  // Progresso de 0 de 0 (agrupador vazio, ADR 0031): o marcador usa a cor neutra de "a fazer", não a de progresso.
+  const empty = "progress" in props && props.progress.total === 0 && props.progress.excluded === 0;
+  return <span className="status-mark" aria-hidden="true" data-state={state} data-fill={String(fill)} {...(empty ? { "data-empty": "true" } : {})} style={style} />;
 }

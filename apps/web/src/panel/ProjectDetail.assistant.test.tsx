@@ -21,7 +21,13 @@ describe("manual ticket creation next to the assistant button", () => {
     expect(manual).not.toHaveClass("primary");
     expect(screen.queryByRole("button", { name: "Novo ticket" })).not.toBeInTheDocument();
     await userEvent.click(manual);
-    expect(onCreateTicket).toHaveBeenCalledWith("p1");
+    expect(onCreateTicket).toHaveBeenCalledWith("p1", "ticket");
+  });
+
+  it("Novo agrupador is offered with the assistant on too, since the assistant only creates tickets", async () => {
+    const { onCreateTicket } = setup(true);
+    await userEvent.click(await screen.findByRole("button", { name: "Novo agrupador" }));
+    expect(onCreateTicket).toHaveBeenCalledWith("p1", "group");
   });
 
   it("with the assistant off, it stays the primary 'Novo ticket'", async () => {

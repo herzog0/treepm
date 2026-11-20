@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react";
 import type { SpatialNodeContent } from "@treepm/react";
 import { describe, expect, it } from "vitest";
-import { makeTicket } from "../test/fakes.js";
+import { makeGroup, makeTicket } from "../test/fakes.js";
 import type { MapNode } from "./items.js";
 import { renderNodeContent } from "./nodeContent.js";
 
@@ -38,11 +38,42 @@ describe("renderNodeContent", () => {
     expect(marks(container)[0]).toHaveAttribute("data-state", "in_review");
   });
 
-  it("full: a ticket with children shows 'N de M concluídos' with the progress mark", () => {
-    const ticket = makeTicket("t1", "alfa", 3, "Pai", { status: null, progress: { done: 3, total: 8, excluded: 0 } });
-    const container = content(ticketNode(ticket), "full");
+  it("full: a group shows 'N de M concluídos' with the progress mark", () => {
+    const ticket = makeGroup("t1", "alfa", 3, "Pai", { progress: { done: 3, total: 8, excluded: 0 } });
+    const container = content(ticketNode(ticket), "full", { childCount: 2 });
     expect(container).toHaveTextContent("3 de 8 concluídos");
     expect(marks(container)[0]).toHaveAttribute("data-state", "progress");
+  });
+
+  it("full: an empty group shows 'vazio' and the empty progress mark, not '0 de 0 concluídos'", () => {
+    const container = content(ticketNode(makeGroup("g1", "alfa", 4, "Fase 1")), "full", { childCount: 0 });
+    expect(container).toHaveTextContent("ALFA-4");
+    expect(container).toHaveTextContent("Fase 1");
+    expect(container).toHaveTextContent("vazio");
+    expect(container).not.toHaveTextContent("0 de 0");
+    expect(marks(container)).toHaveLength(1);
+    expect(marks(container)[0]).toHaveAttribute("data-state", "progress");
+    expect(marks(container)[0]).toHaveAttribute("data-fill", "0");
+  });
+
+  it("compact and chip: an empty group keeps the empty progress mark and drops the text", () => {
+    const compact = content(ticketNode(makeGroup("g1", "alfa", 4, "Fase 1")), "compact", { childCount: 0 });
+    expect(compact).not.toHaveTextContent("vazio");
+    expect(marks(compact)[0]).toHaveAttribute("data-state", "progress");
+    expect(marks(compact)[0]).toHaveAttribute("data-fill", "0");
+    const chip = content(ticketNode(makeGroup("g1", "alfa", 4, "Fase 1")), "chip", { childCount: 0 });
+    expect(chip).toHaveTextContent("Fase 1");
+    expect(marks(chip)[0]).toHaveAttribute("data-state", "progress");
+  });
+
+  it("full: a group that only holds an empty group is not 'vazio'", () => {
+    expect(content(ticketNode(makeGroup("g1", "alfa", 4, "Fase 1")), "full", { childCount: 1 })).toHaveTextContent("0 de 0 concluídos");
+  });
+
+  it("full: a ticket never shows progress, even when its status is missing", () => {
+    const container = content(ticketNode(makeTicket("t1", "alfa", 3, "Folha", { status: "todo" })), "full");
+    expect(container).toHaveTextContent("A fazer");
+    expect(marks(container)[0]).toHaveAttribute("data-state", "todo");
   });
 
   it("compact: key, title and the mark, without the status text", () => {

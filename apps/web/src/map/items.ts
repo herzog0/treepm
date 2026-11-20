@@ -116,7 +116,11 @@ export function buildMapItems(
   return [...painted, ghost];
 }
 
-/** Ticket com filhos ganha a mistura das cores das folhas descendentes; só ele muda, as folhas já estão pintadas. */
+/**
+ * Agrupador ganha a mistura das cores dos tickets descendentes (o tipo vem de `kind`, não de ter filhos). Agrupador
+ * sem nenhum ticket abaixo, vazio ou só com agrupadores vazios, fica na cor neutra de "a fazer". Só ele muda: os
+ * tickets já estão pintados.
+ */
 function paintBranches(nodes: readonly MapNode[]): readonly MapNode[] {
   const childrenOf = new Map<string, MapNode[]>();
   for (const node of nodes) {
@@ -126,12 +130,13 @@ function paintBranches(nodes: readonly MapNode[]): readonly MapNode[] {
     else childrenOf.set(node.parentId, [node]);
   }
   const leaves = (node: MapNode): MapNode[] => {
-    const below = childrenOf.get(node.id);
-    return below ? below.flatMap(leaves) : [node];
+    if (node.ticket?.kind !== "group") return [node];
+    return (childrenOf.get(node.id) ?? []).flatMap(leaves);
   };
   return nodes.map((node) => {
-    if (node.kind !== "ticket" || !childrenOf.has(node.id)) return node;
+    if (node.ticket?.kind !== "group") return node;
     const found = leaves(node);
+    if (found.length === 0) return { ...node, leafCount: 1, color: STATUS_COLORS.todo };
     return { ...node, leafCount: found.length, color: mixWeightedColors(found.map((leaf) => ({ color: leaf.color, weight: 1 }))) };
   });
 }

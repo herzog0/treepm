@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { KeyboardEvent, PointerEvent } from "react";
-import type { ApiClient, Me, Project } from "../api/client.js";
+import type { ApiClient, Me, Project, TicketKind } from "../api/client.js";
 import { AreasSection } from "./AreasSection.js";
 import { ProjectsSection } from "./ProjectsSection.js";
 import "./panel.css";
@@ -21,7 +21,7 @@ export interface SidePanelProps {
   /** Abre a tela de importação de um projeto; sem ela, o detalhe do projeto não oferece a ação. */
   onImportProject?: (projectId: string) => void;
   /** Abre a criação de um ticket na raiz do projeto; sem ela, o detalhe do projeto não oferece a ação. */
-  onCreateTicket?: (projectId: string) => void;
+  onCreateTicket?: (projectId: string, kind: TicketKind) => void;
   assistantAvailable?: boolean;
 }
 

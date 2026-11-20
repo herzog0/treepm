@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient, Me, TicketDetail, TicketSummary } from "../api/client.js";
 import { makePanelMe, makePerson } from "../panel/testing.js";
-import { failed, makeClient, makeProject, makeTicket, ok } from "../test/fakes.js";
+import { failed, makeClient, makeProject, makeGroup, makeTicket, ok } from "../test/fakes.js";
 import { OrganizationMap } from "./OrganizationMap.js";
 
 const SLOW = 8000;
@@ -13,7 +13,7 @@ const projects = [makeProject("p1", "ALFA", "Projeto Alfa"), makeProject("p2", "
 const archived = makeProject("p3", "OLD", "Antigo", { archivedAt: "2026-01-01T00:00:00.000Z" });
 const tickets: Record<string, TicketSummary[]> = {
   p1: [
-    makeTicket("t1", "p1", 1, "Fechar a fase", { key: "ALFA-1", status: null, progress: { done: 0, total: 1, excluded: 0 } }),
+    makeGroup("t1", "p1", 1, "Fechar a fase", { key: "ALFA-1", progress: { done: 0, total: 1, excluded: 0 } }),
     makeTicket("t2", "p1", 2, "Escrever o teste", { key: "ALFA-2", parentId: "t1", status: "in_review" }),
     makeTicket("t3", "p1", 3, "Publicar", { key: "ALFA-3", status: "todo" }),
   ],
@@ -245,25 +245,44 @@ describe("creating tickets", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Novo ticket" })).toBeInTheDocument();
     await userEvent.type(screen.getByRole("textbox", { name: "Título" }), "Novo");
     await userEvent.click(screen.getByRole("button", { name: "Criar" }));
-    expect(client.createTicket).toHaveBeenCalledWith("p1", { title: "Novo" });
+    expect(client.createTicket).toHaveBeenCalledWith("p1", { title: "Novo", kind: "ticket" });
     await waitFor(() => expect(onChange).toHaveBeenCalledWith("t7"));
     expect(await screen.findByRole("heading", { level: 1, name: "Novo" })).toBeInTheDocument();
   }, SLOW);
 
-  it("creates a subticket from the page and cancels back to the open ticket", async () => {
-    render(<Host client={makeFullClient()} initial="t3" />);
-    await screen.findByRole("heading", { level: 1, name: "Publicar" });
-    await userEvent.click(screen.getByRole("button", { name: "Novo subticket" }));
-    expect(await screen.findByRole("heading", { level: 1, name: "Novo subticket" })).toBeInTheDocument();
+  it("creates a root group from Novo agrupador in the project detail", async () => {
+    const client = makeFullClient();
+    render(<Host client={client} />);
+    await userEvent.click(await screen.findByRole("button", { name: /ALFA · Projeto Alfa/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Novo agrupador" }));
+    expect(screen.queryByRole("complementary", { name: "Áreas e projetos" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Novo agrupador" })).toBeInTheDocument();
+    await userEvent.type(screen.getByRole("textbox", { name: "Título" }), "Fase 2");
+    await userEvent.click(screen.getByRole("button", { name: "Criar" }));
+    expect(client.createTicket).toHaveBeenCalledWith("p1", { title: "Fase 2", kind: "group" });
+  }, SLOW);
+
+  it("creates a ticket inside a group from the page and cancels back to the open group", async () => {
+    render(<Host client={makeFullClient()} initial="t1" />);
+    await screen.findByRole("heading", { level: 1, name: "Fechar a fase" });
+    await userEvent.click(screen.getByRole("button", { name: "Novo ticket" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Novo ticket" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
-    expect(await screen.findByRole("heading", { level: 1, name: "Publicar" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Fechar a fase" })).toBeInTheDocument();
+  }, SLOW);
+
+  it("creates a group inside a group from the page", async () => {
+    render(<Host client={makeFullClient()} initial="t1" />);
+    await screen.findByRole("heading", { level: 1, name: "Fechar a fase" });
+    await userEvent.click(screen.getByRole("button", { name: "Novo agrupador" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Novo agrupador" })).toBeInTheDocument();
   }, SLOW);
 
   it("closes the creation form together with the page", async () => {
-    render(<Host client={makeFullClient()} initial="t3" />);
-    await screen.findByRole("heading", { level: 1, name: "Publicar" });
-    await userEvent.click(screen.getByRole("button", { name: "Novo subticket" }));
-    await screen.findByRole("heading", { level: 1, name: "Novo subticket" });
+    render(<Host client={makeFullClient()} initial="t1" />);
+    await screen.findByRole("heading", { level: 1, name: "Fechar a fase" });
+    await userEvent.click(screen.getByRole("button", { name: "Novo ticket" }));
+    await screen.findByRole("heading", { level: 1, name: "Novo ticket" });
     await userEvent.click(screen.getByRole("button", { name: "Fechar e voltar ao mapa" }));
     expect(page()).not.toBeInTheDocument();
   }, SLOW);

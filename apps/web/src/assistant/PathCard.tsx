@@ -16,8 +16,8 @@ interface PathCardProps {
   busy: boolean;
   error: ApiError | null;
   whereStopped: (parentId: string | null) => string;
-  /** O destino é um ticket que ainda não tem subtickets na árvore carregada (nunca a raiz do projeto). */
-  targetIsLeaf: boolean;
+  /** Explica que o clique em um ticket, no mapa, escolheu o agrupador que o contém; vazio quando não se aplica. */
+  pickedNote: string;
   onUse: (destination: Destination) => void;
   onUp: () => void;
   onChoose: () => void;
@@ -48,16 +48,14 @@ export function PathCard(props: PathCardProps) {
           </li>
         ))}
       </ol>
-      {props.targetIsLeaf && target.path.length > 0 && (
-        <p className="assistant-notice">«{target.path.at(-1)?.title}» ainda não tem subtickets. O ticket novo será o primeiro.</p>
-      )}
+      {props.pickedNote !== "" && <p className="assistant-notice" role="status">{props.pickedNote}</p>}
       {outcome.uncertain && (
-        <p className="assistant-notice">Não tenho certeza do lugar: mais de um ramo serve. Escolha uma das opções abaixo, suba um nível ou use «Escolher no mapa».</p>
+        <p className="assistant-notice">Não tenho certeza do lugar: mais de um agrupador serve. Escolha uma das opções abaixo, suba um nível ou use «Escolher no mapa».</p>
       )}
       {stopped && (
         <p className="assistant-notice">
           {stopped.reason === "candidates_too_large"
-            ? `A procura parou em «${props.whereStopped(stopped.parentId)}» porque havia ramos demais para comparar de uma vez. Confira se o lugar serve ou escolha outro.`
+            ? `A procura parou em «${props.whereStopped(stopped.parentId)}» porque havia agrupadores demais para comparar de uma vez. Confira se o lugar serve ou escolha outro.`
             : `A procura parou em «${props.whereStopped(stopped.parentId)}» ao atingir o limite de níveis. Confira se o lugar serve ou escolha outro.`}
         </p>
       )}
@@ -74,7 +72,7 @@ export function PathCard(props: PathCardProps) {
         </>
       )}
       {choosing && (
-        <p className="assistant-notice" role="status">Clique em um ticket ou no projeto, no mapa. Esc cancela.</p>
+        <p className="assistant-notice" role="status">Clique em um agrupador ou no projeto, no mapa. Um ticket escolhe o agrupador que o contém. Esc cancela.</p>
       )}
       {choosing && pickNotice !== "" && <p role="alert">{pickNotice}</p>}
       {props.error && <p role="alert">{describeApiError(props.error)}</p>}

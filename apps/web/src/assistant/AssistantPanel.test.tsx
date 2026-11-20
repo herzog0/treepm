@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient, PlacementOutcome } from "../api/client.js";
 import type { MapNode } from "../map/items.js";
-import { failed, makeClient, makeConversation, makePlacement, makeProject, makeTicket, ok } from "../test/fakes.js";
+import { failed, makeClient, makeConversation, makePlacement, makeProject, makeGroup, makeTicket, ok } from "../test/fakes.js";
 import { AssistantPanel } from "./AssistantPanel.js";
 import type { AssistantPanelProps } from "./AssistantPanel.js";
 import type { MapPicker } from "./types.js";
@@ -12,10 +12,12 @@ const alfa = makeProject("p1", "ALFA", "Projeto Alfa");
 const beta = makeProject("p2", "BETA", "Projeto Beta");
 const tickets = {
   p1: [
-    makeTicket("t1", "p1", 1, "Acesso", { key: "ALFA-1", status: null, progress: { done: 0, total: 1, excluded: 0 } }),
-    makeTicket("t2", "p1", 2, "Login", { key: "ALFA-2", parentId: "t1", status: null, progress: { done: 0, total: 1, excluded: 0 } }),
+    makeGroup("t1", "p1", 1, "Acesso", { key: "ALFA-1", progress: { done: 0, total: 1, excluded: 0 } }),
+    makeGroup("t2", "p1", 2, "Login", { key: "ALFA-2", parentId: "t1", progress: { done: 0, total: 1, excluded: 0 } }),
     makeTicket("t3", "p1", 3, "Senha", { key: "ALFA-3", parentId: "t2", status: "todo" }),
-    makeTicket("t4", "p1", 4, "Relatórios", { key: "ALFA-4", status: null, progress: { done: 0, total: 1, excluded: 0 } }),
+    makeGroup("t4", "p1", 4, "Relatórios", { key: "ALFA-4", progress: { done: 0, total: 1, excluded: 0 } }),
+    makeTicket("t5", "p1", 5, "Solto", { key: "ALFA-5" }),
+    makeGroup("t6", "p1", 6, "Fase vazia", { key: "ALFA-6" }),
   ],
 };
 const target = (...ids: string[]) => ({ parentId: ids.at(-1) ?? null, path: ids.map((id) => ({ id, title: tickets.p1.find((t) => t.id === id)!.title })) });
@@ -359,35 +361,20 @@ describe("path found", () => {
     expect(screen.getByRole("button", { name: /Usar: Acesso › Login/ })).toBeInTheDocument();
   });
 
-  describe("destination without subtickets", () => {
-    const notice = (title: string) => `«${title}» ainda não tem subtickets. O ticket novo será o primeiro.`;
-
-    it("warns when the destination is a leaf ticket", async () => {
-      setup(resumed(makePlacement({ destination: target("t1", "t2", "t3") })));
+  describe("destination that is an empty group", () => {
+    it("shows no warning about missing subtickets (ADR 0031 removed it): an empty group is a normal destination", async () => {
+      setup(resumed(makePlacement({ destination: target("t6") })));
       await search();
-      expect(await screen.findByText(notice("Senha"))).toBeInTheDocument();
-    });
-
-    it("does not warn for the project root", async () => {
-      setup(resumed(makePlacement({ destination: { parentId: null, path: [] } })));
-      await search();
-      await screen.findByRole("region", { name: "Caminho encontrado" });
+      const card = await screen.findByRole("region", { name: "Caminho encontrado" });
+      expect(card).toHaveTextContent("Fase vazia");
       expect(screen.queryByText(/ainda não tem subtickets/)).not.toBeInTheDocument();
+      expect(card.querySelector(".assistant-notice")).toBeNull();
     });
 
-    it("does not warn when the destination already has subtickets", async () => {
-      setup(resumed(makePlacement({ destination: target("t1", "t2") })));
+    it("shows no warning for a leaf-less alternative either", async () => {
+      setup(resumed(makePlacement({ destination: target("t1", "t2"), alternatives: [target("t6")] })));
       await search();
-      await screen.findByRole("region", { name: "Caminho encontrado" });
-      expect(screen.queryByText(/ainda não tem subtickets/)).not.toBeInTheDocument();
-    });
-
-    it("warns for the chosen alternative when it is a leaf, and stops when going back", async () => {
-      setup(resumed(makePlacement({ destination: target("t1", "t2"), alternatives: [target("t4")] })));
-      await search();
-      await userEvent.click(await screen.findByRole("button", { name: /Usar: Relatórios/ }));
-      expect(screen.getByText(notice("Relatórios"))).toBeInTheDocument();
-      await userEvent.click(screen.getByRole("button", { name: /Usar: Acesso › Login/ }));
+      await userEvent.click(await screen.findByRole("button", { name: /Usar: Fase vazia/ }));
       expect(screen.queryByText(/ainda não tem subtickets/)).not.toBeInTheDocument();
     });
   });
@@ -395,11 +382,12 @@ describe("path found", () => {
   it("warns when the place is uncertain, in words", async () => {
     setup(resumed(makePlacement({ destination: target("t1"), alternatives: [target("t4")], uncertain: true })));
     await search();
-    expect(await screen.findByText(/Não tenho certeza do lugar/)).toBeInTheDocument();
+    expect(await screen.findByText(/Não tenho certeza do lugar: mais de um agrupador serve/)).toBeInTheDocument();
+    expect(screen.queryByText(/ramo/)).not.toBeInTheDocument();
   });
 
   it.each([
-    ["candidates_too_large", /ramos demais/],
+    ["candidates_too_large", /agrupadores demais/],
     ["max_levels", /limite de níveis/],
   ] as const)("explains the early stop %s", async (reason, message) => {
     setup(resumed(makePlacement({ destination: target("t1"), stoppedEarly: { reason, level: 2, parentId: "t1" } })));
@@ -452,15 +440,45 @@ describe("path found", () => {
   });
 
   describe("Escolher no mapa", () => {
-    it("registers the picker; a ticket of the same project becomes the destination", async () => {
+    it("registers the picker; a group of the same project becomes the destination, with no explanation", async () => {
       const props = setup(resumed(makePlacement({ destination: target("t1") })));
       await search();
       await userEvent.click(await screen.findByRole("button", { name: "Escolher no mapa" }));
-      expect(screen.getByText(/Clique em um ticket ou no projeto/)).toBeInTheDocument();
+      expect(screen.getByText(/Clique em um agrupador ou no projeto/)).toBeInTheDocument();
       act(() => lastPicker(props).pick(ticketNode("t4")));
       expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t4", title: "Corrigir o login" });
       expect(props.registerPicker).toHaveBeenLastCalledWith(null);
-      expect(screen.queryByText(/Clique em um ticket ou no projeto/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Clique em um agrupador ou no projeto/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/é um ticket/)).not.toBeInTheDocument();
+    });
+
+    it("a ticket picks the group that holds it and the panel says so", async () => {
+      const props = setup(resumed(makePlacement({ destination: target("t4") })));
+      await search();
+      await userEvent.click(await screen.findByRole("button", { name: "Escolher no mapa" }));
+      act(() => lastPicker(props).pick(ticketNode("t3")));
+      expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t2", title: "Corrigir o login" });
+      expect(screen.getByText("«Senha» é um ticket. O destino passou a ser «Login».")).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Caminho encontrado" })).toHaveTextContent("Acesso");
+    });
+
+    it("a ticket at the project root picks the project root and the panel says so", async () => {
+      const props = setup(resumed(makePlacement({ destination: target("t4") })));
+      await search();
+      await userEvent.click(await screen.findByRole("button", { name: "Escolher no mapa" }));
+      act(() => lastPicker(props).pick(ticketNode("t5")));
+      expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: null, title: "Corrigir o login" });
+      expect(screen.getByText("«Solto» é um ticket. O destino passou a ser a raiz do projeto.")).toBeInTheDocument();
+    });
+
+    it("the explanation goes away when the destination changes by another route", async () => {
+      const props = setup(resumed(makePlacement({ destination: target("t4"), alternatives: [target("t1")] })));
+      await search();
+      await userEvent.click(await screen.findByRole("button", { name: "Escolher no mapa" }));
+      act(() => lastPicker(props).pick(ticketNode("t3")));
+      expect(screen.getByText(/é um ticket/)).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Um nível acima" }));
+      expect(screen.queryByText(/é um ticket/)).not.toBeInTheDocument();
     });
 
     it("the project of the conversation means the project root", async () => {
@@ -488,11 +506,11 @@ describe("path found", () => {
       await search();
       await userEvent.click(await screen.findByRole("button", { name: "Escolher no mapa" }));
       act(() => lastPicker(props).cancel());
-      expect(screen.queryByText(/Clique em um ticket ou no projeto/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Clique em um agrupador ou no projeto/)).not.toBeInTheDocument();
       expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t1", title: "Corrigir o login" });
       await userEvent.click(screen.getByRole("button", { name: "Escolher no mapa" }));
       await userEvent.click(screen.getByRole("button", { name: "Cancelar escolha" }));
-      expect(screen.queryByText(/Clique em um ticket ou no projeto/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Clique em um agrupador ou no projeto/)).not.toBeInTheDocument();
     });
   });
 

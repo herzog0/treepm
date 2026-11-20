@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import type { ApiClient, Me, Person, Project, ProjectMember, ProjectRole, ProjectVisibility, Team } from "../api/client.js";
+import type { ApiClient, Me, Person, Project, ProjectMember, ProjectRole, ProjectVisibility, Team, TicketKind } from "../api/client.js";
 import { describeApiError } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
@@ -18,8 +18,8 @@ interface ProjectDetailProps {
   onBack: () => void;
   /** Abre a tela de importação deste projeto; sem ela a ação não aparece. */
   onImport?: ((projectId: string) => void) | undefined;
-  /** Abre a página do ticket em modo de criação, na raiz deste projeto; sem ela a ação não aparece. */
-  onCreateTicket?: ((projectId: string) => void) | undefined;
+  /** Abre a página do ticket em modo de criação, na raiz deste projeto, do tipo pedido; sem ela as ações não aparecem. */
+  onCreateTicket?: ((projectId: string, kind: TicketKind) => void) | undefined;
   assistantAvailable?: boolean | undefined;
 }
 
@@ -48,8 +48,13 @@ export function ProjectDetail({ client, me, project, onChanged, onBack, onImport
       {canCreateTickets(me, project) && (onCreateTicket || onImport) && (
         <div className="panel-ticket-actions">
           {onCreateTicket && (
-            <button type="button" className={`panel-new-ticket ${assistantAvailable ? "" : "primary"}`} onClick={() => onCreateTicket(project.id)}>
+            <button type="button" className={`panel-new-ticket ${assistantAvailable ? "" : "primary"}`} onClick={() => onCreateTicket(project.id, "ticket")}>
               {assistantAvailable ? "Criar sem o assistente" : "Novo ticket"}
+            </button>
+          )}
+          {onCreateTicket && (
+            <button type="button" className="panel-new-group" onClick={() => onCreateTicket(project.id, "group")}>
+              Novo agrupador
             </button>
           )}
           {onImport && (

@@ -33,6 +33,23 @@ describe("ImportScreen", () => {
     expect(screen.getByText("Prévia")).toBeInTheDocument();
   });
 
+  it("marks an item with children as a group in the preview, and only that one", async () => {
+    setup();
+    await paste("- Fase\n  - [x] Passo\n  - Subfase\n    - Detalhe\n- [r] Solo");
+    const tree = screen.getByRole("list", { name: "Prévia da árvore" });
+    const row = (title: string) => within(tree).getByText(title).closest(".import-tree-row") as HTMLElement;
+    expect(within(row("Fase")).getByText("Agrupador")).toBeInTheDocument();
+    expect(within(row("Subfase")).getByText("Agrupador")).toBeInTheDocument();
+    expect(within(row("Passo")).queryByText("Agrupador")).not.toBeInTheDocument();
+    expect(within(row("Detalhe")).queryByText("Agrupador")).not.toBeInTheDocument();
+    expect(within(row("Solo")).queryByText("Agrupador")).not.toBeInTheDocument();
+  });
+
+  it("explains that an item with children becomes a group", async () => {
+    setup();
+    expect(await screen.findByText(/item com filhos vira um agrupador/i)).toBeInTheDocument();
+  });
+
   it("does not wrap long lines, so the indentation stays readable", async () => {
     setup();
     const area = await box();

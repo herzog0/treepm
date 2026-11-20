@@ -43,6 +43,7 @@ const projectSchema = z.object({
 });
 const projectTeamSchema = z.object({ projectId: z.string(), teamId: z.string() });
 const ticketStatus = z.enum(["todo", "in_progress", "in_review", "done", "cancelled"]);
+const ticketKind = z.enum(["ticket", "group"]);
 const ticketSummarySchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -50,6 +51,8 @@ const ticketSummarySchema = z.object({
   key: z.string(),
   parentId: z.string().nullable(),
   title: z.string(),
+  /** Tipo declarado (ADR 0031): só agrupador tem filhos; `status` é nulo e `progress` sempre existe nele. */
+  kind: ticketKind,
   status: ticketStatus.nullable(),
   progress: z.object({ done: z.number(), total: z.number(), excluded: z.number() }).nullable(),
   assigneeIds: z.array(z.string()),
@@ -103,6 +106,7 @@ export type ProjectVisibility = z.output<typeof visibility>;
 export type ProjectMember = z.output<typeof projectMemberSchema>;
 export type Project = z.output<typeof projectSchema>;
 export type ProjectTeam = z.output<typeof projectTeamSchema>;
+export type TicketKind = z.output<typeof ticketKind>;
 export type TicketStatus = z.output<typeof ticketStatus>;
 export type TicketSummary = z.output<typeof ticketSummarySchema>;
 export type TicketDetail = z.output<typeof ticketDetailSchema>;
@@ -127,6 +131,8 @@ export interface CreateTicketBody {
   title: string;
   description?: string;
   parentId?: string | null;
+  /** Tipo do nó novo; sem ele a API cria um ticket. */
+  kind?: TicketKind;
   status?: TicketStatus;
   assigneeIds?: string[];
 }
@@ -135,6 +141,8 @@ export interface UpdateTicketBody {
   description?: string;
   status?: TicketStatus;
   parentId?: string | null;
+  /** Transforma o nó: ticket em agrupador sempre; agrupador em ticket só vazio. */
+  kind?: TicketKind;
 }
 
 export type ApiErrorKind =
@@ -286,7 +294,9 @@ const MESSAGE_BY_CODE: Record<string, string> = {
   area_name_taken: "Já existe uma área com esse nome.",
   project_key_taken: "Já existe um projeto com essa chave.",
   person_inactive: "A pessoa não está mais na organização.",
-  ticket_has_children: "Este ticket tem filhos: a situação dele vem do progresso deles, e só se remove ticket sem filhos.",
+  ticket_has_children: "Este agrupador tem itens. Mova ou remova os itens antes de transformá-lo em ticket.",
+  parent_not_group: "Só um agrupador pode ter itens dentro dele.",
+  group_has_no_status: "Agrupador não tem situação própria.",
   ticket_cycle: "Um ticket não pode ser pai de si mesmo nem de um ancestral.",
   project_archived: "O projeto está arquivado e só aceita leitura.",
   assistant_not_configured: "O assistente não está configurado neste ambiente. Crie o ticket manualmente.",
@@ -307,6 +317,10 @@ const MESSAGE_BY_KIND: Record<ApiErrorKind, string> = {
   unavailable: "A API está indisponível. Tente novamente em instantes.",
 };
 
-export function describeApiError(error: ApiError): string {
+/** `remove` diz que a ação foi remover: o mesmo código `ticket_has_children` pede outra frase. */
+export function describeApiError(error: ApiError, action?: "remove"): string {
+  if (action === "remove" && error.code === "ticket_has_children") {
+    return "Este agrupador tem itens. Mova ou remova os itens antes de removê-lo.";
+  }
   return (error.code !== undefined ? MESSAGE_BY_CODE[error.code] : undefined) ?? MESSAGE_BY_KIND[error.kind];
 }

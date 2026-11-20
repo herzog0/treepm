@@ -201,7 +201,8 @@ export function ParentField({ client, detail, parent, tickets, canEdit, onOpen, 
   const blocked = descendantIds(tickets, detail.id);
   const needle = filter.trim().toLowerCase();
   const matches = (text: string) => needle === "" || text.toLowerCase().includes(needle);
-  const candidates = tickets.filter((entry) => entry.id !== detail.id && !blocked.has(entry.id) && matches(`${entry.key} ${entry.title}`));
+  // Só agrupador recebe itens (ADR 0031): tickets, o próprio nó e seus descendentes ficam fora.
+  const candidates = tickets.filter((entry) => entry.kind === "group" && entry.id !== detail.id && !blocked.has(entry.id) && matches(`${entry.key} ${entry.title}`));
 
   const choose = async (parentId: string | null) => {
     const result = await action.run(() => client.updateTicket(detail.id, { parentId }));
@@ -224,8 +225,8 @@ export function ParentField({ client, detail, parent, tickets, canEdit, onOpen, 
         )}
       </div>
       {picking && (
-        <div className="ticket-picker" role="group" aria-label="Escolher o ticket pai">
-          <input aria-label="Filtrar tickets" autoFocus value={filter} onChange={(event) => setFilter(event.target.value)} />
+        <div className="ticket-picker" role="group" aria-label="Escolher o agrupador pai">
+          <input aria-label="Filtrar agrupadores" autoFocus value={filter} onChange={(event) => setFilter(event.target.value)} />
           <div className="ticket-picker-list">
             {matches("Raiz do projeto") && <button type="button" disabled={action.busy} onClick={() => void choose(null)}>Raiz do projeto</button>}
             {candidates.map((entry) => (

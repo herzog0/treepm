@@ -4,14 +4,14 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient, Me, TicketDetail, TicketSummary } from "../api/client.js";
 import { makePanelMe, makePerson } from "../panel/testing.js";
-import { failed, makeClient, makeConversation, makePlacement, makeProject, makeTicket, ok } from "../test/fakes.js";
+import { failed, makeClient, makeConversation, makePlacement, makeProject, makeGroup, makeTicket, ok } from "../test/fakes.js";
 import { OrganizationMap } from "./OrganizationMap.js";
 
 const SLOW = 8000;
 const projects = [makeProject("p1", "ALFA", "Projeto Alfa"), makeProject("p2", "BETA", "Projeto Beta")];
 const tickets: Record<string, TicketSummary[]> = {
   p1: [
-    makeTicket("t1", "p1", 1, "Acesso", { key: "ALFA-1", status: null, progress: { done: 0, total: 1, excluded: 0 } }),
+    makeGroup("t1", "p1", 1, "Acesso", { key: "ALFA-1", progress: { done: 0, total: 1, excluded: 0 } }),
     makeTicket("t2", "p1", 2, "Login", { key: "ALFA-2", parentId: "t1", status: "todo" }),
     makeTicket("t3", "p1", 3, "Publicar", { key: "ALFA-3", status: "todo" }),
   ],
@@ -213,7 +213,7 @@ describe("the dashed card on the map", () => {
 describe("Escolher no mapa", () => {
   const manager = () => withAssistant(makePanelMe("member", [{ projectId: "p1", role: "manager" }, { projectId: "p2", role: "manager" }]));
 
-  it("the next click on a ticket of the project becomes the destination, without opening it or the selection card", async () => {
+  it("the next click on a ticket of the project chooses the group that holds it (the root here), without opening it or the selection card", async () => {
     const onChange = vi.fn();
     render(<Host client={makeFullClient()} me={manager()} onChange={onChange} />);
     await exploreAlfa();
@@ -223,8 +223,9 @@ describe("Escolher no mapa", () => {
     await userEvent.click(screen.getByRole("button", { name: "Escolher no mapa" }));
     await userEvent.click(await node(/ALFA-3 · Publicar/));
     const path = screen.getByRole("region", { name: "Caminho encontrado" });
-    expect(path).toHaveTextContent("Publicar");
-    expect(screen.queryByText(/Clique em um ticket ou no projeto/)).not.toBeInTheDocument();
+    expect(path).toHaveTextContent("Raiz do projeto");
+    expect(screen.getByText("«Publicar» é um ticket. O destino passou a ser a raiz do projeto.")).toBeInTheDocument();
+    expect(screen.queryByText(/Clique em um agrupador ou no projeto/)).not.toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalledWith("t3");
     expect(screen.queryByRole("complementary", { name: "Nó selecionado" })).not.toBeInTheDocument();
   }, SLOW);
@@ -258,10 +259,10 @@ describe("Escolher no mapa", () => {
     await userEvent.click(screen.getByRole("button", { name: "Novo ticket" }));
     await placed();
     await userEvent.click(screen.getByRole("button", { name: "Escolher no mapa" }));
-    expect(screen.getByText(/Clique em um ticket ou no projeto/)).toBeInTheDocument();
+    expect(screen.getByText(/Clique em um agrupador ou no projeto/)).toBeInTheDocument();
     screen.getByRole("region", { name: "Mapa da organização" }).focus();
     await userEvent.keyboard("{Escape}");
-    expect(screen.queryByText(/Clique em um ticket ou no projeto/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Clique em um agrupador ou no projeto/)).not.toBeInTheDocument();
     expect(assistant()).toBeInTheDocument();
   }, SLOW);
 });

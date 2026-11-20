@@ -9,8 +9,18 @@ export const STATUS_TEXT: Record<TicketStatus, string> = {
   cancelled: "Cancelado",
 };
 
-/** Situação em texto; ticket com filhos mostra o progresso com a base (ADR 0024). */
-export function describeTicketState(ticket: TicketSummary): string {
+/**
+ * Agrupador sem nenhum ticket abaixo (progresso 0 de 0, sem cancelados) e sem itens: "vazio" (ADR 0031).
+ * `itemCount` é o número de filhos diretos, quando quem chama o sabe; sem ele, vale só o progresso.
+ */
+export function isEmptyGroup(ticket: TicketSummary, itemCount?: number): boolean {
+  const { progress } = ticket;
+  return ticket.kind === "group" && progress !== null && progress.total === 0 && progress.excluded === 0 && (itemCount ?? 0) === 0;
+}
+
+/** Situação em texto; agrupador mostra o progresso com a base (ADR 0024) ou "vazio" (ADR 0031). */
+export function describeTicketState(ticket: TicketSummary, itemCount?: number): string {
+  if (isEmptyGroup(ticket, itemCount)) return "vazio";
   if (ticket.progress) {
     const { done, total, excluded } = ticket.progress;
     const base = `${done} de ${total} concluídos`;
@@ -19,14 +29,15 @@ export function describeTicketState(ticket: TicketSummary): string {
   return ticket.status ? STATUS_TEXT[ticket.status] : "";
 }
 
-/** Marcador da situação do ticket: progresso quando tem filhos, situação própria nos demais. */
+/** Marcador do ticket: progresso no agrupador (vazio quando 0 de 0), situação própria no ticket. */
 export function TicketMark({ ticket }: { ticket: TicketSummary }) {
   if (ticket.progress) return <StatusMark progress={ticket.progress} />;
   return ticket.status ? <StatusMark status={ticket.status} /> : null;
 }
 
 /** Texto curto da situação no card (sem a contagem de cancelados, que cabe no cartão de seleção). */
-export function stateText(ticket: TicketSummary): string {
+export function stateText(ticket: TicketSummary, itemCount?: number): string {
+  if (isEmptyGroup(ticket, itemCount)) return "vazio";
   if (ticket.progress) return `${ticket.progress.done} de ${ticket.progress.total} concluídos`;
   return ticket.status ? STATUS_TEXT[ticket.status] : "";
 }

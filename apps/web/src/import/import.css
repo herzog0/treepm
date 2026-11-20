@@ -34,3 +34,4 @@
 .import-unavailable { display: grid; justify-items: start; gap: 12px; }
 .import-unavailable p { margin: 0; color: var(--tp-text-2); }
 @media (max-width: 800px) { .import-columns { grid-template-columns: 1fr; } #import-list { min-height: 240px; height: 40vh; } }
+.import-tree-kind { flex: none; padding: 0 6px; border: 1px solid var(--tp-border-strong); border-radius: 4px; color: var(--tp-text-3); font-size: 11px; }
