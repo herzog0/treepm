@@ -402,7 +402,7 @@ Hipótese comercial inicial: assinatura B2B por organização, com uma unidade d
 9. Resolvida em 2026-11-20: na reclassificação ao editar (IDEA-014), a mudança de pai é confirmada ao salvar, e, quando realmente fizer sentido, o ticket não é salvo sem mudar de lugar primeiro. Continua aberto o critério que decide quando a mudança "realmente faz sentido"; ele pertence à ADR da IA.
 10. O que a memória da IA guarda (conversas, resumos de ramos, decisões), por quanto tempo, com que acesso por projeto e como é apagada? Depende também da dúvida 5.
 11. A conversa de novo ticket e a reclassificação são antecipadas para logo depois das telas de ticket, antes das Fases 3 e 4, ou ficam na Fase 5?
-12. Resolvida em parte em 2026-11-20: o clique continua selecionando sem mover a câmera, e o ticket abre (IDEA-013) por Enter, segundo clique no ticket selecionado ou botão "Abrir" no cartão de seleção. Continua aberto: ao fechar a página, a câmera volta ao lugar de antes ou fica no ticket?
+12. Resolvida em parte em 2026-11-20: o clique continua selecionando sem mover a câmera, e o ticket abre (IDEA-013) por Enter, segundo clique no ticket selecionado ou botão "Abrir" no cartão de seleção. Continua aberto: ao fechar a página, a câmera volta ao lugar de antes ou fica no ticket? A ADR 0026 adota, de forma provisória, que ela fica onde está.
 
 Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticket multidisciplinar/busca/stand-up, modelo de domínio e matriz de permissões, plano de dados e migrações, contrato de comandos/eventos, orçamento de desempenho e backlog por fase. Nenhum desses deve reintroduzir dependências do produto na engine headless.
 
