@@ -20,10 +20,10 @@ Hoje o limite de zoom vem do pacote: a câmera para quando o menor nó do mapa c
 
 ### Zoom máximo até a folha
 
-O mapa da organização passa a permitir zoom até o menor nó chegar a **440 px** de largura na tela, a mesma largura do card em foco no quadro aprovado. O limite é calculado na web a partir do layout dos itens e passado ao mapa como escala máxima.
+O mapa da organização passa a permitir zoom até o menor nó chegar a **440 px** de largura na tela, a mesma largura do card em foco no quadro aprovado. O limite é calculado na web a partir do layout dos itens e passado ao mapa como escala máxima. O piso de escala que o pacote já aplica (6) é mantido: em árvore pequena, só com a organização e projetos, o zoom continua indo até onde já ia, além dos 440 px.
 
 - "Explorar ramo", o enquadramento inicial, os gestos, o passo dos botões de zoom e os limiares de nível de detalhe não mudam.
-- O card grande mostra o conteúdo do nível "completo" (chave, título, marcador com situação ou progresso), em tamanho maior. O nível "detalhe" da ADR 0025, com mais conteúdo no card, continua pendente.
+- O card cresce, mas o conteúdo é o do nível "completo" (chave, título, marcador com situação ou progresso) no mesmo tamanho de letra de hoje, no canto do card; o resto do card fica vazio. É como o card de um ticket pai já aparece quando está grande. Texto maior e mais conteúdo são o nível "detalhe" da ADR 0025, que continua pendente.
 - `?demo` não muda.
 
 ### Abrir um ticket
@@ -69,7 +69,7 @@ Ficam fora deste recorte, embora apareçam nos quadros: a seção **Atividade**,
 - **Adicionar pessoa:** escolha entre as pessoas ativas da organização que ainda não estão no ticket. A API valida o acesso ao projeto (`person_without_project_access`, `person_inactive`).
 - **Remover o ticket:** ação destrutiva com o segundo clique no mesmo lugar, só para quem pode remover. Depois de remover, a página fecha e a seleção é limpa. Ticket com filhos mostra a mensagem do `ticket_has_children`.
 - Erro de cada ação aparece junto do controle que a disparou e some na próxima ação bem-sucedida da mesma região. Não há controle de versão: se duas pessoas editarem o mesmo ticket, vale a última gravação.
-- Depois de cada mudança, a página e o mapa recarregam os dados, sem perder a câmera nem o ticket aberto.
+- Depois de cada mudança, a página e o mapa recarregam os dados, sem perder a câmera nem o ticket aberto. Quando a mudança tira o ticket aberto do lugar no mapa, como na mudança de pai, a câmera volta a enquadrá-lo.
 
 ### Criação manual
 
@@ -87,7 +87,7 @@ As mesmas da ADR 0024, aplicadas pela API e refletidas na página:
 - Quem vê o projeto vê a página, só para leitura.
 - Administrador da organização, gestor e colaborador do projeto criam, editam, mudam situação e pai e atribuem pessoas.
 - Administrador da organização e gestor removem.
-- Em projeto arquivado a página é só de leitura e avisa o motivo.
+- Em projeto arquivado a página é só de leitura e avisa o motivo. O mapa não mostra projeto arquivado, então nesse caso a página abre pelo endereço sem nó para selecionar nem foco da câmera.
 
 ## Consequências
 
