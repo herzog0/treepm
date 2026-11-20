@@ -42,7 +42,7 @@ Não exigir que todos os clientes adotem a mesma metodologia. Fluxos, vocabulár
 - Afastar comprime filhos em pequenos representantes. Quando vários filhos compartilham um quadrado mesclado, a apresentação guarda exatamente quais IDs ele representa; a cor vem de uma função configurável. Não há badge visual `+N`.
 - Aproximar separa os representantes e os transforma nos cards correspondentes. A mesma mecânica funciona na volta.
 - Seleção é um estado; navegação é uma intenção explícita. Clicar no card abre contexto sem mover a câmera. Escolher um resultado de busca, uma referência ou um item de roteiro pode selecionar **e navegar**, porque essa ação declara o destino.
-- Abrir um ticket é uma intenção explícita, diferente de selecionar (IDEA-013): o mapa desliza para a esquerda, uma página lateral se abre com mais detalhes do ticket e a câmera foca nele, com zoom grande. O gesto que abre o ticket e o que acontece com a câmera ao fechar a página são dúvidas abertas da seção 15.
+- Abrir um ticket é uma intenção explícita, diferente de selecionar (IDEA-013): o mapa desliza para a esquerda, uma página lateral se abre com mais detalhes do ticket e a câmera foca nele, com zoom grande. O clique continua selecionando sem mover a câmera; o ticket abre por Enter, por um segundo clique no ticket já selecionado ou pelo botão "Abrir" do cartão de seleção (decisão de Teodoro em 2026-11-20). O que acontece com a câmera ao fechar a página é dúvida aberta da seção 15.
 - A navegação oferece Voltar/Avançar entre destinos, breadcrumbs e links diretos. Restaurar um link valida acesso antes de carregar o contexto do ticket.
 
 ### O que aparece em cada compressão
@@ -137,7 +137,7 @@ Um botão de novo ticket, em algum ponto da tela do mapa, abre um painel lateral
 
 A IA tem memória e um mapa mental de qual ticket está onde e sobre qual conteúdo. É isso que permite reconhecer que uma demanda nova toca em trabalho já registrado. O que essa memória guarda, por quanto tempo e com que acesso é uma dúvida aberta da seção 15.
 
-Editar o conteúdo de um ticket é sempre possível. Quando a edição muda o assunto a ponto de o ticket pertencer a outra categoria, a mudança de pai tem que acontecer (IDEA-014): a plataforma refaz a procura do caminho com o texto novo e o ticket vai para o novo lugar. Se isso acontece sozinho ou depende de confirmação ao salvar é uma dúvida aberta da seção 15.
+Editar o conteúdo de um ticket é sempre possível. Quando a edição muda o assunto a ponto de o ticket pertencer a outra categoria, a mudança de pai tem que acontecer (IDEA-014): a plataforma refaz a procura do caminho com o texto novo e o ticket vai para o novo lugar. A mudança é confirmada ao salvar; quando ela realmente fizer sentido, o ticket não é salvo sem mudar de lugar primeiro (decisão de Teodoro em 2026-11-20). O critério que separa esses casos fica para a ADR da IA.
 
 Sem IA, o fluxo continua funcionando com criação manual, seleção de pai, busca e atalhos. Se nenhum ramo fizer sentido, a demanda pode permanecer na caixa de entrada do projeto ou ser uma nova raiz, conforme permissão. Não forçar uma categoria apenas para preencher o campo pai.
 
@@ -399,10 +399,10 @@ Hipótese comercial inicial: assinatura B2B por organização, com uma unidade d
 6. Qual integração oferece mais valor ao piloto: código/PR, mensagens, calendário ou importação de backlog?
 7. Quais requisitos de retenção, backup/restauração, exportação e disponibilidade precisam ser atendidos antes de dados reais?
 8. Na visão em BPMN (IDEA-012), de onde a IA do projeto aprende as regras de negócio (tickets, critérios, documentos, código) e quem revisa o modelo gerado?
-9. Na reclassificação ao editar (IDEA-014), a mudança de pai acontece sozinha ao salvar ou depende de confirmação? A pesquisa de serviços recomenda que nenhuma resposta de modelo altere o parentesco por conta própria; a proposta visual de 2026-11-19 mostra a mudança como parte do salvar, com o lugar atual e o novo à vista.
+9. Resolvida em 2026-11-20: na reclassificação ao editar (IDEA-014), a mudança de pai é confirmada ao salvar, e, quando realmente fizer sentido, o ticket não é salvo sem mudar de lugar primeiro. Continua aberto o critério que decide quando a mudança "realmente faz sentido"; ele pertence à ADR da IA.
 10. O que a memória da IA guarda (conversas, resumos de ramos, decisões), por quanto tempo, com que acesso por projeto e como é apagada? Depende também da dúvida 5.
 11. A conversa de novo ticket e a reclassificação são antecipadas para logo depois das telas de ticket, antes das Fases 3 e 4, ou ficam na Fase 5?
-12. Que gesto abre um ticket (IDEA-013): o próprio clique, um segundo clique, Enter ou um botão no cartão de seleção? Hoje o clique seleciona sem mover a câmera. Ao fechar a página, a câmera volta ao lugar de antes ou fica no ticket?
+12. Resolvida em parte em 2026-11-20: o clique continua selecionando sem mover a câmera, e o ticket abre (IDEA-013) por Enter, segundo clique no ticket selecionado ou botão "Abrir" no cartão de seleção. Continua aberto: ao fechar a página, a câmera volta ao lugar de antes ou fica no ticket?
 
 Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticket multidisciplinar/busca/stand-up, modelo de domínio e matriz de permissões, plano de dados e migrações, contrato de comandos/eventos, orçamento de desempenho e backlog por fase. Nenhum desses deve reintroduzir dependências do produto na engine headless.
 
@@ -423,7 +423,7 @@ Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticke
 | IDEA-011 | Estimativas por IA com scores de complexidade, risco e incerteza, separando execução até o PR e tempo de revisão |
 | IDEA-012 | Visão geral de processos em BPMN, renderizada a partir das regras de negócio aprendidas pela IA, com alertas de pontos de falha e gaps; exploratória, sem fase definida |
 | IDEA-013 | Abrir ticket com deslize do mapa, página lateral de detalhes e foco com zoom grande (seções 2 e 12) |
-| IDEA-014 | Reclassificação quando a edição muda a categoria do ticket (seções 4 e 8), com a forma da mudança em aberto na seção 15 |
+| IDEA-014 | Reclassificação quando a edição muda a categoria do ticket (seções 4 e 8), confirmada ao salvar |
 | Pedido de 2026-11-05 | Agrupamento sem `+N`, contratos genéricos, camadas headless/estilizáveis, contribuições por área, Clerk e multi-tenancy |
 
 Fontes de capacidades externas e limitações estão em [Clerk e Jev](research/platform-services.md). O restante deste documento é uma proposta de produto, não uma afirmação de disponibilidade de funções na base atual.
