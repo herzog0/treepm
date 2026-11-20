@@ -359,6 +359,39 @@ describe("path found", () => {
     expect(screen.getByRole("button", { name: /Usar: Acesso › Login/ })).toBeInTheDocument();
   });
 
+  describe("destination without subtickets", () => {
+    const notice = (title: string) => `«${title}» ainda não tem subtickets. O ticket novo será o primeiro.`;
+
+    it("warns when the destination is a leaf ticket", async () => {
+      setup(resumed(makePlacement({ destination: target("t1", "t2", "t3") })));
+      await search();
+      expect(await screen.findByText(notice("Senha"))).toBeInTheDocument();
+    });
+
+    it("does not warn for the project root", async () => {
+      setup(resumed(makePlacement({ destination: { parentId: null, path: [] } })));
+      await search();
+      await screen.findByRole("region", { name: "Caminho encontrado" });
+      expect(screen.queryByText(/ainda não tem subtickets/)).not.toBeInTheDocument();
+    });
+
+    it("does not warn when the destination already has subtickets", async () => {
+      setup(resumed(makePlacement({ destination: target("t1", "t2") })));
+      await search();
+      await screen.findByRole("region", { name: "Caminho encontrado" });
+      expect(screen.queryByText(/ainda não tem subtickets/)).not.toBeInTheDocument();
+    });
+
+    it("warns for the chosen alternative when it is a leaf, and stops when going back", async () => {
+      setup(resumed(makePlacement({ destination: target("t1", "t2"), alternatives: [target("t4")] })));
+      await search();
+      await userEvent.click(await screen.findByRole("button", { name: /Usar: Relatórios/ }));
+      expect(screen.getByText(notice("Relatórios"))).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: /Usar: Acesso › Login/ }));
+      expect(screen.queryByText(/ainda não tem subtickets/)).not.toBeInTheDocument();
+    });
+  });
+
   it("warns when the place is uncertain, in words", async () => {
     setup(resumed(makePlacement({ destination: target("t1"), alternatives: [target("t4")], uncertain: true })));
     await search();

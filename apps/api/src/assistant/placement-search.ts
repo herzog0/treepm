@@ -21,7 +21,7 @@ export type JudgeInput = Parameters<BranchJudge["judge"]>[0];
 
 export type PlacementDeps = {
   judge: BranchJudge;
-  /** Ramos candidatos (filhos que têm filhos, já com resumo) de um nó; `null` é a raiz do projeto. */
+  /** Candidatos de um nó: todos os seus filhos diretos, com ou sem filhos (ADR 0030); `null` é a raiz do projeto. Uma folha não tem candidatos, e a procura termina nela. */
   candidates(parentId: string | null): Promise<readonly BranchCandidate[]>;
   /** A requisição cabe no limite de tokens do juiz? Se não, a procura para naquele nível. */
   fits(input: JudgeInput): boolean;
@@ -33,7 +33,7 @@ export type PlacementTarget = { parentId: string | null; path: { id: string; tit
 export type PlacementOutcome = {
   destination: PlacementTarget;
   alternatives: PlacementTarget[];
-  /** Ramos oferecidos em algum nível e não seguidos pelos caminhos mantidos. */
+  /** Tickets oferecidos em algum nível e não seguidos pelos caminhos mantidos. */
   discarded: { level: number; parentId: string | null; ticketId: string; title: string }[];
   uncertain: boolean;
   stoppedEarly: { reason: "candidates_too_large" | "max_levels"; level: number; parentId: string | null } | null;

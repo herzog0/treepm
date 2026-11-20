@@ -28,9 +28,9 @@ const BRANCH = {
 };
 const DRAFT = { title: "Botão de entrar não responde no celular", description: "O botão da tela de login não reage ao toque em celulares." };
 const CANDIDATES = [
-  { id: "ficticio-1", title: "Acesso e autenticação", summary: "Login, senha e sessões das pessoas na plataforma." },
-  { id: "ficticio-2", title: "Cobrança e faturas", summary: "Planos, faturas e pagamentos da organização." },
-  { id: "ficticio-3", title: "Relatórios", summary: "Painéis e exportações de dados de uso." },
+  { id: "ficticio-1", title: "Acesso e autenticação", summary: "Login, senha e sessões das pessoas na plataforma.", hasChildren: true },
+  { id: "ficticio-2", title: "Cobrança e faturas", summary: "Planos, faturas e pagamentos da organização.", hasChildren: true },
+  { id: "ficticio-3", title: "Relatórios", summary: "Painéis e exportações de dados de uso.", hasChildren: true },
 ];
 
 const anthropicKey = process.env["ANTHROPIC_API_KEY"];

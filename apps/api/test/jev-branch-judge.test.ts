@@ -8,8 +8,8 @@ const input = {
   draft: { title: "Corrigir login", description: "O botão não responde" },
   current: { title: "Autenticação", summary: "Entrada no sistema" },
   candidates: [
-    { id: "id-1", title: "Login", summary: "Tela de login" },
-    { id: "id-2", title: "Cobrança", summary: "Faturas e pagamentos" },
+    { id: "id-1", title: "Login", summary: "Tela de login", hasChildren: true },
+    { id: "id-2", title: "Cobrança", summary: "Faturas e pagamentos", hasChildren: true },
   ],
 };
 
@@ -43,27 +43,79 @@ describe("JevBranchJudge — a requisição", () => {
     expect(JSON.stringify(request)).not.toMatch(/id-1|id-2/);
   });
 
-  it("o estado tem campos nomeados com rascunho, ramo atual e candidatos", async () => {
+  it("o estado tem campos nomeados com rascunho, ticket atual e candidatos", async () => {
     const captured: { request: any; options: any }[] = [];
     await new JevBranchJudge(fake(answer(0.9, { Login: 0.8, Cobrança: 0.2 }), captured)).judge(input);
     expect(captured[0]!.request.state).toEqual({
       draft: input.draft,
-      current_branch: input.current,
-      candidate_branches: [
-        { title: "Login", summary: "Tela de login" },
-        { title: "Cobrança", summary: "Faturas e pagamentos" },
+      current_ticket: { title: "Autenticação", subtickets_summary: "Entrada no sistema" },
+      candidates: [
+        { title: "Login", subtickets_summary: "Tela de login" },
+        { title: "Cobrança", subtickets_summary: "Faturas e pagamentos" },
       ],
     });
   });
 
-  it("na raiz não há ramo atual no estado", async () => {
+  it("na raiz não há ticket atual no estado", async () => {
     const captured: { request: any; options: any }[] = [];
     await new JevBranchJudge(fake(answer(0.9, { Login: 0.8, Cobrança: 0.2 }), captured)).judge({ ...input, current: null });
-    expect("current_branch" in captured[0]!.request.state).toBe(false);
+    expect("current_ticket" in captured[0]!.request.state).toBe(false);
+  });
+
+  const mixed = {
+    ...input,
+    current: null,
+    candidates: [
+      { id: "id-1", title: "Login", summary: "Tela de login", hasChildren: true },
+      { id: "id-2", title: "Senha", summary: "Trecho da descrição", hasChildren: false },
+      { id: "id-3", title: "Sessão", summary: "", hasChildren: false },
+    ],
+  };
+
+  it("candidatos em três formatos: ramo, folha com descrição e folha sem descrição", async () => {
+    const captured: { request: any; options: any }[] = [];
+    await new JevBranchJudge(fake(answer(0.9, { Login: 0.5, Senha: 0.3, Sessão: 0.2 }), captured)).judge(mixed);
+    const { state, questions } = captured[0]!.request;
+    expect(state.candidates).toEqual([
+      { title: "Login", subtickets_summary: "Tela de login" },
+      { title: "Senha", description: "Trecho da descrição" },
+      { title: "Sessão" },
+    ]);
+    expect("description" in state.candidates[2]).toBe(false);
+    expect(questions.branch.criteria).toEqual({ Login: "Tela de login", Senha: "Trecho da descrição", Sessão: null });
+  });
+
+  it("o texto das perguntas é o da ADR 0030, letra por letra", async () => {
+    const captured: { request: any; options: any }[] = [];
+    await new JevBranchJudge(fake(answer(0.9, { Login: 0.8, Cobrança: 0.2 }), captured)).judge(input);
+    const { belongs, branch } = captured[0]!.request.questions;
+    expect(belongs.instructions).toBe("O trabalho descrito em `draft` é uma parte do trabalho de pelo menos um dos tickets de `candidates`?");
+    expect(belongs.criteria).toEqual({
+      true: "`draft` descreve um pedaço do que um dos tickets de `candidates` abrange: a equipe esperaria encontrá-lo como subticket desse ticket.",
+      false:
+        "`draft` não é um pedaço de nenhum dos tickets de `candidates`. Ele é mais geral que todos eles, trata de um assunto novo, ou é um trabalho vizinho de um deles: do mesmo tema, mas que se faz e se conclui de forma independente. Nesses casos ele ficaria ao lado dos tickets de `candidates`, e não dentro de um deles.",
+    });
+    expect(branch.instructions).toBe("De qual dos tickets de `candidates` o trabalho descrito em `draft` é uma parte?");
+  });
+
+  it("títulos repetidos misturando folha e ramo: sufixo e volta das probabilidades por id", async () => {
+    const twins = {
+      ...input,
+      candidates: [
+        { id: "id-1", title: "Login", summary: "Tela de login", hasChildren: true },
+        { id: "id-3", title: "Login", summary: "Trecho", hasChildren: false },
+        { id: "id-4", title: "Login", summary: "", hasChildren: false },
+      ],
+    };
+    const captured: { request: any; options: any }[] = [];
+    const out = await new JevBranchJudge(fake(answer(0.9, { Login: 0.5, "Login (2)": 0.3, "Login (3)": 0.2 }), captured)).judge(twins);
+    expect(captured[0]!.request.questions.branch.criteria).toEqual({ Login: "Tela de login", "Login (2)": "Trecho", "Login (3)": null });
+    expect(captured[0]!.request.state.candidates.map((c: { title: string }) => c.title)).toEqual(["Login", "Login (2)", "Login (3)"]);
+    expect(out.choice).toEqual({ "id-1": 0.5, "id-3": 0.3, "id-4": 0.2 });
   });
 
   it("títulos repetidos ganham sufixo e cada opção continua ligada ao seu ramo", async () => {
-    const twin = { ...input, candidates: [input.candidates[0]!, { id: "id-3", title: "Login", summary: "Login de admin" }] };
+    const twin = { ...input, candidates: [input.candidates[0]!, { id: "id-3", title: "Login", summary: "Login de admin", hasChildren: true }] };
     const captured: { request: any; options: any }[] = [];
     const out = await new JevBranchJudge(fake(answer(0.9, { Login: 0.7, "Login (2)": 0.3 }), captured)).judge(twin);
     expect(Object.keys(captured[0]!.request.questions.branch.criteria)).toEqual(["Login", "Login (2)"]);
@@ -107,7 +159,7 @@ describe("JevBranchJudge — a resposta", () => {
 describe("judgeInputFits", () => {
   it("aceita poucos candidatos e recusa quando a estimativa passa do limite", () => {
     expect(judgeInputFits(input)).toBe(true);
-    const huge = { ...input, candidates: Array.from({ length: 400 }, (_, i) => ({ id: `i${i}`, title: `Ramo ${i}`, summary: "x".repeat(600) })) };
+    const huge = { ...input, candidates: Array.from({ length: 400 }, (_, i) => ({ id: `i${i}`, title: `Ramo ${i}`, summary: "x".repeat(600), hasChildren: true })) };
     expect(judgeInputFits(huge)).toBe(false);
   });
 
