@@ -78,6 +78,8 @@ A importação da [ADR 0024](0024-tickets-primeiro-recorte-e-importacao-por-list
 
 ## Pendente, fora desta ADR
 
+Em 2026-11-20 Teodoro aprovou a proposta visual inteira. A página do ticket e a criação e edição manual passaram a ser decididas na [ADR 0026](0026-pagina-do-ticket-e-zoom-ate-a-folha.md); os itens abaixo ficam como registro do que estava pendente nesta data.
+
 - **Página lateral do ticket com deslize e foco (IDEA-013).** Falta decidir que gesto abre o ticket. Hoje um clique seleciona sem mover a câmera, e essa interação é a aprovada.
 - **Card em nível "detalhe".** Os quadros mostram um quinto nível, para o card grande. `renderNodeContent` só recebe os quatro níveis atuais, sem a largura projetada, então isso pede mudança em `packages/react` ou outra técnica a avaliar.
 - **Novo ticket pela conversa com a IA e reclassificação ao editar (IDEA-005 e IDEA-014).** Dependem de ADR própria, das dúvidas 5, 9, 10 e 11 do blueprint e de chaves de provedores.
