@@ -76,7 +76,15 @@ ideas:
       - Se o Jev identificar a necessidade de uma categoria intermediária inexistente, o sistema pode criá-la com a ajuda dele para definir sua descrição.
       - A tarefa não deve ser forçada em um ramo quando nenhum filho do card atual a contemplar.
       - Quando nenhuma categoria do nível geral contemplar a tarefa, ela pode ser criada como um ticket geral, sem pai.
-    relationships: []
+      - Complemento de 2026-11-19. Um botão de adicionar task, em algum ponto da tela do mapa, abre um painel lateral direito com um chat com a IA da plataforma.
+      - A IA tem memória e um mapa mental de qual task está onde e sobre qual conteúdo.
+      - Antes de procurar o caminho e criar a task de fato, a IA formata o texto e faz mais perguntas à pessoa.
+      - A plataforma encontra o caminho até o local onde a task descrita no chat se enquadra como folha, testando do topo até a base qual ramo se enquadra melhor com o que a pessoa vai trabalhar.
+    relationships:
+      - type: related_to
+        target: IDEA-013
+      - type: related_to
+        target: IDEA-014
   - id: IDEA-006
     created_at: 2026-11-04
     title: Reinício a partir da engine espacial
@@ -202,3 +210,32 @@ ideas:
     relationships:
       - type: depends_on
         target: IDEA-009
+  - id: IDEA-013
+    created_at: 2026-11-19
+    title: Abrir ticket com deslize, página lateral e foco no mapa
+    status: proposed
+    summary: >-
+      Abrir um ticket desliza o mapa para a esquerda, abre uma página lateral
+      com mais detalhes e leva a câmera a um zoom grande no ticket.
+    details:
+      - Ao abrir um ticket, o mapa desliza para a esquerda.
+      - Uma página lateral se abre com mais detalhes do ticket.
+      - O mapa foca no ticket aberto, com zoom grande nele.
+    relationships:
+      - type: refines
+        target: IDEA-004
+      - type: related_to
+        target: IDEA-009
+  - id: IDEA-014
+    created_at: 2026-11-19
+    title: Reclassificação do ticket quando a edição muda a categoria
+    status: proposed
+    summary: >-
+      Editar o conteúdo de uma task é possível; se a alteração mudar a
+      categoria da task, a mudança de pai tem que acontecer.
+    details:
+      - A edição do conteúdo de uma task é possível.
+      - Se o conteúdo for alterado a ponto de a task mudar de categoria, isto é, mudar de pai, essa mudança tem que acontecer.
+    relationships:
+      - type: refines
+        target: IDEA-005
