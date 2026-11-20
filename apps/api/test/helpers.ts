@@ -11,8 +11,9 @@ import type { DirectoryProvider } from "../src/auth/directory-provider.js";
 import { DIRECTORY_PROVIDER } from "../src/auth/directory-provider.js";
 import type { SessionVerifier, VerifiedSession } from "../src/auth/session-verifier.js";
 import { SESSION_VERIFIER } from "../src/auth/session-verifier.js";
-import { BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER } from "../src/assistant/ports.js";
-import { FakeBranchJudge, FakeBranchSummarizer, FakeConversationProvider } from "./assistant-fakes.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, GROUP_NAMER, PLACEMENT_TIMEOUTS } from "../src/assistant/ports.js";
+import type { PlacementTimeouts } from "../src/assistant/ports.js";
+import { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeConversationProvider, FakeGroupNamer } from "./assistant-fakes.js";
 
 export { OWNER_URL };
 
@@ -78,7 +79,7 @@ export class FakeDirectory implements DirectoryProvider {
 export async function createTestApp(
   extraControllers: Type<unknown>[] = [],
   config: AppConfig = TEST_CONFIG,
-  options: { realAssistant?: boolean } = {},
+  options: { realAssistant?: boolean; timeouts?: PlacementTimeouts } = {},
 ): Promise<{
   app: INestApplication;
   directory: FakeDirectory;
@@ -86,12 +87,16 @@ export async function createTestApp(
   conversation: FakeConversationProvider;
   judge: FakeBranchJudge;
   summarizer: FakeBranchSummarizer;
+  affinity: FakeAffinityJudge;
+  namer: FakeGroupNamer;
 }> {
   const directory = new FakeDirectory();
   const verifier = new FakeSessionVerifier();
   const conversation = new FakeConversationProvider();
   const judge = new FakeBranchJudge();
   const summarizer = new FakeBranchSummarizer();
+  const affinity = new FakeAffinityJudge();
+  const namer = new FakeGroupNamer();
   let builder = Test.createTestingModule({
     imports: [AppModule],
     controllers: extraControllers,
@@ -103,8 +108,13 @@ export async function createTestApp(
       .overrideProvider(BRANCH_JUDGE)
       .useValue(judge)
       .overrideProvider(BRANCH_SUMMARIZER)
-      .useValue(summarizer);
+      .useValue(summarizer)
+      .overrideProvider(AFFINITY_JUDGE)
+      .useValue(affinity)
+      .overrideProvider(GROUP_NAMER)
+      .useValue(namer);
   }
+  if (options.timeouts) builder = builder.overrideProvider(PLACEMENT_TIMEOUTS).useValue(options.timeouts);
   const moduleRef = await builder
     .overrideProvider(CONFIG)
     .useValue(config)
@@ -116,7 +126,7 @@ export async function createTestApp(
   const app = moduleRef.createNestApplication({ logger: false });
   configureApp(app, config);
   await app.init();
-  return { app, directory, verifier, conversation, judge, summarizer };
+  return { app, directory, verifier, conversation, judge, summarizer, affinity, namer };
 }
 
 export function ownerPoolWithCleanup(): pg.Pool {

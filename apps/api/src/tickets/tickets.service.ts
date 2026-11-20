@@ -198,4 +198,57 @@ export class TicketsService {
     });
     return this.detail(tx, project, created.id);
   }
+
+  /**
+   * Confirmar uma proposta de agrupador (ADR 0031), dentro da transação da rota: confere de novo que cada ticket ainda é
+   * um ticket solto de `parentId` (409 `grouping_changed`, sem criar nem mover nada), cria o agrupador e move os
+   * tickets para ele. Devolve o id do agrupador, que passa a ser o pai do ticket novo.
+   */
+  async createGroupAndMove(
+    tx: TenantClient,
+    principal: Principal,
+    project: ProjectRow,
+    parentId: string | null,
+    group: { title: string; description: string; ticketIds: string[] },
+    origin: Record<string, string>,
+  ): Promise<string> {
+    if (parentId) await this.requireParent(tx, project.id, parentId);
+    // Trava os tickets até o fim da transação: ninguém os move nem os remove entre a conferência e a mudança.
+    await tx.$queryRaw`select id from tickets where id = any(${group.ticketIds}::uuid[]) order by id for update`;
+    const found = await tx.ticket.findMany({
+      where: { id: { in: group.ticketIds }, projectId: project.id, kind: "ticket", parentId },
+      select: { id: true, number: true, parentId: true },
+    });
+    if (found.length !== group.ticketIds.length) {
+      throw new ConflictException({
+        code: "grouping_changed",
+        message: "Algum desses tickets mudou de lugar. Procure de novo.",
+      });
+    }
+    const created = await this.create(
+      tx,
+      principal,
+      project,
+      { title: group.title, description: group.description, parentId, kind: "group", status: "todo", assigneeIds: [] },
+      origin,
+    );
+    for (const moved of [...found].sort((a, b) => a.number - b.number)) {
+      await tx.ticket.update({
+        where: { orgId_id: { orgId: project.orgId, id: moved.id } },
+        data: { parentId: created.id, parentKind: "group" },
+      });
+      await this.activity.record(tx, principal, {
+        kind: "ticket.updated",
+        subjectType: "ticket",
+        subjectId: moved.id,
+        payload: {
+          key: `${project.key}-${moved.number}`,
+          fields: ["parentId"],
+          parentId: { from: parentId, to: created.id },
+          ...origin,
+        },
+      });
+    }
+    return created.id;
+  }
 }

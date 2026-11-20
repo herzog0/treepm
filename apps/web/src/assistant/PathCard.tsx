@@ -1,4 +1,4 @@
-import type { ApiError, PlacementOutcome, Project } from "../api/client.js";
+import type { ApiError, GroupProposal, PlacementOutcome, Project } from "../api/client.js";
 import { describeApiError } from "../api/client.js";
 import { destinationLabel } from "./placement.js";
 import type { Destination } from "./placement.js";
@@ -26,6 +26,12 @@ interface PathCardProps {
   onChoose: () => void;
   onCancelChoose: () => void;
   onCreate: () => void;
+  /** A proposta de agrupador novo (ADR 0031) enquanto o destino é o da procura; `null` quando não há ou foi descartada. */
+  proposal: GroupProposal | null;
+  /** Ids dos tickets da proposta que a pessoa tirou da lista. */
+  unchecked: readonly string[];
+  onToggle: (ticketId: string) => void;
+  onCreateGroup: () => void;
 }
 
 /** O caminho do topo até a base, em palavras: sem probabilidades (ADR 0029). */
@@ -38,6 +44,9 @@ export function PathCard(props: PathCardProps) {
     { name: `Ticket novo: ${draftTitle}`, note: "Entra aqui, como filho do passo anterior." },
   ];
   const stopped = outcome.stoppedEarly;
+  const { proposal } = props;
+  // A última marcada não desmarca: o agrupador precisa de pelo menos um ticket além do novo.
+  const checkedCount = proposal ? proposal.tickets.filter((ticket) => !props.unchecked.includes(ticket.id)).length : 0;
 
   return (
     <section className="assistant-card is-path" aria-label="Caminho encontrado">
@@ -51,6 +60,26 @@ export function PathCard(props: PathCardProps) {
           </li>
         ))}
       </ol>
+      {proposal && (
+        <div className="assistant-proposal">
+          <p className="proposal-line">Este ticket parece formar um grupo com outros daqui.</p>
+          <p className="proposal-title">{proposal.title}</p>
+          {proposal.description !== "" && <p className="proposal-description">{proposal.description}</p>}
+          <ul className="proposal-tickets" aria-label="Tickets que vão para o agrupador">
+            {proposal.tickets.map((ticket) => {
+              const checked = !props.unchecked.includes(ticket.id);
+              return (
+                <li key={ticket.id}>
+                  <label>
+                    <input type="checkbox" checked={checked} disabled={busy || (checked && checkedCount === 1)} onChange={() => props.onToggle(ticket.id)} />
+                    {ticket.title}
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
       {props.outOfScope && (
         <p className="assistant-notice" role="status">
           Este ticket talvez não caiba em «{props.outOfScope.title}».{" "}
@@ -86,7 +115,14 @@ export function PathCard(props: PathCardProps) {
       {choosing && pickNotice !== "" && <p role="alert">{pickNotice}</p>}
       {props.error && <p role="alert">{describeApiError(props.error)}</p>}
       <div className="assistant-actions">
-        <button type="button" className="primary" disabled={busy} onClick={props.onCreate}>Criar aqui</button>
+        {proposal ? (
+          <>
+            <button type="button" className="primary" disabled={busy} onClick={props.onCreateGroup}>Criar agrupador e mover</button>
+            <button type="button" disabled={busy} onClick={props.onCreate}>Só criar o ticket</button>
+          </>
+        ) : (
+          <button type="button" className="primary" disabled={busy} onClick={props.onCreate}>Criar aqui</button>
+        )}
         <button type="button" disabled={!props.canGoUp} onClick={props.onUp}>Um nível acima</button>
         {choosing ? (
           <button type="button" className="text" onClick={props.onCancelChoose}>Cancelar escolha</button>

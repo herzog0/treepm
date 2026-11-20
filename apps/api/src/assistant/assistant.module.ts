@@ -8,9 +8,11 @@ import { ClaudeConversationProvider, sdkStreamer } from "./claude-conversation-p
 import { TicketConversationsController } from "./conversations.controller.js";
 import { TicketsModule } from "../tickets/tickets.module.js";
 import { ClaudeBranchSummarizer } from "./claude-branch-summarizer.js";
+import { ClaudeGroupNamer } from "./claude-group-namer.js";
+import { JevAffinityJudge } from "./jev-affinity-judge.js";
 import { JevBranchJudge, sdkSystemOne } from "./jev-branch-judge.js";
 import { PlacementService } from "./placement.service.js";
-import { BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER } from "./ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, GROUP_NAMER, PLACEMENT_TIMEOUTS } from "./ports.js";
 
 @Module({
   imports: [AccessModule, TicketsModule],
@@ -43,6 +45,24 @@ import { BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER } from "./ports.
           ? new JevBranchJudge(sdkSystemOne(new TypeSafeClient({ apiKey: config.TYPESAFE_API_KEY, logLevel: "off" })))
           : null,
     },
+    {
+      provide: AFFINITY_JUDGE,
+      inject: [CONFIG],
+      useFactory: (config: AppConfig) =>
+        assistantEnabled(config) && config.TYPESAFE_API_KEY
+          ? new JevAffinityJudge(sdkSystemOne(new TypeSafeClient({ apiKey: config.TYPESAFE_API_KEY, logLevel: "off" })))
+          : null,
+    },
+    {
+      provide: GROUP_NAMER,
+      inject: [CONFIG],
+      useFactory: (config: AppConfig) =>
+        assistantEnabled(config) && config.ANTHROPIC_API_KEY
+          ? new ClaudeGroupNamer(sdkStreamer(new Anthropic({ apiKey: config.ANTHROPIC_API_KEY, maxRetries: 0 })))
+          : null,
+    },
+    // Os prazos da ADR (30 s a descida, 20 s a proposta) valem quando nada os troca; os testes trocam.
+    { provide: PLACEMENT_TIMEOUTS, useValue: {} },
   ],
 })
 export class AssistantModule {}

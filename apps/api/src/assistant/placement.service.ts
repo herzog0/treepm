@@ -4,14 +4,23 @@ import { branchContentMark } from "./branch-mark.js";
 import { searchPlacement } from "./placement-search.js";
 import type { PlacementDeps, PlacementOutcome } from "./placement-search.js";
 import { judgeInputFits } from "./jev-branch-judge.js";
-import type { BranchCandidate, BranchJudge, BranchSummarizer, BranchSummaryInput, TicketDraft } from "./ports.js";
+import { proposeGroup } from "./group-proposal.js";
+import type { GroupProposalResult } from "./group-proposal.js";
+import type { AffinityJudge, BranchCandidate, BranchJudge, BranchSummarizer, BranchSummaryInput, GroupNamer, TicketDraft } from "./ports.js";
 import type { TenantRunner } from "../db/own-transactions.js";
 import type { TenantClient } from "@treepm/db";
 import type { Principal } from "../access/principal.js";
 
 export type TreeTicket = { id: string; parentId: string | null; kind: string; number: number; title: string; description: string };
 export type StoredSummary = { summary: string; contentMark: string };
-export type PlacementSnapshot = { projectId: string; tickets: TreeTicket[]; summaries: Map<string, StoredSummary> };
+export type PlacementSnapshot = { projectId: string; projectName: string; tickets: TreeTicket[]; summaries: Map<string, StoredSummary> };
+
+type ProviderDeps = {
+  summarizer: BranchSummarizer;
+  tenant: TenantRunner;
+  /** Confere de novo permissão, projeto não arquivado e conversa aberta; lança se algo mudou. */
+  recheck: (tx: TenantClient, principal: Principal) => Promise<unknown>;
+};
 
 /** Quantos resumos de um nível são pedidos ao mesmo tempo ao provedor. */
 const SUMMARY_CONCURRENCY = 8;
@@ -33,27 +42,16 @@ async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) 
  */
 @Injectable()
 export class PlacementService {
-  async search(
-    draft: TicketDraft,
-    snapshot: PlacementSnapshot,
-    deps: {
-      /** Agrupador de escopo (ADR 0031), já validado por quem chama: do projeto da conversa e do tipo agrupador. */
-      scopeId?: string | null;
-      judge: BranchJudge;
-      summarizer: BranchSummarizer;
-      tenant: TenantRunner;
-      /** Confere de novo permissão, projeto não arquivado e conversa aberta; lança se algo mudou. */
-      recheck: (tx: TenantClient, principal: Principal) => Promise<unknown>;
-      timeoutMs?: number;
-    },
-  ): Promise<PlacementOutcome> {
+  /** Árvore do projeto como a procura a vê, com a escrita dos resumos que faltam (SEM transação aberta durante o provedor). */
+  private context(snapshot: PlacementSnapshot, deps: ProviderDeps) {
     const childrenOf = new Map<string | null, TreeTicket[]>();
     for (const ticket of [...snapshot.tickets].sort((a, b) => a.number - b.number)) {
       const list = childrenOf.get(ticket.parentId) ?? [];
       list.push(ticket);
       childrenOf.set(ticket.parentId, list);
     }
-    const summaries = new Map(snapshot.summaries);
+    // O mapa do `snapshot` é atualizado aqui de propósito: a proposta, depois da descida, reaproveita os resumos já escritos.
+    const summaries = snapshot.summaries;
     const summaryInput = (ticket: TreeTicket): BranchSummaryInput => ({
       title: ticket.title,
       descriptionExcerpt: descriptionExcerpt(ticket.description),
@@ -103,6 +101,20 @@ export class PlacementService {
       });
     };
 
+    return { childrenOf, describe };
+  }
+
+  async search(
+    draft: TicketDraft,
+    snapshot: PlacementSnapshot,
+    deps: ProviderDeps & {
+      /** Agrupador de escopo (ADR 0031), já validado por quem chama: do projeto da conversa e do tipo agrupador. */
+      scopeId?: string | null;
+      judge: BranchJudge;
+      timeoutMs?: number;
+    },
+  ): Promise<PlacementOutcome> {
+    const { childrenOf, describe } = this.context(snapshot, deps);
     // Candidatos são os filhos diretos do tipo agrupador (ADR 0031); ticket nunca é candidato.
     const candidates = (parentId: string | null): Promise<BranchCandidate[]> =>
       describe((childrenOf.get(parentId) ?? []).filter((child) => child.kind === "group"));
@@ -124,6 +136,40 @@ export class PlacementService {
       candidates,
       ...(scope ? { scope } : {}),
       fits: judgeInputFits,
+      ...(deps.timeoutMs ? { timeoutMs: deps.timeoutMs } : {}),
+    });
+  }
+
+  /**
+   * Proposta de agrupador no destino da procura (ADR 0031). Roda depois da descida, fora do prazo dela. O resumo do
+   * destino (agrupador) é escrito como os demais se faltar ou estiver vencido, mas só quando a verificação acontece.
+   */
+  async propose(
+    draft: TicketDraft,
+    snapshot: PlacementSnapshot,
+    outcome: PlacementOutcome,
+    deps: ProviderDeps & { affinity: AffinityJudge; namer: GroupNamer; timeoutMs?: number },
+  ): Promise<GroupProposalResult> {
+    const { childrenOf, describe } = this.context(snapshot, deps);
+    const parentId = outcome.destination.parentId;
+    const destinationTicket = parentId === null ? undefined : snapshot.tickets.find((ticket) => ticket.id === parentId);
+    const looseTickets = (childrenOf.get(parentId) ?? [])
+      .filter((child) => child.kind === "ticket")
+      .map(({ id, number, title, description }) => ({ id, number, title, description }));
+    return proposeGroup({
+      draft,
+      outcome,
+      destination:
+        destinationTicket === undefined
+          ? { kind: "root", title: snapshot.projectName }
+          : {
+              kind: "group",
+              title: destinationTicket.title,
+              summary: async () => ((await describe([destinationTicket]))[0] as BranchCandidate).summary,
+            },
+      looseTickets,
+      affinity: deps.affinity,
+      namer: deps.namer,
       ...(deps.timeoutMs ? { timeoutMs: deps.timeoutMs } : {}),
     });
   }

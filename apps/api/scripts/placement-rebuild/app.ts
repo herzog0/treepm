@@ -5,8 +5,9 @@ import type { AddressInfo } from "node:net";
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { Test } from "@nestjs/testing";
 import { AppModule } from "../../src/app.module.js";
-import { BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER } from "../../src/assistant/ports.js";
-import type { BranchJudge, BranchJudgment } from "../../src/assistant/ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, GROUP_NAMER } from "../../src/assistant/ports.js";
+import type { AffinityInput, AffinityJudge, BranchJudge, BranchJudgment } from "../../src/assistant/ports.js";
+import { JevAffinityJudge } from "../../src/assistant/jev-affinity-judge.js";
 import { JevBranchJudge, sdkSystemOne } from "../../src/assistant/jev-branch-judge.js";
 import { configureApp } from "../../src/bootstrap.js";
 import { CONFIG, assistantEnabled, loadConfig } from "../../src/config.js";
@@ -14,9 +15,9 @@ import type { AppConfig } from "../../src/config.js";
 import { DIRECTORY_PROVIDER } from "../../src/auth/directory-provider.js";
 import { SESSION_VERIFIER } from "../../src/auth/session-verifier.js";
 import type { SessionVerifier, VerifiedSession } from "../../src/auth/session-verifier.js";
-import { FakeConversation, FakeDirectoryProvider, FakeJudge, FakeSummarizer } from "./fakes.js";
+import { FakeAffinity, FakeConversation, FakeDirectoryProvider, FakeJudge, FakeNamer, FakeSummarizer } from "./fakes.js";
 import { resolveCurrentId } from "./core.js";
-import type { JudgmentRecord } from "./core.js";
+import type { AffinityRecord, JudgmentRecord } from "./core.js";
 
 export const TOKEN_HEADER = "x-rebuild-token";
 
@@ -25,9 +26,20 @@ export class JudgmentRecorder {
   private current: JudgmentRecord[] = [];
   /** Candidatos já oferecidos ao juiz nesta procura: o nó atual de um julgamento é um deles. */
   private seenCandidates: { id: string; title: string; summary: string }[] = [];
+  /** Pares julgados pela afinidade nesta procura (ids da API; quem grava converte para os do gabarito). */
+  private pairs: { id: string; title: string; noul: number }[] = [];
   reset(): void {
     this.current = [];
     this.seenCandidates = [];
+    this.pairs = [];
+  }
+  addPairs(pairs: { id: string; title: string; noul: number }[]): void {
+    this.pairs.push(...pairs);
+  }
+  takePairs(): { id: string; title: string; noul: number }[] {
+    const taken = this.pairs;
+    this.pairs = [];
+    return taken;
   }
   take(): JudgmentRecord[] {
     const taken = this.current;
@@ -44,6 +56,32 @@ export class JudgmentRecorder {
   add(record: JudgmentRecord): void {
     this.current.push(record);
   }
+}
+
+class RecordingAffinity implements AffinityJudge {
+  constructor(
+    private readonly inner: AffinityJudge,
+    private readonly recorder: JudgmentRecorder,
+  ) {}
+
+  async judge(input: AffinityInput, options?: { signal?: AbortSignal }): Promise<Readonly<Record<string, number>>> {
+    const result = await this.inner.judge(input, options);
+    this.recorder.addPairs(input.tickets.map((t) => ({ id: t.id, title: t.title, noul: result[t.id] ?? 0 })));
+    return result;
+  }
+}
+
+/** Junta os pares da afinidade com o que a rota respondeu; `toOld` converte os ids da API para os do gabarito. */
+export function affinityRecordOf(
+  pairs: readonly { id: string; title: string; noul: number }[],
+  outcome: { groupProposal?: { title: string; tickets: { id: string }[] } | null; groupProposalSkipped?: string | null },
+  toOld: (id: string) => string,
+): AffinityRecord {
+  return {
+    pairs: pairs.map((p) => ({ ticketOldId: toOld(p.id), title: p.title, noul: p.noul })),
+    proposal: outcome.groupProposal ? { title: outcome.groupProposal.title, ticketOldIds: outcome.groupProposal.tickets.map((t) => toOld(t.id)) } : null,
+    skipped: outcome.groupProposalSkipped ?? null,
+  };
 }
 
 class RecordingJudge implements BranchJudge {
@@ -129,7 +167,11 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
       .overrideProvider(BRANCH_SUMMARIZER)
       .useValue(new FakeSummarizer())
       .overrideProvider(BRANCH_JUDGE)
-      .useValue(new RecordingJudge(new FakeJudge(options.fake503JudgeAt), recorder));
+      .useValue(new RecordingJudge(new FakeJudge(options.fake503JudgeAt), recorder))
+      .overrideProvider(AFFINITY_JUDGE)
+      .useValue(new RecordingAffinity(new FakeAffinity(), recorder))
+      .overrideProvider(GROUP_NAMER)
+      .useValue(new FakeNamer());
   } else {
     builder = builder.overrideProvider(BRANCH_JUDGE).useFactory({
       inject: [CONFIG],
@@ -137,6 +179,15 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
       factory: (config: AppConfig) =>
         assistantEnabled(config) && config.TYPESAFE_API_KEY
           ? new RecordingJudge(new JevBranchJudge(sdkSystemOne(new TypeSafeClient({ apiKey: config.TYPESAFE_API_KEY, logLevel: "off" }))), recorder)
+          : null,
+    });
+  }
+  if (!options.fakeProviders) {
+    builder = builder.overrideProvider(AFFINITY_JUDGE).useFactory({
+      inject: [CONFIG],
+      factory: (config: AppConfig) =>
+        assistantEnabled(config) && config.TYPESAFE_API_KEY
+          ? new RecordingAffinity(new JevAffinityJudge(sdkSystemOne(new TypeSafeClient({ apiKey: config.TYPESAFE_API_KEY, logLevel: "off" }))), recorder)
           : null,
     });
   }

@@ -678,3 +678,182 @@ describe("scope from the selection (ADR 0031)", () => {
     expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t4", title: "Corrigir o login" });
   });
 });
+
+describe("group proposal (ADR 0031)", () => {
+  const proposal = {
+    title: "Redefinição de senha",
+    description: "Fluxos de senha esquecida e de reset.",
+    tickets: [
+      { id: "t3", number: 3, title: "Senha esquecida" },
+      { id: "t5", number: 5, title: "Reset por SMS" },
+      { id: "t7", number: 7, title: "Link expirado" },
+    ],
+  };
+  const withProposal = (extra: Partial<PlacementOutcome> = {}) => makePlacement({ destination: target("t1", "t2"), groupProposal: proposal, ...extra });
+  const resumed = (placement: PlacementOutcome, extra: Partial<Record<keyof ApiClient, unknown>> = {}) =>
+    clientWith({
+      listConversations: vi.fn(async () => ok([{ ...makeConversation("c1", "p1"), messages: undefined }])),
+      findPlacement: vi.fn(async () => ok(placement)),
+      ...extra,
+    });
+  const search = async () => userEvent.click(await screen.findByRole("button", { name: "Procurar o lugar" }));
+  const path = () => screen.getByRole("region", { name: "Caminho encontrado" });
+  const box = (name: string) => screen.getByRole("checkbox", { name });
+  const shown = async () => {
+    await search();
+    await screen.findByRole("region", { name: "Caminho encontrado" });
+  };
+
+  it("shows the line, the proposed title and description and the tickets, all checked, below the path", async () => {
+    setup(resumed(withProposal()));
+    await shown();
+    expect(path()).toHaveTextContent("Este ticket parece formar um grupo com outros daqui.");
+    expect(path()).toHaveTextContent("Redefinição de senha");
+    expect(path()).toHaveTextContent("Fluxos de senha esquecida e de reset.");
+    for (const title of ["Senha esquecida", "Reset por SMS", "Link expirado"]) expect(box(title)).toBeChecked();
+    const steps = path().querySelector(".assistant-steps")!;
+    expect(steps.compareDocumentPosition(screen.getByText("Este ticket parece formar um grupo com outros daqui.")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("makes Criar agrupador e mover the primary action and Só criar o ticket the secondary one", async () => {
+    setup(resumed(withProposal()));
+    await shown();
+    expect(screen.getByRole("button", { name: "Criar agrupador e mover" })).toHaveClass("primary");
+    expect(screen.getByRole("button", { name: "Só criar o ticket" })).not.toHaveClass("primary");
+    expect(screen.queryByRole("button", { name: "Criar aqui" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Um nível acima" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Escolher no mapa" })).toBeInTheDocument();
+    expect(panel().querySelectorAll(".assistant-cards button.primary")).toHaveLength(1);
+  });
+
+  it("without a proposal nothing changes: Criar aqui stays and no proposal text shows", async () => {
+    setup(resumed(makePlacement({ destination: target("t1", "t2"), groupProposalSkipped: "unavailable" })));
+    await shown();
+    expect(screen.getByRole("button", { name: "Criar aqui" })).toHaveClass("primary");
+    expect(path()).not.toHaveTextContent("forma");
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("lets the person uncheck a ticket, but the last checked one cannot be unchecked", async () => {
+    setup(resumed(withProposal()));
+    await shown();
+    await userEvent.click(box("Reset por SMS"));
+    expect(box("Reset por SMS")).not.toBeChecked();
+    await userEvent.click(box("Link expirado"));
+    expect(box("Link expirado")).not.toBeChecked();
+    expect(box("Senha esquecida")).toBeChecked();
+    expect(box("Senha esquecida")).toBeDisabled();
+    await userEvent.click(box("Senha esquecida"));
+    expect(box("Senha esquecida")).toBeChecked();
+    await userEvent.click(box("Reset por SMS"));
+    expect(box("Senha esquecida")).toBeEnabled();
+  });
+
+  it("confirms with the title, the description and only the checked ids, then closes like Criar aqui", async () => {
+    const client = resumed(withProposal());
+    const props = setup(client);
+    await shown();
+    await userEvent.click(box("Reset por SMS"));
+    await userEvent.click(screen.getByRole("button", { name: "Criar agrupador e mover" }));
+    await waitFor(() =>
+      expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", {
+        parentId: "t2",
+        group: { title: "Redefinição de senha", description: "Fluxos de senha esquecida e de reset.", ticketIds: ["t3", "t7"] },
+      }),
+    );
+    await waitFor(() => expect(props.onCreated).toHaveBeenCalledWith("t9"));
+    expect(props.onChanged).toHaveBeenCalled();
+  });
+
+  it("Só criar o ticket sends no group", async () => {
+    const client = resumed(withProposal());
+    const props = setup(client);
+    await shown();
+    await userEvent.click(screen.getByRole("button", { name: "Só criar o ticket" }));
+    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t2" }));
+    expect(vi.mocked(client.createTicketFromConversation).mock.calls[0]![1]).not.toHaveProperty("group");
+    await waitFor(() => expect(props.onCreated).toHaveBeenCalledWith("t9"));
+  });
+
+  it("a proposal at the project root confirms with parentId null", async () => {
+    const client = resumed(withProposal({ destination: { parentId: null, path: [] } }));
+    setup(client);
+    await shown();
+    await userEvent.click(screen.getByRole("button", { name: "Criar agrupador e mover" }));
+    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", expect.objectContaining({ parentId: null })));
+  });
+
+  describe("discarding", () => {
+    const gone = () => {
+      expect(screen.queryByText("Este ticket parece formar um grupo com outros daqui.")).not.toBeInTheDocument();
+      expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Criar agrupador e mover" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Criar aqui" })).toHaveClass("primary");
+      expect(screen.queryByRole("button", { name: "Só criar o ticket" })).not.toBeInTheDocument();
+    };
+
+    it("choosing an alternative drops the proposal", async () => {
+      setup(resumed(withProposal({ alternatives: [target("t4")] })));
+      await shown();
+      expect(screen.getByText("Este ticket parece formar um grupo com outros daqui.")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: /Usar: Relatórios/ }));
+      gone();
+    });
+
+    it("going one level up drops the proposal", async () => {
+      setup(resumed(withProposal()));
+      await shown();
+      expect(screen.getByText("Este ticket parece formar um grupo com outros daqui.")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Um nível acima" }));
+      gone();
+    });
+
+    it("picking on the map drops the proposal", async () => {
+      const props = setup(resumed(withProposal()));
+      await shown();
+      expect(screen.getByText("Este ticket parece formar um grupo com outros daqui.")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Escolher no mapa" }));
+      act(() => lastPicker(props).pick(projectNode("p1")));
+      gone();
+    });
+
+    it("searching again drops the old proposal and shows the new result as it comes", async () => {
+      const findPlacement = vi.fn().mockResolvedValueOnce(ok(withProposal())).mockResolvedValue(ok(makePlacement({ destination: target("t1", "t2") })));
+      setup(resumed(withProposal(), { findPlacement }));
+      await shown();
+      expect(screen.getByText("Este ticket parece formar um grupo com outros daqui.")).toBeInTheDocument();
+      await userEvent.click(await screen.findByRole("button", { name: "Procurar de novo" }));
+      await waitFor(() => expect(findPlacement).toHaveBeenCalledTimes(2));
+      await waitFor(() => gone());
+    });
+
+    it("a new search brings its own proposal, with everything checked again", async () => {
+      const second = { ...proposal, title: "Outro grupo", tickets: [{ id: "t5", number: 5, title: "Reset por SMS" }] };
+      const findPlacement = vi.fn().mockResolvedValueOnce(ok(withProposal())).mockResolvedValue(ok(withProposal({ groupProposal: second })));
+      setup(resumed(withProposal(), { findPlacement }));
+      await shown();
+      expect(screen.getByText("Este ticket parece formar um grupo com outros daqui.")).toBeInTheDocument();
+      await userEvent.click(box("Reset por SMS"));
+      await userEvent.click(await screen.findByRole("button", { name: "Procurar de novo" }));
+      expect(await screen.findByText("Outro grupo")).toBeInTheDocument();
+      expect(box("Reset por SMS")).toBeChecked();
+    });
+  });
+
+  it("grouping_changed shows the message beside the actions, drops the proposal and keeps the rest of the card", async () => {
+    const client = resumed(withProposal({ alternatives: [target("t4")] }), {
+      createTicketFromConversation: vi.fn(async () => failed("conflict", "grouping_changed")),
+    });
+    const props = setup(client);
+    await shown();
+    await userEvent.click(screen.getByRole("button", { name: "Criar agrupador e mover" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Algum desses tickets mudou de lugar. Procure de novo.");
+    expect(path().contains(alert)).toBe(true);
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByText("Acesso")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Usar: Relatórios/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Criar aqui" })).toBeInTheDocument();
+    expect(props.onCreated).not.toHaveBeenCalled();
+  });
+});

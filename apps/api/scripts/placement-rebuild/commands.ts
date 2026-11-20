@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
+import { affinityRecordOf } from "./app.js";
 import type { JudgmentRecorder } from "./app.js";
 import { describeFailure, expectOk } from "./client.js";
 import type { ApiClient } from "./client.js";
@@ -9,6 +10,7 @@ import {
   classifyPlacement,
   compareTrees,
   computeDepths,
+  flattenGabarito,
   looTickets,
   looResumeAction,
   looView,
@@ -55,6 +57,8 @@ type Outcome = {
   uncertain: boolean;
   stoppedEarly: { reason: string; level: number; parentId: string | null } | null;
   scope: { id: string; title: string; outOfScope: boolean } | null;
+  groupProposal?: { title: string; tickets: { id: string }[] } | null;
+  groupProposalSkipped?: string | null;
 };
 
 export type Context = {
@@ -70,6 +74,8 @@ export type Context = {
   looCrashAfterDraft?: number;
   /** `leave-one-out`: faz também as duas procuras com escopo de cada ticket. */
   scopeCheck?: boolean;
+  /** `leave-one-out --flat`: mede a proposta de agrupador na árvore achatada; nunca confirma a proposta. */
+  flat?: boolean;
 };
 
 const MAX_MESSAGE = 4000;
@@ -365,11 +371,12 @@ async function rebuildOne(
     return ctx.client.request("POST", `/ticket-conversations/${conversation.id}/placement`);
   });
   const judgments = ctx.recorder.take();
+  const pairs = ctx.recorder.takePairs();
   // 4. cria o ticket no destino
   const created = await call<{ ticket: Detail }>("ticket", "criar ticket", () =>
     ctx.client.request("POST", `/ticket-conversations/${conversation.id}/ticket`, { parentId: outcome.destination.parentId }),
   );
-  return finish(created.ticket, outcome, judgments, false);
+  return { ...finish(created.ticket, outcome, judgments, false), affinity: affinityRecordOf(pairs, outcome, (id) => state.newToOld.get(id) ?? id) };
 }
 
 // ---- restore-state ------------------------------------------------------------------------------------------------
@@ -416,7 +423,7 @@ export function reportCommand(ctx: Pick<Context, "dir" | "project" | "log">, loo
   const records = readJsonLines<RunRecord>(loo ? looPath(ctx.dir, ctx.project) : runPath(ctx.dir, ctx.project));
   const groupMap = loo ? new Map<string, string>() : readGroupMap(ctx.dir, ctx.project);
   const view = loo ? looView(gabarito.tickets, readLooMap(ctx.dir, ctx.project)) : rebuildView(gabarito.tickets, records, groupMap);
-  const groupsCreated = loo ? gabarito.tickets.filter((x) => x.kind === "group").length : groupMap.size;
+  const groupsCreated = loo ? (records.some((r) => r.flat) ? 0 : gabarito.tickets.filter((x) => x.kind === "group").length) : groupMap.size;
   const markdown = renderReport(gabarito.tickets, records, gabarito.project.key, { view, loo, groupsCreated });
   writeFileSync(loo ? looReportPath(ctx.dir, ctx.project) : reportPath(ctx.dir, ctx.project), markdown);
   // Mesma regra do relatório: o grupo é recalculado, não lido do arquivo.
@@ -473,7 +480,9 @@ const writeLooMap = (dir: string, projectId: string, map: ReadonlyMap<string, st
 
 /** Mede o uso normal da procura: tira um ticket-folha de uma árvore já organizada e deixa a procura pô-lo de volta. */
 export async function leaveOneOutCommand(ctx: Context, limit: number | undefined): Promise<boolean> {
-  const gabarito = readGabarito(ctx.dir);
+  const original = readGabarito(ctx.dir);
+  // `--flat`: a árvore medida é a achatada (só tickets, todos na raiz); o gabarito original fica no arquivo, para o relatório.
+  const gabarito: Gabarito = ctx.flat ? { ...original, tickets: flattenGabarito(original.tickets) } : original;
   const byId = new Map(gabarito.tickets.map((t) => [t.id, t]));
   const results = readJsonLines<RunRecord>(looPath(ctx.dir, ctx.project));
 
@@ -605,6 +614,7 @@ async function looOne(
     return ctx.client.request("POST", `/ticket-conversations/${conversation.id}/placement`);
   });
   const judgments = ctx.recorder.take();
+  const pairs = ctx.recorder.takePairs();
   const scopeChecks = ctx.scopeCheck && ticket.parentId !== null ? await scopeChecksFor(ctx, call, conversation.id, ticket, tree, map) : undefined;
   // Não cria no destino da procura: recoloca no pai original, para a árvore ficar igual à de antes.
   const created = (
@@ -616,6 +626,8 @@ async function looOne(
   const newToOld = new Map([...map].map(([oldId, newId]) => [newId, oldId]));
   const chosen = outcome.destination.parentId;
   return {
+    affinity: affinityRecordOf(pairs, outcome, (id) => newToOld.get(id) ?? id),
+    ...(ctx.flat ? { flat: true as const } : {}),
     oldId: ticket.id,
     oldNumber: ticket.number,
     title: ticket.title,

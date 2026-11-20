@@ -66,6 +66,7 @@ async function main(): Promise<number> {
       ...(options.looCrashAfterRemove ? { looCrashAfterRemove: options.looCrashAfterRemove } : {}),
       ...(options.looCrashAfterDraft ? { looCrashAfterDraft: options.looCrashAfterDraft } : {}),
       ...(options.scopeCheck ? { scopeCheck: true } : {}),
+      ...(options.flat ? { flat: true } : {}),
     };
     switch (command) {
       case "export":

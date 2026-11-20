@@ -93,6 +93,20 @@ const placementOutcomeSchema = z.object({
     .nullable(),
   /** `null` sem escopo (e numa API que ainda não manda o campo). */
   scope: z.object({ id: z.string(), title: z.string(), outOfScope: z.boolean() }).nullable().default(null),
+  /** Agrupador novo que a IA propõe no destino (ADR 0031); `null` sem proposta (e numa API que ainda não manda o campo). */
+  groupProposal: z
+    .object({
+      title: z.string(),
+      description: z.string(),
+      tickets: z.array(z.object({ id: z.string(), number: z.number(), title: z.string() })).min(1),
+    })
+    .nullable()
+    .default(null),
+  /** Por que não houve proposta, quando há um motivo; `null` quando há proposta ou ninguém passou do limiar. */
+  groupProposalSkipped: z
+    .enum(["not_settled", "no_loose_tickets", "too_large", "same_as_destination", "invalid_name", "unavailable"])
+    .nullable()
+    .default(null),
 });
 const createdFromConversationSchema = z.object({ conversation: conversationDetailSchema, ticket: ticketDetailSchema });
 const errorBodySchema = z.object({ error: z.object({ code: z.string() }) });
@@ -117,6 +131,13 @@ export type ConversationSummary = z.output<typeof conversationSummarySchema>;
 export type ConversationDetail = z.output<typeof conversationDetailSchema>;
 export type PlacementTarget = z.output<typeof placementTargetSchema>;
 export type PlacementOutcome = z.output<typeof placementOutcomeSchema>;
+export type GroupProposal = NonNullable<PlacementOutcome["groupProposal"]>;
+/** O agrupador novo que a pessoa confirmou: criado no pai escolhido, com estes tickets movidos para ele. */
+export interface NewGroup {
+  title: string;
+  description: string;
+  ticketIds: string[];
+}
 export type CreatedFromConversation = z.output<typeof createdFromConversationSchema>;
 
 export interface ImportItem {
@@ -280,7 +301,7 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     /** `scopeId`: procura só dentro desse agrupador (ADR 0031); sem ele, no projeto inteiro. */
     findPlacement: (id: string, scopeId?: string) =>
       request("POST", `${conversation(id)}/placement`, placementOutcomeSchema, scopeId === undefined ? undefined : { scopeId }),
-    createTicketFromConversation: (id: string, body: { parentId: string | null }) =>
+    createTicketFromConversation: (id: string, body: { parentId: string | null; group?: NewGroup }) =>
       request("POST", `${conversation(id)}/ticket`, createdFromConversationSchema, body),
     listConversations: (projectId: string) =>
       request("GET", `/api/ticket-conversations?projectId=${encodeURIComponent(projectId)}`, z.array(conversationSummarySchema)),
@@ -307,6 +328,7 @@ const MESSAGE_BY_CODE: Record<string, string> = {
   assistant_unavailable: "O assistente não respondeu. Tente de novo; se continuar, crie o ticket manualmente.",
   conversation_closed: "Esta conversa já foi encerrada. Comece uma nova conversa.",
   conversation_changed: "A conversa mudou enquanto o assistente respondia. Mostramos a versão mais recente.",
+  grouping_changed: "Algum desses tickets mudou de lugar. Procure de novo.",
   draft_required: "A conversa ainda não tem rascunho. Peça ao assistente para escrevê-lo antes de continuar.",
   person_without_project_access: "A pessoa ainda não tem acesso ao projeto. Conceda um papel no projeto antes de atribuir.",
 };
