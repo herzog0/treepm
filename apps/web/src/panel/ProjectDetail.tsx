@@ -6,6 +6,7 @@ import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
 import { ConfirmAction } from "./ConfirmAction.js";
 import { ROLES, ROLE_LABELS, VISIBILITIES, VISIBILITY_LABELS } from "./labels.js";
+import { canCreateTickets } from "../import/permissions.js";
 import { safe } from "./safe.js";
 import { useAction } from "./useAction.js";
 
@@ -15,12 +16,14 @@ interface ProjectDetailProps {
   project: Project;
   onChanged: () => void;
   onBack: () => void;
+  /** Abre a tela de importação deste projeto; sem ela a ação não aparece. */
+  onImport?: ((projectId: string) => void) | undefined;
 }
 
 const ActionError = ({ error }: { error: ReturnType<typeof useAction>["error"] }) =>
   error ? <p role="alert">{describeApiError(error)}</p> : null;
 
-export function ProjectDetail({ client, me, project, onChanged, onBack }: ProjectDetailProps) {
+export function ProjectDetail({ client, me, project, onChanged, onBack, onImport }: ProjectDetailProps) {
   const canManage =
     me.roles.clerk === "admin" ||
     me.roles.projects.some((entry) => entry.projectId === project.id && entry.role === "manager");
@@ -38,6 +41,12 @@ export function ProjectDetail({ client, me, project, onChanged, onBack }: Projec
         {project.visibility === "private" && <small className="badge">Privado</small>}
         {project.archivedAt !== null && <small className="badge">Arquivado</small>}
       </p>
+
+      {onImport && canCreateTickets(me, project) && (
+        <button type="button" className="panel-import primary" onClick={() => onImport(project.id)}>
+          Importar lista
+        </button>
+      )}
 
       {canManage ? (
         <ManageProject client={client} project={project} onChanged={onChanged} />

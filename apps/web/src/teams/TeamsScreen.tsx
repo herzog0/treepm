@@ -94,7 +94,7 @@ export function TeamsScreen({ client, me }: TeamsScreenProps) {
                   aria-describedby={create.error ? "new-team-error" : undefined}
                   aria-invalid={create.error ? true : undefined}
                 />
-                <button type="submit" disabled={create.pending || name.trim() === ""}>
+                <button type="submit" className="primary" disabled={create.pending || name.trim() === ""}>
                   Criar time
                 </button>
               </div>

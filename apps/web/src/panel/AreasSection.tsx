@@ -62,7 +62,7 @@ function CreateAreaForm({ client, onDone }: { client: ApiClient; onDone: () => v
         Nome da nova área
         <input value={name} onChange={(event) => setName(event.target.value)} />
       </label>
-      <button type="submit" disabled={action.busy}>
+      <button type="submit" className="primary" disabled={action.busy}>
         Criar área
       </button>
       {missing && <p role="alert">Informe o nome da área.</p>}

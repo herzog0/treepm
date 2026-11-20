@@ -99,7 +99,7 @@ function RemoveTeam({ client, team, onRemoved }: { client: ApiClient; team: Team
           </button>
         </div>
       ) : (
-        <button type="button" onClick={() => setConfirming(true)}>
+        <button type="button" className="destructive" onClick={() => setConfirming(true)}>
           Remover time
         </button>
       )}
@@ -177,7 +177,7 @@ function Members({ client, team, people, canManage, onChanged }: MembersProps) {
                         </button>
                       </>
                     ) : (
-                      <button type="button" onClick={() => setConfirmingId(member.personId)}>
+                      <button type="button" className="destructive" onClick={() => setConfirmingId(member.personId)}>
                         Remover {label}
                       </button>
                     )}

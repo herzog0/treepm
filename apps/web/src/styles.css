@@ -1,7 +1,8 @@
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; }
-body { font-family: system-ui, sans-serif; background: #0d1324; }
+body { background: var(--tp-bg); color: var(--tp-text); font: 400 13px/1.5 var(--tp-font); -webkit-font-smoothing: antialiased; }
 button { font: inherit; }
+code { font-family: var(--tp-font-mono); }
 
 .entry-screen {
   display: flex;
@@ -11,11 +12,12 @@ button { font: inherit; }
   justify-content: center;
   gap: 16px;
   padding: 24px;
-  color: #eef2ff;
+  color: var(--tp-text);
   text-align: center;
 }
 .entry-screen h1, .entry-screen p { margin: 0; }
-.entry-screen a { color: #d9ceff; }
+.entry-screen h1 { font-size: 22px; font-weight: 600; }
+.entry-screen a { color: var(--tp-accent-soft); }
 
 .tenant-shell {
   display: grid;
@@ -24,24 +26,26 @@ button { font: inherit; }
 }
 .tenant-header {
   display: flex;
+  min-height: 48px;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 6px 12px;
-  padding: 6px clamp(10px, 2vw, 22px);
-  border-bottom: 1px solid #27324c;
-  background: #eef2ff;
-  color: #121b31;
+  padding: 0 clamp(10px, 2vw, 22px);
+  border-bottom: 1px solid var(--tp-divider);
+  background: var(--tp-bar);
+  color: var(--tp-text);
 }
 .tenant-controls { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.tenant-api-status { font-size: 0.8125rem; color: #44516e; }
+.tenant-api-status { color: var(--tp-text-2); font-size: 12px; }
 .tenant-api-status:empty { position: absolute; }
 .tenant-map { min-width: 0; }
 .tenant-brand { display: flex; align-items: center; gap: 18px; }
+.tenant-brand strong { font-size: 14px; font-weight: 600; }
 .app-nav { display: flex; gap: 4px; }
-.app-nav a { padding: 4px 10px; border-radius: 6px; color: #44516e; font-size: 0.875rem; text-decoration: none; }
-.app-nav a:hover { background: #dde3f5; }
-.app-nav a[aria-current="page"] { background: #121b31; color: #eef2ff; }
-.app-nav a:focus-visible { outline: 2px solid #6853a5; outline-offset: 1px; }
-.teams-screen { min-width: 0; padding: 24px clamp(10px, 2vw, 22px); color: #eef2ff; }
-.teams-screen h1 { margin: 0; font-size: 1.25rem; }
+.app-nav a { padding: 5px 10px; border-radius: var(--tp-radius-control); color: var(--tp-text-2); font-size: 13px; text-decoration: none; }
+.app-nav a:hover { background: var(--tp-raised); color: var(--tp-text); }
+.app-nav a[aria-current="page"] { background: var(--tp-selected); color: var(--tp-text); }
+.app-nav a:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
+.teams-screen { min-width: 0; padding: 24px clamp(10px, 2vw, 22px); color: var(--tp-text); }
+.teams-screen h1 { margin: 0; font-size: 22px; font-weight: 600; }

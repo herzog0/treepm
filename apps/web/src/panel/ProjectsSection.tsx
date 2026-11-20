@@ -13,9 +13,10 @@ export interface ProjectsSectionProps {
   projects: readonly Project[];
   selectedProject: Project | null;
   onChanged: () => void;
+  onImportProject?: ((projectId: string) => void) | undefined;
 }
 
-export function ProjectsSection({ client, me, projects, selectedProject, onChanged }: ProjectsSectionProps) {
+export function ProjectsSection({ client, me, projects, selectedProject, onChanged, onImportProject }: ProjectsSectionProps) {
   const [openId, setOpenId] = useState<string | null>(selectedProject?.id ?? null);
   // O projeto recém-criado pode demorar a chegar em `projects`; até lá usamos a resposta da API.
   const [created, setCreated] = useState<Project | null>(null);
@@ -39,6 +40,7 @@ export function ProjectsSection({ client, me, projects, selectedProject, onChang
         project={open}
         onChanged={onChanged}
         onBack={() => setOpenId(null)}
+        onImport={onImportProject}
       />
     );
   }
@@ -147,7 +149,7 @@ function CreateProjectForm({
         </select>
       </label>
       <div className="row-actions">
-        <button type="submit" disabled={action.busy}>
+        <button type="submit" className="primary" disabled={action.busy}>
           Criar projeto
         </button>
         {onCancel && (

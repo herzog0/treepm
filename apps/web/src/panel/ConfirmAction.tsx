@@ -16,7 +16,7 @@ export function ConfirmAction({ label, accessibleLabel, onConfirm, disabled = fa
 
   if (!asking) {
     return (
-      <button type="button" aria-label={accessibleLabel} disabled={disabled} onClick={() => setAsking(true)}>
+      <button type="button" className="destructive" aria-label={accessibleLabel} disabled={disabled} onClick={() => setAsking(true)}>
         {label}
       </button>
     );

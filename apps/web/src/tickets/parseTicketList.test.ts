@@ -201,14 +201,15 @@ describe("describeTicketListIssue", () => {
 });
 
 describe("docs/roadmap-tickets.md", () => {
-  it("parses as the real list, with 5 roots and every item line", () => {
+  it("parses as the real list, with its root lines and every item line", () => {
     const text = readFileSync(resolve(import.meta.dirname, "../../../../docs/roadmap-tickets.md"), "utf8");
     const itemLines = text.split("\n").filter((line) => /^\s*[-*] /.test(line)).length;
+    const rootLines = text.split("\n").filter((line) => /^[-*] /.test(line)).length;
     const result = parseTicketList(text);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const count = (list: typeof result.items): number => list.reduce((sum, item) => sum + 1 + count(item.children ?? []), 0);
-    expect(result.items).toHaveLength(5);
+    expect(result.items).toHaveLength(rootLines);
     expect(count(result.items)).toBe(itemLines);
   });
 });
