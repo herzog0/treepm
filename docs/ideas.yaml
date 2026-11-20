@@ -278,6 +278,7 @@ ideas:
     details:
       - Um agrupador engloba uma subárvore de tickets que, juntos, representam um mini produto, como "Entrega da Fase 1".
       - Só agrupador tem filhos; agrupadores ficam dentro de agrupadores sem limite.
+      - A IA também forma agrupadores: ao criar um ticket, identifica um possível agrupamento com tickets que já existem, propõe o agrupador e a pessoa confirma.
       - Decidido por Teodoro em 2026-11-20 e registrado na ADR 0031.
     relationships:
       - type: refines

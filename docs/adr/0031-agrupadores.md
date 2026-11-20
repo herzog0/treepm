@@ -14,7 +14,8 @@ Em 2026-11-20 Teodoro propôs separar **tickets** de **agrupadores** ("o card pa
 - só agrupador tem filhos, e agrupadores ficam dentro de agrupadores sem limite de profundidade;
 - criar ticket sem agrupador selecionado continua permitido, com a procura a partir da raiz do projeto;
 - a seleção de um agrupador define o escopo da procura;
-- a hidratação do ticket por área fica com a Fase 2 e não é pré-requisito.
+- a hidratação do ticket por área fica com a Fase 2 e não é pré-requisito;
+- a IA também forma agrupadores: quando o ticket novo tem afinidade com tickets soltos do nível em que ficou, ela **propõe** um agrupador para eles, e a pessoa confirma ("propõe e a pessoa confirma").
 
 Os demais pontos desta ADR são escolhas da coordenação e estão marcados como tal.
 
@@ -85,6 +86,32 @@ Substitui a regra de candidatos da ADR 0030.
 - A rota da procura aceita o agrupador de escopo. Ele precisa ser do mesmo projeto da conversa.
 - **Aviso de escopo errado:** na primeira requisição ao Jev dentro de um escopo vai uma pergunta a mais, um `Noul`: "O trabalho descrito em `draft` cabe dentro do assunto do agrupador `scope`?". Abaixo de 0,3, o resultado vem marcado como fora do escopo e o painel avisa, com a ação de procurar no projeto inteiro. A procura não sobe sozinha.
 
+### A IA propõe um agrupador novo
+
+Decisão de Teodoro em 2026-11-20: a IA também forma agrupadores, inclusive dentro do agrupador selecionado, e quem confirma é a pessoa.
+
+**Quando.** A procura termina em um destino: a raiz do projeto ou um agrupador. Se nesse destino há **tickets soltos** (filhos diretos do tipo `ticket`), a IA verifica se o ticket novo forma um grupo com algum deles. Vale igual para o destino dentro de um escopo.
+
+**Quem faz o quê.**
+
+1. **Jev julga a afinidade.** Uma requisição, com uma pergunta `Noul` por ticket solto. O estado traz o rascunho e o nó de destino; cada pergunta traz o título e o trecho da descrição do ticket a que se refere. O Jev não limita o número de perguntas por requisição; o limite é o de tokens (64 mil por requisição). Se os tickets soltos não couberem, a verificação não é feita e o resultado diz isso.
+2. **O código decide.** Os tickets com `Noul` acima de 0,7 formam o grupo proposto. Basta um ticket existente além do novo. Sem nenhum, não há proposta.
+3. **Claude escreve o nome e a descrição do agrupador**, a partir do rascunho e dos tickets do grupo. É uma chamada curta (Opus 5.5, esforço `low`, saída estruturada), como a do resumo de ramo, e só acontece quando há grupo. O texto enviado é o mesmo tipo de dado que a ADR 0029 já autoriza: texto de tickets do projeto e do rascunho.
+
+**Texto da pergunta (provisório).**
+
+- Pergunta: "O trabalho descrito em `draft` e o ticket descrito nesta pergunta fazem parte de um mesmo assunto, mais específico que o de `destination`, a ponto de a equipe guardá-los juntos em um agrupador próprio?"
+- Verdadeiro: "Os dois são partes de uma mesma entrega ou de um mesmo assunto específico: faria sentido um agrupador só para eles e para outros parecidos."
+- Falso: "Os dois tratam de assuntos diferentes, ou só têm em comum o assunto geral de `destination`, que já os contém."
+
+O critério falso nomeia o caso que mais confunde: dois tickets que só têm em comum o agrupador em que já estão não formam um agrupador novo.
+
+**O que a pessoa vê e faz.** O resultado da procura passa a trazer, quando houver, a proposta: nome, descrição e os tickets do grupo. O painel mostra a proposta com os tickets listados, e a pessoa pode tirar algum da lista. Duas ações: "Criar agrupador e mover" e "Só criar o ticket". Se a pessoa trocar o destino (alternativa, um nível acima ou escolha no mapa), a proposta é descartada.
+
+**Ao confirmar.** Em uma só transação: cria o agrupador no destino, move para ele os tickets escolhidos e cria o ticket novo dentro dele. Antes, confere de novo que cada ticket escolhido ainda é um ticket solto daquele destino; se algum mudou, 409 `grouping_changed` e nada é criado. Grava os eventos de sempre (criação do agrupador, mudança de pai de cada ticket movido, criação do ticket), com a origem `assistant`.
+
+**Limites.** A IA não propõe agrupador com tickets de níveis diferentes, não move agrupadores e não reorganiza o que já está agrupado. O limiar de 0,7 e o tamanho mínimo do grupo são iniciais e se ajustam por medição: desfazer um agrupador de uma cópia da árvore, deixar os tickets soltos e ver se a IA propõe o grupo de volta.
+
 ### Ferramenta de medição
 
 A ferramenta de `apps/api/scripts` passa a guardar e a restaurar o tipo de cada nó.
@@ -94,22 +121,25 @@ A ferramenta de `apps/api/scripts` passa a guardar e a restaurar o tipo de cada 
 1. Banco, domínio e API, com a procura nova. Um PR, que espera a migration 0006 no Neon.
 2. Web: tipos no mapa, na página, na criação e no painel da IA.
 3. Escopo pela seleção, API e web.
+4. Proposta de agrupador pela IA, API e web.
 
 ## Fora desta ADR
 
 - **Hidratação do ticket por área** (back-end, front-end e outras): entra com as contribuições por área da Fase 2.
 - **Ligação com repositórios de código** (GitHub e outros): ADR própria.
-- **Organizar uma lista inteira de uma vez** (IDEA-010) e **criar agrupador pela IA** quando nenhum serve (IDEA-005).
+- **Organizar uma lista inteira de uma vez** (IDEA-010): um pedido para a IA olhar todos os tickets soltos de um projeto ou agrupador e propor a organização.
 - **Reclassificação ao editar** (IDEA-014).
 - **Reconstrução do `TREEPM`**, que continua suspensa.
 
 ## Consequências
 
-- A IA volta a só **colocar** tickets. Quem cria profundidade são as pessoas, criando agrupadores ou transformando um ticket em agrupador. Isso desfaz o segundo motivo da ADR 0030, que durou um dia: a IA não aprofunda mais a árvore sozinha.
+- A IA coloca tickets e **propõe** agrupadores. A profundidade nasce de três jeitos: a pessoa cria um agrupador, a pessoa transforma um ticket em agrupador, ou a pessoa aceita um agrupador proposto pela IA. A IA não aprofunda a árvore sem confirmação, e nunca põe ticket dentro de ticket, que foi o que a ADR 0030 permitiu por um dia.
 - O primeiro motivo da ADR 0030 fica resolvido de outro jeito: um agrupador vazio é candidato, então um projeto novo com agrupadores se organiza.
 - Um projeto sem nenhum agrupador recebe todo ticket novo na raiz.
 - "Fechamento da Fase 1" deixa de ser um ticket ambíguo e passa a ser um agrupador, com a descrição dizendo o que ele engloba.
 - A procura na raiz compara só agrupadores, e não mais dezenas de itens soltos.
 - Quem seleciona o agrupador errado recebe um aviso, mas a decisão continua sendo da pessoa.
 - Mais um conceito na interface: a pessoa precisa escolher entre criar ticket e criar agrupador.
+- Aceitar um agrupador proposto move tickets que podem ser de outras pessoas. Por isso a proposta nunca se aplica sozinha.
+- A proposta custa uma requisição ao Jev por ticket criado em nível com tickets soltos, e uma chamada curta ao Claude quando há grupo. O custo ainda não foi medido.
 - A lista de importação não expressa agrupador vazio.
