@@ -1,6 +1,6 @@
 # ADR 0030 — Ticket folha como candidato na procura do caminho
 
-**Status:** Aceita. **Data:** 2026-11-20.
+**Status:** Aceita. A reconstrução do `TREEPM` está **suspensa** depois da primeira medição (ver "Resultado da primeira medição"). **Data:** 2026-11-20.
 
 ## Contexto
 
@@ -68,6 +68,34 @@ O projeto `TREEPM` (45 tickets, seis grupos e seus itens) é zerado e reinserido
 - **Segurança:** o gabarito é exportado do projeto vivo e conferido antes de qualquer remoção; a volta ao estado original, pela rota de importação, é provada no banco de teste antes; e os primeiros itens são ensaiados com os provedores reais em um projeto descartável.
 
 A ferramenta fica em `apps/api/scripts`, como a de conferência dos provedores, e serve para repetir a medição quando o texto das perguntas ou os limiares mudarem. Ela sobe a API real com uma sessão fixa, só em processo local.
+
+### Resultado da primeira medição (2026-11-20)
+
+A reconstrução **não foi feita no `TREEPM`**, que continua como estava. Os 45 tickets do gabarito foram inseridos, na ordem e com as regras acima, em um projeto descartável (`ENSAIO`, na mesma organização), com Claude e Jev reais. Uma rodada só, em uma ordem só.
+
+| Onde ficou, na árvore reconstruída | Tickets |
+| --- | ---: |
+| Mesmo pai do gabarito | 9 (os 6 grupos, na raiz, e 3 itens) |
+| Mais fundo dentro do grupo certo | 4 |
+| Em outro lugar | 32 (24 deles na raiz) |
+
+- 27 dos 45 resultados vieram marcados como incertos. Entre os 39 itens, o lugar do gabarito estava no destino ou nas alternativas oferecidas em 13.
+- Na raiz, o `Noul` dos 39 itens (que deveriam descer) ficou abaixo de 0,3 em 7, entre 0,3 e 0,7 em 17 e acima de 0,7 em 15. Nenhum dos 5 grupos julgados (que deveriam ficar na raiz) passou de 0,7.
+- Quando o `Noul` passou de 0,7, o `Choice` apontou o grupo certo em 7 de 15. Os erros foram escolhas de um item solto na raiz em vez do grupo.
+- O `Choice` acertou o grupo em 4 de 5 julgamentos com até 10 candidatos e em 14 de 34 com mais de 10.
+- Tempo: 6 min e 21 s no total; mediana de 8,4 s por ticket, dos quais 6,6 s são o turno do Claude e 0,6 s a procura.
+
+O que os números mostram:
+
+- **A inserção um por um em projeto vazio reforça os próprios erros.** O item que cai na faixa do meio fica na raiz; a raiz cresce (chegou a 30 candidatos); os itens seguintes passam a ser comparados com itens soltos, e alguns entram dentro deles em cadeia.
+- **Grupo recém-criado tem pouco texto.** Quatro dos seis grupos não têm descrição, e sem filhos não há resumo.
+- **O gabarito não é neutro:** o agrupamento original veio de conhecimento do projeto que não está no texto dos tickets.
+
+O que **não** se conclui daqui: nada sobre os limiares, o texto das perguntas ou a regra da faixa do meio. É uma rodada, cada colocação depende das anteriores, e os mesmos 45 itens seriam ao mesmo tempo ajuste e prova.
+
+O que esta rodada não mediu é o uso para o qual a procura foi desenhada: pôr **um** ticket em uma árvore já organizada. A medição seguinte tira um ticket por vez de uma cópia da árvore original, pede o lugar e o devolve. Organizar uma lista inteira de uma vez é outra funcionalidade (IDEA-010) e pede outra técnica.
+
+A ferramenta classificou 8 tickets como "mais fundo" por olhar a ascendência no gabarito, e não na árvore reconstruída; os números acima já estão corrigidos, e a ferramenta também foi.
 
 ## Fora desta ADR
 
