@@ -10,13 +10,20 @@ import {
   compareTrees,
   computeDepths,
   insertionOrder,
+  looLeaves,
+  looResumeAction,
+  looView,
+  pendingLoo,
+  pendingMarks,
   pendingTickets,
+  recomputeGroups,
+  rebuildView,
   removalOrder,
   renderReport,
   resumeState,
   withRetry503,
 } from "./core.js";
-import type { Gabarito, GabaritoTicket, RunRecord, StartedMark, Step, TicketStatus } from "./core.js";
+import type { Gabarito, GabaritoTicket, LooMark, RunRecord, StartedMark, Step, TicketStatus } from "./core.js";
 
 type Summary = {
   id: string;
@@ -53,6 +60,9 @@ export type Context = {
   log: (line: string) => void;
   sleep: (ms: number) => Promise<void>;
   retryDelaysMs?: number[];
+  /** Ensaio: interrompe o `leave-one-out` logo depois da N-ésima remoção da execução. */
+  looCrashAfterRemove?: number;
+  looCrashAfterDraft?: number;
 };
 
 const MAX_MESSAGE = 4000;
@@ -64,6 +74,10 @@ export const gabaritoPath = (dir: string): string => join(dir, "gabarito.json");
 export const runPath = (dir: string, projectId: string): string => join(dir, `run-${projectId}.jsonl`);
 const startedPath = (dir: string, projectId: string): string => join(dir, `started-${projectId}.jsonl`);
 export const reportPath = (dir: string, projectId: string): string => join(dir, `report-${projectId}.md`);
+export const looPath = (dir: string, projectId: string): string => join(dir, `loo-${projectId}.jsonl`);
+const looStatePath = (dir: string, projectId: string): string => join(dir, `loo-state-${projectId}.jsonl`);
+export const looMapPath = (dir: string, projectId: string): string => join(dir, `loo-map-${projectId}.json`);
+export const looReportPath = (dir: string, projectId: string): string => join(dir, `report-loo-${projectId}.md`);
 
 function readJsonLines<T>(path: string): T[] {
   if (!existsSync(path)) return [];
@@ -182,7 +196,6 @@ export async function rebuildCommand(ctx: Context, limit: number | undefined): P
     if (existing.length > 0) throw new Error(`O projeto ${ctx.project} já tem ${existing.length} ticket(s) e nenhuma execução registrada; recuso reconstruir por cima.`);
   }
   const state = resumeState(records, started);
-  const oldParents = new Map(gabarito.tickets.map((t) => [t.id, t.parentId]));
   const order = insertionOrder(gabarito.tickets);
   const pending = pendingTickets(order, state, limit);
   ctx.log(`Ordem: ${order.length} tickets; já registrados: ${state.done.size}; a processar agora: ${pending.length}.`);
@@ -190,7 +203,7 @@ export async function rebuildCommand(ctx: Context, limit: number | undefined): P
   let position = 0;
   for (const ticket of pending) {
     position += 1;
-    const record = await rebuildOne(ctx, ticket, state, oldParents);
+    const record = await rebuildOne(ctx, ticket, state);
     state.done.add(ticket.id);
     state.newToOld.set(record.newId, ticket.id);
     appendFileSync(runPath(ctx.dir, ctx.project), `${JSON.stringify(record)}\n`);
@@ -200,16 +213,11 @@ export async function rebuildCommand(ctx: Context, limit: number | undefined): P
   ctx.log("Rebuild: nada mais a fazer nesta execução.");
 }
 
-async function rebuildOne(
-  ctx: Context,
-  ticket: GabaritoTicket,
-  state: ReturnType<typeof resumeState>,
-  oldParents: ReadonlyMap<string, string | null>,
-): Promise<RunRecord> {
-  const timingsMs: Record<Step, number> = { open: 0, draft: 0, placement: 0, ticket: 0 };
-  const attempts: Record<Step, number> = { open: 0, draft: 0, placement: 0, ticket: 0 };
+type Timings = Record<Step, number>;
 
-  const call = async <T>(step: Step, what: string, run: () => ReturnType<ApiClient["request"]>): Promise<T> => {
+/** Chamada HTTP com as tentativas em 503, somando tempo e tentativas do passo. */
+function makeCaller(ctx: Context, timingsMs: Timings, attempts: Timings) {
+  return async <T>(step: Step, what: string, run: () => ReturnType<ApiClient["request"]>): Promise<T> => {
     const started = performance.now();
     const { response, attempts: n } = await withRetry503(run, { sleep: ctx.sleep, ...(ctx.retryDelaysMs ? { delaysMs: ctx.retryDelaysMs } : {}) });
     timingsMs[step] += Math.round(performance.now() - started);
@@ -217,6 +225,25 @@ async function rebuildOne(
     if (response.status === 503) throw new Error(`${describeFailure(what, response)} persistente depois de ${n} tentativas; rode de novo para continuar.`);
     return expectOk<T>(what, response);
   };
+}
+
+const claudeOf = (conversation: Conversation): RunRecord["claude"] => ({
+  draftTitle: conversation.draft?.title ?? null,
+  ready: conversation.ready,
+  message: [...conversation.messages].reverse().find((m) => m.author === "assistant")?.body ?? "",
+});
+
+const openMessage = (ticket: GabaritoTicket): string => `${ticket.title}\n\n${ticket.description}`.slice(0, MAX_MESSAGE);
+
+async function rebuildOne(
+  ctx: Context,
+  ticket: GabaritoTicket,
+  state: ReturnType<typeof resumeState>,
+): Promise<RunRecord> {
+  const timingsMs: Record<Step, number> = { open: 0, draft: 0, placement: 0, ticket: 0 };
+  const attempts: Record<Step, number> = { open: 0, draft: 0, placement: 0, ticket: 0 };
+
+  const call = makeCaller(ctx, timingsMs, attempts);
 
   // 1. conversa (reaproveita a que já foi aberta antes de uma interrupção)
   let conversation: Conversation;
@@ -224,18 +251,13 @@ async function rebuildOne(
   if (reusedId) {
     conversation = await call<Conversation>("open", "ler conversa", () => ctx.client.request("GET", `/ticket-conversations/${reusedId}`));
   } else {
-    const message = `${ticket.title}\n\n${ticket.description}`.slice(0, MAX_MESSAGE);
+    const message = openMessage(ticket);
     conversation = await call<Conversation>("open", "abrir conversa", () =>
       ctx.client.request("POST", `/projects/${ctx.project}/ticket-conversations`, { message }),
     );
   }
-  const lastAssistant = [...conversation.messages].reverse().find((m) => m.author === "assistant");
   // Numa conversa reaproveitada, o rascunho já foi trocado pelo do gabarito: vale o que a marca guardou.
-  const claude = (reusedId ? state.startedMarks.get(ticket.id)?.claude : undefined) ?? {
-    draftTitle: conversation.draft?.title ?? null,
-    ready: conversation.ready,
-    message: lastAssistant?.body ?? "",
-  };
+  const claude = (reusedId ? state.startedMarks.get(ticket.id)?.claude : undefined) ?? claudeOf(conversation);
   if (!reusedId) {
     appendFileSync(startedPath(ctx.dir, ctx.project), `${JSON.stringify({ oldId: ticket.id, conversationId: conversation.id, claude } satisfies StartedMark)}\n`);
   }
@@ -245,8 +267,8 @@ async function rebuildOne(
     const group = classifyPlacement({
       expectedParentOldId: ticket.parentId,
       chosenNewParentId: chosen,
+      destinationPath: outcome?.destination.path ?? [],
       newToOld: state.newToOld,
-      oldParents,
     });
     return {
       oldId: ticket.id,
@@ -336,19 +358,22 @@ export async function restoreStateCommand(ctx: Context): Promise<boolean> {
 
 // ---- report -------------------------------------------------------------------------------------------------------------
 
-export function reportCommand(ctx: Pick<Context, "dir" | "project" | "log">): void {
+export function reportCommand(ctx: Pick<Context, "dir" | "project" | "log">, loo = false): void {
   const gabarito = readGabarito(ctx.dir);
-  const records = readJsonLines<RunRecord>(runPath(ctx.dir, ctx.project));
-  writeFileSync(reportPath(ctx.dir, ctx.project), renderReport(gabarito.tickets, records, gabarito.project.key));
+  const records = readJsonLines<RunRecord>(loo ? looPath(ctx.dir, ctx.project) : runPath(ctx.dir, ctx.project));
+  const view = loo ? looView(gabarito.tickets, readLooMap(ctx.dir, ctx.project)) : rebuildView(gabarito.tickets, records);
+  const markdown = renderReport(gabarito.tickets, records, gabarito.project.key, { view, loo });
+  writeFileSync(loo ? looReportPath(ctx.dir, ctx.project) : reportPath(ctx.dir, ctx.project), markdown);
+  // Mesma regra do relatório: o grupo é recalculado, não lido do arquivo.
   const groups = { same_parent: 0, deeper: 0, elsewhere: 0 };
-  for (const r of records) groups[r.group] += 1;
+  for (const r of recomputeGroups(records, view)) groups[r.group] += 1;
   ctx.log(`Relatório gravado: ${records.length} tickets (same_parent ${groups.same_parent}, deeper ${groups.deeper}, elsewhere ${groups.elsewhere}).`);
 }
 
 // ---- restore-original -------------------------------------------------------------------------------------------------
 
-export async function restoreOriginalCommand(ctx: Context): Promise<boolean> {
-  const gabarito = readGabarito(ctx.dir);
+/** Recria a árvore do gabarito pela rota de importação, num projeto vazio; devolve os tickets criados na ordem do gabarito. */
+async function importGabarito(ctx: Context, gabarito: Gabarito): Promise<{ created: Summary[]; order: string[] }> {
   const existing = await listTickets(ctx);
   if (existing.length > 0) throw new Error(`O projeto ${ctx.project} tem ${existing.length} ticket(s); recuso restaurar em projeto não vazio.`);
   const { items, order } = buildImportTree(gabarito.tickets);
@@ -356,6 +381,12 @@ export async function restoreOriginalCommand(ctx: Context): Promise<boolean> {
   const created = expectOk<Summary[]>("importar árvore", await ctx.client.request("POST", `/projects/${ctx.project}/tickets/import`, { items }));
   if (created.length !== order.length) throw new Error(`A importação devolveu ${created.length} tickets, esperava ${order.length}.`);
   ctx.log(`Árvore recriada: ${created.length} tickets.`);
+  return { created, order };
+}
+
+export async function restoreOriginalCommand(ctx: Context): Promise<boolean> {
+  const gabarito = readGabarito(ctx.dir);
+  const { created, order } = await importGabarito(ctx, gabarito);
   const byId = new Map(gabarito.tickets.map((t) => [t.id, t]));
   let assigned = 0;
   let failed = 0;
@@ -372,6 +403,203 @@ export async function restoreOriginalCommand(ctx: Context): Promise<boolean> {
   }
   ctx.log(`Atribuições reaplicadas: ${assigned}; falhas: ${failed}.`);
   return failed === 0;
+}
+
+// ---- leave-one-out ------------------------------------------------------------------------------------------------------
+
+export function readLooMap(dir: string, projectId: string): Map<string, string> {
+  const path = looMapPath(dir, projectId);
+  if (!existsSync(path)) throw new Error(`Não existe ${path}. Rode \`leave-one-out\` primeiro.`);
+  return new Map(Object.entries(JSON.parse(readFileSync(path, "utf8")) as Record<string, string>));
+}
+
+const writeLooMap = (dir: string, projectId: string, map: ReadonlyMap<string, string>): void =>
+  writeFileSync(looMapPath(dir, projectId), JSON.stringify(Object.fromEntries(map), null, 2));
+
+/** Mede o uso normal da procura: tira um ticket-folha de uma árvore já organizada e deixa a procura pô-lo de volta. */
+export async function leaveOneOutCommand(ctx: Context, limit: number | undefined): Promise<boolean> {
+  const gabarito = readGabarito(ctx.dir);
+  const byId = new Map(gabarito.tickets.map((t) => [t.id, t]));
+  const results = readJsonLines<RunRecord>(looPath(ctx.dir, ctx.project));
+
+  // 1. a árvore do gabarito no projeto (só na primeira execução)
+  let map: Map<string, string>;
+  if (existsSync(looMapPath(ctx.dir, ctx.project))) {
+    map = readLooMap(ctx.dir, ctx.project);
+  } else {
+    const { created, order } = await importGabarito(ctx, gabarito);
+    map = new Map(order.map((oldId, index) => [oldId, (created[index] as Summary).id]));
+    writeLooMap(ctx.dir, ctx.project, map);
+  }
+  const saveMap = (): void => writeLooMap(ctx.dir, ctx.project, map);
+  const parentNewId = (ticket: GabaritoTicket): string | null => (ticket.parentId === null ? null : (map.get(ticket.parentId) as string));
+  const done = new Set(results.map((r) => r.oldId));
+
+  // 2. retomada: um ticket removido e não recolocado volta ao pai original antes de qualquer outra coisa
+  const pending = pendingMarks(readJsonLines<LooMark>(looStatePath(ctx.dir, ctx.project)), done);
+  if (pending.length > 0) {
+    const live = liveFor(await listTickets(ctx));
+    for (const mark of pending) {
+      const action = looResumeAction(mark, live);
+      const original = byId.get(mark.oldId) as GabaritoTicket;
+      if (action.kind === "present") {
+        ctx.log(`Retomada: "${mark.oldId}" ainda está no projeto; será refeito.`);
+      } else if (action.kind === "recreated") {
+        map.set(mark.oldId, action.ticketId);
+        saveMap();
+        ctx.log(`Retomada: "${mark.oldId}" já tinha sido recriado; será refeito.`);
+      } else {
+        const restoredId = await restoreMissing(ctx, original, mark);
+        map.set(mark.oldId, restoredId);
+        saveMap();
+        ctx.log(`Retomada: "${mark.oldId}" estava removido; recriado no pai original.`);
+      }
+    }
+  }
+
+  // 3. um ticket por vez
+  const leaves = looLeaves(gabarito.tickets);
+  const todo = pendingLoo(leaves, done, limit);
+  ctx.log(`Folhas: ${leaves.length}; já medidas: ${done.size}; a medir agora: ${todo.length}.`);
+  let removedThisRun = 0;
+  let position = 0;
+  for (const ticket of todo) {
+    position += 1;
+    const expectedParentNewId = parentNewId(ticket);
+    const mark: LooMark = { oldId: ticket.id, title: ticket.title, ticketId: map.get(ticket.id) as string, expectedParentNewId };
+    appendFileSync(looStatePath(ctx.dir, ctx.project), `${JSON.stringify(mark)}\n`);
+    const removal = await ctx.client.request("DELETE", `/tickets/${mark.ticketId}`);
+    if (removal.status !== 204) throw new Error(describeFailure("remover ticket", removal));
+    removedThisRun += 1;
+    if (ctx.looCrashAfterRemove !== undefined && removedThisRun === ctx.looCrashAfterRemove) {
+      throw new Error("Interrupção de ensaio: o processo parou depois de remover o ticket e antes de recolocá-lo.");
+    }
+    const record = await looOne(ctx, ticket, mark, expectedParentNewId, map, ctx.looCrashAfterDraft === removedThisRun);
+    map.set(ticket.id, record.newId);
+    saveMap();
+    appendFileSync(looPath(ctx.dir, ctx.project), `${JSON.stringify(record)}\n`);
+    done.add(ticket.id);
+    const total = Object.values(record.timingsMs).reduce((a, b) => a + b, 0);
+    ctx.log(`[${position}/${todo.length}] ${record.newKey} → ${record.group}${record.uncertain ? " incerto" : ""} em ${total} ms`);
+  }
+
+  // 4. a árvore tem de estar inteira: mesmos títulos e pais do gabarito
+  const problems = await looTreeProblems(ctx, gabarito, map);
+  if (problems.length === 0) {
+    ctx.log("Leave-one-out: o projeto tem os mesmos tickets (títulos e pais) do gabarito.");
+    return true;
+  }
+  ctx.log(`Leave-one-out: a árvore NÃO confere com o gabarito (${problems.length} diferença(s)).`);
+  for (const problem of problems.slice(0, 20)) ctx.log(`  ${problem}`);
+  return false;
+}
+
+/** Recria um ticket que a interrupção deixou removido: pela conversa já aberta, se ela ainda serve; senão pela rota do projeto. */
+async function restoreMissing(ctx: Context, original: GabaritoTicket, mark: LooMark): Promise<string> {
+  const retry = async (what: string, run: () => ReturnType<ApiClient["request"]>) => {
+    const { response, attempts } = await withRetry503(run, { sleep: ctx.sleep, ...(ctx.retryDelaysMs ? { delaysMs: ctx.retryDelaysMs } : {}) });
+    if (response.status === 503) throw new Error(`${describeFailure(what, response)} persistente depois de ${attempts} tentativas; rode de novo para continuar.`);
+    return response;
+  };
+  if (mark.conversationId) {
+    const conversationResponse = await retry("ler conversa", () => ctx.client.request("GET", `/ticket-conversations/${mark.conversationId}`));
+    const conversation = conversationResponse.status === 200 ? (conversationResponse.body as Conversation) : null;
+    if (conversation && conversation.status === "open" && conversation.draft) {
+      const created = await retry("criar ticket pela conversa", () =>
+        ctx.client.request("POST", `/ticket-conversations/${mark.conversationId}/ticket`, { parentId: mark.expectedParentNewId }),
+      );
+      if (created.status >= 200 && created.status < 300) return (created.body as { ticket: Detail }).ticket.id;
+    }
+  }
+  const created = await retry("recriar ticket", () =>
+    ctx.client.request("POST", `/projects/${ctx.project}/tickets`, {
+      title: original.title,
+      description: original.description,
+      parentId: mark.expectedParentNewId,
+    }),
+  );
+  return expectOk<Detail>("recriar ticket", created).id;
+}
+
+async function looOne(
+  ctx: Context,
+  ticket: GabaritoTicket,
+  mark: LooMark,
+  expectedParentNewId: string | null,
+  map: ReadonlyMap<string, string>,
+  crashAfterDraft: boolean,
+): Promise<RunRecord> {
+  const timingsMs: Timings = { open: 0, draft: 0, placement: 0, ticket: 0 };
+  const attempts: Timings = { open: 0, draft: 0, placement: 0, ticket: 0 };
+  const call = makeCaller(ctx, timingsMs, attempts);
+
+  const conversation = await call<Conversation>("open", "abrir conversa", () =>
+    ctx.client.request("POST", `/projects/${ctx.project}/ticket-conversations`, { message: openMessage(ticket) }),
+  );
+  const claude = claudeOf(conversation);
+  // A conversa fica anotada: se o processo parar daqui, a retomada recria o ticket por ela.
+  appendFileSync(looStatePath(ctx.dir, ctx.project), `${JSON.stringify({ ...mark, conversationId: conversation.id } satisfies LooMark)}\n`);
+
+  await call("draft", "gravar rascunho", () =>
+    ctx.client.request("PATCH", `/ticket-conversations/${conversation.id}/draft`, { title: ticket.title, description: ticket.description }),
+  );
+  if (crashAfterDraft) throw new Error("Interrupção de ensaio: o processo parou depois de gravar o rascunho.");
+  const outcome = await call<Outcome>("placement", "procurar o caminho", () => {
+    ctx.recorder.reset();
+    return ctx.client.request("POST", `/ticket-conversations/${conversation.id}/placement`);
+  });
+  const judgments = ctx.recorder.take();
+  // Não cria no destino da procura: recoloca no pai original, para a árvore ficar igual à de antes.
+  const created = (
+    await call<{ ticket: Detail }>("ticket", "recriar ticket", () =>
+      ctx.client.request("POST", `/ticket-conversations/${conversation.id}/ticket`, { parentId: expectedParentNewId }),
+    )
+  ).ticket;
+
+  const newToOld = new Map([...map].map(([oldId, newId]) => [newId, oldId]));
+  const chosen = outcome.destination.parentId;
+  return {
+    oldId: ticket.id,
+    oldNumber: ticket.number,
+    title: ticket.title,
+    newId: created.id,
+    newKey: created.key,
+    conversationId: conversation.id,
+    resumed: false,
+    expectedParentOldId: ticket.parentId,
+    chosenParentNewId: chosen,
+    chosenParentOldId: chosen === null ? null : (newToOld.get(chosen) ?? null),
+    group: classifyPlacement({
+      expectedParentOldId: ticket.parentId,
+      chosenNewParentId: chosen,
+      destinationPath: outcome.destination.path,
+      newToOld,
+    }),
+    uncertain: outcome.uncertain,
+    stoppedEarly: outcome.stoppedEarly,
+    destinationPath: outcome.destination.path,
+    alternatives: outcome.alternatives.map((a) => ({
+      parentNewId: a.parentId,
+      parentOldId: a.parentId === null ? null : (newToOld.get(a.parentId) ?? null),
+      path: a.path,
+    })),
+    judgments,
+    claude,
+    timingsMs,
+    attempts,
+  };
+}
+
+/** Compara o projeto vivo com o gabarito traduzido para os ids vivos (as situações do gabarito não entram). */
+async function looTreeProblems(ctx: Context, gabarito: Gabarito, map: ReadonlyMap<string, string>): Promise<string[]> {
+  const translated = gabarito.tickets.map((t) => ({
+    ...t,
+    id: map.get(t.id) ?? `sem-id:${t.id}`,
+    parentId: t.parentId === null ? null : (map.get(t.parentId) ?? `sem-id:${t.parentId}`),
+  }));
+  const expectedStatus = new Map(translated.map((t) => [t.id, t.status]));
+  const live = liveFor(await listTickets(ctx)).map((x) => ({ ...x, status: expectedStatus.get(x.id) ?? x.status }));
+  return compareTrees(translated, live);
 }
 
 // ---- projeto descartável ------------------------------------------------------------------------------------------

@@ -15,6 +15,7 @@ import { DIRECTORY_PROVIDER } from "../../src/auth/directory-provider.js";
 import { SESSION_VERIFIER } from "../../src/auth/session-verifier.js";
 import type { SessionVerifier, VerifiedSession } from "../../src/auth/session-verifier.js";
 import { FakeConversation, FakeDirectoryProvider, FakeJudge, FakeSummarizer } from "./fakes.js";
+import { resolveCurrentId } from "./core.js";
 import type { JudgmentRecord } from "./core.js";
 
 export const TOKEN_HEADER = "x-rebuild-token";
@@ -22,13 +23,23 @@ export const TOKEN_HEADER = "x-rebuild-token";
 /** Guarda os julgamentos da procura em andamento (a ferramenta faz uma procura por vez). */
 export class JudgmentRecorder {
   private current: JudgmentRecord[] = [];
+  /** Candidatos já oferecidos ao juiz nesta procura: o nó atual de um julgamento é um deles. */
+  private seenCandidates: { id: string; title: string; summary: string }[] = [];
   reset(): void {
     this.current = [];
+    this.seenCandidates = [];
   }
   take(): JudgmentRecord[] {
     const taken = this.current;
     this.current = [];
+    this.seenCandidates = [];
     return taken;
+  }
+  seen(): readonly { id: string; title: string; summary: string }[] {
+    return this.seenCandidates;
+  }
+  noteCandidates(candidates: readonly { id: string; title: string; summary: string }[]): void {
+    for (const c of candidates) this.seenCandidates.push({ id: c.id, title: c.title, summary: c.summary });
   }
   add(record: JudgmentRecord): void {
     this.current.push(record);
@@ -42,14 +53,22 @@ class RecordingJudge implements BranchJudge {
   ) {}
 
   async judge(input: Parameters<BranchJudge["judge"]>[0], options?: { signal?: AbortSignal }): Promise<BranchJudgment> {
+    // O juiz recebe o nó atual só com título e resumo: o id sai dos candidatos que a própria procura já ofereceu.
+    const currentId = resolveCurrentId(input.current, this.recorder.seen());
+    this.recorder.noteCandidates(input.candidates);
     const result = await this.inner.judge(input, options);
     const choice: Record<string, number> = {};
+    const choiceById: Record<string, number> = {};
     for (const candidate of input.candidates) {
       const key = candidate.title in choice ? `${candidate.title} [${candidate.id}]` : candidate.title;
       choice[key] = result.choice[candidate.id] ?? 0;
+      choiceById[candidate.id] = result.choice[candidate.id] ?? 0;
     }
     this.recorder.add({
       current: input.current?.title ?? null,
+      ...(currentId === undefined ? {} : { currentId }),
+      candidateIds: input.candidates.map((c) => c.id),
+      choiceById,
       candidateCount: input.candidates.length,
       belongs: result.belongs,
       choice,

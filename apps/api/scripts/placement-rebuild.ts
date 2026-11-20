@@ -4,7 +4,7 @@
  *
  *   pnpm --filter @treepm/api placement:rebuild <comando> [opções]
  *
- * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project.
+ * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out.
  * Sobe a API real em processo (só a sessão é trocada), em 127.0.0.1 e porta efêmera, e fala com ela por HTTP.
  * O terminal mostra só progresso e contagens; todo texto de ticket fica nos arquivos de `--dir`.
  */
@@ -18,6 +18,7 @@ import {
   createProjectCommand,
   ensureDir,
   exportCommand,
+  leaveOneOutCommand,
   rebuildCommand,
   reportCommand,
   restoreOriginalCommand,
@@ -40,7 +41,7 @@ async function main(): Promise<number> {
   ensureDir(dir);
 
   if (command === "report") {
-    reportCommand({ dir, project: options.project as string, log });
+    reportCommand({ dir, project: options.project as string, log }, options.loo ?? false);
     return 0;
   }
 
@@ -51,7 +52,7 @@ async function main(): Promise<number> {
     fakeProviders: options.fakeProviders ?? false,
     fake503First: options.fake503First ?? 0,
     fake503JudgeAt: options.fake503JudgeAt ?? 0,
-    needsAi: command === "rebuild",
+    needsAi: command === "rebuild" || command === "leave-one-out",
   });
   try {
     const ctx: Context = {
@@ -62,6 +63,8 @@ async function main(): Promise<number> {
       log,
       sleep: (ms) => sleep(ms),
       ...(options.retryDelaysMs ? { retryDelaysMs: options.retryDelaysMs } : {}),
+      ...(options.looCrashAfterRemove ? { looCrashAfterRemove: options.looCrashAfterRemove } : {}),
+      ...(options.looCrashAfterDraft ? { looCrashAfterDraft: options.looCrashAfterDraft } : {}),
     };
     switch (command) {
       case "export":
@@ -75,6 +78,8 @@ async function main(): Promise<number> {
       case "rebuild":
         await rebuildCommand(ctx, options.limit);
         return 0;
+      case "leave-one-out":
+        return (await leaveOneOutCommand(ctx, options.limit)) ? 0 : 1;
       case "restore-state":
         return (await restoreStateCommand(ctx)) ? 0 : 1;
       case "restore-original":
