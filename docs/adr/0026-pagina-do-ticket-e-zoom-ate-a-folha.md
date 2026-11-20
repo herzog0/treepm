@@ -73,6 +73,8 @@ Ficam fora deste recorte, embora apareçam nos quadros: a seção **Atividade**,
 
 ### Criação manual
 
+A [ADR 0031](0031-agrupadores.md) muda os pontos de criação: "Novo ticket" e "Novo agrupador" na página de um agrupador e no detalhe do projeto; na página de um ticket, "Transformar em agrupador" no lugar de "Novo subticket".
+
 A página tem um modo de criação, com título obrigatório e descrição opcional, "Criar" e "Cancelar". O ticket nasce em "a fazer" e sem pessoas; o resto se ajusta depois de criado. O modo de criação não vai para a URL. Depois de criar, a página passa a mostrar o ticket novo (`?ticket=<id>`), o mapa recarrega e a câmera vai até ele.
 
 - **"Novo subticket"**, na página de um ticket: cria um filho dele.

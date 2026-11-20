@@ -34,6 +34,8 @@ Os irmãos aparecem em ordem crescente de `number`, que é a ordem de criação.
 
 ### Situação e progresso
 
+A [ADR 0031](0031-agrupadores.md) troca "ticket com filhos" por um tipo declarado, o agrupador: só agrupador tem filhos, e é ele que não tem situação e traz progresso, mesmo vazio.
+
 O blueprint já define a regra, e esta ADR a aplica:
 
 - Só folha tem situação manual. Um ticket com filhos não tem situação de execução: a API devolve `status: null` para ele e recusa alterar a situação com 409 `ticket_has_children`.

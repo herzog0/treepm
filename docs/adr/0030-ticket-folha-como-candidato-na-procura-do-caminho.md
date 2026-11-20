@@ -17,6 +17,8 @@ Em 2026-11-20 Teodoro pediu a mudança ("definitivamente é a sua proposta o que
 
 ### Todo filho é candidato
 
+Substituído pela [ADR 0031](0031-agrupadores.md): os candidatos passam a ser só os agrupadores filhos, vazios ou não, e ticket nunca é candidato. O aviso da web descrito abaixo também deixa de existir.
+
 Em cada nível, os candidatos passam a ser **todos os filhos diretos** do nó atual, com ou sem filhos. O resto da procura não muda: mesmas duas perguntas por nível, mesmos limiares (0,3 e 0,7), até 3 caminhos, mesma nota, mesmos limites.
 
 - Quando a procura desce para uma folha, o nível seguinte não tem candidatos e ela para ali: o ticket novo vira o **primeiro subticket** dessa folha.
@@ -95,7 +97,7 @@ O que **não** se conclui daqui: nada sobre os limiares, o texto das perguntas o
 
 O que esta rodada não mediu é o uso para o qual a procura foi desenhada: pôr **um** ticket em uma árvore já organizada. A medição seguinte tira um ticket por vez de uma cópia da árvore original, pede o lugar e o devolve. Organizar uma lista inteira de uma vez é outra funcionalidade (IDEA-010) e pede outra técnica.
 
-A ferramenta classificou 8 tickets como "mais fundo" por olhar a ascendência no gabarito, e não na árvore reconstruída; os números acima já estão corrigidos, e a ferramenta também foi.
+A ferramenta classificou 8 tickets como "mais fundo" por olhar a ascendência no gabarito, e não na árvore reconstruída; os números acima já estão corrigidos; a correção da ferramenta vem em seguida.
 
 ## Fora desta ADR
 
