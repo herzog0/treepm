@@ -186,7 +186,7 @@ export class TicketConversationsController {
       const [tickets, summaries] = await Promise.all([
         tx.ticket.findMany({
           where: { projectId: conversation.projectId },
-          select: { id: true, parentId: true, number: true, title: true, description: true },
+          select: { id: true, parentId: true, kind: true, number: true, title: true, description: true },
         }),
         tx.branchSummary.findMany({ where: { projectId: conversation.projectId }, select: { ticketId: true, summary: true, contentMark: true } }),
       ]);

@@ -43,23 +43,24 @@ describe("JevBranchJudge — a requisição", () => {
     expect(JSON.stringify(request)).not.toMatch(/id-1|id-2/);
   });
 
-  it("o estado tem campos nomeados com rascunho, ticket atual e candidatos", async () => {
+  it("o estado tem exatamente draft, current_group e candidate_groups", async () => {
     const captured: { request: any; options: any }[] = [];
     await new JevBranchJudge(fake(answer(0.9, { Login: 0.8, Cobrança: 0.2 }), captured)).judge(input);
     expect(captured[0]!.request.state).toEqual({
       draft: input.draft,
-      current_ticket: { title: "Autenticação", subtickets_summary: "Entrada no sistema" },
-      candidates: [
-        { title: "Login", subtickets_summary: "Tela de login" },
-        { title: "Cobrança", subtickets_summary: "Faturas e pagamentos" },
+      current_group: { title: "Autenticação", summary: "Entrada no sistema" },
+      candidate_groups: [
+        { title: "Login", summary: "Tela de login" },
+        { title: "Cobrança", summary: "Faturas e pagamentos" },
       ],
     });
   });
 
-  it("na raiz não há ticket atual no estado", async () => {
+  it("na raiz não há agrupador atual no estado", async () => {
     const captured: { request: any; options: any }[] = [];
     await new JevBranchJudge(fake(answer(0.9, { Login: 0.8, Cobrança: 0.2 }), captured)).judge({ ...input, current: null });
-    expect("current_ticket" in captured[0]!.request.state).toBe(false);
+    expect("current_group" in captured[0]!.request.state).toBe(false);
+    expect(Object.keys(captured[0]!.request.state)).toEqual(["draft", "candidate_groups"]);
   });
 
   const mixed = {
@@ -72,30 +73,32 @@ describe("JevBranchJudge — a requisição", () => {
     ],
   };
 
-  it("candidatos em três formatos: ramo, folha com descrição e folha sem descrição", async () => {
+  it("candidatos em três formatos: agrupador com filhos, vazio com descrição e vazio sem descrição", async () => {
     const captured: { request: any; options: any }[] = [];
     await new JevBranchJudge(fake(answer(0.9, { Login: 0.5, Senha: 0.3, Sessão: 0.2 }), captured)).judge(mixed);
     const { state, questions } = captured[0]!.request;
-    expect(state.candidates).toEqual([
-      { title: "Login", subtickets_summary: "Tela de login" },
+    expect(state.candidate_groups).toEqual([
+      { title: "Login", summary: "Tela de login" },
       { title: "Senha", description: "Trecho da descrição" },
       { title: "Sessão" },
     ]);
-    expect("description" in state.candidates[2]).toBe(false);
+    expect("description" in state.candidate_groups[2]).toBe(false);
     expect(questions.branch.criteria).toEqual({ Login: "Tela de login", Senha: "Trecho da descrição", Sessão: null });
   });
 
-  it("o texto das perguntas é o da ADR 0030, letra por letra", async () => {
+  it("o texto das perguntas é o da ADR 0031, letra por letra", async () => {
     const captured: { request: any; options: any }[] = [];
     await new JevBranchJudge(fake(answer(0.9, { Login: 0.8, Cobrança: 0.2 }), captured)).judge(input);
     const { belongs, branch } = captured[0]!.request.questions;
-    expect(belongs.instructions).toBe("O trabalho descrito em `draft` é uma parte do trabalho de pelo menos um dos tickets de `candidates`?");
+    expect(belongs.instructions).toBe(
+      "O trabalho descrito em `draft` cabe dentro do assunto de pelo menos um dos agrupadores de `candidate_groups`?",
+    );
     expect(belongs.criteria).toEqual({
-      true: "`draft` descreve um pedaço do que um dos tickets de `candidates` abrange: a equipe esperaria encontrá-lo como subticket desse ticket.",
+      true: "O trabalho de `draft` trata de um assunto que um dos agrupadores de `candidate_groups` cobre, como um item que a equipe esperaria encontrar dentro dele.",
       false:
-        "`draft` não é um pedaço de nenhum dos tickets de `candidates`. Ele é mais geral que todos eles, trata de um assunto novo, ou é um trabalho vizinho de um deles: do mesmo tema, mas que se faz e se conclui de forma independente. Nesses casos ele ficaria ao lado dos tickets de `candidates`, e não dentro de um deles.",
+        "O trabalho de `draft` trata de um assunto que nenhum dos agrupadores de `candidate_groups` cobre: é mais geral que todos eles ou é um assunto novo, e seria encontrado direto no nível em que estamos.",
     });
-    expect(branch.instructions).toBe("De qual dos tickets de `candidates` o trabalho descrito em `draft` é uma parte?");
+    expect(branch.instructions).toBe("Qual dos agrupadores de `candidate_groups` cobre o trabalho descrito em `draft`?");
   });
 
   it("títulos repetidos misturando folha e ramo: sufixo e volta das probabilidades por id", async () => {
@@ -110,7 +113,7 @@ describe("JevBranchJudge — a requisição", () => {
     const captured: { request: any; options: any }[] = [];
     const out = await new JevBranchJudge(fake(answer(0.9, { Login: 0.5, "Login (2)": 0.3, "Login (3)": 0.2 }), captured)).judge(twins);
     expect(captured[0]!.request.questions.branch.criteria).toEqual({ Login: "Tela de login", "Login (2)": "Trecho", "Login (3)": null });
-    expect(captured[0]!.request.state.candidates.map((c: { title: string }) => c.title)).toEqual(["Login", "Login (2)", "Login (3)"]);
+    expect(captured[0]!.request.state.candidate_groups.map((c: { title: string }) => c.title)).toEqual(["Login", "Login (2)", "Login (3)"]);
     expect(out.choice).toEqual({ "id-1": 0.5, "id-3": 0.3, "id-4": 0.2 });
   });
 

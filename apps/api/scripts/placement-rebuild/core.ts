@@ -8,14 +8,18 @@
 
 export type TicketStatus = "todo" | "in_progress" | "in_review" | "done" | "cancelled";
 
+/** Tipo do nó (ADR 0031). Gabarito antigo não tem o campo: `resolveKinds` o preenche. */
+export type NodeKind = "ticket" | "group";
+
 export type GabaritoTicket = {
   id: string;
   number: number;
+  kind: NodeKind;
   key: string;
   title: string;
   /** Descrição inteira (a rota de lista só devolve um trecho). */
   description: string;
-  /** `null` para quem tem filhos (não tem situação própria). */
+  /** `null` para agrupador (não tem situação própria). */
   status: TicketStatus | null;
   parentId: string | null;
   assigneeIds: string[];
@@ -135,7 +139,7 @@ export function classifyPlacement(input: {
   return passesThrough ? "deeper" : "elsewhere";
 }
 
-export type LiveTicket = { id: string; title: string; parentId: string | null; status: string | null };
+export type LiveTicket = { id: string; title: string; parentId: string | null; status: string | null; kind?: string };
 
 /** Diferenças entre o gabarito e o projeto vivo (ids, títulos, pais e situações). Vazio = confere. */
 export function compareTrees(gabarito: readonly GabaritoTicket[], live: readonly LiveTicket[]): string[] {
@@ -151,12 +155,13 @@ export function compareTrees(gabarito: readonly GabaritoTicket[], live: readonly
     if (found.title !== expected.title) problems.push(`${expected.id}: título diferente`);
     if (found.parentId !== expected.parentId) problems.push(`${expected.id}: pai diferente`);
     if (found.status !== expected.status) problems.push(`${expected.id}: situação diferente`);
+    if (found.kind !== undefined && found.kind !== expected.kind) problems.push(`${expected.id}: tipo diferente`);
   }
   for (const extra of live) if (!knownIds.has(extra.id)) problems.push(`${extra.id}: a mais no projeto`);
   return problems;
 }
 
-export type ImportItem = { title: string; description?: string; status?: TicketStatus; children?: ImportItem[] };
+export type ImportItem = { title: string; description?: string; status?: TicketStatus; kind?: NodeKind; children?: ImportItem[] };
 
 /**
  * Árvore aninhada para a rota de importação (irmãos por número) e os ids do gabarito na mesma pré-ordem em que a
@@ -173,13 +178,42 @@ export function buildImportTree(tickets: readonly GabaritoTicket[]): { items: Im
   const build = (parentId: string | null): ImportItem[] =>
     (byParent.get(parentId) ?? []).map((ticket) => {
       order.push(ticket.id);
-      const item: ImportItem = { title: ticket.title, description: ticket.description };
+      const item: ImportItem = { title: ticket.title, description: ticket.description, kind: ticket.kind };
       if (ticket.status !== null) item.status = ticket.status;
       const children = build(ticket.id);
       if (children.length > 0) item.children = children;
       return item;
     });
   return { items: build(null), order };
+}
+
+/**
+ * Preenche o tipo de cada nó. Gabarito antigo (sem `kind`): quem tem filhos é agrupador. Um `ticket` declarado
+ * com filhos é um gabarito inválido.
+ */
+export function resolveKinds<T extends { id: string; parentId: string | null; kind?: NodeKind | undefined }>(
+  tickets: readonly T[],
+): (T & { kind: NodeKind })[] {
+  const parents = new Set(tickets.map((x) => x.parentId).filter((id): id is string => id !== null));
+  return tickets.map((x) => {
+    const hasChildren = parents.has(x.id);
+    if (x.kind === "ticket" && hasChildren) throw new Error(`O ticket ${x.id} do gabarito tem filhos; só agrupador tem filhos.`);
+    return { ...x, kind: x.kind ?? (hasChildren ? "group" : "ticket") };
+  });
+}
+
+/**
+ * Ordem do `rebuild` (ADR 0031): os agrupadores são criados direto, do mais raso ao mais fundo, sem passar pela
+ * procura; só os tickets passam pela conversa e pela procura, na ordem de inserção.
+ */
+export function rebuildOrder(tickets: readonly GabaritoTicket[]): { groups: GabaritoTicket[]; tickets: GabaritoTicket[] } {
+  const ordered = insertionOrder(tickets);
+  return { groups: ordered.filter((x) => x.kind === "group"), tickets: ordered.filter((x) => x.kind === "ticket") };
+}
+
+/** Agrupadores ainda não criados (os que não estão no mapa antigo → novo), na ordem recebida. */
+export function pendingGroups(groups: readonly GabaritoTicket[], created: ReadonlyMap<string, string>): GabaritoTicket[] {
+  return groups.filter((group) => !created.has(group.id));
 }
 
 // ---- retomada --------------------------------------------------------------------------------------------------
@@ -484,6 +518,8 @@ export type RenderOptions = {
   view?: TreeView;
   /** Relatório do `leave-one-out`. */
   loo?: boolean;
+  /** Agrupadores criados sem procura (o `rebuild` os cria direto; o `leave-one-out` os importa). */
+  groupsCreated?: number;
 };
 
 export function renderReport(
@@ -503,7 +539,12 @@ export function renderReport(
   out();
   out("## Resumo");
   out();
-  out(`Tickets no gabarito: ${gabarito.length}. ${options.loo ? "Medidos" : "Reinseridos"}: ${stats.total}.`);
+  const ticketNodes = gabarito.filter((x) => x.kind === "ticket").length;
+  const groupNodes = gabarito.length - ticketNodes;
+  out(`Tickets no gabarito: ${ticketNodes}. Agrupadores no gabarito: ${groupNodes}.`);
+  out();
+  out(`- Tickets ${options.loo ? "medidos" : "reinseridos"} pela procura: ${stats.total}.`);
+  out(`- Agrupadores criados sem procura: ${options.groupsCreated ?? 0}.`);
   out();
   out("| Grupo | Total |");
   out("| --- | ---: |");
@@ -619,13 +660,23 @@ export type TreeView = {
 const invert = (map: ReadonlyMap<string, string>): Map<string, string> => new Map([...map].map(([k, v]) => [v, k]));
 
 /** Árvore do `rebuild`: o pai de cada ticket novo é o que a procura escolheu. */
-export function rebuildView(gabarito: readonly GabaritoTicket[], records: readonly RunRecord[]): TreeView {
-  void gabarito;
-  return {
-    oldToNew: new Map(records.map((r) => [r.oldId, r.newId])),
-    parentOfNew: new Map(records.map((r) => [r.newId, r.chosenParentNewId])),
-    titleOfNew: new Map(records.map((r) => [r.newId, r.title])),
-  };
+export function rebuildView(
+  gabarito: readonly GabaritoTicket[],
+  records: readonly RunRecord[],
+  /** Agrupadores criados sem procura (id do gabarito → id novo): entram na árvore com o pai que tinham no gabarito. */
+  groupMap: ReadonlyMap<string, string> = new Map(),
+): TreeView {
+  const oldToNew = new Map(records.map((r) => [r.oldId, r.newId]));
+  const parentOfNew = new Map(records.map((r) => [r.newId, r.chosenParentNewId]));
+  const titleOfNew = new Map(records.map((r) => [r.newId, r.title]));
+  for (const group of gabarito) {
+    const id = groupMap.get(group.id);
+    if (id === undefined) continue;
+    oldToNew.set(group.id, id);
+    parentOfNew.set(id, group.parentId === null ? null : (groupMap.get(group.parentId) ?? null));
+    titleOfNew.set(id, group.title);
+  }
+  return { oldToNew, parentOfNew, titleOfNew };
 }
 
 /** Árvore do `leave-one-out`: a do gabarito, com os ids vivos. */
@@ -767,10 +818,9 @@ export function resolveCurrentId(
 
 // ---- leave-one-out ---------------------------------------------------------------------------------------------
 
-/** Só os tickets sem filhos, na ordem do número original. */
-export function looLeaves(tickets: readonly GabaritoTicket[]): GabaritoTicket[] {
-  const parents = new Set(tickets.map((x) => x.parentId).filter((id): id is string => id !== null));
-  return tickets.filter((x) => !parents.has(x.id)).sort((a, b) => a.number - b.number);
+/** Só os nós do tipo ticket (agrupador, vazio ou não, não é medido), na ordem do número original. */
+export function looTickets(tickets: readonly GabaritoTicket[]): GabaritoTicket[] {
+  return tickets.filter((x) => x.kind === "ticket").sort((a, b) => a.number - b.number);
 }
 
 /** `limit` vale para a lista inteira (as N primeiras folhas); as já registradas saem em seguida. */

@@ -7,7 +7,9 @@ import {
   canImportTickets,
   canRemoveTicket,
   canViewTickets,
+  canHaveChildren,
   descriptionExcerpt,
+  kindChangeAllowed,
   parentWouldCreateCycle,
   ticketProgress,
 } from "./tickets.js";
@@ -52,21 +54,34 @@ it("ties the project role to the target project", () => {
   expect(canEditTicket(orgAdmin, organizationProject.id)).toBe(true);
 });
 
-const node = (id: string, parentId: string | null, status: TicketNode["status"] = "todo"): TicketNode => ({
-  id,
-  parentId,
-  status,
-});
+const node = (
+  id: string,
+  parentId: string | null,
+  status: TicketNode["status"] = "todo",
+  kind: TicketNode["kind"] = "ticket",
+): TicketNode => ({ id, parentId, status, kind });
+const group = (id: string, parentId: string | null, status: TicketNode["status"] = "todo"): TicketNode =>
+  node(id, parentId, status, "group");
 
 describe("ticketProgress", () => {
-  it("returns null for a leaf and for an empty list", () => {
+  it("has no entry for a ticket and none for an empty list", () => {
     expect(ticketProgress([]).size).toBe(0);
     expect(ticketProgress([node("a", null, "done")]).get("a")).toBeUndefined();
   });
 
-  it("counts descendant leaves: done, total without cancelled, and excluded", () => {
+  it("an empty group has zero of zero", () => {
+    expect(ticketProgress([group("g", null)]).get("g")).toEqual({ done: 0, total: 0, excluded: 0 });
+  });
+
+  it("is decided by kind, not by having children", () => {
+    const progress = ticketProgress([group("g", null), node("t", null, "done")]);
+    expect(progress.has("g")).toBe(true);
+    expect(progress.has("t")).toBe(false);
+  });
+
+  it("counts descendant tickets: done, total without cancelled, and excluded", () => {
     const tickets = [
-      node("root", null),
+      group("root", null),
       node("a", "root", "done"),
       node("b", "root", "in_progress"),
       node("c", "root", "cancelled"),
@@ -76,28 +91,66 @@ describe("ticketProgress", () => {
     expect(ticketProgress(tickets).get("root")).toEqual({ done: 1, total: 4, excluded: 1 });
   });
 
-  it("ignores the stored status of tickets with children and recurses through levels", () => {
+  it("ignores the stored status of groups, does not count groups as items, and recurses through levels", () => {
     const tickets = [
-      node("root", null, "done"),
-      node("mid", "root", "cancelled"),
+      group("root", null, "done"),
+      group("mid", "root", "cancelled"),
       node("leaf1", "mid", "done"),
       node("leaf2", "mid", "todo"),
       node("leaf3", "root", "cancelled"),
+      group("empty", "root", "done"),
     ];
     const progress = ticketProgress(tickets);
     expect(progress.get("root")).toEqual({ done: 1, total: 2, excluded: 1 });
     expect(progress.get("mid")).toEqual({ done: 1, total: 2, excluded: 0 });
+    expect(progress.get("empty")).toEqual({ done: 0, total: 0, excluded: 0 });
     expect(progress.has("leaf1")).toBe(false);
   });
 
+  it("a group inside a group counts for the outer one through any depth", () => {
+    const tickets = [
+      group("a", null),
+      group("b", "a"),
+      group("c", "b"),
+      node("t1", "c", "done"),
+      node("t2", "b", "todo"),
+    ];
+    const progress = ticketProgress(tickets);
+    expect(progress.get("a")).toEqual({ done: 1, total: 2, excluded: 0 });
+    expect(progress.get("b")).toEqual({ done: 1, total: 2, excluded: 0 });
+    expect(progress.get("c")).toEqual({ done: 1, total: 1, excluded: 0 });
+  });
+
   it("does not depend on the input order", () => {
-    const tickets = [node("leaf", "root", "done"), node("root", null)];
+    const tickets = [node("leaf", "root", "done"), group("root", null)];
     expect(ticketProgress(tickets).get("root")).toEqual({ done: 1, total: 1, excluded: 0 });
   });
 
-  it("handles all leaves cancelled", () => {
-    const tickets = [node("root", null), node("a", "root", "cancelled")];
+  it("handles all tickets cancelled", () => {
+    const tickets = [group("root", null), node("a", "root", "cancelled")];
     expect(ticketProgress(tickets).get("root")).toEqual({ done: 0, total: 0, excluded: 1 });
+  });
+});
+
+describe("kind rules", () => {
+  it("only a group can have children", () => {
+    expect(canHaveChildren("group")).toBe(true);
+    expect(canHaveChildren("ticket")).toBe(false);
+  });
+
+  it("a ticket becomes a group always, whatever it has", () => {
+    expect(kindChangeAllowed("ticket", "group", 0)).toBe(true);
+    expect(kindChangeAllowed("ticket", "group", 3)).toBe(true);
+  });
+
+  it("a group becomes a ticket only when empty", () => {
+    expect(kindChangeAllowed("group", "ticket", 0)).toBe(true);
+    expect(kindChangeAllowed("group", "ticket", 1)).toBe(false);
+  });
+
+  it("keeping the kind is always allowed", () => {
+    expect(kindChangeAllowed("group", "group", 2)).toBe(true);
+    expect(kindChangeAllowed("ticket", "ticket", 0)).toBe(true);
   });
 });
 

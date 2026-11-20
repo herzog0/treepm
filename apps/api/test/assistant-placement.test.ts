@@ -32,26 +32,39 @@ const start = async (who: Who = "contributor") => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("POST /ticket-conversations/:id/placement — o resultado", () => {
-  it("desce do topo até a folha escolhida, oferecendo ao juiz todos os filhos de cada nível", async () => {
+  it("desce do topo até o agrupador mais fundo, oferecendo ao juiz só os agrupadores filhos de cada nível", async () => {
     const id = await start();
     const res = await placement(id);
     expect(res.status).toBe(201);
     expect(res.body.destination).toEqual({
-      parentId: tree.login,
-      path: [{ id: tree.auth, title: "Auth" }, { id: tree.login, title: "Login" }],
+      parentId: tree.sso,
+      path: [{ id: tree.auth, title: "Auth" }, { id: tree.sso, title: "SSO" }],
     });
     expect(res.body.uncertain).toBe(false);
     expect(res.body.stoppedEarly).toBeNull();
     const seen = h.judge().calls.map((c) => c.candidates.map((x) => x.title));
-    expect(seen[0]).toEqual(["Auth", "Billing", "Solto"]);
-    // Os ramos do mesmo nível são julgados em paralelo: a ordem das chamadas não é garantida.
-    expect(seen.slice(1).sort()).toEqual([["Invoices"], ["Login", "SSO"], ["SAML"]]);
+    // Billing só tem um ticket: não tem agrupador filho, então não há o que perguntar dentro dele.
+    expect(seen).toEqual([["Auth", "Billing"], ["SSO"]]);
     expect(h.judge().calls[0]?.draft).toEqual({ title: "Rascunho 1", description: "Quero corrigir o login" });
     expect(h.judge().calls[0]?.current).toBeNull();
-    expect(h.judge().calls.find((c) => c.candidates[0]?.title === "Login")?.current).toEqual({ title: "Auth", summary: "Resumo de Auth" });
+    expect(h.judge().calls[1]?.current).toEqual({ title: "Auth", summary: "Resumo de Auth" });
   });
 
-  it("projeto com grupos sem filhos: o juiz recebe os grupos como candidatos", async () => {
+  it("projeto só com tickets soltos na raiz: o juiz nem é chamado e o destino é a raiz", async () => {
+    await h.pool.query(
+      "insert into tickets (org_id, project_id, number, title, created_by_person_id) values ('org_A', $1, 1, 'Solto 1', $2), ('org_A', $1, 2, 'Solto 2', $2)",
+      [priv(), h.world().people.manager],
+    );
+    const id = await open();
+    const res = await placement(id);
+    expect(res.status).toBe(201);
+    expect(res.body.destination).toEqual({ parentId: null, path: [] });
+    expect(res.body.discarded).toEqual([]);
+    expect(h.judge().calls).toHaveLength(0);
+    expect(h.summarizer().calls).toHaveLength(0);
+  });
+
+  it("projeto com agrupadores vazios: o juiz recebe os agrupadores como candidatos", async () => {
     await seedGroups(h.pool, h.world(), [{ title: "Acesso" }, { title: "Cobrança", description: "Faturas" }]);
     const id = await open();
     const res = await placement(id);
@@ -60,25 +73,45 @@ describe("POST /ticket-conversations/:id/placement — o resultado", () => {
     expect(h.judge().calls).toHaveLength(1);
     expect(h.judge().calls[0]?.candidates.map((c) => c.title)).toEqual(["Acesso", "Cobrança"]);
     expect(h.judge().calls[0]?.candidates.every((c) => !c.hasChildren)).toBe(true);
+    expect(h.judge().calls[0]?.candidates.map((c) => c.summary)).toEqual(["", "Faturas"]);
     expect(res.body.destination.path.map((p: { title: string }) => p.title)).toEqual(["Acesso"]);
+    // Agrupador vazio: título e descrição, sem chamar o resumidor e sem gravar resumo.
+    expect(h.summarizer().calls).toHaveLength(0);
+    expect(await summaryRows()).toEqual([]);
   });
 
-  it("folha candidata chega ao juiz com o trecho da descrição, sem resumidor e sem resumo gravado", async () => {
+  it("ticket nunca é candidato: não chega ao juiz nem ao resumidor, e não ganha resumo", async () => {
     const id = await start();
     await h.pool.query("update tickets set description = 'Trabalho avulso' where id = $1", [tree.loose]);
     await placement(id);
-    const candidates = h.judge().calls[0]!.candidates;
-    expect(candidates.find((c) => c.title === "Solto")).toMatchObject({ id: tree.loose, summary: "Trabalho avulso", hasChildren: false });
-    expect(candidates.find((c) => c.title === "Auth")).toMatchObject({ summary: "Resumo de Auth", hasChildren: true });
+    const offered = h.judge().calls.flatMap((c) => c.candidates.map((x) => x.title));
+    for (const ticket of ["Solto", "Login", "Invoices", "SAML"]) expect(offered).not.toContain(ticket);
+    expect(h.judge().calls[0]!.candidates.find((c) => c.title === "Auth")).toMatchObject({ summary: "Resumo de Auth", hasChildren: true });
     const summarized = h.summarizer().calls.map((c) => c.title);
-    for (const leaf of ["Solto", "Login", "Invoices", "SAML"]) expect(summarized).not.toContain(leaf);
-    expect((await summaryRows()).map((r) => r.title)).not.toContain("Solto");
+    for (const ticket of ["Solto", "Login", "Invoices", "SAML"]) expect(summarized).not.toContain(ticket);
+    expect((await summaryRows()).map((r) => r.title)).toEqual(["Auth", "SSO", "Billing"]);
   });
 
-  it("folha com descrição vazia chega ao juiz com texto vazio", async () => {
+  it("agrupador vazio ao lado de agrupador com filhos: só o com filhos passa pelo resumidor", async () => {
+    tree = await seedTree(h.pool, h.world());
+    await h.pool.query(
+      "insert into tickets (org_id, project_id, number, kind, title, description, created_by_person_id) values ('org_A', $1, 8, 'group', 'Vazio', 'Ainda sem filhos', $2)",
+      [priv(), h.world().people.manager],
+    );
+    const id = await open();
+    await placement(id);
+    const first = h.judge().calls[0]!.candidates;
+    expect(first.map((c) => c.title)).toEqual(["Auth", "Billing", "Vazio"]);
+    expect(first.find((c) => c.title === "Vazio")).toMatchObject({ summary: "Ainda sem filhos", hasChildren: false });
+    expect(h.summarizer().calls.map((c) => c.title)).not.toContain("Vazio");
+    expect((await summaryRows()).map((r) => r.title)).not.toContain("Vazio");
+  });
+
+  it("o resumo de um agrupador usa título, descrição e os filhos, tickets e agrupadores", async () => {
     const id = await start();
     await placement(id);
-    expect(h.judge().calls[0]!.candidates.find((c) => c.title === "Solto")).toMatchObject({ summary: "", hasChildren: false });
+    const auth = h.summarizer().calls.find((c) => c.title === "Auth");
+    expect(auth?.children.map((c) => c.title)).toEqual(["Login", "SSO"]);
   });
 
   it("projeto vazio: nenhum candidato, o juiz nem é chamado e o destino é a raiz", async () => {
@@ -95,7 +128,7 @@ describe("POST /ticket-conversations/:id/placement — o resultado", () => {
     h.judge().verdict = (input) => ({ belongs: 0.1, choice: Object.fromEntries(input.candidates.map((c) => [c.id, 0.5])) });
     const res = await placement(id);
     expect(res.body.destination).toEqual({ parentId: null, path: [] });
-    expect(res.body.discarded.map((d: { title: string }) => d.title).sort()).toEqual(["Auth", "Billing", "Solto"]);
+    expect(res.body.discarded.map((d: { title: string }) => d.title).sort()).toEqual(["Auth", "Billing"]);
   });
 
   it("não altera nada: nenhum ticket novo e a conversa continua aberta", async () => {

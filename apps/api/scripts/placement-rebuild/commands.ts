@@ -9,27 +9,30 @@ import {
   classifyPlacement,
   compareTrees,
   computeDepths,
-  insertionOrder,
-  looLeaves,
+  looTickets,
   looResumeAction,
   looView,
   pendingLoo,
   pendingMarks,
+  pendingGroups,
   pendingTickets,
+  rebuildOrder,
   recomputeGroups,
+  resolveKinds,
   rebuildView,
   removalOrder,
   renderReport,
   resumeState,
   withRetry503,
 } from "./core.js";
-import type { Gabarito, GabaritoTicket, LooMark, RunRecord, StartedMark, Step, TicketStatus } from "./core.js";
+import type { Gabarito, GabaritoTicket, LooMark, NodeKind, RunRecord, StartedMark, Step, TicketStatus } from "./core.js";
 
 type Summary = {
   id: string;
   number: number;
   key: string;
   parentId: string | null;
+  kind?: NodeKind;
   title: string;
   status: TicketStatus | null;
   assigneeIds: string[];
@@ -77,6 +80,8 @@ export const reportPath = (dir: string, projectId: string): string => join(dir, 
 export const looPath = (dir: string, projectId: string): string => join(dir, `loo-${projectId}.jsonl`);
 const looStatePath = (dir: string, projectId: string): string => join(dir, `loo-state-${projectId}.jsonl`);
 export const looMapPath = (dir: string, projectId: string): string => join(dir, `loo-map-${projectId}.json`);
+/** Agrupadores que o `rebuild` criou sem passar pela procura: uma linha `{ oldId, newId }` por agrupador. */
+export const groupsPath = (dir: string, projectId: string): string => join(dir, `groups-${projectId}.jsonl`);
 export const looReportPath = (dir: string, projectId: string): string => join(dir, `report-loo-${projectId}.md`);
 
 function readJsonLines<T>(path: string): T[] {
@@ -90,7 +95,15 @@ function readJsonLines<T>(path: string): T[] {
 export function readGabarito(dir: string): Gabarito {
   const path = gabaritoPath(dir);
   if (!existsSync(path)) throw new Error(`Não existe ${path}. Rode \`export\` primeiro.`);
-  return JSON.parse(readFileSync(path, "utf8")) as Gabarito;
+  const raw = JSON.parse(readFileSync(path, "utf8")) as Omit<Gabarito, "tickets"> & { tickets: (Omit<GabaritoTicket, "kind"> & { kind?: NodeKind })[] };
+  // Gabarito antigo, sem `kind`: quem tem filhos é agrupador.
+  return { ...raw, tickets: resolveKinds(raw.tickets) as GabaritoTicket[] };
+}
+
+type GroupMark = { oldId: string; newId: string };
+
+export function readGroupMap(dir: string, projectId: string): Map<string, string> {
+  return new Map(readJsonLines<GroupMark>(groupsPath(dir, projectId)).map((m) => [m.oldId, m.newId]));
 }
 
 // ---- leitura do projeto -------------------------------------------------------------------------------------------
@@ -121,10 +134,11 @@ export async function exportCommand(ctx: Context): Promise<void> {
     const batch = summaries.slice(i, i + 5);
     details.push(...(await Promise.all(batch.map(async (s) => expectOk<Detail>("ler ticket", await ctx.client.request("GET", `/tickets/${s.id}`))))));
   }
-  const tickets: GabaritoTicket[] = computeDepths(
+  const tickets = resolveKinds(computeDepths(
     details.map((d) => ({
       id: d.id,
       number: d.number,
+      ...(d.kind ? { kind: d.kind } : {}),
       key: d.key,
       title: d.title,
       description: d.description,
@@ -132,18 +146,19 @@ export async function exportCommand(ctx: Context): Promise<void> {
       parentId: d.parentId,
       assigneeIds: [...d.assigneeIds],
     })),
-  );
+  )) as GabaritoTicket[];
   const gabarito: Gabarito = {
     exportedAt: new Date().toISOString(),
     project: { id: project.id, key: project.key, name: project.name },
     tickets,
   };
   writeFileSync(path, JSON.stringify(gabarito, null, 2), { flag: "wx" });
-  ctx.log(`Gabarito gravado: ${tickets.length} tickets (${countByDepth(tickets)}).`);
+  const groupCount = tickets.filter((x) => x.kind === "group").length;
+  ctx.log(`Gabarito gravado: ${tickets.length} nós (${tickets.length - groupCount} tickets e ${groupCount} agrupadores; ${countByDepth(tickets)}).`);
 }
 
 function liveFor(summaries: readonly Summary[]) {
-  return summaries.map((s) => ({ id: s.id, title: s.title, parentId: s.parentId, status: s.status }));
+  return summaries.map((s) => ({ id: s.id, title: s.title, parentId: s.parentId, status: s.status, ...(s.kind ? { kind: s.kind } : {}) }));
 }
 
 /** Devolve as diferenças; vazio = confere. */
@@ -191,12 +206,17 @@ export async function rebuildCommand(ctx: Context, limit: number | undefined): P
   const gabarito = readGabarito(ctx.dir);
   const records = readJsonLines<RunRecord>(runPath(ctx.dir, ctx.project));
   const started = readJsonLines<StartedMark>(startedPath(ctx.dir, ctx.project));
-  if (records.length === 0 && started.length === 0) {
+  const groupMap = readGroupMap(ctx.dir, ctx.project);
+  if (records.length === 0 && started.length === 0 && groupMap.size === 0) {
     const existing = await listTickets(ctx);
     if (existing.length > 0) throw new Error(`O projeto ${ctx.project} já tem ${existing.length} ticket(s) e nenhuma execução registrada; recuso reconstruir por cima.`);
   }
+  const plan = rebuildOrder(gabarito.tickets);
+  // Agrupadores primeiro, direto, sem procura (a procura só coloca tickets).
+  await createGroups(ctx, plan.groups, groupMap);
   const state = resumeState(records, started);
-  const order = insertionOrder(gabarito.tickets);
+  for (const [oldId, newId] of groupMap) state.newToOld.set(newId, oldId);
+  const order = plan.tickets;
   const pending = pendingTickets(order, state, limit);
   ctx.log(`Ordem: ${order.length} tickets; já registrados: ${state.done.size}; a processar agora: ${pending.length}.`);
 
@@ -211,6 +231,33 @@ export async function rebuildCommand(ctx: Context, limit: number | undefined): P
     ctx.log(`[${position}/${pending.length}] ${record.newKey} (esperava profundidade ${ticket.depth}) → ${record.group}${record.uncertain ? " incerto" : ""}${record.resumed ? " retomado" : ""} em ${total} ms`);
   }
   ctx.log("Rebuild: nada mais a fazer nesta execução.");
+}
+
+/**
+ * Cria os agrupadores do gabarito na raiz ou dentro do agrupador novo que corresponde ao pai deles, do mais raso ao
+ * mais fundo. Idempotente: o que já está no arquivo é pulado, e um agrupador criado antes de uma interrupção e não
+ * anotado é reconhecido pelo título e pelo pai.
+ */
+async function createGroups(ctx: Context, groups: readonly GabaritoTicket[], created: Map<string, string>): Promise<void> {
+  const pending = pendingGroups(groups, created);
+  if (pending.length === 0) return;
+  const adopted = new Set(created.values());
+  const orphans = (await listTickets(ctx)).filter((x) => x.kind === "group" && !adopted.has(x.id));
+  for (const group of pending) {
+    const parentNewId = group.parentId === null ? null : (created.get(group.parentId) as string);
+    const orphan = orphans.find((x) => x.title === group.title && x.parentId === parentNewId);
+    let newId: string;
+    if (orphan) {
+      orphans.splice(orphans.indexOf(orphan), 1);
+      newId = orphan.id;
+    } else {
+      const body = { title: group.title, description: group.description, kind: "group", parentId: parentNewId };
+      newId = expectOk<Detail>("criar agrupador", await ctx.client.request("POST", `/projects/${ctx.project}/tickets`, body)).id;
+    }
+    created.set(group.id, newId);
+    appendFileSync(groupsPath(ctx.dir, ctx.project), `${JSON.stringify({ oldId: group.id, newId } satisfies GroupMark)}\n`);
+  }
+  ctx.log(`Agrupadores criados sem procura: ${pending.length}.`);
 }
 
 type Timings = Record<Step, number>;
@@ -327,14 +374,16 @@ export async function restoreStateCommand(ctx: Context): Promise<boolean> {
   const gabarito = readGabarito(ctx.dir);
   const byId = new Map(gabarito.tickets.map((t) => [t.id, t]));
   const records = readJsonLines<RunRecord>(runPath(ctx.dir, ctx.project));
+  const groupRecords = [...readGroupMap(ctx.dir, ctx.project)].map(([oldId, newId]) => ({ oldId, newId, newKey: newId }));
   let statuses = 0;
   let assigned = 0;
   let skipped = 0;
   let failed = 0;
-  for (const record of records) {
+  // Agrupador não tem situação: só as pessoas atribuídas voltam.
+  for (const record of [...groupRecords, ...records]) {
     const original = byId.get(record.oldId);
     if (!original) continue;
-    if (original.status !== null && original.status !== "todo") {
+    if (original.kind === "ticket" && original.status !== null && original.status !== "todo") {
       const response = await ctx.client.request("PATCH", `/tickets/${record.newId}`, { status: original.status });
       if (response.status === 409) skipped += 1; // ganhou filhos na reconstrução: não tem situação própria
       else if (response.status >= 200 && response.status < 300) statuses += 1;
@@ -352,7 +401,7 @@ export async function restoreStateCommand(ctx: Context): Promise<boolean> {
       }
     }
   }
-  ctx.log(`Situações aplicadas: ${statuses}; atribuições: ${assigned}; situações puladas (ticket com filhos): ${skipped}; falhas: ${failed}.`);
+  ctx.log(`Situações aplicadas: ${statuses}; atribuições: ${assigned}; situações puladas (agrupador): ${skipped}; falhas: ${failed}.`);
   return failed === 0;
 }
 
@@ -361,8 +410,10 @@ export async function restoreStateCommand(ctx: Context): Promise<boolean> {
 export function reportCommand(ctx: Pick<Context, "dir" | "project" | "log">, loo = false): void {
   const gabarito = readGabarito(ctx.dir);
   const records = readJsonLines<RunRecord>(loo ? looPath(ctx.dir, ctx.project) : runPath(ctx.dir, ctx.project));
-  const view = loo ? looView(gabarito.tickets, readLooMap(ctx.dir, ctx.project)) : rebuildView(gabarito.tickets, records);
-  const markdown = renderReport(gabarito.tickets, records, gabarito.project.key, { view, loo });
+  const groupMap = loo ? new Map<string, string>() : readGroupMap(ctx.dir, ctx.project);
+  const view = loo ? looView(gabarito.tickets, readLooMap(ctx.dir, ctx.project)) : rebuildView(gabarito.tickets, records, groupMap);
+  const groupsCreated = loo ? gabarito.tickets.filter((x) => x.kind === "group").length : groupMap.size;
+  const markdown = renderReport(gabarito.tickets, records, gabarito.project.key, { view, loo, groupsCreated });
   writeFileSync(loo ? looReportPath(ctx.dir, ctx.project) : reportPath(ctx.dir, ctx.project), markdown);
   // Mesma regra do relatório: o grupo é recalculado, não lido do arquivo.
   const groups = { same_parent: 0, deeper: 0, elsewhere: 0 };
@@ -458,9 +509,9 @@ export async function leaveOneOutCommand(ctx: Context, limit: number | undefined
   }
 
   // 3. um ticket por vez
-  const leaves = looLeaves(gabarito.tickets);
+  const leaves = looTickets(gabarito.tickets);
   const todo = pendingLoo(leaves, done, limit);
-  ctx.log(`Folhas: ${leaves.length}; já medidas: ${done.size}; a medir agora: ${todo.length}.`);
+  ctx.log(`Tickets: ${leaves.length}; já medidas: ${done.size}; a medir agora: ${todo.length}.`);
   let removedThisRun = 0;
   let position = 0;
   for (const ticket of todo) {

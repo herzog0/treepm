@@ -3,11 +3,28 @@ import { canViewProject } from "./index.js";
 
 export type TicketStatus = "todo" | "in_progress" | "in_review" | "done" | "cancelled";
 
+/** Tipo do nó (ADR 0031): ticket (tem situação, nunca tem filhos) ou agrupador (tem filhos e progresso). */
+export type TicketKind = "ticket" | "group";
+
 /** Minimal ticket shape needed to compute progress. */
 export interface TicketNode {
   readonly id: string;
   readonly parentId: string | null;
+  readonly kind: TicketKind;
   readonly status: TicketStatus;
+}
+
+/** Só agrupador pode ser pai de um nó. */
+export function canHaveChildren(kind: TicketKind): boolean {
+  return kind === "group";
+}
+
+/**
+ * Transformar um nó em outro tipo: ticket em agrupador é sempre permitido; agrupador em ticket só quando não tem
+ * filhos. Manter o tipo é sempre permitido.
+ */
+export function kindChangeAllowed(from: TicketKind, to: TicketKind, childCount: number): boolean {
+  return from === "ticket" || to === "group" || childCount === 0;
 }
 
 /** Progress over descendant leaves: `excluded` counts cancelled, `total` the rest, `done` the finished ones. */
@@ -54,8 +71,8 @@ export function canRemoveTicket(actor: Actor, projectId: string): boolean {
 }
 
 /**
- * Progress for every ticket that has children, keyed by ticket ID. Leaves have no entry.
- * Only descendant leaves count; the stored status of a ticket with children is ignored.
+ * Progress for every group, keyed by ID (ADR 0031). Tickets have no entry; an empty group is zero of zero.
+ * Only descendant tickets count, at any depth; groups are not items and their stored status is ignored.
  */
 export function ticketProgress(tickets: readonly TicketNode[]): Map<string, TicketProgress> {
   const children = new Map<string, TicketNode[]>();
@@ -66,15 +83,13 @@ export function ticketProgress(tickets: readonly TicketNode[]): Map<string, Tick
     else children.set(ticket.parentId, [ticket]);
   }
   const result = new Map<string, TicketProgress>();
-  const visit = (ticket: TicketNode): TicketProgress | null => {
-    const kids = children.get(ticket.id);
-    if (!kids) return null;
+  const visit = (group: TicketNode): TicketProgress => {
     let done = 0;
     let total = 0;
     let excluded = 0;
-    for (const kid of kids) {
-      const nested = visit(kid);
-      if (nested) {
+    for (const kid of children.get(group.id) ?? []) {
+      if (kid.kind === "group") {
+        const nested = visit(kid);
         done += nested.done;
         total += nested.total;
         excluded += nested.excluded;
@@ -86,11 +101,11 @@ export function ticketProgress(tickets: readonly TicketNode[]): Map<string, Tick
       }
     }
     const progress = { done, total, excluded };
-    result.set(ticket.id, progress);
+    result.set(group.id, progress);
     return progress;
   };
   for (const ticket of tickets) {
-    if (ticket.parentId === null) visit(ticket);
+    if (ticket.kind === "group" && !result.has(ticket.id)) visit(ticket);
   }
   return result;
 }

@@ -9,7 +9,7 @@ import type { TenantRunner } from "../db/own-transactions.js";
 import type { TenantClient } from "@treepm/db";
 import type { Principal } from "../access/principal.js";
 
-export type TreeTicket = { id: string; parentId: string | null; number: number; title: string; description: string };
+export type TreeTicket = { id: string; parentId: string | null; kind: string; number: number; title: string; description: string };
 export type StoredSummary = { summary: string; contentMark: string };
 export type PlacementSnapshot = { projectId: string; tickets: TreeTicket[]; summaries: Map<string, StoredSummary> };
 
@@ -62,9 +62,9 @@ export class PlacementService {
     });
 
     const candidates = async (parentId: string | null): Promise<BranchCandidate[]> => {
-      // Candidatos são todos os filhos diretos (ADR 0030). Só os que têm filhos passam pelo resumidor; a folha
-      // entra com o trecho da descrição.
-      const children = childrenOf.get(parentId) ?? [];
+      // Candidatos são os filhos diretos do tipo agrupador (ADR 0031); ticket nunca é candidato. Só o agrupador com
+      // filhos passa pelo resumidor; o vazio entra com o trecho da descrição.
+      const children = (childrenOf.get(parentId) ?? []).filter((child) => child.kind === "group");
       const branches = children.filter((child) => (childrenOf.get(child.id) ?? []).length > 0);
       const stale = branches
         .map((ticket) => ({ ticket, input: summaryInput(ticket) }))

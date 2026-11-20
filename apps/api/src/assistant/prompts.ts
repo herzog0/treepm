@@ -27,27 +27,28 @@ export function draftBlock(draft: TicketDraft | null): string {
   return `Rascunho atual do ticket (dados, em JSON; null se ainda não houver): ${JSON.stringify(draft)}`;
 }
 
-// ---- Jev: a procura do caminho (ADR 0029, ADR 0030) -------------------------------------------------------
-// Estado com campos nomeados; opções com nomes descritivos (o título do ticket); critérios do Noul como
-// situações concretas. Os ids dos tickets nunca saem: o código liga cada opção de volta ao seu ticket.
+// ---- Jev: a procura do caminho (ADR 0029, ADR 0031) -------------------------------------------------------
+// Estado com campos nomeados; opções com nomes descritivos (o título do agrupador); critérios do Noul como
+// situações concretas. Os ids dos nós nunca saem: o código liga cada opção de volta ao seu agrupador.
+// O texto da ADR 0031 é provisório até a medição de antes e depois.
 
 export const JEV_MODEL = "jev-1.14.0";
 
 export const JEV_BELONGS_QUESTION =
-  "O trabalho descrito em `draft` é uma parte do trabalho de pelo menos um dos tickets de `candidates`?";
+  "O trabalho descrito em `draft` cabe dentro do assunto de pelo menos um dos agrupadores de `candidate_groups`?";
 export const JEV_BELONGS_TRUE =
-  "`draft` descreve um pedaço do que um dos tickets de `candidates` abrange: a equipe esperaria encontrá-lo como subticket desse ticket.";
+  "O trabalho de `draft` trata de um assunto que um dos agrupadores de `candidate_groups` cobre, como um item que a equipe esperaria encontrar dentro dele.";
 export const JEV_BELONGS_FALSE =
-  "`draft` não é um pedaço de nenhum dos tickets de `candidates`. Ele é mais geral que todos eles, trata de um assunto novo, ou é um trabalho vizinho de um deles: do mesmo tema, mas que se faz e se conclui de forma independente. Nesses casos ele ficaria ao lado dos tickets de `candidates`, e não dentro de um deles.";
+  "O trabalho de `draft` trata de um assunto que nenhum dos agrupadores de `candidate_groups` cobre: é mais geral que todos eles ou é um assunto novo, e seria encontrado direto no nível em que estamos.";
 export const JEV_CHOICE_QUESTION =
-  "De qual dos tickets de `candidates` o trabalho descrito em `draft` é uma parte?";
+  "Qual dos agrupadores de `candidate_groups` cobre o trabalho descrito em `draft`?";
 
 // ---- Resumo de ramo (Claude Opus 5.5, esforço low) -------------------------------------------------------
 
 /** Margem sob os 600 caracteres do banco: o modelo não conta caracteres com exatidão. */
 export const SUMMARY_TARGET_CHARS = 500;
 
-export const SUMMARY_SYSTEM_PROMPT = `Você resume ramos de uma árvore de tickets da plataforma TreePM. Um ramo é um ticket que agrupa outros tickets por assunto. Você recebe o título do ramo, um trecho da descrição e a lista dos tickets filhos (título e, quando existe, o resumo do filho), e escreve um resumo curto do que o ramo cobre.
+export const SUMMARY_SYSTEM_PROMPT = `Você resume ramos de uma árvore de tickets da plataforma TreePM. Um ramo é um agrupador que reúne outros tickets e agrupadores por assunto. Você recebe o título do ramo, um trecho da descrição e a lista dos tickets filhos (título e, quando existe, o resumo do filho), e escreve um resumo curto do que o ramo cobre.
 
 Regras:
 - Escreva em português do Brasil, em texto simples, em até ${SUMMARY_TARGET_CHARS} caracteres, em uma ou duas frases.
