@@ -14,6 +14,25 @@ const CODES: Record<number, string> = {
 
 const INTERNAL_MESSAGE = "Erro interno do servidor.";
 
+const PARENT_FK = "tickets_org_id_project_id_parent_id_parent_kind_fkey";
+
+/**
+ * Corrida na regra "só agrupador tem filhos" (ADR 0031): a conferência da API passou, mas o banco recusou pela chave
+ * estrangeira do pai (23503 ou 23001). Vira 409 sem a mensagem do banco. Recusa ao gravar o filho (insert ou update
+ * dele): o pai deixou de ser agrupador. Recusa ao mexer no pai (update do tipo ou delete): ele ganhou filho.
+ */
+export function parentRuleConflict(exception: unknown): { code: string; message: string } | null {
+  const cause = (exception as { meta?: { driverAdapterError?: { cause?: { originalCode?: string; originalMessage?: string } } } })
+    ?.meta?.driverAdapterError?.cause;
+  if (!cause || (cause.originalCode !== "23503" && cause.originalCode !== "23001")) return null;
+  const message = cause.originalMessage ?? "";
+  if (!message.includes(PARENT_FK)) return null;
+  if (message.startsWith("insert or update")) {
+    return { code: "parent_not_group", message: "Só um agrupador pode ter filhos; o pai escolhido mudou." };
+  }
+  return { code: "ticket_has_children", message: "O agrupador ganhou filhos; mova ou remova os filhos antes." };
+}
+
 /** Formato único `{ error: { code, message } }`; erros internos nunca vazam detalhes. */
 @Catch()
 export class ErrorFilter implements ExceptionFilter {
@@ -38,6 +57,12 @@ export class ErrorFilter implements ExceptionFilter {
           message: typeof custom.message === "string" ? custom.message : exception.message,
         },
       });
+      return;
+    }
+
+    const conflict = parentRuleConflict(exception);
+    if (conflict) {
+      response.status(HttpStatus.CONFLICT).json({ error: conflict });
       return;
     }
 

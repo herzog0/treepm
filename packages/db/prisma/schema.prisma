@@ -193,6 +193,10 @@ model Ticket {
   projectId         String   @map("project_id") @db.Uuid
   number            Int
   parentId          String?  @map("parent_id") @db.Uuid
+  /// ticket | group (check no banco). Só `group` tem filhos (ADR 0031).
+  kind              String   @default("ticket")
+  /// Sempre `group` quando há pai, nulo na raiz (check no banco); faz parte da chave estrangeira do pai.
+  parentKind        String?  @map("parent_kind")
   title             String
   description       String   @default("")
   /// todo | in_progress | in_review | done | cancelled (check no banco)
@@ -203,7 +207,7 @@ model Ticket {
 
   organization         Organization         @relation(fields: [orgId], references: [orgId])
   project              Project              @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
-  parent               Ticket?              @relation("TicketTree", fields: [orgId, projectId, parentId], references: [orgId, projectId, id], onDelete: Restrict)
+  parent               Ticket?              @relation("TicketTree", fields: [orgId, projectId, parentId, parentKind], references: [orgId, projectId, id, kind], onDelete: Restrict, onUpdate: Restrict)
   children             Ticket[]             @relation("TicketTree")
   createdBy            Person               @relation(fields: [orgId, createdByPersonId], references: [orgId, id])
   assignees            TicketAssignee[]
@@ -212,6 +216,7 @@ model Ticket {
 
   @@id([orgId, id])
   @@unique([orgId, projectId, id])
+  @@unique([orgId, projectId, id, kind])
   @@unique([orgId, projectId, number])
   @@map("tickets")
 }

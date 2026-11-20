@@ -5,6 +5,7 @@ import type { Ids } from "./helpers.js";
 
 let owner: pg.Pool;
 let a: Ids;
+let group: string;
 let b: Ids;
 
 beforeAll(async () => {
@@ -12,6 +13,12 @@ beforeAll(async () => {
   await owner.query("truncate organizations cascade");
   a = await seedOrg(owner, ORG_A);
   b = await seedOrg(owner, ORG_B);
+  // Um agrupador para os testes que precisam de um pai (só agrupador tem filhos, ADR 0031).
+  const grouped = await owner.query<{ id: string }>(
+    "insert into tickets (org_id, project_id, number, title, kind, created_by_person_id) values ($1, $2, 1000, 'Agrupador', 'group', $3) returning id",
+    [ORG_A, a.project, a.person],
+  );
+  group = grouped.rows[0]?.id ?? "";
 });
 
 afterAll(async () => {
@@ -27,9 +34,9 @@ async function insertTicket(
   extra = "",
 ): Promise<string> {
   const r = await owner.query<{ id: string }>(
-    `insert into tickets (org_id, project_id, number, parent_id, title, created_by_person_id${extra ? ", " + extra.split("=")[0] : ""})
-     values ($1, $2, $3, $4, 'T', $5${extra ? ", " + extra.split("=")[1] : ""}) returning id`,
-    [orgId, projectId, number, parentId, createdBy],
+    `insert into tickets (org_id, project_id, number, parent_id, parent_kind, title, created_by_person_id${extra ? ", " + extra.split("=")[0] : ""})
+     values ($1, $2, $3, $4, $6, 'T', $5${extra ? ", " + extra.split("=")[1] : ""}) returning id`,
+    [orgId, projectId, number, parentId, createdBy, parentId === null ? null : "group"],
   );
   return r.rows[0]?.id ?? "";
 }
@@ -59,19 +66,19 @@ describe("tickets: estrutura e restrições do banco", () => {
       [ORG_A],
     );
     const otherProject = other.rows[0]?.id ?? "";
-    await expect(insertTicket(ORG_A, otherProject, 1, a.person, a.ticket)).rejects.toMatchObject({
+    await expect(insertTicket(ORG_A, otherProject, 1, a.person, group)).rejects.toMatchObject({
       code: "23503",
     });
   });
 
   it("aceita pai do mesmo projeto", async () => {
-    const child = await insertTicket(ORG_A, a.project, 2, a.person, a.ticket);
+    const child = await insertTicket(ORG_A, a.project, 2, a.person, group);
     expect(child).toBeTruthy();
   });
 
   it("recusa remover pai com filho (on delete restrict)", async () => {
     await expect(
-      owner.query("delete from tickets where org_id = $1 and id = $2", [ORG_A, a.ticket]),
+      owner.query("delete from tickets where org_id = $1 and id = $2", [ORG_A, group]),
     ).rejects.toMatchObject({ code: "23503" });
   });
 
@@ -149,7 +156,7 @@ describe("tickets: estrutura e restrições do banco", () => {
       [ORG_A],
     );
     const pid = p.rows[0]?.id ?? "";
-    const root = await insertTicket(ORG_A, pid, 1, a.person);
+    const root = await insertTicket(ORG_A, pid, 1, a.person, null, "kind='group'");
     await insertTicket(ORG_A, pid, 2, a.person, root);
     await owner.query("delete from projects where org_id = $1 and id = $2", [ORG_A, pid]);
     const left = await owner.query("select 1 from tickets where project_id = $1", [pid]);

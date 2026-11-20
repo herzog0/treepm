@@ -34,7 +34,7 @@ export function judgeInputFits(input: JudgeInput): boolean {
   return estimateTokens(JSON.stringify(buildJudgeRequest(input).request)) <= JEV_TOKEN_BUDGET;
 }
 
-/** Os nomes das opções são os títulos dos tickets (descrevem o conteúdo); repetidos ganham " (2)", " (3)"… */
+/** Os nomes das opções são os títulos dos agrupadores (descrevem o conteúdo); repetidos ganham " (2)", " (3)"… */
 function labelCandidates(candidates: JudgeInput["candidates"]): { label: string; id: string; summary: string; hasChildren: boolean }[] {
   const used = new Set<string>();
   return candidates.map((candidate) => {
@@ -51,10 +51,11 @@ export function buildJudgeRequest(input: JudgeInput) {
     model: JEV_MODEL,
     state: {
       draft: { title: input.draft.title, description: input.draft.description },
-      ...(input.current ? { current_ticket: { title: input.current.title, subtickets_summary: input.current.summary } } : {}),
-      // Ticket com filhos: resumo do ramo; folha: trecho da descrição, e sem o campo quando é vazio.
-      candidates: labelled.map(({ label, summary, hasChildren }): Record<string, string> =>
-        hasChildren ? { title: label, subtickets_summary: summary } : summary === "" ? { title: label } : { title: label, description: summary },
+      // Ausente na raiz e no escopo sem resumo.
+      ...(input.current && input.current.summary !== "" ? { current_group: { title: input.current.title, summary: input.current.summary } } : {}),
+      // Agrupador com filhos: resumo; vazio: trecho da descrição, e sem o campo quando não há descrição.
+      candidate_groups: labelled.map(({ label, summary, hasChildren }): Record<string, string> =>
+        hasChildren ? { title: label, summary } : summary === "" ? { title: label } : { title: label, description: summary },
       ),
     },
     questions: {
@@ -83,7 +84,7 @@ const answersSchema = z.object({
   branch: z.object({ probabilities: z.record(z.string(), z.number().min(0).max(1)) }),
 });
 
-/** Adaptador do Jev para a escolha do pai do ticket novo (ADR 0029, ADR 0030). Nunca registra o texto enviado nem o recebido. */
+/** Adaptador do Jev para a escolha do agrupador pai do ticket novo (ADR 0029, ADR 0031). Nunca registra o texto enviado nem o recebido. */
 export class JevBranchJudge implements BranchJudge {
   private readonly logger = new Logger("JevBranchJudge");
 

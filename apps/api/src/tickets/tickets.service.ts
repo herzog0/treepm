@@ -1,12 +1,12 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import { descriptionExcerpt, ticketProgress } from "@treepm/domain";
-import type { TicketNode, TicketStatus } from "@treepm/domain";
+import type { TicketKind, TicketNode, TicketStatus } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { parseOutput } from "../common/zod.js";
-import { ticketDetailSchema, ticketStatusSchema } from "./tickets.schema.js";
+import { ticketDetailSchema, ticketKindSchema, ticketStatusSchema } from "./tickets.schema.js";
 import type { TicketDetail, TicketSummary } from "./tickets.schema.js";
 
 export type ProjectRow = {
@@ -22,6 +22,7 @@ export type TicketRow = {
   projectId: string;
   number: number;
   parentId: string | null;
+  kind: string;
   title: string;
   description: string;
   status: string;
@@ -39,17 +40,34 @@ export function statusOf(row: { status: string }): TicketStatus {
   return ticketStatusSchema.parse(row.status);
 }
 
+export function kindOf(row: { kind: string }): TicketKind {
+  return ticketKindSchema.parse(row.kind);
+}
+
+/** O pai de um nó é sempre um agrupador: as duas colunas da chave estrangeira do pai andam juntas (migration 0006). */
+export function parentLink(parentId: string | null): { parentId: string | null; parentKind: "group" | null } {
+  return { parentId, parentKind: parentId === null ? null : "group" };
+}
+
+/** Os nós do projeto no formato do cálculo de progresso. */
+export function toNodes(rows: readonly { id: string; parentId: string | null; kind: string; status: string }[]): TicketNode[] {
+  return rows.map((row): TicketNode => ({ id: row.id, parentId: row.parentId, kind: kindOf(row), status: statusOf(row) }));
+}
+
 export function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, progress: Progress): TicketSummary {
-  const own = progress.get(row.id) ?? null;
+  const kind = kindOf(row);
+  // Agrupador: sem situação, com progresso sempre (vazio é zero de zero). Ticket: situação, sem progresso.
+  const own = kind === "group" ? (progress.get(row.id) ?? { done: 0, total: 0, excluded: 0 }) : null;
   return {
     id: row.id,
     projectId: row.projectId,
     number: row.number,
     key: `${project.key}-${row.number}`,
     parentId: row.parentId,
+    kind,
     title: row.title,
     descriptionExcerpt: descriptionExcerpt(row.description),
-    status: own ? null : statusOf(row),
+    status: kind === "group" ? null : statusOf(row),
     progress: own,
     assigneeIds: row.assignees.map((assignee) => assignee.personId).sort(),
   };
@@ -73,10 +91,13 @@ export class TicketsService {
     @Inject(ActivityService) private readonly activity: ActivityService,
   ) {}
 
-  /** Pai de outro projeto, de outra organização ou inexistente: 404. */
+  /** Pai de outro projeto, de outra organização ou inexistente: 404. Pai que não é agrupador: 409 `parent_not_group`. */
   async requireParent(tx: TenantClient, projectId: string, parentId: string): Promise<void> {
-    const parent = await tx.ticket.findFirst({ where: { id: parentId, projectId }, select: { id: true } });
+    const parent = await tx.ticket.findFirst({ where: { id: parentId, projectId }, select: { id: true, kind: true } });
     if (!parent) throw new NotFoundException("Ticket pai não encontrado.");
+    if (parent.kind !== "group") {
+      throw new ConflictException({ code: "parent_not_group", message: "Só um agrupador pode ter filhos." });
+    }
   }
 
   /** A pessoa precisa existir, estar ativa e já enxergar o projeto; atribuir nunca concede acesso. */
@@ -111,11 +132,9 @@ export class TicketsService {
   async detail(tx: TenantClient, project: ProjectRow, id: string): Promise<TicketDetail> {
     const [row, nodes] = await Promise.all([
       tx.ticket.findFirstOrThrow({ where: { id }, include: { assignees: { select: { personId: true } } } }),
-      tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, parentId: true, status: true } }),
+      tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, parentId: true, kind: true, status: true } }),
     ]);
-    const progress = ticketProgress(
-      nodes.map((node): TicketNode => ({ id: node.id, parentId: node.parentId, status: statusOf(node) })),
-    );
+    const progress = ticketProgress(toNodes(nodes));
     return toDetail(project, row, progress);
   }
 
@@ -128,23 +147,33 @@ export class TicketsService {
     tx: TenantClient,
     principal: Principal,
     project: ProjectRow,
-    input: { title: string; description: string; parentId: string | null; status: TicketStatus; assigneeIds: string[] },
+    input: {
+      title: string;
+      description: string;
+      parentId: string | null;
+      kind?: TicketKind;
+      status: TicketStatus;
+      assigneeIds: string[];
+    },
     extraPayload: Record<string, string> = {},
   ): Promise<TicketDetail> {
     if (input.parentId) await this.requireParent(tx, project.id, input.parentId);
     const assigneeIds = [...new Set(input.assigneeIds)];
     for (const personId of assigneeIds) await this.requireAssignable(tx, project, personId);
 
+    const kind = input.kind ?? "ticket";
     const number = await this.allocateNumbers(tx, project, 1);
     const created = await tx.ticket.create({
       data: {
         orgId: project.orgId,
         projectId: project.id,
         number,
-        parentId: input.parentId,
+        ...parentLink(input.parentId),
+        kind,
         title: input.title,
         description: input.description,
-        status: input.status,
+        // Agrupador não tem situação: o valor recebido é ignorado.
+        status: kind === "group" ? "todo" : input.status,
         createdByPersonId: principal.person.id,
       },
     });
@@ -161,6 +190,7 @@ export class TicketsService {
         key: `${project.key}-${number}`,
         title: created.title,
         parentId: created.parentId,
+        kind: created.kind,
         status: created.status,
         assigneeIds: assigneeIds.sort(),
         ...extraPayload,

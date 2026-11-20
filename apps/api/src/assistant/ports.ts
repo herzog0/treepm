@@ -42,15 +42,16 @@ export class AssistantUnavailableError extends Error {
 // ---- Declaradas para a Parte 2 (sem adaptador real ainda) -------------------------------------------------
 
 /**
- * Filho direto de um nó, candidato a "pai" do ticket novo (ADR 0030). `summary` é o texto que o juiz vê: o resumo do
- * ramo quando `hasChildren`, ou o trecho da descrição da folha (pode ser vazio).
+ * Agrupador filho direto de um nó, candidato a pai do ticket novo (ADR 0031; ticket nunca é candidato). `summary` é o
+ * texto que o juiz vê: o resumo do agrupador quando `hasChildren`, ou o trecho da descrição do agrupador vazio (pode
+ * ser vazio).
  */
 export type BranchCandidate = { id: string; title: string; summary: string; hasChildren: boolean };
 
 /** Probabilidades devolvidas pelo juiz num nível: `belongs` (Noul) e `choice` por candidato (Choice). */
 export type BranchJudgment = { belongs: number; choice: Readonly<Record<string, number>> };
 
-/** Jev: julga, em cada nível, de qual ticket candidato o rascunho é uma parte. Quem decide é o código. */
+/** Jev: julga, em cada nível, em qual agrupador candidato o rascunho cabe. Quem decide é o código. */
 export interface BranchJudge {
   judge(input: {
     draft: TicketDraft;

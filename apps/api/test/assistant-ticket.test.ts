@@ -39,6 +39,27 @@ describe("POST /ticket-conversations/:id/ticket — a criação", () => {
     expect(stored[0].closed_at).not.toBeNull();
   });
 
+  it("o ticket criado pela conversa é sempre do tipo ticket", async () => {
+    const tree: Tree = await seedTree(h.pool, h.world());
+    const id = await open();
+    const res = await create(id, tree.auth);
+    expect(res.status).toBe(201);
+    expect(res.body.ticket).toMatchObject({ kind: "ticket", status: "todo", progress: null });
+    expect((await rows("select kind from tickets where id = $1", [res.body.ticket.id]))[0].kind).toBe("ticket");
+  });
+
+  it("pai que é ticket: 409 parent_not_group, nada é criado e a conversa continua aberta", async () => {
+    const tree: Tree = await seedTree(h.pool, h.world());
+    const id = await open();
+    const before = await count("tickets");
+    const res = await create(id, tree.login);
+    expect(res.status).toBe(409);
+    expect(errorOf(res)).toBe("parent_not_group");
+    expect(await count("tickets")).toBe(before);
+    expect((await rows("select status from ticket_conversations where id = $1", [id]))[0].status).toBe("open");
+    expect((await create(id, tree.sso)).status).toBe(201);
+  });
+
   it("pai nulo cria um ticket de raiz", async () => {
     await seedTree(h.pool, h.world());
     const id = await open();

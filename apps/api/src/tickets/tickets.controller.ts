@@ -13,7 +13,8 @@ import {
   Put,
 } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { parentWouldCreateCycle, ticketProgress } from "@treepm/domain";
+import { kindChangeAllowed, parentWouldCreateCycle, ticketProgress } from "@treepm/domain";
+import type { TicketKind } from "@treepm/domain";
 import type { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { CurrentPrincipal } from "../access/principal.js";
@@ -29,7 +30,7 @@ import {
   updateTicketSchema,
 } from "./tickets.schema.js";
 import type { ImportItem, TicketDetail, TicketSummary } from "./tickets.schema.js";
-import { TicketsService, statusOf, toSummary } from "./tickets.service.js";
+import { TicketsService, kindOf, parentLink, toNodes, toSummary } from "./tickets.service.js";
 import type { ProjectRow, TicketRow } from "./tickets.service.js";
 
 const summarySelect = {
@@ -37,6 +38,7 @@ const summarySelect = {
   projectId: true,
   number: true,
   parentId: true,
+  kind: true,
   title: true,
   description: true,
   status: true,
@@ -63,7 +65,7 @@ export class TicketsController {
       select: summarySelect,
       orderBy: { number: "asc" },
     });
-    const progress = ticketProgress(rows.map((row) => ({ id: row.id, parentId: row.parentId, status: statusOf(row) })));
+    const progress = ticketProgress(toNodes(rows));
     return rows.map((row) => parseOutput(ticketSummarySchema, toSummary(project, row, progress)));
   }
 
@@ -81,6 +83,7 @@ export class TicketsController {
       title: body.title,
       description: body.description ?? "",
       parentId: body.parentId ?? null,
+      kind: body.kind ?? "ticket",
       status: body.status ?? "todo",
       assigneeIds: body.assigneeIds ?? [],
     });
@@ -99,10 +102,12 @@ export class TicketsController {
     if (body.parentId) await this.tickets.requireParent(tx, projectId, body.parentId);
 
     // Pré-ordem: o pai antes dos filhos, irmãos na ordem recebida.
-    const flat: { item: ImportItem; parentIndex: number | null }[] = [];
+    // Item com filhos é agrupador; sem filhos é ticket, a menos que declare `group` (agrupador vazio).
+    const flat: { item: ImportItem; parentIndex: number | null; kind: TicketKind }[] = [];
     const walk = (items: readonly ImportItem[], parentIndex: number | null): void => {
       for (const item of items) {
-        const index = flat.push({ item, parentIndex }) - 1;
+        const kind: TicketKind = (item.children?.length ?? 0) > 0 ? "group" : (item.kind ?? "ticket");
+        const index = flat.push({ item, parentIndex, kind }) - 1;
         if (item.children) walk(item.children, index);
       }
     };
@@ -114,11 +119,12 @@ export class TicketsController {
     // da importação: constante, independente da quantidade de itens.
     const generated = await tx.$queryRaw<{ id: string }[]>`select app_uuid_v7() as id from generate_series(1, ${flat.length}::int)`;
     const ids = generated.map((row) => row.id);
-    const rows: TicketRow[] = flat.map(({ item, parentIndex }, index) => ({
+    const rows: TicketRow[] = flat.map(({ item, parentIndex, kind }, index) => ({
       id: ids[index] as string,
       projectId,
       number: first + index,
       parentId: parentIndex === null ? (body.parentId ?? null) : (ids[parentIndex] ?? null),
+      kind,
       title: item.title,
       description: item.description ?? "",
       status: item.status ?? "todo",
@@ -132,7 +138,8 @@ export class TicketsController {
           orgId: project.orgId,
           projectId,
           number: row.number,
-          parentId: row.parentId,
+          ...parentLink(row.parentId),
+          kind: row.kind,
           title: row.title,
           description: row.description,
           status: row.status,
@@ -146,7 +153,7 @@ export class TicketsController {
       subjectId: projectId,
       payload: { count: flat.length, firstNumber: first, lastNumber: first + flat.length - 1 },
     });
-    const progress = ticketProgress(rows.map((row) => ({ id: row.id, parentId: row.parentId, status: statusOf(row) })));
+    const progress = ticketProgress(toNodes(rows));
     return rows.map((row) => parseOutput(ticketSummarySchema, toSummary(project, row, progress)));
   }
 
@@ -171,11 +178,16 @@ export class TicketsController {
     this.authorization.editTicket(principal.actor, project.id);
     this.requireActive(project);
 
-    if (body.status !== undefined && (await this.hasChildren(tx, id))) {
+    const currentKind = kindOf(ticket);
+    const nextKind = body.kind ?? currentKind;
+    if (nextKind !== currentKind && !kindChangeAllowed(currentKind, nextKind, await this.childCount(tx, id))) {
       throw new ConflictException({
         code: "ticket_has_children",
-        message: "Ticket com filhos não tem situação própria.",
+        message: "Agrupador com filhos não vira ticket: mova ou remova os filhos antes.",
       });
+    }
+    if (body.status !== undefined && nextKind === "group") {
+      throw new ConflictException({ code: "group_has_no_status", message: "Agrupador não tem situação própria." });
     }
     if (body.parentId !== undefined && body.parentId !== null) {
       await this.tickets.requireParent(tx, project.id, body.parentId);
@@ -193,7 +205,9 @@ export class TicketsController {
       title?: string;
       description?: string;
       status?: string;
+      kind?: string;
       parentId?: string | null;
+      parentKind?: string | null;
     } = {};
     if (body.title !== undefined && body.title !== ticket.title) {
       data.title = body.title;
@@ -206,8 +220,12 @@ export class TicketsController {
       data.status = body.status;
       changes["status"] = { from: ticket.status, to: body.status };
     }
+    if (nextKind !== currentKind) {
+      data.kind = nextKind;
+      changes["kind"] = { from: currentKind, to: nextKind };
+    }
     if (body.parentId !== undefined && body.parentId !== ticket.parentId) {
-      data.parentId = body.parentId;
+      Object.assign(data, parentLink(body.parentId));
       changes["parentId"] = { from: ticket.parentId, to: body.parentId };
     }
     const fields = Object.keys(data);
@@ -321,8 +339,10 @@ export class TicketsController {
 
 
   private async hasChildren(tx: TenantClient, id: string): Promise<boolean> {
-    return (await tx.ticket.count({ where: { parentId: id } })) > 0;
+    return (await this.childCount(tx, id)) > 0;
   }
 
-
+  private childCount(tx: TenantClient, id: string): Promise<number> {
+    return tx.ticket.count({ where: { parentId: id } });
+  }
 }

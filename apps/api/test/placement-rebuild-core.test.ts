@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   buildImportTree,
   calibrationRows,
+  pendingGroups,
+  rebuildOrder,
+  resolveKinds,
   expectedChain,
   labelJudgment,
   labelStats,
   labeledJudgments,
-  looLeaves,
+  looTickets,
   looResumeAction,
   looView,
   pendingLoo,
@@ -37,6 +40,7 @@ const t = (
 ): GabaritoTicket => ({
   id,
   number,
+  kind: "ticket",
   key: `K-${number}`,
   title: `Título ${id}`,
   description: `Descrição ${id}`,
@@ -50,6 +54,16 @@ const t = (
 /** a(1) ─ b(2) ─ d(5)   e(6) raiz
  *       └ c(3)
  *  f(4) raiz com filho g(7) */
+const withoutKind = <T extends { kind?: unknown }>(item: T): Omit<T, "kind"> => {
+  const copy = { ...item };
+  delete copy.kind;
+  return copy;
+};
+
+/** Gabarito antigo: sem `kind`, quem tem filhos é agrupador. */
+const legacy = (tickets: readonly GabaritoTicket[]): GabaritoTicket[] =>
+  resolveKinds(tickets.map(withoutKind)) as GabaritoTicket[];
+
 const sample = (): GabaritoTicket[] =>
   computeDepths([t("a", 1, null), t("b", 2, "a"), t("c", 3, "a"), t("f", 4, null), t("d", 5, "b"), t("e", 6, null), t("g", 7, "f")]);
 
@@ -323,10 +337,10 @@ describe("resolveCurrentId", () => {
 describe("leave-one-out: ordem, seleção e retomada", () => {
   const tickets = computeDepths([t("a", 1, null), t("b", 2, "a"), t("c", 3, "a"), t("f", 4, null), t("d", 5, "b"), t("e", 6, null)]);
   it("só os tickets sem filhos, na ordem do número original", () => {
-    expect(looLeaves(tickets).map((x) => x.id)).toEqual(["c", "f", "d", "e"]); // a e b têm filhos: ficam de fora
+    expect(looTickets(legacy(tickets)).map((x) => x.id)).toEqual(["c", "f", "d", "e"]); // a, b e f... só tickets
   });
   it("--limit vale para a lista inteira e depois pula os já registrados", () => {
-    const leaves = looLeaves(tickets);
+    const leaves = looTickets(legacy(tickets));
     expect(pendingLoo(leaves, new Set(["c"]), 2).map((x) => x.id)).toEqual(["f"]);
     expect(pendingLoo(leaves, new Set()).map((x) => x.id)).toEqual(["c", "f", "d", "e"]);
     expect(pendingLoo(leaves, new Set(["c", "f", "d", "e"])).map((x) => x.id)).toEqual([]);
@@ -468,12 +482,12 @@ describe("buildImportTree", () => {
       t("b", 2, "a", { status: "in_progress" }),
       t("e", 4, null, { status: "cancelled" }),
     ]);
-    const { items, order } = buildImportTree(tickets);
+    const { items, order } = buildImportTree(legacy(tickets));
     expect(order).toEqual(["a", "b", "c", "e"]);
     expect(items).toHaveLength(2);
     expect(items[0]!.children!.map((x) => x.title)).toEqual(["Título b", "Título c"]);
     expect(items[0]!.status).toBeUndefined(); // pai não tem situação própria
-    expect(items[0]!.children![1]).toEqual({ title: "Título c", description: "dc", status: "done" });
+    expect(items[0]!.children![1]).toEqual({ title: "Título c", description: "dc", status: "done", kind: "ticket" });
     expect(items[1]!.children).toBeUndefined();
   });
 });
@@ -677,6 +691,86 @@ describe("calibrationRows", () => {
       [0.5, 1, "band", true],
       [0.1, 0.55, "stopped", true],
     ]);
+  });
+});
+
+describe("tipo dos nós no gabarito (ADR 0031)", () => {
+  const raw = (id: string, parentId: string | null, kind?: "ticket" | "group") => ({ id, parentId, ...(kind ? { kind } : {}) });
+
+  it("gabarito antigo, sem kind: quem tem filhos é group", () => {
+    const out = resolveKinds([raw("a", null), raw("b", "a"), raw("c", "a"), raw("d", null)]);
+    expect(out.map((x) => [x.id, x.kind])).toEqual([["a", "group"], ["b", "ticket"], ["c", "ticket"], ["d", "ticket"]]);
+  });
+
+  it("gabarito novo: o kind declarado vale, inclusive agrupador vazio", () => {
+    const out = resolveKinds([raw("g", null, "group"), raw("e", null, "group"), raw("t", "g", "ticket")]);
+    expect(out.map((x) => x.kind)).toEqual(["group", "group", "ticket"]);
+  });
+
+  it("ticket declarado com filhos é gabarito inválido", () => {
+    expect(() => resolveKinds([raw("t", null, "ticket"), raw("c", "t", "ticket")])).toThrow(/filhos/);
+  });
+
+  const mixed = () =>
+    computeDepths([
+      t("g1", 1, null, { kind: "group", status: null }),
+      t("g2", 2, "g1", { kind: "group", status: null }),
+      t("t1", 3, "g2"),
+      t("e", 4, null, { kind: "group", status: null }),
+      t("t2", 5, null),
+      t("t3", 6, "g1"),
+    ]);
+
+  it("looTickets mede só nós do tipo ticket, na ordem do número", () => {
+    expect(looTickets(mixed()).map((x) => x.id)).toEqual(["t1", "t2", "t3"]);
+  });
+
+  it("rebuildOrder: agrupadores primeiro, do mais raso ao mais fundo, e os tickets à parte, em ordem de inserção", () => {
+    const order = rebuildOrder(mixed());
+    expect(order.groups.map((x) => x.id)).toEqual(["g1", "e", "g2"]);
+    expect(order.tickets.map((x) => x.id)).toEqual(["t2", "t3", "t1"]);
+    expect(order.groups.every((x) => x.kind === "group")).toBe(true);
+    expect(order.tickets.every((x) => x.kind === "ticket")).toBe(true);
+  });
+
+  it("pendingGroups pula os agrupadores já criados", () => {
+    const { groups } = rebuildOrder(mixed());
+    expect(pendingGroups(groups, new Map([["g1", "n1"]])).map((x) => x.id)).toEqual(["e", "g2"]);
+  });
+
+  it("buildImportTree leva o kind de cada item e não dá situação a agrupador, vazio inclusive", () => {
+    const { items } = buildImportTree(mixed());
+    expect(items.map((x) => [x.title, x.kind])).toEqual([["Título g1", "group"], ["Título e", "group"], ["Título t2", "ticket"]]);
+    expect(items[0]!.status).toBeUndefined();
+    expect(items[1]!.children).toBeUndefined();
+    expect(items[0]!.children!.map((x) => x.kind)).toEqual(["group", "ticket"]);
+  });
+
+  it("compareTrees acusa kind diferente quando os dois lados informam", () => {
+    const g = mixed();
+    const live = g.map((x) => ({ id: x.id, title: x.title, parentId: x.parentId, status: x.status, kind: x.kind }));
+    expect(compareTrees(g, live)).toEqual([]);
+    expect(compareTrees(g, live.map((x) => (x.id === "t2" ? { ...x, kind: "group" } : x))).join()).toContain("tipo diferente");
+    expect(compareTrees(g, live.map(withoutKind))).toEqual([]);
+  });
+
+  it("rebuildView com o mapa dos agrupadores: o pai esperado que é agrupador novo conta como same_parent", () => {
+    const g = mixed();
+    const groupMap = new Map([["g1", "ng1"], ["g2", "ng2"], ["e", "ne"]]);
+    const record = makeRecord({ oldId: "t1", expectedParentOldId: "g2", chosenParentNewId: "ng2", destinationPath: [{ id: "ng1", title: "g1" }, { id: "ng2", title: "g2" }], group: "elsewhere" });
+    const view = rebuildView(g, [record], groupMap);
+    expect(view.oldToNew.get("g2")).toBe("ng2");
+    expect(view.parentOfNew.get("ng2")).toBe("ng1");
+    expect(recomputeGroups([record], view)[0]!.group).toBe("same_parent");
+  });
+
+  it("o relatório conta tickets pela procura e agrupadores criados sem procura, separados", () => {
+    const g = mixed();
+    const md = renderReport(g, [makeRecord({ oldId: "t1", expectedParentOldId: "g2" })], "PROJ", { groupsCreated: 3 });
+    expect(md).toContain("Tickets no gabarito: 3");
+    expect(md).toContain("Agrupadores no gabarito: 3");
+    expect(md).toMatch(/Agrupadores criados sem procura: 3/);
+    expect(md).toMatch(/Tickets reinseridos pela procura: 1/);
   });
 });
 
