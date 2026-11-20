@@ -27,3 +27,4 @@
 .side-panel .badge { margin-left: 6px; padding: 1px 6px; border: 1px solid var(--tp-border); border-radius: 9px; color: var(--tp-text-2); font-size: 11px; }
 .side-panel .panel-list { margin-bottom: 12px; }
 .side-panel .panel-manage { display: grid; gap: 12px; margin-bottom: 8px; }
+.side-panel .panel-ticket-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }

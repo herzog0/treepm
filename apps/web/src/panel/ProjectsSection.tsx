@@ -14,9 +14,10 @@ export interface ProjectsSectionProps {
   selectedProject: Project | null;
   onChanged: () => void;
   onImportProject?: ((projectId: string) => void) | undefined;
+  onCreateTicket?: ((projectId: string) => void) | undefined;
 }
 
-export function ProjectsSection({ client, me, projects, selectedProject, onChanged, onImportProject }: ProjectsSectionProps) {
+export function ProjectsSection({ client, me, projects, selectedProject, onChanged, onImportProject, onCreateTicket }: ProjectsSectionProps) {
   const [openId, setOpenId] = useState<string | null>(selectedProject?.id ?? null);
   // O projeto recém-criado pode demorar a chegar em `projects`; até lá usamos a resposta da API.
   const [created, setCreated] = useState<Project | null>(null);
@@ -41,6 +42,7 @@ export function ProjectsSection({ client, me, projects, selectedProject, onChang
         onChanged={onChanged}
         onBack={() => setOpenId(null)}
         onImport={onImportProject}
+        onCreateTicket={onCreateTicket}
       />
     );
   }

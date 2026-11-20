@@ -18,7 +18,14 @@ function orgFetch() {
     if (input === "/api/projects") {
       return Response.json([{ id: `${orgId}-proj`, name: `Projeto de ${name}`, key: "PRJ", visibility: "organization", archivedAt: null, members: [], teamIds: [] }]);
     }
-    if (typeof input === "string" && /^\/api\/projects\/[^/]+\/tickets$/.test(input)) return Response.json([]);
+    if (typeof input === "string" && /^\/api\/projects\/[^/]+\/tickets$/.test(input)) {
+      const projectId = `${orgId}-proj`;
+      return Response.json(input.includes(projectId) ? [{ id: "t1", projectId, number: 1, key: "PRJ-1", parentId: null, title: "Primeiro", status: "todo", progress: null, assigneeIds: [] }] : []);
+    }
+    if (input === "/api/tickets/t1") {
+      return Response.json({ id: "t1", projectId: `${orgId}-proj`, number: 1, key: "PRJ-1", parentId: null, title: "Primeiro", status: "todo", progress: null, assigneeIds: [], description: "", createdByPersonId: "p", createdAt: "x", updatedAt: "y" });
+    }
+    if (input === "/api/people") return Response.json([]);
     return new Response(null, { status: 404 });
   });
 }
@@ -90,5 +97,14 @@ describe("Workspace", () => {
     expect(screen.queryByRole("button", { name: /Projeto de/ })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(onNavigate).toHaveBeenCalledWith("map");
+  });
+
+  it("opens the ticket page from the ticket route and reports opening and closing to the host", async () => {
+    const fetchImpl = orgFetch();
+    const onOpenTicket = vi.fn();
+    render(<Workspace orgId="org-1" view="map" ticketId="t1" onOpenTicket={onOpenTicket} getToken={async () => "org-1"} fetch={fetchImpl} />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Primeiro" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Fechar e voltar ao mapa" }));
+    expect(onOpenTicket).toHaveBeenCalledWith(null);
   });
 });

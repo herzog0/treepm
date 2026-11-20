@@ -121,3 +121,60 @@ describe("import route", () => {
     expect(screen.getByRole("link", { name: "Mapa" })).toHaveAttribute("aria-current", "page");
   });
 });
+
+describe("ticket route", () => {
+  it("drops ?ticket when leaving the map or going back to the map section", () => {
+    expect(viewHref("teams", "https://x.test/app?ticket=t1")).toBe("/app?view=teams");
+    expect(viewHref("import", "https://x.test/app?ticket=t1", "p1")).toBe("/app?view=import&project=p1");
+    expect(viewHref("map", "https://x.test/app?ticket=t1&foo=1")).toBe("/app?foo=1");
+  });
+
+  it("reads the open ticket from the URL only on the map", () => {
+    setUrl("/?ticket=t1");
+    const { result } = renderHook(() => useView());
+    expect(result.current[0]).toBe("map");
+    expect(result.current[3]).toBe("t1");
+    setUrl("/?view=teams&ticket=t1");
+    expect(renderHook(() => useView()).result.current[3]).toBeNull();
+    setUrl("/?view=import&project=p1&ticket=t1");
+    expect(renderHook(() => useView()).result.current[3]).toBeNull();
+    setUrl("/?ticket=");
+    expect(renderHook(() => useView()).result.current[3]).toBeNull();
+  });
+
+  it("pushes an entry for each opened ticket and for closing, keeping other parameters", () => {
+    setUrl("/?foo=1#h");
+    const { result } = renderHook(() => useView());
+    const before = window.history.length;
+    act(() => result.current[4]("t1"));
+    expect(result.current[3]).toBe("t1");
+    expect(window.location.search).toBe("?foo=1&ticket=t1");
+    expect(window.location.hash).toBe("#h");
+    expect(window.history.length).toBe(before + 1);
+
+    act(() => result.current[4]("t1"));
+    expect(window.history.length).toBe(before + 1);
+
+    act(() => result.current[4]("t2"));
+    expect(window.location.search).toBe("?foo=1&ticket=t2");
+    act(() => result.current[4](null));
+    expect(result.current[3]).toBeNull();
+    expect(window.location.search).toBe("?foo=1");
+    expect(window.history.length).toBe(before + 3);
+  });
+
+  it("closes the page when the browser goes back, and navigating to another section discards the ticket", () => {
+    const { result } = renderHook(() => useView());
+    act(() => result.current[4]("t1"));
+    act(() => {
+      setUrl("/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(result.current[3]).toBeNull();
+
+    act(() => result.current[4]("t1"));
+    act(() => result.current[1]("teams"));
+    expect(result.current[3]).toBeNull();
+    expect(window.location.search).toBe("?view=teams");
+  });
+});
