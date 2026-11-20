@@ -101,6 +101,30 @@ const TABLES: TableSpec[] = [
     appCanUpdateAndDelete: true,
   },
   {
+    table: "ticket_conversations",
+    insert:
+      "insert into ticket_conversations (org_id, project_id, author_person_id, status) values ($1, gen_random_uuid(), gen_random_uuid(), 'open')",
+    update: "update ticket_conversations set draft_title = 'hacked', draft_description = '' where org_id = $1",
+    remove: "delete from ticket_conversations where org_id = $1",
+    appCanUpdateAndDelete: true,
+  },
+  {
+    table: "ticket_conversation_messages",
+    insert:
+      "insert into ticket_conversation_messages (org_id, conversation_id, position, author, body) values ($1, gen_random_uuid(), 1, 'person', 'x')",
+    update: "update ticket_conversation_messages set body = 'hacked' where org_id = $1",
+    remove: "delete from ticket_conversation_messages where org_id = $1",
+    appCanUpdateAndDelete: true,
+  },
+  {
+    table: "branch_summaries",
+    insert:
+      "insert into branch_summaries (org_id, project_id, ticket_id, summary, content_mark, model) values ($1, gen_random_uuid(), gen_random_uuid(), 'x', 'm', 'modelo')",
+    update: "update branch_summaries set summary = 'hacked' where org_id = $1",
+    remove: "delete from branch_summaries where org_id = $1",
+    appCanUpdateAndDelete: true,
+  },
+  {
     table: "activity_events",
     insert:
       "insert into activity_events (org_id, kind, subject_type, subject_id) values ($1, 'k', 't', 's')",
@@ -212,7 +236,7 @@ describe.each(TABLES)("isolamento por organização em $table", (spec) => {
     expect(affected).toBe(0);
     expect(await ownerCount(spec.table, ORG_B)).toBeGreaterThan(0);
     const hacked = await owner.query(
-      `select 1 from ${spec.table} where org_id = $1 and (to_jsonb(${spec.table}) ->> 'name' = 'hacked' or to_jsonb(${spec.table}) ->> 'title' = 'hacked' or to_jsonb(${spec.table}) ->> 'kind' = 'hacked' or to_jsonb(${spec.table}) ->> 'display_name' = 'hacked')`,
+      `select 1 from ${spec.table} where org_id = $1 and (to_jsonb(${spec.table}) ->> 'name' = 'hacked' or to_jsonb(${spec.table}) ->> 'title' = 'hacked' or to_jsonb(${spec.table}) ->> 'kind' = 'hacked' or to_jsonb(${spec.table}) ->> 'display_name' = 'hacked' or to_jsonb(${spec.table}) ->> 'draft_title' = 'hacked' or to_jsonb(${spec.table}) ->> 'body' = 'hacked' or to_jsonb(${spec.table}) ->> 'summary' = 'hacked')`,
       [ORG_B],
     );
     expect(hacked.rowCount).toBe(0);

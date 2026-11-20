@@ -3,6 +3,7 @@ import { APP_FILTER } from "@nestjs/core";
 import { AccessModule } from "./access/access.module.js";
 import { ActivityService } from "./activity/activity.service.js";
 import { AreasController } from "./areas/areas.controller.js";
+import { AssistantModule } from "./assistant/assistant.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { ErrorFilter } from "./common/error.filter.js";
 import { ConfigModule } from "./config.module.js";
@@ -16,7 +17,7 @@ import { TicketsController } from "./tickets/tickets.controller.js";
 import { TeamsController } from "./teams/teams.controller.js";
 
 @Module({
-  imports: [ConfigModule, AuthModule, AccessModule, DbModule],
+  imports: [ConfigModule, AuthModule, AccessModule, DbModule, AssistantModule],
   controllers: [
     HealthController,
     MeController,

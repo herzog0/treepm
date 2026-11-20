@@ -9,6 +9,7 @@ const CODES: Record<number, string> = {
   [HttpStatus.FORBIDDEN]: "forbidden",
   [HttpStatus.NOT_FOUND]: "not_found",
   [HttpStatus.CONFLICT]: "conflict",
+  [HttpStatus.SERVICE_UNAVAILABLE]: "service_unavailable",
 };
 
 const INTERNAL_MESSAGE = "Erro interno do servidor.";
@@ -23,7 +24,11 @@ export class ErrorFilter implements ExceptionFilter {
       status(code: number): { json(body: ErrorBody): void };
     }>();
 
-    if (exception instanceof HttpException && exception.getStatus() < 500) {
+    // 503 só nasce de exceção lançada de propósito (ex.: `assistant_unavailable`); os demais 5xx seguem opacos.
+    if (
+      exception instanceof HttpException &&
+      (exception.getStatus() < 500 || exception.getStatus() === HttpStatus.SERVICE_UNAVAILABLE)
+    ) {
       const status = exception.getStatus();
       const payload = exception.getResponse();
       const custom = typeof payload === "object" ? (payload as { code?: unknown; message?: unknown }) : {};

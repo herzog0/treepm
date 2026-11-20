@@ -5,8 +5,10 @@ export const MAX_IMPORT_ITEMS = 500;
 export const MAX_IMPORT_DEPTH = 20;
 
 export const ticketStatusSchema = z.enum(["todo", "in_progress", "in_review", "done", "cancelled"]);
-const titleSchema = z.string().trim().min(1).max(200);
-const descriptionSchema = z.string().max(20_000);
+export const ticketTitleSchema = z.string().trim().min(1).max(200);
+export const ticketDescriptionSchema = z.string().max(20_000);
+const titleSchema = ticketTitleSchema;
+const descriptionSchema = ticketDescriptionSchema;
 
 export const createTicketSchema = z
   .object({

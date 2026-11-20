@@ -11,6 +11,8 @@ import type { DirectoryProvider } from "../src/auth/directory-provider.js";
 import { DIRECTORY_PROVIDER } from "../src/auth/directory-provider.js";
 import type { SessionVerifier, VerifiedSession } from "../src/auth/session-verifier.js";
 import { SESSION_VERIFIER } from "../src/auth/session-verifier.js";
+import { CONVERSATION_PROVIDER } from "../src/assistant/ports.js";
+import { FakeConversationProvider } from "./assistant-fakes.js";
 
 export { OWNER_URL };
 
@@ -47,6 +49,9 @@ export function sessionHeader(session: Partial<VerifiedSession> & { userId: stri
   });
 }
 
+/** Configuração com a IA ligada (as duas chaves; nenhuma é usada, os provedores são falsos). */
+export const AI_CONFIG: AppConfig = { ...TEST_CONFIG, ANTHROPIC_API_KEY: "a", TYPESAFE_API_KEY: "t" };
+
 export type DirectoryCalls = { users: string[]; organizations: string[] };
 
 /** Diretório falso determinístico, com chamadas registradas. */
@@ -73,13 +78,22 @@ export class FakeDirectory implements DirectoryProvider {
 export async function createTestApp(
   extraControllers: Type<unknown>[] = [],
   config: AppConfig = TEST_CONFIG,
-): Promise<{ app: INestApplication; directory: FakeDirectory; verifier: FakeSessionVerifier }> {
+  options: { realAssistant?: boolean } = {},
+): Promise<{
+  app: INestApplication;
+  directory: FakeDirectory;
+  verifier: FakeSessionVerifier;
+  conversation: FakeConversationProvider;
+}> {
   const directory = new FakeDirectory();
   const verifier = new FakeSessionVerifier();
-  const moduleRef = await Test.createTestingModule({
+  const conversation = new FakeConversationProvider();
+  let builder = Test.createTestingModule({
     imports: [AppModule],
     controllers: extraControllers,
-  })
+  });
+  if (!options.realAssistant) builder = builder.overrideProvider(CONVERSATION_PROVIDER).useValue(conversation);
+  const moduleRef = await builder
     .overrideProvider(CONFIG)
     .useValue(config)
     .overrideProvider(SESSION_VERIFIER)
@@ -90,7 +104,7 @@ export async function createTestApp(
   const app = moduleRef.createNestApplication({ logger: false });
   configureApp(app, config);
   await app.init();
-  return { app, directory, verifier };
+  return { app, directory, verifier, conversation };
 }
 
 export function ownerPoolWithCleanup(): pg.Pool {
