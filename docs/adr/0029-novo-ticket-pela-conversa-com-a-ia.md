@@ -54,7 +54,9 @@ O contexto de tenant e a RLS valem nas duas transações. Nenhuma outra rota mud
 Cada ticket com filhos tem um **resumo do que o ramo cobre**, de até 600 caracteres, escrito pelo mesmo Claude Opus 5.5 com esforço `low` a partir do título, do trecho da descrição e dos títulos e resumos dos filhos.
 
 - O resumo é guardado com uma marca do conteúdo de que saiu. Quando o ramo muda, a marca deixa de bater e o resumo é refeito na próxima vez em que for necessário. Não há tarefa em segundo plano.
-- Na primeira procura em um projeto, os resumos que faltam nos ramos visitados são escritos na hora, em paralelo; por isso ela é mais lenta que as seguintes.
+- Na primeira procura em um projeto, os resumos que faltam nos ramos visitados são escritos na hora, em paralelo (até 8 por nível); por isso ela é mais lenta que as seguintes.
+- O resumo de um ramo usa os resumos dos filhos que já existem. Quando a procura desce e escreve os resumos de um nível mais fundo, o resumo do pai é refeito na procura seguinte; o mapa se estabiliza em até três procuras. É um custo extra pequeno, aceito para não escrever a árvore inteira de uma vez.
+- Um resumo que passe de 600 caracteres derruba a procura com `assistant_unavailable`; o pedido ao modelo é de até 500, para dar margem. Se a rodada com os provedores reais mostrar que isso acontece, entra uma segunda tentativa.
 
 ### A procura do caminho (Jev)
 
@@ -74,9 +76,10 @@ O código lê as respostas assim (limiares iniciais, a calibrar com casos reais)
 | acima de 0,7 | desce nos ramos mais prováveis |
 
 - A descida mantém até **3 caminhos** em paralelo e os ordena pela média geométrica das probabilidades do `Choice` ao longo do caminho, como no guia de classificação hierárquica da TypeSafe.
-- O resultado traz o destino, até 2 alternativas e os ramos descartados em cada nível. Quando o primeiro caminho não se destaca do segundo, o resultado vem marcado como **incerto** e a web pede que a pessoa escolha.
+- O resultado traz o destino, até 2 alternativas e os ramos descartados em cada nível. Quando o primeiro caminho não se destaca do segundo, o resultado vem marcado como **incerto** e a web pede que a pessoa escolha. Na implementação, "não se destaca" é a nota do primeiro ser menos de 1,25 vez a do segundo. Além disso, quando os dois primeiros são "parar aqui" e "descer" do mesmo ramo, na faixa do meio, o resultado é sempre incerto: a nota do `Choice` não mede um contra o outro.
+- Na faixa do meio a descida segue só o ramo mais provável; acima de 0,7 segue os 3 mais prováveis.
 - As probabilidades não são mostradas como "chance de acerto".
-- Se os candidatos de um nível não cabem no limite de tokens do Jev, a procura para naquele nível e diz isso. Nunca corta candidatos em silêncio.
+- Se os candidatos de um nível não cabem no limite de tokens do Jev, a procura para naquele nível e diz isso. Nunca corta candidatos em silêncio. A TypeSafe não documenta como contar tokens, então o código usa uma estimativa conservadora (caracteres divididos por 3, mais 20%) contra um teto de 28 mil, abaixo dos 32 mil reais.
 - Limites: 20 níveis, 3 requisições por nível.
 
 "Parar na raiz" e "parar no primeiro nível" são resultados comuns, não exceção: a árvore real do TREEPM tem 6 raízes e quase só dois níveis.
@@ -113,6 +116,7 @@ Todas exigem poder criar ticket no projeto (administrador da organização, gest
 
 - **Criação idempotente:** cada conversa cria no máximo um ticket. Repetir a chamada devolve o ticket já criado.
 - A criação grava `ticket.created` com a origem "assistente" e a conversa no evento.
+- A procura e a criação exigem rascunho na conversa: sem ele, 409 `draft_required`.
 - Erros novos: 503 `assistant_not_configured`; 503 `assistant_unavailable` (provedor fora do ar, lento demais, recusa sem alternativa ou resposta fora dos limites do ticket, que nunca é cortada); 409 `conversation_closed`; 409 `conversation_changed`, quando outra mensagem entrou na mesma conversa enquanto o provedor respondia.
 - O ajuste manual do rascunho não muda a marca de "pronto"; ela é só a opinião da IA no último turno, e a pessoa pode pedir a procura do lugar a qualquer momento.
 - Tempo máximo: 60 segundos por turno de conversa e 30 por procura.
