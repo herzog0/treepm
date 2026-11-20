@@ -146,6 +146,16 @@ Segue os quadros aprovados "Novo ticket 1" e "Novo ticket 2". `packages/engine` 
 
 Os testes automáticos usam provedores falsos. Antes de a web ser construída em cima, há uma rodada com os provedores reais, disparada por Teodoro, com o texto enviado e um teto de gasto informados antes. A latência do banco já escondeu um defeito atrás de testes locais uma vez.
 
+**Rodada de 2026-11-20,** feita por Teodoro com `apps/api/scripts/verify-providers.ts` e texto fictício fixo, uma chamada de cada:
+
+| Chamada | Duração | Tokens | Resultado |
+| --- | --- | --- | --- |
+| Turno de conversa (Claude Opus 5.5, esforço `medium`) | 5,8 s | 66 de entrada, 1.324 gravados em cache, 427 de saída | rascunho com título, contexto, resultado esperado e critérios de aceite; marcado como pronto, com duas perguntas opcionais |
+| Resumo de ramo (Claude Opus 5.5, esforço `low`) | 2,7 s | 110 de entrada, 592 gravados em cache, 88 de saída | resumo de duas frases, dentro do limite |
+| Escolha do ramo (Jev `jev-1.14.0`, três ramos) | 0,25 s | 669 de entrada | "pertence a algum" 0,98; ramo certo com 1,0 |
+
+Pelos preços da data, a rodada custou cerca de US$ 0,02. É uma medição única com um caso fácil: confirma que as chamadas, as chaves e a saída estruturada funcionam, não que os limiares estejam calibrados. No rascunho, o critério "o comportamento em outros dispositivos continua funcionando" não veio da pessoa; é o tipo de acréscimo a observar em casos reais.
+
 ## Fora desta ADR
 
 - **Reclassificação ao editar (IDEA-014).** Teodoro decidiu que a mudança é confirmada ao salvar e que, quando realmente fizer sentido, o ticket não é salvo sem mudar de lugar. O critério do "realmente faz sentido" e o que acontece quando ele erra e a pessoa fica sem conseguir salvar dependem de medição com edições reais do TREEPM e de uma decisão dele.
