@@ -7,6 +7,7 @@ import {
   canImportTickets,
   canRemoveTicket,
   canViewTickets,
+  descriptionExcerpt,
   parentWouldCreateCycle,
   ticketProgress,
 } from "./tickets.js";
@@ -122,5 +123,24 @@ describe("parentWouldCreateCycle", () => {
     expect(parentWouldCreateCycle(parents, "b", "x")).toBe(false);
     expect(parentWouldCreateCycle(parents, "c", null)).toBe(false);
     expect(parentWouldCreateCycle(parents, "x", "a")).toBe(false);
+  });
+});
+
+describe("descriptionExcerpt", () => {
+  it("devolve vazio para descrição vazia e o texto inteiro até 600 caracteres", () => {
+    expect(descriptionExcerpt("")).toBe("");
+    expect(descriptionExcerpt("curta")).toBe("curta");
+    expect(descriptionExcerpt("a".repeat(600))).toBe("a".repeat(600));
+  });
+
+  it("corta em 600 e acrescenta reticências depois deles", () => {
+    expect(descriptionExcerpt("a".repeat(601))).toBe(`${"a".repeat(600)}…`);
+  });
+
+  it("conta por ponto de código, sem partir par substituto", () => {
+    const emoji = "😀";
+    expect(descriptionExcerpt(emoji.repeat(600))).toBe(emoji.repeat(600));
+    expect(descriptionExcerpt(emoji.repeat(601))).toBe(`${emoji.repeat(600)}…`);
+    expect(descriptionExcerpt(`${"a".repeat(599)}${emoji}b`)).toBe(`${"a".repeat(599)}${emoji}…`);
   });
 });

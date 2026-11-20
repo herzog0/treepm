@@ -13,7 +13,7 @@ import {
   Put,
 } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { parentWouldCreateCycle, ticketProgress } from "@treepm/domain";
+import { descriptionExcerpt, parentWouldCreateCycle, ticketProgress } from "@treepm/domain";
 import type { TicketNode, TicketStatus } from "@treepm/domain";
 import type { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
@@ -47,11 +47,11 @@ type TicketRow = {
   number: number;
   parentId: string | null;
   title: string;
+  description: string;
   status: string;
   assignees: { personId: string }[];
 };
 type TicketDetailRow = TicketRow & {
-  description: string;
   createdByPersonId: string;
   createdAt: Date;
   updatedAt: Date;
@@ -65,6 +65,7 @@ const summarySelect = {
   number: true,
   parentId: true,
   title: true,
+  description: true,
   status: true,
   assignees: { select: { personId: true } },
 } as const;
@@ -82,6 +83,7 @@ function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, progress: P
     key: `${project.key}-${row.number}`,
     parentId: row.parentId,
     title: row.title,
+    descriptionExcerpt: descriptionExcerpt(row.description),
     status: own ? null : statusOf(row),
     progress: own,
     assigneeIds: row.assignees.map((assignee) => assignee.personId).sort(),
@@ -202,11 +204,12 @@ export class TicketsController {
       number: first + index,
       parentId: parentIndex === null ? (body.parentId ?? null) : (ids[parentIndex] ?? null),
       title: item.title,
+      description: item.description ?? "",
       status: item.status ?? "todo",
       assignees: [],
     }));
     await tx.ticket.createMany({
-      data: flat.map(({ item }, index) => {
+      data: flat.map((_, index) => {
         const row = rows[index] as TicketRow;
         return {
           id: row.id,
@@ -215,7 +218,7 @@ export class TicketsController {
           number: row.number,
           parentId: row.parentId,
           title: row.title,
-          description: item.description ?? "",
+          description: row.description,
           status: row.status,
           createdByPersonId: principal.person.id,
         };
