@@ -39,6 +39,7 @@ describe("criação e leitura", () => {
       progress: null,
       assigneeIds: [],
       description: "",
+      descriptionExcerpt: "",
       createdByPersonId: h.world().people.admin,
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
@@ -89,6 +90,7 @@ describe("criação e leitura", () => {
     expect(res.status).toBe(200);
     expect(res.body.map((t: Body) => t.number)).toEqual([1, 2, 3, 4]);
     for (const t of res.body) expect(t).not.toHaveProperty("description");
+    expect(res.body.map((t: Body) => t.descriptionExcerpt)).toEqual(["longa", "x", "", ""]);
     expect(res.body[0]).toMatchObject({
       key: "PRIV-1",
       status: null,
@@ -96,6 +98,23 @@ describe("criação e leitura", () => {
     });
     expect(res.body[1]).toMatchObject({ status: "done", progress: null, parentId: root.id });
     expect(res.body[3].assigneeIds).toEqual([contributor, manager].sort());
+  });
+
+  it("trecho da descrição: 600 pontos de código, reticências só quando maior, em criação, edição, listagem e detalhe", async () => {
+    const long = "😀".repeat(601);
+    const created = await create("priv", { title: "T", description: long });
+    expect(created.status).toBe(201);
+    const expected = `${"😀".repeat(600)}…`;
+    expect(created.body.descriptionExcerpt).toBe(expected);
+    expect(created.body.description).toBe(long);
+    const list = await h.call("GET", `/api/projects/${projectOf("priv")}/tickets`, as("reader"));
+    expect(list.body[0].descriptionExcerpt).toBe(expected);
+    const exact = await h.call("PATCH", `/api/tickets/${created.body.id}`, as("admin"), { description: "a".repeat(600) });
+    expect(exact.body.descriptionExcerpt).toBe("a".repeat(600));
+    const edited = await h.call("PATCH", `/api/tickets/${created.body.id}`, as("admin"), { description: "novo" });
+    expect(edited.body.descriptionExcerpt).toBe("novo");
+    const detail = await h.call("GET", `/api/tickets/${created.body.id}`, as("reader"));
+    expect(detail.body).toMatchObject({ description: "novo", descriptionExcerpt: "novo" });
   });
 
   it("devolve o detalhe com descrição e progresso do pai", async () => {
@@ -450,6 +469,12 @@ describe("importação em lote", () => {
     expect(stored.rows[0]).toEqual({ description: "d1", status: "in_progress" });
     const next = await h.pool.query("select next_ticket_number as n from projects where id = $1", [projectOf("priv")]);
     expect(next.rows[0].n).toBe(6);
+  });
+
+  it("importação devolve o trecho da descrição de cada item", async () => {
+    const res = await importTo({ items: [{ title: "a", description: "b".repeat(601) }, { title: "c" }] });
+    expect(res.status).toBe(201);
+    expect(res.body.map((t: Body) => t.descriptionExcerpt)).toEqual([`${"b".repeat(600)}…`, ""]);
   });
 
   it("importa sob um ticket existente com parentId", async () => {

@@ -74,6 +74,7 @@ export const ticketSummarySchema = z.object({
   key: z.string(),
   parentId: z.string().nullable(),
   title: z.string(),
+  descriptionExcerpt: z.string(),
   status: ticketStatusSchema.nullable(),
   progress: progressSchema.nullable(),
   assigneeIds: z.array(z.string()),

@@ -110,3 +110,13 @@ export function parentWouldCreateCycle(
   }
   return false;
 }
+
+const EXCERPT_LENGTH = 600;
+
+/** First 600 code points of a description, ending in "…" when it is longer. Never splits a surrogate pair. */
+export function descriptionExcerpt(description: string): string {
+  if (description.length <= EXCERPT_LENGTH) return description;
+  const points = Array.from(description);
+  if (points.length <= EXCERPT_LENGTH) return description;
+  return `${points.slice(0, EXCERPT_LENGTH).join("")}…`;
+}
