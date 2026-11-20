@@ -15,9 +15,11 @@ export interface ProjectsSectionProps {
   onChanged: () => void;
   onImportProject?: ((projectId: string) => void) | undefined;
   onCreateTicket?: ((projectId: string) => void) | undefined;
+  /** Com o assistente ligado, o botão flutuante do mapa é a ação principal e a criação manual vira secundária. */
+  assistantAvailable?: boolean | undefined;
 }
 
-export function ProjectsSection({ client, me, projects, selectedProject, onChanged, onImportProject, onCreateTicket }: ProjectsSectionProps) {
+export function ProjectsSection({ client, me, projects, selectedProject, onChanged, onImportProject, onCreateTicket, assistantAvailable }: ProjectsSectionProps) {
   const [openId, setOpenId] = useState<string | null>(selectedProject?.id ?? null);
   // O projeto recém-criado pode demorar a chegar em `projects`; até lá usamos a resposta da API.
   const [created, setCreated] = useState<Project | null>(null);
@@ -43,6 +45,7 @@ export function ProjectsSection({ client, me, projects, selectedProject, onChang
         onBack={() => setOpenId(null)}
         onImport={onImportProject}
         onCreateTicket={onCreateTicket}
+        assistantAvailable={assistantAvailable}
       />
     );
   }

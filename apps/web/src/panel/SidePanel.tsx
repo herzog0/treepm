@@ -22,6 +22,7 @@ export interface SidePanelProps {
   onImportProject?: (projectId: string) => void;
   /** Abre a criação de um ticket na raiz do projeto; sem ela, o detalhe do projeto não oferece a ação. */
   onCreateTicket?: (projectId: string) => void;
+  assistantAvailable?: boolean;
 }
 
 const TABS: readonly { tab: PanelTab; label: string }[] = [
@@ -32,7 +33,7 @@ const TABS: readonly { tab: PanelTab; label: string }[] = [
 const stop = (event: PointerEvent) => event.stopPropagation();
 
 /** Sobreposição à direita do mapa. Nada do que acontece aqui dentro chega aos gestos e atalhos do mapa. */
-export function SidePanel({ client, me, projects, tab, selectedProjectId, onTabChange, onClose, onChanged, onImportProject, onCreateTicket }: SidePanelProps) {
+export function SidePanel({ client, me, projects, tab, selectedProjectId, onTabChange, onClose, onChanged, onImportProject, onCreateTicket, assistantAvailable }: SidePanelProps) {
   const ref = useRef<HTMLElement>(null);
 
   // A roda é um listener nativo no palco do mapa: só um listener nativo aqui o intercepta.
@@ -96,7 +97,7 @@ export function SidePanel({ client, me, projects, tab, selectedProjectId, onTabC
         {tab === "areas" ? (
           <AreasSection client={client} me={me} selectedProject={selectedProject} onChanged={onChanged} />
         ) : (
-          <ProjectsSection client={client} me={me} projects={projects} selectedProject={selectedProject} onChanged={onChanged} {...(onImportProject ? { onImportProject } : {})} {...(onCreateTicket ? { onCreateTicket } : {})} />
+          <ProjectsSection client={client} me={me} projects={projects} selectedProject={selectedProject} onChanged={onChanged} {...(onImportProject ? { onImportProject } : {})} {...(onCreateTicket ? { onCreateTicket } : {})} assistantAvailable={assistantAvailable} />
         )}
       </div>
     </aside>
