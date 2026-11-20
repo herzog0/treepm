@@ -62,6 +62,8 @@ Cada ticket com filhos tem um **resumo do que o ramo cobre**, de até 600 caract
 
 Começa na raiz do projeto e desce um nível por vez. Em cada nível, os **candidatos** são os filhos que já têm filhos (os ramos); ticket folha não é candidato. O ticket novo entra como filho do ramo mais fundo que servir.
 
+Substituído pela [ADR 0030](0030-ticket-folha-como-candidato-na-procura-do-caminho.md): todo filho direto é candidato, com ou sem filhos, e o texto das duas perguntas abaixo foi revisto lá.
+
 Em cada nível, uma requisição com o rascunho, o ramo atual e os candidatos (título e resumo de cada um), e duas perguntas:
 
 - `Noul`: o rascunho descreve um trabalho que pertence a algum dos ramos candidatos?
