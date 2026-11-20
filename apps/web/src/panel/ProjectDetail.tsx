@@ -20,12 +20,13 @@ interface ProjectDetailProps {
   onImport?: ((projectId: string) => void) | undefined;
   /** Abre a página do ticket em modo de criação, na raiz deste projeto; sem ela a ação não aparece. */
   onCreateTicket?: ((projectId: string) => void) | undefined;
+  assistantAvailable?: boolean | undefined;
 }
 
 const ActionError = ({ error }: { error: ReturnType<typeof useAction>["error"] }) =>
   error ? <p role="alert">{describeApiError(error)}</p> : null;
 
-export function ProjectDetail({ client, me, project, onChanged, onBack, onImport, onCreateTicket }: ProjectDetailProps) {
+export function ProjectDetail({ client, me, project, onChanged, onBack, onImport, onCreateTicket, assistantAvailable = false }: ProjectDetailProps) {
   const canManage =
     me.roles.clerk === "admin" ||
     me.roles.projects.some((entry) => entry.projectId === project.id && entry.role === "manager");
@@ -47,8 +48,8 @@ export function ProjectDetail({ client, me, project, onChanged, onBack, onImport
       {canCreateTickets(me, project) && (onCreateTicket || onImport) && (
         <div className="panel-ticket-actions">
           {onCreateTicket && (
-            <button type="button" className="panel-new-ticket primary" onClick={() => onCreateTicket(project.id)}>
-              Novo ticket
+            <button type="button" className={`panel-new-ticket ${assistantAvailable ? "" : "primary"}`} onClick={() => onCreateTicket(project.id)}>
+              {assistantAvailable ? "Criar sem o assistente" : "Novo ticket"}
             </button>
           )}
           {onImport && (

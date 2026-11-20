@@ -17,6 +17,8 @@ import "./ticket.css";
 export interface CreateRequest {
   projectId: string;
   parentId: string | null;
+  /** Valores iniciais, por exemplo o rascunho da conversa com a IA (ADR 0029). */
+  draft?: { title: string; description: string };
 }
 
 export interface TicketPageProps {

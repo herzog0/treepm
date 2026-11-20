@@ -16,11 +16,13 @@ export const renderNodeContent: RenderNodeContent<MapNode> = (context) =>
 
 function FullContent({ context }: { context: SpatialNodeContent<MapNode> }) {
   const detail = useIsDetail(context.node.id);
-  return detail ? <DetailCard node={context.node} childCount={context.childCount} /> : renderCardContent(context);
+  // O card do rascunho nunca usa o nível "detalhe": ele não é um ticket (ADR 0029).
+  return detail && context.node.kind !== "draft" ? <DetailCard node={context.node} childCount={context.childCount} /> : renderCardContent(context);
 }
 
 function renderCardContent({ node, lod, childCount, aggregate, descendantCount }: SpatialNodeContent<MapNode>) {
   if (lod === "dot") return null;
+  if (node.kind === "draft") return renderDraftContent(node, lod);
   const ticket = node.ticket;
   const aggregateCount = aggregate && (
     <span className="spatial-aggregate-count">
@@ -52,5 +54,16 @@ function renderCardContent({ node, lod, childCount, aggregate, descendantCount }
       )}
       {aggregateCount}
     </>
+  );
+}
+
+/** Card tracejado do rascunho da conversa com a IA (ADR 0029): não é um ticket, então não há marca de situação. */
+function renderDraftContent(node: MapNode, lod: SpatialNodeContent<MapNode>["lod"]) {
+  return (
+    <span className="node-draft">
+      {lod !== "chip" && <span className="spatial-key">{node.key}</span>}
+      <strong>{node.label}</strong>
+      {lod === "full" && <span className="node-state"><span>Ainda não criado</span></span>}
+    </span>
   );
 }
