@@ -23,6 +23,7 @@ const ticket = (id: string, projectId: string, number: number, title: string, pa
   status,
   progress: null,
   assigneeIds: [],
+  descriptionExcerpt: "",
 });
 
 describe("buildMapItems", () => {

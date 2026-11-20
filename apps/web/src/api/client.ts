@@ -51,6 +51,8 @@ const ticketSummarySchema = z.object({
   status: ticketStatus.nullable(),
   progress: z.object({ done: z.number(), total: z.number(), excluded: z.number() }).nullable(),
   assigneeIds: z.array(z.string()),
+  /** Primeiros caracteres da descrição, para o card em "detalhe" do mapa (ADR 0027). */
+  descriptionExcerpt: z.string(),
 });
 const ticketDetailSchema = ticketSummarySchema.extend({
   description: z.string(),

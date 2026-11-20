@@ -22,6 +22,18 @@ describe("OrganizationMap", () => {
     expect(screen.getByText(/Wheel para zoom/)).toBeInTheDocument();
   });
 
+  it("loads the people list together with the projects and fails the whole load when it fails", async () => {
+    const client = makeClient({ projects });
+    vi.mocked(client.listPeople).mockResolvedValueOnce(failed("unavailable"));
+    render(<OrganizationMap client={client} me={makeMe()} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("API indisponível");
+    expect(screen.queryByRole("region", { name: "Mapa da organização" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    expect(await screen.findByRole("button", { name: /ALFA/ })).toBeInTheDocument();
+    expect(client.listPeople).toHaveBeenCalledTimes(2);
+  });
+
   it("does not show archived projects", async () => {
     const client = makeClient({ projects: [...projects, makeProject("p3", "OLD", "Antigo", { archivedAt: "2026-01-01T00:00:00.000Z" })] });
     render(<OrganizationMap client={client} me={makeMe()} />);

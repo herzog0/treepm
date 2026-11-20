@@ -93,3 +93,24 @@
  */
 .org-map .spatial-lod-content > * { flex: none; max-width: 100%; }
 .org-map .spatial-lod-content { overflow: hidden; }
+
+/*
+ * Card em nível "detalhe" (ADR 0027), com as medidas do quadro aprovado: padding 18×22, chave 12/500,
+ * título 22/600, corpo 13. O texto secundário usa `inherit` com opacidade, como o resto do card, para
+ * valer tanto no modo "Cores" (texto escuro sobre a cor do nó) quanto fora dele.
+ */
+.org-map .spatial-card-button:has(> .spatial-lod-content > .node-detail) { padding: 18px 22px; }
+.org-map .spatial-lod-content > .node-detail { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; gap: 10px; width: 100%; font-size: 13px; }
+.org-map .node-detail > * { flex: none; max-width: 100%; }
+.org-map .node-detail-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.org-map .node-detail .spatial-key { font-size: 12px; }
+.org-map .node-detail-count { font-size: 12px; opacity: 0.72; white-space: nowrap; }
+.org-map .node-detail-title { display: -webkit-box; overflow: hidden; font-size: 22px; font-weight: 600; line-height: 1.25; letter-spacing: -0.02em; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
+.org-map .node-detail-state { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.org-map .node-detail-state .status-mark { --mark-size: 13px; }
+.org-map .node-detail .node-detail-description { display: block; flex: 1 1 0; min-height: 0; max-width: 520px; overflow: hidden; line-height: 1.55; opacity: 0.86; }
+.org-map .node-detail-description > span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; }
+.org-map .node-detail-footer { display: flex; align-items: center; gap: 8px; margin-top: auto; font-size: 12px; opacity: 0.8; }
+.org-map .node-detail-people { display: flex; align-items: center; gap: 4px; }
+.org-map .node-detail-person { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: color-mix(in srgb, currentColor 18%, transparent); font-size: 9px; font-weight: 600; letter-spacing: 0; }
+.org-map .node-detail-more { font-size: 11px; }

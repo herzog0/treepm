@@ -1,7 +1,7 @@
 import { SpatialCanvasView, useSpatialCanvas } from "@treepm/react";
 import type { SpatialCanvasLabels, SpatialNodeContent } from "@treepm/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ApiClient, ApiResult, Me, Project, TicketSummary } from "../api/client.js";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ApiClient, ApiResult, Me, Person, Project, TicketSummary } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
 import { plural } from "../plural.js";
@@ -10,6 +10,7 @@ import { ticketFocus } from "../ticket/focus.js";
 import { TicketPage } from "../ticket/TicketPage.js";
 import type { CreateRequest } from "../ticket/TicketPage.js";
 import type { PanelTab } from "../panel/SidePanel.js";
+import { MapDetailProvider, buildDetailData, createMapScaleStore } from "./detail.js";
 import { buildMapItems, mixMapColors } from "./items.js";
 import { computeMapMaxScale } from "./zoom.js";
 import type { MapNode } from "./items.js";
@@ -48,6 +49,7 @@ interface MapViewProps {
   client: ApiClient;
   me: Me;
   projects: readonly Project[];
+  people: readonly Person[];
   ticketsByProject: Readonly<Record<string, readonly TicketSummary[]>>;
   onChanged: () => void;
   onImport: ((projectId: string) => void) | undefined;
@@ -55,7 +57,7 @@ interface MapViewProps {
   onOpenTicketChange: (ticketId: string | null) => void;
 }
 
-function MapView({ client, me, projects, ticketsByProject, onChanged, onImport, openTicketId, onOpenTicketChange }: MapViewProps) {
+function MapView({ client, me, projects, people, ticketsByProject, onChanged, onImport, openTicketId, onOpenTicketChange }: MapViewProps) {
   const items = useMemo(() => buildMapItems(me.organization, projects, ticketsByProject), [me.organization, projects, ticketsByProject]);
   const [panel, setPanel] = useState<PanelState>({ open: false, tab: "areas", projectId: null });
 
@@ -85,6 +87,11 @@ function MapView({ client, me, projects, ticketsByProject, onChanged, onImport, 
 
   const canvas = useSpatialCanvas({ items, getLabel, getColor, mixColors: mixMapColors, defaultFilled: false, cameraOptions, onSelectionChange });
   const { index, layout, selected, selectedId, focusId, breadcrumb, focusNode, selectNode } = canvas;
+  // Nível "detalhe" (ADR 0027): a escala vai para uma fonte externa que cada card assina; ver `detail.tsx`.
+  const [scaleStore] = useState(createMapScaleStore);
+  const detailData = useMemo(() => buildDetailData(items, people), [items, people]);
+  scaleStore.set(canvas.camera.scale, layout);
+  useLayoutEffect(() => scaleStore.notify(), [scaleStore, canvas.camera.scale, layout]);
   const canvasRef = useRef(canvas);
   canvasRef.current = canvas;
   live.current = { selectedId, selected, pageOpen, openTicketId, creating, panelOpen: panel.open };
@@ -167,6 +174,7 @@ function MapView({ client, me, projects, ticketsByProject, onChanged, onImport, 
 
   return (
     <div className={`map-workspace ${pageOpen ? "has-ticket-page" : ""}`}>
+    <MapDetailProvider store={scaleStore} data={detailData}>
     <SpatialCanvasView
       controller={canvas}
       className="org-map"
@@ -258,6 +266,7 @@ function MapView({ client, me, projects, ticketsByProject, onChanged, onImport, 
         </>
       )}
     />
+    </MapDetailProvider>
     {pageOpen && (
       <TicketPage
         client={client}
@@ -293,13 +302,15 @@ export interface OrganizationMapProps {
 
 interface MapData {
   projects: readonly Project[];
+  people: readonly Person[];
   ticketsByProject: Readonly<Record<string, readonly TicketSummary[]>>;
 }
 
-/** Projetos primeiro; depois os tickets de cada projeto visível e não arquivado, em paralelo. Qualquer falha falha a carga. */
+/** Projetos e pessoas primeiro; depois os tickets de cada projeto visível e não arquivado, em paralelo. Qualquer falha falha a carga. */
 async function loadMapData(client: ApiClient): Promise<ApiResult<MapData>> {
-  const projects = await client.listProjects();
+  const [projects, people] = await Promise.all([client.listProjects(), client.listPeople()]);
   if (!projects.ok) return projects;
+  if (!people.ok) return people;
   const visible = projects.data.filter((project) => project.archivedAt === null);
   const lists = await Promise.all(visible.map((project) => client.listTickets(project.id)));
   const ticketsByProject: Record<string, readonly TicketSummary[]> = {};
@@ -307,7 +318,7 @@ async function loadMapData(client: ApiClient): Promise<ApiResult<MapData>> {
     if (!list.ok) return list;
     ticketsByProject[visible[position]!.id] = list.data;
   }
-  return { ok: true, data: { projects: projects.data, ticketsByProject } };
+  return { ok: true, data: { projects: projects.data, people: people.data, ticketsByProject } };
 }
 
 export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTicketChange }: OrganizationMapProps) {
@@ -329,5 +340,5 @@ export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTick
       </div>
     );
   }
-  return <MapView client={client} me={me} projects={state.data.projects} ticketsByProject={state.data.ticketsByProject} onChanged={reload} onImport={onImport} openTicketId={controlled ? openTicketId : ownTicketId} onOpenTicketChange={changeTicket} />;
+  return <MapView client={client} me={me} projects={state.data.projects} people={state.data.people} ticketsByProject={state.data.ticketsByProject} onChanged={reload} onImport={onImport} openTicketId={controlled ? openTicketId : ownTicketId} onOpenTicketChange={changeTicket} />;
 }

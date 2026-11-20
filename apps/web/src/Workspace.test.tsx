@@ -20,10 +20,10 @@ function orgFetch() {
     }
     if (typeof input === "string" && /^\/api\/projects\/[^/]+\/tickets$/.test(input)) {
       const projectId = `${orgId}-proj`;
-      return Response.json(input.includes(projectId) ? [{ id: "t1", projectId, number: 1, key: "PRJ-1", parentId: null, title: "Primeiro", status: "todo", progress: null, assigneeIds: [] }] : []);
+      return Response.json(input.includes(projectId) ? [{ id: "t1", projectId, number: 1, key: "PRJ-1", parentId: null, title: "Primeiro", status: "todo", progress: null, assigneeIds: [], descriptionExcerpt: "" }] : []);
     }
     if (input === "/api/tickets/t1") {
-      return Response.json({ id: "t1", projectId: `${orgId}-proj`, number: 1, key: "PRJ-1", parentId: null, title: "Primeiro", status: "todo", progress: null, assigneeIds: [], description: "", createdByPersonId: "p", createdAt: "x", updatedAt: "y" });
+      return Response.json({ id: "t1", projectId: `${orgId}-proj`, number: 1, key: "PRJ-1", parentId: null, title: "Primeiro", status: "todo", progress: null, assigneeIds: [], descriptionExcerpt: "", description: "", createdByPersonId: "p", createdAt: "x", updatedAt: "y" });
     }
     if (input === "/api/people") return Response.json([]);
     return new Response(null, { status: 404 });
