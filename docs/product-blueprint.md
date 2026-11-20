@@ -42,7 +42,7 @@ Não exigir que todos os clientes adotem a mesma metodologia. Fluxos, vocabulár
 - Afastar comprime filhos em pequenos representantes. Quando vários filhos compartilham um quadrado mesclado, a apresentação guarda exatamente quais IDs ele representa; a cor vem de uma função configurável. Não há badge visual `+N`.
 - Aproximar separa os representantes e os transforma nos cards correspondentes. A mesma mecânica funciona na volta.
 - Seleção é um estado; navegação é uma intenção explícita. Clicar no card abre contexto sem mover a câmera. Escolher um resultado de busca, uma referência ou um item de roteiro pode selecionar **e navegar**, porque essa ação declara o destino.
-- Abrir um ticket é uma intenção explícita, diferente de selecionar (IDEA-013): o mapa desliza para a esquerda, uma página lateral se abre com mais detalhes do ticket e a câmera foca nele, com zoom grande. Fechar a página devolve o mapa ao lugar de antes.
+- Abrir um ticket é uma intenção explícita, diferente de selecionar (IDEA-013): o mapa desliza para a esquerda, uma página lateral se abre com mais detalhes do ticket e a câmera foca nele, com zoom grande. O gesto que abre o ticket e o que acontece com a câmera ao fechar a página são dúvidas abertas da seção 15.
 - A navegação oferece Voltar/Avançar entre destinos, breadcrumbs e links diretos. Restaurar um link valida acesso antes de carregar o contexto do ticket.
 
 ### O que aparece em cada compressão
@@ -133,7 +133,7 @@ Threads, menções, reações, anexos, citações de critérios e decisões reso
 
 ### Captura e triagem
 
-Um botão de novo ticket, sempre visível na tela do mapa, abre um painel lateral direito com uma conversa com a IA da plataforma (IDEA-005). A pessoa descreve a demanda em texto livre. Antes de procurar o lugar da demanda, a IA faz as perguntas que faltam e formata o texto em um rascunho, que a pessoa pode ajustar. Só então a plataforma procura o caminho: do topo até a base, testa em cada nível qual ramo se enquadra melhor com o que a pessoa vai trabalhar, até o ponto em que a demanda entra como folha. O mapa navega até esse lugar e mostra onde o ticket vai ficar. A pessoa vê o caminho, os ramos descartados e as alternativas antes de criar.
+Um botão de novo ticket, em algum ponto da tela do mapa, abre um painel lateral direito com uma conversa com a IA da plataforma (IDEA-005). A pessoa descreve a demanda em texto livre. Antes de procurar o lugar da demanda, a IA faz as perguntas que faltam e formata o texto em um rascunho, que a pessoa pode ajustar. Só então a plataforma procura o caminho: do topo até a base, testa em cada nível qual ramo se enquadra melhor com o que a pessoa vai trabalhar, até o ponto em que a demanda entra como folha. O mapa navega até esse lugar e mostra onde o ticket vai ficar. A pessoa vê o caminho, os ramos descartados e as alternativas antes de criar.
 
 A IA tem memória e um mapa mental de qual ticket está onde e sobre qual conteúdo. É isso que permite reconhecer que uma demanda nova toca em trabalho já registrado. O que essa memória guarda, por quanto tempo e com que acesso é uma dúvida aberta da seção 15.
 
@@ -402,6 +402,7 @@ Hipótese comercial inicial: assinatura B2B por organização, com uma unidade d
 9. Na reclassificação ao editar (IDEA-014), a mudança de pai acontece sozinha ao salvar ou depende de confirmação? A pesquisa de serviços recomenda que nenhuma resposta de modelo altere o parentesco por conta própria; a proposta visual de 2026-11-19 mostra a mudança como parte do salvar, com o lugar atual e o novo à vista.
 10. O que a memória da IA guarda (conversas, resumos de ramos, decisões), por quanto tempo, com que acesso por projeto e como é apagada? Depende também da dúvida 5.
 11. A conversa de novo ticket e a reclassificação são antecipadas para logo depois das telas de ticket, antes das Fases 3 e 4, ou ficam na Fase 5?
+12. Que gesto abre um ticket (IDEA-013): o próprio clique, um segundo clique, Enter ou um botão no cartão de seleção? Hoje o clique seleciona sem mover a câmera. Ao fechar a página, a câmera volta ao lugar de antes ou fica no ticket?
 
 Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticket multidisciplinar/busca/stand-up, modelo de domínio e matriz de permissões, plano de dados e migrações, contrato de comandos/eventos, orçamento de desempenho e backlog por fase. Nenhum desses deve reintroduzir dependências do produto na engine headless.
 
