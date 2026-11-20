@@ -33,12 +33,12 @@ import {
   conversationSummarySchema,
   createTicketBodySchema,
   createdTicketSchema,
+  placementBodySchema,
   placementOutcomeSchema,
   draftBodySchema,
 } from "./conversations.schema.js";
 import type { ConversationDetail, ConversationSummary } from "./conversations.schema.js";
 import { PlacementService } from "./placement.service.js";
-import type { PlacementOutcome } from "./placement-search.js";
 import { AssistantUnavailableError, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER } from "./ports.js";
 import type { BranchJudge, BranchSummarizer, ConversationProvider, ConversationTurn } from "./ports.js";
 import { TicketsService } from "../tickets/tickets.service.js";
@@ -178,7 +178,11 @@ export class TicketConversationsController {
 
   @Post("ticket-conversations/:id/placement")
   @OwnTransactions()
-  async placement(@Tenant() tenant: TenantRunner, @Param("id", new ZodPipe(idSchema)) id: string): Promise<PlacementOutcome> {
+  async placement(
+    @Tenant() tenant: TenantRunner,
+    @Param("id", new ZodPipe(idSchema)) id: string,
+    @Body(new ZodPipe(placementBodySchema.default({}))) body: z.output<typeof placementBodySchema>,
+  ): Promise<z.output<typeof placementOutcomeSchema>> {
     const { judge, summarizer } = this.requirePlacementProviders();
     const seen = await tenant.run(async (tx, principal) => {
       const { conversation } = await this.requireWritable(tx, principal, id);
@@ -190,6 +194,14 @@ export class TicketConversationsController {
         }),
         tx.branchSummary.findMany({ where: { projectId: conversation.projectId }, select: { ticketId: true, summary: true, contentMark: true } }),
       ]);
+      if (body.scopeId) {
+        // Do projeto da conversa (outro projeto e outra organização, esta pela RLS, são o mesmo 404) e só agrupador.
+        const scope = tickets.find((ticket) => ticket.id === body.scopeId);
+        if (!scope) throw new NotFoundException("Agrupador de escopo não encontrado.");
+        if (scope.kind !== "group") {
+          throw new ConflictException({ code: "scope_not_group", message: "O escopo da procura precisa ser um agrupador." });
+        }
+      }
       return {
         draft: { title: conversation.draftTitle, description: conversation.draftDescription ?? "" },
         snapshot: {
@@ -205,6 +217,7 @@ export class TicketConversationsController {
         summarizer,
         tenant,
         recheck: (tx, principal) => this.requireWritable(tx, principal, id),
+        ...(body.scopeId ? { scopeId: body.scopeId } : {}),
       });
       return parseOutput(placementOutcomeSchema, outcome);
     } catch (error) {

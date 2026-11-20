@@ -49,6 +49,8 @@ export type JudgmentRecord = {
   choiceById?: Record<string, number>;
   candidateCount: number;
   belongs: number;
+  /** Noul da pergunta do escopo, quando a procura foi feita com escopo. */
+  scopeFit?: number;
   /** Probabilidade por título do candidato. */
   choice: Record<string, number>;
 };
@@ -78,6 +80,8 @@ export type RunRecord = {
   claude: { draftTitle: string | null; ready: boolean; message: string };
   timingsMs: Record<Step, number>;
   attempts: Record<Step, number>;
+  /** `leave-one-out --scope-check`: as duas procuras com escopo. `null`: não coube fazer (sem outro agrupador no nível). Ausente: sem `--scope-check` ou ticket na raiz. */
+  scopeChecks?: { original: ScopeCheckRecord | null; other: ScopeCheckRecord | null };
 };
 
 /** Marca gravada logo depois de abrir a conversa; guarda a resposta do Claude, que depois o rascunho do gabarito apaga. */
@@ -292,6 +296,8 @@ export type CliOptions = {
   fakeProviders?: boolean;
   /** `report`: lê a execução do `leave-one-out` em vez da do `rebuild`. */
   loo?: boolean;
+  /** `leave-one-out`: além da procura normal, duas procuras com escopo (no pai original e em outro agrupador do mesmo nível). */
+  scopeCheck?: boolean;
   role?: string;
   retryDelaysMs?: number[];
   fake503First?: number;
@@ -329,6 +335,7 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--name": "name",
   "--fake-providers": "fakeProviders",
   "--loo": "loo",
+  "--scope-check": "scopeCheck",
   "--role": "role",
   "--retry-delays-ms": "retryDelaysMs",
   "--fake-503-first": "fake503First",
@@ -350,7 +357,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     const flag = rest[i] as string;
     const key = FLAGS[flag];
     if (!key) return fail(`Opção desconhecida: ${flag}.`);
-    if (key === "fakeProviders" || key === "loo") {
+    if (key === "fakeProviders" || key === "loo" || key === "scopeCheck") {
       options[key] = true;
       continue;
     }
@@ -632,6 +639,19 @@ export function renderReport(
     out(`| ${labels[band]} | ${stats.belongsByBand[band].hit} | ${stats.belongsByBand[band].miss} |`);
   }
   out();
+  const scopeStats = scopeCheckStats(records);
+  if (scopeStats.original.total + scopeStats.other.total > 0) {
+    out("## Conferência do escopo");
+    out();
+    out("Cada ticket foi procurado também com o escopo no agrupador pai original e com o escopo em outro agrupador do mesmo nível. Fora do escopo: Noul do escopo abaixo de 0,3.");
+    out();
+    out("| Escopo | Procuras | Fora do escopo | Noul < 0,3 | 0,3 a 0,7 | > 0,7 | Sem Noul |");
+    out("| --- | ---: | ---: | ---: | ---: | ---: | ---: |");
+    for (const [label, x] of [["Agrupador original", scopeStats.original], ["Outro agrupador", scopeStats.other]] as const) {
+      out(`| ${label} | ${x.total} | ${x.outOfScope} | ${x.bands.low} | ${x.bands.mid} | ${x.bands.high} | ${x.unknown} |`);
+    }
+    out();
+  }
   out("## Rascunhos do Claude");
   out();
   out(`- Com \`ready\` verdadeiro: ${stats.claude.ready}`);
@@ -852,4 +872,38 @@ export function looResumeAction(mark: LooMark, live: readonly LiveTicket[]): Loo
   if (live.some((x) => x.id === mark.ticketId)) return { kind: "present", ticketId: mark.ticketId };
   const recreated = live.find((x) => x.title === mark.title && x.parentId === mark.expectedParentNewId);
   return recreated ? { kind: "recreated", ticketId: recreated.id } : { kind: "missing" };
+}
+
+// ---- conferência do escopo (leave-one-out --scope-check) ------------------------------------------------------------
+
+export type ScopeCheckRecord = { scopeOldId: string; scopeTitle: string; fit: number | null; outOfScope: boolean };
+export type ScopeCheckSummary = { total: number; outOfScope: number; bands: Record<Band, number>; unknown: number };
+
+/** O agrupador seguinte do mesmo nível (mesma profundidade) na ordem do número; o primeiro, se o original for o último. */
+export function otherScopeGroup(gabarito: readonly GabaritoTicket[], originalId: string): GabaritoTicket | null {
+  const original = gabarito.find((x) => x.id === originalId);
+  if (!original) return null;
+  const level = gabarito.filter((x) => x.kind === "group" && x.depth === original.depth).sort((a, b) => a.number - b.number);
+  if (level.length < 2) return null;
+  const index = level.findIndex((x) => x.id === originalId);
+  return level[(index + 1) % level.length] ?? null;
+}
+
+const emptySummary = (): ScopeCheckSummary => ({ total: 0, outOfScope: 0, bands: { low: 0, mid: 0, high: 0 }, unknown: 0 });
+
+/** Quantos saíram como fora do escopo e a distribuição do Noul do escopo nas três faixas, por tipo de escopo. */
+export function scopeCheckStats(records: readonly RunRecord[]): { original: ScopeCheckSummary; other: ScopeCheckSummary } {
+  const result = { original: emptySummary(), other: emptySummary() };
+  for (const record of records) {
+    for (const kind of ["original", "other"] as const) {
+      const check = record.scopeChecks?.[kind];
+      if (!check) continue;
+      const summary = result[kind];
+      summary.total += 1;
+      if (check.outOfScope) summary.outOfScope += 1;
+      if (check.fit === null) summary.unknown += 1;
+      else summary.bands[judgmentBand(check.fit)] += 1;
+    }
+  }
+  return result;
 }

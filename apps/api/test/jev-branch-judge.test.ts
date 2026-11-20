@@ -134,6 +134,97 @@ describe("JevBranchJudge — a requisição", () => {
   });
 });
 
+describe("JevBranchJudge — a pergunta do escopo", () => {
+  const scoped = { ...input, current: null };
+  const withScope = (scope: { id: string; title: string; summary: string; hasChildren: boolean }) => ({ ...scoped, scope });
+  const scopeAnswer = (noul: number, probabilities: Record<string, number> | null) => ({
+    model: JEV_MODEL,
+    usage: {},
+    answers: {
+      ...(probabilities ? { belongs: { type: "noul", noul: 0.9 }, branch: { type: "choice", choice: "Login", confidence: 1, probabilities } } : {}),
+      scope: { type: "noul", noul },
+    },
+  });
+
+  it("escopo com filhos: o estado ganha scope com title e summary, e não repete current_group", async () => {
+    const captured: { request: any; options: any }[] = [];
+    await new JevBranchJudge(fake(scopeAnswer(0.8, { Login: 0.8, Cobrança: 0.2 }), captured)).judge(
+      withScope({ id: "esc", title: "Autenticação", summary: "Entrada no sistema", hasChildren: true }),
+    );
+    const { state } = captured[0]!.request;
+    expect(state.scope).toEqual({ title: "Autenticação", summary: "Entrada no sistema" });
+    expect("current_group" in state).toBe(false);
+    expect(Object.keys(state)).toEqual(["draft", "scope", "candidate_groups"]);
+    expect(JSON.stringify(captured[0]!.request)).not.toMatch(/esc"/);
+  });
+
+  it("escopo vazio com descrição: title e description; sem descrição: só title", async () => {
+    const captured: { request: any; options: any }[] = [];
+    const judge = new JevBranchJudge(fake(scopeAnswer(0.8, null), captured));
+    await judge.judge({ draft: input.draft, current: null, candidates: [], scope: { id: "esc", title: "Acesso", summary: "Quem entra", hasChildren: false } });
+    await judge.judge({ draft: input.draft, current: null, candidates: [], scope: { id: "esc", title: "Acesso", summary: "", hasChildren: false } });
+    expect(captured[0]!.request.state.scope).toEqual({ title: "Acesso", description: "Quem entra" });
+    expect(captured[1]!.request.state.scope).toEqual({ title: "Acesso" });
+    expect("description" in captured[1]!.request.state.scope).toBe(false);
+  });
+
+  it("o texto da pergunta e dos critérios do escopo é o do brief, letra por letra", async () => {
+    const captured: { request: any; options: any }[] = [];
+    await new JevBranchJudge(fake(scopeAnswer(0.8, { Login: 0.8, Cobrança: 0.2 }), captured)).judge(
+      withScope({ id: "esc", title: "Autenticação", summary: "Entrada", hasChildren: true }),
+    );
+    const { scope, belongs, branch } = captured[0]!.request.questions;
+    expect(scope.type).toBe("noul");
+    expect(scope.instructions).toBe("O trabalho descrito em `draft` cabe dentro do assunto do agrupador `scope`?");
+    expect(scope.criteria).toEqual({
+      true: "O trabalho de `draft` trata de um assunto que o agrupador `scope` cobre, como um item que a equipe esperaria encontrar dentro dele.",
+      false: "O trabalho de `draft` trata de um assunto que o agrupador `scope` não cobre: seria encontrado em outra parte do projeto.",
+    });
+    expect(belongs.type).toBe("noul");
+    expect(branch.type).toBe("choice");
+  });
+
+  it("devolve o Noul do escopo ao lado do belongs e das escolhas", async () => {
+    const out = await new JevBranchJudge(fake(scopeAnswer(0.25, { Login: 0.8, Cobrança: 0.2 }))).judge(
+      withScope({ id: "esc", title: "Autenticação", summary: "Entrada", hasChildren: true }),
+    );
+    expect(out).toEqual({ belongs: 0.9, choice: { "id-1": 0.8, "id-2": 0.2 }, scopeFit: 0.25 });
+  });
+
+  it("escopo sem agrupadores filhos: a requisição leva só a pergunta do escopo", async () => {
+    const captured: { request: any; options: any }[] = [];
+    const out = await new JevBranchJudge(fake(scopeAnswer(0.6, null), captured)).judge({
+      draft: input.draft,
+      current: null,
+      candidates: [],
+      scope: { id: "esc", title: "Acesso", summary: "", hasChildren: false },
+    });
+    const { request } = captured[0]!;
+    expect(Object.keys(request.questions)).toEqual(["scope"]);
+    expect(Object.keys(request.state)).toEqual(["draft", "scope"]);
+    expect(out.scopeFit).toBe(0.6);
+    expect(out.choice).toEqual({});
+  });
+
+  it("sem escopo a requisição é a de sempre: nenhuma pergunta nem campo de escopo", async () => {
+    const captured: { request: any; options: any }[] = [];
+    await new JevBranchJudge(fake(answer(0.9, { Login: 0.8, Cobrança: 0.2 }), captured)).judge(input);
+    expect(Object.keys(captured[0]!.request.questions)).toEqual(["belongs", "branch"]);
+    expect("scope" in captured[0]!.request.state).toBe(false);
+  });
+
+  it("resposta sem o Noul do escopo, ou fora de 0 a 1: assistant_unavailable", async () => {
+    const scopeInput = withScope({ id: "esc", title: "Autenticação", summary: "Entrada", hasChildren: true });
+    await expect(new JevBranchJudge(fake(answer(0.9, { Login: 0.8, Cobrança: 0.2 }))).judge(scopeInput)).rejects.toMatchObject({ reason: "invalid_output" });
+    await expect(new JevBranchJudge(fake(scopeAnswer(1.4, { Login: 0.8, Cobrança: 0.2 }))).judge(scopeInput)).rejects.toMatchObject({ reason: "invalid_output" });
+  });
+
+  it("judgeInputFits conta a pergunta do escopo e aceita o escopo sem candidatos", () => {
+    expect(judgeInputFits({ draft: input.draft, current: null, candidates: [], scope: { id: "e", title: "A", summary: "", hasChildren: false } })).toBe(true);
+    expect(judgeInputFits({ draft: input.draft, current: null, candidates: [], scope: { id: "e", title: "A", summary: "x".repeat(90_000), hasChildren: true } })).toBe(false);
+  });
+});
+
 describe("JevBranchJudge — a resposta", () => {
   it("devolve belongs e as probabilidades por id", async () => {
     const out = await new JevBranchJudge(fake(answer(0.42, { Login: 0.8, Cobrança: 0.2 }))).judge(input);

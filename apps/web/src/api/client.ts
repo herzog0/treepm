@@ -91,6 +91,8 @@ const placementOutcomeSchema = z.object({
   stoppedEarly: z
     .object({ reason: z.enum(["candidates_too_large", "max_levels"]), level: z.number(), parentId: z.string().nullable() })
     .nullable(),
+  /** `null` sem escopo (e numa API que ainda não manda o campo). */
+  scope: z.object({ id: z.string(), title: z.string(), outOfScope: z.boolean() }).nullable().default(null),
 });
 const createdFromConversationSchema = z.object({ conversation: conversationDetailSchema, ticket: ticketDetailSchema });
 const errorBodySchema = z.object({ error: z.object({ code: z.string() }) });
@@ -275,7 +277,9 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       request("POST", `${conversation(id)}/messages`, conversationDetailSchema, body),
     updateConversationDraft: (id: string, body: ConversationDraft) =>
       request("PATCH", `${conversation(id)}/draft`, conversationDetailSchema, body),
-    findPlacement: (id: string) => request("POST", `${conversation(id)}/placement`, placementOutcomeSchema),
+    /** `scopeId`: procura só dentro desse agrupador (ADR 0031); sem ele, no projeto inteiro. */
+    findPlacement: (id: string, scopeId?: string) =>
+      request("POST", `${conversation(id)}/placement`, placementOutcomeSchema, scopeId === undefined ? undefined : { scopeId }),
     createTicketFromConversation: (id: string, body: { parentId: string | null }) =>
       request("POST", `${conversation(id)}/ticket`, createdFromConversationSchema, body),
     listConversations: (projectId: string) =>

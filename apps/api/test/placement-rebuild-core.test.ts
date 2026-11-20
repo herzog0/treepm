@@ -12,6 +12,8 @@ import {
   looTickets,
   looResumeAction,
   looView,
+  otherScopeGroup,
+  scopeCheckStats,
   pendingLoo,
   pendingMarks,
   rebuildView,
@@ -885,5 +887,86 @@ describe("parseCliArgs: leave-one-out e report --loo", () => {
   });
   it("report aceita --loo (sem valor)", () => {
     expect(parseCliArgs(["report", "--project", "p", "--dir", "d", "--loo"])).toMatchObject({ ok: true, options: { loo: true } });
+  });
+});
+
+describe("leave-one-out --scope-check: o outro agrupador", () => {
+  const g = (id: string, number: number, parentId: string | null) => t(id, number, parentId, { kind: "group" });
+  /** Raiz: A(1), B(2), C(3). Dentro de A: A1(4), A2(5). Tickets e um agrupador fundo misturados. */
+  const tree = computeDepths([g("A", 1, null), g("B", 2, null), g("C", 3, null), g("A1", 4, "A"), g("A2", 5, "A"), t("x", 6, "A"), g("A1a", 7, "A1")]);
+
+  it("é o agrupador seguinte do mesmo nível, na ordem do número", () => {
+    expect(otherScopeGroup(tree, "A")?.id).toBe("B");
+    expect(otherScopeGroup(tree, "B")?.id).toBe("C");
+    expect(otherScopeGroup(tree, "A1")?.id).toBe("A2");
+  });
+
+  it("o último do nível volta ao primeiro", () => {
+    expect(otherScopeGroup(tree, "C")?.id).toBe("A");
+    expect(otherScopeGroup(tree, "A2")?.id).toBe("A1");
+  });
+
+  it("ignora tickets e agrupadores de outros níveis, mesmo com número intermediário", () => {
+    const mixed = computeDepths([g("A", 1, null), t("tk", 2, null), g("Z", 3, "A"), g("B", 4, null)]);
+    expect(otherScopeGroup(mixed, "A")?.id).toBe("B");
+  });
+
+  it("é a ordem do número, não a do vetor", () => {
+    const shuffled = [...tree].reverse();
+    expect(otherScopeGroup(shuffled, "A")?.id).toBe("B");
+    expect(otherScopeGroup(shuffled, "C")?.id).toBe("A");
+  });
+
+  it("sem outro agrupador no nível: nulo", () => {
+    expect(otherScopeGroup(tree, "A1a")).toBeNull();
+    expect(otherScopeGroup(tree, "inexistente")).toBeNull();
+  });
+});
+
+describe("leave-one-out --scope-check: os números e a seção do relatório", () => {
+  const check = (scopeOldId: string, fit: number | null) => ({
+    scopeOldId,
+    scopeTitle: `Título ${scopeOldId}`,
+    fit,
+    outOfScope: fit !== null && fit < 0.3,
+  });
+  const recs = [
+    makeRecord({ oldId: "a", scopeChecks: { original: check("P", 0.95), other: check("Q", 0.1) } }),
+    makeRecord({ oldId: "b", scopeChecks: { original: check("P", 0.3), other: check("Q", 0.29) } }),
+    makeRecord({ oldId: "c", scopeChecks: { original: check("P", 0.7), other: check("Q", 0.71) } }),
+    makeRecord({ oldId: "d", scopeChecks: { original: check("P", 0.2), other: null } }),
+    makeRecord({ oldId: "e", scopeChecks: { original: check("P", null), other: null } }),
+    makeRecord({ oldId: "raiz" }),
+  ];
+
+  it("conta, para cada tipo de escopo, os fora do escopo e as três faixas do Noul", () => {
+    expect(scopeCheckStats(recs)).toEqual({
+      original: { total: 5, outOfScope: 1, bands: { low: 1, mid: 2, high: 1 }, unknown: 1 },
+      other: { total: 3, outOfScope: 2, bands: { low: 2, mid: 0, high: 1 }, unknown: 0 },
+    });
+  });
+
+  it("sem nenhum registro com conferência: tudo zero", () => {
+    const zero = { total: 0, outOfScope: 0, bands: { low: 0, mid: 0, high: 0 }, unknown: 0 };
+    expect(scopeCheckStats([makeRecord()])).toEqual({ original: zero, other: zero });
+  });
+
+  it("o relatório ganha a seção Conferência do escopo só quando há conferência", () => {
+    const gabarito = computeDepths([t("a", 1, null)]);
+    const without = renderReport(gabarito, [makeRecord({ oldId: "a" })], "PROJ", { loo: true });
+    expect(without).not.toContain("Conferência do escopo");
+    const markdown = renderReport(gabarito, recs.slice(0, 3), "PROJ", { loo: true });
+    expect(markdown).toContain("## Conferência do escopo");
+    expect(markdown).toMatch(/\| Agrupador original \| 3 \| 0 \| 0 \| 2 \| 1 \| 0 \|/);
+    expect(markdown).toMatch(/\| Outro agrupador \| 3 \| 2 \| 2 \| 0 \| 1 \| 0 \|/);
+  });
+});
+
+describe("parseCliArgs: --scope-check", () => {
+  it("leave-one-out aceita --scope-check (sem valor)", () => {
+    expect(parseCliArgs(["leave-one-out", "--org", "o", "--user", "u", "--project", "p", "--dir", "d", "--scope-check"])).toMatchObject({
+      ok: true,
+      options: { scopeCheck: true },
+    });
   });
 });

@@ -16,6 +16,9 @@
 .assistant-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 12px 12px 18px; border-bottom: 1px solid var(--tp-divider); }
 .assistant-header h2 { margin: 0; font-size: 14px; font-weight: 600; }
 .assistant-header p { margin: 0; color: var(--tp-text-3); font-size: 12px; }
+.assistant-scope { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--tp-divider); background: var(--tp-raised); color: var(--tp-text-2); font-size: 12px; }
+.assistant-panel .assistant-scope .text { min-height: 28px; padding: 0 8px; border-color: transparent; background: transparent; font-size: 12px; white-space: nowrap; }
+.assistant-notice .text { min-height: 24px; padding: 0 4px; border-color: transparent; background: transparent; font-size: 12px; text-decoration: underline; }
 .assistant-header-actions { display: flex; align-items: center; gap: 4px; }
 .assistant-panel .assistant-close { display: grid; place-items: center; flex: none; width: 30px; height: 30px; padding: 0; border: 0; background: transparent; color: var(--tp-text-2); }
 .assistant-panel .assistant-close:hover:not(:disabled) { background: var(--tp-selected); color: var(--tp-text); }

@@ -71,6 +71,7 @@ class RecordingJudge implements BranchJudge {
       choiceById,
       candidateCount: input.candidates.length,
       belongs: result.belongs,
+      ...(result.scopeFit === undefined ? {} : { scopeFit: result.scopeFit }),
       choice,
     });
     return result;

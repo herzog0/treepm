@@ -24,6 +24,8 @@ export interface AssistantPanelProps {
   projects: readonly Project[];
   /** Projeto do ticket ou projeto selecionado; `null` pede a escolha antes da primeira mensagem. */
   initialProjectId: string | null;
+  /** Agrupador selecionado no mapa ao abrir: a procura começa dentro dele (ADR 0031). Ignorado se não for agrupador do projeto da conversa. */
+  initialScopeId?: string | null;
   /** Tickets de cada projeto, como o mapa os tem: o painel deriva daqui os caminhos que ele mesmo monta. */
   tickets: Readonly<Record<string, readonly TicketSummary[]>>;
   /** Fecha sem criar. */
@@ -56,7 +58,11 @@ export function AssistantPanel(props: AssistantPanelProps) {
   const ref = useRef<HTMLElement>(null);
   const [projectId, setProjectId] = useState(initialProjectId);
   const [choosing, setChoosing] = useState(false);
+  // O escopo vive só no estado do painel: não é gravado na conversa, e uma conversa retomada depois começa sem ele.
+  const [scopeId, setScopeId] = useState<string | null>(props.initialScopeId ?? null);
   const project = projects.find((entry) => entry.id === projectId) ?? null;
+  const scopeGroup = project && scopeId !== null ? (props.tickets[project.id] ?? []).find((entry) => entry.id === scopeId && entry.kind === "group") : undefined;
+  const scope = scopeGroup ? { id: scopeGroup.id, title: scopeGroup.title } : null;
 
   // O foco entra no painel ao abrir e volta a quem o abriu ao fechar (o campo de texto toma o foco quando carrega).
   useEffect(() => {
@@ -98,7 +104,7 @@ export function AssistantPanel(props: AssistantPanelProps) {
           </ul>
         </div>
       ) : (
-        <ProjectConversation key={project.id} {...props} project={project} choosing={choosing} setChoosing={setChoosing} />
+        <ProjectConversation key={project.id} {...props} project={project} choosing={choosing} setChoosing={setChoosing} scope={scope} onRemoveScope={() => setScopeId(null)} />
       )}
     </aside>
   );
@@ -108,6 +114,9 @@ interface ConversationProps extends AssistantPanelProps {
   project: Project;
   choosing: boolean;
   setChoosing: (choosing: boolean) => void;
+  /** Agrupador em que a procura começa; `null` procura no projeto inteiro. */
+  scope: { id: string; title: string } | null;
+  onRemoveScope: () => void;
 }
 
 /** A conversa aberta mais recente da pessoa no projeto continua de onde parou. */
@@ -137,7 +146,7 @@ interface Edit {
 }
 
 function Chat(props: ConversationProps & { initial: ConversationDetail | null }) {
-  const { client, project, tickets, choosing, setChoosing, onChanged, onCreated, onManualCreate } = props;
+  const { client, project, tickets, choosing, setChoosing, onChanged, onCreated, onManualCreate, scope } = props;
   const registerPicker = props.registerPicker;
   const list = tickets[project.id] ?? [];
   const [conversation, setConversation] = useState(props.initial);
@@ -261,19 +270,31 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     return result.data;
   };
 
-  const searchPlace = async () => {
-    if (!conversation || busy) return;
+  /** `scopeId`: o escopo desta procura (`null`: o projeto inteiro). Devolve se a procura deu resultado. */
+  const searchPlace = async (scopeId: string | null = scope?.id ?? null): Promise<boolean> => {
+    if (!conversation || busy) return false;
     let current = conversation;
     if (dirty) {
       const saved = await saveDraft();
-      if (!saved) return;
+      if (!saved) return false;
       current = saved;
     }
-    const result = await search.run(() => client.findPlacement(current.id));
-    if (!result.ok) return;
+    const result = await search.run(() => (scopeId === null ? client.findPlacement(current.id) : client.findPlacement(current.id, scopeId)));
+    if (!result.ok) return false;
     setPickedNote("");
     setOutcome(result.data);
     setTarget(result.data.destination);
+    return true;
+  };
+
+  /** Tira o escopo; com um resultado na tela, refaz a procura no projeto inteiro. Se ela falhar, o resultado de escopo sai da tela. */
+  const searchWholeProject = async () => {
+    props.onRemoveScope();
+    if (!outcome) return;
+    if (!(await searchPlace(null))) {
+      setOutcome(null);
+      setTarget(null);
+    }
   };
 
   const createHere = async () => {
@@ -313,6 +334,12 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
 
   return (
     <>
+      {scope && (
+        <div className="assistant-scope">
+          <span>Procurando dentro de «{scope.title}»</span>
+          <button type="button" className="text" disabled={busy} onClick={() => void searchWholeProject()}>Procurar no projeto inteiro</button>
+        </div>
+      )}
       {conversation && (
         <div className="assistant-header-actions" style={{ justifyContent: "flex-end", padding: "6px 12px 0" }}>
           <button type="button" className="text" onClick={reset}>Nova conversa</button>
@@ -372,6 +399,8 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 error={create.error}
                 whereStopped={whereStopped}
                 pickedNote={pickedNote}
+                outOfScope={scope && outcome.scope?.outOfScope && outcome.scope.id === scope.id ? { title: scope.title } : null}
+                onWholeProject={() => void searchWholeProject()}
                 onUse={(destination) => {
                   setPickedNote("");
                   setTarget(destination);

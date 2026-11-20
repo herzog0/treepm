@@ -43,6 +43,12 @@ export const JEV_BELONGS_FALSE =
 export const JEV_CHOICE_QUESTION =
   "Qual dos agrupadores de `candidate_groups` cobre o trabalho descrito em `draft`?";
 
+export const JEV_SCOPE_QUESTION = "O trabalho descrito em `draft` cabe dentro do assunto do agrupador `scope`?";
+export const JEV_SCOPE_TRUE =
+  "O trabalho de `draft` trata de um assunto que o agrupador `scope` cobre, como um item que a equipe esperaria encontrar dentro dele.";
+export const JEV_SCOPE_FALSE =
+  "O trabalho de `draft` trata de um assunto que o agrupador `scope` não cobre: seria encontrado em outra parte do projeto.";
+
 // ---- Resumo de ramo (Claude Opus 5.5, esforço low) -------------------------------------------------------
 
 /** Margem sob os 600 caracteres do banco: o modelo não conta caracteres com exatidão. */

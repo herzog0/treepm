@@ -58,6 +58,8 @@ interface AssistantState {
   open: boolean;
   /** Projeto escolhido ao abrir; `null` faz o painel perguntar. */
   projectId: string | null;
+  /** Agrupador selecionado ao abrir: a procura da IA começa dentro dele (ADR 0031). */
+  scopeId: string | null;
 }
 
 const PlusIcon = () => (
@@ -83,7 +85,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   const items = useMemo(() => buildMapItems(me.organization, projects, ticketsByProject, draft), [me.organization, projects, ticketsByProject, draft]);
   const [panel, setPanel] = useState<PanelState>({ open: false, tab: "areas", projectId: null });
   // Conversa com a IA para criar ticket (ADR 0029): um painel por vez com a página do ticket e o painel de projetos.
-  const [assistant, setAssistant] = useState<AssistantState>({ open: false, projectId: null });
+  const [assistant, setAssistant] = useState<AssistantState>({ open: false, projectId: null, scopeId: null });
   const pickerRef = useRef<MapPicker | null>(null);
   const creatableProjects = useMemo(() => projects.filter((project) => canCreateTickets(me, project)), [me, projects]);
   const assistantAvailable = me.assistant?.enabled === true && creatableProjects.length > 0;
@@ -96,7 +98,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   const closeAssistant = useCallback(() => {
     pickerRef.current = null;
     setDraft(null);
-    setAssistant((current) => (current.open ? { open: false, projectId: null } : current));
+    setAssistant((current) => (current.open ? { open: false, projectId: null, scopeId: null } : current));
   }, []);
 
   const openTicket = useCallback((id: string) => {
@@ -255,7 +257,9 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     setPanel((state) => (state.open ? { ...state, open: false } : state));
     if (live.current.openTicketId !== null) onOpenTicketChange(null);
     canvasRef.current.selectNode(null);
-    setAssistant({ open: true, projectId: chosen?.id ?? null });
+    // Só um agrupador selecionado define o escopo; ticket, projeto ou nenhuma seleção procuram no projeto inteiro.
+    const scopeId = current?.kind === "ticket" && current.ticket?.kind === "group" && chosen && current.ticket.projectId === chosen.id ? current.ticket.id : null;
+    setAssistant({ open: true, projectId: chosen?.id ?? null, scopeId });
   };
 
   const canCreateProject = me.roles.clerk === "admin";
@@ -376,6 +380,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
         client={client}
         projects={creatableProjects}
         initialProjectId={assistant.projectId}
+        initialScopeId={assistant.scopeId}
         tickets={ticketsByProject}
         onClose={closeAssistant}
         onCreated={openTicket}

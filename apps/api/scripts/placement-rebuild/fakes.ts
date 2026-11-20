@@ -48,16 +48,25 @@ export class FakeJudge implements BranchJudge {
   /** `failAt` > 0: a chamada de número `failAt` (contada desde o início) responde 503 uma vez. */
   constructor(private readonly failAt = 0) {}
 
-  judge(input: { draft: { title: string; description: string }; candidates: readonly BranchCandidate[] }): Promise<BranchJudgment> {
+  judge(input: {
+    draft: { title: string; description: string };
+    candidates: readonly BranchCandidate[];
+    scope?: BranchCandidate;
+  }): Promise<BranchJudgment> {
     this.calls += 1;
     if (this.failAt > 0 && this.calls === this.failAt) return Promise.reject(new AssistantUnavailableError("fake_503_judge"));
     const draftWords = words(`${input.draft.title} ${input.draft.description}`);
     const scores = input.candidates.map((c) => [...words(`${c.title} ${c.summary}`)].filter((w) => draftWords.has(w)).length);
     const weights = scores.map((s) => s + 0.05);
     const total = weights.reduce((a, b) => a + b, 0);
+    // O escopo cabe quando divide alguma palavra com o rascunho (ou com um dos seus filhos); senão, não cabe.
+    const scopeFit = input.scope
+      ? { scopeFit: [...words(`${input.scope.title} ${input.scope.summary}`)].some((w) => draftWords.has(w)) || Math.max(0, ...scores) > 0 ? 0.9 : 0.2 }
+      : {};
     return Promise.resolve({
       belongs: Math.max(0, ...scores) > 0 ? 0.9 : 0.2,
       choice: Object.fromEntries(input.candidates.map((c, i) => [c.id, (weights[i] as number) / total])),
+      ...scopeFit,
     });
   }
 }

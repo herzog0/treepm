@@ -25,6 +25,11 @@ export type PlacementDeps = {
   candidates(parentId: string | null): Promise<readonly BranchCandidate[]>;
   /** A requisição cabe no limite de tokens do juiz? Se não, a procura para naquele nível. */
   fits(input: JudgeInput): boolean;
+  /**
+   * Ponto de partida da procura (ADR 0031): o agrupador selecionado e os seus ancestrais, da raiz ao pai. A descida
+   * começa nele e não sobe; os caminhos do resultado continuam desde a raiz do projeto.
+   */
+  scope?: { node: BranchCandidate; ancestors: readonly { id: string; title: string }[] };
   timeoutMs?: number;
 };
 
@@ -37,6 +42,11 @@ export type PlacementOutcome = {
   discarded: { level: number; parentId: string | null; ticketId: string; title: string }[];
   uncertain: boolean;
   stoppedEarly: { reason: "candidates_too_large" | "max_levels"; level: number; parentId: string | null } | null;
+  /**
+   * O que a conferência do escopo disse: `null` sem escopo. `fit` é o Noul da pergunta (nulo quando a pergunta não foi
+   * feita porque a requisição não coube); `outOfScope` é verdadeiro abaixo de `BELONGS_LOW`.
+   */
+  scope: { id: string; title: string; outOfScope: boolean; fit: number | null } | null;
 };
 
 type Path = {
@@ -62,9 +72,9 @@ const isBandPair = (a: Path, b: Path): boolean => {
     shorter.nodes.every((node, index) => longer.nodes[index]?.id === node.id)
   );
 };
-const target = (path: Path): PlacementTarget => ({
+const target = (path: Path, ancestors: readonly { id: string; title: string }[]): PlacementTarget => ({
   parentId: tip(path)?.id ?? null,
-  path: path.nodes.map(({ id, title }) => ({ id, title })),
+  path: [...ancestors, ...path.nodes.map(({ id, title }) => ({ id, title }))],
 });
 
 export async function searchPlacement(draft: TicketDraft, deps: PlacementDeps): Promise<PlacementOutcome> {
@@ -81,7 +91,12 @@ export async function searchPlacement(draft: TicketDraft, deps: PlacementDeps): 
 }
 
 async function descend(draft: TicketDraft, deps: PlacementDeps, signal: AbortSignal): Promise<PlacementOutcome> {
-  let paths: Path[] = [{ nodes: [], logSum: 0, decisions: 0, done: false, stop: null, bands: [] }];
+  const { scope } = deps;
+  // Com escopo, o primeiro nó do caminho é o próprio escopo: a descida parte dele e nunca fica acima dele.
+  const base = scope ? 1 : 0;
+  const ancestors = scope?.ancestors ?? [];
+  let scopeFit: number | null = null;
+  let paths: Path[] = [{ nodes: scope ? [scope.node] : [], logSum: 0, decisions: 0, done: false, stop: null, bands: [] }];
   const discarded: PlacementOutcome["discarded"] = [];
 
   for (let level = 1; level <= MAX_LEVELS && paths.some((p) => !p.done); level++) {
@@ -95,16 +110,21 @@ async function descend(draft: TicketDraft, deps: PlacementDeps, signal: AbortSig
           const current = tip(path);
           const parentId = current?.id ?? null;
           const candidates = await deps.candidates(parentId);
-          if (candidates.length === 0) return [{ ...path, done: true }];
+          // A conferência do escopo vai na primeira requisição dentro dele; o nó atual desse nível é o próprio escopo.
+          const checksScope = scope !== undefined && level === 1;
+          if (candidates.length === 0 && !checksScope) return [{ ...path, done: true }];
           const input: JudgeInput = {
             draft,
-            current: current ? { title: current.title, summary: current.summary } : null,
+            current: current && !checksScope ? { title: current.title, summary: current.summary } : null,
             candidates,
+            ...(checksScope ? { scope: scope.node } : {}),
           };
           if (!deps.fits(input)) {
             return [{ ...path, done: true, stop: { reason: "candidates_too_large", level, parentId } }];
           }
           const verdict = await deps.judge.judge(input, { signal });
+          if (checksScope) scopeFit = verdict.scopeFit ?? null;
+          if (candidates.length === 0) return [{ ...path, done: true }];
           for (const candidate of candidates) offered.push({ parentId, candidate });
           if (verdict.belongs < BELONGS_LOW) return [{ ...path, done: true }];
 
@@ -125,7 +145,7 @@ async function descend(draft: TicketDraft, deps: PlacementDeps, signal: AbortSig
 
     paths = [...kept, ...expansions.flat()].sort((a, b) => score(b) - score(a)).slice(0, MAX_PATHS);
 
-    const followed = new Set(paths.map((p) => `${p.nodes[level - 2]?.id ?? "root"}>${p.nodes[level - 1]?.id}`));
+    const followed = new Set(paths.map((p) => `${p.nodes[level - 2 + base]?.id ?? "root"}>${p.nodes[level - 1 + base]?.id}`));
     const seen = new Set<string>();
     for (const { parentId, candidate } of offered) {
       if (followed.has(`${parentId ?? "root"}>${candidate.id}`) || seen.has(candidate.id)) continue;
@@ -140,10 +160,11 @@ async function descend(draft: TicketDraft, deps: PlacementDeps, signal: AbortSig
   const stoppedEarly =
     top.stop ?? (top === open ? { reason: "max_levels" as const, level: MAX_LEVELS, parentId: tip(top)?.id ?? null } : null);
   return {
-    destination: target(top),
-    alternatives: ordered.slice(1, 1 + MAX_ALTERNATIVES).map(target),
+    destination: target(top, ancestors),
+    alternatives: ordered.slice(1, 1 + MAX_ALTERNATIVES).map((path) => target(path, ancestors)),
     discarded,
     uncertain: second !== undefined && (score(top) / score(second) < UNCERTAIN_RATIO || isBandPair(top, second)),
     stoppedEarly,
+    scope: scope ? { id: scope.node.id, title: scope.node.title, outOfScope: scopeFit !== null && scopeFit < BELONGS_LOW, fit: scopeFit } : null,
   };
 }

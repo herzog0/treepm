@@ -10,6 +10,9 @@ import {
   JEV_BELONGS_TRUE,
   JEV_CHOICE_QUESTION,
   JEV_MODEL,
+  JEV_SCOPE_FALSE,
+  JEV_SCOPE_QUESTION,
+  JEV_SCOPE_TRUE,
 } from "./prompts.js";
 
 export { JEV_MODEL };
@@ -45,27 +48,36 @@ function labelCandidates(candidates: JudgeInput["candidates"]): { label: string;
   });
 }
 
+/** Agrupador com filhos: resumo; vazio: trecho da descrição, e sem o campo quando não há descrição. */
+const groupState = (title: string, summary: string, hasChildren: boolean): Record<string, string> =>
+  hasChildren ? { title, summary } : summary === "" ? { title } : { title, description: summary };
+
 export function buildJudgeRequest(input: JudgeInput) {
   const labelled = labelCandidates(input.candidates);
-  const request = {
-    model: JEV_MODEL,
-    state: {
-      draft: { title: input.draft.title, description: input.draft.description },
-      // Ausente na raiz e no escopo sem resumo.
-      ...(input.current && input.current.summary !== "" ? { current_group: { title: input.current.title, summary: input.current.summary } } : {}),
-      // Agrupador com filhos: resumo; vazio: trecho da descrição, e sem o campo quando não há descrição.
-      candidate_groups: labelled.map(({ label, summary, hasChildren }): Record<string, string> =>
-        hasChildren ? { title: label, summary } : summary === "" ? { title: label } : { title: label, description: summary },
-      ),
-    },
-    questions: {
-      belongs: noul(JEV_BELONGS_QUESTION, { true: JEV_BELONGS_TRUE, false: JEV_BELONGS_FALSE }),
-      branch: choice(
-        JEV_CHOICE_QUESTION,
-        Object.fromEntries(labelled.map(({ label, summary, hasChildren }) => [label, !hasChildren && summary === "" ? null : summary])),
-      ),
-    },
+  const { scope } = input;
+  const state = {
+    draft: { title: input.draft.title, description: input.draft.description },
+    // Ausente na raiz e no escopo sem resumo.
+    ...(input.current && input.current.summary !== "" ? { current_group: { title: input.current.title, summary: input.current.summary } } : {}),
+    ...(scope ? { scope: groupState(scope.title, scope.summary, scope.hasChildren) } : {}),
+    // Sem candidatos (escopo sem agrupadores filhos) a requisição leva só a pergunta do escopo.
+    ...(labelled.length > 0
+      ? { candidate_groups: labelled.map(({ label, summary, hasChildren }) => groupState(label, summary, hasChildren)) }
+      : {}),
   };
+  const questions = {
+    ...(labelled.length > 0
+      ? {
+          belongs: noul(JEV_BELONGS_QUESTION, { true: JEV_BELONGS_TRUE, false: JEV_BELONGS_FALSE }),
+          branch: choice(
+            JEV_CHOICE_QUESTION,
+            Object.fromEntries(labelled.map(({ label, summary, hasChildren }) => [label, !hasChildren && summary === "" ? null : summary])),
+          ),
+        }
+      : {}),
+    ...(scope ? { scope: noul(JEV_SCOPE_QUESTION, { true: JEV_SCOPE_TRUE, false: JEV_SCOPE_FALSE }) } : {}),
+  };
+  const request = { model: JEV_MODEL, state, questions };
   return { request, labelled };
 }
 
@@ -79,10 +91,12 @@ export function sdkSystemOne(client: TypeSafeClient): SystemOneCall {
   return (request, options) => client.systemOne(request, { ...options, retry: { maxRetries: 1 } });
 }
 
+const noulSchema = z.object({ noul: z.number().min(0).max(1) });
 const answersSchema = z.object({
-  belongs: z.object({ noul: z.number().min(0).max(1) }),
+  belongs: noulSchema,
   branch: z.object({ probabilities: z.record(z.string(), z.number().min(0).max(1)) }),
 });
+const scopeAnswerSchema = z.object({ scope: noulSchema });
 
 /** Adaptador do Jev para a escolha do agrupador pai do ticket novo (ADR 0029, ADR 0031). Nunca registra o texto enviado nem o recebido. */
 export class JevBranchJudge implements BranchJudge {
@@ -101,6 +115,15 @@ export class JevBranchJudge implements BranchJudge {
       this.logger.warn(`falha do provedor tipo=${error instanceof Error ? error.constructor.name : typeof error}`);
       throw new AssistantUnavailableError("provider_error");
     }
+    const scopeFit = input.scope ? scopeAnswerSchema.safeParse(result.answers) : null;
+    if (scopeFit && !scopeFit.success) throw new AssistantUnavailableError("invalid_output");
+    const scopeResult = scopeFit?.success ? { scopeFit: scopeFit.data.scope.noul } : {};
+    if (labelled.length === 0) {
+      // Só a pergunta do escopo foi feita; `belongs` e `choice` não existem nesta requisição.
+      if (!input.scope) throw new AssistantUnavailableError("invalid_output");
+      this.logger.log(`juiz model=${result.model} ms=${Date.now() - started} candidatos=0 tokens_in=${result.usage.input_tokens ?? "?"}`);
+      return { belongs: 0, choice: {}, ...scopeResult };
+    }
     const parsed = answersSchema.safeParse(result.answers);
     if (!parsed.success) throw new AssistantUnavailableError("invalid_output");
     const { probabilities } = parsed.data.branch;
@@ -114,6 +137,6 @@ export class JevBranchJudge implements BranchJudge {
     this.logger.log(
       `juiz model=${result.model} ms=${Date.now() - started} candidatos=${labelled.length} tokens_in=${result.usage.input_tokens ?? "?"}`,
     );
-    return { belongs: parsed.data.belongs.noul, choice: choiceById };
+    return { belongs: parsed.data.belongs.noul, choice: choiceById, ...scopeResult };
   }
 }

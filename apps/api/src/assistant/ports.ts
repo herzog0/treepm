@@ -48,8 +48,12 @@ export class AssistantUnavailableError extends Error {
  */
 export type BranchCandidate = { id: string; title: string; summary: string; hasChildren: boolean };
 
-/** Probabilidades devolvidas pelo juiz num nível: `belongs` (Noul) e `choice` por candidato (Choice). */
-export type BranchJudgment = { belongs: number; choice: Readonly<Record<string, number>> };
+/**
+ * Probabilidades devolvidas pelo juiz num nível: `belongs` (Noul) e `choice` por candidato (Choice). `scopeFit` (Noul)
+ * só vem quando a requisição levou a pergunta do escopo (ADR 0031). Sem candidatos, a requisição leva só essa pergunta:
+ * `belongs` fica 0 e `choice` vazio, e nenhum dos dois significa nada.
+ */
+export type BranchJudgment = { belongs: number; choice: Readonly<Record<string, number>>; scopeFit?: number };
 
 /** Jev: julga, em cada nível, em qual agrupador candidato o rascunho cabe. Quem decide é o código. */
 export interface BranchJudge {
@@ -57,6 +61,8 @@ export interface BranchJudge {
     draft: TicketDraft;
     current: { title: string; summary: string } | null;
     candidates: readonly BranchCandidate[];
+    /** Agrupador de escopo da procura, só na primeira requisição dentro dele; `current` fica `null` nela. */
+    scope?: BranchCandidate;
   }, options?: { signal?: AbortSignal }): Promise<BranchJudgment>;
 }
 

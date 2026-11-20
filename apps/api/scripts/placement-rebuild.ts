@@ -65,6 +65,7 @@ async function main(): Promise<number> {
       ...(options.retryDelaysMs ? { retryDelaysMs: options.retryDelaysMs } : {}),
       ...(options.looCrashAfterRemove ? { looCrashAfterRemove: options.looCrashAfterRemove } : {}),
       ...(options.looCrashAfterDraft ? { looCrashAfterDraft: options.looCrashAfterDraft } : {}),
+      ...(options.scopeCheck ? { scopeCheck: true } : {}),
     };
     switch (command) {
       case "export":
