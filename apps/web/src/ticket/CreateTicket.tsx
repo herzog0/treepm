@@ -17,8 +17,8 @@ interface CreateTicketProps {
 
 /** Modo de criação (ADR 0026): título obrigatório, descrição opcional; o ticket nasce em "a fazer" e sem pessoas. */
 export function CreateTicket({ client, project, request, onChanged, onCreated, onCancel }: CreateTicketProps) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState(request.draft?.title ?? "");
+  const [description, setDescription] = useState(request.draft?.description ?? "");
   const action = useAction();
   const heading = useRef<HTMLHeadingElement>(null);
   const trimmed = title.trim();

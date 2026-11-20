@@ -17,6 +17,8 @@ const meSchema = z.object({
     teams: z.array(z.object({ teamId: z.string(), role: teamRole })),
     projects: z.array(z.object({ projectId: z.string(), role: projectRole })),
   }),
+  /** Ausente em uma API antiga: a IA conta como desligada (ADR 0029). */
+  assistant: z.object({ enabled: z.boolean() }).optional(),
 });
 const personSchema = z.object({
   id: z.string(),
@@ -60,6 +62,34 @@ const ticketDetailSchema = ticketSummarySchema.extend({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
+const draftSchema = z.object({ title: z.string(), description: z.string() }).nullable();
+const conversationSummarySchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  status: z.enum(["open", "ticket_created", "discarded"]),
+  draft: draftSchema,
+  /** Opinião da IA no último turno; a pessoa pode procurar o lugar a qualquer momento. */
+  ready: z.boolean(),
+  createdTicketId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+const conversationDetailSchema = conversationSummarySchema.extend({
+  messages: z.array(
+    z.object({ id: z.string(), author: z.enum(["person", "assistant"]), body: z.string(), model: z.string().nullable(), createdAt: z.string() }),
+  ),
+});
+const placementTargetSchema = z.object({ parentId: z.string().nullable(), path: z.array(z.object({ id: z.string(), title: z.string() })) });
+const placementOutcomeSchema = z.object({
+  destination: placementTargetSchema,
+  alternatives: z.array(placementTargetSchema).max(2),
+  discarded: z.array(z.object({ level: z.number(), parentId: z.string().nullable(), ticketId: z.string(), title: z.string() })),
+  uncertain: z.boolean(),
+  stoppedEarly: z
+    .object({ reason: z.enum(["candidates_too_large", "max_levels"]), level: z.number(), parentId: z.string().nullable() })
+    .nullable(),
+});
+const createdFromConversationSchema = z.object({ conversation: conversationDetailSchema, ticket: ticketDetailSchema });
 const errorBodySchema = z.object({ error: z.object({ code: z.string() }) });
 
 export type Me = z.output<typeof meSchema>;
@@ -76,6 +106,12 @@ export type ProjectTeam = z.output<typeof projectTeamSchema>;
 export type TicketStatus = z.output<typeof ticketStatus>;
 export type TicketSummary = z.output<typeof ticketSummarySchema>;
 export type TicketDetail = z.output<typeof ticketDetailSchema>;
+export type ConversationDraft = NonNullable<z.output<typeof draftSchema>>;
+export type ConversationSummary = z.output<typeof conversationSummarySchema>;
+export type ConversationDetail = z.output<typeof conversationDetailSchema>;
+export type PlacementTarget = z.output<typeof placementTargetSchema>;
+export type PlacementOutcome = z.output<typeof placementOutcomeSchema>;
+export type CreatedFromConversation = z.output<typeof createdFromConversationSchema>;
 
 export interface ImportItem {
   title: string;
@@ -182,6 +218,7 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
   const team = (id: string) => `/api/teams/${id}`;
   const project = (id: string) => `/api/projects/${id}`;
   const ticket = (id: string) => `/api/tickets/${id}`;
+  const conversation = (id: string) => `/api/ticket-conversations/${id}`;
 
   return {
     getMe: () => request("GET", "/api/me", meSchema),
@@ -224,6 +261,19 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       request("PUT", `${ticket(id)}/assignees/${personId}`, ticketDetailSchema),
     removeTicketAssignee: (id: string, personId: string) =>
       request("DELETE", `${ticket(id)}/assignees/${personId}`, null),
+    openConversation: (projectId: string, body: { message: string }) =>
+      request("POST", `${project(projectId)}/ticket-conversations`, conversationDetailSchema, body),
+    sendConversationMessage: (id: string, body: { message: string }) =>
+      request("POST", `${conversation(id)}/messages`, conversationDetailSchema, body),
+    updateConversationDraft: (id: string, body: ConversationDraft) =>
+      request("PATCH", `${conversation(id)}/draft`, conversationDetailSchema, body),
+    findPlacement: (id: string) => request("POST", `${conversation(id)}/placement`, placementOutcomeSchema),
+    createTicketFromConversation: (id: string, body: { parentId: string | null }) =>
+      request("POST", `${conversation(id)}/ticket`, createdFromConversationSchema, body),
+    listConversations: (projectId: string) =>
+      request("GET", `/api/ticket-conversations?projectId=${encodeURIComponent(projectId)}`, z.array(conversationSummarySchema)),
+    getConversation: (id: string) => request("GET", conversation(id), conversationDetailSchema),
+    removeConversation: (id: string) => request("DELETE", conversation(id), null),
     importTickets: (projectId: string, body: ImportTicketsBody) =>
       request("POST", `${project(projectId)}/tickets/import`, z.array(ticketSummarySchema), body),
   };
@@ -239,6 +289,11 @@ const MESSAGE_BY_CODE: Record<string, string> = {
   ticket_has_children: "Este ticket tem filhos: a situação dele vem do progresso deles, e só se remove ticket sem filhos.",
   ticket_cycle: "Um ticket não pode ser pai de si mesmo nem de um ancestral.",
   project_archived: "O projeto está arquivado e só aceita leitura.",
+  assistant_not_configured: "O assistente não está configurado neste ambiente. Crie o ticket manualmente.",
+  assistant_unavailable: "O assistente não respondeu. Tente de novo; se continuar, crie o ticket manualmente.",
+  conversation_closed: "Esta conversa já foi encerrada. Comece uma nova conversa.",
+  conversation_changed: "A conversa mudou enquanto o assistente respondia. Mostramos a versão mais recente.",
+  draft_required: "A conversa ainda não tem rascunho. Peça ao assistente para escrevê-lo antes de continuar.",
   person_without_project_access: "A pessoa ainda não tem acesso ao projeto. Conceda um papel no projeto antes de atribuir.",
 };
 

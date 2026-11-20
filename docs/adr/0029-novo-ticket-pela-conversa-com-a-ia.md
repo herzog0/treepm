@@ -30,7 +30,7 @@ Fatos conferidos na documentação em 2026-11-20:
 
 ### Configuração
 
-`ANTHROPIC_API_KEY` e `TYPESAFE_API_KEY` entram na configuração da API como opcionais. Sem as duas, a IA fica desligada: `GET /api/me` informa `assistant.enabled: false`, a web não mostra o botão, e as rotas da IA respondem 503 `assistant_not_configured`. A API não sobe em erro por falta delas.
+`ANTHROPIC_API_KEY` e `TYPESAFE_API_KEY` entram na configuração da API como opcionais. Sem as duas, a IA fica desligada: `GET /api/me` informa `assistant.enabled: false`, a web não mostra o botão, e as rotas que chamam um provedor respondem 503 `assistant_not_configured`. Ler, ajustar o rascunho e apagar as próprias conversas continua funcionando sem as chaves, para a pessoa não perder o acesso aos seus dados. A API não sobe em erro por falta delas.
 
 ### Chamada a provedor fora de transação
 
@@ -54,7 +54,9 @@ O contexto de tenant e a RLS valem nas duas transações. Nenhuma outra rota mud
 Cada ticket com filhos tem um **resumo do que o ramo cobre**, de até 600 caracteres, escrito pelo mesmo Claude Opus 5.5 com esforço `low` a partir do título, do trecho da descrição e dos títulos e resumos dos filhos.
 
 - O resumo é guardado com uma marca do conteúdo de que saiu. Quando o ramo muda, a marca deixa de bater e o resumo é refeito na próxima vez em que for necessário. Não há tarefa em segundo plano.
-- Na primeira procura em um projeto, os resumos que faltam nos ramos visitados são escritos na hora, em paralelo; por isso ela é mais lenta que as seguintes.
+- Na primeira procura em um projeto, os resumos que faltam nos ramos visitados são escritos na hora, em paralelo (até 8 por nível); por isso ela é mais lenta que as seguintes.
+- O resumo de um ramo usa os resumos dos filhos que já existem. Quando a procura desce e escreve os resumos de um nível mais fundo, o resumo do pai é refeito na procura seguinte; o mapa se estabiliza em até três procuras. É um custo extra pequeno, aceito para não escrever a árvore inteira de uma vez.
+- Um resumo que passe de 600 caracteres derruba a procura com `assistant_unavailable`; o pedido ao modelo é de até 500, para dar margem. Se a rodada com os provedores reais mostrar que isso acontece, entra uma segunda tentativa.
 
 ### A procura do caminho (Jev)
 
@@ -74,9 +76,10 @@ O código lê as respostas assim (limiares iniciais, a calibrar com casos reais)
 | acima de 0,7 | desce nos ramos mais prováveis |
 
 - A descida mantém até **3 caminhos** em paralelo e os ordena pela média geométrica das probabilidades do `Choice` ao longo do caminho, como no guia de classificação hierárquica da TypeSafe.
-- O resultado traz o destino, até 2 alternativas e os ramos descartados em cada nível. Quando o primeiro caminho não se destaca do segundo, o resultado vem marcado como **incerto** e a web pede que a pessoa escolha.
+- O resultado traz o destino, até 2 alternativas e os ramos descartados em cada nível. Quando o primeiro caminho não se destaca do segundo, o resultado vem marcado como **incerto** e a web pede que a pessoa escolha. Na implementação, "não se destaca" é a nota do primeiro ser menos de 1,25 vez a do segundo. Além disso, quando os dois primeiros são "parar aqui" e "descer" do mesmo ramo, na faixa do meio, o resultado é sempre incerto: a nota do `Choice` não mede um contra o outro.
+- Na faixa do meio a descida segue só o ramo mais provável; acima de 0,7 segue os 3 mais prováveis.
 - As probabilidades não são mostradas como "chance de acerto".
-- Se os candidatos de um nível não cabem no limite de tokens do Jev, a procura para naquele nível e diz isso. Nunca corta candidatos em silêncio.
+- Se os candidatos de um nível não cabem no limite de tokens do Jev, a procura para naquele nível e diz isso. Nunca corta candidatos em silêncio. A TypeSafe não documenta como contar tokens, então o código usa uma estimativa conservadora (caracteres divididos por 3, mais 20%) contra um teto de 28 mil, abaixo dos 32 mil reais.
 - Limites: 20 níveis, 3 requisições por nível.
 
 "Parar na raiz" e "parar no primeiro nível" são resultados comuns, não exceção: a árvore real do TREEPM tem 6 raízes e quase só dois níveis.
@@ -85,7 +88,7 @@ O código lê as respostas assim (limiares iniciais, a calibrar com casos reais)
 
 Tabelas com `org_id` e RLS, como as demais:
 
-- **Conversas de criação:** projeto, pessoa autora, situação (aberta, ticket criado, descartada), rascunho atual, ticket criado e datas.
+- **Conversas de criação:** projeto, pessoa autora, situação (aberta, ticket criado, descartada), rascunho atual, se a IA considerou o rascunho pronto no último turno, ticket criado e datas.
 - **Mensagens da conversa:** autor (pessoa ou assistente), texto e data.
 - **Resumos de ramo:** ticket, resumo, marca do conteúdo, modelo e data.
 
@@ -113,12 +116,25 @@ Todas exigem poder criar ticket no projeto (administrador da organização, gest
 
 - **Criação idempotente:** cada conversa cria no máximo um ticket. Repetir a chamada devolve o ticket já criado.
 - A criação grava `ticket.created` com a origem "assistente" e a conversa no evento.
-- Erros novos: 503 `assistant_not_configured`; 503 `assistant_unavailable` (provedor fora do ar, lento demais ou recusa sem alternativa); 409 `conversation_closed`.
+- A procura e a criação exigem rascunho na conversa: sem ele, 409 `draft_required`.
+- Erros novos: 503 `assistant_not_configured`; 503 `assistant_unavailable` (provedor fora do ar, lento demais, recusa sem alternativa ou resposta fora dos limites do ticket, que nunca é cortada); 409 `conversation_closed`; 409 `conversation_changed`, quando outra mensagem entrou na mesma conversa enquanto o provedor respondia.
+- O ajuste manual do rascunho não muda a marca de "pronto"; ela é só a opinião da IA no último turno, e a pessoa pode pedir a procura do lugar a qualquer momento.
 - Tempo máximo: 60 segundos por turno de conversa e 30 por procura.
 
 ### Web
 
-Fica para um brief próprio, depois da API: o botão "Novo ticket" dos quadros aprovados, o painel de conversa de 440 px, o rascunho, o caminho com alternativas, o card tracejado no lugar proposto, e "Criar aqui", "Um nível acima" e "Escolher no mapa".
+Segue os quadros aprovados "Novo ticket 1" e "Novo ticket 2". `packages/engine` e `packages/react` não mudam.
+
+- **Botão "Novo ticket":** flutuante, no canto inferior direito do mapa, só quando `assistant.enabled` é verdadeiro e a pessoa pode criar ticket em algum projeto não arquivado. É a ação principal do mapa.
+- **Projeto da conversa:** o do ticket ou projeto selecionado; sem seleção, o único projeto em que a pessoa pode criar; havendo mais de um, o painel pede a escolha antes da primeira mensagem.
+- **Painel de 440 px à direita,** no lugar da página do ticket e do painel de áreas e projetos (um de cada vez). O mapa estreita como na página do ticket.
+- **Conversa:** as mensagens, o campo de texto e o rascunho (título e descrição editáveis à mão). Enquanto a IA responde, o painel mostra que está aguardando e não aceita outra mensagem. "Procurar o lugar" fica disponível assim que existe rascunho, mesmo que a IA ainda pergunte.
+- **Memória visível:** ao abrir o painel em um projeto, a conversa aberta mais recente da pessoa nesse projeto continua de onde parou. "Nova conversa" começa outra; "Apagar conversa" apaga a atual, com o segundo clique no mesmo lugar.
+- **Caminho encontrado:** o painel mostra o caminho do topo até a base, as alternativas e, quando for o caso, o aviso de incerto ou de parada antecipada. O mapa vai até o ramo de destino e mostra ali um **card tracejado** com o título do rascunho, que não é um ticket e não abre página. Escolher uma alternativa leva o card e a câmera para ela.
+- **Ações:** "Criar aqui" cria no destino mostrado; "Um nível acima" passa o destino para o pai do atual (ou a raiz do projeto); "Escolher no mapa" faz o próximo clique em um ticket ou no projeto virar o destino. Depois de criar, o painel fecha e a página do ticket novo abre.
+- **Falhas:** `assistant_unavailable` mostra a mensagem e "Tentar de novo", mantendo o texto digitado, e oferece a criação manual. `conversation_changed` recarrega a conversa.
+- **Câmera ao fechar o painel sem criar:** segue a mesma preferência "Ao fechar um ticket" da [ADR 0028](0028-preferencias-por-usuario-e-pagina-de-configuracoes.md).
+- A web aceita `GET /api/me` sem o campo `assistant` (API antiga) e trata como desligado.
 
 ### Privacidade e registro
 
@@ -129,6 +145,16 @@ Fica para um brief próprio, depois da API: o botão "Novo ticket" dos quadros a
 ### Verificação com os provedores de verdade
 
 Os testes automáticos usam provedores falsos. Antes de a web ser construída em cima, há uma rodada com os provedores reais, disparada por Teodoro, com o texto enviado e um teto de gasto informados antes. A latência do banco já escondeu um defeito atrás de testes locais uma vez.
+
+**Rodada de 2026-11-20,** feita por Teodoro com `apps/api/scripts/verify-providers.ts` e texto fictício fixo, uma chamada de cada:
+
+| Chamada | Duração | Tokens | Resultado |
+| --- | --- | --- | --- |
+| Turno de conversa (Claude Opus 5.5, esforço `medium`) | 5,8 s | 66 de entrada, 1.324 gravados em cache, 427 de saída | rascunho com título, contexto, resultado esperado e critérios de aceite; marcado como pronto, com duas perguntas opcionais |
+| Resumo de ramo (Claude Opus 5.5, esforço `low`) | 2,7 s | 110 de entrada, 592 gravados em cache, 88 de saída | resumo de duas frases, dentro do limite |
+| Escolha do ramo (Jev `jev-1.14.0`, três ramos) | 0,25 s | 669 de entrada | "pertence a algum" 0,98; ramo certo com 1,0 |
+
+Pelos preços da data, a rodada custou cerca de US$ 0,02. É uma medição única com um caso fácil: confirma que as chamadas, as chaves e a saída estruturada funcionam, não que os limiares estejam calibrados. No rascunho, o critério "o comportamento em outros dispositivos continua funcionando" não veio da pessoa; é o tipo de acréscimo a observar em casos reais.
 
 ## Fora desta ADR
 
@@ -142,5 +168,5 @@ Os testes automáticos usam provedores falsos. Antes de a web ser construída em
 - Texto de tickets e de conversas sai da plataforma. É a primeira vez; fica restrito ao projeto que a pessoa vê.
 - O custo é por uso: um turno de conversa e cada resumo de ramo no Claude Opus 5.5 (US$ 4 por milhão de tokens de entrada e US$ 20 de saída) e as perguntas ao Jev (US$ 0,042 por milhão de tokens de entrada).
 - A API ganha rotas que não cabem em uma transação só. A regra de conferir de novo na escrita vira parte do padrão.
-- A migration 0005 precisa estar no Neon antes de o servidor local receber o código que a usa.
+- A migration 0005 precisa estar no Neon antes de o servidor local receber o código que a usa. Ela exige PostgreSQL 15 ou mais novo.
 - Os limiares de 0,3 e 0,7 e a regra de "incerto" são ponto de partida; a calibração com casos reais é trabalho posterior.

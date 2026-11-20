@@ -87,3 +87,21 @@ describe("renderNodeContent", () => {
     expect(content(orgNode, "full", { childCount: 1 })).toHaveTextContent("1 projeto");
   });
 });
+
+describe("renderNodeContent for the assistant draft", () => {
+  const draftNode: MapNode = { id: "assistant-draft", parentId: "t1", kind: "draft", label: "Corrigir o login", color: "#a99bff", key: "Novo", ticket: null, leafCount: 1 };
+
+  it("full: marks the card as a draft that is not created yet, without a status mark", () => {
+    const container = content(draftNode, "full");
+    expect(container).toHaveTextContent("Novo");
+    expect(container).toHaveTextContent("Corrigir o login");
+    expect(container).toHaveTextContent("Ainda não criado");
+    expect(container.querySelector(".node-draft")).not.toBeNull();
+    expect(marks(container)).toHaveLength(0);
+  });
+
+  it("compact and chip keep the draft marker so the dashed style can apply", () => {
+    expect(content(draftNode, "compact").querySelector(".node-draft")).not.toBeNull();
+    expect(content(draftNode, "chip").querySelector(".node-draft")).not.toBeNull();
+  });
+});

@@ -3,6 +3,9 @@ import type { SpatialCanvasLabels, SpatialNodeContent } from "@treepm/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient, ApiResult, Me, Person, Project, TicketSummary } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
+import { AssistantPanel } from "../assistant/AssistantPanel.js";
+import type { MapPicker } from "../assistant/types.js";
+import { canCreateTickets } from "../import/permissions.js";
 import { LoadError } from "../LoadError.js";
 import { usePreferences } from "../preferences/context.js";
 import { plural } from "../plural.js";
@@ -12,7 +15,8 @@ import { TicketPage } from "../ticket/TicketPage.js";
 import type { CreateRequest } from "../ticket/TicketPage.js";
 import type { PanelTab } from "../panel/SidePanel.js";
 import { MapDetailProvider, buildDetailData, createMapScaleStore } from "./detail.js";
-import { buildMapItems, mixMapColors } from "./items.js";
+import { DRAFT_NODE_ID, buildMapItems, mixMapColors } from "./items.js";
+import type { MapDraft } from "./items.js";
 import { useRestoreCameraPlace } from "./cameraPlace.js";
 import { computeMapMaxScale } from "./zoom.js";
 import type { MapNode } from "./items.js";
@@ -21,6 +25,7 @@ import "@treepm/react/styles.css";
 import "../demo/Demo.css";
 import "./map.css";
 import "./status-mark.css";
+import "../assistant/assistant.css";
 
 const getLabel = (node: MapNode) => node.label;
 const getColor = (node: MapNode) => node.color;
@@ -38,7 +43,9 @@ const getNodeAriaLabel = ({ node, childCount }: SpatialNodeContent<MapNode>) =>
     ? `${node.label}. Organização com ${plural(childCount, "projeto", "projetos")}.`
     : node.kind === "ticket"
       ? `${describeNode(node)}. Ticket.`
-      : `${describeNode(node)}. Projeto.`;
+      : node.kind === "draft"
+        ? `Rascunho do ticket: ${node.label}. Ainda não criado.`
+        : `${describeNode(node)}. Projeto.`;
 const getGroupAriaLabel = (members: readonly MapNode[]) =>
   `${members.every((member) => member.kind === "project") ? plural(members.length, "projeto", "projetos") : plural(members.length, "item", "itens")} agrupados: ${members.map(describeNode).join(", ")}. Amplie para revelar.`;
 interface PanelState {
@@ -46,6 +53,18 @@ interface PanelState {
   tab: PanelTab;
   projectId: string | null;
 }
+
+interface AssistantState {
+  open: boolean;
+  /** Projeto escolhido ao abrir; `null` faz o painel perguntar. */
+  projectId: string | null;
+}
+
+const PlusIcon = () => (
+  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+    <path d="M7 2.5v9M2.5 7h9" />
+  </svg>
+);
 
 interface MapViewProps {
   client: ApiClient;
@@ -60,32 +79,57 @@ interface MapViewProps {
 }
 
 function MapView({ client, me, projects, people, ticketsByProject, onChanged, onImport, openTicketId, onOpenTicketChange }: MapViewProps) {
-  const items = useMemo(() => buildMapItems(me.organization, projects, ticketsByProject), [me.organization, projects, ticketsByProject]);
+  const [draft, setDraft] = useState<MapDraft | null>(null);
+  const items = useMemo(() => buildMapItems(me.organization, projects, ticketsByProject, draft), [me.organization, projects, ticketsByProject, draft]);
   const [panel, setPanel] = useState<PanelState>({ open: false, tab: "areas", projectId: null });
+  // Conversa com a IA para criar ticket (ADR 0029): um painel por vez com a página do ticket e o painel de projetos.
+  const [assistant, setAssistant] = useState<AssistantState>({ open: false, projectId: null });
+  const pickerRef = useRef<MapPicker | null>(null);
+  const creatableProjects = useMemo(() => projects.filter((project) => canCreateTickets(me, project)), [me, projects]);
+  const assistantAvailable = me.assistant?.enabled === true && creatableProjects.length > 0;
 
   const [creating, setCreating] = useState<CreateRequest | null>(null);
   const pageOpen = openTicketId !== null || creating !== null;
   // Valores que os ouvintes (seleção, teclado) leem sem precisar ser refeitos a cada render.
-  const live = useRef({ selectedId: null as string | null, selected: null as MapNode | null, pageOpen, openTicketId, creating, panelOpen: false });
+  const live = useRef({ selectedId: null as string | null, selected: null as MapNode | null, pageOpen, openTicketId, creating, panelOpen: false, assistantOpen: false });
+
+  const closeAssistant = useCallback(() => {
+    pickerRef.current = null;
+    setDraft(null);
+    setAssistant((current) => (current.open ? { open: false, projectId: null } : current));
+  }, []);
 
   const openTicket = useCallback((id: string) => {
+    closeAssistant();
     setCreating(null);
     setPanel((current) => (current.open ? { ...current, open: false } : current));
     onOpenTicketChange(id);
-  }, [onOpenTicketChange]);
+  }, [onOpenTicketChange, closeAssistant]);
   const closePage = useCallback(() => {
     setCreating(null);
     if (live.current.openTicketId !== null) onOpenTicketChange(null);
   }, [onOpenTicketChange]);
 
   const onSelectionChange = useCallback((node: MapNode | null) => {
-    if (node?.kind === "project") setPanel({ open: true, tab: "projects", projectId: node.id });
+    // "Escolher no mapa" (ADR 0029): o clique vira o destino do ticket novo e não faz mais nada.
+    const picker = pickerRef.current;
+    if (picker) {
+      if (node && node.kind !== "draft") {
+        picker.pick(node);
+        queueMicrotask(() => canvasRef.current.selectNode(null));
+      }
+      return;
+    }
+    if (node?.kind === "draft") return;
+    // Com a conversa aberta, o painel de projetos não toma o lugar dela.
+    if (node?.kind === "project" && !live.current.assistantOpen) setPanel({ open: true, tab: "projects", projectId: node.id });
     // Ativar um ticket que já está selecionado (clique ou Enter no nó) o abre; o primeiro clique só seleciona.
     if (node?.kind === "ticket" && node.id === live.current.selectedId) openTicket(node.id);
   }, [openTicket]);
 
   // Memoizado por itens: um objeto novo a cada render reiniciaria a câmera do pacote.
-  const cameraOptions = useMemo(() => ({ maxScale: computeMapMaxScale(items) }), [items]);
+  const maxScale = computeMapMaxScale(items);
+  const cameraOptions = useMemo(() => ({ maxScale }), [maxScale]);
 
   const canvas = useSpatialCanvas({ items, getLabel, getColor, mixColors: mixMapColors, defaultFilled: false, cameraOptions, onSelectionChange });
   const { index, layout, selected, selectedId, focusId, breadcrumb, focusNode, selectNode } = canvas;
@@ -96,7 +140,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   useLayoutEffect(() => scaleStore.notify(), [scaleStore, canvas.camera.scale, layout]);
   const canvasRef = useRef(canvas);
   canvasRef.current = canvas;
-  live.current = { selectedId, selected, pageOpen, openTicketId, creating, panelOpen: panel.open };
+  live.current = { selectedId, selected, pageOpen, openTicketId, creating, panelOpen: panel.open, assistantOpen: assistant.open };
   const hasOpenNode = openTicketId !== null && index.itemById.has(openTicketId);
 
   // Abrir o painel de áreas e projetos fecha a página; abrir um ticket fecha o painel (também pela URL).
@@ -106,6 +150,12 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   useEffect(() => {
     if (openTicketId !== null) setPanel((current) => (current.open ? { ...current, open: false } : current));
   }, [openTicketId]);
+  useEffect(() => {
+    if (panel.open && assistant.open) closeAssistant();
+  }, [panel.open, assistant.open, closeAssistant]);
+  useEffect(() => {
+    if (openTicketId !== null) closeAssistant();
+  }, [openTicketId, closeAssistant]);
 
   // O ticket aberto fica selecionado. Sem nó (projeto arquivado, ticket inexistente) não há o que selecionar.
   useEffect(() => {
@@ -114,24 +164,30 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
 
   // A câmera enquadra o ticket aberto na área visível, uma vez por abertura, e de novo quando uma mudança o
   // tira do lugar no mapa (por exemplo, trocar o pai). Mudanças que não o deslocam deixam a câmera onde está.
+  // O card tracejado do rascunho recebe o mesmo enquadramento (ADR 0029): a câmera vai até o destino dele.
+  // Com o rascunho, o enquadramento é o do destino (o pai), com o card tracejado entre os filhos dele.
+  const draftParentId = draft !== null ? index.itemById.get(DRAFT_NODE_ID)?.parentId ?? null : null;
+  const frameId = openTicketId ?? draftParentId;
+  const framesDraft = openTicketId === null && draftParentId !== null;
   const framed = useRef<{ id: string; frame: string } | null>(null);
   useEffect(() => {
-    const node = openTicketId === null ? undefined : layout.nodeById.get(openTicketId);
-    if (!node || openTicketId === null) {
+    const node = frameId === null ? undefined : layout.nodeById.get(frameId);
+    if (!node || frameId === null) {
       framed.current = null;
       return;
     }
-    const frame = `${node.x}|${node.y}|${node.width}`;
-    if (framed.current?.id === openTicketId && framed.current.frame === frame) return;
+    const sub = node.subtreeBounds;
+    const frame = `${node.x}|${node.y}|${node.width}${framesDraft ? `|${sub.minX}|${sub.maxX}|${sub.minY}|${sub.maxY}` : ""}`;
+    if (framed.current?.id === frameId && framed.current.frame === frame) return;
     let inner = 0;
     // Dois quadros: o palco estreita (CSS) e o observador de tamanho do pacote atualiza antes de enquadrar.
     const outer = requestAnimationFrame(() => {
       inner = requestAnimationFrame(() => {
         const current = canvasRef.current;
-        const target = current.layout.nodeById.get(openTicketId);
+        const target = current.layout.nodeById.get(frameId);
         const rect = current.stageRef.current?.getBoundingClientRect();
         if (!target || !rect) return;
-        framed.current = { id: openTicketId, frame };
+        framed.current = { id: frameId, frame };
         const { bounds, requiredScale } = ticketFocus(target, { width: rect.width, height: rect.height });
         current.fitBounds(bounds, false, undefined, requiredScale);
       });
@@ -140,12 +196,13 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
       cancelAnimationFrame(outer);
       cancelAnimationFrame(inner);
     };
-  }, [openTicketId, layout]);
+  }, [frameId, framesDraft, layout]);
 
   // Ao fechar a página, a câmera volta ao lugar de antes, se a pessoa não preferir ficar onde está (ADR 0028).
   const { preferences } = usePreferences();
+  // A conversa com a IA conta como a página: fechá-la sem criar devolve a câmera ao lugar de antes, pela mesma preferência.
   useRestoreCameraPlace({
-    pageOpen,
+    pageOpen: pageOpen || assistant.open,
     mode: preferences.camera.onTicketClose,
     getView: () => ({ camera: canvasRef.current.camera, size: canvasRef.current.size }),
     restore: ({ bounds, requiredScale }) => canvasRef.current.fitBounds(bounds, false, undefined, requiredScale),
@@ -154,14 +211,23 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   // Fechar a página devolve o foco ao mapa (a menos que o painel tenha tomado o lugar dela).
   const wasOpen = useRef(false);
   useEffect(() => {
-    if (wasOpen.current && !pageOpen && !live.current.panelOpen) canvasRef.current.stageRef.current?.focus();
-    wasOpen.current = pageOpen;
-  }, [pageOpen]);
+    const sideOpen = pageOpen || assistant.open;
+    if (wasOpen.current && !sideOpen && !live.current.panelOpen) canvasRef.current.stageRef.current?.focus();
+    wasOpen.current = sideOpen;
+  }, [pageOpen, assistant.open]);
 
   // Esc fecha a página (ou cancela a criação) e Enter abre o ticket selecionado, com o foco no mapa.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      if (event.key === "Escape" && pickerRef.current) {
+        pickerRef.current.cancel();
+        return;
+      }
+      if (event.key === "Escape" && live.current.assistantOpen) {
+        closeAssistant();
+        return;
+      }
       if (event.key === "Escape" && live.current.pageOpen) {
         if (live.current.creating) setCreating(null);
         else closePage();
@@ -178,13 +244,25 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closePage, openTicket]);
+  }, [closePage, closeAssistant, openTicket]);
+
+  // Projeto da conversa: o do ticket ou do projeto selecionado; sem seleção, o único em que a pessoa pode criar.
+  const openAssistant = () => {
+    const current = live.current.selected;
+    const selectedProjectId = current?.kind === "project" ? current.id : current?.kind === "ticket" ? current.ticket?.projectId ?? null : null;
+    const chosen = creatableProjects.find((project) => project.id === selectedProjectId) ?? (creatableProjects.length === 1 ? creatableProjects[0] : undefined);
+    setCreating(null);
+    setPanel((state) => (state.open ? { ...state, open: false } : state));
+    if (live.current.openTicketId !== null) onOpenTicketChange(null);
+    canvasRef.current.selectNode(null);
+    setAssistant({ open: true, projectId: chosen?.id ?? null });
+  };
 
   const canCreateProject = me.roles.clerk === "admin";
   const showCreateFirst = items.length === 1 && canCreateProject;
 
   return (
-    <div className={`map-workspace ${pageOpen ? "has-ticket-page" : ""}`}>
+    <div className={`map-workspace ${pageOpen ? "has-ticket-page" : ""} ${assistant.open ? "has-assistant" : ""}`}>
     <MapDetailProvider store={scaleStore} data={detailData}>
     <SpatialCanvasView
       controller={canvas}
@@ -222,7 +300,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
       )}
       renderOverlay={() => (
         <>
-          {selected && selected.id !== openTicketId && (
+          {selected && selected.kind !== "draft" && selected.id !== openTicketId && (
             <aside
               className={`spatial-selection ${panel.open ? "is-beside-panel" : ""}`}
               aria-label="Nó selecionado"
@@ -255,6 +333,17 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               Criar primeiro projeto
             </button>
           )}
+          {assistantAvailable && !assistant.open && (
+            <button
+              type="button"
+              className="map-new-ticket"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={openAssistant}
+            >
+              <PlusIcon />
+              Novo ticket
+            </button>
+          )}
           {panel.open && (
             <SidePanel
               client={client}
@@ -266,6 +355,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               onClose={() => setPanel((current) => ({ ...current, open: false }))}
               onChanged={onChanged}
               {...(onImport ? { onImportProject: onImport } : {})}
+              assistantAvailable={assistantAvailable}
               onCreateTicket={(projectId) => {
                 setPanel((current) => ({ ...current, open: false }));
                 setCreating({ projectId, parentId: null });
@@ -278,6 +368,25 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
       )}
     />
     </MapDetailProvider>
+    {assistant.open && (
+      <AssistantPanel
+        client={client}
+        projects={creatableProjects}
+        initialProjectId={assistant.projectId}
+        tickets={ticketsByProject}
+        onClose={closeAssistant}
+        onCreated={openTicket}
+        onManualCreate={(request) => {
+          closeAssistant();
+          setCreating(request);
+        }}
+        onDraftChange={setDraft}
+        onChanged={onChanged}
+        registerPicker={(picker) => {
+          pickerRef.current = picker;
+        }}
+      />
+    )}
     {pageOpen && (
       <TicketPage
         client={client}

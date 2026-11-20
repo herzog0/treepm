@@ -4,7 +4,7 @@ import type { MixColors } from "@treepm/react";
 import type { Me, Project, TicketStatus, TicketSummary } from "../api/client.js";
 
 export interface MapNode extends TreeNode {
-  readonly kind: "organization" | "project" | "ticket";
+  readonly kind: "organization" | "project" | "ticket" | "draft";
   readonly label: string;
   readonly color: string;
   /** Chave do projeto, mostrada onde a demo mostra o ID. */
@@ -27,6 +27,16 @@ export const STATUS_COLORS: Record<TicketStatus, string> = {
   done: "#4fc48c",
   cancelled: "#8b92a3",
 };
+
+/** Nó temporário do rascunho da conversa com a IA (ADR 0029): card tracejado que não é ticket. */
+export const DRAFT_NODE_ID = "assistant-draft";
+
+/** Onde o rascunho aparece no mapa: filho do ticket `parentId`, ou da raiz do projeto quando é nulo. */
+export interface MapDraft {
+  readonly projectId: string;
+  readonly parentId: string | null;
+  readonly title: string;
+}
 
 export interface WeightedColor {
   readonly color: string;
@@ -53,6 +63,7 @@ export function buildMapItems(
   organization: Me["organization"],
   projects: readonly Project[],
   ticketsByProject: Readonly<Record<string, readonly TicketSummary[]>>,
+  draft?: MapDraft | null,
 ): readonly MapNode[] {
   const root: MapNode = {
     id: organization.orgId,
@@ -87,7 +98,22 @@ export function buildMapItems(
       leafCount: 1,
     })),
   );
-  return paintBranches([root, ...children, ...tickets]);
+  const painted = paintBranches([root, ...children, ...tickets]);
+  if (!draft) return painted;
+  // O card do rascunho entra depois da mistura de cores: ele não é folha de ninguém e não pinta o ramo.
+  const parentId = draft.parentId ?? draft.projectId;
+  if (!visible.some((project) => project.id === draft.projectId) || !painted.some((node) => node.id === parentId)) return painted;
+  const ghost: MapNode = {
+    id: DRAFT_NODE_ID,
+    parentId,
+    kind: "draft",
+    label: draft.title.trim() === "" ? "Novo ticket" : draft.title.trim(),
+    color: ACCENT_COLOR,
+    key: "Novo",
+    ticket: null,
+    leafCount: 1,
+  };
+  return [...painted, ghost];
 }
 
 /** Ticket com filhos ganha a mistura das cores das folhas descendentes; só ele muda, as folhas já estão pintadas. */
