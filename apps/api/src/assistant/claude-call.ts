@@ -9,7 +9,13 @@ export const MAX_TOKENS = 16000;
 export const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
 export type StreamParams = Parameters<Anthropic["beta"]["messages"]["stream"]>[0];
-export type FinalMessage = { stop_reason: string | null; parsed_output: unknown; model: string };
+export type FinalMessage = {
+  stop_reason: string | null;
+  parsed_output: unknown;
+  model: string;
+  /** Consumo que a API devolve; só a ferramenta de medição o lê. */
+  usage?: { input_tokens?: number | null; output_tokens?: number | null; cache_creation_input_tokens?: number | null; cache_read_input_tokens?: number | null };
+};
 
 /** A chamada ao SDK, em uma função: é o que os testes substituem. `finalMessage` espera o fim do streaming. */
 export type ClaudeStreamer = (params: StreamParams, options: { signal: AbortSignal }) => Promise<FinalMessage>;

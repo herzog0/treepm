@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { affinityRecordOf } from "./app.js";
-import type { JudgmentRecorder } from "./app.js";
+import type { CollectKit, JudgmentRecorder } from "./app.js";
 import { describeFailure, expectOk } from "./client.js";
 import type { ApiClient } from "./client.js";
 import {
@@ -30,7 +30,7 @@ import {
 } from "./core.js";
 import type { Gabarito, GabaritoTicket, LooMark, NodeKind, RunRecord, ScopeCheckRecord, StartedMark, Step, TicketStatus } from "./core.js";
 
-type Summary = {
+export type Summary = {
   id: string;
   number: number;
   key: string;
@@ -40,9 +40,9 @@ type Summary = {
   status: TicketStatus | null;
   assigneeIds: string[];
 };
-type Detail = Summary & { description: string };
+export type Detail = Summary & { description: string };
 type ProjectOut = { id: string; key: string; name: string };
-type Conversation = {
+export type Conversation = {
   id: string;
   status: string;
   draft: { title: string; description: string } | null;
@@ -51,7 +51,7 @@ type Conversation = {
   messages: { author: string; body: string }[];
 };
 type Target = { parentId: string | null; path: { id: string; title: string }[] };
-type Outcome = {
+export type Outcome = {
   destination: Target;
   alternatives: Target[];
   uncertain: boolean;
@@ -74,6 +74,10 @@ export type Context = {
   looCrashAfterDraft?: number;
   /** `leave-one-out`: faz também as duas procuras com escopo de cada ticket. */
   scopeCheck?: boolean;
+  /** `collect`: o que vem do app para as coletas (juiz do produto, Jev, Claude e captura dos candidatos da raiz). */
+  collectKit?: CollectKit;
+  /** `collect`: repetições de cada requisição do Jev (padrão 3). */
+  repeats?: number;
   /** `leave-one-out --flat`: mede a proposta de agrupador na árvore achatada; nunca confirma a proposta. */
   flat?: boolean;
 };
@@ -94,7 +98,7 @@ export const looMapPath = (dir: string, projectId: string): string => join(dir, 
 export const groupsPath = (dir: string, projectId: string): string => join(dir, `groups-${projectId}.jsonl`);
 export const looReportPath = (dir: string, projectId: string): string => join(dir, `report-loo-${projectId}.md`);
 
-function readJsonLines<T>(path: string): T[] {
+export function readJsonLines<T>(path: string): T[] {
   if (!existsSync(path)) return [];
   return readFileSync(path, "utf8")
     .split("\n")
@@ -118,7 +122,7 @@ export function readGroupMap(dir: string, projectId: string): Map<string, string
 
 // ---- leitura do projeto -------------------------------------------------------------------------------------------
 
-async function listTickets(ctx: Context, projectId = ctx.project): Promise<Summary[]> {
+export async function listTickets(ctx: Context, projectId = ctx.project): Promise<Summary[]> {
   return expectOk<Summary[]>("listar tickets", await ctx.client.request("GET", `/projects/${projectId}/tickets`));
 }
 
@@ -167,7 +171,7 @@ export async function exportCommand(ctx: Context): Promise<void> {
   ctx.log(`Gabarito gravado: ${tickets.length} nós (${tickets.length - groupCount} tickets e ${groupCount} agrupadores; ${countByDepth(tickets)}).`);
 }
 
-function liveFor(summaries: readonly Summary[]) {
+export function liveFor(summaries: readonly Summary[]) {
   return summaries.map((s) => ({ id: s.id, title: s.title, parentId: s.parentId, status: s.status, ...(s.kind ? { kind: s.kind } : {}) }));
 }
 
@@ -270,10 +274,10 @@ async function createGroups(ctx: Context, groups: readonly GabaritoTicket[], cre
   ctx.log(`Agrupadores criados sem procura: ${pending.length}.`);
 }
 
-type Timings = Record<Step, number>;
+export type Timings = Record<Step, number>;
 
 /** Chamada HTTP com as tentativas em 503, somando tempo e tentativas do passo. */
-function makeCaller(ctx: Context, timingsMs: Timings, attempts: Timings) {
+export function makeCaller(ctx: Context, timingsMs: Timings, attempts: Timings) {
   return async <T>(step: Step, what: string, run: () => ReturnType<ApiClient["request"]>): Promise<T> => {
     const started = performance.now();
     const { response, attempts: n } = await withRetry503(run, { sleep: ctx.sleep, ...(ctx.retryDelaysMs ? { delaysMs: ctx.retryDelaysMs } : {}) });
@@ -290,7 +294,7 @@ const claudeOf = (conversation: Conversation): RunRecord["claude"] => ({
   message: [...conversation.messages].reverse().find((m) => m.author === "assistant")?.body ?? "",
 });
 
-const openMessage = (ticket: GabaritoTicket): string => `${ticket.title}\n\n${ticket.description}`.slice(0, MAX_MESSAGE);
+export const openMessage = (ticket: GabaritoTicket): string => `${ticket.title}\n\n${ticket.description}`.slice(0, MAX_MESSAGE);
 
 async function rebuildOne(
   ctx: Context,
@@ -435,7 +439,7 @@ export function reportCommand(ctx: Pick<Context, "dir" | "project" | "log">, loo
 // ---- restore-original -------------------------------------------------------------------------------------------------
 
 /** Recria a árvore do gabarito pela rota de importação, num projeto vazio; devolve os tickets criados na ordem do gabarito. */
-async function importGabarito(ctx: Context, gabarito: Gabarito): Promise<{ created: Summary[]; order: string[] }> {
+export async function importGabarito(ctx: Context, gabarito: Gabarito): Promise<{ created: Summary[]; order: string[] }> {
   const existing = await listTickets(ctx);
   if (existing.length > 0) throw new Error(`O projeto ${ctx.project} tem ${existing.length} ticket(s); recuso restaurar em projeto não vazio.`);
   const { items, order } = buildImportTree(gabarito.tickets);
@@ -559,7 +563,7 @@ export async function leaveOneOutCommand(ctx: Context, limit: number | undefined
 }
 
 /** Recria um ticket que a interrupção deixou removido: pela conversa já aberta, se ela ainda serve; senão pela rota do projeto. */
-async function restoreMissing(ctx: Context, original: GabaritoTicket, mark: LooMark): Promise<string> {
+export async function restoreMissing(ctx: Context, original: GabaritoTicket, mark: LooMark): Promise<string> {
   const retry = async (what: string, run: () => ReturnType<ApiClient["request"]>) => {
     const { response, attempts } = await withRetry503(run, { sleep: ctx.sleep, ...(ctx.retryDelaysMs ? { delaysMs: ctx.retryDelaysMs } : {}) });
     if (response.status === 503) throw new Error(`${describeFailure(what, response)} persistente depois de ${attempts} tentativas; rode de novo para continuar.`);
@@ -690,7 +694,7 @@ async function scopeChecksFor(
 }
 
 /** Compara o projeto vivo com o gabarito traduzido para os ids vivos (as situações do gabarito não entram). */
-async function looTreeProblems(ctx: Context, gabarito: Gabarito, map: ReadonlyMap<string, string>): Promise<string[]> {
+export async function looTreeProblems(ctx: Context, gabarito: Gabarito, map: ReadonlyMap<string, string>): Promise<string[]> {
   const translated = gabarito.tickets.map((t) => ({
     ...t,
     id: map.get(t.id) ?? `sem-id:${t.id}`,

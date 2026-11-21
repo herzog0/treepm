@@ -2,13 +2,17 @@ import "reflect-metadata";
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import Anthropic from "@anthropic-ai/sdk";
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { Test } from "@nestjs/testing";
 import { AppModule } from "../../src/app.module.js";
 import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, GROUP_NAMER } from "../../src/assistant/ports.js";
 import type { AffinityInput, AffinityJudge, BranchJudge, BranchJudgment } from "../../src/assistant/ports.js";
 import { JevAffinityJudge } from "../../src/assistant/jev-affinity-judge.js";
+import { sdkStreamer } from "../../src/assistant/claude-call.js";
+import type { ClaudeStreamer } from "../../src/assistant/claude-call.js";
 import { JevBranchJudge, sdkSystemOne } from "../../src/assistant/jev-branch-judge.js";
+import type { SystemOneCall } from "../../src/assistant/jev-branch-judge.js";
 import { configureApp } from "../../src/bootstrap.js";
 import { CONFIG, assistantEnabled, loadConfig } from "../../src/config.js";
 import type { AppConfig } from "../../src/config.js";
@@ -16,6 +20,7 @@ import { DIRECTORY_PROVIDER } from "../../src/auth/directory-provider.js";
 import { SESSION_VERIFIER } from "../../src/auth/session-verifier.js";
 import type { SessionVerifier, VerifiedSession } from "../../src/auth/session-verifier.js";
 import { FakeAffinity, FakeConversation, FakeDirectoryProvider, FakeJudge, FakeNamer, FakeSummarizer } from "./fakes.js";
+import { NoTurnConversation, RootCapture, RootCaptureJudge, ZeroAffinity, fakeClaude, fakeSystemOne } from "./collect-providers.js";
 import { resolveCurrentId } from "./core.js";
 import type { AffinityRecord, JudgmentRecord } from "./core.js";
 
@@ -126,12 +131,18 @@ export type BootOptions = {
   fake503JudgeAt: number;
   /** O comando precisa da IA de verdade (todos os que chamam conversa ou procura). */
   needsAi: boolean;
+  /** `collect`: a conversa não chama o Claude, a procura para na raiz e a afinidade não pergunta nada. */
+  collect?: boolean;
 };
+
+/** O que o `collect` usa fora da API: o juiz do produto, a chamada ao Jev, o Claude e a captura dos candidatos da raiz. */
+export type CollectKit = { judge: BranchJudge; systemOne: SystemOneCall; claude: ClaudeStreamer; capture: RootCapture };
 
 export type Booted = {
   baseUrl: string;
   token: string;
   recorder: JudgmentRecorder;
+  collectKit?: CollectKit;
   close(): Promise<void>;
 };
 
@@ -146,6 +157,7 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
     verify: (request) => Promise.resolve(request.headers[TOKEN_HEADER] === token ? session : null),
   };
   const recorder = new JudgmentRecorder();
+  const capture = new RootCapture();
 
   let builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(SESSION_VERIFIER)
@@ -163,13 +175,13 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
       .overrideProvider(DIRECTORY_PROVIDER)
       .useValue(new FakeDirectoryProvider())
       .overrideProvider(CONVERSATION_PROVIDER)
-      .useValue(new FakeConversation(options.fake503First))
+      .useValue(options.collect ? new NoTurnConversation() : new FakeConversation(options.fake503First))
       .overrideProvider(BRANCH_SUMMARIZER)
       .useValue(new FakeSummarizer())
       .overrideProvider(BRANCH_JUDGE)
-      .useValue(new RecordingJudge(new FakeJudge(options.fake503JudgeAt), recorder))
+      .useValue(options.collect ? new RootCaptureJudge(capture) : new RecordingJudge(new FakeJudge(options.fake503JudgeAt), recorder))
       .overrideProvider(AFFINITY_JUDGE)
-      .useValue(new RecordingAffinity(new FakeAffinity(), recorder))
+      .useValue(options.collect ? new ZeroAffinity() : new RecordingAffinity(new FakeAffinity(), recorder))
       .overrideProvider(GROUP_NAMER)
       .useValue(new FakeNamer());
   } else {
@@ -177,18 +189,29 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
       inject: [CONFIG],
       // Mesma construção do módulo real, com o invólucro que registra cada julgamento.
       factory: (config: AppConfig) =>
-        assistantEnabled(config) && config.TYPESAFE_API_KEY
-          ? new RecordingJudge(new JevBranchJudge(sdkSystemOne(new TypeSafeClient({ apiKey: config.TYPESAFE_API_KEY, logLevel: "off" }))), recorder)
-          : null,
+        options.collect
+          ? new RootCaptureJudge(capture)
+          : assistantEnabled(config) && config.TYPESAFE_API_KEY
+            ? new RecordingJudge(new JevBranchJudge(sdkSystemOne(new TypeSafeClient({ apiKey: config.TYPESAFE_API_KEY, logLevel: "off" }))), recorder)
+            : null,
     });
+    if (options.collect) {
+      builder = builder
+        .overrideProvider(CONVERSATION_PROVIDER)
+        .useValue(new NoTurnConversation())
+        .overrideProvider(GROUP_NAMER)
+        .useValue(new FakeNamer());
+    }
   }
   if (!options.fakeProviders) {
     builder = builder.overrideProvider(AFFINITY_JUDGE).useFactory({
       inject: [CONFIG],
       factory: (config: AppConfig) =>
-        assistantEnabled(config) && config.TYPESAFE_API_KEY
-          ? new RecordingAffinity(new JevAffinityJudge(sdkSystemOne(new TypeSafeClient({ apiKey: config.TYPESAFE_API_KEY, logLevel: "off" }))), recorder)
-          : null,
+        options.collect
+          ? new ZeroAffinity()
+          : assistantEnabled(config) && config.TYPESAFE_API_KEY
+            ? new RecordingAffinity(new JevAffinityJudge(sdkSystemOne(new TypeSafeClient({ apiKey: config.TYPESAFE_API_KEY, logLevel: "off" }))), recorder)
+            : null,
     });
   }
   const moduleRef = await builder.compile();
@@ -203,5 +226,20 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
   await app.init();
   await app.listen(0, "127.0.0.1");
   const address = app.getHttpServer().address() as AddressInfo;
-  return { baseUrl: `http://127.0.0.1:${address.port}/api`, token, recorder, close: () => app.close() };
+  let collectKit: CollectKit | undefined;
+  if (options.collect) {
+    if (options.fakeProviders) {
+      collectKit = { judge: new FakeJudge(), systemOne: fakeSystemOne, claude: fakeClaude, capture };
+    } else {
+      // Mesma construção do módulo real: o juiz e as chamadas ao Jev e ao Claude são os do produto.
+      const systemOne = sdkSystemOne(new TypeSafeClient({ apiKey: baseConfig.TYPESAFE_API_KEY as string, logLevel: "off" }));
+      collectKit = {
+        judge: new JevBranchJudge(systemOne),
+        systemOne,
+        claude: sdkStreamer(new Anthropic({ apiKey: baseConfig.ANTHROPIC_API_KEY as string, maxRetries: 0 })),
+        capture,
+      };
+    }
+  }
+  return { baseUrl: `http://127.0.0.1:${address.port}/api`, token, recorder, ...(collectKit ? { collectKit } : {}), close: () => app.close() };
 }
