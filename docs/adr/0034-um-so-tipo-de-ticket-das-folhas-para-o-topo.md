@@ -188,6 +188,45 @@ Os pares em que a W1 deu direção nas duas rodadas (entra → dentro de), para 
 
 O que fica decidido: nada na procura muda por enquanto. A regra de comparar os dois sentidos da W1 só vira proposta depois do julgamento de Teodoro sobre essa lista. Pontos que a proposta terá de resolver: a descida entre tickets que já têm filhos continua com a pergunta de lista de hoje; o que fazer quando um ticket cabe dentro de dois (a "Proposta visual" é pré-requisito de dois tickets, e a árvore só guarda um pai); e se a procura continua dentro do ticket escolhido.
 
+### Referência cega e critério, fixados antes de rotular (2026-11-21)
+
+Teodoro, sobre a lista acima: "Não sei dizer sobre as suas perguntas classificatórias. Vc é quem decide." E perguntou como a qualidade está sendo aferida, sugerindo comparar o Jev com a resposta de um modelo bom da Anthropic.
+
+**O que a medição acima compara, de fato.** A referência é a própria árvore do projeto (`gabarito.json`): seis tickets na raiz e os filhos de cada um, quase toda vinda da lista que a coordenação importou. Ela é plana, então "irmão aceito como pai" conta como erro só porque a árvore não tem ticket dentro de irmão; ninguém julgou esses pares pelo sentido de "filho" que Teodoro definiu. O Claude aparece na medição só como resumidor (escreve o texto do ticket que tem filhos); não julga nada. E a árvore guarda o 48 dentro do 46, quando a única opinião de Teodoro sobre um par é o 48 dentro do 47.
+
+**O que muda.** A decisão sobre a regra passa a ser da coordenação, medida contra uma referência escrita por um modelo da Anthropic, como ele sugeriu. A coordenação não rotula os pares ela mesma: já viu as notas do Jev.
+
+Tudo abaixo foi escrito **antes** de a referência existir.
+
+**Referência.**
+
+- Entrada: os 48 tickets da árvore de 2026-11-21, só título e descrição, embaralhados e com rótulos neutros. Sem pai, sem número, sem situação, sem nota do Jev e sem a lista de nove pares.
+- Dois rotuladores independentes (agentes novos, Claude Fable 5.2), cada um com um embaralhamento diferente. A instrução traz a definição de Teodoro (um ticket fica dentro de outro quando esse outro não pode ser dado por pronto antes dele) e nenhum exemplo deste projeto.
+- Cada rotulador diz, para cada ticket, dentro de qual ticket ele fica (um, ou nenhum) e quais outros tickets também não podem ser concluídos antes dele. "Não dá para dizer" é resposta permitida.
+- Rótulo de um par ordenado (A dentro de B): **sim**, quando os dois rotuladores marcaram a relação direta; **não**, quando nenhum marcou, nem direta nem por cadeia; **indeterminado** no resto, fora da conta.
+
+**A referência só vale se:**
+
+1. os dois rotuladores colocarem, sem serem levados a isso, o 48 dentro do 47 e o 47 dentro do 46;
+2. das relações diretas marcadas por pelo menos um, 60% ou mais forem marcadas pelos dois.
+
+Se falhar em qualquer um, não há referência, e a regra não é julgada por ela.
+
+**Regra congelada (R).** Para dois tickets sem filhos, com a W1 (média das três repetições, rodada de 2026-11-21): "A entra em B" quando a nota de A dentro de B passa de 0,4 e supera a de B dentro de A em mais de 0,2. Os limites não são reajustados depois de a referência existir. Nenhuma chamada nova ao Jev: valem os arquivos já coletados.
+
+**Critério.**
+
+- Precisão de R: dos pares que R aceita e que têm rótulo, a parcela rotulada "sim" no mesmo sentido.
+- **Adota-se R** como proposta da segunda fatia se a precisão for 0,8 ou mais, com pelo menos cinco pares com rótulo e nenhum aceito no sentido contrário ao da referência.
+- **Descarta-se R** se a precisão ficar abaixo de 0,6 ou se dois ou mais pares saírem no sentido contrário.
+- Entre os dois, R não é adotada como está.
+- Cobertura (das relações "sim" entre irmãos, quantas R encontra): relatada, não decide. Cobertura baixa significa que a IA sugere pouco, e não que sugere errado.
+- Para comparar, W0, W1 e W2 com o limite simples de 0,7 contra a mesma referência.
+
+**Se R não for adotada,** a alternativa a propor é o modelo da Anthropic escolher o pai entre os filhos do destino, no fim da descida. A concordância entre os dois rotuladores já é uma primeira medida disso.
+
+**Limites desta aferição.** Concordar com a referência quer dizer que o Jev concorda com o Claude, e não que os dois estão certos. É um projeto só, de 48 tickets, e muitos têm só o título.
+
 ## Consequências
 
 - O `TREEPM-46`, que hoje não tem situação, volta a ter. Pela regra, ele só é concluído depois do 47 e do 48.
