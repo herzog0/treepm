@@ -1,0 +1,61 @@
+/* Descrição em blocos (ADR 0036): leitura e edição pelo mesmo componente. Cores só pelos tokens --tp-*. */
+.description { position: relative; margin-top: 6px; color: var(--tp-text); font-size: 14px; line-height: 1.65; border-radius: var(--tp-radius-field); }
+.description.is-clickable { margin-inline: -8px; padding: 0 8px; cursor: text; }
+.description.is-clickable:hover { background: color-mix(in srgb, var(--tp-selected) 45%, transparent); }
+.description:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
+.description .tiptap { outline: none; min-height: 1.65em; overflow-wrap: anywhere; white-space: pre-wrap; }
+.description.is-editing .tiptap { cursor: text; }
+.description.is-field { padding: 8px 10px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-bar); font-size: 13px; line-height: 1.5; }
+.description.is-field:focus-within { border-color: var(--tp-accent); }
+.description.is-field .tiptap { min-height: 96px; }
+
+.description .tiptap > :first-child { margin-top: 0; }
+.description .tiptap > :last-child { margin-bottom: 0; }
+.description .tiptap p { margin: 0; }
+.description .tiptap p + p, .description .tiptap :is(ul, ol, blockquote, pre) + p, .description .tiptap p + :is(ul, ol, blockquote, pre) { margin-top: 10px; }
+.description .tiptap :is(h1, h2) { margin: 14px 0 2px; color: var(--tp-text); font-weight: 600; line-height: 1.4; }
+.description .tiptap h1 { font-size: 17px; }
+.description .tiptap h2 { font-size: 15px; }
+.description .tiptap :is(ul, ol) { margin: 2px 0 0; padding-left: 20px; }
+.description .tiptap li > p { margin: 0; }
+.description .tiptap ul[data-type="taskList"] { padding-left: 2px; list-style: none; }
+.description .tiptap ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 8px; }
+.description .tiptap ul[data-type="taskList"] li > label { flex: none; display: inline-flex; align-items: center; height: 1.65em; user-select: none; }
+.description .tiptap ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
+.description .tiptap ul[data-type="taskList"] input { margin: 0; accent-color: var(--tp-accent); cursor: pointer; }
+.description .tiptap li[data-checked="true"] > div { color: var(--tp-text-3); text-decoration: line-through; }
+.description:not(.is-clickable):not(.is-editing) .tiptap ul[data-type="taskList"] input { cursor: default; }
+.description .tiptap blockquote { margin: 6px 0; padding-left: 12px; border-left: 2px solid var(--tp-border-strong); color: var(--tp-text-2); }
+.description .tiptap code { padding: 1px 5px; border-radius: 4px; background: var(--tp-selected); color: var(--tp-accent-soft); font: 400 0.9em var(--tp-font-mono); }
+.description .tiptap pre { margin: 6px 0; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-field); background: var(--tp-bar); white-space: pre; }
+.description .tiptap pre code { padding: 0; background: transparent; color: var(--tp-text); font-size: 12.5px; }
+.description .tiptap a { color: var(--tp-accent-soft); text-decoration: underline; text-underline-offset: 2px; }
+.description .tiptap p.is-empty::before { content: attr(data-placeholder); float: left; height: 0; color: var(--tp-text-3); pointer-events: none; }
+
+/* Menção: uma etiqueta só (marcador de situação, chave e título), sem quebra de linha no meio. */
+.description-mention { display: inline; padding: 1px 7px 1px 7px; border-radius: 5px; background: var(--tp-selected); color: var(--tp-accent-soft); font: 500 12px var(--tp-font-mono); white-space: nowrap; cursor: pointer; }
+.description-mention::before { content: ""; display: inline-block; width: 10px; height: 10px; box-sizing: border-box; margin-right: 6px; border: 1.5px solid var(--mark, var(--tp-todo)); border-radius: 2px; background: linear-gradient(to top, var(--mark, var(--tp-todo)) calc(var(--fill, 0) * 100%), transparent calc(var(--fill, 0) * 100%)); vertical-align: -1px; }
+.description-mention::after { content: attr(data-title); margin-left: 6px; color: var(--tp-text); font: 400 13px var(--tp-font); }
+.description-mention[data-state="in_progress"] { --mark: var(--tp-doing); }
+.description-mention[data-state="in_review"] { --mark: var(--tp-review); }
+.description-mention[data-state="done"] { --mark: var(--tp-done); }
+.description-mention[data-state="cancelled"]::before { border-style: dashed; background: none; }
+.description-mention:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
+
+/* Menus de "/" e "@". */
+.description-menu { position: fixed; z-index: 40; box-sizing: border-box; max-height: 320px; overflow: auto; padding: 6px; border: 1px solid var(--tp-border-strong); border-radius: var(--tp-radius-panel); background: var(--tp-card); box-shadow: 0 16px 40px color-mix(in srgb, var(--tp-bg) 65%, transparent); font: 400 13px/1.4 var(--tp-font); }
+.description-menu-title { padding: 4px 8px; color: var(--tp-text-3); font-size: 11.5px; }
+.description-menu-empty { padding: 6px 8px; color: var(--tp-text-3); }
+.description-menu-foot { margin-top: 4px; padding: 6px 8px 2px; border-top: 1px solid var(--tp-border); color: var(--tp-text-3); font-size: 11.5px; }
+.ticket-page .description-menu .description-menu-item, .assistant-sheet .description-menu .description-menu-item { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; min-height: 31px; padding: 0 8px; border: 0; border-radius: var(--tp-radius-control); background: transparent; color: var(--tp-text); font: inherit; text-align: left; cursor: pointer; }
+.ticket-page .description-menu .description-menu-item.is-selected, .assistant-sheet .description-menu .description-menu-item.is-selected { background: var(--tp-selected); }
+.description-menu .status-mark { --mark-size: 11px; flex: none; }
+.description-menu-glyph { display: grid; flex: none; place-items: center; width: 22px; height: 22px; border: 1px solid var(--tp-border); border-radius: 5px; color: var(--tp-text-2); font: 400 11px var(--tp-font-mono); }
+.description-menu-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.description-menu-key { flex: none; color: var(--tp-text-2); font: 400 11.5px var(--tp-font-mono); }
+.description-menu-hint { flex: none; color: var(--tp-text-3); font: 400 11px var(--tp-font-mono); }
+
+.description-head-state { margin-left: auto; color: var(--tp-text-3); font-size: 12px; }
+.description-hint { margin: 10px 0 0; color: var(--tp-text-3); font-size: 12px; }
+.ticket-page .description-invite { display: block; width: 100%; min-height: 30px; margin: 6px 0 0; padding: 0 8px; border: 0; border-radius: var(--tp-radius-control); background: transparent; color: var(--tp-text-3); font: inherit; text-align: left; cursor: text; }
+.ticket-page .description-invite:hover:not(:disabled) { border: 0; background: color-mix(in srgb, var(--tp-selected) 45%, transparent); }

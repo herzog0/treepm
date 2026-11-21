@@ -2,7 +2,10 @@ import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { FormEvent } from "react";
 import type { ApiClient, CreateTicketBody, Project } from "../api/client.js";
+import { useApiResource } from "../api/useApiResource.js";
+import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
+import { RichDescription } from "./description/RichDescription.js";
 import { useState } from "react";
 import { reopenWarningText, reopensOnReceiving } from "./reopen.js";
 import type { CreateRequest } from "./TicketPage.js";
@@ -24,6 +27,9 @@ export function CreateTicket({ client, project, request, onChanged, onCreated, o
   const [title, setTitle] = useState(request.draft?.title ?? "");
   const [description, setDescription] = useState(request.draft?.description ?? "");
   const action = useAction();
+  // Para as menções e o "@" da descrição; se a lista não chega, a chave fica como texto.
+  const list = useApiResource(() => safe(() => client.listTickets(request.projectId)));
+  const tickets = list.state.status === "ready" ? list.state.data : null;
   const heading = useRef<HTMLHeadingElement>(null);
   const trimmed = title.trim();
   const isChild = request.parentId !== null;
@@ -51,10 +57,19 @@ export function CreateTicket({ client, project, request, onChanged, onCreated, o
             {t("create.title")}
             <input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} />
           </label>
-          <label>
-            {t("create.description")}
-            <textarea rows={6} value={description} onChange={(event) => setDescription(event.target.value)} />
-          </label>
+          <div className="ticket-form-field">
+            <span id="create-description-label">{t("create.description")}</span>
+            <RichDescription
+              className="is-field"
+              value={request.draft?.description ?? ""}
+              editing
+              canEdit
+              label={t("create.description")}
+              placeholder=""
+              mentions={tickets ? { projectId: request.projectId, tickets } : undefined}
+              onChange={setDescription}
+            />
+          </div>
           {action.error && <p role="alert">{describeError(action.error)}</p>}
           <div className="ticket-actions">
             <button type="submit" className="primary" disabled={trimmed === "" || action.busy}>{t("create.submit")}</button>

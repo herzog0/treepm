@@ -9,6 +9,7 @@ import { StatusMark } from "../map/StatusMark.js";
 import { OptionMenu } from "./menu.js";
 import { useAction } from "../panel/useAction.js";
 import { isOpenStatus, reopenedNoticeText, reopensOnReceiving } from "./reopen.js";
+import { RichDescription } from "./description/RichDescription.js";
 import { descendantIds } from "./tree.js";
 
 const STATUSES: readonly TicketStatus[] = ["todo", "in_progress", "in_review", "done", "cancelled"];
@@ -35,8 +36,8 @@ interface FieldBase {
   onSaved: () => void;
 }
 
-/** Edita um campo de texto com "Salvar" e "Cancelar"; só envia o que mudou. */
-function useTextEdit(client: ApiClient, detail: TicketDetail, field: "title" | "description", onSaved: () => void) {
+/** Edita o título com "Salvar" e "Cancelar"; só envia o que mudou. */
+function useTextEdit(client: ApiClient, detail: TicketDetail, field: "title", onSaved: () => void) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const action = useAction();
@@ -56,8 +57,8 @@ function useTextEdit(client: ApiClient, detail: TicketDetail, field: "title" | "
     action.clear();
     setEditing(false);
   };
-  const value = field === "title" ? draft.trim() : draft;
-  const canSave = !action.busy && value !== detail[field] && (field === "description" || value !== "");
+  const value = draft.trim();
+  const canSave = !action.busy && value !== detail[field] && value !== "";
   const save = async () => {
     if (!canSave) return;
     const body: UpdateTicketBody = { [field]: value };
@@ -99,26 +100,110 @@ export const TitleField = forwardRef<HTMLHeadingElement, FieldBase & { canEdit: 
   );
 });
 
-export function DescriptionField({ client, detail, canEdit, onSaved }: FieldBase & { canEdit: boolean }) {
+interface DescriptionProps extends FieldBase {
+  canEdit: boolean;
+  /** Tickets do projeto: as chaves no texto viram menções e o "@" os lista. */
+  tickets: readonly TicketSummary[];
+  onOpenTicket: (id: string) => void;
+}
+
+type SaveState = "idle" | "saving" | "saved";
+
+/**
+ * Descrição do ticket (ADR 0036): o texto é o próprio campo. Clicar nele edita; sair do campo ou Ctrl+Enter salva; Esc desfaz.
+ * A API só é chamada se o texto mudou, e quem só lê não edita.
+ */
+export function DescriptionField({ client, detail, canEdit, tickets, onOpenTicket, onSaved }: DescriptionProps) {
   const { t } = useTranslation("ticket");
-  const edit = useTextEdit(client, detail, "description", onSaved);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(detail.description);
+  const [state, setState] = useState<SaveState>("idle");
+  // Depois de salvar, o texto novo vale até a recarga do ticket trazê-lo (o editor não volta ao texto antigo no intervalo).
+  const [saved, setSaved] = useState<{ from: string; text: string } | null>(null);
+  // Uma tarefa que não salvou: o editor recomeça do texto guardado.
+  const [revision, setRevision] = useState(0);
+  const action = useAction();
+  const busy = useRef(false);
+  const value = saved && saved.from === detail.description ? saved.text : detail.description;
+
+  useEffect(() => {
+    if (state !== "saved") return;
+    const timer = setTimeout(() => setState("idle"), 2500);
+    return () => clearTimeout(timer);
+  }, [state]);
+
+  const commit = async (text: string): Promise<boolean> => {
+    if (text === value) return true;
+    if (busy.current) return false;
+    busy.current = true;
+    setState("saving");
+    const result = await action.run(() => client.updateTicket(detail.id, { description: text }));
+    busy.current = false;
+    if (!result.ok) {
+      setState("idle");
+      return false;
+    }
+    setSaved({ from: detail.description, text });
+    setState("saved");
+    onSaved();
+    return true;
+  };
+
+  const startEditing = () => {
+    action.clear();
+    setDraft(value);
+    setEditing(true);
+  };
+  const leave = async () => {
+    if (await commit(draft)) setEditing(false);
+  };
+  const cancel = () => {
+    action.clear();
+    setDraft(value);
+    setEditing(false);
+  };
+  const toggleTask = async (text: string) => {
+    if (!(await commit(text))) setRevision((current) => current + 1);
+  };
+  const openMention = async (id: string) => {
+    if (editing && !(await commit(draft))) return;
+    onOpenTicket(id);
+  };
+
+  const empty = value.trim() === "";
   return (
     <section className="ticket-section" aria-labelledby="ticket-description-heading">
       <div className="ticket-section-head">
         <h2 id="ticket-description-heading">{t("description.heading")}</h2>
-        {canEdit && !edit.editing && <button ref={edit.startButton} type="button" className="text" onClick={edit.start}>{t("description.edit")}</button>}
+        <span aria-live="polite" aria-atomic="true" className="description-head-state">{state === "saving" ? t("description.saving") : state === "saved" ? t("description.saved") : ""}</span>
       </div>
-      {edit.editing ? (
-        <div className="ticket-edit" onKeyDown={cancelOnEscape(edit.cancel)}>
-          <textarea aria-label={t("description.heading")} rows={8} autoFocus value={edit.draft} onChange={(event) => edit.setDraft(event.target.value)} />
-          <EditActions canSave={edit.canSave} onSave={() => void edit.save()} onCancel={edit.cancel} />
-          <ActionError action={edit.action} />
-        </div>
-      ) : detail.description.trim() === "" ? (
-        <p className="ticket-muted">{t("description.empty")}</p>
+      {empty && !editing ? (
+        canEdit ? (
+          <button type="button" className="description-invite" onClick={startEditing}>{t("description.placeholder")}</button>
+        ) : (
+          <p className="ticket-muted">{t("description.empty")}</p>
+        )
       ) : (
-        <p className="ticket-description">{detail.description}</p>
+        <RichDescription
+          key={revision}
+          value={value}
+          editing={editing}
+          canEdit={canEdit}
+          label={t("description.heading")}
+          placeholder={t("description.placeholder")}
+          mentions={{ projectId: detail.projectId, tickets, ownId: detail.id }}
+          onChange={setDraft}
+          autoFocus
+          onRequestEdit={startEditing}
+          onLeave={() => void leave()}
+          onSubmit={() => void leave()}
+          onCancel={cancel}
+          onToggleTask={(text) => void toggleTask(text)}
+          onOpenMention={(id) => void openMention(id)}
+        />
       )}
+      {canEdit && !editing && !empty && <p className="description-hint">{t("description.hint")}</p>}
+      <ActionError action={action} />
     </section>
   );
 }

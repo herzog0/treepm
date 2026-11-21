@@ -7,7 +7,8 @@ export interface Progress {
   readonly excluded: number;
 }
 
-const FILL: Record<TicketStatus, number> = { todo: 0, in_progress: 0.5, in_review: 0.75, done: 1, cancelled: 0 };
+/** Quanto o quadrado se enche, por situação (também usado fora do React, nas menções da descrição). */
+export const FILL: Record<TicketStatus, number> = { todo: 0, in_progress: 0.5, in_review: 0.75, done: 1, cancelled: 0 };
 
 /** Proporção de folhas concluídas sobre a base, entre 0 e 1. */
 export function progressFraction({ done, total }: Progress): number {

@@ -93,6 +93,9 @@
 .ticket-form { gap: 4px; margin-top: 18px; }
 .ticket-form label { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 12px; align-items: start; padding: 2px 0; color: var(--tp-text-3); font-size: 12.5px; }
 .ticket-form label > :first-child { padding-top: 6px; }
+.ticket-form-field { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 12px; align-items: start; padding: 2px 0; color: var(--tp-text-3); font-size: 12.5px; }
+.ticket-form-field > span { padding-top: 6px; }
+.ticket-form-field .description { margin-top: 0; color: var(--tp-text); }
 .ticket-form .ticket-actions, .ticket-form > [role="alert"] { margin-left: 130px; }
 .ticket-page textarea { padding: 8px 10px; line-height: 1.5; resize: vertical; }
 .ticket-actions { display: flex; flex-wrap: wrap; gap: 8px; }

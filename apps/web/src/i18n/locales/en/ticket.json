@@ -40,8 +40,12 @@
   },
   "description": {
     "heading": "Description",
-    "edit": "Edit description",
-    "empty": "No description."
+    "empty": "No description.",
+    "placeholder": "Click to write the description.",
+    "hint": "Click the text to edit. Type / for blocks and @ to mention a ticket.",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "task": "Task: {{text}}"
   },
   "status": {
     "group": "Status",
@@ -87,5 +91,21 @@
   },
   "remove": {
     "label": "Remove ticket"
+  },
+  "blocks": {
+    "label": "Blocks",
+    "text": "Text",
+    "heading": "Heading",
+    "bulletList": "List",
+    "taskList": "Task list",
+    "quote": "Quote",
+    "code": "Code",
+    "mention": "Mention ticket",
+    "empty": "No block matches."
+  },
+  "mention": {
+    "label": "Mention ticket",
+    "footer": "Enter inserts · Esc closes",
+    "empty": "No ticket found."
   }
 }

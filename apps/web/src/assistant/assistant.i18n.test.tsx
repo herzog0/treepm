@@ -169,7 +169,7 @@ describe.each(["en", "es-MX"] as const)("assistant panel in %s", (language) => {
     const draft = screen.getByRole("region", { name: text.draftRegion });
     expect(within(draft).getByRole("heading", { name: text.draft })).toBeInTheDocument();
     expect(within(draft).getByRole("textbox", { name: text.titleField })).toHaveValue("Corrigir o login");
-    expect(within(draft).getByRole("textbox", { name: text.description })).toHaveValue("O login falha no Safari.");
+    expect(within(draft).getByRole("textbox", { name: text.description })).toHaveTextContent("O login falha no Safari.");
     expect(screen.getByRole("button", { name: text.find })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: text.newConversation })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: text.deleteConversation })).toBeInTheDocument();
