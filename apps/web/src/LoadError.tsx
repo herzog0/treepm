@@ -1,19 +1,22 @@
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import type { ApiError } from "./api/client.js";
 import { describeApiError } from "./api/client.js";
 
 /** `forbidden` e `unauthenticated` aqui são falta de acesso à API; o resto é indisponibilidade. */
-export function loadErrorText(error: ApiError): string {
-  if (error.kind === "forbidden" || error.kind === "unauthenticated") return "Sessão sem acesso à API.";
-  if (error.kind === "unavailable") return "API indisponível.";
+export function loadErrorText(error: ApiError, t: TFunction): string {
+  if (error.kind === "forbidden" || error.kind === "unauthenticated") return t("loadError.noAccess");
+  if (error.kind === "unavailable") return t("loadError.unavailable");
   return describeApiError(error);
 }
 
 export function LoadError({ error, onRetry }: { error: ApiError; onRetry: () => void }) {
+  const { t } = useTranslation();
   return (
     <div className="load-error" role="alert">
-      <p>{loadErrorText(error)}</p>
+      <p>{loadErrorText(error, t)}</p>
       <button type="button" onClick={onRetry}>
-        Tentar novamente
+        {t("loadError.retry")}
       </button>
     </div>
   );

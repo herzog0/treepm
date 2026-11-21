@@ -1,0 +1,42 @@
+{
+  "title": "Teams",
+  "hint": "To invite new people to the organization, use the organization menu in the header.",
+  "list": {
+    "title": "Organization teams",
+    "loading": "Loading teams…",
+    "empty": "No teams yet.",
+    "pick": "Choose a team to see its members.",
+    "members_one": "{{count}} member",
+    "members_other": "{{count}} members"
+  },
+  "create": {
+    "label": "New team name",
+    "submit": "Create team"
+  },
+  "detail": {
+    "region": "Team {{name}}",
+    "roleAdmin": "Team administrator",
+    "roleMember": "Member",
+    "members": "Members",
+    "loadingPeople": "Loading people…",
+    "rename": {
+      "label": "Team name",
+      "submit": "Rename"
+    },
+    "remove": {
+      "confirmLabel": "Confirm team removal",
+      "confirm": "Confirm",
+      "cancel": "Cancel",
+      "action": "Remove team"
+    },
+    "noMembers": "This team has no members yet.",
+    "roleOf": "Role of {{name}}",
+    "confirmRemoveMember": "Confirm removal of {{name}}",
+    "removeMemberLabel": "Remove {{name}}",
+    "everyoneIn": "All active people in the organization are already on this team.",
+    "personToAdd": "Person to add",
+    "roleToAdd": "Role of the person to add",
+    "pickPerson": "Choose a person",
+    "add": "Add"
+  }
+}

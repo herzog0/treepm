@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
+import i18n from "./i18n/index.js";
 
 // jsdom não faz layout: o mapa precisa de um palco com tamanho para montar a cena.
 class FakeResizeObserver {
@@ -12,7 +13,10 @@ class FakeResizeObserver {
   disconnect() {}
 }
 
-beforeEach(() => {
+// Os testes existentes conferem o texto em português: a interface começa sempre em pt-BR.
+// Para outro idioma, `setTestLanguage` em `test/i18n.ts`.
+beforeEach(async () => {
+  await i18n.changeLanguage("pt-BR");
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: false,

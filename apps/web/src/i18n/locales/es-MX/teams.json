@@ -1,0 +1,43 @@
+{
+  "title": "Equipos",
+  "hint": "Para invitar a personas nuevas a la organización, usa el menú de la organización, en el encabezado.",
+  "list": {
+    "title": "Equipos de la organización",
+    "loading": "Cargando equipos…",
+    "empty": "Aún no hay equipos.",
+    "pick": "Elige un equipo para ver sus miembros.",
+    "members_one": "{{count}} miembro",
+    "members_many": "{{count}} miembros",
+    "members_other": "{{count}} miembros"
+  },
+  "create": {
+    "label": "Nombre del nuevo equipo",
+    "submit": "Crear equipo"
+  },
+  "detail": {
+    "region": "Equipo {{name}}",
+    "roleAdmin": "Administrador del equipo",
+    "roleMember": "Miembro",
+    "members": "Miembros",
+    "loadingPeople": "Cargando personas…",
+    "rename": {
+      "label": "Nombre del equipo",
+      "submit": "Renombrar"
+    },
+    "remove": {
+      "confirmLabel": "Confirmar eliminación del equipo",
+      "confirm": "Confirmar",
+      "cancel": "Cancelar",
+      "action": "Eliminar equipo"
+    },
+    "noMembers": "Este equipo aún no tiene miembros.",
+    "roleOf": "Rol de {{name}}",
+    "confirmRemoveMember": "Confirmar eliminación de {{name}}",
+    "removeMemberLabel": "Quitar a {{name}}",
+    "everyoneIn": "Todas las personas activas de la organización ya están en este equipo.",
+    "personToAdd": "Persona por agregar",
+    "roleToAdd": "Rol de la persona por agregar",
+    "pickPerson": "Elige una persona",
+    "add": "Agregar"
+  }
+}

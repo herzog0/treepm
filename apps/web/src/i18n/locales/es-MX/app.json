@@ -1,0 +1,24 @@
+{
+  "brand": "TreePM",
+  "loading": {
+    "app": "Cargando TreePM…",
+    "organization": "Cargando organización…"
+  },
+  "config": {
+    "title": "Configuración de TreePM",
+    "hint": "Define <code>VITE_CLERK_PUBLISHABLE_KEY</code> en <code>apps/web/.env.local</code>.",
+    "openDemo": "Abrir la demostración"
+  },
+  "chooseOrganization": "Elige o crea una organización",
+  "loadError": {
+    "noAccess": "La sesión no tiene acceso a la API.",
+    "unavailable": "API no disponible.",
+    "retry": "Intentar de nuevo"
+  },
+  "meIndicator": {
+    "admin": "Administrador",
+    "member": "Miembro",
+    "unavailable": "API no disponible",
+    "noAccess": "La sesión no tiene acceso a la API"
+  }
+}

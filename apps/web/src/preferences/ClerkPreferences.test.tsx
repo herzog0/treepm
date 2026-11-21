@@ -11,7 +11,7 @@ function Probe() {
   return (
     <>
       <output>{preferences.camera.onTicketClose}</output>
-      <button onClick={() => void save({ camera: { onTicketClose: "restore" } }).then((result) => (document.title = result.ok ? "ok" : "falhou"))}>salvar</button>
+      <button onClick={() => void save({ camera: { onTicketClose: "restore" }, language: "auto" }).then((result) => (document.title = result.ok ? "ok" : "falhou"))}>salvar</button>
     </>
   );
 }
@@ -41,7 +41,7 @@ describe("ClerkPreferencesProvider", () => {
     renderProbe();
     screen.getByRole("button", { name: "salvar" }).click();
     await waitFor(() => expect(document.title).toBe("ok"));
-    expect(updateMetadata).toHaveBeenCalledWith({ unsafeMetadata: { tema: "x", treepm: { outra: 2, preferences: { v: 1, camera: { onTicketClose: "restore" } } } } });
+    expect(updateMetadata).toHaveBeenCalledWith({ unsafeMetadata: { tema: "x", treepm: { outra: 2, preferences: { v: 1, camera: { onTicketClose: "restore" }, language: "auto" } } } });
   });
 
   it("reports a failed save and keeps the previous value", async () => {

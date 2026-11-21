@@ -1,4 +1,5 @@
 import { useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { createApiClient } from "./api/client.js";
 import { useApiResource } from "./api/useApiResource.js";
 import { LoadError } from "./LoadError.js";
@@ -23,6 +24,7 @@ export interface WorkspaceProps {
 }
 
 function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, onOpenTicket, getToken, fetch: fetchImpl }: Omit<WorkspaceProps, "orgId">) {
+  const { t } = useTranslation();
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
   const client = useMemo(
@@ -33,7 +35,7 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
 
   // As configurações são da pessoa, não da organização: não esperam a API.
   if (view === "settings") return <main className="tenant-settings"><SettingsScreen client={client} me={state.status === "ready" ? state.data : null} /></main>;
-  if (state.status === "loading") return <p className="map-state" role="status">Carregando organização…</p>;
+  if (state.status === "loading") return <p className="map-state" role="status">{t("loading.organization")}</p>;
   if (state.status === "error") {
     return (
       <div className="map-state">
