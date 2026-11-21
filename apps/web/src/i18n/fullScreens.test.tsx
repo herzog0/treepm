@@ -132,6 +132,16 @@ describe.each(["en", "es-MX"] as const)("full screens in %s", (language) => {
     expectNoPortuguese("map + side panel");
   });
 
+  it("map with the request bar and its results sheet", async () => {
+    await setTestLanguage(language);
+    const { container } = render(<OrganizationMap client={appClient()} me={admin()} />);
+    const field = await screen.findByRole("combobox", { name: resources[language].command.bar.input });
+    await userEvent.click(field);
+    await userEvent.type(field, "Login");
+    await screen.findByRole("listbox", { name: resources[language].command.sheet.label });
+    expectNoPortuguese("map + request bar", container);
+  });
+
   it("ticket page with items, summary and code", async () => {
     await setTestLanguage(language);
     const handlers = { onOpenTicket: vi.fn(), onClose: vi.fn(), onChanged: vi.fn(), onRemoved: vi.fn(), onStartCreate: vi.fn(), onCancelCreate: vi.fn(), onCreated: vi.fn() };

@@ -6,6 +6,7 @@
 import enApi from "./locales/en/api.json";
 import enApp from "./locales/en/app.json";
 import enAssistant from "./locales/en/assistant.json";
+import enCommand from "./locales/en/command.json";
 import enDemo from "./locales/en/demo.json";
 import enGithub from "./locales/en/github.json";
 import enImport from "./locales/en/import.json";
@@ -19,6 +20,7 @@ import enTickets from "./locales/en/tickets.json";
 import esApi from "./locales/es-MX/api.json";
 import esApp from "./locales/es-MX/app.json";
 import esAssistant from "./locales/es-MX/assistant.json";
+import esCommand from "./locales/es-MX/command.json";
 import esDemo from "./locales/es-MX/demo.json";
 import esGithub from "./locales/es-MX/github.json";
 import esImport from "./locales/es-MX/import.json";
@@ -32,6 +34,7 @@ import esTickets from "./locales/es-MX/tickets.json";
 import ptApi from "./locales/pt-BR/api.json";
 import ptApp from "./locales/pt-BR/app.json";
 import ptAssistant from "./locales/pt-BR/assistant.json";
+import ptCommand from "./locales/pt-BR/command.json";
 import ptDemo from "./locales/pt-BR/demo.json";
 import ptGithub from "./locales/pt-BR/github.json";
 import ptImport from "./locales/pt-BR/import.json";
@@ -44,9 +47,9 @@ import ptTicket from "./locales/pt-BR/ticket.json";
 import ptTickets from "./locales/pt-BR/tickets.json";
 
 export const resources = {
-  "pt-BR": { api: ptApi, app: ptApp, assistant: ptAssistant, demo: ptDemo, github: ptGithub, import: ptImport, map: ptMap, nav: ptNav, panel: ptPanel, settings: ptSettings, teams: ptTeams, ticket: ptTicket, tickets: ptTickets },
-  en: { api: enApi, app: enApp, assistant: enAssistant, demo: enDemo, github: enGithub, import: enImport, map: enMap, nav: enNav, panel: enPanel, settings: enSettings, teams: enTeams, ticket: enTicket, tickets: enTickets },
-  "es-MX": { api: esApi, app: esApp, assistant: esAssistant, demo: esDemo, github: esGithub, import: esImport, map: esMap, nav: esNav, panel: esPanel, settings: esSettings, teams: esTeams, ticket: esTicket, tickets: esTickets },
+  "pt-BR": { api: ptApi, app: ptApp, assistant: ptAssistant, command: ptCommand, demo: ptDemo, github: ptGithub, import: ptImport, map: ptMap, nav: ptNav, panel: ptPanel, settings: ptSettings, teams: ptTeams, ticket: ptTicket, tickets: ptTickets },
+  en: { api: enApi, app: enApp, assistant: enAssistant, command: enCommand, demo: enDemo, github: enGithub, import: enImport, map: enMap, nav: enNav, panel: enPanel, settings: enSettings, teams: enTeams, ticket: enTicket, tickets: enTickets },
+  "es-MX": { api: esApi, app: esApp, assistant: esAssistant, command: esCommand, demo: esDemo, github: esGithub, import: esImport, map: esMap, nav: esNav, panel: esPanel, settings: esSettings, teams: esTeams, ticket: esTicket, tickets: esTickets },
 };
 
 export type Resources = (typeof resources)["pt-BR"];
