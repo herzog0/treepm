@@ -1,6 +1,6 @@
 # ADR 0032 — Ligação com repositórios de código: GitHub primeiro
 
-**Status:** Aceita por Teodoro em 2026-11-21 (ver "Decisões de Teodoro"). O GitHub App de desenvolvimento existe desde 2026-11-21; a primeira fatia ainda não foi implementada. **Data:** 2026-11-20.
+**Status:** Aceita por Teodoro em 2026-11-21 (ver "Decisões de Teodoro"). A primeira fatia está implementada (PRs #67 e #70, 2026-11-21): migration `0007_github` aplicada no banco de desenvolvimento, e a autenticação real como o app `treepm-dev` foi conferida pelo script `github:check`. **Ainda sem teste com navegador e sessão real**: o fluxo de conexão e a sincronização só rodaram contra um GitHub falso. **Data:** 2026-11-20.
 
 ## Contexto
 
@@ -119,3 +119,11 @@ Resposta dele às três decisões que esta ADR deixava abertas: "segue as suas r
 1. **Criar o GitHub App:** criado pela coordenação operacional em 2026-11-21: `TreePM (dev)`, slug `treepm-dev`, App ID 5858226, só na conta `herzog0`, com Contents: read, Pull requests: read e a Metadata: read imposta, webhook desativado, Callback URL `http://localhost:5173/github/callback` e autorização do usuário na instalação. Não foi instalado em repositório nenhum. As cinco variáveis (`GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY`, esta em PEM PKCS#1 de várias linhas) estão no arquivo de variáveis locais da API.
 2. **Primeira fatia:** confirmada como descrita (rastreio pela chave no nome do branch e no título do PR, seção "Código", só leitura).
 3. **A IA lendo código:** autorizada só para a Anthropic e só depois do aceite do usuário, como descrito em "Segunda fatia".
+
+## Limites conhecidos da implementação (2026-11-21)
+
+- Conta de organização do GitHub é recusada na conexão (ver "Como a conexão é conferida").
+- A sincronização lê no máximo 1.000 branches e os 500 pull requests criados mais recentemente por repositório. Um repositório com exatamente esses números aparece como "truncado" por engano.
+- Um branch que já existia e cita um ticket criado depois só aparece quando a lista do GitHub mudar, porque uma consulta sem mudança não reavalia os vínculos.
+- Não está documentado se o cabeçalho de paginação vem em respostas `304`, nem se o ETag continua valendo quando o token de instalação muda; o código trata os dois casos, mas isso só se confirma em uso real.
+- A corrida entre duas organizações conectando a mesma instalação ao mesmo tempo só foi testada em sequência.
