@@ -1,4 +1,8 @@
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import type { ImportItem, TicketStatus } from "../api/client.js";
+import { formatNumber } from "../i18n/format.js";
+import type { Language } from "../i18n/languages.js";
 
 /** Limites da importação (ADR 0024). */
 const MAX_ITEMS = 500;
@@ -146,6 +150,7 @@ export function parseTicketList(text: string): ParseTicketListResult {
   return { ok: true, items, warnings };
 }
 
+// i18n: substituída por `ticketListIssueText` / `useTicketListIssueText`; removida na limpeza final (ainda usada por import/ImportScreen)
 const MESSAGE_BY_CODE: Record<string, string> = {
   text_before_first_item: "Há texto antes do primeiro item. Comece a lista com “- ” ou “* ”.",
   stray_line: "Esta linha não é um item e não está recuada sob o item anterior, então não pertence a nenhuma descrição.",
@@ -158,7 +163,27 @@ const MESSAGE_BY_CODE: Record<string, string> = {
   marker_on_parent: "O marcador deste item não aparece: ticket com filhos não tem situação própria, e o progresso vem dos filhos.",
 };
 
+// i18n: substituída por `ticketListIssueText`; removida na limpeza final
 /** Traduz um erro ou aviso do interpretador em mensagem para a pessoa que colou a lista. */
 export function describeTicketListIssue({ line, code }: TicketListIssue): string {
   return `Linha ${line}: ${MESSAGE_BY_CODE[code] ?? "a lista não pôde ser interpretada."}`;
+}
+
+const KNOWN_CODES = ["text_before_first_item", "stray_line", "empty_title", "title_too_long", "description_too_long", "too_many_items", "depth_too_deep", "empty_list", "marker_on_parent"] as const;
+type KnownCode = (typeof KNOWN_CODES)[number];
+const isKnownCode = (code: string): code is KnownCode => (KNOWN_CODES as readonly string[]).includes(code);
+
+/** Os limites que entram nas frases: o número vai formatado no idioma ativo (20.000 · 20,000). */
+const limitOf = (code: KnownCode): number => (code === "title_too_long" ? MAX_TITLE : code === "description_too_long" ? MAX_DESCRIPTION : code === "too_many_items" ? MAX_ITEMS : MAX_DEPTH);
+
+/** Mensagem de um erro ou aviso do interpretador no idioma ativo (catálogo `tickets`). */
+export function ticketListIssueText(t: TFunction<"tickets">, language: Language, { line, code }: TicketListIssue): string {
+  const message = isKnownCode(code) ? t(`issue.${code}`, { max: formatNumber(language, limitOf(code)) }) : t("unreadable");
+  return t("line", { line, message });
+}
+
+/** Em componente: devolve a função que descreve o problema no idioma ativo e acompanha a troca de idioma. */
+export function useTicketListIssueText(): (issue: TicketListIssue) => string {
+  const { t, i18n } = useTranslation("tickets");
+  return (issue) => ticketListIssueText(t, i18n.language as Language, issue);
 }

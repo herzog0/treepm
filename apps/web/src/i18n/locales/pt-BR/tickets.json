@@ -1,1 +1,15 @@
-{}
+{
+  "line": "Linha {{line}}: {{message}}",
+  "unreadable": "a lista não pôde ser interpretada.",
+  "issue": {
+    "text_before_first_item": "Há texto antes do primeiro item. Comece a lista com “- ” ou “* ”.",
+    "stray_line": "Esta linha não é um item e não está recuada sob o item anterior, então não pertence a nenhuma descrição.",
+    "empty_title": "O item está sem título.",
+    "title_too_long": "O título passa de {{max}} caracteres.",
+    "description_too_long": "A descrição passa de {{max}} caracteres.",
+    "too_many_items": "A lista passa de {{max}} itens. Importe em lotes menores.",
+    "depth_too_deep": "A lista passa de {{max}} níveis de profundidade.",
+    "empty_list": "Não há nenhum item na lista.",
+    "marker_on_parent": "O marcador deste item não aparece: ticket com filhos não tem situação própria, e o progresso vem dos filhos."
+  }
+}

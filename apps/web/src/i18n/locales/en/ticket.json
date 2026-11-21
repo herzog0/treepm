@@ -1,1 +1,84 @@
-{}
+{
+  "page": {
+    "label": "Ticket page",
+    "close": "Close and go back to the map",
+    "loading": "Loading ticket…"
+  },
+  "readOnly": {
+    "archived": "This project is archived: this page is read-only.",
+    "reader": "You have read-only access to this project."
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel"
+  },
+  "fields": {
+    "status": "Status",
+    "progress": "Progress",
+    "people": "People",
+    "parent": "Parent ticket"
+  },
+  "create": {
+    "heading": "New ticket",
+    "inside": "In {{project}}, inside the open ticket.",
+    "atRoot": "In {{project}}, at the project root.",
+    "title": "Title",
+    "description": "Description",
+    "submit": "Create",
+    "cancel": "Cancel"
+  },
+  "title": {
+    "label": "Title",
+    "edit": "Edit title"
+  },
+  "description": {
+    "heading": "Description",
+    "edit": "Edit description",
+    "empty": "No description."
+  },
+  "status": {
+    "group": "Status",
+    "openItem": "Finish or cancel the open item before finishing this ticket.",
+    "openItemsMany": "Finish or cancel the {{count}} open items before finishing this ticket."
+  },
+  "people": {
+    "nobody": "No one assigned",
+    "removed": "Removed person",
+    "remove": "Remove {{name}}",
+    "add": "Add",
+    "addLabel": "Add person",
+    "choose": "Choose a person"
+  },
+  "parent": {
+    "root": "Project root",
+    "change": "Change",
+    "pickerLabel": "Choose the parent ticket",
+    "filter": "Filter tickets"
+  },
+  "reopen": {
+    "warning": "“{{key}}” is done and goes back to \"To do\" when it receives this ticket.",
+    "notice": "“{{key}}” was done and went back to \"To do\"."
+  },
+  "summary": {
+    "heading": "What goes in here",
+    "edit": "Edit",
+    "write": "Write",
+    "refresh": "Update with AI",
+    "refreshConfirm": "The current text will be replaced by a new one, written from the current items.",
+    "hint": "The AI uses this text to decide whether a new ticket belongs to this ticket.",
+    "counter": "{{length}} of {{max}} characters",
+    "writtenByAssistant": "Written by the AI on {{date}}",
+    "editedByPerson": "Edited by a person on {{date}}",
+    "empty": "No text yet. The AI writes one on the first search that passes through here, or you can write one now.",
+    "writing": "Writing…",
+    "invalid": "The text must be between 1 and {{max}} characters."
+  },
+  "items": {
+    "heading": "Items",
+    "newHere": "New ticket inside",
+    "empty": "No tickets inside."
+  },
+  "remove": {
+    "label": "Remove ticket"
+  }
+}

@@ -1,1 +1,15 @@
-{}
+{
+  "line": "Line {{line}}: {{message}}",
+  "unreadable": "the list could not be interpreted.",
+  "issue": {
+    "text_before_first_item": "There is text before the first item. Start the list with “- ” or “* ”.",
+    "stray_line": "This line is not an item and is not indented under the previous item, so it does not belong to any description.",
+    "empty_title": "The item has no title.",
+    "title_too_long": "The title is longer than {{max}} characters.",
+    "description_too_long": "The description is longer than {{max}} characters.",
+    "too_many_items": "The list has more than {{max}} items. Import in smaller batches.",
+    "depth_too_deep": "The list is more than {{max}} levels deep.",
+    "empty_list": "There are no items in the list.",
+    "marker_on_parent": "This item's marker is not used: a ticket with items has no status of its own, and its progress comes from its items."
+  }
+}
