@@ -1,6 +1,6 @@
 # ADR 0024 — Tickets: primeiro recorte e importação por lista
 
-**Status:** Aceita. **Data:** 2026-11-19.
+**Status:** Aceita. **Data:** 2026-11-19. **A [ADR 0034](0034-um-so-tipo-de-ticket-das-folhas-para-o-topo.md), de 2026-11-21, muda um ponto:** o ticket com filhos passa a ter situação própria.
 
 ## Contexto
 

@@ -1,6 +1,6 @@
 # ADR 0031 — Agrupadores: tipo declarado, só agrupador tem filhos, e a procura desce por agrupadores
 
-**Status:** Aceita. A medição de antes e depois está registrada abaixo; o texto das perguntas da procura ficou como está. **Data:** 2026-11-20.
+**Status:** Aceita. A medição de antes e depois está registrada abaixo; o texto das perguntas da procura ficou como está. **Data:** 2026-11-20. **Substituída em parte pela [ADR 0034](0034-um-so-tipo-de-ticket-das-folhas-para-o-topo.md) em 2026-11-21:** o tipo declarado, a regra "só agrupador tem filhos" e as transformações entre tipos deixam de valer.
 
 ## Contexto
 

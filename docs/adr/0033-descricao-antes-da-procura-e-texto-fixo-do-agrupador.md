@@ -1,6 +1,6 @@
 # ADR 0033 — Descrição antes da procura e texto fixo do agrupador
 
-**Status:** Itens 1 e 2 aceitos por Teodoro em 2026-11-21 ("sim, pode.") e implementados no mesmo dia (PR #73, migration `0008_branch_summary_source` aplicada no banco de desenvolvimento). O item 3 (regra de "desce ou fica") continua sem decisão, e a regra atual fica como está. Ainda sem teste com sessão real. **Data:** 2026-11-21.
+**Status:** Itens 1 e 2 aceitos por Teodoro em 2026-11-21 ("sim, pode.") e implementados no mesmo dia (PR #73, migration `0008_branch_summary_source` aplicada no banco de desenvolvimento). O item 3 (regra de "desce ou fica") continua sem decisão, e a regra atual fica como está. Ainda sem teste com sessão real. **Data:** 2026-11-21. **A [ADR 0034](0034-um-so-tipo-de-ticket-das-folhas-para-o-topo.md) acaba com o tipo agrupador:** o texto "O que entra aqui" passa a valer para todo ticket que tem filhos.
 
 ## Contexto
 
