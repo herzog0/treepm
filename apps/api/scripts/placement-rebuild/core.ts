@@ -290,6 +290,9 @@ export const COMMANDS = [
   "archive-project",
   "leave-one-out",
   "collect",
+  "ticket-list",
+  "ticket-create",
+  "ticket-update",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -297,7 +300,8 @@ export type CliOptions = {
   org?: string;
   user?: string;
   project?: string;
-  dir: string;
+  /** Obrigatório em todos os comandos, menos nos de ticket (`ticket-*`) e no que a tabela `REQUIRED` dispensa. */
+  dir?: string;
   confirm?: string;
   limit?: number;
   key?: string;
@@ -327,6 +331,20 @@ export type CliOptions = {
   scopeCheck?: boolean;
   /** `leave-one-out`: importa o gabarito achatado (só tickets, todos na raiz) e mede a proposta de agrupador. */
   flat?: boolean;
+  /** `ticket-list`: imprime JSON em vez da árvore em texto. */
+  json?: boolean;
+  /** `ticket-create` e `ticket-update`: título do ticket. */
+  title?: string;
+  /** `ticket-create` e `ticket-update`: arquivo cujo conteúdo é a descrição. */
+  descriptionFile?: string;
+  /** `ticket-create` e `ticket-update`: número do ticket pai no projeto. */
+  parent?: number;
+  /** `ticket-create` e `ticket-update`: situação do ticket. */
+  status?: TicketStatus;
+  /** `ticket-update`: número do ticket a mudar. */
+  number?: number;
+  /** `ticket-update`: move o ticket para a raiz. */
+  root?: boolean;
   role?: string;
   retryDelaysMs?: number[];
   fake503First?: number;
@@ -352,7 +370,20 @@ const REQUIRED: Record<Command, readonly (keyof CliOptions)[]> = {
   "archive-project": [...APP_REQUIRED, "project"],
   "leave-one-out": [...APP_REQUIRED, "project"],
   collect: [...APP_REQUIRED, "project"],
+  "ticket-list": ["org", "user", "project"],
+  "ticket-create": ["org", "user", "project", "title"],
+  "ticket-update": ["org", "user", "project", "number"],
 };
+
+export const TICKET_COMMANDS: readonly Command[] = ["ticket-list", "ticket-create", "ticket-update"];
+export const TICKET_STATUSES: readonly TicketStatus[] = ["todo", "in_progress", "in_review", "done", "cancelled"];
+/** Opções de cada comando de ticket, além de `--org`, `--user` e `--project`. */
+const TICKET_OPTIONS: Record<string, readonly string[]> = {
+  "ticket-list": ["json"],
+  "ticket-create": ["title", "descriptionFile", "parent", "status"],
+  "ticket-update": ["number", "title", "descriptionFile", "parent", "status", "root"],
+};
+const TICKET_ONLY = ["json", "title", "descriptionFile", "parent", "status", "number", "root"] as const;
 
 const FLAGS: Record<string, keyof CliOptions> = {
   "--org": "org",
@@ -376,6 +407,13 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--phase-groups": "phaseGroups",
   "--scope-check": "scopeCheck",
   "--flat": "flat",
+  "--json": "json",
+  "--title": "title",
+  "--description-file": "descriptionFile",
+  "--parent": "parent",
+  "--status": "status",
+  "--number": "number",
+  "--root": "root",
   "--role": "role",
   "--retry-delays-ms": "retryDelaysMs",
   "--fake-503-first": "fake503First",
@@ -384,7 +422,10 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--loo-crash-after-draft": "looCrashAfterDraft",
 };
 
-const usage = `Comandos: ${COMMANDS.join(", ")}.`;
+const usage = `Comandos: ${COMMANDS.join(", ")}.
+  ticket-list    --org --user --project [--json]
+  ticket-create  --org --user --project --title <texto> [--description-file <caminho>] [--parent <número>] [--status <situação>]
+  ticket-update  --org --user --project --number <número> [--status <situação>] [--title <texto>] [--description-file <caminho>] [--parent <número> | --root]`;
 
 export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   const fail = (message: string): ParsedArgs => ({ ok: false, error: `${message}\n${usage}` });
@@ -397,7 +438,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     const flag = rest[i] as string;
     const key = FLAGS[flag];
     if (!key) return fail(`Opção desconhecida: ${flag}.`);
-    if (key === "fakeProviders" || key === "loo" || key === "collect" || key === "claudeOutline" || key === "scopeCheck" || key === "flat") {
+    if (key === "fakeProviders" || key === "loo" || key === "collect" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root") {
       options[key] = true;
       continue;
     }
@@ -416,6 +457,10 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     } else if (key === "limit" || key === "fake503First" || key === "fake503JudgeAt" || key === "looCrashAfterRemove" || key === "looCrashAfterDraft") {
       const parsed = Number(value);
       if (!Number.isInteger(parsed) || parsed < 0) return fail(`${flag} deve ser um número inteiro.`);
+      options[key] = parsed;
+    } else if (key === "parent" || key === "number") {
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed < 1) return fail(`${flag} deve ser o número de um ticket (inteiro maior que zero).`);
       options[key] = parsed;
     } else if (key === "retryDelaysMs") {
       const delays = value.split(",").map(Number);
@@ -448,6 +493,22 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   if (options["repeats"] !== undefined && command !== "collect") return fail("--repeats só existe no collect.");
   if (options["collect"] !== undefined && command !== "report") return fail("--collect só existe no report.");
   if (options["collect"] !== undefined && options["loo"] !== undefined) return fail("--collect não combina com --loo.");
+  const ticketOptions = TICKET_OPTIONS[command] ?? [];
+  for (const key of TICKET_ONLY) {
+    if (options[key] !== undefined && !ticketOptions.includes(key)) {
+      return fail(`--${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)} não existe no ${command}.`);
+    }
+  }
+  if (options["status"] !== undefined && !(TICKET_STATUSES as readonly string[]).includes(options["status"] as string)) {
+    return fail(`--status é uma de: ${TICKET_STATUSES.join(", ")}.`);
+  }
+  if (options["parent"] !== undefined && options["root"] !== undefined) return fail("--parent não combina com --root.");
+  if (command === "ticket-update" && options["number"] !== undefined) {
+    const changes = ["status", "title", "descriptionFile", "parent", "root"];
+    if (!changes.some((key) => options[key] !== undefined)) {
+      return fail("ticket-update pede ao menos um de --status, --title, --description-file, --parent ou --root.");
+    }
+  }
   const missing = REQUIRED[command as Command].filter((key) => options[key] === undefined);
   if (missing.length > 0) return fail(`Faltam opções para ${command}: ${missing.map((k) => `--${k}`).join(", ")}.`);
   return { ok: true, command: command as Command, options: options as CliOptions };

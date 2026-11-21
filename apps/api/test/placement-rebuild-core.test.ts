@@ -540,6 +540,52 @@ describe("parseCliArgs", () => {
   });
 });
 
+describe("parseCliArgs: comandos de ticket", () => {
+  const base = ["--org", "o", "--user", "u", "--project", "p"];
+  it("ticket-list, ticket-create e ticket-update não pedem --dir", () => {
+    expect(parseCliArgs(["ticket-list", ...base])).toMatchObject({ ok: true, command: "ticket-list" });
+    expect(parseCliArgs(["ticket-list", ...base, "--json"])).toMatchObject({ ok: true, options: { json: true } });
+    expect(parseCliArgs(["ticket-create", ...base, "--title", "T"])).toMatchObject({ ok: true, command: "ticket-create", options: { title: "T" } });
+    expect(parseCliArgs(["ticket-update", ...base, "--number", "3", "--status", "done"])).toMatchObject({ ok: true, options: { number: 3, status: "done" } });
+  });
+  it("exigem --org, --user e --project", () => {
+    for (const command of ["ticket-list", "ticket-create", "ticket-update"]) {
+      const parsed = parseCliArgs([command, "--org", "o", "--title", "T", "--number", "1", "--status", "done"]);
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.error).toMatch(/--user.*--project/);
+    }
+  });
+  it("ticket-create exige --title; ticket-update exige --number e ao menos um campo", () => {
+    expect(parseCliArgs(["ticket-create", ...base]).ok).toBe(false);
+    expect(parseCliArgs(["ticket-update", ...base, "--status", "done"]).ok).toBe(false);
+    const none = parseCliArgs(["ticket-update", ...base, "--number", "1"]);
+    expect(none.ok).toBe(false);
+    if (!none.ok) expect(none.error).toMatch(/ao menos um/i);
+  });
+  it("--parent junto com --root é inválido; números e situações são validados", () => {
+    const both = parseCliArgs(["ticket-update", ...base, "--number", "1", "--parent", "2", "--root"]);
+    expect(both.ok).toBe(false);
+    if (!both.ok) expect(both.error).toMatch(/--parent.*--root/);
+    expect(parseCliArgs(["ticket-update", ...base, "--number", "1", "--root"])).toMatchObject({ ok: true, options: { root: true } });
+    expect(parseCliArgs(["ticket-update", ...base, "--number", "x", "--root"]).ok).toBe(false);
+    expect(parseCliArgs(["ticket-update", ...base, "--number", "0", "--root"]).ok).toBe(false);
+    expect(parseCliArgs(["ticket-create", ...base, "--title", "T", "--parent", "-1"]).ok).toBe(false);
+    expect(parseCliArgs(["ticket-create", ...base, "--title", "T", "--status", "feito"]).ok).toBe(false);
+  });
+  it("as opções de ticket só existem nos comandos de ticket", () => {
+    expect(parseCliArgs(["export", "--org", "o", "--user", "u", "--project", "p", "--dir", "d", "--title", "T"]).ok).toBe(false);
+    expect(parseCliArgs(["ticket-list", ...base, "--title", "T"]).ok).toBe(false);
+    expect(parseCliArgs(["ticket-create", ...base, "--title", "T", "--number", "1"]).ok).toBe(false);
+    expect(parseCliArgs(["ticket-create", ...base, "--title", "T", "--root"]).ok).toBe(false);
+    expect(parseCliArgs(["ticket-list", ...base, "--json"]).ok).toBe(true);
+    expect(parseCliArgs(["ticket-create", ...base, "--title", "T", "--json"]).ok).toBe(false);
+  });
+  it("a lista de comandos do erro inclui os de ticket", () => {
+    const parsed = parseCliArgs(["nada"]);
+    if (!parsed.ok) expect(parsed.error).toMatch(/ticket-list.*ticket-create.*ticket-update/s);
+  });
+});
+
 // ---- relatório -------------------------------------------------------------------------------------------------
 
 type RecordOverrides = Partial<RunRecord> & { oldId?: string };
