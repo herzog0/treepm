@@ -4,6 +4,7 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { toUpper } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
+import { stripMarkdown } from "../ticket/description/excerpt.js";
 import { useMapDetailData } from "./detail.js";
 import type { LeafStatusCounts } from "./detail.js";
 import type { MapNode } from "./items.js";
@@ -93,7 +94,7 @@ export function DetailCard({ node, childCount }: { node: MapNode; childCount: nu
   const ticket = node.ticket;
   const more = describeChildren(t, node, childCount);
   const breakdown = ticket ? describeLeaves(t, leaves.get(node.id)) : "";
-  const excerpt = ticket?.descriptionExcerpt ?? "";
+  const excerpt = stripMarkdown(ticket?.descriptionExcerpt ?? "");
   return (
     <span className="node-detail">
       <span className="node-detail-top">

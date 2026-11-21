@@ -17,6 +17,7 @@ import { PathCard } from "./PathCard.js";
 import { destinationUnder, oneLevelUp } from "./placement.js";
 import type { Destination } from "./placement.js";
 import type { MapPicker } from "./types.js";
+import { RichDescription } from "../ticket/description/RichDescription.js";
 import "./assistant.css";
 import { useDescribeApiError } from "../api/errorText.js";
 
@@ -466,10 +467,19 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 {t("draft.title")}
                 <input value={fields.title} onChange={(event) => setEdit({ ...fields, title: event.target.value })} />
               </label>
-              <label>
-                {t("draft.description")}
-                <textarea rows={6} value={fields.description} onChange={(event) => setEdit({ ...fields, description: event.target.value })} />
-              </label>
+              <div className="assistant-field">
+                <span>{t("draft.description")}</span>
+                <RichDescription
+                  className="is-field"
+                  value={fields.description}
+                  editing
+                  canEdit
+                  label={t("draft.description")}
+                  placeholder=""
+                  mentions={{ projectId: project.id, tickets: props.tickets[project.id] ?? [] }}
+                  onChange={(text) => setEdit({ ...fields, description: text })}
+                />
+              </div>
               {(save.error || search.error) && <p role="alert">{describeError((save.error ?? search.error)!)}</p>}
               {search.busy && <p role="status" className="assistant-hint">{t("draft.searching")}</p>}
               {!conversation!.ready && !outcome && <p className="assistant-hint assistant-not-ready">{t("draft.notReady")}</p>}

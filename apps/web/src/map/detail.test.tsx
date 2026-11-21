@@ -21,6 +21,7 @@ const tickets = [
   makeTicket("e", "alfa", 6, "Publicar", { parentId: "raiz", status: "todo" }),
   makeTicket("f", "alfa", 7, "Cancelado", { parentId: "raiz", status: "cancelled" }),
   makeTicket("vazio", "alfa", 9, "Fase 2", { descriptionExcerpt: "Segunda etapa da entrega." }),
+  makeTicket("marcado", "alfa", 10, "Com markdown", { descriptionExcerpt: "- **Trocar** o `texto` legal e [ver](https://x.com) em *duas* partes **cort" }),
   makeTicket("pai", "alfa", 10, "Pai aninhado", { status: "in_review", progress: { done: 0, total: 3, excluded: 0 } }),
   makeTicket("meio", "alfa", 11, "Meio", { parentId: "pai", status: "in_progress", progress: { done: 0, total: 1, excluded: 0 } }),
   makeTicket("neto", "alfa", 12, "Neto", { parentId: "meio", status: "todo" }),
@@ -124,6 +125,13 @@ describe("card em detalhe (ADR 0027)", () => {
     const { container } = render(ui("raiz", "full", 1));
     expect(container.querySelector(".node-detail")).toHaveTextContent("1 item");
     expect(container.querySelector(".node-detail")).not.toHaveTextContent("1 itens");
+  });
+
+  it("shows the excerpt without markdown signs (the API text stays as it is)", () => {
+    const { ui } = setup(4);
+    const { container } = render(ui("marcado"));
+    expect(container.querySelector(".node-detail-description")).toHaveTextContent("Trocar o texto legal e ver em duas partes cort");
+    expect(container.querySelector(".node-detail-description")?.textContent).not.toMatch(/[*`[\]]/);
   });
 
   it("omits the description block when the excerpt is empty", () => {

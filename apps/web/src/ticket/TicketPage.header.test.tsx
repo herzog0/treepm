@@ -282,7 +282,7 @@ describe("read-only", () => {
     expect(view.getByText("Em revisão")).toBeInTheDocument();
     expect(view.queryByRole("button", { name: "Em revisão" })).not.toBeInTheDocument();
     expect(page().querySelector("[aria-haspopup]")).toBeNull();
-    for (const name of ["Mais ações", "Adicionar", "Mudar", "Editar título", "Editar descrição", "Novo ticket aqui dentro"]) {
+    for (const name of ["Mais ações", "Adicionar", "Mudar", "Editar título", "Novo ticket aqui dentro"]) {
       expect(view.queryByRole("button", { name })).not.toBeInTheDocument();
     }
     expect(view.getByRole("button", { name: "Ver no mapa" })).toBeInTheDocument();

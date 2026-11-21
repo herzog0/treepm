@@ -53,7 +53,7 @@ describe.each([
   {
     language: "en" as const,
     page: "Ticket page", close: "Close and go back to the map", status: "Status", progress: "1 of 3 done · 1 canceled", chip: "In review", people: "People", parent: "Parent ticket", root: "Project root",
-    editTitle: "Edit title", editDescription: "Edit description", description: "Description", add: "Add", remove: "Remove Ana", summary: "What goes in here", summaryMeta: "Written by the AI on November 20, 2026",
+    editTitle: "Edit title", invite: "Click to write the description.", description: "Description", add: "Add", remove: "Remove Ana", summary: "What goes in here", summaryMeta: "Written by the AI on November 20, 2026",
     items: "Items", newHere: "New ticket inside", removeTicket: "Remove ticket", itemState: "To do", doneButton: "Done",
     openItems: "Finish or cancel the open item before finishing this ticket.",
     archived: "This project is archived: this page is read-only.", reader: "You have read-only access to this project.",
@@ -64,7 +64,7 @@ describe.each([
   {
     language: "es-MX" as const,
     page: "Página del ticket", close: "Cerrar y volver al mapa", status: "Estado", progress: "1 de 3 terminados · 1 cancelado", chip: "En revisión", people: "Personas", parent: "Ticket padre", root: "Raíz del proyecto",
-    editTitle: "Editar título", editDescription: "Editar descripción", description: "Descripción", add: "Agregar", remove: "Quitar a Ana", summary: "Qué entra aquí", summaryMeta: "Escrito por la IA el 20 de noviembre de 2026",
+    editTitle: "Editar título", invite: "Haz clic para escribir la descripción.", description: "Descripción", add: "Agregar", remove: "Quitar a Ana", summary: "Qué entra aquí", summaryMeta: "Escrito por la IA el 20 de noviembre de 2026",
     items: "Elementos", newHere: "Nuevo ticket aquí dentro", removeTicket: "Eliminar ticket", itemState: "Por hacer", doneButton: "Terminado",
     openItems: "Termina o cancela el elemento abierto antes de terminar este ticket.",
     archived: "Este proyecto está archivado: esta página es de solo lectura.", reader: "Tienes acceso de solo lectura a este proyecto.",
@@ -85,7 +85,7 @@ describe.each([
     expect(page).toHaveTextContent(expected.progress);
     expect(within(page).getByRole("button", { name: expected.chip })).toHaveAttribute("aria-haspopup", "menu");
     expect(within(page).getByRole("button", { name: expected.editTitle })).toBeInTheDocument();
-    expect(within(page).getByRole("button", { name: expected.editDescription })).toBeInTheDocument();
+    expect(within(page).getByRole("group", { name: expected.description })).toBeInTheDocument();
     expect(within(page).getByRole("heading", { level: 2, name: expected.description })).toBeInTheDocument();
     expect(within(page).getByRole("button", { name: expected.remove })).toBeInTheDocument();
     expect(within(page).getByRole("button", { name: expected.add })).toBeInTheDocument();
@@ -104,7 +104,7 @@ describe.each([
     const page = await screen.findByRole("complementary", { name: expected.page });
     await screen.findByRole("heading", { level: 1, name: "Fase vazia" });
     expect(page).toHaveTextContent(expected.empty);
-    expect(page).toHaveTextContent(expected.noDescription);
+    expect(within(page).getByRole("button", { name: expected.invite })).toBeInTheDocument();
     expect(within(page).queryByRole("region", { name: expected.summary })).not.toBeInTheDocument();
   });
 

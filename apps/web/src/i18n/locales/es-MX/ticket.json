@@ -40,8 +40,12 @@
   },
   "description": {
     "heading": "Descripción",
-    "edit": "Editar descripción",
-    "empty": "Sin descripción."
+    "empty": "Sin descripción.",
+    "placeholder": "Haz clic para escribir la descripción.",
+    "hint": "Haz clic en el texto para editar. Escribe / para bloques y @ para mencionar un ticket.",
+    "saving": "Guardando…",
+    "saved": "Guardado",
+    "task": "Tarea: {{text}}"
   },
   "status": {
     "group": "Estado",
@@ -87,5 +91,21 @@
   },
   "remove": {
     "label": "Eliminar ticket"
+  },
+  "blocks": {
+    "label": "Bloques",
+    "text": "Texto",
+    "heading": "Título",
+    "bulletList": "Lista",
+    "taskList": "Lista de tareas",
+    "quote": "Cita",
+    "code": "Código",
+    "mention": "Mencionar ticket",
+    "empty": "Ningún bloque coincide."
+  },
+  "mention": {
+    "label": "Mencionar ticket",
+    "footer": "Enter inserta · Esc cierra",
+    "empty": "No se encontró ningún ticket."
   }
 }

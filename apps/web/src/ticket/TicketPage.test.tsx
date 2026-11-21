@@ -287,30 +287,6 @@ describe("TicketPage editing", () => {
     expect(screen.getByRole("button", { name: "Salvar" })).toBeDisabled();
   });
 
-  it("cancels the edit with Esc without closing the page", async () => {
-    const { onClose } = setup({ client: clientWith() });
-    await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Editar descrição" }));
-    await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("textbox", { name: "Descrição" })).not.toBeInTheDocument();
-    expect(onClose).not.toHaveBeenCalled();
-    await userEvent.keyboard("{Escape}");
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("edits the description and shows the API error next to it", async () => {
-    const updateTicket = vi.fn().mockResolvedValueOnce(failed("not_found"));
-    setup({ client: clientWith({ updateTicket }) });
-    await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Editar descrição" }));
-    const field = screen.getByRole("textbox", { name: "Descrição" });
-    await userEvent.clear(field);
-    await userEvent.type(field, "Outro texto");
-    await userEvent.click(screen.getByRole("button", { name: "Salvar" }));
-    expect(updateTicket).toHaveBeenCalledWith("t2", { description: "Outro texto" });
-    expect(await screen.findByRole("alert")).toHaveTextContent("Não encontramos esse item");
-  });
-
   it("adds a person from the active ones not yet assigned and removes an assigned one", async () => {
     const client = clientWith();
     setup({ client });
@@ -456,9 +432,10 @@ describe("TicketPage permissions", () => {
     setup({ client: clientWith(), me: makePanelMe("member", [{ projectId: "p1", role: "reader" }]), ticketId: "t1" });
     await loaded();
     const view = within(page());
-    for (const name of ["Editar título", "Editar descrição", "Adicionar", "Mudar", "Novo ticket aqui dentro", "Remover ticket", "Em revisão", "Concluído"]) {
+    for (const name of ["Editar título", "Adicionar", "Mudar", "Novo ticket aqui dentro", "Remover ticket", "Em revisão", "Concluído"]) {
       expect(view.queryByRole("button", { name })).not.toBeInTheDocument();
     }
+    expect(view.queryByRole("group", { name: "Descrição" })).not.toBeInTheDocument();
     expect(view.getByText("Você tem acesso só de leitura a este projeto.")).toBeInTheDocument();
     expect(view.getByText("Planejar a fase")).toBeInTheDocument();
     expect(view.getByText("Em revisão")).toBeInTheDocument();
@@ -506,16 +483,15 @@ describe("TicketPage creation", () => {
     expect(onStartCreate).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t5", parent: { key: "ALFA-5", status: "todo" } });
   });
 
-  it("creates a ticket inside a ticket with a required title and optional description, then hands over the new ticket", async () => {
+  it("creates a ticket inside a ticket with a required title and no description (typing one is in the browser suite), then hands over the new ticket", async () => {
     const client = clientWith();
     const { onCreated, onChanged } = setup({ client, creating: { projectId: "p1", parentId: "t1" } });
     expect(await screen.findByRole("heading", { level: 1, name: "Novo ticket" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Título" })).toHaveFocus();
     expect(screen.getByRole("button", { name: "Criar" })).toBeDisabled();
     await userEvent.type(screen.getByRole("textbox", { name: "Título" }), "Escrever o rascunho");
-    await userEvent.type(screen.getByRole("textbox", { name: "Descrição" }), "Primeira versão");
     await userEvent.click(screen.getByRole("button", { name: "Criar" }));
-    expect(client.createTicket).toHaveBeenCalledWith("p1", { title: "Escrever o rascunho", description: "Primeira versão", parentId: "t1" });
+    expect(client.createTicket).toHaveBeenCalledWith("p1", { title: "Escrever o rascunho", parentId: "t1" });
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("t99"));
     expect(onChanged).toHaveBeenCalled();
   });

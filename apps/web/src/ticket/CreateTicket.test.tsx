@@ -12,14 +12,14 @@ describe("CreateTicket initial values", () => {
   it("opens with the draft title and description already filled in", () => {
     show({ projectId: "p1", parentId: null, draft: { title: "Corrigir o login", description: "Falha no Safari." } });
     expect(screen.getByRole("textbox", { name: "Título" })).toHaveValue("Corrigir o login");
-    expect(screen.getByRole("textbox", { name: "Descrição" })).toHaveValue("Falha no Safari.");
+    expect(screen.getByRole("textbox", { name: "Descrição" })).toHaveTextContent("Falha no Safari.");
     expect(screen.getByRole("button", { name: "Criar" })).toBeEnabled();
   });
 
   it("opens empty without a draft, as before", () => {
     show({ projectId: "p1", parentId: null });
     expect(screen.getByRole("textbox", { name: "Título" })).toHaveValue("");
-    expect(screen.getByRole("textbox", { name: "Descrição" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Descrição" })).toHaveTextContent("");
   });
 });
 

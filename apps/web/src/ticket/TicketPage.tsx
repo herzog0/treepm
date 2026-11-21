@@ -320,7 +320,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
               </dd>
             </div>
           </dl>
-          <DescriptionField client={client} detail={detail} canEdit={canEdit} onSaved={refresh} />
+          <DescriptionField client={client} detail={detail} canEdit={canEdit} tickets={list} onOpenTicket={onOpenTicket} onSaved={refresh} />
 
           {children.length > 0 && assistantEnabled(me) && <ItemsSummary client={client} ticketId={detail.id} canEdit={canEdit} />}
 

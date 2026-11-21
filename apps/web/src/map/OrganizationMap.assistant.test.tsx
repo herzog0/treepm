@@ -363,6 +363,6 @@ describe("creating", () => {
     await userEvent.type(await message(), "x{Enter}");
     await userEvent.click(await screen.findByRole("button", { name: "Criar manualmente" }));
     expect(await screen.findByRole("textbox", { name: "Título" })).toHaveValue("Corrigir o login");
-    expect(screen.getByRole("textbox", { name: "Descrição" })).toHaveValue("O login falha no Safari.");
+    expect(screen.getByRole("textbox", { name: "Descrição" })).toHaveTextContent("O login falha no Safari.");
   }, SLOW);
 });
