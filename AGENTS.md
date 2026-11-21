@@ -40,7 +40,7 @@
 
 - Node **22.23.1**, pnpm **10.25.0**, workspaces, ESM e TypeScript estrito. A demo usa React + Vite.
 - Imports relativos TypeScript/Node usam extensão `.js`. Use `import type` e tipos explícitos nas fronteiras públicas. Não acrescente bibliotecas sem necessidade e manifest correspondente.
-- `pnpm dev` acompanha engine e demo; o site usa a porta 5173. `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` e `git diff --check` são obrigatórios antes de concluir mudanças.
+- `pnpm dev` acompanha engine e demo; o site usa a porta 5173. `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` e `git diff --check` são obrigatórios antes de concluir mudanças. Mudanças em `apps/web` rodam também `pnpm --filter @treepm/web test:browser` (navegador real, sem janela; ADR 0036).
 - Testes automatizados são permanentes e vêm antes do código (TDD). Harnesses temporários no navegador continuam válidos para medir geometria, gestos, overlaps, console e viewport quando um teste automatizado não cobre o caso; remova esses artefatos de diagnóstico ao terminar.
 - Pare somente processos de teste iniciados por você. Não leia nem copie `.env` e não inclua segredos no Git.
 - Use Git para mudanças revisáveis e reversíveis. Na refatoração atual, o usuário autorizou uma branch, um checkpoint anterior à limpeza e um commit separado para a extração da engine. Não reescreva história e não inclua trabalho alheio em commits sem autorização; executores não fazem push.

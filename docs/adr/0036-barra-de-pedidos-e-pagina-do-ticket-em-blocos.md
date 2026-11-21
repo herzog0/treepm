@@ -1,6 +1,6 @@
 # ADR 0036 — Barra de pedidos no topo do mapa e página do ticket com descrição em blocos
 
-**Status:** Desenho aprovado por Teodoro em 2026-11-21 ("design aprovado, pode implementar"). Os pontos marcados como escolha da coordenação valem até ele dizer o contrário. As duas capacidades de IA da seção "Propostas, à espera de Teodoro" não são implementadas antes da resposta dele. As fatias 1, 2 e 3 (a barra com busca, a página do ticket e a conversa dentro da barra) foram implementadas em 2026-11-21 (PRs #92, #93 e #94), ainda sem teste com sessão real; a descrição em blocos (fatia 4) está em andamento. **Data:** 2026-11-21.
+**Status:** Desenho aprovado por Teodoro em 2026-11-21 ("design aprovado, pode implementar"). Os pontos marcados como escolha da coordenação valem até ele dizer o contrário. As duas capacidades de IA da seção "Propostas, à espera de Teodoro" não são implementadas antes da resposta dele. As fatias 1, 2 e 3 (a barra com busca, a página do ticket e a conversa dentro da barra) foram implementadas em 2026-11-21 (PRs #92, #93 e #94), e a descrição em blocos (fatia 4) também (PR #96). Nada foi testado com sessão real. **Data:** 2026-11-21.
 
 Muda, na [ADR 0029](0029-novo-ticket-pela-conversa-com-a-ia.md), onde a conversa de novo ticket aparece (o painel lateral dá lugar à barra); e, na [ADR 0026](0026-pagina-do-ticket-e-zoom-ate-a-folha.md), o desenho interno da página do ticket. A largura de 620 px, o deslize e o foco do mapa continuam como estão.
 
@@ -162,6 +162,36 @@ As fatias 1 e 2 não trazem dependência nova nem enviam nada novo a provedor. T
 - **Criação manual com a IA desligada e mais de um projeto possível:** usa o projeto do nó selecionado ou, sem seleção, o primeiro em que a pessoa pode criar.
 - **Conferência visual:** capturas sem janela com dados falsos, da página do ticket e da conversa na barra. A barra em repouso e a folha de busca não foram capturadas na fatia 1.
 - Web com 1.277 testes; os testes do painel lateral foram migrados um a um.
+
+## Como ficou na implementação (fatia 4)
+
+**Biblioteca confirmada antes do código:** Tiptap 3.35 com a extensão oficial de markdown, o utilitário de sugestões e as listas de tarefas. Licença MIT em tudo o que vai para produção; React 19 suportado; menus de "/" e "@" nossos; leitura e edição pelo mesmo componente.
+
+**Ida e volta, medida nas 29 descrições reais do `TREEPM`:** 26 voltam idênticas; 3 ganhariam uma linha em branco entre "Critérios de aceite:" e a lista que vem logo depois. Por isso:
+
+- **abrir um ticket nunca regrava a descrição.** O texto só é gravado quando a pessoa edita de fato (a comparação é com o que o editor escreveria do próprio texto lido);
+- **uma edição normaliza o texto:** entra a linha em branco antes de lista e `_itálico_` vira `*itálico*`.
+
+**Desvios da configuração padrão da biblioteca, todos cobertos por teste:**
+
+- o serializador escapava o texto (`x_y` virava `x\_y`, `&` virava `&amp;`), o que estragaria endereços e chaves. O escape foi desligado trocando um método não público do gerenciador de markdown; uma atualização do Tiptap pode quebrar isso, e os testes de ida e volta são a trava;
+- a opção de quebra de linha da biblioteca gravava dois espaços no fim da linha. Ficou desligada: a quebra simples permanece no texto e é mostrada como quebra pelo estilo;
+- HTML, tabela, imagem, riscado e endereço solto ficam como texto (um endereço solto não vira link, para a gravação não reescrevê-lo);
+- o nó vazio que a biblioteca acrescenta no fim foi desligado, porque reescrevia o documento ao abrir.
+
+**Links:** endereços `javascript:`, `data:` e `vbscript:` nunca viram link. Os outros abrem em outra aba, sem repassar a origem.
+
+**Menção:** uma etiqueta única, que não quebra no meio; o título é encurtado em 36 caracteres e fica completo no nome acessível. Chave dentro de código não vira menção.
+
+**Suíte de navegador:** `pnpm --filter @treepm/web test:browser` (modo navegador do Vitest, Chrome já instalado na máquina, sem janela; a variável `TREEPM_CHROME` troca o caminho). Nenhum navegador foi baixado. Entra nas verificações obrigatórias de mudanças na web.
+
+**Custo:** o pacote da área autenticada passou de 599 kB (157 kB comprimido) para 1.116 kB (323 kB comprimido). Carregar o editor só quando um ticket é aberto ficou como `TREEPM-72`.
+
+**Ordem dos testes:** as funções puras nasceram do teste; o componente e os testes de navegador foram escritos depois do componente. Três deles falharam de verdade na primeira rodada e viraram correção.
+
+**Não há aviso próprio do limite de 20.000 caracteres** na página: vale o erro da API, como antes.
+
+Web com 1.333 testes em `jsdom` e 46 em navegador.
 
 ## Fora deste recorte
 
