@@ -1,0 +1,32 @@
+/*
+ * Barra de pedidos (ADR 0036). A zona ocupa o topo da parte livre do palco e se mede sozinha: com a página do ticket aberta
+ * o próprio palco já estreita (620 px); com o painel de áreas aberto a zona deixa os 380 px dele de fora.
+ * Medidas do desenho aprovado (prancha "Barra 1" e "Barra 2"); as cores são os tokens `--tp-*`.
+ */
+.command-zone { position: absolute; z-index: 9; top: 14px; left: 0; right: 0; display: flex; justify-content: center; padding: 0 14px; pointer-events: none; container-type: inline-size; }
+.command-zone[data-aside="areas"] { right: 380px; }
+@media (max-width: 700px) { .command-zone[data-aside="areas"] { right: 0; } }
+.command-bar { width: min(620px, 100%); box-sizing: border-box; overflow: hidden; border: 1px solid var(--tp-border-strong); border-radius: 14px; background: var(--tp-card); box-shadow: 0 16px 40px color-mix(in srgb, var(--tp-bg) 65%, transparent); pointer-events: auto; font: 400 13px/1.3 var(--tp-font); color: var(--tp-text); }
+.command-bar.is-open, .command-bar:focus-within { border-color: color-mix(in srgb, var(--tp-accent) 35%, var(--tp-border)); }
+/* A barra de câmera (canto superior direito, 14 px de margem, uns 150 px) não muda de lugar: sem largura para as duas lado a lado, a barra desce. */
+@container (max-width: 980px) { .command-bar { margin-top: 48px; } }
+.command-field { display: flex; align-items: center; gap: 10px; box-sizing: border-box; height: 48px; padding: 0 14px; }
+.command-icon { display: grid; flex: none; place-items: center; color: var(--tp-accent); }
+.command-field input { flex: 1; min-width: 0; height: 30px; padding: 0; border: 0; outline: none; background: transparent; color: var(--tp-text); font: 400 14.5px/1.3 var(--tp-font); }
+.command-field input::placeholder { color: var(--tp-text-3); }
+.command-field kbd { flex: none; padding: 2px 6px; border: 1px solid var(--tp-border-strong); border-radius: 5px; color: var(--tp-text-2); font: 400 11px/1.3 var(--tp-font-mono); }
+.command-bar:focus-within .command-field { box-shadow: none; }
+.command-sheet { border-top: 1px solid var(--tp-border); }
+.command-sheet [role="listbox"] { padding: 8px 8px 0; }
+.command-heading { padding: 4px 8px; color: var(--tp-text-3); font-size: 11.5px; }
+[role="group"] + [role="group"] > .command-heading { margin-top: 6px; }
+.command-option { display: flex; align-items: center; gap: 10px; height: 38px; box-sizing: border-box; padding: 0 8px; border-radius: 8px; cursor: pointer; }
+.command-option.is-active { background: var(--tp-selected); }
+.command-option .status-mark { --mark-size: 11px; flex: none; }
+.command-key { flex: none; color: var(--tp-text-2); font: 400 11.5px/1.3 var(--tp-font-mono); }
+.command-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-meta { flex: none; color: var(--tp-text-3); font-size: 12px; }
+.command-action-icon { display: grid; flex: none; place-items: center; width: 11px; color: var(--tp-text-2); }
+.command-hint { flex: none; color: var(--tp-text-3); font: 400 11px/1.3 var(--tp-font-mono); }
+.command-empty { margin: 0; padding: 8px 16px; color: var(--tp-text-3); font-size: 12px; }
+.command-footer { display: flex; gap: 16px; margin-top: 8px; padding: 8px 16px; border-top: 1px solid var(--tp-border); color: var(--tp-text-3); font-size: 11.5px; }

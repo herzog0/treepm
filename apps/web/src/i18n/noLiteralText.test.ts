@@ -11,7 +11,7 @@ async function lint(code: string, area: string, file = "Fake.tsx") {
 }
 
 // Toda área de `apps/web/src`, mais a raiz (`""`): nenhuma fica de fora da regra.
-const AREAS = ["teams/", "settings/", "nav/", "preferences/", "panel/", "ticket/", "tickets/", "import/", "github/", "map/", "assistant/", "demo/", "api/", "i18n/", ""];
+const AREAS = ["teams/", "settings/", "nav/", "preferences/", "panel/", "ticket/", "tickets/", "import/", "github/", "map/", "assistant/", "command/", "demo/", "api/", "i18n/", ""];
 
 const component = (body: string) => `export function Fake() { return (${body}); }`;
 
@@ -49,6 +49,6 @@ describe("no-literal-ui-text", () => {
     const { readdirSync } = await import("node:fs");
     const directories = readdirSync(`${root}apps/web/src`, { withFileTypes: true }).filter((entry) => entry.isDirectory() && entry.name !== "test").map((entry) => `${entry.name}/`);
     for (const area of directories) expect(AREAS, `${area} is not covered by this test`).toContain(area);
-    for (const area of ["assistant/", "demo/", "map/", "ticket/"]) expect(await lint(component("<p>Olá</p>"), area)).toHaveLength(1);
+    for (const area of ["assistant/", "command/", "demo/", "map/", "ticket/"]) expect(await lint(component("<p>Olá</p>"), area)).toHaveLength(1);
   });
 });

@@ -30,6 +30,8 @@ export interface AssistantPanelProps {
   initialProjectId: string | null;
   /** Ticket selecionado no mapa ao abrir: a procura começa dentro dele (ADR 0031, ADR 0034). Ignorado se não for ticket do projeto da conversa. */
   initialScopeId?: string | null;
+  /** Texto vindo da barra de pedidos (ADR 0036): vai como a primeira mensagem assim que a conversa carrega. */
+  initialMessage?: string | null;
   /** Tickets de cada projeto, como o mapa os tem: o painel deriva daqui os caminhos que ele mesmo monta. */
   tickets: Readonly<Record<string, readonly TicketSummary[]>>;
   /** Fecha sem criar. */
@@ -171,6 +173,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const [proposalDropped, setProposalDropped] = useState(false);
   const [unchecked, setUnchecked] = useState<string[]>([]);
   const sendingRef = useRef(false);
+  const initialSent = useRef(false);
   const scroller = useRef<HTMLDivElement>(null);
   const save = useAction();
   const search = useAction();
@@ -239,7 +242,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     removal.clear();
   };
 
-  const send = async (override?: string) => {
+  const send = async (override?: string, fresh = false) => {
     const message = (override ?? text).trim();
     if (message === "" || message.length > MAX_MESSAGE || sendingRef.current) return;
     sendingRef.current = true;
@@ -247,7 +250,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     setSendError(null);
     // O escopo vai com a abertura e com cada mensagem (ADR 0033): a IA recebe os tickets com filhos do lugar da procura.
     const scopeId = scope?.id ?? null;
-    const result = await safe(() => (conversation ? client.sendConversationMessage(conversation.id, { message, scopeId }) : client.openConversation(project.id, { message, scopeId })));
+    const result = await safe(() => (conversation && !fresh ? client.sendConversationMessage(conversation.id, { message, scopeId }) : client.openConversation(project.id, { message, scopeId })));
     sendingRef.current = false;
     setSending(false);
     if (result.ok) {
@@ -269,6 +272,15 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
       }
     }
   };
+
+  // Texto da barra de pedidos: enviado uma vez, como a primeira mensagem de uma conversa nova.
+  const initialMessage = props.initialMessage ?? null;
+  useEffect(() => {
+    if (initialMessage === null || initialSent.current) return;
+    initialSent.current = true;
+    // Pedido vindo da barra: sempre uma conversa nova; a anterior continua guardada.
+    void send(initialMessage, true);
+  }, []);
 
   /** Grava a edição à mão do rascunho; devolve a conversa atualizada, ou `null` se falhou. */
   const saveDraft = async (): Promise<ConversationDetail | null> => {

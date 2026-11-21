@@ -1,0 +1,23 @@
+{
+  "bar": {
+    "label": "Barra de pedidos",
+    "input": "Peça qualquer coisa",
+    "shortcut": "Ctrl K",
+    "escape": "Esc"
+  },
+  "sheet": {
+    "label": "Resultados",
+    "tickets": "Tickets",
+    "actions": "Ações",
+    "noTickets": "Nenhum ticket encontrado",
+    "keys": {
+      "navigate": "↑ ↓ navegar",
+      "open": "Enter abrir",
+      "close": "Esc fechar"
+    }
+  },
+  "action": {
+    "create": "Criar ticket «{{text}}»",
+    "createShortcut": "Ctrl Enter"
+  }
+}
