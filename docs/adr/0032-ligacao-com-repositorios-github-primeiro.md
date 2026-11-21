@@ -41,7 +41,31 @@ A API conhece uma interface de provedor de repositórios (instalações, reposit
 - **Administrador da organização ou gestor do projeto** liga repositórios da instalação a um projeto. Um projeto aceita vários repositórios.
 - Quem vê o projeto vê as ligações dos tickets dele.
 
-A instalação fica presa à organização do TreePM (o tenant do Clerk) em tabela própria com RLS. O app foi criado com "Request user authorization (OAuth) during installation" marcado; nesse modo o GitHub desabilita a Setup URL e, depois da instalação, redireciona para a **Callback URL** com `installation_id`, `setup_action` e `code`. Ao receber esse retorno, a API **não confia** no `installation_id` recebido: confere, com um token do usuário que instalou, que a instalação é dele, e só então grava. Sem essa conferência, alguém poderia prender à própria organização a instalação de outra empresa.
+A instalação fica presa à organização do TreePM (o tenant do Clerk) em tabela própria com RLS.
+
+### Como a conexão é conferida
+
+O app foi criado com "Request user authorization (OAuth) during installation" marcado. Nesse modo o GitHub desabilita a Setup URL e, depois da instalação, redireciona para a **Callback URL**. A documentação só garante o parâmetro `code` nesse retorno; a coordenação operacional observou que `installation_id` e `setup_action` vêm junto, e o `state` passado na URL de instalação volta com eles. Nenhum desses valores é confiável sozinho.
+
+- **`state` assinado, sem tabela.** Ao iniciar a conexão, a API gera um `state` assinado (HMAC-SHA256 com chave derivada do segredo de cliente do app) com a organização, o usuário da sessão, um nonce e validade de 10 minutos. No retorno, o `state` tem que ser íntegro, estar no prazo e ser da mesma organização e do mesmo usuário da sessão.
+- **Troca do código.** A API troca o `code` por um token do usuário, usado só nessa chamada (não é guardado nem logado), e com ele lê o login do usuário e as instalações do app a que ele tem acesso.
+- **Acesso não é posse.** `GET /user/installations` lista instalações a que o usuário tem acesso de leitura, escrita ou administração, não as que são dele. Alguém com leitura em um repositório de outra empresa passaria por essa lista. Por isso a API também exige:
+  - instalação em **conta pessoal**: o login do usuário do token tem que ser o da conta da instalação;
+  - instalação em **conta de organização do GitHub**: **recusada por enquanto**. A prova de que a pessoa é dona da organização no GitHub ainda não foi desenhada nem conferida na documentação. O app de desenvolvimento só pode ser instalado na conta `herzog0`, então isso não bloqueia a primeira fatia; tem que ser resolvido antes de o app ser aberto a outras contas.
+- **Um para um.** Uma organização do TreePM tem no máximo uma instalação, e uma instalação do GitHub pertence a no máximo uma organização do TreePM (unicidade global no banco, valendo entre tenants).
+- A API confere pela autenticação do próprio app que a instalação existe, é deste app e não está suspensa.
+
+Sem essas conferências, alguém poderia prender à própria organização a instalação de outra empresa e ler os nomes de repositórios, branches e títulos de PR dela.
+
+### Tabelas
+
+Quatro tabelas, todas com `org_id` e RLS, criadas em uma migration só (`0007_github`): a instalação da organização; os repositórios ligados a cada projeto (retrato com nome, endereço, visibilidade e branch padrão); os vínculos de código de cada ticket (branch ou pull request, com referência, número, título, estado e endereço); e a marca de sincronização por página consultada (ETag e data). Nenhum token e nenhum conteúdo de arquivo é guardado.
+
+### Entrega em três passos
+
+1. Banco, conexão e repositórios do projeto (API).
+2. Sincronização sob demanda de branches e pull requests e os vínculos por ticket (API).
+3. Web: conectar, ligar repositórios ao projeto e a seção "Código" na página do ticket.
 
 ### Primeira fatia: rastreio de branch e de pull request
 
