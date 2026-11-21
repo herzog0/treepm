@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import type { ApiClient, Person, TicketDetail, TicketStatus, TicketSummary, UpdateTicketBody } from "../api/client.js";
-import { describeApiError } from "../api/client.js";
+import { useDescribeApiError } from "../api/errorText.js";
 import { STATUS_TEXT } from "../map/nodeContent.js";
 import { StatusMark } from "../map/StatusMark.js";
 import { useAction } from "../panel/useAction.js";
@@ -11,7 +11,10 @@ import { descendantIds } from "./tree.js";
 const STATUSES: readonly TicketStatus[] = ["todo", "in_progress", "in_review", "done", "cancelled"];
 
 type Action = ReturnType<typeof useAction>;
-const ActionError = ({ action }: { action: Action }) => (action.error ? <p role="alert" className="ticket-error">{describeApiError(action.error)}</p> : null);
+const ActionError = ({ action }: { action: Action }) => {
+  const describeError = useDescribeApiError();
+  return action.error ? <p role="alert" className="ticket-error">{describeError(action.error)}</p> : null;
+};
 
 /** Esc dentro da edição cancela só a edição: não chega à página, que fecharia. */
 export function cancelOnEscape(onCancel: () => void) {

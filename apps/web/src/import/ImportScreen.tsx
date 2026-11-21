@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import type { ApiClient, ImportItem, Me } from "../api/client.js";
-import { describeApiError } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
 import { plural } from "../plural.js";
@@ -11,6 +10,7 @@ import { useAction } from "../panel/useAction.js";
 import { describeTicketListIssue, parseTicketList } from "../tickets/parseTicketList.js";
 import { canCreateTickets } from "./permissions.js";
 import "./import.css";
+import { useDescribeApiError } from "../api/errorText.js";
 
 export interface ImportScreenProps {
   client: ApiClient;
@@ -100,6 +100,7 @@ interface ImportFormProps {
 }
 
 function ImportForm({ client, projectId, projectKey, projectName, onExit }: ImportFormProps) {
+  const describeError = useDescribeApiError();
   const [text, setText] = useState("");
   const [fileError, setFileError] = useState(false);
   const action = useAction();
@@ -197,7 +198,7 @@ function ImportForm({ client, projectId, projectKey, projectName, onExit }: Impo
       </div>
 
       <footer className="import-footer">
-        {action.error && <p role="alert" className="import-error-text">{describeApiError(action.error)}</p>}
+        {action.error && <p role="alert" className="import-error-text">{describeError(action.error)}</p>}
         <button type="button" onClick={onExit}>
           Cancelar
         </button>

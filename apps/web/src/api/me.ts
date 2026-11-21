@@ -18,11 +18,3 @@ export async function fetchMe(
   const { kind } = result.error;
   return { status: kind === "unauthenticated" || kind === "forbidden" ? kind : "unavailable" };
 }
-
-export function getMeIndicatorText(result: MeResult | null): string | null {
-  if (!result) return null;
-  if (result.status === "ok") {
-    return result.data.roles.clerk === "admin" ? "Administrador" : "Membro";
-  }
-  return result.status === "unavailable" ? "API indisponível" : "Sessão sem acesso à API";
-}

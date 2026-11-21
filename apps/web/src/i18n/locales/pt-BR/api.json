@@ -1,1 +1,36 @@
-{}
+{
+  "errors": {
+    "code": {
+      "team_name_taken": "Já existe um time com esse nome.",
+      "area_name_taken": "Já existe uma área com esse nome.",
+      "project_key_taken": "Já existe um projeto com essa chave.",
+      "person_inactive": "A pessoa não está mais na organização.",
+      "ticket_has_open_children": "Este ticket tem itens abertos. Conclua ou cancele os itens antes de concluí-lo.",
+      "ticket_cycle": "Um ticket não pode ser pai de si mesmo nem de um ancestral.",
+      "project_archived": "O projeto está arquivado e só aceita leitura.",
+      "assistant_not_configured": "O assistente não está configurado neste ambiente. Crie o ticket manualmente.",
+      "assistant_unavailable": "O assistente não respondeu. Tente de novo; se continuar, crie o ticket manualmente.",
+      "conversation_closed": "Esta conversa já foi encerrada. Comece uma nova conversa.",
+      "conversation_changed": "A conversa mudou enquanto o assistente respondia. Mostramos a versão mais recente.",
+      "grouping_changed": "Algum desses tickets mudou de lugar. Procure de novo.",
+      "draft_required": "A conversa ainda não tem rascunho. Peça ao assistente para escrevê-lo antes de continuar.",
+      "ticket_has_no_items": "Este ticket ainda não tem itens.",
+      "github_unavailable": "O GitHub não respondeu. Tente de novo em instantes.",
+      "not_connected": "A organização não está ligada ao GitHub.",
+      "installation_unavailable": "A instalação do app no GitHub não está disponível.",
+      "repository_already_linked": "Este repositório já está ligado.",
+      "repository_not_found": "O app não tem acesso a este repositório.",
+      "person_without_project_access": "A pessoa ainda não tem acesso ao projeto. Conceda um papel no projeto antes de atribuir."
+    },
+    "kind": {
+      "unauthenticated": "Sua sessão expirou. Entre novamente.",
+      "forbidden": "Você não tem permissão para fazer isso.",
+      "not_found": "Não encontramos esse item. Ele pode ter sido removido.",
+      "conflict": "Esta alteração conflita com o estado atual. Recarregue e tente novamente.",
+      "invalid": "Os dados informados não são válidos.",
+      "server_error": "O servidor encontrou um erro. Tente de novo; se continuar, avise quem administra.",
+      "unavailable": "A API está indisponível. Tente novamente em instantes."
+    },
+    "removeTicketWithItems": "Este ticket tem itens. Mova ou remova os itens antes de removê-lo."
+  }
+}

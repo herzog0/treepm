@@ -1,1 +1,36 @@
-{}
+{
+  "errors": {
+    "code": {
+      "team_name_taken": "A team with that name already exists.",
+      "area_name_taken": "An area with that name already exists.",
+      "project_key_taken": "A project with that key already exists.",
+      "person_inactive": "This person is no longer in the organization.",
+      "ticket_has_open_children": "This ticket has open items. Finish or cancel the items before finishing it.",
+      "ticket_cycle": "A ticket cannot be its own parent or the parent of one of its ancestors.",
+      "project_archived": "The project is archived and read-only.",
+      "assistant_not_configured": "The assistant is not configured in this environment. Create the ticket manually.",
+      "assistant_unavailable": "The assistant did not respond. Try again; if it keeps happening, create the ticket manually.",
+      "conversation_closed": "This conversation has ended. Start a new conversation.",
+      "conversation_changed": "The conversation changed while the assistant was replying. We are showing the latest version.",
+      "grouping_changed": "One of these tickets has moved. Search again.",
+      "draft_required": "The conversation does not have a draft yet. Ask the assistant to write one before continuing.",
+      "ticket_has_no_items": "This ticket has no items yet.",
+      "github_unavailable": "GitHub did not respond. Try again in a moment.",
+      "not_connected": "The organization is not connected to GitHub.",
+      "installation_unavailable": "The app installation on GitHub is not available.",
+      "repository_already_linked": "This repository is already linked.",
+      "repository_not_found": "The app does not have access to this repository.",
+      "person_without_project_access": "This person does not have access to the project yet. Grant a project role before assigning."
+    },
+    "kind": {
+      "unauthenticated": "Your session has expired. Sign in again.",
+      "forbidden": "You don't have permission to do that.",
+      "not_found": "We couldn't find that item. It may have been removed.",
+      "conflict": "This change conflicts with the current state. Reload and try again.",
+      "invalid": "The data provided is not valid.",
+      "server_error": "The server ran into an error. Try again; if it keeps happening, let your administrator know.",
+      "unavailable": "The API is unavailable. Try again in a moment."
+    },
+    "removeTicketWithItems": "This ticket has items. Move or remove the items before removing it."
+  }
+}

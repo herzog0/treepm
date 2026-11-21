@@ -1,17 +1,18 @@
 import type { ApiClient, Me } from "../api/client.js";
-import { describeApiError } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
 import { formatDate } from "./time.js";
+import { useDescribeApiError } from "../api/errorText.js";
 
 const DISCONNECT_WARNING =
   "Os repositórios ligados aos projetos e os vínculos de código dos tickets serão removidos do TreePM. O app continua instalado no GitHub até você removê-lo lá.";
 
 /** Seção "GitHub" das Configurações (ADR 0032): ligar e desligar a organização do app. Só existe com `github.enabled`. */
 export function GithubSettings({ client, me }: { client: ApiClient; me: Me }) {
+  const describeError = useDescribeApiError();
   const { state, reload, retry } = useApiResource(() => safe(() => client.getGithubInstallation()));
   const connect = useAction();
   const disconnect = useAction();
@@ -42,7 +43,7 @@ export function GithubSettings({ client, me }: { client: ApiClient; me: Me }) {
                 Conectar GitHub
               </button>
               <p className="settings-hint">O TreePM só lê: nomes de repositórios, branches e pull requests. Nenhum código é copiado.</p>
-              {connect.error && <p role="alert" className="settings-error">{describeApiError(connect.error)}</p>}
+              {connect.error && <p role="alert" className="settings-error">{describeError(connect.error)}</p>}
             </>
           ) : (
             <p className="settings-hint">Peça a um administrador da organização para conectar.</p>
@@ -56,7 +57,7 @@ export function GithubSettings({ client, me }: { client: ApiClient; me: Me }) {
           {isAdmin && (
             <div className="settings-actions">
               <ConfirmAction label="Desconectar" message={DISCONNECT_WARNING} disabled={disconnect.busy} onConfirm={() => void stopConnection()} />
-              {disconnect.error && <p role="alert" className="settings-error">{describeApiError(disconnect.error)}</p>}
+              {disconnect.error && <p role="alert" className="settings-error">{describeError(disconnect.error)}</p>}
             </div>
           )}
         </>

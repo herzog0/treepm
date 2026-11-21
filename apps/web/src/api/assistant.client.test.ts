@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createApiClient, describeApiError } from "./client.js";
+import i18n from "../i18n/index.js";
+import { describeApiError } from "./errorText.js";
+import { createApiClient } from "./client.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
@@ -125,7 +127,7 @@ describe("ticket conversation calls", () => {
     expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/ticket`, method: "POST", body: { parentId: OTHER, group } });
   });
   it("explains grouping_changed in words", () => {
-    expect(describeApiError({ kind: "conflict", code: "grouping_changed" })).toBe("Algum desses tickets mudou de lugar. Procure de novo.");
+    expect(describeApiError(i18n.t, { kind: "conflict", code: "grouping_changed" })).toBe("Algum desses tickets mudou de lugar. Procure de novo.");
   });
   it("rejects a placement outcome with more than two alternatives", async () => {
     const { client } = setup({ ...outcome, alternatives: [target, target, target] });
@@ -165,7 +167,7 @@ describe("describeApiError for the assistant", () => {
     ["conversation_changed", "mudou"],
     ["draft_required", "rascunho"],
   ])("explains %s in Portuguese", (code, fragment) => {
-    const message = describeApiError({ kind: code.startsWith("assistant") ? "unavailable" : "conflict", code });
+    const message = describeApiError(i18n.t, { kind: code.startsWith("assistant") ? "unavailable" : "conflict", code });
     expect(message).toContain(fragment);
     expect(message).not.toMatch(/Recarregue e tente|API está indisponível/);
   });
@@ -198,7 +200,7 @@ describe("ticket summary calls (ADR 0033, ADR 0034)", () => {
   it("keeps the error codes and says what each one means", async () => {
     const empty = await setup({ error: { code: "ticket_has_no_items" } }, 409).client.regenerateTicketSummary(ID);
     expect(empty).toEqual({ ok: false, error: { kind: "conflict", code: "ticket_has_no_items" } });
-    if (!empty.ok) expect(describeApiError(empty.error)).toBe("Este ticket ainda não tem itens.");
+    if (!empty.ok) expect(describeApiError(i18n.t, empty.error)).toBe("Este ticket ainda não tem itens.");
     const down = await setup({ error: { code: "assistant_unavailable" } }, 503).client.regenerateTicketSummary(ID);
     expect(down).toEqual({ ok: false, error: { kind: "unavailable", code: "assistant_unavailable" } });
   });

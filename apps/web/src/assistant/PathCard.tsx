@@ -1,8 +1,8 @@
 import type { ApiError, GroupProposal, PlacementOutcome, Project } from "../api/client.js";
-import { describeApiError } from "../api/client.js";
 import { reopenWarning } from "../ticket/reopen.js";
 import { destinationLabel } from "./placement.js";
 import type { Destination } from "./placement.js";
+import { useDescribeApiError } from "../api/errorText.js";
 
 interface PathCardProps {
   project: Project;
@@ -37,6 +37,7 @@ interface PathCardProps {
 
 /** O caminho do topo até a base, em palavras: sem probabilidades (ADR 0029). */
 export function PathCard(props: PathCardProps) {
+  const describeError = useDescribeApiError();
   const { project, target, outcome, options, draftTitle, choosing, pickNotice, busy } = props;
   const others = options.filter((option) => option.parentId !== target.parentId);
   const steps = [
@@ -117,7 +118,7 @@ export function PathCard(props: PathCardProps) {
         <p className="assistant-notice" role="status">Clique em um ticket ou no projeto, no mapa. Esc cancela.</p>
       )}
       {choosing && pickNotice !== "" && <p role="alert">{pickNotice}</p>}
-      {props.error && <p role="alert">{describeApiError(props.error)}</p>}
+      {props.error && <p role="alert">{describeError(props.error)}</p>}
       <div className="assistant-actions">
         <button type="button" className="primary" disabled={busy} onClick={props.onCreate}>Criar aqui</button>
         <button type="button" disabled={!props.canGoUp} onClick={props.onUp}>Um nível acima</button>

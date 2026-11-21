@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ApiClient, ApiError, GroupSummary as SummaryData } from "../api/client.js";
-import { describeApiError } from "../api/client.js";
+import { useDescribeApiError } from "../api/errorText.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { formatDate } from "../github/time.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
@@ -11,8 +11,8 @@ import { cancelOnEscape } from "./fields.js";
 /** Limite da API para o texto (ADR 0033). */
 export const SUMMARY_MAX = 1000;
 
-const describeSummaryError = (error: ApiError) =>
-  error.code === "validation_error" ? `O texto precisa ter entre 1 e ${SUMMARY_MAX.toLocaleString("pt-BR")} caracteres.` : describeApiError(error);
+const describeSummaryError = (error: ApiError, describeError: (error: ApiError) => string) =>
+  error.code === "validation_error" ? `O texto precisa ter entre 1 e ${SUMMARY_MAX.toLocaleString("pt-BR")} caracteres.` : describeError(error);
 
 interface ItemsSummaryProps {
   client: ApiClient;
@@ -26,6 +26,7 @@ interface ItemsSummaryProps {
  * um ticket novo pertence a ele. O pai só a monta com a IA ligada e com filhos; se a leitura falhar, ela não aparece.
  */
 export function ItemsSummary({ client, ticketId, canEdit }: ItemsSummaryProps) {
+  const describeError = useDescribeApiError();
   const loaded = useApiResource(() => safe(() => client.getTicketSummary(ticketId)));
   const [written, setWritten] = useState<SummaryData["summary"] | undefined>(undefined);
   const [editing, setEditing] = useState(false);
@@ -105,7 +106,7 @@ export function ItemsSummary({ client, ticketId, canEdit }: ItemsSummaryProps) {
         <p className="ticket-muted">Ainda sem texto. A IA escreve um na primeira procura que passar por aqui, ou você pode escrever agora.</p>
       )}
       {regenerate.busy && <p role="status" className="ticket-muted">Escrevendo…</p>}
-      {error && <p role="alert" className="ticket-error">{describeSummaryError(error)}</p>}
+      {error && <p role="alert" className="ticket-error">{describeSummaryError(error, describeError)}</p>}
     </section>
   );
 }

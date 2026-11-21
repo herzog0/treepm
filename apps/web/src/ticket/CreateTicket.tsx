@@ -1,11 +1,11 @@
 import { useRef } from "react";
 import type { FormEvent } from "react";
 import type { ApiClient, CreateTicketBody, Project } from "../api/client.js";
-import { describeApiError } from "../api/client.js";
 import { useAction } from "../panel/useAction.js";
 import { useState } from "react";
 import { reopenWarning, reopensOnReceiving } from "./reopen.js";
 import type { CreateRequest } from "./TicketPage.js";
+import { useDescribeApiError } from "../api/errorText.js";
 
 interface CreateTicketProps {
   client: ApiClient;
@@ -18,6 +18,7 @@ interface CreateTicketProps {
 
 /** Modo de criação (ADR 0026): título obrigatório, descrição opcional; o ticket nasce sem pessoas e em "a fazer" (ADR 0034: não há tipo). */
 export function CreateTicket({ client, project, request, onChanged, onCreated, onCancel }: CreateTicketProps) {
+  const describeError = useDescribeApiError();
   const [title, setTitle] = useState(request.draft?.title ?? "");
   const [description, setDescription] = useState(request.draft?.description ?? "");
   const action = useAction();
@@ -52,7 +53,7 @@ export function CreateTicket({ client, project, request, onChanged, onCreated, o
             Descrição
             <textarea rows={6} value={description} onChange={(event) => setDescription(event.target.value)} />
           </label>
-          {action.error && <p role="alert">{describeApiError(action.error)}</p>}
+          {action.error && <p role="alert">{describeError(action.error)}</p>}
           <div className="ticket-actions">
             <button type="submit" className="primary" disabled={trimmed === "" || action.busy}>Criar</button>
             <button type="button" onClick={onCancel}>Cancelar</button>

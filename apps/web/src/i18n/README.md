@@ -116,3 +116,8 @@ segue `navigator.languages` (`pt*` → `pt-BR`, `es*` → `es-MX`, outro → `en
 ## Traduções
 
 Primeira versão escrita pela IA; precisa de revisão de quem fala o idioma. Espanhol com "tú", neutro para o México.
+
+## Mensagens de erro da API
+
+Em componente: `const describeError = useDescribeApiError();` (de `api/errorText.ts`) e `describeError(error, action?)`; acompanha a troca de idioma.
+Fora de componente: `describeApiError(t, error, action?)`. O catálogo é `api` (`errors.code.*`, `errors.kind.*`); código desconhecido cai no tipo.

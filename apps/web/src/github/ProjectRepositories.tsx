@@ -1,12 +1,12 @@
 import { useState } from "react";
 import type { ApiClient, GithubRepository, Me, Project, ProjectRepository } from "../api/client.js";
-import { describeApiError } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
 import "./github.css";
+import { useDescribeApiError } from "../api/errorText.js";
 
 const REMOVE_WARNING = "Os vínculos de código dos tickets com este repositório serão removidos.";
 
@@ -72,6 +72,7 @@ function RepositoryRow({
   canEdit: boolean;
   onRemoved: () => void;
 }) {
+  const describeError = useDescribeApiError();
   const action = useAction();
   const remove = async () => {
     const result = await action.run(() => client.unlinkProjectRepository(projectId, repository.id));
@@ -96,7 +97,7 @@ function RepositoryRow({
           />
         )}
       </div>
-      {action.error && <p role="alert">{describeApiError(action.error)}</p>}
+      {action.error && <p role="alert">{describeError(action.error)}</p>}
     </li>
   );
 }
@@ -115,6 +116,7 @@ function Choice({
   onCancel: () => void;
   onLinked: () => void;
 }) {
+  const describeError = useDescribeApiError();
   const available = useApiResource(() => safe(() => client.listGithubRepositories()));
   const [filter, setFilter] = useState("");
   const link = useAction();
@@ -154,7 +156,7 @@ function Choice({
           )}
         </>
       )}
-      {link.error && <p role="alert">{describeApiError(link.error)}</p>}
+      {link.error && <p role="alert">{describeError(link.error)}</p>}
       <button type="button" className="text" onClick={onCancel}>
         Cancelar
       </button>

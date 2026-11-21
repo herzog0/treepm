@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchMe, getMeIndicatorText } from "./me.js";
+import { fetchMe } from "./me.js";
 
 const data = {
   person: { id: "person", displayName: "Ana", email: "ana@example.com", avatarUrl: null },
@@ -71,30 +71,5 @@ describe("fetchMe", () => {
     const fetchImpl = vi.fn<typeof fetch>();
     expect(await fetchMe(getToken, fetchImpl)).toEqual({ status: "unavailable" });
     expect(fetchImpl).not.toHaveBeenCalled();
-  });
-});
-
-describe("getMeIndicatorText", () => {
-  it("returns no text while loading", () => {
-    expect(getMeIndicatorText(null)).toBeNull();
-  });
-
-  it.each([
-    ["admin", "Administrador"],
-    ["member", "Membro"],
-  ] as const)("renders the %s role", (clerk, label) => {
-    const response = {
-      ...data,
-      roles: { clerk, teams: [...data.roles.teams], projects: [...data.roles.projects] },
-    };
-    expect(getMeIndicatorText({ status: "ok", data: response })).toBe(label);
-  });
-
-  it.each([
-    ["unavailable", "API indisponível"],
-    ["forbidden", "Sessão sem acesso à API"],
-    ["unauthenticated", "Sessão sem acesso à API"],
-  ] as const)("renders the %s status", (status, label) => {
-    expect(getMeIndicatorText({ status })).toBe(label);
   });
 });

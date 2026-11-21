@@ -1,12 +1,12 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import type { Area, ApiClient, Me, Project } from "../api/client.js";
-import { describeApiError } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
 import { ConfirmAction } from "./ConfirmAction.js";
 import { safe } from "./safe.js";
 import { useAction } from "./useAction.js";
+import { useDescribeApiError } from "../api/errorText.js";
 
 export interface AreasSectionProps {
   client: ApiClient;
@@ -40,6 +40,7 @@ export function AreasSection({ client, me }: AreasSectionProps) {
 }
 
 function CreateAreaForm({ client, onDone }: { client: ApiClient; onDone: () => void }) {
+  const describeError = useDescribeApiError();
   const [name, setName] = useState("");
   const [missing, setMissing] = useState(false);
   const action = useAction();
@@ -66,12 +67,13 @@ function CreateAreaForm({ client, onDone }: { client: ApiClient; onDone: () => v
         Criar área
       </button>
       {missing && <p role="alert">Informe o nome da área.</p>}
-      {action.error && <p role="alert">{describeApiError(action.error)}</p>}
+      {action.error && <p role="alert">{describeError(action.error)}</p>}
     </form>
   );
 }
 
 function AreaRow({ area, client, canEdit, onDone }: { area: Area; client: ApiClient; canEdit: boolean; onDone: () => void }) {
+  const describeError = useDescribeApiError();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(area.name);
   const action = useAction();
@@ -123,7 +125,7 @@ function AreaRow({ area, client, canEdit, onDone }: { area: Area; client: ApiCli
           )}
         </div>
       )}
-      {action.error && <p role="alert">{describeApiError(action.error)}</p>}
+      {action.error && <p role="alert">{describeError(action.error)}</p>}
     </li>
   );
 }

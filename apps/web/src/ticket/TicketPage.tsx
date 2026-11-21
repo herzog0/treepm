@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { KeyboardEvent } from "react";
 import type { ApiClient, Me, Person, Project, TicketDetail, TicketStatus, TicketSummary } from "../api/client.js";
-import { assistantEnabled, describeApiError, githubEnabled } from "../api/client.js";
+import { assistantEnabled, githubEnabled } from "../api/client.js";
 import { TicketCode } from "../github/TicketCode.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { canCreateTickets, canRemoveTickets } from "../import/permissions.js";
@@ -16,6 +16,7 @@ import { ItemsSummary } from "./ItemsSummary.js";
 import { DescriptionField, ParentField, PeopleField, StatusField, TitleField } from "./fields.js";
 import { ancestorsOf } from "./tree.js";
 import "./ticket.css";
+import { useDescribeApiError } from "../api/errorText.js";
 
 export interface CreateRequest {
   projectId: string;
@@ -99,6 +100,7 @@ export function TicketPage(props: TicketPageProps) {
 }
 
 function ViewTicket(props: TicketPageProps & { ticketId: string }) {
+  const describeError = useDescribeApiError();
   const { client, ticketId, onClose } = props;
   const detail = useApiResource(() => safe(() => client.getTicket(ticketId)));
 
@@ -111,7 +113,7 @@ function ViewTicket(props: TicketPageProps & { ticketId: string }) {
             {detail.state.status === "loading" && <p role="status">Carregando ticket…</p>}
             {detail.state.status === "error" &&
               (detail.state.error.kind === "not_found" ? (
-                <p role="alert">{describeApiError(detail.state.error)}</p>
+                <p role="alert">{describeError(detail.state.error)}</p>
               ) : (
                 <LoadError error={detail.state.error} onRetry={detail.retry} />
               ))}
@@ -156,6 +158,7 @@ interface ReadyProps extends LoadedProps {
 }
 
 function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail, reloadList, onOpenTicket, onClose, onChanged, onRemoved, onStartCreate }: ReadyProps) {
+  const describeError = useDescribeApiError();
   const title = useRef<HTMLHeadingElement>(null);
   const removal = useAction();
 
@@ -269,7 +272,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
           {canRemove && (
             <div className="ticket-danger">
               <ConfirmAction label="Remover ticket" disabled={removal.busy} onConfirm={() => void remove()} />
-              {removal.error && <p role="alert">{describeApiError(removal.error, "remove")}</p>}
+              {removal.error && <p role="alert">{describeError(removal.error, "remove")}</p>}
             </div>
           )}
         </div>
