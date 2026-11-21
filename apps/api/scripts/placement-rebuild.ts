@@ -4,7 +4,7 @@
  *
  *   pnpm --filter @treepm/api placement:rebuild <comando> [opções]
  *
- * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, ticket-list, ticket-create, ticket-update.
+ * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update.
  * Sobe a API real em processo (só a sessão é trocada), em 127.0.0.1 e porta efêmera, e fala com ela por HTTP.
  * O terminal mostra só progresso e contagens; todo texto de ticket fica nos arquivos de `--dir`.
  */
@@ -13,6 +13,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { bootApp } from "./placement-rebuild/app.js";
 import { collectCommand, collectCompareCommand, collectReportCommand } from "./placement-rebuild/collect.js";
 import { ApiClient } from "./placement-rebuild/client.js";
+import { pairsCommand, pairsReportCommand } from "./placement-rebuild/pairs.js";
+import { fakePairsKit, realPairsKit } from "./placement-rebuild/pairs-kit.js";
+import { loadConfig } from "../src/config.js";
 import {
   archiveProjectCommand,
   checkCommand,
@@ -87,6 +90,28 @@ async function main(): Promise<number> {
   const dir = resolve(options.dir as string);
   ensureDir(dir);
 
+  if (command === "report" && options.pairs) {
+    pairsReportCommand({ dir, ...(options.variant ? { variant: options.variant } : {}), log });
+    return 0;
+  }
+  if (command === "pairs") {
+    // Só os provedores: nada de API em processo nem de banco.
+    const kit = options.fakeProviders ? fakePairsKit() : realPairsKit(loadConfig(process.env));
+    const ok = await pairsCommand(
+      {
+        dir,
+        kit,
+        log,
+        sleep: (ms) => sleep(ms),
+        ...(options.retryDelaysMs ? { retryDelaysMs: options.retryDelaysMs } : {}),
+        ...(options.variant ? { variant: options.variant } : {}),
+        ...(options.repeats ? { repeats: options.repeats } : {}),
+        ...(options.resume ? { resume: true } : {}),
+      },
+      options.limit,
+    );
+    return ok ? 0 : 1;
+  }
   if (command === "report" && options.collect) {
     if (options.compare) {
       collectCompareCommand({

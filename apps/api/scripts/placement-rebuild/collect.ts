@@ -52,7 +52,7 @@ const readMap = (path: string): Map<string, string> => new Map(Object.entries(JS
 const writeMap = (path: string, map: ReadonlyMap<string, string>): void => writeFileSync(path, JSON.stringify(Object.fromEntries(map), null, 2));
 
 /** Tentativas em falha do provedor (as mesmas esperas do 503 das outras rotas); esgotadas, pede para rodar de novo. */
-async function withProvider<T>(ctx: Pick<Context, "sleep" | "retryDelaysMs">, what: string, run: () => Promise<T>): Promise<T> {
+export async function withProvider<T>(ctx: Pick<Context, "sleep" | "retryDelaysMs">, what: string, run: () => Promise<T>): Promise<T> {
   const delays = ctx.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
   for (let attempt = 0; ; attempt++) {
     try {
