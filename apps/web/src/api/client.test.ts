@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createApiClient, describeApiError } from "./client.js";
+import i18n from "../i18n/index.js";
+import { describeApiError } from "./errorText.js";
+import { createApiClient } from "./client.js";
 import type { ApiClient } from "./client.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -197,7 +199,7 @@ describe("5xx responses", () => {
   });
 
   it("describes server_error apart from unavailable", () => {
-    expect(describeApiError({ kind: "server_error" })).toBe(
+    expect(describeApiError(i18n.t, { kind: "server_error" })).toBe(
       "O servidor encontrou um erro. Tente de novo; se continuar, avise quem administra.",
     );
   });
@@ -210,7 +212,7 @@ describe("describeApiError", () => {
     ["project_key_taken", "Já existe um projeto com essa chave."],
     ["person_inactive", "A pessoa não está mais na organização."],
   ])("translates the %s code", (code, message) => {
-    expect(describeApiError({ kind: "conflict", code })).toBe(message);
+    expect(describeApiError(i18n.t, { kind: "conflict", code })).toBe(message);
   });
 
   it.each([
@@ -222,7 +224,7 @@ describe("describeApiError", () => {
     [{ kind: "conflict" }, "Esta alteração conflita com o estado atual. Recarregue e tente novamente."],
     [{ kind: "conflict", code: "unknown_code" }, "Esta alteração conflita com o estado atual. Recarregue e tente novamente."],
   ] as const)("translates %j generically", (error, message) => {
-    expect(describeApiError(error)).toBe(message);
+    expect(describeApiError(i18n.t, error)).toBe(message);
   });
 });
 
@@ -272,12 +274,12 @@ describe("ticket without a type (ADR 0034)", () => {
 
 describe("describeApiError for tickets", () => {
   it.each(["ticket_has_children", "parent_not_group", "group_has_no_status", "group_empty", "not_a_group"])("no longer has a special message for %s (only the generic conflict one)", (code) => {
-    expect(describeApiError({ kind: "conflict", code })).toMatch(/conflita com o estado atual/);
-    expect(describeApiError({ kind: "conflict", code })).not.toMatch(/agrupador/i);
+    expect(describeApiError(i18n.t, { kind: "conflict", code })).toMatch(/conflita com o estado atual/);
+    expect(describeApiError(i18n.t, { kind: "conflict", code })).not.toMatch(/agrupador/i);
   });
 
   it("words ticket_has_children for a removal as a removal", () => {
-    expect(describeApiError({ kind: "conflict", code: "ticket_has_children" }, "remove")).toBe("Este ticket tem itens. Mova ou remova os itens antes de removê-lo.");
+    expect(describeApiError(i18n.t, { kind: "conflict", code: "ticket_has_children" }, "remove")).toBe("Este ticket tem itens. Mova ou remova os itens antes de removê-lo.");
   });
 
   it.each([
@@ -287,7 +289,7 @@ describe("describeApiError for tickets", () => {
     ["project_archived", "arquivado"],
     ["person_without_project_access", "acesso ao projeto"],
   ])("explains %s in Portuguese", (code, fragment) => {
-    const message = describeApiError({ kind: "conflict", code });
+    const message = describeApiError(i18n.t, { kind: "conflict", code });
     expect(message).toContain(fragment);
     expect(message).not.toMatch(/Recarregue e tente/);
   });

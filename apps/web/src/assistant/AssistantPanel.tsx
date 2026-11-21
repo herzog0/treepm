@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import type { ApiClient, ApiError, ApiResult, ConversationDetail, NewGroup, PlacementOutcome, Project, TicketSummary } from "../api/client.js";
-import { describeApiError } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
 import type { MapDraft, MapNode } from "../map/items.js";
@@ -14,6 +13,7 @@ import { destinationUnder, oneLevelUp } from "./placement.js";
 import type { Destination } from "./placement.js";
 import type { MapPicker } from "./types.js";
 import "./assistant.css";
+import { useDescribeApiError } from "../api/errorText.js";
 
 /** Limite da API para uma mensagem da pessoa (`MAX_PERSON_MESSAGE`). */
 export const MAX_MESSAGE = 4000;
@@ -147,6 +147,7 @@ interface Edit {
 }
 
 function Chat(props: ConversationProps & { initial: ConversationDetail | null }) {
+  const describeError = useDescribeApiError();
   const { client, project, tickets, choosing, setChoosing, onChanged, onCreated, onManualCreate, scope } = props;
   const registerPicker = props.registerPicker;
   const list = tickets[project.id] ?? [];
@@ -366,7 +367,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
         </div>
       )}
       <div ref={scroller} className="assistant-scroll">
-        {removal.error && <p role="alert">{describeApiError(removal.error)}</p>}
+        {removal.error && <p role="alert">{describeError(removal.error)}</p>}
         {!conversation && <p className="assistant-hint">Descreva a tarefa. O assistente pergunta o que faltar, escreve o ticket e procura o lugar dele na árvore.</p>}
         {conversation?.messages.map((message) => (
           <div key={message.id} className={message.author === "person" ? "assistant-person" : "assistant-reply"}>{message.body}</div>
@@ -374,7 +375,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
         {sending && <p role="status" className="assistant-waiting">O assistente está respondendo…</p>}
         {sendError && (
           <div className="assistant-error">
-            <p role="alert">{describeApiError(sendError)}</p>
+            <p role="alert">{describeError(sendError)}</p>
             {(retryable || canCreateManually) && (
               <div>
                 {retryable && <button type="button" onClick={() => void send()} disabled={sending}>Tentar de novo</button>}
@@ -395,7 +396,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 Descrição
                 <textarea rows={6} value={fields.description} onChange={(event) => setEdit({ ...fields, description: event.target.value })} />
               </label>
-              {(save.error || search.error) && <p role="alert">{describeApiError((save.error ?? search.error)!)}</p>}
+              {(save.error || search.error) && <p role="alert">{describeError((save.error ?? search.error)!)}</p>}
               {search.busy && <p role="status" className="assistant-hint">Procurando o lugar… a primeira procura em um projeto pode demorar.</p>}
               {!conversation!.ready && !outcome && <p className="assistant-hint assistant-not-ready">A IA ainda tem uma pergunta antes de procurar o lugar.</p>}
               <div className="assistant-actions">

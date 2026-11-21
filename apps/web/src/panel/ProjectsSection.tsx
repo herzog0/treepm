@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import type { ApiClient, Me, Project, ProjectVisibility } from "../api/client.js";
-import { describeApiError } from "../api/client.js";
 import { ProjectDetail } from "./ProjectDetail.js";
 import { PROJECT_KEY_HELP, PROJECT_KEY_PATTERN, VISIBILITIES, VISIBILITY_LABELS } from "./labels.js";
 import { useAction } from "./useAction.js";
+import { useDescribeApiError } from "../api/errorText.js";
 
 export interface ProjectsSectionProps {
   client: ApiClient;
@@ -100,6 +100,7 @@ function CreateProjectForm({
   onCancel: (() => void) | null;
   onCreated: (project: Project) => void;
 }) {
+  const describeError = useDescribeApiError();
   const [name, setName] = useState("");
   const [key, setKey] = useState("");
   const [visibility, setVisibility] = useState<ProjectVisibility>("organization");
@@ -120,7 +121,7 @@ function CreateProjectForm({
   };
 
   const keyTaken = action.error?.code === "project_key_taken";
-  const keyMessage = keyInvalid ? PROJECT_KEY_HELP : keyTaken && action.error ? describeApiError(action.error) : null;
+  const keyMessage = keyInvalid ? PROJECT_KEY_HELP : keyTaken && action.error ? describeError(action.error) : null;
 
   return (
     <form className="panel-form" onSubmit={(event) => void submit(event)} aria-label="Novo projeto">
@@ -163,7 +164,7 @@ function CreateProjectForm({
           </button>
         )}
       </div>
-      {action.error && !keyTaken && <p role="alert">{describeApiError(action.error)}</p>}
+      {action.error && !keyTaken && <p role="alert">{describeError(action.error)}</p>}
     </form>
   );
 }

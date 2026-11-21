@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient, Me, Person, Team } from "../api/client.js";
 import { failed, makeClient, makeMe, ok } from "../test/fakes.js";
+import { setTestLanguage } from "../test/i18n.js";
 import { TeamsScreen } from "./TeamsScreen.js";
 
 const person = (id: string, displayName: string, active = true): Person => ({
@@ -187,6 +188,18 @@ describe("TeamsScreen — criar time", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Já existe um time com esse nome.");
     expect(input).toHaveValue("Alfa");
     expect(input).toHaveAccessibleDescription("Já existe um time com esse nome.");
+  });
+
+  it.each([
+    ["en", "A team with that name already exists."],
+    ["es-MX", "Ya existe un equipo con ese nombre."],
+  ] as const)("team_name_taken aparece em %s", async (language, message) => {
+    await setTestLanguage(language);
+    const { user } = setup(meAsOrgAdmin(), [alfa()], { createTeam: vi.fn(async () => failed("conflict", "team_name_taken")) });
+    const input = await screen.findByRole("textbox", { name: /./ });
+    await user.type(input, "Alfa");
+    await user.click(screen.getAllByRole("button").find((b) => !(b as HTMLButtonElement).disabled && /create|crear/i.test(b.textContent ?? ""))!);
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });
 
   it("desabilita o botão enquanto envia", async () => {

@@ -43,7 +43,7 @@ describe("no-literal-ui-text", () => {
   });
 
   it("does not look at areas still pending conversion", async () => {
-    for (const area of ["panel/", "ticket/", "tickets/", "import/", "github/", "map/", "assistant/", "api/", "demo/"]) {
+    for (const area of ["panel/", "ticket/", "tickets/", "import/", "github/", "map/", "assistant/", "demo/"]) {
       expect(await lint(component("<p>Olá</p>"), area)).toEqual([]);
     }
   });

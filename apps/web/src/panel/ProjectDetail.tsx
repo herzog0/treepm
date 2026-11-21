@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import type { ApiClient, Me, Person, Project, ProjectMember, ProjectRole, ProjectVisibility, Team } from "../api/client.js";
-import { describeApiError, githubEnabled } from "../api/client.js";
+import { githubEnabled } from "../api/client.js";
+import { useDescribeApiError } from "../api/errorText.js";
 import { ProjectRepositories } from "../github/ProjectRepositories.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
@@ -24,8 +25,10 @@ interface ProjectDetailProps {
   assistantAvailable?: boolean | undefined;
 }
 
-const ActionError = ({ error }: { error: ReturnType<typeof useAction>["error"] }) =>
-  error ? <p role="alert">{describeApiError(error)}</p> : null;
+const ActionError = ({ error }: { error: ReturnType<typeof useAction>["error"] }) => {
+  const describeError = useDescribeApiError();
+  return error ? <p role="alert">{describeError(error)}</p> : null;
+};
 
 export function ProjectDetail({ client, me, project, onChanged, onBack, onImport, onCreateTicket, assistantAvailable = false }: ProjectDetailProps) {
   const canManage =
