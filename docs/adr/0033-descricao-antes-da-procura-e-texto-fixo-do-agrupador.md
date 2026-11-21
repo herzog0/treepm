@@ -1,6 +1,6 @@
 # ADR 0033 — Descrição antes da procura e texto fixo do agrupador
 
-**Status:** Proposta. Traz a medição de 2026-11-21 e o que a coordenação propõe a partir dela; espera a leitura de Teodoro. Nada foi implementado. **Data:** 2026-11-21.
+**Status:** Aceita em parte. Em 2026-11-21 Teodoro respondeu "sim, pode." à pergunta "posso implementar a descrição antes da procura e o texto fixo do agrupador?" (itens 1 e 2 da proposta). O item 3 (regra de "desce ou fica") continua sem decisão, e a regra atual fica como está. **Data:** 2026-11-21.
 
 ## Contexto
 
@@ -58,7 +58,7 @@ Ou seja: o texto do agrupador, reescrito a cada mudança, é o que faz a **escol
 
 **5. Agrupadores de fase.** Os dois agrupadores de fase ("Fechamento da Fase 1" e "Fase 2 completa") têm 14 dos 39 tickets, e a regra de hoje acerta 4 deles (8 com as descrições). Nos de assunto, 19 de 25 (22 com as descrições).
 
-## Proposta
+## Proposta (itens 1 e 2 aceitos; item 3 em aberto)
 
 ### 1. O rascunho tem descrição antes da procura
 
@@ -86,6 +86,42 @@ A pergunta que decide: de cada dez tickets novos, quantos não têm agrupador qu
 - Trocar o resumo pela definição "Entra aqui / Não entra aqui" medida aqui.
 - O Claude recebendo o projeto inteiro (descartado por Teodoro).
 - Mudar os limites 0,3 e 0,7.
+
+## Detalhe do que será implementado (itens 1 e 2)
+
+### Texto novo do assistente de criação
+
+No prompt de sistema da conversa, a linha
+
+> Marque "ready" como verdadeiro quando o rascunho já estiver bom para procurar o lugar do ticket na árvore, mesmo que você ainda tivesse uma pergunta opcional.
+
+é trocada por estas três, letra por letra:
+
+> O rascunho sempre tem descrição. Se a pessoa deu só um título ou uma frase, escreva você a descrição a partir do que ela disse e do que o título já implica: o que será feito e o que conta como pronto. Não acrescente fatos que a pessoa não deu.
+>
+> Marque "ready" como verdadeiro só quando a descrição do rascunho disser o que será feito e o que conta como pronto, mesmo que você ainda tivesse uma pergunta opcional. Se o pedido for vago demais para isso, marque falso e pergunte o que falta.
+>
+> A mensagem pode trazer `groups`, os títulos dos agrupadores do lugar onde o ticket será procurado. Se algum deles reúne trabalhos por entrega, fase ou prazo, e não por assunto, e o que a pessoa disse não mostra a qual deles o trabalho pertence, pergunte isso uma vez e marque "ready" como falso até ela responder. Quando ela responder, diga na descrição a que entrega ou fase o trabalho pertence, com as palavras do título do agrupador. Fora desse caso, não cite os agrupadores nem sugira o lugar do ticket.
+
+O último turno passa a levar, depois do rascunho, o bloco `Agrupadores do lugar da procura (dados, em JSON): [...]`, com os títulos dos agrupadores filhos do escopo selecionado, ou da raiz do projeto quando não há escopo; no máximo 30, na ordem do número. Para isso a rota de mensagem da conversa aceita `scopeId` opcional, com a mesma conferência da rota da procura. Só títulos; nenhum id.
+
+### `ready` na web
+
+Com `ready` falso, a ação de procurar o lugar deixa de ser a principal e o painel diz "A IA ainda tem uma pergunta antes de procurar o lugar."; a pessoa pode procurar mesmo assim. Com `ready` verdadeiro, nada muda.
+
+### Texto fixo do agrupador ("O que entra aqui")
+
+- O texto que representa o agrupador para o Jev passa a ser **guardado e estável**. Ele é escrito pela IA na primeira vez em que a procura precisa dele e o agrupador tem itens, e **não é mais reescrito** quando os itens mudam.
+- Muda só por ação explícita: a pessoa edita o texto, ou pede "Atualizar pela IA" (a IA reescreve a partir dos itens atuais e o texto anterior é substituído).
+- A pessoa pode escrever o texto de um agrupador vazio; a procura passa a usar o texto guardado sempre que ele existir, com ou sem itens. Agrupador vazio sem texto continua representado pelo trecho da descrição.
+- O registro guarda quem escreveu por último (`assistant` ou `person`) e quando. Migration `0008`.
+- Rotas: ler o texto do agrupador (quem vê o projeto), gravar o texto e pedir a atualização pela IA (quem pode editar o ticket; projeto arquivado recusa). Evento de atividade sem o texto.
+- Na página do agrupador, com a IA ligada, a seção "O que entra aqui" mostra o texto, quem escreveu e quando, e as ações "Editar" e "Atualizar pela IA".
+- Fica para depois: a IA propor sozinha a atualização do texto.
+
+### Conferência depois de implementar
+
+Duas coletas seguidas na mesma cópia do projeto têm que usar textos de agrupador idênticos, e a escolha do agrupador não pode mudar entre elas. (Nessa conferência o texto do agrupador foi escrito com o ticket testado dentro; ela mede estabilidade, não acerto.)
 
 ## Fora desta ADR
 
