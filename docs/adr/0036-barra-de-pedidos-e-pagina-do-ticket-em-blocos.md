@@ -1,6 +1,6 @@
 # ADR 0036 — Barra de pedidos no topo do mapa e página do ticket com descrição em blocos
 
-**Status:** Desenho aprovado por Teodoro em 2026-11-21 ("design aprovado, pode implementar"). Os pontos marcados como escolha da coordenação valem até ele dizer o contrário. As duas capacidades de IA da seção "Propostas, à espera de Teodoro" não são implementadas antes da resposta dele. Nada implementado ainda. **Data:** 2026-11-21.
+**Status:** Desenho aprovado por Teodoro em 2026-11-21 ("design aprovado, pode implementar"). Os pontos marcados como escolha da coordenação valem até ele dizer o contrário. As duas capacidades de IA da seção "Propostas, à espera de Teodoro" não são implementadas antes da resposta dele. As fatias 1, 2 e 3 (a barra com busca, a página do ticket e a conversa dentro da barra) foram implementadas em 2026-11-21 (PRs #92, #93 e #94), ainda sem teste com sessão real; a descrição em blocos (fatia 4) está em andamento. **Data:** 2026-11-21.
 
 Muda, na [ADR 0029](0029-novo-ticket-pela-conversa-com-a-ia.md), onde a conversa de novo ticket aparece (o painel lateral dá lugar à barra); e, na [ADR 0026](0026-pagina-do-ticket-e-zoom-ate-a-folha.md), o desenho interno da página do ticket. A largura de 620 px, o deslize e o foco do mapa continuam como estão.
 
@@ -147,6 +147,21 @@ Estão no canvas aprovado, mas enviam à Anthropic mais do que ele autorizou at�
 5. **As duas capacidades de IA,** só depois da resposta de Teodoro. API e web.
 
 As fatias 1 e 2 não trazem dependência nova nem enviam nada novo a provedor. Todo texto novo entra no catálogo nos três idiomas (ADR 0035), e todo comportamento novo começa por um teste que falha.
+
+## Como ficou na implementação (fatias 1 a 3)
+
+- **Busca por palavras.** O texto é dividido em palavras, e o ticket bate quando todas aparecem. Ordem: chave que bate (texto de uma palavra só); título que começa com o texto inteiro; título com todas as palavras; todas as palavras somando título e trecho. A primeira entrega procurava a frase inteira, e `exportar csv` não achava "Exportar tickets em CSV".
+- **Criar pela barra abre sempre uma conversa nova.** A anterior continua guardada e volta por "Continuar conversa".
+- **Campo vazio com foco:** "Continuar conversa", com o título do rascunho ou o começo da primeira mensagem, e "Nova conversa". Nada vem destacado, para um `Enter` não começar conversa sem querer.
+- **Recolher uma conversa sem nenhuma mensagem a encerra;** com texto digitado e não enviado, ela fica em andamento.
+- **Com a conversa à vista, o campo "Peça qualquer coisa" some;** buscar um ticket exige recolher antes (`Esc` ou "Recolher").
+- **A barra desce para baixo da barra de câmera** quando a largura livre é menor que 980 px, o que acontece com a página do ticket aberta em uma tela de 1.440 px. O número é uma estimativa.
+- **`Ctrl+K` é escutado em fase de captura,** porque a página do ticket e os painéis param a propagação das teclas. A dica na barra diz "Ctrl K" em todos os sistemas.
+- **Rótulos da página do ticket mantidos:** "Pessoas", "Progresso" e "Remover ticket" (o texto desta ADR dizia "Responsáveis", "Itens" e "Excluir"). O aviso de reabertura continua junto de "Ticket pai" e do formulário de criação, onde já aparecia.
+- **Textos que mudaram:** "Fechar conversa" virou "Recolher"; "Procurando dentro de «título»" virou o chip "Dentro de `CHAVE`"; o texto do botão flutuante "Novo ticket" saiu.
+- **Criação manual com a IA desligada e mais de um projeto possível:** usa o projeto do nó selecionado ou, sem seleção, o primeiro em que a pessoa pode criar.
+- **Conferência visual:** capturas sem janela com dados falsos, da página do ticket e da conversa na barra. A barra em repouso e a folha de busca não foram capturadas na fatia 1.
+- Web com 1.277 testes; os testes do painel lateral foram migrados um a um.
 
 ## Fora deste recorte
 
