@@ -1,6 +1,6 @@
 # ADR 0033 — Descrição antes da procura e texto fixo do agrupador
 
-**Status:** Aceita em parte. Em 2026-11-21 Teodoro respondeu "sim, pode." à pergunta "posso implementar a descrição antes da procura e o texto fixo do agrupador?" (itens 1 e 2 da proposta). O item 3 (regra de "desce ou fica") continua sem decisão, e a regra atual fica como está. **Data:** 2026-11-21.
+**Status:** Itens 1 e 2 aceitos por Teodoro em 2026-11-21 ("sim, pode.") e implementados no mesmo dia (PR #73, migration `0008_branch_summary_source` aplicada no banco de desenvolvimento). O item 3 (regra de "desce ou fica") continua sem decisão, e a regra atual fica como está. Ainda sem teste com sessão real. **Data:** 2026-11-21.
 
 ## Contexto
 
@@ -119,9 +119,19 @@ Com `ready` falso, a ação de procurar o lugar deixa de ser a principal e o pai
 - Na página do agrupador, com a IA ligada, a seção "O que entra aqui" mostra o texto, quem escreveu e quando, e as ações "Editar" e "Atualizar pela IA".
 - Fica para depois: a IA propor sozinha a atualização do texto.
 
-### Conferência depois de implementar
+### Conferência depois de implementar (2026-11-21)
 
-Duas coletas seguidas na mesma cópia do projeto têm que usar textos de agrupador idênticos, e a escolha do agrupador não pode mudar entre elas. (Nessa conferência o texto do agrupador foi escrito com o ticket testado dentro; ela mede estabilidade, não acerto.)
+Duas coletas seguidas na mesma cópia do projeto (`COLETA3`), com o Jev real:
+
+- os 234 textos de agrupador foram **idênticos** entre as duas coletas (antes da mudança, nenhum se repetia);
+- a escolha do agrupador **não mudou em nenhum** dos 39 tickets (antes, mudava em 3 a 7);
+- o "desce ou fica" ainda mudou de lado em 3 dos 78 casos, pela oscilação do próprio Jev perto do limite, como previsto.
+
+Nessa conferência o texto de cada agrupador foi escrito com o ticket testado dentro dele, então a escolha acertou os 39: **o número mede estabilidade, não acerto**, e não se compara com os da medição acima.
+
+Uma chamada real ao Claude com o prompt novo devolveu rascunho com descrição ("o que será feito" e critérios de aceite) e `ready` verdadeiro. A pergunta sobre entrega ou fase não foi exercitada com o Claude real.
+
+Diferenças da implementação em relação ao desenho acima: o limite do texto guardado subiu de 600 para 1.000 caracteres (a IA continua escrevendo até 600); ler e gravar o texto também respondem "IA não configurada" quando a IA está desligada; a reescrita pela IA não guarda quem pediu no registro do texto, só no evento de atividade.
 
 ## Fora desta ADR
 
