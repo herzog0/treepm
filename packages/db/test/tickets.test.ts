@@ -13,9 +13,9 @@ beforeAll(async () => {
   await owner.query("truncate organizations cascade");
   a = await seedOrg(owner, ORG_A);
   b = await seedOrg(owner, ORG_B);
-  // Um agrupador para os testes que precisam de um pai (só agrupador tem filhos, ADR 0031).
+  // Um ticket para os testes que precisam de um pai (qualquer ticket pode ter filhos, ADR 0034).
   const grouped = await owner.query<{ id: string }>(
-    "insert into tickets (org_id, project_id, number, title, kind, created_by_person_id) values ($1, $2, 1000, 'Agrupador', 'group', $3) returning id",
+    "insert into tickets (org_id, project_id, number, title, created_by_person_id) values ($1, $2, 1000, 'Pai', $3) returning id",
     [ORG_A, a.project, a.person],
   );
   group = grouped.rows[0]?.id ?? "";
@@ -34,9 +34,9 @@ async function insertTicket(
   extra = "",
 ): Promise<string> {
   const r = await owner.query<{ id: string }>(
-    `insert into tickets (org_id, project_id, number, parent_id, parent_kind, title, created_by_person_id${extra ? ", " + extra.split("=")[0] : ""})
-     values ($1, $2, $3, $4, $6, 'T', $5${extra ? ", " + extra.split("=")[1] : ""}) returning id`,
-    [orgId, projectId, number, parentId, createdBy, parentId === null ? null : "group"],
+    `insert into tickets (org_id, project_id, number, parent_id, title, created_by_person_id${extra ? ", " + extra.split("=")[0] : ""})
+     values ($1, $2, $3, $4, 'T', $5${extra ? ", " + extra.split("=")[1] : ""}) returning id`,
+    [orgId, projectId, number, parentId, createdBy],
   );
   return r.rows[0]?.id ?? "";
 }
@@ -156,7 +156,7 @@ describe("tickets: estrutura e restrições do banco", () => {
       [ORG_A],
     );
     const pid = p.rows[0]?.id ?? "";
-    const root = await insertTicket(ORG_A, pid, 1, a.person, null, "kind='group'");
+    const root = await insertTicket(ORG_A, pid, 1, a.person);
     await insertTicket(ORG_A, pid, 2, a.person, root);
     await owner.query("delete from projects where org_id = $1 and id = $2", [ORG_A, pid]);
     const left = await owner.query("select 1 from tickets where project_id = $1", [pid]);

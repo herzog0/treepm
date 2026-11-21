@@ -1,1 +1,99 @@
-{}
+{
+  "panel": {
+    "label": "Áreas y proyectos",
+    "sections": "Secciones del panel",
+    "close": "Cerrar",
+    "tabs": {
+      "areas": "Áreas",
+      "projects": "Proyectos"
+    }
+  },
+  "confirm": {
+    "confirm": "Confirmar",
+    "cancel": "Cancelar",
+    "label": "Confirmar: {{subject}}"
+  },
+  "areas": {
+    "title": "Áreas",
+    "loading": "Cargando áreas…",
+    "empty": "No hay áreas registradas.",
+    "create": {
+      "label": "Nombre de la nueva área",
+      "submit": "Crear área",
+      "missing": "Escribe el nombre del área."
+    },
+    "row": {
+      "renameField": "Nuevo nombre de {{name}}",
+      "save": "Guardar",
+      "cancel": "Cancelar",
+      "rename": "Renombrar",
+      "renameLabel": "Renombrar {{name}}",
+      "remove": "Eliminar",
+      "removeLabel": "Eliminar {{name}}"
+    }
+  },
+  "projects": {
+    "title": "Proyectos",
+    "new": "Nuevo proyecto",
+    "empty": "No hay proyectos creados.",
+    "private": "Privado",
+    "archived": "Archivado",
+    "form": {
+      "label": "Nuevo proyecto",
+      "name": "Nombre",
+      "nameMissing": "Escribe el nombre del proyecto.",
+      "key": "Clave",
+      "visibility": "Visibilidad",
+      "submit": "Crear proyecto",
+      "cancel": "Cancelar"
+    },
+    "keyHelp": "La clave debe empezar con una letra mayúscula y tener de 2 a 10 caracteres, solo letras mayúsculas y números."
+  },
+  "visibility": {
+    "organization": "Toda la organización",
+    "private": "Privado"
+  },
+  "roles": {
+    "manager": "Gestor",
+    "contributor": "Colaborador",
+    "reader": "Lector"
+  },
+  "detail": {
+    "back": "Volver a la lista",
+    "newTicket": "Nuevo ticket",
+    "newTicketNoAssistant": "Crear sin el asistente",
+    "import": "Importar lista",
+    "visibilityLine": "Visibilidad: {{value}}",
+    "manage": {
+      "nameLabel": "Nombre del proyecto",
+      "saveName": "Guardar nombre",
+      "archive": "Archivar proyecto",
+      "unarchive": "Desarchivar proyecto"
+    },
+    "people": {
+      "title": "Personas con acceso",
+      "loading": "Cargando personas…",
+      "unknown": "Persona desconocida",
+      "nobody": "Nadie tiene un rol en este proyecto.",
+      "roleOf": "Rol de {{name}}",
+      "revoke": "Revocar",
+      "revokeLabel": "Revocar el acceso de {{name}}",
+      "person": "Persona",
+      "pickPerson": "Elige una persona",
+      "newRole": "Rol de la persona nueva",
+      "grant": "Dar acceso"
+    },
+    "teams": {
+      "title": "Equipos del proyecto",
+      "loading": "Cargando equipos…",
+      "hint": "Asociar un equipo no da acceso a sus integrantes; el acceso viene de los roles de arriba.",
+      "none": "No hay equipos asociados.",
+      "unknown": "Equipo desconocido",
+      "unlink": "Desasociar",
+      "unlinkLabel": "Desasociar {{name}}",
+      "team": "Equipo",
+      "pickTeam": "Elige un equipo",
+      "link": "Asociar equipo"
+    }
+  }
+}

@@ -290,6 +290,7 @@ export const COMMANDS = [
   "archive-project",
   "leave-one-out",
   "collect",
+  "pairs",
   "ticket-list",
   "ticket-create",
   "ticket-update",
@@ -325,8 +326,12 @@ export type CliOptions = {
   phaseGroups?: number[];
   /** `report`: lê a coleta do `collect` em vez da do `rebuild`. */
   collect?: boolean;
-  /** `collect`: quantas vezes cada requisição do Jev é repetida com o payload idêntico (padrão 3). */
+  /** `collect`: quantas vezes cada requisição do Jev é repetida com o payload idêntico (padrão 3; no `pairs`, 1). */
   repeats?: number;
+  /** `report --pairs`: o relatório do comando `pairs`. */
+  pairs?: boolean;
+  /** `pairs`: continua um arquivo interrompido sem repetir o que já foi respondido. */
+  resume?: boolean;
   /** `leave-one-out`: além da procura normal, duas procuras com escopo (no pai original e em outro agrupador do mesmo nível). */
   scopeCheck?: boolean;
   /** `leave-one-out`: importa o gabarito achatado (só tickets, todos na raiz) e mede a proposta de agrupador. */
@@ -370,6 +375,7 @@ const REQUIRED: Record<Command, readonly (keyof CliOptions)[]> = {
   "archive-project": [...APP_REQUIRED, "project"],
   "leave-one-out": [...APP_REQUIRED, "project"],
   collect: [...APP_REQUIRED, "project"],
+  pairs: ["dir"],
   "ticket-list": ["org", "user", "project"],
   "ticket-create": ["org", "user", "project", "title"],
   "ticket-update": ["org", "user", "project", "number"],
@@ -397,6 +403,8 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--fake-providers": "fakeProviders",
   "--loo": "loo",
   "--collect": "collect",
+  "--pairs": "pairs",
+  "--resume": "resume",
   "--repeats": "repeats",
   "--variant": "variant",
   "--claude-outline": "claudeOutline",
@@ -423,6 +431,8 @@ const FLAGS: Record<string, keyof CliOptions> = {
 };
 
 const usage = `Comandos: ${COMMANDS.join(", ")}.
+  pairs          --dir [--variant <nome>] [--limit N] [--repeats N] [--resume] [--fake-providers]
+  report --pairs --dir [--variant <nome>]
   ticket-list    --org --user --project [--json]
   ticket-create  --org --user --project --title <texto> [--description-file <caminho>] [--parent <número>] [--status <situação>]
   ticket-update  --org --user --project --number <número> [--status <situação>] [--title <texto>] [--description-file <caminho>] [--parent <número> | --root]`;
@@ -438,7 +448,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     const flag = rest[i] as string;
     const key = FLAGS[flag];
     if (!key) return fail(`Opção desconhecida: ${flag}.`);
-    if (key === "fakeProviders" || key === "loo" || key === "collect" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root") {
+    if (key === "fakeProviders" || key === "loo" || key === "collect" || key === "pairs" || key === "resume" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root") {
       options[key] = true;
       continue;
     }
@@ -480,7 +490,9 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   for (const key of ["claudeOutline", "groupText", "ticketDescriptions"]) {
     if (options[key] !== undefined && command !== "collect") return fail(`--${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)} só existe no collect.`);
   }
-  if (options["variant"] !== undefined && command !== "collect" && !(command === "report" && options["collect"] !== undefined)) return fail("--variant só existe no collect e no report --collect.");
+  if (options["variant"] !== undefined && command !== "collect" && command !== "pairs" && !(command === "report" && (options["collect"] !== undefined || options["pairs"] !== undefined))) {
+    return fail("--variant só existe no collect, no pairs, no report --collect e no report --pairs.");
+  }
   for (const key of ["compare", "compareProject", "phaseGroups"]) {
     if (options[key] !== undefined && !(command === "report" && options["collect"] !== undefined)) return fail(`--${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)} só existe no report --collect.`);
   }
@@ -490,9 +502,12 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     if (numbers.some((n) => !Number.isInteger(n) || n < 1)) return fail("--phase-groups deve ser uma lista de números de ticket separados por vírgula.");
     options["phaseGroups"] = numbers;
   }
-  if (options["repeats"] !== undefined && command !== "collect") return fail("--repeats só existe no collect.");
+  if (options["repeats"] !== undefined && command !== "collect" && command !== "pairs") return fail("--repeats só existe no collect e no pairs.");
   if (options["collect"] !== undefined && command !== "report") return fail("--collect só existe no report.");
+  if (options["pairs"] !== undefined && command !== "report") return fail("--pairs só existe no report.");
+  if (options["resume"] !== undefined && command !== "pairs") return fail("--resume só existe no pairs.");
   if (options["collect"] !== undefined && options["loo"] !== undefined) return fail("--collect não combina com --loo.");
+  if (options["pairs"] !== undefined && (options["collect"] !== undefined || options["loo"] !== undefined)) return fail("--pairs não combina com --collect nem com --loo.");
   const ticketOptions = TICKET_OPTIONS[command] ?? [];
   for (const key of TICKET_ONLY) {
     if (options[key] !== undefined && !ticketOptions.includes(key)) {
@@ -509,7 +524,9 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
       return fail("ticket-update pede ao menos um de --status, --title, --description-file, --parent ou --root.");
     }
   }
-  const missing = REQUIRED[command as Command].filter((key) => options[key] === undefined);
+  // `report --pairs` lê só os arquivos de `--dir`: o projeto vem do gabarito.
+  const required = command === "report" && options["pairs"] !== undefined ? ["dir" as const] : REQUIRED[command as Command];
+  const missing = required.filter((key) => options[key] === undefined);
   if (missing.length > 0) return fail(`Faltam opções para ${command}: ${missing.map((k) => `--${k}`).join(", ")}.`);
   return { ok: true, command: command as Command, options: options as CliOptions };
 }

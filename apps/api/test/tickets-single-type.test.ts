@@ -40,9 +40,9 @@ describe("um só tipo: respostas", () => {
     expect(list.body[1]).toMatchObject({ progress: null });
   });
 
-  it("o ex-agrupador (linha com kind='group' e status guardado) volta a mostrar a situação guardada", async () => {
+  it("ticket com filhos e situação guardada mostra a situação guardada", async () => {
     const before = await made({});
-    await h.pool.query("update tickets set kind = 'group', status = 'in_progress' where id = $1", [before.id]);
+    await h.pool.query("update tickets set status = 'in_progress' where id = $1", [before.id]);
     await made({ parentId: before.id });
     const detail = await get(before.id);
     expect(detail).toMatchObject({ status: "in_progress", progress: { done: 0, total: 1, excluded: 0 } });
@@ -72,11 +72,11 @@ describe("kind no corpo", () => {
     expect((await h.pool.query("select count(*)::int as n from tickets")).rows[0].n).toBe(1);
   });
 
-  it("a gravação nova não escreve parent_kind e deixa kind no padrão", async () => {
-    const a = await made({});
-    const b = await made({ parentId: a.id });
-    const row = (await h.pool.query("select kind, parent_kind from tickets where id = $1", [b.id])).rows[0];
-    expect(row).toEqual({ kind: "ticket", parent_kind: null });
+  it("a tabela não tem mais as colunas kind e parent_kind", async () => {
+    const cols = (
+      await h.pool.query("select column_name from information_schema.columns where table_name = 'tickets' and column_name in ('kind', 'parent_kind')")
+    ).rows;
+    expect(cols).toEqual([]);
   });
 });
 

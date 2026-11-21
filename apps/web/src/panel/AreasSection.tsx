@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { Area, ApiClient, Me, Project } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
@@ -16,18 +17,19 @@ export interface AreasSectionProps {
 }
 
 export function AreasSection({ client, me }: AreasSectionProps) {
+  const { t } = useTranslation("panel");
   const { state, reload, retry } = useApiResource(() => safe(() => client.listAreas()));
   const isAdmin = me.roles.clerk === "admin";
 
   return (
     <section aria-labelledby="areas-title">
-      <h2 id="areas-title">Áreas</h2>
+      <h2 id="areas-title">{t("areas.title")}</h2>
       {isAdmin && <CreateAreaForm client={client} onDone={reload} />}
-      {state.status === "loading" && <p role="status">Carregando áreas…</p>}
+      {state.status === "loading" && <p role="status">{t("areas.loading")}</p>}
       {state.status === "error" && <LoadError error={state.error} onRetry={retry} />}
       {state.status === "ready" &&
         (state.data.length === 0 ? (
-          <p>Nenhuma área cadastrada.</p>
+          <p>{t("areas.empty")}</p>
         ) : (
           <ul className="panel-list">
             {state.data.map((area) => (
@@ -40,6 +42,7 @@ export function AreasSection({ client, me }: AreasSectionProps) {
 }
 
 function CreateAreaForm({ client, onDone }: { client: ApiClient; onDone: () => void }) {
+  const { t } = useTranslation("panel");
   const describeError = useDescribeApiError();
   const [name, setName] = useState("");
   const [missing, setMissing] = useState(false);
@@ -60,19 +63,20 @@ function CreateAreaForm({ client, onDone }: { client: ApiClient; onDone: () => v
   return (
     <form className="panel-form" onSubmit={(event) => void submit(event)}>
       <label>
-        Nome da nova área
+        {t("areas.create.label")}
         <input value={name} onChange={(event) => setName(event.target.value)} />
       </label>
       <button type="submit" className="primary" disabled={action.busy}>
-        Criar área
+        {t("areas.create.submit")}
       </button>
-      {missing && <p role="alert">Informe o nome da área.</p>}
+      {missing && <p role="alert">{t("areas.create.missing")}</p>}
       {action.error && <p role="alert">{describeError(action.error)}</p>}
     </form>
   );
 }
 
 function AreaRow({ area, client, canEdit, onDone }: { area: Area; client: ApiClient; canEdit: boolean; onDone: () => void }) {
+  const { t } = useTranslation("panel");
   const describeError = useDescribeApiError();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(area.name);
@@ -104,12 +108,12 @@ function AreaRow({ area, client, canEdit, onDone }: { area: Area; client: ApiCli
     <li>
       {editing ? (
         <form className="panel-form inline" onSubmit={(event) => void save(event)}>
-          <input aria-label={`Novo nome de ${area.name}`} value={name} onChange={(event) => setName(event.target.value)} />
+          <input aria-label={t("areas.row.renameField", { name: area.name })} value={name} onChange={(event) => setName(event.target.value)} />
           <button type="submit" disabled={action.busy}>
-            Salvar
+            {t("areas.row.save")}
           </button>
           <button type="button" onClick={cancelEdit}>
-            Cancelar
+            {t("areas.row.cancel")}
           </button>
         </form>
       ) : (
@@ -117,10 +121,10 @@ function AreaRow({ area, client, canEdit, onDone }: { area: Area; client: ApiCli
           <span>{area.name}</span>
           {canEdit && (
             <span className="row-actions">
-              <button type="button" aria-label={`Renomear ${area.name}`} onClick={() => setEditing(true)}>
-                Renomear
+              <button type="button" aria-label={t("areas.row.renameLabel", { name: area.name })} onClick={() => setEditing(true)}>
+                {t("areas.row.rename")}
               </button>
-              <ConfirmAction label="Remover" accessibleLabel={`Remover ${area.name}`} disabled={action.busy} onConfirm={() => void remove()} />
+              <ConfirmAction label={t("areas.row.remove")} accessibleLabel={t("areas.row.removeLabel", { name: area.name })} disabled={action.busy} onConfirm={() => void remove()} />
             </span>
           )}
         </div>
