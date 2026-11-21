@@ -58,7 +58,7 @@ interface AssistantState {
   open: boolean;
   /** Projeto escolhido ao abrir; `null` faz o painel perguntar. */
   projectId: string | null;
-  /** Agrupador selecionado ao abrir: a procura da IA começa dentro dele (ADR 0031). */
+  /** Ticket selecionado ao abrir: a procura da IA começa dentro dele (ADR 0031, ADR 0034). */
   scopeId: string | null;
 }
 
@@ -257,8 +257,8 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     setPanel((state) => (state.open ? { ...state, open: false } : state));
     if (live.current.openTicketId !== null) onOpenTicketChange(null);
     canvasRef.current.selectNode(null);
-    // Só um agrupador selecionado define o escopo; ticket, projeto ou nenhuma seleção procuram no projeto inteiro.
-    const scopeId = current?.kind === "ticket" && current.ticket?.kind === "group" && chosen && current.ticket.projectId === chosen.id ? current.ticket.id : null;
+    // Qualquer ticket selecionado do projeto da conversa define o escopo (ADR 0034); projeto ou nenhuma seleção procuram no projeto inteiro.
+    const scopeId = current?.kind === "ticket" && chosen && current.ticket?.projectId === chosen.id ? current.ticket.id : null;
     setAssistant({ open: true, projectId: chosen?.id ?? null, scopeId });
   };
 
@@ -318,7 +318,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               {selected.ticket ? (
                 <p className="selection-state">
                   <TicketMark ticket={selected.ticket} />
-                  <span>{describeTicketState(selected.ticket, index.childrenByParentId.get(selected.id)?.length ?? 0)}</span>
+                  <span>{describeTicketState(selected.ticket)}</span>
                 </p>
               ) : (
                 <p>{(() => {
@@ -363,9 +363,9 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               onChanged={onChanged}
               {...(onImport ? { onImportProject: onImport } : {})}
               assistantAvailable={assistantAvailable}
-              onCreateTicket={(projectId, kind) => {
+              onCreateTicket={(projectId) => {
                 setPanel((current) => ({ ...current, open: false }));
-                setCreating({ projectId, parentId: null, kind });
+                setCreating({ projectId, parentId: null });
                 if (live.current.openTicketId !== null) onOpenTicketChange(null);
               }}
             />

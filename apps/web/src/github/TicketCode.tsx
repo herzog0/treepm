@@ -23,7 +23,7 @@ function warningsOf(repositories: CodeRefresh["repositories"]): string[] {
 }
 
 /**
- * Seção "Código" da página do ticket e do agrupador (ADR 0032): branches e pull requests que citam a chave.
+ * Seção "Código" da página do ticket (ADR 0032); o ticket com itens já traz os vínculos dos itens: branches e pull requests que citam a chave.
  * O pai só a monta com `github.enabled`; sem repositório ligado ao projeto ela não aparece.
  */
 export function TicketCode({ client, detail, project }: { client: ApiClient; detail: TicketDetail; project: Project | null }) {
@@ -63,7 +63,7 @@ export function TicketCode({ client, detail, project }: { client: ApiClient; det
   }, [data]);
 
   if (data === null || data.repositories === 0) return null;
-  const isGroup = detail.kind === "group";
+  const hasItems = detail.progress !== null;
 
   return (
     <section className="ticket-section" aria-labelledby="ticket-code-heading">
@@ -80,8 +80,8 @@ export function TicketCode({ client, detail, project }: { client: ApiClient; det
       </div>
       {data.links.length === 0 ? (
         <p className="ticket-muted">
-          {isGroup
-            ? "Nenhum branch ou pull request cita os itens deste agrupador."
+          {hasItems
+            ? "Nenhum branch ou pull request cita este ticket nem os itens dentro dele."
             : `Nenhum branch ou pull request cita ${detail.key}. Inclua a chave no nome do branch ou no título do PR.`}
         </p>
       ) : (
@@ -89,7 +89,7 @@ export function TicketCode({ client, detail, project }: { client: ApiClient; det
           {data.links.map((link) => (
             <li key={link.id} className="ticket-code-item">
               <StatusMark status={MARK[link.state]} />
-              {isGroup && <span className="ticket-key">{link.ticket.key}</span>}
+              {link.ticket.id !== detail.id && <span className="ticket-key">{link.ticket.key}</span>}
               <a href={link.url} target="_blank" rel="noopener noreferrer">
                 {link.kind === "pull_request" ? `#${link.number} ${link.title}` : link.ref}
               </a>

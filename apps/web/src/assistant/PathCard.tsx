@@ -1,5 +1,6 @@
 import type { ApiError, GroupProposal, PlacementOutcome, Project } from "../api/client.js";
 import { describeApiError } from "../api/client.js";
+import { reopenWarning } from "../ticket/reopen.js";
 import { destinationLabel } from "./placement.js";
 import type { Destination } from "./placement.js";
 
@@ -16,9 +17,9 @@ interface PathCardProps {
   busy: boolean;
   error: ApiError | null;
   whereStopped: (parentId: string | null) => string;
-  /** Explica que o clique em um ticket, no mapa, escolheu o agrupador que o contém; vazio quando não se aplica. */
-  pickedNote: string;
-  /** O agrupador de escopo que o resultado diz não caber; `null` quando não há aviso. */
+  /** Chave do destino quando ele é um ticket concluído que será reaberto (ADR 0034); `null` nos outros casos. */
+  reopensKey: string | null;
+  /** O ticket de escopo que o resultado diz não caber; `null` quando não há aviso. */
   outOfScope: { title: string } | null;
   onWholeProject: () => void;
   onUse: (destination: Destination) => void;
@@ -26,7 +27,7 @@ interface PathCardProps {
   onChoose: () => void;
   onCancelChoose: () => void;
   onCreate: () => void;
-  /** A proposta de agrupador novo (ADR 0031) enquanto o destino é o da procura; `null` quando não há ou foi descartada. */
+  /** A proposta de ticket pai novo (ADR 0031, ADR 0034) enquanto o destino é o da procura; `null` quando não há ou foi descartada. */
   proposal: GroupProposal | null;
   /** Ids dos tickets da proposta que a pessoa tirou da lista. */
   unchecked: readonly string[];
@@ -45,7 +46,7 @@ export function PathCard(props: PathCardProps) {
   ];
   const stopped = outcome.stoppedEarly;
   const { proposal } = props;
-  // A última marcada não desmarca: o agrupador precisa de pelo menos um ticket além do novo.
+  // A última marcada não desmarca: o ticket pai novo precisa de pelo menos um ticket filho além do ticket novo.
   const checkedCount = proposal ? proposal.tickets.filter((ticket) => !props.unchecked.includes(ticket.id)).length : 0;
 
   return (
@@ -60,12 +61,13 @@ export function PathCard(props: PathCardProps) {
           </li>
         ))}
       </ol>
+      {props.reopensKey !== null && <p className="assistant-notice" role="status">{reopenWarning(props.reopensKey)}</p>}
       {proposal && (
         <div className="assistant-proposal">
           <p className="proposal-line">Este ticket parece formar um grupo com outros daqui.</p>
           <p className="proposal-title">{proposal.title}</p>
           {proposal.description !== "" && <p className="proposal-description">{proposal.description}</p>}
-          <ul className="proposal-tickets" aria-label="Tickets que vão para o agrupador">
+          <ul className="proposal-tickets" aria-label="Tickets que vão para o ticket pai novo">
             {proposal.tickets.map((ticket) => {
               const checked = !props.unchecked.includes(ticket.id);
               return (
@@ -79,7 +81,7 @@ export function PathCard(props: PathCardProps) {
             })}
           </ul>
           <div className="proposal-actions">
-            <button type="button" disabled={busy} onClick={props.onCreateGroup}>Criar agrupador e mover</button>
+            <button type="button" disabled={busy} onClick={props.onCreateGroup}>Criar ticket pai e mover</button>
           </div>
         </div>
       )}
@@ -89,14 +91,13 @@ export function PathCard(props: PathCardProps) {
           <button type="button" className="text" disabled={busy} onClick={props.onWholeProject}>Procurar no projeto inteiro</button>
         </p>
       )}
-      {props.pickedNote !== "" && <p className="assistant-notice" role="status">{props.pickedNote}</p>}
       {outcome.uncertain && (
-        <p className="assistant-notice">Não tenho certeza do lugar: mais de um agrupador serve. Escolha uma das opções abaixo, suba um nível ou use «Escolher no mapa».</p>
+        <p className="assistant-notice">Não tenho certeza do lugar: mais de um ticket serve. Escolha uma das opções abaixo, suba um nível ou use «Escolher no mapa».</p>
       )}
       {stopped && (
         <p className="assistant-notice">
           {stopped.reason === "candidates_too_large"
-            ? `A procura parou em «${props.whereStopped(stopped.parentId)}» porque havia agrupadores demais para comparar de uma vez. Confira se o lugar serve ou escolha outro.`
+            ? `A procura parou em «${props.whereStopped(stopped.parentId)}» porque havia tickets demais para comparar de uma vez. Confira se o lugar serve ou escolha outro.`
             : `A procura parou em «${props.whereStopped(stopped.parentId)}» ao atingir o limite de níveis. Confira se o lugar serve ou escolha outro.`}
         </p>
       )}
@@ -113,7 +114,7 @@ export function PathCard(props: PathCardProps) {
         </>
       )}
       {choosing && (
-        <p className="assistant-notice" role="status">Clique em um agrupador ou no projeto, no mapa. Um ticket escolhe o agrupador que o contém. Esc cancela.</p>
+        <p className="assistant-notice" role="status">Clique em um ticket ou no projeto, no mapa. Esc cancela.</p>
       )}
       {choosing && pickNotice !== "" && <p role="alert">{pickNotice}</p>}
       {props.error && <p role="alert">{describeApiError(props.error)}</p>}

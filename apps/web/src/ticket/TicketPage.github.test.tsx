@@ -4,14 +4,14 @@ import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient, ApiResult, CodeRefresh, Me, Project, TicketDetail, TicketSummary } from "../api/client.js";
 import { makePanelMe, makePerson } from "../panel/testing.js";
-import { makeClient, makeCodeLink, makeGithubRepository, makeGroup, makeInstallation, makeProject, makeTicket, ok } from "../test/fakes.js";
+import { makeClient, makeCodeLink, makeGithubRepository, makeInstallation, makeProject, makeTicket, ok } from "../test/fakes.js";
 import type { FakeGithub } from "../test/fakes.js";
 import { TicketPage } from "./TicketPage.js";
 
 const project = makeProject("p1", "ALFA", "Projeto Alfa");
 const archivedProject = makeProject("p1", "ALFA", "Projeto Alfa", { archivedAt: "2026-01-01T00:00:00.000Z" });
 const summaries: TicketSummary[] = [
-  makeGroup("t1", "p1", 1, "Planejar a fase", { key: "ALFA-1" }),
+  makeTicket("t1", "p1", 1, "Planejar a fase", { key: "ALFA-1", progress: { done: 0, total: 2, excluded: 0 } }),
   makeTicket("t2", "p1", 2, "Escrever o texto", { key: "ALFA-2", parentId: "t1" }),
   makeTicket("t3", "p1", 3, "Revisar o texto", { key: "ALFA-3", parentId: "t1" }),
 ];
@@ -51,7 +51,7 @@ function setup(options: { me?: Me; project?: Project; ticketId?: string; github?
 const section = async () => within(await screen.findByRole("region", { name: "Código" }));
 const noSection = async () => {
   await screen.findByRole("heading", { level: 1 });
-  await screen.findByText("Agrupador pai");
+  await screen.findByText("Ticket pai");
 };
 
 describe("Página do ticket › Código", () => {
@@ -101,11 +101,19 @@ describe("Página do ticket › Código", () => {
     expect(await (await section()).findByText("fechado")).toBeInTheDocument();
   });
 
-  it("shows the ticket key on each item of a group", async () => {
+  it("shows the ticket key on each item of a ticket that has items", async () => {
     setup({ ticketId: "t1", github: { code: { t1: { links: [open, makeCodeLink("l4", t3, { repository: treepm, number: 14, title: "Revisão" })], syncedAt: minutesAgo(1) } } } });
     const items = await (await section()).findAllByRole("listitem");
     expect(within(items[0]!).getByText("ALFA-2")).toBeInTheDocument();
     expect(within(items[1]!).getByText("ALFA-3")).toBeInTheDocument();
+  });
+
+  it("shows the key only on the links of other tickets when a ticket with items has its own link too", async () => {
+    const own = makeCodeLink("l5", { id: "t1", key: "ALFA-1", title: "Planejar a fase" }, { repository: treepm, number: 20, title: "Plano" });
+    setup({ ticketId: "t1", github: { code: { t1: { links: [own, open], syncedAt: minutesAgo(1) } } } });
+    const items = await (await section()).findAllByRole("listitem");
+    expect(within(items[0]!).queryByText("ALFA-1")).not.toBeInTheDocument();
+    expect(within(items[1]!).getByText("ALFA-2")).toBeInTheDocument();
   });
 
   it("does not repeat the key on a ticket's own items", async () => {
@@ -124,14 +132,14 @@ describe("Página do ticket › Código", () => {
     expect(await (await section()).findByText("Ainda não sincronizado")).toBeInTheDocument();
   });
 
-  it("explains an empty list for a ticket and for a group", async () => {
+  it("explains an empty list for a ticket without items", async () => {
     setup({ github: { code: { t2: { links: [], syncedAt: minutesAgo(1) } } } });
     expect(await (await section()).findByText("Nenhum branch ou pull request cita ALFA-2. Inclua a chave no nome do branch ou no título do PR.")).toBeInTheDocument();
   });
 
-  it("explains an empty list for a group", async () => {
+  it("explains an empty list for a ticket that has items", async () => {
     setup({ ticketId: "t1", github: { code: { t1: { links: [], syncedAt: minutesAgo(1) } } } });
-    expect(await (await section()).findByText("Nenhum branch ou pull request cita os itens deste agrupador.")).toBeInTheDocument();
+    expect(await (await section()).findByText("Nenhum branch ou pull request cita este ticket nem os itens dentro dele.")).toBeInTheDocument();
   });
 
   it("refreshes on demand: the button is disabled meanwhile and the list reloads", async () => {

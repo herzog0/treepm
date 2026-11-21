@@ -5,7 +5,7 @@ import { DetailCard } from "./DetailCard.js";
 import { useIsDetail } from "./detail.js";
 import { TicketMark, stateText } from "./ticketState.js";
 
-export { STATUS_TEXT, TicketMark, describeTicketState } from "./ticketState.js";
+export { STATUS_TEXT, TicketMark, describeProgress, describeTicketState } from "./ticketState.js";
 
 /**
  * Conteúdo do nó por nível de detalhe (ADR 0025): completo, compacto, chip e ponto; mais o "detalhe" da
@@ -46,7 +46,7 @@ function renderCardContent({ node, lod, childCount, aggregate, descendantCount }
       {ticket && (
         <span className="node-state">
           <TicketMark ticket={ticket} />
-          {lod === "full" && <span>{stateText(ticket, childCount)}</span>}
+          {lod === "full" && <span>{stateText(ticket)}</span>}
         </span>
       )}
       {lod === "full" && node.kind === "organization" && (

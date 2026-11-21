@@ -20,17 +20,16 @@ const ticket = (id: string, projectId: string, number: number, title: string, pa
   key: `K-${number}`,
   parentId,
   title,
-  kind: "ticket",
   status,
   progress: null,
   assigneeIds: [],
   descriptionExcerpt: "",
 });
 
-const group = (id: string, projectId: string, number: number, title: string, parentId: string | null = null): TicketSummary => ({
-  ...ticket(id, projectId, number, title, parentId, null),
-  kind: "group",
-  progress: { done: 0, total: 0, excluded: 0 },
+/** Ticket com filhos: o progresso conta todos os descendentes (contrato da ADR 0034). */
+const parent = (id: string, projectId: string, number: number, title: string, progress: { done: number; total: number; excluded?: number }, parentId: string | null = null, status: TicketSummary["status"] = "todo"): TicketSummary => ({
+  ...ticket(id, projectId, number, title, parentId, status),
+  progress: { excluded: 0, ...progress },
 });
 
 describe("buildMapItems", () => {
@@ -59,9 +58,9 @@ describe("buildMapItems with tickets", () => {
   const a = project("a", "AAA", "Alfa");
   const tickets = {
     a: [
-      group("t1", "a", 1, "Raiz um"),
+      parent("t1", "a", 1, "Raiz um", { done: 0, total: 3 }),
       ticket("t2", "a", 2, "Raiz dois"),
-      group("t3", "a", 3, "Filho do um", "t1"),
+      parent("t3", "a", 3, "Filho do um", { done: 0, total: 1 }, "t1"),
       ticket("t4", "a", 4, "Neto", "t3"),
       ticket("t5", "a", 5, "Outro filho do um", "t1"),
     ],
@@ -103,35 +102,72 @@ describe("buildMapItems with tickets", () => {
   });
 });
 
-describe("kind decides the node type, not having children", () => {
+describe("a ticket with an open descendant is painted by its descendants (ADR 0034)", () => {
   const a = project("a", "AAA", "Alfa");
   const colorOf = (items: ReturnType<typeof buildMapItems>, id: string) => items.find((item) => item.id === id)?.color;
+  const nodeOf = (items: ReturnType<typeof buildMapItems>, id: string) => items.find((item) => item.id === id)!;
 
-  it("paints an empty group with the neutral 'a fazer' color and weighs it as one leaf", () => {
-    const items = buildMapItems(org, [a], { a: [group("g", "a", 1, "Fase 1")] });
-    const node = items.find((item) => item.id === "g")!;
-    expect(node.color).toBe(STATUS_COLORS.todo);
-    expect(node.leafCount).toBe(1);
-    expect(node.ticket?.kind).toBe("group");
+  it("paints a ticket without children with its own status and weighs it as one leaf", () => {
+    const items = buildMapItems(org, [a], { a: [ticket("t", "a", 1, "Solto", null, "in_review")] });
+    expect(nodeOf(items, "t").color).toBe(STATUS_COLORS.in_review);
+    expect(nodeOf(items, "t").leafCount).toBe(1);
   });
 
-  it("keeps a ticket at the root next to a group, each with its own color", () => {
-    const items = buildMapItems(org, [a], { a: [group("g", "a", 1, "Fase 1"), ticket("t", "a", 2, "Solto", null, "done"), ticket("c", "a", 3, "Filho", "g", "in_progress")] });
+  it("paints a parent with an open child by the mix of its descendants, not by its own status", () => {
+    const items = buildMapItems(org, [a], { a: [parent("g", "a", 1, "Fase 1", { done: 0, total: 1 }, null, "done"), ticket("c", "a", 2, "Filho", "g", "in_progress")] });
+    expect(colorOf(items, "g")).toBe(STATUS_COLORS.in_progress);
+    expect(nodeOf(items, "g").leafCount).toBe(1);
+  });
+
+  it("weighs an open parent as many leaves as it has descendants in a merged square", () => {
+    const items = buildMapItems(org, [a], { a: [parent("g", "a", 1, "Fase 1", { done: 0, total: 2 }), ticket("c", "a", 2, "F1", "g", "todo"), ticket("d", "a", 3, "F2", "g", "todo")] });
+    expect(nodeOf(items, "g").leafCount).toBe(2);
+  });
+
+  it("paints a parent whose children are all finalized with its own status", () => {
+    const items = buildMapItems(org, [a], { a: [parent("g", "a", 1, "Fase 1", { done: 1, total: 1, excluded: 1 }, null, "in_review"), ticket("c", "a", 2, "Filho", "g", "done"), ticket("x", "a", 3, "Outro", "g", "cancelled")] });
+    expect(colorOf(items, "g")).toBe(STATUS_COLORS.in_review);
+    expect(nodeOf(items, "g").leafCount).toBe(1);
+  });
+
+  it("paints a parent whose children are all cancelled with its own status", () => {
+    const items = buildMapItems(org, [a], { a: [parent("g", "a", 1, "Fase 1", { done: 0, total: 0, excluded: 2 }, null, "todo"), ticket("c", "a", 2, "Filho", "g", "cancelled"), ticket("x", "a", 3, "Outro", "g", "cancelled")] });
+    expect(colorOf(items, "g")).toBe(STATUS_COLORS.todo);
+  });
+
+  it("counts the descendants that are parents themselves, each with its own status", () => {
+    const items = buildMapItems(org, [a], {
+      a: [
+        parent("p", "a", 1, "Pai", { done: 1, total: 3 }),
+        parent("m", "a", 2, "Meio", { done: 1, total: 1 }, "p", "done"),
+        ticket("l1", "a", 3, "Folha 1", "m", "done"),
+        ticket("l2", "a", 4, "Folha 2", "p", "in_review"),
+      ],
+    });
+    const p = nodeOf(items, "p");
+    expect(p.color).toBe(mixWeightedColors([{ color: STATUS_COLORS.done, weight: 2 }, { color: STATUS_COLORS.in_review, weight: 1 }]));
+    expect(p.leafCount).toBe(3);
+    expect(colorOf(items, "m")).toBe(STATUS_COLORS.done);
+  });
+
+  it("paints a finalized grandchild's open sibling through the parent that has an open descendant", () => {
+    const items = buildMapItems(org, [a], {
+      a: [
+        parent("p", "a", 1, "Pai", { done: 1, total: 2 }),
+        ticket("c", "a", 2, "Filho concluído", "p", "done"),
+        parent("m", "a", 3, "Filho com neto aberto", { done: 0, total: 1 }, "p", "done"),
+        ticket("n", "a", 4, "Neto", "m", "todo"),
+      ],
+    });
+    expect(colorOf(items, "p")).toBe(mixWeightedColors([{ color: STATUS_COLORS.done, weight: 2 }, { color: STATUS_COLORS.todo, weight: 1 }]));
+    expect(colorOf(items, "m")).toBe(STATUS_COLORS.todo);
+  });
+
+  it("keeps a ticket at the root next to a parent, each with its own color", () => {
+    const items = buildMapItems(org, [a], { a: [parent("g", "a", 1, "Fase 1", { done: 0, total: 1 }), ticket("t", "a", 2, "Solto", null, "done"), ticket("c", "a", 3, "Filho", "g", "in_progress")] });
     expect(items.filter((item) => item.parentId === "a").map((item) => item.id)).toEqual(["g", "t"]);
     expect(colorOf(items, "t")).toBe(STATUS_COLORS.done);
     expect(colorOf(items, "g")).toBe(STATUS_COLORS.in_progress);
-  });
-
-  it("does not let an empty group inside another group count as a leaf of the mix", () => {
-    const items = buildMapItems(org, [a], { a: [group("g", "a", 1, "Fase 1"), group("e", "a", 2, "Vazio", "g"), ticket("c", "a", 3, "Filho", "g", "done")] });
-    const node = items.find((item) => item.id === "g")!;
-    expect(node.color).toBe(STATUS_COLORS.done);
-    expect(node.leafCount).toBe(1);
-  });
-
-  it("paints a group that holds only empty groups as neutral", () => {
-    const items = buildMapItems(org, [a], { a: [group("g", "a", 1, "Fase 1"), group("e", "a", 2, "Vazio", "g")] });
-    expect(colorOf(items, "g")).toBe(STATUS_COLORS.todo);
   });
 });
 
@@ -157,18 +193,18 @@ describe("node colors", () => {
     ]);
   });
 
-  it("paints a ticket with children with the mix of its descendant leaves, ignoring the intermediate levels", () => {
+  it("paints a ticket with open descendants with the mix of all of them", () => {
     const tickets = {
       a: [
-        group("p", "a", 1, "Pai"),
-        group("m", "a", 2, "Meio", "p"),
+        parent("p", "a", 1, "Pai", { done: 2, total: 3 }),
+        parent("m", "a", 2, "Meio", { done: 2, total: 2 }, "p", "done"),
         ticket("l1", "a", 3, "Folha 1", "m", "done"),
         ticket("l2", "a", 4, "Folha 2", "m", "done"),
         ticket("l3", "a", 5, "Folha 3", "p", "in_review"),
       ],
     };
     const items = buildMapItems(org, [a], tickets);
-    expect(colorOf(items, "p")).toBe(mixWeightedColors([{ color: STATUS_COLORS.done, weight: 2 }, { color: STATUS_COLORS.in_review, weight: 1 }]));
+    expect(colorOf(items, "p")).toBe(mixWeightedColors([{ color: STATUS_COLORS.done, weight: 3 }, { color: STATUS_COLORS.in_review, weight: 1 }]));
     expect(colorOf(items, "m")).toBe(STATUS_COLORS.done);
     expect(colorOf(items, "p")).not.toBe(STATUS_COLORS.done);
   });
@@ -193,16 +229,16 @@ describe("mixMapColors (merged squares)", () => {
   it("mixes the member colors weighted by how many leaves each member holds", () => {
     const tickets = {
       a: [
-        group("p", "a", 1, "Pai"),
-        ticket("l1", "a", 2, "F1", "p", "done"),
-        ticket("l2", "a", 3, "F2", "p", "done"),
+        parent("p", "a", 1, "Pai", { done: 0, total: 2 }),
+        ticket("l1", "a", 2, "F1", "p", "in_progress"),
+        ticket("l2", "a", 3, "F2", "p", "in_progress"),
         ticket("solo", "a", 4, "Solo", null, "todo"),
       ],
     };
     const items = buildMapItems(org, [a], tickets);
     const members = [items.find((item) => item.id === "p")!, items.find((item) => item.id === "solo")!];
     const colors = members.map((member) => ({ color: member.color, weight: 1 }));
-    const expected = mixWeightedColors([{ color: STATUS_COLORS.done, weight: 2 }, { color: STATUS_COLORS.todo, weight: 1 }]);
+    const expected = mixWeightedColors([{ color: STATUS_COLORS.in_progress, weight: 2 }, { color: STATUS_COLORS.todo, weight: 1 }]);
     expect(mixMapColors(colors, members)).toBe(expected);
   });
 

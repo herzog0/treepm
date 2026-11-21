@@ -99,7 +99,7 @@ export function DetailCard({ node, childCount }: { node: MapNode; childCount: nu
       {ticket && (
         <span className="node-detail-state">
           <TicketMark ticket={ticket} />
-          <span>{stateText(ticket, childCount)}</span>
+          <span>{stateText(ticket)}</span>
         </span>
       )}
       {excerpt !== "" && <Description text={excerpt} />}
