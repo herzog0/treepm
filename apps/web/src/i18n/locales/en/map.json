@@ -1,1 +1,71 @@
-{}
+{
+  "loading": "Loading map…",
+  "canvas": {
+    "label": "Organization map",
+    "toolbar": "Camera and colors",
+    "zoomOut": "Zoom out",
+    "reset": "Reset view",
+    "zoomIn": "Zoom in",
+    "colors": "Colors"
+  },
+  "breadcrumb": "Focus path",
+  "panelToggle": "Areas and projects",
+  "organizationKey": "Organization",
+  "help": "Wheel to zoom · drag to pan · combine both · click to select · Explore branch to focus · C colors · Esc clear",
+  "createFirst": "Create first project",
+  "newTicket": "New ticket",
+  "selection": {
+    "region": "Selected node",
+    "close": "Close selection",
+    "explore": "Explore branch",
+    "open": "Open",
+    "projects_one": "{{count}} project",
+    "projects_other": "{{count}} projects"
+  },
+  "node": {
+    "organization_one": "{{label}}. Organization with {{count}} project.",
+    "organization_other": "{{label}}. Organization with {{count}} projects.",
+    "ticket": "{{label}}. Ticket.",
+    "project": "{{label}}. Project.",
+    "draft": "Ticket draft: {{label}}. Not created yet."
+  },
+  "group": {
+    "projects_one": "{{count}} project grouped: {{members}}. Zoom in to reveal.",
+    "projects_other": "{{count}} projects grouped: {{members}}. Zoom in to reveal.",
+    "items_one": "{{count}} item grouped: {{members}}. Zoom in to reveal.",
+    "items_other": "{{count}} items grouped: {{members}}. Zoom in to reveal."
+  },
+  "status": {
+    "todo": "To do",
+    "in_progress": "In progress",
+    "in_review": "In review",
+    "done": "Done",
+    "cancelled": "Canceled"
+  },
+  "progress": {
+    "base": "{{done}} of {{total}} done",
+    "withCanceled_one": "{{done}} of {{total}} done · {{count}} canceled",
+    "withCanceled_other": "{{done}} of {{total}} done · {{count}} canceled"
+  },
+  "count": {
+    "projects_one": "{{count}} project",
+    "projects_other": "{{count}} projects",
+    "items_one": "{{count}} item",
+    "items_other": "{{count}} items",
+    "itemsAtRoot_one": "{{count}} item at root",
+    "itemsAtRoot_other": "{{count}} items at root"
+  },
+  "leaves": {
+    "in_review": "{{number}} in review",
+    "in_progress": "{{number}} in progress",
+    "todo": "{{number}} to do"
+  },
+  "draft": {
+    "notCreated": "Not created yet",
+    "title": "New ticket",
+    "key": "New"
+  },
+  "person": {
+    "unknown": "Unknown person"
+  }
+}
