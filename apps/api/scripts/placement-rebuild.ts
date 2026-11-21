@@ -11,7 +11,7 @@
 import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { bootApp } from "./placement-rebuild/app.js";
-import { collectCommand, collectReportCommand } from "./placement-rebuild/collect.js";
+import { collectCommand, collectCompareCommand, collectReportCommand } from "./placement-rebuild/collect.js";
 import { ApiClient } from "./placement-rebuild/client.js";
 import {
   archiveProjectCommand,
@@ -42,7 +42,18 @@ async function main(): Promise<number> {
   ensureDir(dir);
 
   if (command === "report" && options.collect) {
-    collectReportCommand({ dir, project: options.project as string, log });
+    if (options.compare) {
+      collectCompareCommand({
+        dir,
+        project: options.project as string,
+        compare: options.compare,
+        ...(options.compareProject ? { compareProject: options.compareProject } : {}),
+        ...(options.phaseGroups ? { phaseGroups: options.phaseGroups } : {}),
+        log,
+      });
+      return 0;
+    }
+    collectReportCommand({ dir, project: options.project as string, ...(options.variant ? { variant: options.variant } : {}), log });
     return 0;
   }
   if (command === "report") {
@@ -73,6 +84,10 @@ async function main(): Promise<number> {
       ...(options.looCrashAfterDraft ? { looCrashAfterDraft: options.looCrashAfterDraft } : {}),
       ...(booted.collectKit ? { collectKit: booted.collectKit } : {}),
       ...(options.repeats ? { repeats: options.repeats } : {}),
+      ...(options.variant ? { variant: options.variant } : {}),
+      ...(options.claudeOutline ? { claudeOutline: true } : {}),
+      ...(options.groupText ? { groupText: options.groupText } : {}),
+      ...(options.ticketDescriptions ? { ticketDescriptionsPath: resolve(options.ticketDescriptions) } : {}),
       ...(options.scopeCheck ? { scopeCheck: true } : {}),
       ...(options.flat ? { flat: true } : {}),
     };

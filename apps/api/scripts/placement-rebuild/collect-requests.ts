@@ -1,7 +1,10 @@
 /** Montagem pura das requisições da coleta: a pergunta da coleta B e a mensagem da coleta D (e a validação do ranking). */
 import { noul } from "@typesafe-ai/sdk";
+import { createHash } from "node:crypto";
+import { descriptionExcerpt } from "@treepm/domain";
 import { z } from "zod";
 import type { GabaritoTicket } from "./core.js";
+import { DEFINITION_SYSTEM_PROMPT } from "./collect-texts.js";
 import { JEV_MODEL, JEV_SCOPE_FALSE, JEV_SCOPE_QUESTION, JEV_SCOPE_TRUE } from "../../src/assistant/prompts.js";
 
 export const ROOT_OPTION = "root";
@@ -100,4 +103,72 @@ export function buildOutline(gabarito: readonly GabaritoTicket[], leftOutId: str
         .sort(byNumber)
         .map((t) => t.title),
     }));
+}
+
+export type DefinitionInput = { group: { title: string; description?: string; items: string[] }; siblings: string[] };
+
+/**
+ * As entradas das definições de um ticket que sai do projeto (sem vazamento). Positivo: a do agrupador original é
+ * escrita sem o ticket em `items`; os irmãos são os outros agrupadores da raiz. Negativo: só os agrupadores restantes,
+ * e o título do original não entra em nenhuma entrada (nem nos irmãos).
+ */
+export function definitionInputs(
+  gabarito: readonly GabaritoTicket[],
+  ticketId: string,
+): { originalGroupId: string | null; positive: Record<string, DefinitionInput>; negative: Record<string, DefinitionInput> | null } {
+  const byNumber = (a: GabaritoTicket, b: GabaritoTicket): number => a.number - b.number;
+  const byId = new Map(gabarito.map((t) => [t.id, t]));
+  const ticket = byId.get(ticketId);
+  let originalGroupId: string | null = null;
+  if (ticket && ticket.parentId !== null) {
+    let cursor: GabaritoTicket = ticket;
+    while (cursor.parentId !== null) cursor = byId.get(cursor.parentId) as GabaritoTicket;
+    originalGroupId = cursor.id;
+  }
+  const roots = gabarito.filter((t) => t.kind === "group" && t.parentId === null).sort(byNumber);
+  const inputOf = (group: GabaritoTicket, siblings: readonly GabaritoTicket[]): DefinitionInput => {
+    const excerpt = descriptionExcerpt(group.description);
+    return {
+      group: {
+        title: group.title,
+        ...(excerpt === "" ? {} : { description: excerpt }),
+        items: gabarito.filter((t) => t.parentId === group.id && t.id !== ticketId).sort(byNumber).map((t) => t.title),
+      },
+      siblings: siblings.map((s) => s.title),
+    };
+  };
+  const positive = Object.fromEntries(roots.map((g) => [g.id, inputOf(g, roots.filter((o) => o.id !== g.id))]));
+  const remaining = roots.filter((g) => g.id !== originalGroupId);
+  const negative =
+    originalGroupId === null || remaining.length === 0
+      ? null
+      : Object.fromEntries(remaining.map((g) => [g.id, inputOf(g, remaining.filter((o) => o.id !== g.id))]));
+  return { originalGroupId, positive, negative };
+}
+
+/** A mensagem do usuário da definição (JSON, na ordem `group` e `siblings`). */
+export const definitionMessage = (input: DefinitionInput): string =>
+  JSON.stringify({
+    group: { title: input.group.title, ...(input.group.description === undefined ? {} : { description: input.group.description }), items: input.group.items },
+    siblings: input.siblings,
+  });
+
+/** A chave do cache vem do conteúdo da entrada e do texto que a escreve (mudar o prompt invalida o cache). */
+export const definitionKey = (input: DefinitionInput): string =>
+  createHash("sha256").update(DEFINITION_SYSTEM_PROMPT).update("\0").update(definitionMessage(input)).digest("hex");
+
+export const definitionFormat = z.object({ definition: z.string().describe("A definição do agrupador, em duas frases.") });
+export const MAX_DEFINITION_CHARS = 600;
+
+export type DefinitionCheck = { ok: true; definition: string } | { ok: false; reason: string };
+
+/** Definição vazia, com mais de 600 caracteres ou sem as duas marcas é inválida (o ticket usa o resumo do produto). */
+export function validateDefinition(output: unknown): DefinitionCheck {
+  const parsed = definitionFormat.safeParse(output);
+  if (!parsed.success) return { ok: false, reason: "forma inesperada" };
+  const definition = parsed.data.definition.trim();
+  if (definition === "") return { ok: false, reason: "vazia" };
+  if (definition.length > MAX_DEFINITION_CHARS) return { ok: false, reason: `mais de ${MAX_DEFINITION_CHARS} caracteres` };
+  if (!definition.includes("Entra aqui:") || !definition.includes("Não entra aqui:")) return { ok: false, reason: "faltam as marcas" };
+  return { ok: true, definition };
 }

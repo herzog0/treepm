@@ -22,8 +22,23 @@ export type CollectRecord = {
   a: CollectRep[];
   aNeg: CollectRep[] | null;
   b: FitRep[];
-  d: ClaudeResult | null;
-  dNeg: ClaudeResult | null;
+  /** Coleta B com os textos do negativo (só com `--group-text definition`, em que o texto do positivo foi escrito vendo o agrupador original). */
+  bNeg?: FitRep[];
+  /** Coleta D: só existe com `--claude-outline`. */
+  d?: ClaudeResult | null;
+  dNeg?: ClaudeResult | null;
+  /** A descrição do rascunho que o Jev e o Claude viram (a do `--ticket-descriptions` ou a original). */
+  draftDescription?: string;
+  groupText?: "summary" | "definition";
+  /** O texto que foi no campo `summary` de cada agrupador candidato, por id (positivo e negativo). */
+  texts?: Record<string, string>;
+  textsNeg?: Record<string, string> | null;
+  /** Agrupadores cuja definição foi inválida e que usaram o resumo do produto. */
+  definitionFallbacks?: string[];
+  definitionFallbacksNeg?: string[];
+  /** Definições deste ticket: chamadas novas e vindas do cache. */
+  definitionCalls?: number;
+  definitionCached?: number;
 };
 
 export type Sample = { order: string[]; gate: number; choice: Record<string, number>; fit: Record<string, number> };
@@ -94,7 +109,7 @@ export function ruleDestination(rule: JevRule, s: Sample): string {
 /** Repetições que o registro tem para o positivo (A e B) ou para o negativo (A− e B). */
 export function repCount(r: CollectRecord, negative: boolean): number {
   if (r.originalGroupId === null) return 0;
-  if (negative) return r.aNeg === null ? 0 : Math.min(r.aNeg.length, r.b.length);
+  if (negative) return r.aNeg === null ? 0 : Math.min(r.aNeg.length, (r.bNeg ?? r.b).length);
   return Math.min(r.a.length, r.b.length);
 }
 
@@ -105,7 +120,7 @@ export function repCount(r: CollectRecord, negative: boolean): number {
 export function sampleOf(r: CollectRecord, rep: number, negative: boolean): Sample | null {
   if (rep >= repCount(r, negative)) return null;
   const judged = negative ? (r.aNeg as CollectRep[])[rep] : r.a[rep];
-  const fits = r.b[rep];
+  const fits = (negative ? (r.bNeg ?? r.b) : r.b)[rep];
   if (!judged || !fits) return null;
   const order = r.groupIds.filter((id) => id in judged.choice && !(negative && id === r.originalGroupId));
   return {
@@ -117,7 +132,7 @@ export function sampleOf(r: CollectRecord, rep: number, negative: boolean): Samp
 }
 
 /** D: o primeiro do ranking; ranking inválido não é destino de nada. */
-export function dDestination(d: ClaudeResult | null): string {
+export function dDestination(d: ClaudeResult | null | undefined): string {
   return d?.ranking?.[0] ?? INVALID;
 }
 
@@ -217,6 +232,7 @@ export function renderCollectReport(records: readonly CollectRecord[], ctx: { pr
   const negatives = records.filter((r) => repCount(r, true) > 0);
   const posReps = positives.length === 0 ? 0 : Math.min(...positives.map((r) => repCount(r, false)));
   const negReps = negatives.length === 0 ? 0 : Math.min(...negatives.map((r) => repCount(r, true)));
+  const hasD = records.some((r) => (r.d ?? null) !== null || (r.dNeg ?? null) !== null);
   const groupIds = records[0]?.groupIds ?? [];
   const label = (id: string): string => (id === ROOT ? "raiz" : id === INVALID ? INVALID : `G${groupIds.indexOf(id) + 1}`);
   const original = (r: CollectRecord): string => r.originalGroupId as string;
@@ -247,9 +263,16 @@ export function renderCollectReport(records: readonly CollectRecord[], ctx: { pr
     "Regras:",
     "",
     ...JEV_RULES.map((rule) => `- ${RULE_LABEL[rule]}: ${RULE_MEANING[rule]}`),
-    "- D: primeiro do `ranking` do Claude, que vê o projeto inteiro.",
+    ...(hasD ? ["- D: primeiro do `ranking` do Claude, que vê o projeto inteiro."] : []),
     "",
   );
+  const definitionRecords = records.filter((r) => r.groupText === "definition");
+  if (definitionRecords.length > 0) {
+    const calls = definitionRecords.reduce((sum, r) => sum + (r.definitionCalls ?? 0), 0);
+    const cached = definitionRecords.reduce((sum, r) => sum + (r.definitionCached ?? 0), 0);
+    const invalid = definitionRecords.reduce((sum, r) => sum + (r.definitionFallbacks?.length ?? 0) + (r.definitionFallbacksNeg?.length ?? 0), 0);
+    lines.push("## Definições dos agrupadores", "", `Texto dos agrupadores: definição escrita pelo Claude. ${calls} chamada(s) nova(s) e ${cached} vinda(s) do cache; ${invalid} inválida(s) (nesses casos o ticket usou o resumo do produto).`, "");
+  }
 
   // 1. tabela principal
   lines.push("## Tabela principal", "", `Acertos por repetição (menor–maior). Positivo: o destino é o agrupador original (de ${positives.length}); negativo: o destino é a raiz (de ${negatives.length}).`, "");
@@ -259,12 +282,15 @@ export function renderCollectReport(records: readonly CollectRecord[], ctx: { pr
     const neg = hitsByRep(rule, true, negatives, negReps);
     lines.push(`| ${RULE_LABEL[rule]} | ${perRep(pos)} | ${perRep(neg)} | ${perRep(sumReps(pos, neg).slice(0, Math.min(pos.length, neg.length)))} |`);
   }
-  const dPos = dHits(false, positives.filter((r) => r.d !== null));
-  const dNeg = dHits(true, negatives.filter((r) => r.dNeg !== null));
-  lines.push(`| D | ${dPos} | ${dNeg} | ${dPos + dNeg} |`, "");
+  if (hasD) {
+    const dPos = dHits(false, positives.filter((r) => (r.d ?? null) !== null));
+    const dNeg = dHits(true, negatives.filter((r) => (r.dNeg ?? null) !== null));
+    lines.push(`| D | ${dPos} | ${dNeg} | ${dPos + dNeg} |`);
+  }
+  lines.push("");
 
   // 2. cobertura
-  lines.push("## Cobertura em duas e três opções (positivo)", "", "O original está entre o destino e a segunda opção do `Choice` (e a terceira). Para D, entre os dois (e três) primeiros do ranking.", "");
+  lines.push("## Cobertura em duas e três opções (positivo)", "", `O original está entre o destino e a segunda opção do \`Choice\` (e a terceira).${hasD ? " Para D, entre os dois (e três) primeiros do ranking." : ""}`, "");
   lines.push("| Regra | Duas opções | Três opções |", "| --- | --- | --- |");
   for (const rule of JEV_RULES) {
     const covered = (n: 2 | 3): number[] =>
@@ -277,7 +303,8 @@ export function renderCollectReport(records: readonly CollectRecord[], ctx: { pr
     lines.push(`| ${RULE_LABEL[rule]} | ${perRep(covered(2))} | ${perRep(covered(3))} |`);
   }
   const dCovered = (n: 2 | 3): number => positives.filter((r) => rankingCoverage(r.d?.ranking ?? null, original(r), n)).length;
-  lines.push(`| D | ${dCovered(2)} | ${dCovered(3)} |`, "");
+  if (hasD) lines.push(`| D | ${dCovered(2)} | ${dCovered(3)} |`);
+  lines.push("");
 
   // 3. separação
   lines.push("## Separação dos sinais, sem limite", "", "Fração dos pares (um positivo, um negativo) em que o sinal do positivo é maior que o do negativo (empate conta meio); primeira repetição. As faixas são: abaixo de 0,3 / de 0,3 a 0,7 / acima de 0,7.", "");
@@ -313,11 +340,11 @@ export function renderCollectReport(records: readonly CollectRecord[], ctx: { pr
 
   // 5. por ticket
   const perTicket = (title: string, list: readonly CollectRecord[], negative: boolean): void => {
-    lines.push(`### ${title}`, "", `| # | Título | Original | ${JEV_RULES.map((rule) => RULE_LABEL[rule]).join(" | ")} | D |`, `| --- | --- | --- | ${JEV_RULES.map(() => "---").join(" | ")} | --- |`);
+    lines.push(`### ${title}`, "", `| # | Título | Original | ${JEV_RULES.map((rule) => RULE_LABEL[rule]).join(" | ")}${hasD ? " | D" : ""} |`, `| --- | --- | --- | ${JEV_RULES.map(() => "---").join(" | ")}${hasD ? " | ---" : ""} |`);
     for (const r of list) {
       const hit = (destination: string): string => `${label(destination)} ${(negative ? destination === ROOT : destination === original(r)) ? "✓" : "✗"}`;
       const cells = JEV_RULES.map((rule) => hit(ruleDestination(rule, sampleOf(r, 0, negative) as Sample)));
-      lines.push(`| ${r.number} | ${cell(r.title)} | ${label(original(r))} | ${cells.join(" | ")} | ${hit(dDestination(negative ? r.dNeg : r.d))} |`);
+      lines.push(`| ${r.number} | ${cell(r.title)} | ${label(original(r))} | ${cells.join(" | ")}${hasD ? ` | ${hit(dDestination(negative ? r.dNeg : r.d))}` : ""} |`);
     }
     lines.push("");
   };
@@ -331,10 +358,25 @@ export function renderCollectReport(records: readonly CollectRecord[], ctx: { pr
   lines.push(`| A (positivo) ${durations(records.flatMap((r) => r.a.map((x) => x.ms)))}`);
   lines.push(`| A− (negativo) ${durations(records.flatMap((r) => (r.aNeg ?? []).map((x) => x.ms)))}`);
   lines.push(`| B (um Noul por agrupador) ${durations(records.flatMap((r) => r.b.map((x) => x.ms)))}`);
-  const dResults = records.flatMap((r) => [r.d, r.dNeg]).filter((x): x is ClaudeResult => x !== null);
+  const dResults = records.flatMap((r) => [r.d ?? null, r.dNeg ?? null]).filter((x): x is ClaudeResult => x !== null);
+  if (!hasD) {
+    lines.push("");
+    return lines.join("\n");
+  }
   lines.push(`| D (Claude) ${durations(dResults.map((x) => x.ms))}`, "");
   const tokens = (key: "inputTokens" | "outputTokens"): number => dResults.reduce((sum, x) => sum + (x[key] ?? 0), 0);
   const invalid = dResults.filter((x) => x.ranking === null).length;
   lines.push(`Tokens de D (positivo e negativo): ${tokens("inputTokens")} de entrada e ${tokens("outputTokens")} de saída. Rankings inválidos: ${invalid}.`, "");
   return lines.join("\n");
 }
+
+// ---- variantes ---------------------------------------------------------------------------------------------------
+
+export const DEFAULT_VARIANT = "base";
+export const isValidVariant = (name: string): boolean => /^[a-z0-9-]+$/.test(name);
+
+const EXTENSION = { collect: "jsonl", "collect-state": "jsonl", "report-collect": "md" } as const;
+export const variantFileName = (kind: keyof typeof EXTENSION, projectId: string, variant: string): string =>
+  `${kind}-${projectId}-${variant}.${EXTENSION[kind]}`;
+export const compareFileName = (projectA: string, variantA: string, projectB: string, variantB: string): string =>
+  `report-compare-${projectA}-${variantA}--${projectB}-${variantB}.md`;

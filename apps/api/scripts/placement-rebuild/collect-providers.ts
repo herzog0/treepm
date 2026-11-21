@@ -73,6 +73,13 @@ export const fakeSystemOne: SystemOneCall = (request) => {
 /** Claude falso do ensaio: o primeiro da lista é o agrupador que divide palavra com o ticket; se nenhum divide, `root`. */
 export const fakeClaude: ClaudeStreamer = (params) => {
   const content = (params.messages[0] as { content: string }).content;
+  const asked = JSON.parse(content) as { group?: { title: string; description?: string; items: string[] }; siblings?: string[] };
+  if (asked.group) {
+    // Definição falsa e determinística: depende de título, descrição, itens e irmãos (como a entrada real).
+    const { title, description, items } = asked.group;
+    const definition = `Entra aqui: trabalho sobre ${title}${description ? ` (${description})` : ""}, como ${items.slice(0, 2).join(" e ") || "os itens do agrupador"}. Não entra aqui: trabalho de outros assuntos, entre ${asked.siblings?.length ?? 0} irmão(s).`;
+    return Promise.resolve({ stop_reason: "end_turn", parsed_output: { definition }, model: "fake-claude", usage: { input_tokens: content.length, output_tokens: 5 } });
+  }
   const parsed = JSON.parse(content) as {
     project: { groups: { option: string; title: string; description?: string; tickets: string[] }[] };
     new_ticket: { title: string; description?: string };
