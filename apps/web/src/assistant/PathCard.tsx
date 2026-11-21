@@ -78,6 +78,9 @@ export function PathCard(props: PathCardProps) {
               );
             })}
           </ul>
+          <div className="proposal-actions">
+            <button type="button" disabled={busy} onClick={props.onCreateGroup}>Criar agrupador e mover</button>
+          </div>
         </div>
       )}
       {props.outOfScope && (
@@ -115,14 +118,7 @@ export function PathCard(props: PathCardProps) {
       {choosing && pickNotice !== "" && <p role="alert">{pickNotice}</p>}
       {props.error && <p role="alert">{describeApiError(props.error)}</p>}
       <div className="assistant-actions">
-        {proposal ? (
-          <>
-            <button type="button" className="primary" disabled={busy} onClick={props.onCreateGroup}>Criar agrupador e mover</button>
-            <button type="button" disabled={busy} onClick={props.onCreate}>Só criar o ticket</button>
-          </>
-        ) : (
-          <button type="button" className="primary" disabled={busy} onClick={props.onCreate}>Criar aqui</button>
-        )}
+        <button type="button" className="primary" disabled={busy} onClick={props.onCreate}>Criar aqui</button>
         <button type="button" disabled={!props.canGoUp} onClick={props.onUp}>Um nível acima</button>
         {choosing ? (
           <button type="button" className="text" onClick={props.onCancelChoose}>Cancelar escolha</button>

@@ -58,7 +58,8 @@
 .assistant-proposal .proposal-description { margin-top: 2px; color: var(--tp-text-2); font-size: 12px; overflow-wrap: anywhere; }
 .assistant-proposal .proposal-tickets { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
 .assistant-proposal .proposal-tickets label { display: flex; align-items: flex-start; gap: 8px; margin: 0; overflow-wrap: anywhere; }
-.assistant-proposal .proposal-tickets input { width: auto; flex: none; margin-top: 3px; }
+.assistant-proposal .proposal-actions { margin-top: 10px; }
+.assistant-proposal .proposal-tickets input[type="checkbox"] { width: auto; min-height: 0; padding: 0; flex: none; margin-top: 2px; }
 .assistant-card .assistant-sub { margin: 12px 0 0; color: var(--tp-text-3); font-size: 11.5px; }
 
 .assistant-error { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
