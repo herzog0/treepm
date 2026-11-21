@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import type { ApiClient, Me, Project, ProjectVisibility, TicketKind } from "../api/client.js";
+import type { ApiClient, Me, Project, ProjectVisibility } from "../api/client.js";
 import { describeApiError } from "../api/client.js";
 import { ProjectDetail } from "./ProjectDetail.js";
 import { PROJECT_KEY_HELP, PROJECT_KEY_PATTERN, VISIBILITIES, VISIBILITY_LABELS } from "./labels.js";
@@ -14,7 +14,7 @@ export interface ProjectsSectionProps {
   selectedProject: Project | null;
   onChanged: () => void;
   onImportProject?: ((projectId: string) => void) | undefined;
-  onCreateTicket?: ((projectId: string, kind: TicketKind) => void) | undefined;
+  onCreateTicket?: ((projectId: string) => void) | undefined;
   /** Com o assistente ligado, o botão flutuante do mapa é a ação principal e a criação manual vira secundária. */
   assistantAvailable?: boolean | undefined;
 }

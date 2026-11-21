@@ -30,7 +30,7 @@ const addToSso = async (title: string) => {
   await h.pool.query("update projects set next_ticket_number = next_ticket_number + 1 where id = $1", [priv()]);
   return (
     await rows(
-      "insert into tickets (org_id, project_id, number, parent_id, parent_kind, title, created_by_person_id) values ('org_A',$1,$2,$3,'group',$4,$5) returning id",
+      "insert into tickets (org_id, project_id, number, parent_id, title, created_by_person_id) values ('org_A',$1,$2,$3,$4,$5) returning id",
       [priv(), number, tree.sso, title, h.world().people.manager],
     )
   )[0].id as string;
@@ -42,12 +42,13 @@ describe("POST /ticket-conversations/:id/ticket com group — o caminho feliz", 
     const extra = await addToSso("Parser de XML");
     const res = await confirm(id, tree.sso, group([tree.saml, extra]));
     expect(res.status).toBe(201);
-    const created = (await rows("select id, kind, parent_id, parent_kind, title, description, status from tickets where title = 'Entrada alternativa'"))[0];
-    expect(created).toMatchObject({ kind: "group", parent_id: tree.sso, parent_kind: "group", description: "Formas de entrar." });
+    const created = (await rows("select id, parent_id, title, description, status from tickets where title = 'Entrada alternativa'"))[0];
+    // O pai novo é um ticket comum, com situação todo.
+    expect(created).toMatchObject({ parent_id: tree.sso, description: "Formas de entrar.", status: "todo" });
     for (const moved of [tree.saml, extra]) {
-      expect((await rows("select parent_id, parent_kind from tickets where id = $1", [moved]))[0]).toEqual({ parent_id: created.id, parent_kind: "group" });
+      expect((await rows("select parent_id from tickets where id = $1", [moved]))[0]).toEqual({ parent_id: created.id });
     }
-    expect(res.body.ticket).toMatchObject({ parentId: created.id, kind: "ticket", title: "Rascunho 1" });
+    expect(res.body.ticket).toMatchObject({ parentId: created.id, status: "todo", title: "Rascunho 1" });
     expect(res.body.conversation).toMatchObject({ status: "ticket_created", createdTicketId: res.body.ticket.id });
     expect(await count("tickets")).toBe(7 + 1 + 1 + 1);
   });
@@ -56,8 +57,8 @@ describe("POST /ticket-conversations/:id/ticket com group — o caminho feliz", 
     const id = await start();
     const res = await confirm(id, null, group([tree.loose]));
     expect(res.status).toBe(201);
-    const created = (await rows("select id, parent_id, parent_kind from tickets where title = 'Entrada alternativa'"))[0];
-    expect(created).toMatchObject({ parent_id: null, parent_kind: null });
+    const created = (await rows("select id, parent_id from tickets where title = 'Entrada alternativa'"))[0];
+    expect(created).toMatchObject({ parent_id: null });
     expect(res.body.ticket.parentId).toBe(created.id);
     expect((await rows("select parent_id from tickets where id = $1", [tree.loose]))[0].parent_id).toBe(created.id);
   });
@@ -70,13 +71,13 @@ describe("POST /ticket-conversations/:id/ticket com group — o caminho feliz", 
     const events = await rows("select kind, subject_id, actor_person_id, payload from activity_events order by created_at, id");
     expect(events.map((e) => e.kind)).toEqual(["ticket.created", "ticket.updated", "ticket.updated", "ticket.created"]);
     expect(events[0]).toMatchObject({ subject_id: created, actor_person_id: h.world().people.contributor });
-    expect(events[0].payload).toMatchObject({ origin: "assistant", conversationId: id, kind: "group", title: "Entrada alternativa", parentId: tree.sso });
+    expect(events[0].payload).toMatchObject({ origin: "assistant", conversationId: id, title: "Entrada alternativa", parentId: tree.sso });
     expect(events.slice(1, 3).map((e) => e.subject_id)).toEqual([tree.saml, extra]);
     for (const event of events.slice(1, 3)) {
       expect(event.payload).toMatchObject({ origin: "assistant", conversationId: id, fields: ["parentId"], parentId: { from: tree.sso, to: created } });
     }
     expect(events[3]).toMatchObject({ subject_id: res.body.ticket.id });
-    expect(events[3].payload).toMatchObject({ origin: "assistant", conversationId: id, parentId: created, kind: "ticket" });
+    expect(events[3].payload).toMatchObject({ origin: "assistant", conversationId: id, parentId: created });
   });
 
   it("a ordem dos números: agrupador, depois o ticket novo", async () => {
@@ -107,12 +108,16 @@ describe("POST /ticket-conversations/:id/ticket com group — grouping_changed",
     expect((await rows("select parent_id from tickets where id = $1", [tree.saml]))[0].parent_id).toBe(tree.sso);
   });
 
-  it("ticket que virou agrupador: 409", async () => {
+  it("ticket que ganhou um filho desde a proposta: 409", async () => {
     const id = await start();
-    await h.pool.query("update tickets set kind = 'group' where id = $1", [tree.saml]);
+    await h.pool.query(
+      "insert into tickets (org_id, project_id, number, parent_id, title, created_by_person_id) values ('org_A', $1, 40, $2, 'Filho do SAML', $3)",
+      [priv(), tree.saml, h.world().people.manager],
+    );
+    await h.pool.query("update projects set next_ticket_number = 41 where id = $1", [priv()]);
     const res = await confirm(id, tree.sso, group([tree.saml]));
     expect(errorOf(res)).toBe("grouping_changed");
-    await untouched(7, id);
+    await untouched(8, id);
   });
 
   it("ticket removido: 409", async () => {
@@ -204,11 +209,17 @@ describe("POST /ticket-conversations/:id/ticket com group — regras da rota", (
     expect(res.status).toBe(400);
   });
 
-  it("parentId que não é agrupador: 409 parent_not_group, sem criar nem mover", async () => {
+  it("parentId pode ser qualquer ticket, inclusive um sem filhos (ADR 0034)", async () => {
     const id = await start();
-    const res = await confirm(id, tree.login, group([tree.saml]));
-    expect(errorOf(res)).toBe("parent_not_group");
-    expect(await count("tickets")).toBe(7);
+    const kid = (await rows(
+      "insert into tickets (org_id, project_id, number, parent_id, title, created_by_person_id) values ('org_A', $1, 40, $2, 'Filho do login', $3) returning id",
+      [priv(), tree.login, h.world().people.manager],
+    ))[0].id as string;
+    await h.pool.query("update projects set next_ticket_number = 41 where id = $1", [priv()]);
+    const res = await confirm(id, tree.login, group([kid]));
+    expect(res.status).toBe(201);
+    const created = (await rows("select parent_id from tickets where title = 'Entrada alternativa'"))[0];
+    expect(created.parent_id).toBe(tree.login);
   });
 
   it("não chama nenhum provedor", async () => {

@@ -71,23 +71,20 @@ describe("POST /ticket-conversations/:id/placement — o resultado", () => {
     expect(h.summarizer().calls).toHaveLength(0);
   });
 
-  it("projeto com agrupadores vazios: o juiz recebe os agrupadores como candidatos", async () => {
+  it("projeto com tickets que têm um filho cada: o juiz recebe os pais como candidatos, com o resumo escrito pelo resumidor", async () => {
     await seedGroups(h.pool, h.world(), [{ title: "Acesso" }, { title: "Cobrança", description: "Faturas" }]);
     const id = await open();
     const res = await placement(id);
     expect(res.status).toBe(201);
-    // O juiz falso escolhe o primeiro grupo; ele é folha, então a procura termina ali sem outra chamada.
+    // O juiz falso escolhe o primeiro; o filho dele não tem filhos, então a procura termina ali sem outra chamada.
     expect(h.judge().calls).toHaveLength(1);
     expect(h.judge().calls[0]?.candidates.map((c) => c.title)).toEqual(["Acesso", "Cobrança"]);
-    expect(h.judge().calls[0]?.candidates.every((c) => !c.hasChildren)).toBe(true);
-    expect(h.judge().calls[0]?.candidates.map((c) => c.summary)).toEqual(["", "Faturas"]);
+    expect(h.judge().calls[0]?.candidates.every((c) => c.hasChildren)).toBe(true);
+    expect(h.judge().calls[0]?.candidates.map((c) => c.summary)).toEqual(["Resumo de Acesso", "Resumo de Cobrança"]);
     expect(res.body.destination.path.map((p: { title: string }) => p.title)).toEqual(["Acesso"]);
-    // Agrupador vazio: título e descrição, sem chamar o resumidor e sem gravar resumo.
-    expect(h.summarizer().calls).toHaveLength(0);
-    expect(await summaryRows()).toEqual([]);
   });
 
-  it("ticket nunca é candidato: não chega ao juiz nem ao resumidor, e não ganha resumo", async () => {
+  it("ticket sem filhos nunca é candidato (primeira fatia): não chega ao juiz nem ao resumidor, e não ganha resumo", async () => {
     const id = await start();
     await h.pool.query("update tickets set description = 'Trabalho avulso' where id = $1", [tree.loose]);
     await placement(id);
@@ -99,17 +96,16 @@ describe("POST /ticket-conversations/:id/placement — o resultado", () => {
     expect((await summaryRows()).map((r) => r.title)).toEqual(["Auth", "SSO", "Billing"]);
   });
 
-  it("agrupador vazio ao lado de agrupador com filhos: só o com filhos passa pelo resumidor", async () => {
+  it("ticket sem filhos ao lado de ticket com filhos: só o com filhos é candidato e passa pelo resumidor", async () => {
     tree = await seedTree(h.pool, h.world());
     await h.pool.query(
-      "insert into tickets (org_id, project_id, number, kind, title, description, created_by_person_id) values ('org_A', $1, 8, 'group', 'Vazio', 'Ainda sem filhos', $2)",
+      "insert into tickets (org_id, project_id, number, title, description, created_by_person_id) values ('org_A', $1, 8, 'Vazio', 'Ainda sem filhos', $2)",
       [priv(), h.world().people.manager],
     );
     const id = await open();
     await placement(id);
     const first = h.judge().calls[0]!.candidates;
-    expect(first.map((c) => c.title)).toEqual(["Auth", "Billing", "Vazio"]);
-    expect(first.find((c) => c.title === "Vazio")).toMatchObject({ summary: "Ainda sem filhos", hasChildren: false });
+    expect(first.map((c) => c.title)).toEqual(["Auth", "Billing"]);
     expect(h.summarizer().calls.map((c) => c.title)).not.toContain("Vazio");
     expect((await summaryRows()).map((r) => r.title)).not.toContain("Vazio");
   });
@@ -192,18 +188,18 @@ describe("placement — resumos de ramo", () => {
     await h.pool.query("update tickets set title = 'Single sign-on', description = 'Outro assunto' where id = $1", [tree.sso]); // muda um filho
     await h.pool.query("update tickets set title = 'Login novo' where id = $1", [tree.login]);
     await h.pool.query(
-      "insert into tickets (org_id, project_id, number, parent_id, parent_kind, kind, title, created_by_person_id) values ('org_A', $1, 9, $2, 'group', 'group', 'Filho novo', $3)",
+      "insert into tickets (org_id, project_id, number, parent_id, title, created_by_person_id) values ('org_A', $1, 9, $2, 'Filho novo', $3)",
       [priv(), tree.auth, h.world().people.manager],
     ); // adiciona um
     await h.pool.query("update projects set next_ticket_number = 10 where id = $1", [priv()]);
-    await h.pool.query("delete from tickets where id = $1", [tree.saml]); // remove um
+    await h.pool.query("delete from tickets where id = $1", [tree.login]); // remove um
     await placement(id);
     expect(h.summarizer().calls).toHaveLength(0);
     const sentAfter = h.judge().calls.map((c) => ({ current: c.current, candidates: c.candidates.map((x) => x.summary) }));
     expect(sentAfter[0]).toEqual(sentBefore[0]); // mesmo texto de Auth e de Billing no primeiro nível
     expect(sentAfter[1]?.current).toEqual(sentBefore[1]?.current);
-    // O SSO ficou sem filhos (o SAML saiu) e mesmo assim vai com o texto guardado; o agrupador novo, vazio, vai com a descrição dele.
-    expect(h.judge().calls[1]?.candidates.map((c) => c.summary)).toEqual(["Resumo de SSO", ""]);
+    // O SSO continua com o texto guardado; o ticket novo, sem filhos, não é candidato.
+    expect(h.judge().calls[1]?.candidates.map((c) => c.summary)).toEqual(["Resumo de SSO"]);
   });
 
   it("mudar a descrição ou renomear o próprio ramo também não refaz o texto guardado", async () => {
@@ -245,35 +241,6 @@ describe("placement — resumos de ramo", () => {
     expect(h.judge().calls[0]?.candidates.find((c) => c.title === "Billing")?.summary).toBe("Cobrança de clientes e emissão de faturas");
     expect(h.summarizer().calls.map((c) => c.title)).not.toContain("Billing");
     expect((await rows("select source from branch_summaries where ticket_id = $1", [tree.billing]))[0].source).toBe("person");
-  });
-
-  it("agrupador vazio com texto de pessoa: o texto vai ao juiz, no lugar do trecho da descrição", async () => {
-    const [empty] = await seedGroups(h.pool, h.world(), [{ title: "Acesso", description: "Descrição do agrupador" }]);
-    await storePersonText(empty!, "Tudo o que trata de entrar no sistema");
-    const id = await open();
-    await placement(id);
-    expect(h.judge().calls[0]?.candidates).toEqual([
-      { id: empty, title: "Acesso", summary: "Tudo o que trata de entrar no sistema", hasChildren: false },
-    ]);
-    expect(h.summarizer().calls).toHaveLength(0);
-  });
-
-  it("agrupador vazio com texto de pessoa como escopo: o texto vai ao juiz", async () => {
-    const [empty] = await seedGroups(h.pool, h.world(), [{ title: "Acesso", description: "Descrição do agrupador" }]);
-    await storePersonText(empty!, "Texto da pessoa");
-    const id = await open();
-    await h.call("POST", `/api/ticket-conversations/${id}/placement`, as("contributor"), { scopeId: empty });
-    expect(h.judge().calls[0]?.scope).toEqual({ id: empty, title: "Acesso", summary: "Texto da pessoa", hasChildren: false });
-    expect(h.summarizer().calls).toHaveLength(0);
-  });
-
-  it("agrupador vazio sem texto: o trecho da descrição, sem resumidor e sem gravar nada", async () => {
-    await seedGroups(h.pool, h.world(), [{ title: "Acesso", description: "Quem entra" }]);
-    const id = await open();
-    await placement(id);
-    expect(h.judge().calls[0]?.candidates.map((c) => c.summary)).toEqual(["Quem entra"]);
-    expect(h.summarizer().calls).toHaveLength(0);
-    expect(await summaryRows()).toEqual([]);
   });
 
   it("ao escrever um texto, o filho agrupador entra com o texto guardado dele; sem texto guardado, só com o título", async () => {
@@ -448,10 +415,10 @@ describe("placement — sem as chaves", () => {
 describe("placement — escopo pela seleção (ADR 0031)", () => {
   const scoped = (id: string, scopeId: string | null, who: Who | "outsider" = "contributor", org = "org_A") =>
     h.call("POST", `/api/ticket-conversations/${id}/placement`, as(who, org), { scopeId });
-  const groupIn = async (projectId: string, orgId: string, number: number, title: string, kind = "group") =>
+  const groupIn = async (projectId: string, orgId: string, number: number, title: string) =>
     (await rows(
-      "insert into tickets (org_id, project_id, number, kind, title, created_by_person_id) values ($1,$2,$3,$4,$5,(select id from people where org_id = $1 limit 1)) returning id",
-      [orgId, projectId, number, kind, title],
+      "insert into tickets (org_id, project_id, number, title, created_by_person_id) values ($1,$2,$3,$4,(select id from people where org_id = $1 limit 1)) returning id",
+      [orgId, projectId, number, title],
     ))[0].id as string;
 
   it("sem corpo e com scopeId nulo o resultado é o de hoje, com scope nulo", async () => {
@@ -504,16 +471,6 @@ describe("placement — escopo pela seleção (ADR 0031)", () => {
     expect(res.body.destination).toEqual({ parentId: tree.billing, path: [{ id: tree.billing, title: "Billing" }] });
   });
 
-  it("agrupador vazio como escopo: vai o trecho da descrição, sem resumidor", async () => {
-    const [empty] = await seedGroups(h.pool, h.world(), [{ title: "Acesso", description: "Quem entra" }]);
-    const id = await open();
-    const res = await scoped(id, empty!);
-    expect(res.status).toBe(201);
-    expect(h.judge().calls[0]?.scope).toEqual({ id: empty, title: "Acesso", summary: "Quem entra", hasChildren: false });
-    expect(h.summarizer().calls).toHaveLength(0);
-    expect(res.body.destination.path).toEqual([{ id: empty, title: "Acesso" }]);
-  });
-
   it("Noul do escopo abaixo de 0,3: outOfScope verdadeiro e a probabilidade não sai na resposta", async () => {
     const id = await start();
     h.judge().verdict = (input) => ({
@@ -548,16 +505,6 @@ describe("placement — escopo pela seleção (ADR 0031)", () => {
     const foreign = await groupIn(h.world().other.project, "org_B", 1, "De outra organização");
     const res = await scoped(id, foreign);
     expect(res.status).toBe(404);
-    expect(h.judge().calls).toHaveLength(0);
-  });
-
-  it("escopo do tipo ticket: 409 scope_not_group", async () => {
-    const id = await start();
-    for (const ticket of [tree.login, tree.loose]) {
-      const res = await scoped(id, ticket);
-      expect(res.status).toBe(409);
-      expect(errorOf(res)).toBe("scope_not_group");
-    }
     expect(h.judge().calls).toHaveLength(0);
   });
 

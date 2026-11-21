@@ -1,12 +1,12 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { descriptionExcerpt, ticketProgress } from "@treepm/domain";
-import type { TicketKind, TicketNode, TicketStatus } from "@treepm/domain";
+import { descriptionExcerpt, isFinished, ticketProgress, ticketsToReopen } from "@treepm/domain";
+import type { TicketNode, TicketStatus } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { parseOutput } from "../common/zod.js";
-import { ticketDetailSchema, ticketKindSchema, ticketStatusSchema } from "./tickets.schema.js";
+import { ticketDetailSchema, ticketStatusSchema } from "./tickets.schema.js";
 import type { TicketDetail, TicketSummary } from "./tickets.schema.js";
 
 export type ProjectRow = {
@@ -22,7 +22,6 @@ export type TicketRow = {
   projectId: string;
   number: number;
   parentId: string | null;
-  kind: string;
   title: string;
   description: string;
   status: string;
@@ -40,35 +39,23 @@ export function statusOf(row: { status: string }): TicketStatus {
   return ticketStatusSchema.parse(row.status);
 }
 
-export function kindOf(row: { kind: string }): TicketKind {
-  return ticketKindSchema.parse(row.kind);
-}
-
-/** O pai de um nó é sempre um agrupador: as duas colunas da chave estrangeira do pai andam juntas (migration 0006). */
-export function parentLink(parentId: string | null): { parentId: string | null; parentKind: "group" | null } {
-  return { parentId, parentKind: parentId === null ? null : "group" };
-}
-
 /** Os nós do projeto no formato do cálculo de progresso. */
-export function toNodes(rows: readonly { id: string; parentId: string | null; kind: string; status: string }[]): TicketNode[] {
-  return rows.map((row): TicketNode => ({ id: row.id, parentId: row.parentId, kind: kindOf(row), status: statusOf(row) }));
+export function toNodes(rows: readonly { id: string; parentId: string | null; status: string }[]): TicketNode[] {
+  return rows.map((row): TicketNode => ({ id: row.id, parentId: row.parentId, status: statusOf(row) }));
 }
 
 export function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, progress: Progress): TicketSummary {
-  const kind = kindOf(row);
-  // Agrupador: sem situação, com progresso sempre (vazio é zero de zero). Ticket: situação, sem progresso.
-  const own = kind === "group" ? (progress.get(row.id) ?? { done: 0, total: 0, excluded: 0 }) : null;
   return {
     id: row.id,
     projectId: row.projectId,
     number: row.number,
     key: `${project.key}-${row.number}`,
     parentId: row.parentId,
-    kind,
     title: row.title,
     descriptionExcerpt: descriptionExcerpt(row.description),
-    status: kind === "group" ? null : statusOf(row),
-    progress: own,
+    status: statusOf(row),
+    // Ticket com filhos: progresso sobre todos os descendentes (ADR 0034); sem filhos: null.
+    progress: progress.get(row.id) ?? null,
     assigneeIds: row.assignees.map((assignee) => assignee.personId).sort(),
   };
 }
@@ -91,12 +78,48 @@ export class TicketsService {
     @Inject(ActivityService) private readonly activity: ActivityService,
   ) {}
 
-  /** Pai de outro projeto, de outra organização ou inexistente: 404. Pai que não é agrupador: 409 `parent_not_group`. */
+  /** Pai de outro projeto, de outra organização ou inexistente: 404. Qualquer ticket do projeto pode ser pai (ADR 0034). */
   async requireParent(tx: TenantClient, projectId: string, parentId: string): Promise<void> {
-    const parent = await tx.ticket.findFirst({ where: { id: parentId, projectId }, select: { id: true, kind: true } });
+    const parent = await tx.ticket.findFirst({ where: { id: parentId, projectId }, select: { id: true } });
     if (!parent) throw new NotFoundException("Ticket pai não encontrado.");
-    if (parent.kind !== "group") {
-      throw new ConflictException({ code: "parent_not_group", message: "Só um agrupador pode ter filhos." });
+  }
+
+  /**
+   * Reabertura do pai concluído (ADR 0034): `parentId` acaba de ganhar (ou vai ganhar, nesta transação) um filho direto
+   * aberto. Trava de baixo para cima (`for update`, um ancestral por vez, parando no primeiro que não está `done`) e
+   * reabre para `todo` os que a função pura `ticketsToReopen` indicar, gravando um evento por ticket reaberto com
+   * `automatic: true` e `causedBy` (a chave do ticket que causou). Deve rodar ANTES de gravar o filho: a chave estrangeira
+   * do pai trava a linha do pai, e travar na ordem contrária daria impasse com "concluir".
+   */
+  async reopenAncestors(tx: TenantClient, principal: Principal, project: ProjectRow, parentId: string | null, causedBy: string): Promise<void> {
+    const parents = new Map<string, string | null>();
+    const statuses = new Map<string, TicketStatus>();
+    const numbers = new Map<string, number>();
+    for (let cursor = parentId; cursor !== null && !parents.has(cursor); ) {
+      const rows = await tx.$queryRaw<{ id: string; parent_id: string | null; status: string; number: number }[]>`
+        select id, parent_id, status, number from tickets where id = ${cursor}::uuid for update`;
+      const row = rows[0];
+      if (!row) break;
+      parents.set(row.id, row.parent_id);
+      statuses.set(row.id, ticketStatusSchema.parse(row.status));
+      numbers.set(row.id, row.number);
+      if (row.status !== "done") break;
+      cursor = row.parent_id;
+    }
+    for (const id of ticketsToReopen(parents, statuses, parentId)) {
+      await tx.ticket.update({ where: { orgId_id: { orgId: project.orgId, id } }, data: { status: "todo" } });
+      await this.activity.record(tx, principal, {
+        kind: "ticket.updated",
+        subjectType: "ticket",
+        subjectId: id,
+        payload: {
+          key: `${project.key}-${numbers.get(id)}`,
+          fields: ["status"],
+          status: { from: "done", to: "todo" },
+          automatic: true,
+          causedBy,
+        },
+      });
     }
   }
 
@@ -132,7 +155,7 @@ export class TicketsService {
   async detail(tx: TenantClient, project: ProjectRow, id: string): Promise<TicketDetail> {
     const [row, nodes] = await Promise.all([
       tx.ticket.findFirstOrThrow({ where: { id }, include: { assignees: { select: { personId: true } } } }),
-      tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, parentId: true, kind: true, status: true } }),
+      tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, parentId: true, status: true } }),
     ]);
     const progress = ticketProgress(toNodes(nodes));
     return toDetail(project, row, progress);
@@ -151,7 +174,6 @@ export class TicketsService {
       title: string;
       description: string;
       parentId: string | null;
-      kind?: TicketKind;
       status: TicketStatus;
       assigneeIds: string[];
     },
@@ -161,19 +183,19 @@ export class TicketsService {
     const assigneeIds = [...new Set(input.assigneeIds)];
     for (const personId of assigneeIds) await this.requireAssignable(tx, project, personId);
 
-    const kind = input.kind ?? "ticket";
     const number = await this.allocateNumbers(tx, project, 1);
+    if (input.parentId && !isFinished(input.status)) {
+      await this.reopenAncestors(tx, principal, project, input.parentId, `${project.key}-${number}`);
+    }
     const created = await tx.ticket.create({
       data: {
         orgId: project.orgId,
         projectId: project.id,
         number,
-        ...parentLink(input.parentId),
-        kind,
+        parentId: input.parentId,
         title: input.title,
         description: input.description,
-        // Agrupador não tem situação: o valor recebido é ignorado.
-        status: kind === "group" ? "todo" : input.status,
+        status: input.status,
         createdByPersonId: principal.person.id,
       },
     });
@@ -190,7 +212,6 @@ export class TicketsService {
         key: `${project.key}-${number}`,
         title: created.title,
         parentId: created.parentId,
-        kind: created.kind,
         status: created.status,
         assigneeIds: assigneeIds.sort(),
         ...extraPayload,
@@ -200,11 +221,12 @@ export class TicketsService {
   }
 
   /**
-   * Confirmar uma proposta de agrupador (ADR 0031), dentro da transação da rota: confere de novo que cada ticket ainda é
-   * um ticket solto de `parentId` (409 `grouping_changed`, sem criar nem mover nada), cria o agrupador e move os
-   * tickets para ele. Devolve o id do agrupador, que passa a ser o pai do ticket novo.
+   * Confirmar uma proposta de pai novo (ADR 0031, 0034), dentro da transação da rota: confere de novo que cada ticket
+   * ainda é filho de `parentId` e continua sem filhos (409 `grouping_changed`, sem criar nem mover nada), cria o
+   * ticket pai (um ticket comum, situação `todo`) e move os tickets para ele. Devolve o id do pai novo, que passa a
+   * ser o pai do ticket novo.
    */
-  async createGroupAndMove(
+  async createParentAndMove(
     tx: TenantClient,
     principal: Principal,
     project: ProjectRow,
@@ -216,10 +238,11 @@ export class TicketsService {
     // Trava os tickets até o fim da transação: ninguém os move nem os remove entre a conferência e a mudança.
     await tx.$queryRaw`select id from tickets where id = any(${group.ticketIds}::uuid[]) order by id for update`;
     const found = await tx.ticket.findMany({
-      where: { id: { in: group.ticketIds }, projectId: project.id, kind: "ticket", parentId },
+      where: { id: { in: group.ticketIds }, projectId: project.id, parentId },
       select: { id: true, number: true, parentId: true },
     });
-    if (found.length !== group.ticketIds.length) {
+    const withChildren = found.length === 0 ? 0 : await tx.ticket.count({ where: { parentId: { in: found.map((row) => row.id) } } });
+    if (found.length !== group.ticketIds.length || withChildren > 0) {
       throw new ConflictException({
         code: "grouping_changed",
         message: "Algum desses tickets mudou de lugar. Procure de novo.",
@@ -229,13 +252,13 @@ export class TicketsService {
       tx,
       principal,
       project,
-      { title: group.title, description: group.description, parentId, kind: "group", status: "todo", assigneeIds: [] },
+      { title: group.title, description: group.description, parentId, status: "todo", assigneeIds: [] },
       origin,
     );
     for (const moved of [...found].sort((a, b) => a.number - b.number)) {
       await tx.ticket.update({
         where: { orgId_id: { orgId: project.orgId, id: moved.id } },
-        data: { parentId: created.id, parentKind: "group" },
+        data: { parentId: created.id },
       });
       await this.activity.record(tx, principal, {
         kind: "ticket.updated",

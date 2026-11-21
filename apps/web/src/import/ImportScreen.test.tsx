@@ -33,21 +33,18 @@ describe("ImportScreen", () => {
     expect(screen.getByText("Prévia")).toBeInTheDocument();
   });
 
-  it("marks an item with children as a group in the preview, and only that one", async () => {
+  it("does not mark an item with children by type in the preview: every row is a ticket", async () => {
     setup();
     await paste("- Fase\n  - [x] Passo\n  - Subfase\n    - Detalhe\n- [r] Solo");
     const tree = screen.getByRole("list", { name: "Prévia da árvore" });
-    const row = (title: string) => within(tree).getByText(title).closest(".import-tree-row") as HTMLElement;
-    expect(within(row("Fase")).getByText("Agrupador")).toBeInTheDocument();
-    expect(within(row("Subfase")).getByText("Agrupador")).toBeInTheDocument();
-    expect(within(row("Passo")).queryByText("Agrupador")).not.toBeInTheDocument();
-    expect(within(row("Detalhe")).queryByText("Agrupador")).not.toBeInTheDocument();
-    expect(within(row("Solo")).queryByText("Agrupador")).not.toBeInTheDocument();
+    expect(within(tree).queryByText("Agrupador")).not.toBeInTheDocument();
+    expect(within(tree).getByText("2 subitens")).toBeInTheDocument();
   });
 
-  it("explains that an item with children becomes a group", async () => {
+  it("explains that every item becomes a ticket and the indentation says who is whose child, without naming a type", async () => {
     setup();
-    expect(await screen.findByText(/item com filhos vira um agrupador/i)).toBeInTheDocument();
+    expect(await screen.findByText(/cada item vira um ticket, o recuo define quem é filho de quem/i)).toBeInTheDocument();
+    expect(screen.queryByText(/agrupador/i)).not.toBeInTheDocument();
   });
 
   it("does not wrap long lines, so the indentation stays readable", async () => {

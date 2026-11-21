@@ -31,27 +31,18 @@ async function insertAsApp(
   ids: Ids,
   kind: "ticket" | "group",
   parentId: string | null,
+  options: { parentKind?: "group" | null } = {},
 ): Promise<string> {
+  const parentKind = parentId === null ? null : options.parentKind === undefined ? "group" : options.parentKind;
   const number = ++counter;
   return asTenant(prisma, orgId, async (tx) => {
     const rows = await tx.$queryRaw<{ id: string }[]>`
       insert into tickets (org_id, project_id, number, title, kind, parent_id, parent_kind, created_by_person_id)
       values (${orgId}, ${ids.project}::uuid, ${number}, 'T', ${kind}, ${parentId}::uuid,
-              ${parentId === null ? null : "group"}, ${ids.person}::uuid)
+              ${parentKind}, ${ids.person}::uuid)
       returning id`;
     return rows[0]?.id ?? "";
   });
-}
-
-/** O SQLSTATE do erro do Prisma com o adaptador pg (`meta.driverAdapterError.cause.originalCode`). */
-async function sqlState(promise: Promise<unknown>): Promise<string | undefined> {
-  try {
-    await promise;
-    return undefined;
-  } catch (error) {
-    const meta = (error as { meta?: { driverAdapterError?: { cause?: { originalCode?: string } } } }).meta;
-    return meta?.driverAdapterError?.cause?.originalCode ?? "outro";
-  }
 }
 
 async function updateAsApp(orgId: string, sql: string, params: unknown[]): Promise<void> {
@@ -73,90 +64,84 @@ describe("tickets.kind: tipo declarado e garantido pelo banco", () => {
     ).rejects.toMatchObject({ code: "23514" });
   });
 
-  it("parent_kind é nulo se e só se parent_id é nulo, e só aceita group (23514)", async () => {
+  it("o tipo continua guardado e aceito como antes (ADR 0034: as colunas ficam até a migration seguinte)", async () => {
     const group = await insertAsApp(ORG_K1, k1, "group", null);
-    await expect(
-      owner.query(
-        "insert into tickets (org_id, project_id, number, title, parent_id, parent_kind, created_by_person_id) values ($1, $2, 901, 'T', $3, null, $4)",
-        [ORG_K1, k1.project, group, k1.person],
-      ),
-    ).rejects.toMatchObject({ code: "23514" });
-    await expect(
-      owner.query(
-        "insert into tickets (org_id, project_id, number, title, parent_id, parent_kind, created_by_person_id) values ($1, $2, 902, 'T', null, 'group', $3)",
-        [ORG_K1, k1.project, k1.person],
-      ),
-    ).rejects.toMatchObject({ code: "23514" });
-    await expect(
-      owner.query(
-        "insert into tickets (org_id, project_id, number, title, parent_id, parent_kind, created_by_person_id) values ($1, $2, 903, 'T', $3, 'ticket', $4)",
-        [ORG_K1, k1.project, group, k1.person],
-      ),
-    ).rejects.toMatchObject({ code: "23514" });
+    const r = await owner.query<{ kind: string }>("select kind from tickets where org_id = $1 and id = $2", [ORG_K1, group]);
+    expect(r.rows[0]?.kind).toBe("group");
   });
 
-  it("como treepm_app: filho de agrupador, agrupador dentro de agrupador e ticket na raiz passam", async () => {
+  it("parent_kind aceita nulo com pai (o código novo não o grava) e não é mais exigido", async () => {
+    const parent = await insertAsApp(ORG_K1, k1, "ticket", null);
+    const child = await insertAsApp(ORG_K1, k1, "ticket", parent, { parentKind: null });
+    expect(child).toBeTruthy();
+    const r = await owner.query<{ parent_kind: string | null }>("select parent_kind from tickets where id = $1", [child]);
+    expect(r.rows[0]?.parent_kind).toBeNull();
+  });
+
+  it("como treepm_app: filho de uma linha kind='ticket' com parent_kind nulo passa", async () => {
+    const parent = await insertAsApp(ORG_K1, k1, "ticket", null);
+    const child = await insertAsApp(ORG_K1, k1, "ticket", parent, { parentKind: null });
+    const grandchild = await insertAsApp(ORG_K1, k1, "ticket", child, { parentKind: null });
+    expect(grandchild).toBeTruthy();
+  });
+
+  it("como treepm_app: o jeito antigo (parent_kind='group' sob kind='group') também passa", async () => {
     const group = await insertAsApp(ORG_K1, k1, "group", null);
     const inner = await insertAsApp(ORG_K1, k1, "group", group);
     const ticket = await insertAsApp(ORG_K1, k1, "ticket", inner);
-    const root = await insertAsApp(ORG_K1, k1, "ticket", null);
-    expect([group, inner, ticket, root].every(Boolean)).toBe(true);
+    expect([group, inner, ticket].every(Boolean)).toBe(true);
   });
 
-  it("como treepm_app: inserir filho de um nó ticket falha (23503)", async () => {
-    const ticket = await insertAsApp(ORG_K1, k1, "ticket", null);
-    expect(await sqlState(insertAsApp(ORG_K1, k1, "ticket", ticket))).toBe("23503");
-    expect(await sqlState(insertAsApp(ORG_K1, k1, "group", ticket))).toBe("23503");
-  });
-
-  it("como treepm_app: mudar para ticket um nó que tem filhos falha", async () => {
+  it("como treepm_app: mudar kind de um nó que tem filhos, e mover para dentro de um ticket, passam", async () => {
     const group = await insertAsApp(ORG_K1, k1, "group", null);
     await insertAsApp(ORG_K1, k1, "ticket", group);
-    const code = await sqlState(
-      updateAsApp(ORG_K1, "update tickets set kind = 'ticket' where org_id = $1 and id = $2::uuid", [ORG_K1, group]),
-    );
-    expect(["23001", "23503"]).toContain(code);
-  });
-
-  it("como treepm_app: mudar para ticket um agrupador vazio, e voltar a agrupador, passa", async () => {
-    const group = await insertAsApp(ORG_K1, k1, "group", null);
     await updateAsApp(ORG_K1, "update tickets set kind = 'ticket' where org_id = $1 and id = $2::uuid", [ORG_K1, group]);
-    await updateAsApp(ORG_K1, "update tickets set kind = 'group' where org_id = $1 and id = $2::uuid", [ORG_K1, group]);
-  });
-
-  it("como treepm_app: mover um nó para dentro de um ticket falha; para dentro de um agrupador passa", async () => {
-    const group = await insertAsApp(ORG_K1, k1, "group", null);
-    const ticket = await insertAsApp(ORG_K1, k1, "ticket", null);
+    const target = await insertAsApp(ORG_K1, k1, "ticket", null);
     const mover = await insertAsApp(ORG_K1, k1, "ticket", null);
-    expect(
-      await sqlState(
-        updateAsApp(
-          ORG_K1,
-          "update tickets set parent_id = $2::uuid, parent_kind = 'group' where org_id = $1 and id = $3::uuid",
-          [ORG_K1, ticket, mover],
-        ),
-      ),
-    ).toBe("23503");
-    await updateAsApp(
+    await updateAsApp(ORG_K1, "update tickets set parent_id = $2::uuid, parent_kind = null where org_id = $1 and id = $3::uuid", [
       ORG_K1,
-      "update tickets set parent_id = $2::uuid, parent_kind = 'group' where org_id = $1 and id = $3::uuid",
-      [ORG_K1, group, mover],
-    );
+      target,
+      mover,
+    ]);
   });
 
-  it("o isolamento entre organizações continua valendo para tickets com kind e parent_kind", async () => {
+  it("pai de outro projeto da mesma organização continua falhando (23503)", async () => {
+    const other = await owner.query<{ id: string }>(
+      "insert into projects (org_id, name, key) values ($1, 'Outro', 'OUT') returning id",
+      [ORG_K1],
+    );
+    const otherProject = other.rows[0]?.id ?? "";
+    const foreign = await owner.query<{ id: string }>(
+      "insert into tickets (org_id, project_id, number, title, created_by_person_id) values ($1, $2, 1, 'X', $3) returning id",
+      [ORG_K1, otherProject, k1.person],
+    );
+    const parent = foreign.rows[0]?.id ?? "";
+    await expect(
+      owner.query(
+        "insert into tickets (org_id, project_id, number, title, parent_id, created_by_person_id) values ($1, $2, 950, 'T', $3, $4)",
+        [ORG_K1, k1.project, parent, k1.person],
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
+  });
+
+  it("pai de outra organização continua falhando (23503) e o isolamento continua valendo", async () => {
     const group = await insertAsApp(ORG_K1, k1, "group", null);
     await insertAsApp(ORG_K1, k1, "ticket", group);
     const seen = await asTenant(prisma, ORG_K2, (tx) =>
       tx.$queryRaw<{ id: string }[]>`select id from tickets where kind = 'group' or parent_kind = 'group'`,
     );
     expect(seen).toHaveLength(0);
-    // pai de outra organização continua impossível (23503), mesmo sendo agrupador.
     await expect(
       owner.query(
-        "insert into tickets (org_id, project_id, number, title, parent_id, parent_kind, created_by_person_id) values ($1, $2, 904, 'T', $3, 'group', $4)",
+        "insert into tickets (org_id, project_id, number, title, parent_id, created_by_person_id) values ($1, $2, 904, 'T', $3, $4)",
         [ORG_K2, k2.project, group, k2.person],
       ),
     ).rejects.toMatchObject({ code: "23503" });
+  });
+
+  it("remover um pai que tem filhos continua falhando (23503)", async () => {
+    const parent = await insertAsApp(ORG_K1, k1, "ticket", null);
+    await insertAsApp(ORG_K1, k1, "ticket", parent, { parentKind: null });
+    await expect(owner.query("delete from tickets where id = $1", [parent])).rejects.toMatchObject({ code: "23503" });
   });
 });

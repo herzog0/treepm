@@ -45,9 +45,9 @@ export class AssistantUnavailableError extends Error {
 // ---- Declaradas para a Parte 2 (sem adaptador real ainda) -------------------------------------------------
 
 /**
- * Agrupador filho direto de um nó, candidato a pai do ticket novo (ADR 0031; ticket nunca é candidato). `summary` é o
- * texto que o juiz vê (ADR 0033): o texto guardado do agrupador, com ou sem itens (escrito pela IA ou pela pessoa); sem
- * texto guardado, o trecho da descrição do agrupador vazio (pode ser vazio).
+ * Filho direto de um nó que tem filhos, candidato a pai do ticket novo (ADR 0034; o sem filhos só é candidato na
+ * segunda fatia). `summary` é o texto que o juiz vê (ADR 0033): o texto guardado de quem tem filhos (escrito pela IA ou
+ * pela pessoa); o ticket sem filhos (escopo) vai com o trecho da descrição (pode ser vazio).
  */
 export type BranchCandidate = { id: string; title: string; summary: string; hasChildren: boolean };
 

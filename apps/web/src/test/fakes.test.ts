@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeGroup, makeMe, makeProject, makeTicket, makeTreeClient } from "./fakes.js";
+import { makeMe, makeProject, makeTicket, makeTreeClient } from "./fakes.js";
 
 const project = makeProject("p1", "ALFA", "Alfa");
 function setup() {
@@ -7,78 +7,187 @@ function setup() {
     projects: [project],
     tickets: {
       p1: [
-        makeGroup("g1", "p1", 1, "Fase 1", { progress: { done: 1, total: 2, excluded: 0 } }),
+        makeTicket("g1", "p1", 1, "Fase 1", { status: "in_review" }),
         makeTicket("t1", "p1", 2, "Feito", { parentId: "g1", status: "done" }),
         makeTicket("t2", "p1", 3, "A fazer", { parentId: "g1" }),
-        makeGroup("g2", "p1", 4, "Vazio"),
+        makeTicket("g2", "p1", 4, "Sem filhos"),
         makeTicket("t3", "p1", 5, "Solto"),
+        makeTicket("n1", "p1", 6, "Neto", { parentId: "t2" }),
       ],
     },
   });
 }
 const code = (result: { ok: boolean; error?: { code?: string } }) => (result.ok ? null : result.error?.code);
+const listed = async (client: ReturnType<typeof setup>) => {
+  const result = await client.listTickets("p1");
+  return result.ok ? result.data : [];
+};
 
-describe("the tree fake follows the ADR 0031 contract", () => {
-  it("creates a group with status null and an empty progress, and a ticket by default", async () => {
+describe("the tree fake follows the ADR 0034 contract", () => {
+  it("has no `kind`, always has a status, and progress only when there are children, over every descendant", async () => {
+    const all = await listed(setup());
+    for (const entry of all) {
+      expect("kind" in entry).toBe(false);
+      expect(entry.status).not.toBeNull();
+    }
+    expect(all.find((entry) => entry.id === "g1")).toMatchObject({ status: "in_review", progress: { done: 1, total: 3, excluded: 0 } });
+    expect(all.find((entry) => entry.id === "t2")?.progress).toEqual({ done: 0, total: 1, excluded: 0 });
+    expect(all.find((entry) => entry.id === "t3")?.progress).toBeNull();
+  });
+
+  it("creates a ticket under any ticket, with no `kind` and status todo", async () => {
     const client = setup();
-    const group = await client.createTicket("p1", { title: "Novo", kind: "group" });
-    expect(group).toMatchObject({ ok: true, data: { kind: "group", status: null, progress: { done: 0, total: 0, excluded: 0 }, number: 6 } });
-    const ticket = await client.createTicket("p1", { title: "Outro" });
-    expect(ticket).toMatchObject({ ok: true, data: { kind: "ticket", status: "todo", progress: null } });
+    const created = await client.createTicket("p1", { title: "Novo", parentId: "t3" });
+    expect(created).toMatchObject({ ok: true, data: { parentId: "t3", status: "todo", progress: null, number: 7 } });
+    expect("kind" in (created.ok ? created.data : {})).toBe(false);
+    expect(await client.createTicket("p1", { title: "Raiz" })).toMatchObject({ ok: true });
   });
 
-  it("refuses a ticket as parent with parent_not_group, on create and on move", async () => {
+  it("accepts any ticket as a parent, refusing only itself or a descendant with ticket_cycle", async () => {
     const client = setup();
-    expect(code(await client.createTicket("p1", { title: "X", parentId: "t3" }))).toBe("parent_not_group");
-    expect(code(await client.updateTicket("t1", { parentId: "t3" }))).toBe("parent_not_group");
-    expect(await client.updateTicket("t1", { parentId: "g2" })).toMatchObject({ ok: true, data: { parentId: "g2" } });
+    expect((await client.updateTicket("t3", { parentId: "g2" })).ok).toBe(true);
+    expect(code(await client.updateTicket("g1", { parentId: "n1" }))).toBe("ticket_cycle");
+    expect(code(await client.updateTicket("g1", { parentId: "g1" }))).toBe("ticket_cycle");
+    expect(code(await client.createTicket("p1", { title: "X", parentId: "g2" }))).toBeNull();
   });
 
-  it("refuses a status on a group with group_has_no_status", async () => {
-    expect(code(await setup().updateTicket("g1", { status: "done" }))).toBe("group_has_no_status");
-  });
-
-  it("turns a ticket into a group always, and a group into a ticket only when empty", async () => {
+  it("refuses to conclude with an open direct child (409 ticket_has_open_children), but allows cancelling", async () => {
     const client = setup();
-    expect(await client.updateTicket("t3", { kind: "group" })).toMatchObject({ ok: true, data: { kind: "group", status: null, progress: { done: 0, total: 0, excluded: 0 } } });
-    expect(code(await client.updateTicket("g1", { kind: "ticket" }))).toBe("ticket_has_children");
-    expect(await client.updateTicket("g2", { kind: "ticket" })).toMatchObject({ ok: true, data: { kind: "ticket", status: "todo", progress: null } });
+    expect(code(await client.updateTicket("g1", { status: "done" }))).toBe("ticket_has_open_children");
+    expect(code(await client.updateTicket("t3", { status: "done" }))).toBeNull();
+    expect((await client.updateTicket("g1", { status: "cancelled" })).ok).toBe(true);
   });
 
-  it("recomputes the progress of a group from its ticket descendants", async () => {
+  it("concludes a parent once its direct children are finalized, even with an open grandchild", async () => {
     const client = setup();
-    await client.updateTicket("t2", { status: "done" });
-    const listed = await client.listTickets("p1");
-    expect(listed.ok && listed.data.find((entry) => entry.id === "g1")?.progress).toEqual({ done: 2, total: 2, excluded: 0 });
+    await client.updateTicket("t2", { status: "cancelled" });
+    expect((await client.updateTicket("g1", { status: "done" })).ok).toBe(true);
   });
 
-  it("refuses to remove a group with items, and removes an empty one", async () => {
+  it("recomputes the progress of a ticket from all its descendants", async () => {
+    const client = setup();
+    await client.updateTicket("n1", { status: "done" });
+    const all = await listed(client);
+    expect(all.find((entry) => entry.id === "g1")?.progress).toEqual({ done: 2, total: 3, excluded: 0 });
+  });
+
+  it("refuses to remove a ticket with items, and removes one without", async () => {
     const client = setup();
     expect(code(await client.removeTicket("g1"))).toBe("ticket_has_children");
     expect((await client.removeTicket("g2")).ok).toBe(true);
-    const listed = await client.listTickets("p1");
-    expect(listed.ok && listed.data.map((entry) => entry.id)).not.toContain("g2");
+    expect((await listed(client)).map((entry) => entry.id)).not.toContain("g2");
   });
 
   it("serves the ticket detail from the same tree", async () => {
-    expect(await setup().getTicket("t3")).toMatchObject({ ok: true, data: { id: "t3", kind: "ticket", description: "" } });
+    const detail = await setup().getTicket("t3");
+    expect(detail).toMatchObject({ ok: true, data: { id: "t3", description: "" } });
+    expect("kind" in (detail.ok ? detail.data : {})).toBe(false);
   });
 });
 
-describe("the summary fake follows the ADR 0033 contract", () => {
+describe("the tree fake reopens a concluded parent that receives an open child (ADR 0034)", () => {
+  // d1 (concluído) > d2 (concluído) > d3 (concluído, folha); c1 (cancelado) > c2 (concluído); o1 (aberto, solto); f1 (finalizado, solto).
+  const make = () =>
+    makeTreeClient({
+      projects: [project],
+      tickets: {
+        p1: [
+          makeTicket("d1", "p1", 1, "Avô", { status: "done" }),
+          makeTicket("d2", "p1", 2, "Pai", { parentId: "d1", status: "done" }),
+          makeTicket("d3", "p1", 3, "Filho", { parentId: "d2", status: "done" }),
+          makeTicket("c1", "p1", 4, "Cancelado", { status: "cancelled" }),
+          makeTicket("c2", "p1", 5, "Dentro do cancelado", { parentId: "c1", status: "done" }),
+          makeTicket("o1", "p1", 6, "Aberto solto"),
+          makeTicket("f1", "p1", 7, "Finalizado solto", { status: "done" }),
+          makeTicket("r1", "p1", 8, "Raiz concluída", { status: "done" }),
+        ],
+      },
+    });
+  const statusOf = async (client: ReturnType<typeof make>, id: string) => (await listed(client)).find((entry) => entry.id === id)?.status;
+
+  it("reopens the parent when an open ticket is created inside it, and climbs through concluded ancestors", async () => {
+    const client = make();
+    await client.createTicket("p1", { title: "Novo", parentId: "d3" });
+    expect(await statusOf(client, "d3")).toBe("todo");
+    expect(await statusOf(client, "d2")).toBe("todo");
+    expect(await statusOf(client, "d1")).toBe("todo");
+  });
+
+  it("does not reopen anything when the ticket created inside is already finalized", async () => {
+    const client = make();
+    await client.createTicket("p1", { title: "Novo", parentId: "d3", status: "done" });
+    await client.createTicket("p1", { title: "Outro", parentId: "d3", status: "cancelled" });
+    expect(await statusOf(client, "d3")).toBe("done");
+    expect(await statusOf(client, "d1")).toBe("done");
+  });
+
+  it("reopens up to the first ancestor that is not concluded, and a cancelled parent is not reopened and stops the climb", async () => {
+    const client = make();
+    await client.updateTicket("d1", { status: "in_progress" });
+    await client.createTicket("p1", { title: "Novo", parentId: "d3" });
+    expect(await statusOf(client, "d3")).toBe("todo");
+    expect(await statusOf(client, "d2")).toBe("todo");
+    expect(await statusOf(client, "d1")).toBe("in_progress");
+    await client.createTicket("p1", { title: "Dentro do cancelado", parentId: "c1" });
+    expect(await statusOf(client, "c1")).toBe("cancelled");
+    await client.createTicket("p1", { title: "Mais fundo", parentId: "c2" });
+    expect(await statusOf(client, "c2")).toBe("todo");
+    expect(await statusOf(client, "c1")).toBe("cancelled");
+  });
+
+  it("reopens when an open ticket is moved inside a concluded one, but not a finalized ticket", async () => {
+    const client = make();
+    await client.updateTicket("f1", { parentId: "r1" });
+    expect(await statusOf(client, "r1")).toBe("done");
+    await client.updateTicket("o1", { parentId: "r1" });
+    expect(await statusOf(client, "r1")).toBe("todo");
+    await client.updateTicket("o1", { parentId: "d3" });
+    expect(await statusOf(client, "d1")).toBe("todo");
+  });
+
+  it("reopens the parent and the grandparent when a finalized child is reopened", async () => {
+    const client = make();
+    await client.updateTicket("d3", { status: "in_progress" });
+    expect(await statusOf(client, "d3")).toBe("in_progress");
+    expect(await statusOf(client, "d2")).toBe("todo");
+    expect(await statusOf(client, "d1")).toBe("todo");
+  });
+
+  it("reopens the destination when a ticket is created from the conversation, with or without a new parent ticket", async () => {
+    const client = make();
+    const loose = await client.createTicketFromConversation("c1", { parentId: "d3" });
+    expect(loose).toMatchObject({ ok: true, data: { ticket: { parentId: "d3", status: "todo" } } });
+    expect(await statusOf(client, "d3")).toBe("todo");
+    expect(await statusOf(client, "d1")).toBe("todo");
+  });
+
+  it("reopens the destination when the proposal of a new parent ticket is confirmed, moving the chosen tickets inside it", async () => {
+    const client = make();
+    const created = await client.createTicketFromConversation("c1", { parentId: "r1", group: { title: "Grupo novo", description: "", ticketIds: ["o1"] } });
+    expect(created.ok).toBe(true);
+    const all = await listed(client);
+    const group = all.find((entry) => entry.title === "Grupo novo");
+    expect(group).toMatchObject({ parentId: "r1", status: "todo" });
+    expect(all.find((entry) => entry.id === "o1")?.parentId).toBe(group?.id);
+    expect(all.find((entry) => entry.id === (created.ok ? created.data.ticket.id : ""))?.parentId).toBe(group?.id);
+    expect(await statusOf(client, "r1")).toBe("todo");
+  });
+});
+
+describe("the summary fake follows the ADR 0033 contract, as ADR 0034 changed it", () => {
   const me = (clerk: "admin" | "member", role?: "reader" | "contributor") => ({ ...makeMe({ clerk }), roles: { clerk, teams: [], projects: role ? [{ projectId: "p1", role }] : [] } });
   const make = (extra: { me?: ReturnType<typeof me>; archived?: boolean; providerUp?: boolean } = {}) =>
     makeTreeClient({
       me: extra.me ?? me("admin"),
       projects: [extra.archived ? makeProject("p1", "ALFA", "Alfa", { archivedAt: "2026-01-01T00:00:00.000Z" }) : project],
-      tickets: { p1: [makeGroup("g1", "p1", 1, "Fase 1"), makeTicket("t1", "p1", 2, "Feito", { parentId: "g1" }), makeGroup("g2", "p1", 3, "Vazio"), makeTicket("t2", "p1", 4, "Solto")] },
+      tickets: { p1: [makeTicket("g1", "p1", 1, "Fase 1"), makeTicket("t1", "p1", 2, "Feito", { parentId: "g1" }), makeTicket("g2", "p1", 3, "Sem filhos"), makeTicket("t2", "p1", 4, "Solto")] },
       summaries: { texts: { g1: { text: "Fase um", source: "assistant", updatedAt: "2026-11-20T10:00:00.000Z" } }, providerUp: extra.providerUp ?? true },
     });
 
-  it("reads null without text and refuses a plain ticket with not_a_group", async () => {
+  it("reads null without text, for any ticket (children or not), and 404 for an unknown one", async () => {
     const client = make();
     expect(await client.getTicketSummary("g2")).toEqual({ ok: true, data: { summary: null } });
-    expect(code(await client.getTicketSummary("t2"))).toBe("not_a_group");
+    expect(await client.getTicketSummary("t2")).toEqual({ ok: true, data: { summary: null } });
     expect(await client.getTicketSummary("nada")).toMatchObject({ ok: false, error: { kind: "not_found" } });
   });
 
@@ -88,7 +197,7 @@ describe("the summary fake follows the ADR 0033 contract", () => {
     expect(code(await client.putTicketSummary("g1", { text: "   " }))).toBe("validation_error");
     expect(code(await client.putTicketSummary("g1", { text: "a".repeat(1001) }))).toBe("validation_error");
     expect(await client.putTicketSummary("g1", { text: "a".repeat(1000) })).toMatchObject({ ok: true });
-    expect(code(await client.putTicketSummary("t2", { text: "x" }))).toBe("not_a_group");
+    expect(code(await client.putTicketSummary("t2", { text: "x" }))).toBe("ticket_has_no_items");
   });
 
   it("only editors write: a reader gets 403, an archived project 409 project_archived", async () => {
@@ -98,9 +207,9 @@ describe("the summary fake follows the ADR 0033 contract", () => {
     expect(code(await make({ archived: true }).regenerateTicketSummary("g1"))).toBe("project_archived");
   });
 
-  it("regenerates as the assistant, refusing an empty group and an unavailable provider", async () => {
+  it("regenerates as the assistant, refusing a ticket without items and an unavailable provider", async () => {
     expect(await make().regenerateTicketSummary("g1")).toMatchObject({ ok: true, data: { summary: { source: "assistant" } } });
-    expect(code(await make().regenerateTicketSummary("g2"))).toBe("group_empty");
+    expect(code(await make().regenerateTicketSummary("g2"))).toBe("ticket_has_no_items");
     expect(await make({ providerUp: false }).regenerateTicketSummary("g1")).toMatchObject({ ok: false, error: { kind: "unavailable", code: "assistant_unavailable" } });
     expect(await make({ me: me("member", "reader") }).regenerateTicketSummary("g1")).toMatchObject({ ok: false, error: { kind: "forbidden" } });
   });

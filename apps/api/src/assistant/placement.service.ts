@@ -11,7 +11,7 @@ import type { TenantRunner } from "../db/own-transactions.js";
 import type { TenantClient } from "@treepm/db";
 import type { Principal } from "../access/principal.js";
 
-export type TreeTicket = { id: string; parentId: string | null; kind: string; number: number; title: string; description: string };
+export type TreeTicket = { id: string; parentId: string | null; number: number; title: string; description: string };
 /** O texto guardado do agrupador (ADR 0033); a marca de conteúdo é só registro e não entra aqui. */
 export type StoredSummary = { summary: string };
 export type PlacementSnapshot = { projectId: string; projectName: string; tickets: TreeTicket[]; summaries: Map<string, StoredSummary> };
@@ -64,9 +64,10 @@ export class PlacementService {
     });
 
     /**
-     * Os agrupadores como o juiz os vê (ADR 0033). O texto guardado vale sempre, com ou sem itens, qualquer que seja a
-     * marca de conteúdo. Sem texto guardado: o agrupador com itens passa pelo resumidor (e o texto fica guardado, como
-     * `assistant`); o vazio entra com o trecho da descrição e nada é guardado.
+     * Os candidatos como o juiz os vê (ADR 0033, 0034). Ticket com filhos: o texto guardado vale, qualquer que seja a
+     * marca de conteúdo; sem texto guardado passa pelo resumidor (e o texto fica guardado, como `assistant`). Ticket
+     * sem filhos (o escopo): entra com o trecho da descrição, nada é guardado, e o texto guardado dele fica para quando
+     * voltar a ter filhos.
      */
     const describe = async (children: readonly TreeTicket[]): Promise<BranchCandidate[]> => {
       const missing = children
@@ -107,7 +108,9 @@ export class PlacementService {
         return {
           id: ticket.id,
           title: ticket.title,
-          summary: summaries.get(ticket.id)?.summary ?? (hasChildren ? "" : descriptionExcerpt(ticket.description)),
+          // O texto guardado vale para o ticket que tem filhos; sem filhos, o trecho da descrição (o texto guardado fica
+          // para quando voltar a ter filhos, ADR 0034).
+          summary: hasChildren ? (summaries.get(ticket.id)?.summary ?? "") : descriptionExcerpt(ticket.description),
           hasChildren,
         };
       });
@@ -120,16 +123,16 @@ export class PlacementService {
     draft: TicketDraft,
     snapshot: PlacementSnapshot,
     deps: ProviderDeps & {
-      /** Agrupador de escopo (ADR 0031), já validado por quem chama: do projeto da conversa e do tipo agrupador. */
+      /** Ticket de escopo (ADR 0031, 0034), já validado por quem chama: qualquer ticket do projeto da conversa. */
       scopeId?: string | null;
       judge: BranchJudge;
       timeoutMs?: number;
     },
   ): Promise<PlacementOutcome> {
     const { childrenOf, describe } = this.context(snapshot, deps);
-    // Candidatos são os filhos diretos do tipo agrupador (ADR 0031); ticket nunca é candidato.
+    // Candidatos são os filhos diretos que têm filhos (ADR 0034, primeira fatia); o sem filhos só vira candidato na segunda.
     const candidates = (parentId: string | null): Promise<BranchCandidate[]> =>
-      describe((childrenOf.get(parentId) ?? []).filter((child) => child.kind === "group"));
+      describe((childrenOf.get(parentId) ?? []).filter((child) => (childrenOf.get(child.id) ?? []).length > 0));
 
     const byId = new Map(snapshot.tickets.map((ticket) => [ticket.id, ticket]));
     const scopeTicket = deps.scopeId ? byId.get(deps.scopeId) : undefined;
@@ -166,7 +169,7 @@ export class PlacementService {
     const parentId = outcome.destination.parentId;
     const destinationTicket = parentId === null ? undefined : snapshot.tickets.find((ticket) => ticket.id === parentId);
     const looseTickets = (childrenOf.get(parentId) ?? [])
-      .filter((child) => child.kind === "ticket")
+      .filter((child) => (childrenOf.get(child.id) ?? []).length === 0)
       .map(({ id, number, title, description }) => ({ id, number, title, description }));
     return proposeGroup({
       draft,

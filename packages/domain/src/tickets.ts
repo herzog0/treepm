@@ -3,31 +3,19 @@ import { canViewProject } from "./index.js";
 
 export type TicketStatus = "todo" | "in_progress" | "in_review" | "done" | "cancelled";
 
-/** Tipo do nó (ADR 0031): ticket (tem situação, nunca tem filhos) ou agrupador (tem filhos e progresso). */
-export type TicketKind = "ticket" | "group";
-
 /** Minimal ticket shape needed to compute progress. */
 export interface TicketNode {
   readonly id: string;
   readonly parentId: string | null;
-  readonly kind: TicketKind;
   readonly status: TicketStatus;
 }
 
-/** Só agrupador pode ser pai de um nó. */
-export function canHaveChildren(kind: TicketKind): boolean {
-  return kind === "group";
+/** Finalizado (ADR 0034): concluído ou cancelado. Os outros três valores são "aberto". */
+export function isFinished(status: TicketStatus): boolean {
+  return status === "done" || status === "cancelled";
 }
 
-/**
- * Transformar um nó em outro tipo: ticket em agrupador é sempre permitido; agrupador em ticket só quando não tem
- * filhos. Manter o tipo é sempre permitido.
- */
-export function kindChangeAllowed(from: TicketKind, to: TicketKind, childCount: number): boolean {
-  return from === "ticket" || to === "group" || childCount === 0;
-}
-
-/** Progress over descendant leaves: `excluded` counts cancelled, `total` the rest, `done` the finished ones. */
+/** Progress over every descendant: `excluded` counts cancelled, `total` the rest, `done` the finished ones. */
 export interface TicketProgress {
   readonly done: number;
   readonly total: number;
@@ -70,11 +58,7 @@ export function canRemoveTicket(actor: Actor, projectId: string): boolean {
   return actor.clerkRole === "admin" || actor.projectRoles.get(projectId) === "manager";
 }
 
-/**
- * Progress for every group, keyed by ID (ADR 0031). Tickets have no entry; an empty group is zero of zero.
- * Only descendant tickets count, at any depth; groups are not items and their stored status is ignored.
- */
-export function ticketProgress(tickets: readonly TicketNode[]): Map<string, TicketProgress> {
+function childrenByParent(tickets: readonly TicketNode[]): Map<string, TicketNode[]> {
   const children = new Map<string, TicketNode[]>();
   for (const ticket of tickets) {
     if (ticket.parentId === null) continue;
@@ -82,32 +66,78 @@ export function ticketProgress(tickets: readonly TicketNode[]): Map<string, Tick
     if (siblings) siblings.push(ticket);
     else children.set(ticket.parentId, [ticket]);
   }
+  return children;
+}
+
+/**
+ * Progress for every ticket that has children, keyed by ID (ADR 0034). A ticket without children has no entry.
+ * Counts every descendant, at any level; a descendant that is itself a parent counts as one item, by its own status.
+ */
+export function ticketProgress(tickets: readonly TicketNode[]): Map<string, TicketProgress> {
+  const children = childrenByParent(tickets);
   const result = new Map<string, TicketProgress>();
-  const visit = (group: TicketNode): TicketProgress => {
+  const visit = (ticket: TicketNode): { done: number; total: number; excluded: number } => {
     let done = 0;
     let total = 0;
     let excluded = 0;
-    for (const kid of children.get(group.id) ?? []) {
-      if (kid.kind === "group") {
-        const nested = visit(kid);
-        done += nested.done;
-        total += nested.total;
-        excluded += nested.excluded;
-      } else if (kid.status === "cancelled") {
-        excluded += 1;
-      } else {
+    for (const kid of children.get(ticket.id) ?? []) {
+      if (kid.status === "cancelled") excluded += 1;
+      else {
         total += 1;
         if (kid.status === "done") done += 1;
       }
+      const nested = children.has(kid.id) ? (result.get(kid.id) ?? visit(kid)) : null;
+      if (nested) {
+        done += nested.done;
+        total += nested.total;
+        excluded += nested.excluded;
+      }
     }
     const progress = { done, total, excluded };
-    result.set(group.id, progress);
+    result.set(ticket.id, progress);
     return progress;
   };
   for (const ticket of tickets) {
-    if (ticket.kind === "group" && !result.has(ticket.id)) visit(ticket);
+    if (children.has(ticket.id) && !result.has(ticket.id)) visit(ticket);
   }
   return result;
+}
+
+/** Number of open direct children of a ticket (the rule for concluding it, ADR 0034). */
+export function openChildCount(tickets: readonly TicketNode[], ticketId: string): number {
+  return tickets.filter((ticket) => ticket.parentId === ticketId && !isFinished(ticket.status)).length;
+}
+
+/**
+ * "Ticket da vez" (ADR 0034) from what the web has at hand: open, and no open descendant. `progress` is the ticket's
+ * `progress` field (null without children); with children, no open descendant means `done === total` (the cancelled
+ * ones are in `excluded`).
+ */
+export function isTurn(status: TicketStatus, progress: TicketProgress | null): boolean {
+  return !isFinished(status) && (progress === null || progress.done === progress.total);
+}
+
+/** The ids of the tickets of the turn, computed from the tree: open tickets with no open descendant. */
+export function ticketsOfTheTurn(tickets: readonly TicketNode[]): Set<string> {
+  const children = childrenByParent(tickets);
+  const hasOpenDescendant = new Map<string, boolean>();
+  const visit = (ticket: TicketNode): boolean => {
+    const known = hasOpenDescendant.get(ticket.id);
+    if (known !== undefined) return known;
+    let found = false;
+    for (const kid of children.get(ticket.id) ?? []) {
+      // Sem curto-circuito: todos os filhos são visitados, para o cache ficar completo.
+      if (!isFinished(kid.status)) found = true;
+      if (visit(kid)) found = true;
+    }
+    hasOpenDescendant.set(ticket.id, found);
+    return found;
+  };
+  const turn = new Set<string>();
+  for (const ticket of tickets) {
+    if (!isFinished(ticket.status) && !visit(ticket)) turn.add(ticket.id);
+  }
+  return turn;
 }
 
 /** True when making `newParentId` the parent of `ticketId` would make the ticket its own ancestor. */
@@ -134,4 +164,25 @@ export function descriptionExcerpt(description: string): string {
   const points = Array.from(description);
   if (points.length <= EXCERPT_LENGTH) return description;
   return `${points.slice(0, EXCERPT_LENGTH).join("")}…`;
+}
+
+/**
+ * Reabertura do pai concluído (ADR 0034): `parentId` é o pai que acaba de ganhar um filho direto aberto. Devolve os ids
+ * a reabrir, de baixo para cima: o pai, se estiver `done`, depois o pai dele, e assim por diante, até o primeiro
+ * ancestral que não esteja `done` (cancelado também interrompe) ou a raiz.
+ */
+export function ticketsToReopen(
+  parentById: ReadonlyMap<string, string | null>,
+  statusById: ReadonlyMap<string, TicketStatus>,
+  parentId: string | null,
+): string[] {
+  const reopen: string[] = [];
+  const seen = new Set<string>();
+  let cursor = parentId;
+  while (cursor !== null && !seen.has(cursor) && statusById.get(cursor) === "done") {
+    seen.add(cursor);
+    reopen.push(cursor);
+    cursor = parentById.get(cursor) ?? null;
+  }
+  return reopen;
 }

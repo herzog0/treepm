@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ApiClient, ApiError, GroupSummary as GroupSummaryData } from "../api/client.js";
+import type { ApiClient, ApiError, GroupSummary as SummaryData } from "../api/client.js";
 import { describeApiError } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { formatDate } from "../github/time.js";
@@ -14,22 +14,20 @@ export const SUMMARY_MAX = 1000;
 const describeSummaryError = (error: ApiError) =>
   error.code === "validation_error" ? `O texto precisa ter entre 1 e ${SUMMARY_MAX.toLocaleString("pt-BR")} caracteres.` : describeApiError(error);
 
-interface GroupSummaryProps {
+interface ItemsSummaryProps {
   client: ApiClient;
-  groupId: string;
+  ticketId: string;
   /** Quem pode editar o ticket, em projeto não arquivado. */
   canEdit: boolean;
-  /** "Atualizar pela IA" só faz sentido quando há itens de onde escrever. */
-  hasItems: boolean;
 }
 
 /**
- * Seção "O que entra aqui" da página do agrupador (ADR 0033): o texto guardado que a IA usa para decidir se um ticket
- * novo pertence ao agrupador. O pai só a monta com a IA ligada; se a leitura falhar, ela não aparece.
+ * Seção "O que entra aqui" da página do ticket com filhos (ADR 0033, ADR 0034): o texto guardado que a IA usa para decidir se
+ * um ticket novo pertence a ele. O pai só a monta com a IA ligada e com filhos; se a leitura falhar, ela não aparece.
  */
-export function GroupSummary({ client, groupId, canEdit, hasItems }: GroupSummaryProps) {
-  const loaded = useApiResource(() => safe(() => client.getTicketSummary(groupId)));
-  const [written, setWritten] = useState<GroupSummaryData["summary"] | undefined>(undefined);
+export function ItemsSummary({ client, ticketId, canEdit }: ItemsSummaryProps) {
+  const loaded = useApiResource(() => safe(() => client.getTicketSummary(ticketId)));
+  const [written, setWritten] = useState<SummaryData["summary"] | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const save = useAction();
@@ -61,14 +59,14 @@ export function GroupSummary({ client, groupId, canEdit, hasItems }: GroupSummar
   const submit = async () => {
     if (!canSave) return;
     regenerate.clear();
-    const result = await save.run(() => client.putTicketSummary(groupId, { text: draft.trim() }));
+    const result = await save.run(() => client.putTicketSummary(ticketId, { text: draft.trim() }));
     if (!result.ok) return;
     setWritten(result.data.summary);
     setEditing(false);
   };
   const update = async () => {
     save.clear();
-    const result = await regenerate.run(() => client.regenerateTicketSummary(groupId));
+    const result = await regenerate.run(() => client.regenerateTicketSummary(ticketId));
     if (result.ok) setWritten(result.data.summary);
   };
   const error = save.error ?? regenerate.error;
@@ -82,11 +80,11 @@ export function GroupSummary({ client, groupId, canEdit, hasItems }: GroupSummar
             <button ref={startButton} type="button" className="text" disabled={busy} onClick={start}>
               {summary ? "Editar" : "Escrever"}
             </button>
-            {hasItems && <ConfirmAction label="Atualizar pela IA" disabled={busy} message="O texto atual será substituído por um novo, escrito a partir dos itens de agora." onConfirm={() => void update()} />}
+            <ConfirmAction label="Atualizar pela IA" disabled={busy} message="O texto atual será substituído por um novo, escrito a partir dos itens de agora." onConfirm={() => void update()} />
           </span>
         )}
       </div>
-      <p className="ticket-muted">A IA usa este texto para decidir se um ticket novo pertence a este agrupador.</p>
+      <p className="ticket-muted">A IA usa este texto para decidir se um ticket novo pertence a este ticket.</p>
       {editing ? (
         <div className="ticket-edit" onKeyDown={cancelOnEscape(cancel)}>
           <textarea aria-label="O que entra aqui" rows={6} autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} />

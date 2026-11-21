@@ -8,7 +8,7 @@ import { makePanelClient, makePanelMe, makePerson } from "./testing.js";
 
 const alpha = makeProject("p1", "ALFA", "Alfa");
 
-function setup(me: Me, project: Project = alpha, onCreateTicket: ((projectId: string, kind: "ticket" | "group") => void) | null = vi.fn(), onImportProject = vi.fn()) {
+function setup(me: Me, project: Project = alpha, onCreateTicket: ((projectId: string) => void) | null = vi.fn(), onImportProject = vi.fn()) {
   const client = makePanelClient({ projects: [project], people: [makePerson("person-1", "Ana")] });
   render(<ProjectsSection client={client} me={me} projects={[project]} selectedProject={project} onChanged={vi.fn()} onImportProject={onImportProject} {...(onCreateTicket ? { onCreateTicket } : {})} />);
   return { onCreateTicket };
@@ -25,9 +25,9 @@ describe("Novo ticket in the project detail", () => {
     const { onCreateTicket } = setup(me);
     expect(await screen.findByRole("button", { name: "Importar lista" })).toBeInTheDocument();
     await userEvent.click(await screen.findByRole("button", { name: "Novo ticket" }));
-    expect(onCreateTicket).toHaveBeenCalledWith("p1", "ticket");
-    await userEvent.click(await screen.findByRole("button", { name: "Novo agrupador" }));
-    expect(onCreateTicket).toHaveBeenLastCalledWith("p1", "group");
+    expect(onCreateTicket).toHaveBeenCalledWith("p1");
+    expect(onCreateTicket).toHaveBeenCalledTimes(1);
+    expect(groupAction()).not.toBeInTheDocument();
   });
 
   it.each([

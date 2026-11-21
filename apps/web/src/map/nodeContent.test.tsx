@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react";
 import type { SpatialNodeContent } from "@treepm/react";
 import { describe, expect, it } from "vitest";
-import { makeGroup, makeTicket } from "../test/fakes.js";
+import { makeTicket } from "../test/fakes.js";
 import type { MapNode } from "./items.js";
 import { renderNodeContent } from "./nodeContent.js";
 
@@ -38,42 +38,60 @@ describe("renderNodeContent", () => {
     expect(marks(container)[0]).toHaveAttribute("data-state", "in_review");
   });
 
-  it("full: a group shows 'N de M concluídos' with the progress mark", () => {
-    const ticket = makeGroup("t1", "alfa", 3, "Pai", { progress: { done: 3, total: 8, excluded: 0 } });
+  it("full: a ticket with an open descendant shows 'N de M concluídos' with the progress mark", () => {
+    const ticket = makeTicket("t1", "alfa", 3, "Pai", { status: "done", progress: { done: 3, total: 8, excluded: 0 } });
     const container = content(ticketNode(ticket), "full", { childCount: 2 });
     expect(container).toHaveTextContent("3 de 8 concluídos");
+    expect(container).not.toHaveTextContent("Concluído");
     expect(marks(container)[0]).toHaveAttribute("data-state", "progress");
   });
 
-  it("full: an empty group shows 'vazio' and the empty progress mark, not '0 de 0 concluídos'", () => {
-    const container = content(ticketNode(makeGroup("g1", "alfa", 4, "Fase 1")), "full", { childCount: 0 });
-    expect(container).toHaveTextContent("ALFA-4");
-    expect(container).toHaveTextContent("Fase 1");
-    expect(container).toHaveTextContent("vazio");
+  it("full: a ticket without children shows its own status", () => {
+    const container = content(ticketNode(makeTicket("t1", "alfa", 4, "Folha", { status: "in_progress" })), "full", { childCount: 0 });
+    expect(container).toHaveTextContent("Em andamento");
+    expect(container).not.toHaveTextContent("vazio");
     expect(container).not.toHaveTextContent("0 de 0");
+    expect(marks(container)[0]).toHaveAttribute("data-state", "in_progress");
+  });
+
+  it("full: a parent whose children are all finalized shows the status card with the parent's own status", () => {
+    const parent = makeTicket("t1", "alfa", 4, "Pai", { status: "in_review", progress: { done: 2, total: 2, excluded: 1 } });
+    const container = content(ticketNode(parent), "full", { childCount: 3 });
+    expect(container).toHaveTextContent("Em revisão");
+    expect(container).not.toHaveTextContent("concluídos");
     expect(marks(container)).toHaveLength(1);
-    expect(marks(container)[0]).toHaveAttribute("data-state", "progress");
-    expect(marks(container)[0]).toHaveAttribute("data-fill", "0");
+    expect(marks(container)[0]).toHaveAttribute("data-state", "in_review");
   });
 
-  it("compact and chip: an empty group keeps the empty progress mark and drops the text", () => {
-    const compact = content(ticketNode(makeGroup("g1", "alfa", 4, "Fase 1")), "compact", { childCount: 0 });
-    expect(compact).not.toHaveTextContent("vazio");
-    expect(marks(compact)[0]).toHaveAttribute("data-state", "progress");
-    expect(marks(compact)[0]).toHaveAttribute("data-fill", "0");
-    const chip = content(ticketNode(makeGroup("g1", "alfa", 4, "Fase 1")), "chip", { childCount: 0 });
-    expect(chip).toHaveTextContent("Fase 1");
-    expect(marks(chip)[0]).toHaveAttribute("data-state", "progress");
-  });
-
-  it("full: a group that only holds an empty group is not 'vazio'", () => {
-    expect(content(ticketNode(makeGroup("g1", "alfa", 4, "Fase 1")), "full", { childCount: 1 })).toHaveTextContent("0 de 0 concluídos");
-  });
-
-  it("full: a ticket never shows progress, even when its status is missing", () => {
-    const container = content(ticketNode(makeTicket("t1", "alfa", 3, "Folha", { status: "todo" })), "full");
+  it("full: a parent whose children are all cancelled shows the status card", () => {
+    const parent = makeTicket("t1", "alfa", 4, "Pai", { status: "todo", progress: { done: 0, total: 0, excluded: 2 } });
+    const container = content(ticketNode(parent), "full", { childCount: 2 });
     expect(container).toHaveTextContent("A fazer");
     expect(marks(container)[0]).toHaveAttribute("data-state", "todo");
+  });
+
+  it("full: a finalized child with an open grandchild still shows progress", () => {
+    const parent = makeTicket("t1", "alfa", 4, "Pai", { status: "todo", progress: { done: 1, total: 3, excluded: 0 } });
+    const container = content(ticketNode(parent), "full", { childCount: 1 });
+    expect(container).toHaveTextContent("1 de 3 concluídos");
+    expect(marks(container)[0]).toHaveAttribute("data-state", "progress");
+  });
+
+  it("full: a done parent that gained an open child goes back to the progress card", () => {
+    const parent = makeTicket("t1", "alfa", 4, "Pai", { status: "done", progress: { done: 1, total: 2, excluded: 0 } });
+    const container = content(ticketNode(parent), "full", { childCount: 2 });
+    expect(container).toHaveTextContent("1 de 2 concluídos");
+    expect(marks(container)[0]).toHaveAttribute("data-state", "progress");
+  });
+
+  it("compact and chip follow the same choice of mark, and never say 'vazio'", () => {
+    const leaf = makeTicket("t1", "alfa", 4, "Fase 1", { status: "done" });
+    const open = makeTicket("t2", "alfa", 5, "Pai", { progress: { done: 0, total: 1, excluded: 0 } });
+    expect(content(ticketNode(leaf), "compact", { childCount: 0 })).not.toHaveTextContent("vazio");
+    expect(marks(content(ticketNode(leaf), "compact"))[0]).toHaveAttribute("data-state", "done");
+    expect(marks(content(ticketNode(open), "compact", { childCount: 1 }))[0]).toHaveAttribute("data-state", "progress");
+    expect(marks(content(ticketNode(open), "chip", { childCount: 1 }))[0]).toHaveAttribute("data-state", "progress");
+    expect(marks(content(ticketNode(leaf), "chip"))[0]).toHaveAttribute("data-state", "done");
   });
 
   it("compact: key, title and the mark, without the status text", () => {

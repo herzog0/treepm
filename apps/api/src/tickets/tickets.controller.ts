@@ -13,8 +13,8 @@ import {
   Put,
 } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { kindChangeAllowed, parentWouldCreateCycle, ticketProgress } from "@treepm/domain";
-import type { TicketKind } from "@treepm/domain";
+import { isFinished, parentWouldCreateCycle, ticketProgress } from "@treepm/domain";
+import type { TicketStatus } from "@treepm/domain";
 import type { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { CurrentPrincipal } from "../access/principal.js";
@@ -30,7 +30,7 @@ import {
   updateTicketSchema,
 } from "./tickets.schema.js";
 import type { ImportItem, TicketDetail, TicketSummary } from "./tickets.schema.js";
-import { TicketsService, kindOf, parentLink, toNodes, toSummary } from "./tickets.service.js";
+import { TicketsService, toNodes, toSummary } from "./tickets.service.js";
 import type { ProjectRow, TicketRow } from "./tickets.service.js";
 
 const summarySelect = {
@@ -38,7 +38,6 @@ const summarySelect = {
   projectId: true,
   number: true,
   parentId: true,
-  kind: true,
   title: true,
   description: true,
   status: true,
@@ -83,7 +82,6 @@ export class TicketsController {
       title: body.title,
       description: body.description ?? "",
       parentId: body.parentId ?? null,
-      kind: body.kind ?? "ticket",
       status: body.status ?? "todo",
       assigneeIds: body.assigneeIds ?? [],
     });
@@ -101,33 +99,38 @@ export class TicketsController {
     this.requireActive(project);
     if (body.parentId) await this.tickets.requireParent(tx, projectId, body.parentId);
 
-    // Pré-ordem: o pai antes dos filhos, irmãos na ordem recebida.
-    // Item com filhos é agrupador; sem filhos é ticket, a menos que declare `group` (agrupador vazio).
-    const flat: { item: ImportItem; parentIndex: number | null; kind: TicketKind }[] = [];
+    // Pré-ordem: o pai antes dos filhos, irmãos na ordem recebida. Item com filhos é só um ticket com filhos.
+    const flat: { item: ImportItem; parentIndex: number | null }[] = [];
     const walk = (items: readonly ImportItem[], parentIndex: number | null): void => {
       for (const item of items) {
-        const kind: TicketKind = (item.children?.length ?? 0) > 0 ? "group" : (item.kind ?? "ticket");
-        const index = flat.push({ item, parentIndex, kind }) - 1;
+        const index = flat.push({ item, parentIndex }) - 1;
         if (item.children) walk(item.children, index);
       }
     };
     walk(body.items, null);
 
+    // Nenhum `done` com filho direto aberto (ADR 0034): item concluído que traz filho aberto na própria lista nasce `todo`.
+    const hasOpenChild = new Set<number>();
+    flat.forEach(({ item, parentIndex }) => {
+      if (parentIndex !== null && !isFinished(item.status ?? "todo")) hasOpenChild.add(parentIndex);
+    });
     const first = await this.tickets.allocateNumbers(tx, project, flat.length);
+    if (body.parentId && flat.some(({ item, parentIndex }) => parentIndex === null && !isFinished(item.status ?? "todo"))) {
+      await this.tickets.reopenAncestors(tx, principal, project, body.parentId, `${project.key}-${first}`);
+    }
     // IDs gerados pelo banco (`app_uuid_v7()`, o mesmo padrão da coluna) em UMA consulta; com eles, pais e filhos
     // entram na mesma inserção em lote (a FK do pai é verificada no fim do comando). Total de idas ao banco
     // da importação: constante, independente da quantidade de itens.
     const generated = await tx.$queryRaw<{ id: string }[]>`select app_uuid_v7() as id from generate_series(1, ${flat.length}::int)`;
     const ids = generated.map((row) => row.id);
-    const rows: TicketRow[] = flat.map(({ item, parentIndex, kind }, index) => ({
+    const rows: TicketRow[] = flat.map(({ item, parentIndex }, index) => ({
       id: ids[index] as string,
       projectId,
       number: first + index,
       parentId: parentIndex === null ? (body.parentId ?? null) : (ids[parentIndex] ?? null),
-      kind,
       title: item.title,
       description: item.description ?? "",
-      status: item.status ?? "todo",
+      status: item.status === "done" && hasOpenChild.has(index) ? "todo" : (item.status ?? "todo"),
       assignees: [],
     }));
     await tx.ticket.createMany({
@@ -138,8 +141,7 @@ export class TicketsController {
           orgId: project.orgId,
           projectId,
           number: row.number,
-          ...parentLink(row.parentId),
-          kind: row.kind,
+          parentId: row.parentId,
           title: row.title,
           description: row.description,
           status: row.status,
@@ -178,17 +180,6 @@ export class TicketsController {
     this.authorization.editTicket(principal.actor, project.id);
     this.requireActive(project);
 
-    const currentKind = kindOf(ticket);
-    const nextKind = body.kind ?? currentKind;
-    if (nextKind !== currentKind && !kindChangeAllowed(currentKind, nextKind, await this.childCount(tx, id))) {
-      throw new ConflictException({
-        code: "ticket_has_children",
-        message: "Agrupador com filhos não vira ticket: mova ou remova os filhos antes.",
-      });
-    }
-    if (body.status !== undefined && nextKind === "group") {
-      throw new ConflictException({ code: "group_has_no_status", message: "Agrupador não tem situação própria." });
-    }
     if (body.parentId !== undefined && body.parentId !== null) {
       await this.tickets.requireParent(tx, project.id, body.parentId);
     }
@@ -205,9 +196,7 @@ export class TicketsController {
       title?: string;
       description?: string;
       status?: string;
-      kind?: string;
       parentId?: string | null;
-      parentKind?: string | null;
     } = {};
     if (body.title !== undefined && body.title !== ticket.title) {
       data.title = body.title;
@@ -220,19 +209,21 @@ export class TicketsController {
       data.status = body.status;
       changes["status"] = { from: ticket.status, to: body.status };
     }
-    if (nextKind !== currentKind) {
-      data.kind = nextKind;
-      changes["kind"] = { from: currentKind, to: nextKind };
-    }
     if (body.parentId !== undefined && body.parentId !== ticket.parentId) {
-      Object.assign(data, parentLink(body.parentId));
+      data.parentId = body.parentId;
       changes["parentId"] = { from: ticket.parentId, to: body.parentId };
     }
     const fields = Object.keys(data);
+    const finalStatus = (data.status ?? ticket.status) as TicketStatus;
+    const finalParent = body.parentId !== undefined ? body.parentId : ticket.parentId;
+    // Reabertura (ADR 0034): ticket aberto que entra num pai (mudou de pai ou voltou a ficar aberto) reabre o pai `done`.
+    // Antes de qualquer outro bloqueio da transação, de baixo para cima.
+    if (finalParent && !isFinished(finalStatus) && (data.parentId !== undefined || data.status !== undefined)) {
+      await this.tickets.reopenAncestors(tx, principal, project, finalParent, `${project.key}-${ticket.number}`);
+    }
+    if (data.status === "done") await this.requireNoOpenChildren(tx, id);
     if (fields.length > 0) {
       await tx.ticket.update({ where: { orgId_id: { orgId: project.orgId, id } }, data });
-      // O texto fixo é do agrupador (ADR 0033): o ticket que deixa de ser agrupador (sempre vazio) perde o dele.
-      if (currentKind === "group" && nextKind !== "group") await tx.branchSummary.deleteMany({ where: { ticketId: id } });
       await this.activity.record(tx, principal, {
         kind: "ticket.updated",
         subjectType: "ticket",
@@ -339,6 +330,27 @@ export class TicketsController {
   }
 
 
+
+  /**
+   * Concluir exige todos os filhos diretos finalizados (ADR 0034): 409 `ticket_has_open_children` com a contagem em
+   * `details.openChildCount`. A conferência e a escrita acontecem na mesma transação, depois de travar a linha do
+   * ticket (`for update`), o mesmo bloqueio de que a chave estrangeira do pai precisa para gravar um filho: um filho
+   * novo ainda não confirmado faz a conclusão esperar e, ao confirmar, ser vista e recusada.
+   */
+  private async requireNoOpenChildren(tx: TenantClient, id: string): Promise<void> {
+    await tx.$queryRaw`select id from tickets where id = ${id}::uuid for update`;
+    const open = await tx.ticket.count({ where: { parentId: id, status: { notIn: ["done", "cancelled"] } } });
+    if (open > 0) {
+      throw new ConflictException({
+        code: "ticket_has_open_children",
+        message:
+          open === 1
+            ? "Conclua ou cancele o item aberto antes de concluir este ticket."
+            : `Conclua ou cancele os ${open} itens abertos antes de concluir este ticket.`,
+        details: { openChildCount: open },
+      });
+    }
+  }
 
   private async hasChildren(tx: TenantClient, id: string): Promise<boolean> {
     return (await this.childCount(tx, id)) > 0;

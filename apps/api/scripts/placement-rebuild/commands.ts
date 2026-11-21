@@ -157,7 +157,6 @@ export async function exportCommand(ctx: Context): Promise<void> {
     details.map((d) => ({
       id: d.id,
       number: d.number,
-      ...(d.kind ? { kind: d.kind } : {}),
       key: d.key,
       title: d.title,
       description: d.description,
@@ -177,7 +176,7 @@ export async function exportCommand(ctx: Context): Promise<void> {
 }
 
 export function liveFor(summaries: readonly Summary[]) {
-  return summaries.map((s) => ({ id: s.id, title: s.title, parentId: s.parentId, status: s.status, ...(s.kind ? { kind: s.kind } : {}) }));
+  return summaries.map((s) => ({ id: s.id, title: s.title, parentId: s.parentId, status: s.status, }));
 }
 
 /** Devolve as diferenças; vazio = confere. */
@@ -261,7 +260,8 @@ async function createGroups(ctx: Context, groups: readonly GabaritoTicket[], cre
   const pending = pendingGroups(groups, created);
   if (pending.length === 0) return;
   const adopted = new Set(created.values());
-  const orphans = (await listTickets(ctx)).filter((x) => x.kind === "group" && !adopted.has(x.id));
+  // Sem tipo na API (ADR 0034), um "órfão" é qualquer ticket ainda não adotado; a busca é por título e pai.
+  const orphans = (await listTickets(ctx)).filter((x) => !adopted.has(x.id));
   for (const group of pending) {
     const parentNewId = group.parentId === null ? null : (created.get(group.parentId) as string);
     const orphan = orphans.find((x) => x.title === group.title && x.parentId === parentNewId);
@@ -270,7 +270,7 @@ async function createGroups(ctx: Context, groups: readonly GabaritoTicket[], cre
       orphans.splice(orphans.indexOf(orphan), 1);
       newId = orphan.id;
     } else {
-      const body = { title: group.title, description: group.description, kind: "group", parentId: parentNewId };
+      const body = { title: group.title, description: group.description, parentId: parentNewId };
       newId = expectOk<Detail>("criar agrupador", await ctx.client.request("POST", `/projects/${ctx.project}/tickets`, body)).id;
     }
     created.set(group.id, newId);

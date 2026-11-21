@@ -1,17 +1,18 @@
 import { useEffect, useRef } from "react";
 import type { KeyboardEvent } from "react";
-import type { ApiClient, Me, Person, Project, TicketDetail, TicketKind, TicketSummary } from "../api/client.js";
+import type { ApiClient, Me, Person, Project, TicketDetail, TicketStatus, TicketSummary } from "../api/client.js";
 import { assistantEnabled, describeApiError, githubEnabled } from "../api/client.js";
 import { TicketCode } from "../github/TicketCode.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { canCreateTickets, canRemoveTickets } from "../import/permissions.js";
 import { LoadError } from "../LoadError.js";
-import { TicketMark, describeTicketState } from "../map/nodeContent.js";
+import { STATUS_TEXT, TicketMark, describeProgress, describeTicketState } from "../map/nodeContent.js";
+import { StatusMark } from "../map/StatusMark.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
 import { CreateTicket } from "./CreateTicket.js";
-import { GroupSummary } from "./GroupSummary.js";
+import { ItemsSummary } from "./ItemsSummary.js";
 import { DescriptionField, ParentField, PeopleField, StatusField, TitleField } from "./fields.js";
 import { ancestorsOf } from "./tree.js";
 import "./ticket.css";
@@ -19,8 +20,8 @@ import "./ticket.css";
 export interface CreateRequest {
   projectId: string;
   parentId: string | null;
-  /** Tipo do nó novo (ADR 0031); sem ele, ticket. */
-  kind?: TicketKind;
+  /** O ticket pai, quando já se sabe: a criação avisa se ele é concluído e vai ser reaberto (ADR 0034). */
+  parent?: { key: string; status: TicketStatus };
   /** Valores iniciais, por exemplo o rascunho da conversa com a IA (ADR 0029). */
   draft?: { title: string; description: string };
 }
@@ -49,12 +50,11 @@ const CloseIcon = () => (
   </svg>
 );
 
-function Header({ keyText, path, onClose, kind }: { keyText: string; path: string; onClose: () => void; kind?: TicketKind }) {
+function Header({ keyText, path, onClose }: { keyText: string; path: string; onClose: () => void }) {
   return (
     <header className="ticket-header">
       <div className="ticket-crumbs">
         <span className="ticket-key">{keyText}</span>
-        {kind === "group" && <span className="ticket-kind">Agrupador</span>}
         {path !== "" && <span aria-hidden="true">·</span>}
         {path !== "" && <span className="ticket-path">{path}</span>}
       </div>
@@ -174,16 +174,10 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
     onChanged();
   };
 
-  const isGroup = detail.kind === "group";
   const children = list.filter((entry) => entry.parentId === detail.id);
-  const kindChange = useAction();
+  const openItems = children.filter((entry) => entry.status !== "done" && entry.status !== "cancelled").length;
   const parent = detail.parentId === null ? null : list.find((entry) => entry.id === detail.parentId) ?? null;
   const path = [project?.name ?? "", ...ancestorsOf(list, detail).map((entry) => entry.title)].filter((part) => part !== "").join(" › ");
-
-  const changeKind = async (kind: TicketKind) => {
-    const result = await kindChange.run(() => client.updateTicket(detail.id, { kind }));
-    if (result.ok) refresh();
-  };
 
   const remove = async () => {
     const result = await removal.run(() => client.removeTicket(detail.id));
@@ -194,7 +188,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
 
   return (
     <>
-      <Header keyText={detail.key} path={path} onClose={onClose} kind={detail.kind} />
+      <Header keyText={detail.key} path={path} onClose={onClose} />
       <div className="ticket-body">
         <div className="ticket-scroll">
           {!canEdit && (
@@ -204,80 +198,77 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
           )}
           <TitleField ref={title} client={client} detail={detail} canEdit={canEdit} onSaved={refresh} />
           <dl className="ticket-fields">
-            <dt>{isGroup ? "Progresso" : "Situação"}</dt>
+            <dt>Situação</dt>
             <dd>
-              {isGroup || !canEdit ? (
-                <span className="ticket-chip">
-                  <TicketMark ticket={detail} />
-                  {describeTicketState(detail, children.length)}
-                </span>
+              {canEdit ? (
+                <StatusField client={client} detail={detail} openItems={openItems} onSaved={refresh} />
               ) : (
-                <StatusField client={client} detail={detail} onSaved={refresh} />
+                <span className="ticket-chip">
+                  <StatusMark status={detail.status} />
+                  {STATUS_TEXT[detail.status]}
+                </span>
               )}
             </dd>
+            {detail.progress && (
+              <>
+                <dt>Progresso</dt>
+                <dd>
+                  <span className="ticket-chip">
+                    <StatusMark progress={detail.progress} />
+                    {describeProgress(detail.progress)}
+                  </span>
+                </dd>
+              </>
+            )}
             <dt>Pessoas</dt>
             <dd>
               <PeopleField client={client} detail={detail} people={people} canEdit={canEdit} onSaved={refresh} />
             </dd>
-            <dt>Agrupador pai</dt>
+            <dt>Ticket pai</dt>
             <dd>
               <ParentField client={client} detail={detail} parent={parent} tickets={list} canEdit={canEdit} onOpen={onOpenTicket} onSaved={refresh} />
             </dd>
           </dl>
           <DescriptionField client={client} detail={detail} canEdit={canEdit} onSaved={refresh} />
 
-          {isGroup && assistantEnabled(me) && <GroupSummary client={client} groupId={detail.id} canEdit={canEdit} hasItems={children.length > 0} />}
+          {children.length > 0 && assistantEnabled(me) && <ItemsSummary client={client} ticketId={detail.id} canEdit={canEdit} />}
 
-          {isGroup && (
-            <section className="ticket-section" aria-labelledby="ticket-children-heading">
-              <div className="ticket-section-head">
-                <h2 id="ticket-children-heading">Itens</h2>
-                {canEdit && (
-                  <span className="ticket-section-actions">
-                    <button type="button" className="text" onClick={() => onStartCreate({ projectId: detail.projectId, parentId: detail.id, kind: "ticket" })}>
-                      Novo ticket
-                    </button>
-                    <button type="button" className="text" onClick={() => onStartCreate({ projectId: detail.projectId, parentId: detail.id, kind: "group" })}>
-                      Novo agrupador
-                    </button>
-                  </span>
-                )}
-              </div>
-              {children.length === 0 ? (
-                <p className="ticket-muted">Nenhum item ainda.</p>
-              ) : (
-                <ul className="ticket-children" aria-labelledby="ticket-children-heading">
-                  {children.map((child) => (
-                    <li key={child.id}>
-                      <button type="button" className="ticket-child" onClick={() => onOpenTicket(child.id)}>
-                        <span className="ticket-child-main">
-                          <TicketMark ticket={child} />
-                          <span className="ticket-key">{child.key}</span>
-                          <span className="ticket-child-title">{child.title}</span>
-                        </span>
-                        <span className="ticket-child-state">{describeTicketState(child, list.filter((entry) => entry.parentId === child.id).length)}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+          <section className="ticket-section" aria-labelledby="ticket-children-heading">
+            <div className="ticket-section-head">
+              <h2 id="ticket-children-heading">Itens</h2>
+              {canEdit && (
+                <span className="ticket-section-actions">
+                  <button type="button" className="text" onClick={() => onStartCreate({ projectId: detail.projectId, parentId: detail.id, parent: { key: detail.key, status: detail.status } })}>
+                    Novo ticket aqui dentro
+                  </button>
+                </span>
               )}
-            </section>
-          )}
+            </div>
+            {children.length === 0 ? (
+              <p className="ticket-muted">Nenhum ticket aqui dentro.</p>
+            ) : (
+              <ul className="ticket-children" aria-labelledby="ticket-children-heading">
+                {children.map((child) => (
+                  <li key={child.id}>
+                    <button type="button" className="ticket-child" onClick={() => onOpenTicket(child.id)}>
+                      <span className="ticket-child-main">
+                        <TicketMark ticket={child} />
+                        <span className="ticket-key">{child.key}</span>
+                        <span className="ticket-child-title">{child.title}</span>
+                      </span>
+                      <span className="ticket-child-state">{describeTicketState(child)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
           {githubEnabled(me) && <TicketCode client={client} detail={detail} project={project} />}
 
-          {canEdit && (isGroup ? children.length === 0 : true) && (
-            <div className="ticket-kind-change">
-              <button type="button" disabled={kindChange.busy} onClick={() => void changeKind(isGroup ? "ticket" : "group")}>
-                {isGroup ? "Transformar em ticket" : "Transformar em agrupador"}
-              </button>
-              {kindChange.error && <p role="alert" className="ticket-error">{describeApiError(kindChange.error)}</p>}
-            </div>
-          )}
-
           {canRemove && (
             <div className="ticket-danger">
-              <ConfirmAction label={isGroup ? "Remover agrupador" : "Remover ticket"} disabled={removal.busy} onConfirm={() => void remove()} />
+              <ConfirmAction label="Remover ticket" disabled={removal.busy} onConfirm={() => void remove()} />
               {removal.error && <p role="alert">{describeApiError(removal.error, "remove")}</p>}
             </div>
           )}

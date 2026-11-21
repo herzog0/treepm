@@ -3,17 +3,17 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient, Me, Project, TicketDetail, TicketSummary } from "../api/client.js";
 import { makePanelMe, makePerson } from "../panel/testing.js";
-import { failed, makeClient, makeGroup, makeProject, makeTicket, ok } from "../test/fakes.js";
+import { failed, makeClient, makeProject, makeTicket, ok } from "../test/fakes.js";
 import type { FakeSummaries } from "../test/fakes.js";
 import { TicketPage } from "./TicketPage.js";
 
 const project = makeProject("p1", "ALFA", "Projeto Alfa");
 const archivedProject = makeProject("p1", "ALFA", "Projeto Alfa", { archivedAt: "2026-01-01T00:00:00.000Z" });
 const summaries: TicketSummary[] = [
-  makeGroup("t1", "p1", 1, "Entrega de dezembro", { key: "ALFA-1" }),
+  makeTicket("t1", "p1", 1, "Entrega de dezembro", { key: "ALFA-1", progress: { done: 0, total: 2, excluded: 0 } }),
   makeTicket("t2", "p1", 2, "Escrever o texto", { key: "ALFA-2", parentId: "t1" }),
   makeTicket("t3", "p1", 3, "Revisar o texto", { key: "ALFA-3", parentId: "t1" }),
-  makeGroup("t4", "p1", 4, "Fase vazia", { key: "ALFA-4" }),
+  makeTicket("t4", "p1", 4, "Fase vazia", { key: "ALFA-4" }),
 ];
 const detailOf = (summary: TicketSummary): TicketDetail => ({
   ...summary, description: "Descrição", createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
@@ -40,19 +40,19 @@ function setup(options: { me?: Me; project?: Project; ticketId?: string; summari
 const section = async () => within(await screen.findByRole("region", { name: "O que entra aqui" }));
 const pageLoaded = async () => {
   await screen.findByRole("heading", { level: 1 });
-  await screen.findByText("Agrupador pai");
+  await screen.findByText("Ticket pai");
 };
 const noSection = async () => {
   await pageLoaded();
   expect(screen.queryByRole("region", { name: "O que entra aqui" })).not.toBeInTheDocument();
 };
 
-describe("Página do agrupador › O que entra aqui", () => {
+describe("Página do ticket com itens › O que entra aqui", () => {
   it("shows the title, the help line, the text and who wrote it (the AI)", async () => {
     setup();
     const entra = await section();
     expect(entra.getByRole("heading", { level: 2, name: "O que entra aqui" })).toBeInTheDocument();
-    expect(entra.getByText("A IA usa este texto para decidir se um ticket novo pertence a este agrupador.")).toBeInTheDocument();
+    expect(entra.getByText("A IA usa este texto para decidir se um ticket novo pertence a este ticket.")).toBeInTheDocument();
     expect(entra.getByText("Reúne o trabalho da entrega de dezembro.")).toBeInTheDocument();
     expect(entra.getByText("Escrito pela IA em 21 de novembro de 2026")).toBeInTheDocument();
   });
@@ -152,13 +152,13 @@ describe("Página do agrupador › O que entra aqui", () => {
       expect(client.putTicketSummary).not.toHaveBeenCalled();
     });
 
-    it("Escrever on a group without text saves the first text", async () => {
-      const { client } = setup({ summaries: { texts: {} }, ticketId: "t4" });
+    it("Escrever on a ticket without text saves the first text", async () => {
+      const { client } = setup({ summaries: { texts: {} }, ticketId: "t1" });
       const entra = await section();
       await userEvent.click(entra.getByRole("button", { name: "Escrever" }));
       await userEvent.type(entra.getByRole("textbox", { name: "O que entra aqui" }), "Fases do plano");
       await userEvent.click(entra.getByRole("button", { name: "Salvar" }));
-      await waitFor(() => expect(client.putTicketSummary).toHaveBeenCalledWith("t4", { text: "Fases do plano" }));
+      await waitFor(() => expect(client.putTicketSummary).toHaveBeenCalledWith("t1", { text: "Fases do plano" }));
       expect(await entra.findByText("Fases do plano")).toBeInTheDocument();
       expect(entra.getByRole("button", { name: "Editar" })).toBeInTheDocument();
     });
@@ -202,12 +202,6 @@ describe("Página do agrupador › O que entra aqui", () => {
       expect(entra.getByRole("button", { name: "Editar" })).toBeEnabled();
     });
 
-    it("is not offered when the group has no items, but Escrever is", async () => {
-      setup({ summaries: { texts: {} }, ticketId: "t4" });
-      const entra = await section();
-      expect(entra.getByRole("button", { name: "Escrever" })).toBeInTheDocument();
-      expect(entra.queryByRole("button", { name: "Atualizar pela IA" })).not.toBeInTheDocument();
-    });
   });
 
   describe("errors, next to the control", () => {
@@ -218,10 +212,10 @@ describe("Página do agrupador › O que entra aqui", () => {
       return entra;
     };
 
-    it("group_empty", async () => {
-      setup({ override: { regenerateTicketSummary: vi.fn(async () => failed("conflict", "group_empty")) } });
+    it("ticket_has_no_items", async () => {
+      setup({ override: { regenerateTicketSummary: vi.fn(async () => failed("conflict", "ticket_has_no_items")) } });
       const entra = await regenerateFlow();
-      expect(await entra.findByRole("alert")).toHaveTextContent("Este agrupador ainda não tem itens.");
+      expect(await entra.findByRole("alert")).toHaveTextContent("Este ticket ainda não tem itens.");
       expect(entra.getByText(byAi.text)).toBeInTheDocument();
     });
 
@@ -258,7 +252,7 @@ describe("Página do agrupador › O que entra aqui", () => {
     });
 
     it("an old error goes away on the next try", async () => {
-      const regenerateTicketSummary = vi.fn().mockResolvedValueOnce(failed("conflict", "group_empty")).mockResolvedValue(ok({ summary: { ...byAi, text: "Agora foi." } }));
+      const regenerateTicketSummary = vi.fn().mockResolvedValueOnce(failed("conflict", "ticket_has_no_items")).mockResolvedValue(ok({ summary: { ...byAi, text: "Agora foi." } }));
       setup({ override: { regenerateTicketSummary } });
       const entra = await regenerateFlow();
       await entra.findByRole("alert");
@@ -301,10 +295,23 @@ describe("Página do agrupador › O que entra aqui", () => {
   });
 
   describe("when it does not appear", () => {
-    it("an ordinary ticket has no section and the route is not called", async () => {
+    it("a ticket without children has no section and the route is not called, whatever the AI", async () => {
+      const { client } = setup({ ticketId: "t4" });
+      await noSection();
+      expect(client.getTicketSummary).not.toHaveBeenCalled();
+    });
+
+    it("a leaf inside a ticket has no section either", async () => {
       const { client } = setup({ ticketId: "t2" });
       await noSection();
       expect(client.getTicketSummary).not.toHaveBeenCalled();
+    });
+
+    it("a ticket that gets its first child shows the section", async () => {
+      const { client } = setup({ ticketId: "t1", summaries: { texts: {} } });
+      const entra = await section();
+      expect(entra.getByRole("button", { name: "Escrever" })).toBeInTheDocument();
+      expect(client.getTicketSummary).toHaveBeenCalledWith("t1");
     });
 
     it("with the AI off there is no section and no summary route is called", async () => {
@@ -327,12 +334,6 @@ describe("Página do agrupador › O que entra aqui", () => {
       await waitFor(() => expect(client.getTicketSummary).toHaveBeenCalledWith("t1"));
       await noSection();
       expect(screen.queryByRole("heading", { name: "O que entra aqui" })).not.toBeInTheDocument();
-    });
-
-    it("a 409 not_a_group also hides it", async () => {
-      const { client } = setup({ override: { getTicketSummary: vi.fn(async () => failed("conflict", "not_a_group")) } });
-      await waitFor(() => expect(client.getTicketSummary).toHaveBeenCalledWith("t1"));
-      await noSection();
     });
   });
 });

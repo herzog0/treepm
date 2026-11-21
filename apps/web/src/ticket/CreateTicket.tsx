@@ -4,6 +4,7 @@ import type { ApiClient, CreateTicketBody, Project } from "../api/client.js";
 import { describeApiError } from "../api/client.js";
 import { useAction } from "../panel/useAction.js";
 import { useState } from "react";
+import { reopenWarning, reopensOnReceiving } from "./reopen.js";
 import type { CreateRequest } from "./TicketPage.js";
 
 interface CreateTicketProps {
@@ -15,7 +16,7 @@ interface CreateTicketProps {
   onCancel: () => void;
 }
 
-/** Modo de criação (ADR 0026): título obrigatório, descrição opcional; o nó nasce, do tipo pedido (ADR 0031), sem pessoas e, sendo ticket, em "a fazer". */
+/** Modo de criação (ADR 0026): título obrigatório, descrição opcional; o ticket nasce sem pessoas e em "a fazer" (ADR 0034: não há tipo). */
 export function CreateTicket({ client, project, request, onChanged, onCreated, onCancel }: CreateTicketProps) {
   const [title, setTitle] = useState(request.draft?.title ?? "");
   const [description, setDescription] = useState(request.draft?.description ?? "");
@@ -23,12 +24,11 @@ export function CreateTicket({ client, project, request, onChanged, onCreated, o
   const heading = useRef<HTMLHeadingElement>(null);
   const trimmed = title.trim();
   const isChild = request.parentId !== null;
-  const kind = request.kind ?? "ticket";
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (trimmed === "" || action.busy) return;
-    const body: CreateTicketBody = { title: trimmed, kind };
+    const body: CreateTicketBody = { title: trimmed };
     if (description.trim() !== "") body.description = description;
     if (request.parentId !== null) body.parentId = request.parentId;
     const result = await action.run(() => client.createTicket(request.projectId, body));
@@ -40,8 +40,9 @@ export function CreateTicket({ client, project, request, onChanged, onCreated, o
   return (
     <div className="ticket-body">
       <div className="ticket-scroll">
-        <h1 ref={heading} className="ticket-title">{kind === "group" ? "Novo agrupador" : "Novo ticket"}</h1>
-        <p className="ticket-muted">{project ? `Em ${project.name}${isChild ? ", dentro do agrupador aberto" : ", na raiz do projeto"}.` : ""}</p>
+        <h1 ref={heading} className="ticket-title">Novo ticket</h1>
+        <p className="ticket-muted">{project ? `Em ${project.name}${isChild ? ", dentro do ticket aberto" : ", na raiz do projeto"}.` : ""}</p>
+        {request.parent && reopensOnReceiving(request.parent) && <p className="ticket-notice" role="status">{reopenWarning(request.parent.key)}</p>}
         <form className="ticket-form" onSubmit={(event) => void submit(event)}>
           <label>
             Título

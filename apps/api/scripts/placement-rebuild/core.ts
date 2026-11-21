@@ -169,14 +169,15 @@ export function compareTrees(gabarito: readonly GabaritoTicket[], live: readonly
     }
     if (found.title !== expected.title) problems.push(`${expected.id}: título diferente`);
     if (found.parentId !== expected.parentId) problems.push(`${expected.id}: pai diferente`);
-    if (found.status !== expected.status) problems.push(`${expected.id}: situação diferente`);
+    // Gabarito antigo guarda `null` para agrupador, que não tinha situação; hoje todo ticket tem (ADR 0034).
+    if (expected.status !== null && found.status !== expected.status) problems.push(`${expected.id}: situação diferente`);
     if (found.kind !== undefined && found.kind !== expected.kind) problems.push(`${expected.id}: tipo diferente`);
   }
   for (const extra of live) if (!knownIds.has(extra.id)) problems.push(`${extra.id}: a mais no projeto`);
   return problems;
 }
 
-export type ImportItem = { title: string; description?: string; status?: TicketStatus; kind?: NodeKind; children?: ImportItem[] };
+export type ImportItem = { title: string; description?: string; status?: TicketStatus; children?: ImportItem[] };
 
 /**
  * Árvore aninhada para a rota de importação (irmãos por número) e os ids do gabarito na mesma pré-ordem em que a
@@ -193,7 +194,7 @@ export function buildImportTree(tickets: readonly GabaritoTicket[]): { items: Im
   const build = (parentId: string | null): ImportItem[] =>
     (byParent.get(parentId) ?? []).map((ticket) => {
       order.push(ticket.id);
-      const item: ImportItem = { title: ticket.title, description: ticket.description, kind: ticket.kind };
+      const item: ImportItem = { title: ticket.title, description: ticket.description };
       if (ticket.status !== null) item.status = ticket.status;
       const children = build(ticket.id);
       if (children.length > 0) item.children = children;
@@ -203,18 +204,14 @@ export function buildImportTree(tickets: readonly GabaritoTicket[]): { items: Im
 }
 
 /**
- * Preenche o tipo de cada nó. Gabarito antigo (sem `kind`): quem tem filhos é agrupador. Um `ticket` declarado
- * com filhos é um gabarito inválido.
+ * Preenche o tipo de cada nó (ADR 0034): o tipo deixou de existir na API; aqui "group" é só o rótulo de quem tem
+ * filhos no gabarito. Um `kind` declarado em gabarito antigo é ignorado.
  */
 export function resolveKinds<T extends { id: string; parentId: string | null; kind?: NodeKind | undefined }>(
   tickets: readonly T[],
 ): (T & { kind: NodeKind })[] {
   const parents = new Set(tickets.map((x) => x.parentId).filter((id): id is string => id !== null));
-  return tickets.map((x) => {
-    const hasChildren = parents.has(x.id);
-    if (x.kind === "ticket" && hasChildren) throw new Error(`O ticket ${x.id} do gabarito tem filhos; só agrupador tem filhos.`);
-    return { ...x, kind: x.kind ?? (hasChildren ? "group" : "ticket") };
-  });
+  return tickets.map((x) => ({ ...x, kind: parents.has(x.id) ? "group" : "ticket" }));
 }
 
 /**

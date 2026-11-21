@@ -217,11 +217,11 @@ export class TicketConversationsController {
         tx.project.findFirstOrThrow({ where: { id: conversation.projectId }, select: { name: true } }),
         tx.ticket.findMany({
           where: { projectId: conversation.projectId },
-          select: { id: true, parentId: true, kind: true, number: true, title: true, description: true },
+          select: { id: true, parentId: true, number: true, title: true, description: true },
         }),
         tx.branchSummary.findMany({ where: { projectId: conversation.projectId }, select: { ticketId: true, summary: true } }),
       ]);
-      if (body.scopeId) this.requireScopeGroup(tickets.find((ticket) => ticket.id === body.scopeId));
+      if (body.scopeId) this.requireScope(tickets.find((ticket) => ticket.id === body.scopeId));
       return {
         draft: { title: conversation.draftTitle, description: conversation.draftDescription ?? "" },
         snapshot: {
@@ -287,7 +287,7 @@ export class TicketConversationsController {
     let parentId = body.parentId;
     if (body.group) {
       this.authorization.editTicket(principal.actor, project.id);
-      parentId = await this.tickets.createGroupAndMove(tx, principal, project, body.parentId, body.group, origin);
+      parentId = await this.tickets.createParentAndMove(tx, principal, project, body.parentId, body.group, origin);
     }
     const ticket = await this.tickets.create(
       tx,
@@ -368,24 +368,21 @@ export class TicketConversationsController {
     return { judge: this.judge, summarizer: this.summarizer, affinity: this.affinity, namer: this.namer };
   }
 
-  /** Do projeto da conversa (outro projeto e outra organização, esta pela RLS, são o mesmo 404) e só agrupador. */
-  private requireScopeGroup(scope: { kind: string } | undefined): void {
-    if (!scope) throw new NotFoundException("Agrupador de escopo não encontrado.");
-    if (scope.kind !== "group") {
-      throw new ConflictException({ code: "scope_not_group", message: "O escopo da procura precisa ser um agrupador." });
-    }
+  /** Qualquer ticket do projeto da conversa serve de escopo (ADR 0034); de outro projeto ou organização (pela RLS): o mesmo 404. */
+  private requireScope(scope: unknown): void {
+    if (!scope) throw new NotFoundException("Ticket de escopo não encontrado.");
   }
 
   /**
-   * Os títulos dos agrupadores do lugar da procura (ADR 0033): filhos diretos do escopo, ou da raiz do projeto sem
-   * escopo; no máximo 30, na ordem do número. Confere o escopo como a procura. Só títulos, nenhum id.
+   * Os títulos dos filhos que têm filhos do lugar da procura (ADR 0033, 0034): filhos diretos do escopo, ou da raiz do
+   * projeto sem escopo; no máximo 30, na ordem do número. Confere o escopo como a procura. Só títulos, nenhum id.
    */
   private async scopeGroupTitles(tx: TenantClient, projectId: string, scopeId: string | null | undefined): Promise<string[]> {
     if (scopeId) {
-      this.requireScopeGroup(await tx.ticket.findFirst({ where: { id: scopeId, projectId }, select: { kind: true } }) ?? undefined);
+      this.requireScope(await tx.ticket.findFirst({ where: { id: scopeId, projectId }, select: { id: true } }));
     }
     const rows = await tx.ticket.findMany({
-      where: { projectId, kind: "group", parentId: scopeId ?? null },
+      where: { projectId, parentId: scopeId ?? null, children: { some: {} } },
       orderBy: { number: "asc" },
       take: MAX_GROUP_TITLES,
       select: { title: true },

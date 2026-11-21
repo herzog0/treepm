@@ -489,7 +489,7 @@ describe("buildImportTree", () => {
     expect(items).toHaveLength(2);
     expect(items[0]!.children!.map((x) => x.title)).toEqual(["Título b", "Título c"]);
     expect(items[0]!.status).toBeUndefined(); // pai não tem situação própria
-    expect(items[0]!.children![1]).toEqual({ title: "Título c", description: "dc", status: "done", kind: "ticket" });
+    expect(items[0]!.children![1]).toEqual({ title: "Título c", description: "dc", status: "done" });
     expect(items[1]!.children).toBeUndefined();
   });
 });
@@ -704,13 +704,13 @@ describe("tipo dos nós no gabarito (ADR 0031)", () => {
     expect(out.map((x) => [x.id, x.kind])).toEqual([["a", "group"], ["b", "ticket"], ["c", "ticket"], ["d", "ticket"]]);
   });
 
-  it("gabarito novo: o kind declarado vale, inclusive agrupador vazio", () => {
+  it("o kind declarado em gabarito antigo é ignorado: o rótulo vem de ter filhos (ADR 0034)", () => {
     const out = resolveKinds([raw("g", null, "group"), raw("e", null, "group"), raw("t", "g", "ticket")]);
-    expect(out.map((x) => x.kind)).toEqual(["group", "group", "ticket"]);
+    expect(out.map((x) => x.kind)).toEqual(["group", "ticket", "ticket"]);
   });
 
-  it("ticket declarado com filhos é gabarito inválido", () => {
-    expect(() => resolveKinds([raw("t", null, "ticket"), raw("c", "t", "ticket")])).toThrow(/filhos/);
+  it("ticket declarado com filhos não é mais inválido: vira group", () => {
+    expect(resolveKinds([raw("t", null, "ticket"), raw("c", "t", "ticket")]).map((x) => x.kind)).toEqual(["group", "ticket"]);
   });
 
   const mixed = () =>
@@ -740,12 +740,13 @@ describe("tipo dos nós no gabarito (ADR 0031)", () => {
     expect(pendingGroups(groups, new Map([["g1", "n1"]])).map((x) => x.id)).toEqual(["e", "g2"]);
   });
 
-  it("buildImportTree leva o kind de cada item e não dá situação a agrupador, vazio inclusive", () => {
+  it("buildImportTree não leva kind (a API não o aceita mais) e só dá situação a quem tem uma no gabarito", () => {
     const { items } = buildImportTree(mixed());
-    expect(items.map((x) => [x.title, x.kind])).toEqual([["Título g1", "group"], ["Título e", "group"], ["Título t2", "ticket"]]);
+    expect(items.map((x) => x.title)).toEqual(["Título g1", "Título e", "Título t2"]);
+    for (const item of items) expect(item).not.toHaveProperty("kind");
     expect(items[0]!.status).toBeUndefined();
     expect(items[1]!.children).toBeUndefined();
-    expect(items[0]!.children!.map((x) => x.kind)).toEqual(["group", "ticket"]);
+    expect(items[0]!.children!.map((x) => x.title).length).toBe(2);
   });
 
   it("compareTrees acusa kind diferente quando os dois lados informam", () => {
