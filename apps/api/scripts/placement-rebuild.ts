@@ -4,13 +4,14 @@
  *
  *   pnpm --filter @treepm/api placement:rebuild <comando> [opções]
  *
- * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out.
+ * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect.
  * Sobe a API real em processo (só a sessão é trocada), em 127.0.0.1 e porta efêmera, e fala com ela por HTTP.
  * O terminal mostra só progresso e contagens; todo texto de ticket fica nos arquivos de `--dir`.
  */
 import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { bootApp } from "./placement-rebuild/app.js";
+import { collectCommand, collectReportCommand } from "./placement-rebuild/collect.js";
 import { ApiClient } from "./placement-rebuild/client.js";
 import {
   archiveProjectCommand,
@@ -40,6 +41,10 @@ async function main(): Promise<number> {
   const dir = resolve(options.dir);
   ensureDir(dir);
 
+  if (command === "report" && options.collect) {
+    collectReportCommand({ dir, project: options.project as string, log });
+    return 0;
+  }
   if (command === "report") {
     reportCommand({ dir, project: options.project as string, log }, options.loo ?? false);
     return 0;
@@ -52,7 +57,8 @@ async function main(): Promise<number> {
     fakeProviders: options.fakeProviders ?? false,
     fake503First: options.fake503First ?? 0,
     fake503JudgeAt: options.fake503JudgeAt ?? 0,
-    needsAi: command === "rebuild" || command === "leave-one-out",
+    needsAi: command === "rebuild" || command === "leave-one-out" || command === "collect",
+    collect: command === "collect",
   });
   try {
     const ctx: Context = {
@@ -65,6 +71,8 @@ async function main(): Promise<number> {
       ...(options.retryDelaysMs ? { retryDelaysMs: options.retryDelaysMs } : {}),
       ...(options.looCrashAfterRemove ? { looCrashAfterRemove: options.looCrashAfterRemove } : {}),
       ...(options.looCrashAfterDraft ? { looCrashAfterDraft: options.looCrashAfterDraft } : {}),
+      ...(booted.collectKit ? { collectKit: booted.collectKit } : {}),
+      ...(options.repeats ? { repeats: options.repeats } : {}),
       ...(options.scopeCheck ? { scopeCheck: true } : {}),
       ...(options.flat ? { flat: true } : {}),
     };
@@ -82,6 +90,8 @@ async function main(): Promise<number> {
         return 0;
       case "leave-one-out":
         return (await leaveOneOutCommand(ctx, options.limit)) ? 0 : 1;
+      case "collect":
+        return (await collectCommand(ctx, options.limit)) ? 0 : 1;
       case "restore-state":
         return (await restoreStateCommand(ctx)) ? 0 : 1;
       case "restore-original":

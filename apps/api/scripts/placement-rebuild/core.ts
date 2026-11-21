@@ -292,6 +292,7 @@ export const COMMANDS = [
   "create-project",
   "archive-project",
   "leave-one-out",
+  "collect",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -307,6 +308,10 @@ export type CliOptions = {
   fakeProviders?: boolean;
   /** `report`: lê a execução do `leave-one-out` em vez da do `rebuild`. */
   loo?: boolean;
+  /** `report`: lê a coleta do `collect` em vez da do `rebuild`. */
+  collect?: boolean;
+  /** `collect`: quantas vezes cada requisição do Jev é repetida com o payload idêntico (padrão 3). */
+  repeats?: number;
   /** `leave-one-out`: além da procura normal, duas procuras com escopo (no pai original e em outro agrupador do mesmo nível). */
   scopeCheck?: boolean;
   /** `leave-one-out`: importa o gabarito achatado (só tickets, todos na raiz) e mede a proposta de agrupador. */
@@ -335,6 +340,7 @@ const REQUIRED: Record<Command, readonly (keyof CliOptions)[]> = {
   "create-project": [...APP_REQUIRED, "key", "name"],
   "archive-project": [...APP_REQUIRED, "project"],
   "leave-one-out": [...APP_REQUIRED, "project"],
+  collect: [...APP_REQUIRED, "project"],
 };
 
 const FLAGS: Record<string, keyof CliOptions> = {
@@ -348,6 +354,8 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--name": "name",
   "--fake-providers": "fakeProviders",
   "--loo": "loo",
+  "--collect": "collect",
+  "--repeats": "repeats",
   "--scope-check": "scopeCheck",
   "--flat": "flat",
   "--role": "role",
@@ -371,13 +379,17 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     const flag = rest[i] as string;
     const key = FLAGS[flag];
     if (!key) return fail(`Opção desconhecida: ${flag}.`);
-    if (key === "fakeProviders" || key === "loo" || key === "scopeCheck" || key === "flat") {
+    if (key === "fakeProviders" || key === "loo" || key === "collect" || key === "scopeCheck" || key === "flat") {
       options[key] = true;
       continue;
     }
     const value = rest[++i];
     if (value === undefined) return fail(`A opção ${flag} precisa de um valor.`);
-    if (key === "limit" || key === "fake503First" || key === "fake503JudgeAt" || key === "looCrashAfterRemove" || key === "looCrashAfterDraft") {
+    if (key === "repeats") {
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed < 1) return fail(`${flag} deve ser um inteiro maior que zero.`);
+      options[key] = parsed;
+    } else if (key === "limit" || key === "fake503First" || key === "fake503JudgeAt" || key === "looCrashAfterRemove" || key === "looCrashAfterDraft") {
       const parsed = Number(value);
       if (!Number.isInteger(parsed) || parsed < 0) return fail(`${flag} deve ser um número inteiro.`);
       options[key] = parsed;
@@ -391,6 +403,9 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   }
   if (options["flat"] !== undefined && command !== "leave-one-out") return fail("--flat só existe no leave-one-out.");
   if (options["flat"] !== undefined && options["scopeCheck"] !== undefined) return fail("--flat não combina com --scope-check.");
+  if (options["repeats"] !== undefined && command !== "collect") return fail("--repeats só existe no collect.");
+  if (options["collect"] !== undefined && command !== "report") return fail("--collect só existe no report.");
+  if (options["collect"] !== undefined && options["loo"] !== undefined) return fail("--collect não combina com --loo.");
   const missing = REQUIRED[command as Command].filter((key) => options[key] === undefined);
   if (missing.length > 0) return fail(`Faltam opções para ${command}: ${missing.map((k) => `--${k}`).join(", ")}.`);
   return { ok: true, command: command as Command, options: options as CliOptions };
