@@ -165,7 +165,7 @@ describe.each(["en", "es-MX"] as const)("full screens in %s", (language) => {
     const client = appClient();
     client.findPlacement = vi.fn(async () => ok(makePlacement({ destination: target("t4"), alternatives: [target("t1")], uncertain: true, groupProposal: proposal, scope: { id: "t1", title: "Login flow", outOfScope: true }, stoppedEarly: { reason: "max_levels", level: 2, parentId: "t1" } }) as PlacementOutcome));
     const { container } = render(
-      <AssistantPanel client={client} projects={[alpha]} initialProjectId="p1" initialScopeId="t1" tickets={{ p1: summaries }} onClose={vi.fn()} onCreated={vi.fn()} onManualCreate={vi.fn()} onDraftChange={vi.fn()} onChanged={vi.fn()} registerPicker={vi.fn()} />,
+      <AssistantPanel client={client} projects={[alpha]} initialProjectId="p1" initialScopeId="t1" tickets={{ p1: summaries }} expanded resume onCollapse={vi.fn()} onProgress={vi.fn()} onCreated={vi.fn()} onManualCreate={vi.fn()} onDraftChange={vi.fn()} onChanged={vi.fn()} registerPicker={vi.fn()} />,
     );
     await userEvent.click(await screen.findByRole("button", { name: resources[language].assistant.draft.search }));
     await screen.findByRole("region", { name: resources[language].assistant.path.region });

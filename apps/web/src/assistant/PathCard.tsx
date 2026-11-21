@@ -13,8 +13,6 @@ interface PathCardProps {
   options: readonly Destination[];
   draftTitle: string;
   canGoUp: boolean;
-  choosing: boolean;
-  pickNotice: string;
   busy: boolean;
   error: ApiError | null;
   whereStopped: (parentId: string | null) => string;
@@ -26,7 +24,6 @@ interface PathCardProps {
   onUse: (destination: Destination) => void;
   onUp: () => void;
   onChoose: () => void;
-  onCancelChoose: () => void;
   onCreate: () => void;
   /** A proposta de ticket pai novo (ADR 0031, ADR 0034) enquanto o destino é o da procura; `null` quando não há ou foi descartada. */
   proposal: GroupProposal | null;
@@ -41,7 +38,7 @@ export function PathCard(props: PathCardProps) {
   const describeError = useDescribeApiError();
   const { t } = useTranslation("assistant");
   const { t: tTicket } = useTranslation("ticket");
-  const { project, target, outcome, options, draftTitle, choosing, pickNotice, busy } = props;
+  const { project, target, outcome, options, draftTitle, busy } = props;
   const others = options.filter((option) => option.parentId !== target.parentId);
   const steps = [
     { name: project.name, note: target.path.length === 0 ? t("path.root") : "" },
@@ -115,19 +112,11 @@ export function PathCard(props: PathCardProps) {
           </ul>
         </>
       )}
-      {choosing && (
-        <p className="assistant-notice" role="status">{t("pick.instruction")}</p>
-      )}
-      {choosing && pickNotice !== "" && <p role="alert">{pickNotice}</p>}
       {props.error && <p role="alert">{describeError(props.error)}</p>}
       <div className="assistant-actions">
         <button type="button" className="primary" disabled={busy} onClick={props.onCreate}>{t("path.create")}</button>
         <button type="button" disabled={!props.canGoUp} onClick={props.onUp}>{t("path.up")}</button>
-        {choosing ? (
-          <button type="button" className="text" onClick={props.onCancelChoose}>{t("pick.cancel")}</button>
-        ) : (
-          <button type="button" className="text" onClick={props.onChoose}>{t("pick.choose")}</button>
-        )}
+        <button type="button" className="text" onClick={props.onChoose}>{t("pick.choose")}</button>
       </div>
     </section>
   );

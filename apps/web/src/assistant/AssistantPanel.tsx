@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import type { ApiClient, ApiError, ApiResult, ConversationDetail, NewGroup, PlacementOutcome, Project, TicketSummary } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
+import { AiIcon } from "../command/icons.js";
 import { LoadError } from "../LoadError.js";
 import type { MapDraft, MapNode } from "../map/items.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
@@ -34,8 +36,14 @@ export interface AssistantPanelProps {
   initialMessage?: string | null;
   /** Tickets de cada projeto, como o mapa os tem: o painel deriva daqui os caminhos que ele mesmo monta. */
   tickets: Readonly<Record<string, readonly TicketSummary[]>>;
-  /** Fecha sem criar. */
-  onClose: () => void;
+  /** A folha está à vista; falso quando recolhida: a conversa continua montada, só some da barra (ADR 0036). */
+  expanded: boolean;
+  /** Retoma a conversa aberta mais recente do projeto (`true`) ou começa uma vazia (`false`). */
+  resume: boolean;
+  /** Recolhe a folha sem encerrar a conversa. */
+  onCollapse: () => void;
+  /** Diz se há conversa em andamento (mensagem, resposta a caminho ou texto digitado): recolher uma vazia a encerra. */
+  onProgress: (active: boolean) => void;
   /** Depois de criar: o mapa recarrega (`onChanged`) e abre a página do ticket novo. */
   onCreated: (ticketId: string) => void;
   /** Caminho de saída quando a IA falha: o modo de criação manual da página do ticket. */
@@ -58,62 +66,87 @@ const SendIcon = () => (
   </svg>
 );
 
-/** Painel de conversa para criar ticket com a IA (ADR 0029): região complementar de 440 px à direita do mapa. */
+/** Folha de conversa para criar ticket com a IA (ADR 0029, ADR 0036): mora dentro da barra de pedidos, com a linha de cima e o corpo. */
 export function AssistantPanel(props: AssistantPanelProps) {
-  const { projects, initialProjectId, onClose } = props;
+  const { projects, initialProjectId, expanded, onCollapse, onProgress } = props;
   const { t } = useTranslation("assistant");
-  const ref = useRef<HTMLElement>(null);
+  const body = useRef<HTMLElement>(null);
   const [projectId, setProjectId] = useState(initialProjectId);
   const [choosing, setChoosing] = useState(false);
-  // O escopo vive só no estado do painel: não é gravado na conversa, e uma conversa retomada depois começa sem ele.
+  const [pickNotice, setPickNotice] = useState("");
+  // Lugares da linha de cima que só a conversa sabe preencher (o escopo e as ações dela): ela os alcança por portal.
+  const [chipSlot, setChipSlot] = useState<HTMLElement | null>(null);
+  const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
+  // O escopo vive só no estado da folha: não é gravado na conversa, e uma conversa retomada depois começa sem ele.
   const [scopeId, setScopeId] = useState<string | null>(props.initialScopeId ?? null);
   const project = projects.find((entry) => entry.id === projectId) ?? null;
   const scopeTicket = project && scopeId !== null ? (props.tickets[project.id] ?? []).find((entry) => entry.id === scopeId) : undefined;
-  const scope = scopeTicket ? { id: scopeTicket.id, title: scopeTicket.title } : null;
+  const scope = scopeTicket ? { id: scopeTicket.id, key: scopeTicket.key, title: scopeTicket.title } : null;
 
-  // O foco entra no painel ao abrir e volta a quem o abriu ao fechar (o campo de texto toma o foco quando carrega).
   useEffect(() => {
-    const opener = document.activeElement;
-    ref.current?.focus();
-    return () => {
-      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
-    };
-  }, []);
+    if (project === null) onProgress(false);
+  }, [project, onProgress]);
 
-  const onKeyDown = (event: KeyboardEvent) => {
-    // Nada do que acontece aqui dentro chega aos atalhos do mapa.
-    event.stopPropagation();
-    if (event.key !== "Escape") return;
-    if (choosing) setChoosing(false);
-    else onClose();
-  };
+  // O foco entra na folha quando ela abre ou reabre, e volta a ela quando a escolha no mapa termina (o campo de mensagem toma o foco quando existe).
+  useEffect(() => {
+    if (!expanded || choosing) return;
+    const field = body.current?.querySelector<HTMLElement>("#assistant-message");
+    (field ?? body.current)?.focus();
+  }, [expanded, choosing]);
 
   return (
-    <aside ref={ref} className="assistant-panel" aria-label={t("panel.label")} tabIndex={-1} onKeyDown={onKeyDown}>
-      <header className="assistant-header">
-        <div>
+    <div className="assistant-sheet" hidden={!expanded}>
+      <div className="assistant-top" hidden={choosing}>
+        <span className="command-icon"><AiIcon /></span>
+        <span ref={setChipSlot} className="assistant-chip-slot" />
+        <div className="assistant-title">
           <h2>{t("panel.title")}</h2>
           <p>{project ? t("panel.project", { key: project.key, name: project.name }) : t("panel.subtitle")}</p>
         </div>
-        <button type="button" className="assistant-close" aria-label={t("panel.close")} onClick={onClose}>
+        <div ref={setActionsSlot} className="assistant-header-actions" />
+        <button type="button" className="assistant-close" aria-label={t("panel.collapse")} onClick={onCollapse}>
           <CloseIcon />
         </button>
-      </header>
-      {project === null ? (
-        <div className="assistant-scroll">
-          <h3>{t("project.question")}</h3>
-          <ul className="assistant-projects">
-            {projects.map((entry) => (
-              <li key={entry.id}>
-                <button type="button" onClick={() => setProjectId(entry.id)}>{t("project.option", { key: entry.key, name: entry.name })}</button>
-              </li>
-            ))}
-          </ul>
+      </div>
+      {choosing && (
+        <div className="assistant-top assistant-pick">
+          <span className="command-icon"><AiIcon /></span>
+          <div className="assistant-pick-text">
+            <p role="status">{t("pick.instruction")}</p>
+            {pickNotice !== "" && <p role="alert">{pickNotice}</p>}
+          </div>
+          <button type="button" className="text" onClick={() => setChoosing(false)}>{t("pick.cancel")}</button>
         </div>
-      ) : (
-        <ProjectConversation key={project.id} {...props} project={project} choosing={choosing} setChoosing={setChoosing} scope={scope} onRemoveScope={() => setScopeId(null)} />
       )}
-    </aside>
+      <section ref={body} className="assistant-body" aria-label={t("panel.label")} tabIndex={-1} hidden={choosing}>
+        {project === null ? (
+          <div className="assistant-scroll">
+            <h3>{t("project.question")}</h3>
+            <ul className="assistant-projects">
+              {projects.map((entry) => (
+                <li key={entry.id}>
+                  <button type="button" onClick={() => setProjectId(entry.id)}>{t("project.option", { key: entry.key, name: entry.name })}</button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <ProjectConversation
+            key={project.id}
+            {...props}
+            project={project}
+            choosing={choosing}
+            setChoosing={setChoosing}
+            pickNotice={pickNotice}
+            setPickNotice={setPickNotice}
+            scope={scope}
+            onRemoveScope={() => setScopeId(null)}
+            chipSlot={chipSlot}
+            actionsSlot={actionsSlot}
+          />
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -121,13 +154,22 @@ interface ConversationProps extends AssistantPanelProps {
   project: Project;
   choosing: boolean;
   setChoosing: (choosing: boolean) => void;
+  pickNotice: string;
+  setPickNotice: (notice: string) => void;
   /** Ticket em que a procura começa; `null` procura no projeto inteiro. */
-  scope: { id: string; title: string } | null;
+  scope: { id: string; key: string; title: string } | null;
   onRemoveScope: () => void;
+  chipSlot: HTMLElement | null;
+  actionsSlot: HTMLElement | null;
 }
 
-/** A conversa aberta mais recente da pessoa no projeto continua de onde parou. */
+/** Com `resume`, a conversa aberta mais recente da pessoa no projeto continua de onde parou; sem ele, começa vazia. */
 function ProjectConversation(props: ConversationProps) {
+  if (!props.resume) return <Chat {...props} initial={null} />;
+  return <ResumedConversation {...props} />;
+}
+
+function ResumedConversation(props: ConversationProps) {
   const { t } = useTranslation("assistant");
   const { client, project } = props;
   const loaded = useApiResource(() =>
@@ -157,7 +199,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const describeError = useDescribeApiError();
   const { t, i18n } = useTranslation("assistant");
   const language = i18n.language as Language;
-  const { client, project, tickets, choosing, setChoosing, onChanged, onCreated, onManualCreate, scope } = props;
+  const { client, project, tickets, choosing, setChoosing, setPickNotice, onChanged, onCreated, onManualCreate, scope, expanded, onProgress } = props;
   const registerPicker = props.registerPicker;
   const list = tickets[project.id] ?? [];
   const [conversation, setConversation] = useState(props.initial);
@@ -168,13 +210,13 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const [edit, setEdit] = useState<Edit | null>(null);
   const [outcome, setOutcome] = useState<PlacementOutcome | null>(null);
   const [target, setTarget] = useState<Destination | null>(null);
-  const [pickNotice, setPickNotice] = useState("");
   // A proposta de ticket pai novo (ADR 0031) vale só para o destino da procura: trocar o destino, procurar de novo ou o 409 a descartam.
   const [proposalDropped, setProposalDropped] = useState(false);
   const [unchecked, setUnchecked] = useState<string[]>([]);
   const sendingRef = useRef(false);
   const initialSent = useRef(false);
   const scroller = useRef<HTMLDivElement>(null);
+  const scrolled = useRef(0);
   const save = useAction();
   const search = useAction();
   const create = useAction();
@@ -200,6 +242,17 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     if (element) element.scrollTop = element.scrollHeight;
   }, [conversation?.messages.length, outcome, sendError]);
 
+  // Recolhida, a folha some do layout e a rolagem se perde: ao reabrir, ela volta onde estava.
+  useLayoutEffect(() => {
+    if (expanded && scroller.current) scroller.current.scrollTop = scrolled.current;
+  }, [expanded]);
+
+  // Recolher uma conversa vazia a encerra; com mensagem, resposta a caminho ou texto digitado, ela fica em andamento.
+  const active = conversation !== null || sending || text.trim() !== "";
+  useEffect(() => {
+    onProgress(active);
+  }, [active, onProgress]);
+
   // "Escolher no mapa": o próximo clique em um ticket ou no projeto do mesmo projeto vira o destino (ADR 0034: qualquer
   // ticket recebe filhos, então o ticket clicado é o destino).
   const register = useRef(registerPicker);
@@ -222,7 +275,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     setPickNotice("");
     register.current({ pick: (node) => pick.current(node), cancel: () => setChoosing(false) });
     return () => register.current(null);
-  }, [choosing, setChoosing]);
+  }, [choosing, setChoosing, setPickNotice]);
 
   const clearPlacement = () => {
     setOutcome(null);
@@ -373,19 +426,21 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
 
   return (
     <>
-      {scope && (
-        <div className="assistant-scope">
-          <span>{t("scope.searching", { title: scope.title })}</span>
-          <button type="button" className="text" disabled={busy} onClick={() => void searchWholeProject()}>{t("scope.wholeProject")}</button>
-        </div>
+      {props.chipSlot && scope && createPortal(
+        <span className="command-chip" title={scope.title}>
+          {t("scope.chip", { key: scope.key })}
+          <button type="button" aria-label={t("scope.remove")} disabled={busy} onClick={() => void searchWholeProject()}>×</button>
+        </span>,
+        props.chipSlot,
       )}
-      {conversation && (
-        <div className="assistant-header-actions" style={{ justifyContent: "flex-end", padding: "6px 12px 0" }}>
+      {props.actionsSlot && conversation && createPortal(
+        <>
           <button type="button" className="text" onClick={reset}>{t("conversation.new")}</button>
           <ConfirmAction label={t("conversation.delete")} disabled={removal.busy} onConfirm={() => void remove()} />
-        </div>
+        </>,
+        props.actionsSlot,
       )}
-      <div ref={scroller} className="assistant-scroll">
+      <div ref={scroller} className="assistant-scroll" onScroll={(event) => { if (expanded) scrolled.current = event.currentTarget.scrollTop; }}>
         {removal.error && <p role="alert">{describeError(removal.error)}</p>}
         {!conversation && <p className="assistant-hint">{t("conversation.hint")}</p>}
         {conversation?.messages.map((message) => (
@@ -433,8 +488,6 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 options={options}
                 draftTitle={draft.title}
                 canGoUp={up !== null}
-                choosing={choosing}
-                pickNotice={pickNotice}
                 busy={busy}
                 error={create.error}
                 whereStopped={whereStopped}
@@ -454,7 +507,6 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                   if (up) setTarget(up);
                 }}
                 onChoose={() => setChoosing(true)}
-                onCancelChoose={() => setChoosing(false)}
                 onCreate={() => void createHere()}
               />
             )}
