@@ -715,15 +715,39 @@ describe("group proposal (ADR 0031)", () => {
     expect(steps.compareDocumentPosition(screen.getByText("Este ticket parece formar um grupo com outros daqui.")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("makes Criar agrupador e mover the primary action and Só criar o ticket the secondary one", async () => {
+  it("keeps Criar aqui as the primary action with a proposal and moves Criar agrupador e mover into the proposal block, as a secondary action", async () => {
     setup(resumed(withProposal()));
     await shown();
-    expect(screen.getByRole("button", { name: "Criar agrupador e mover" })).toHaveClass("primary");
-    expect(screen.getByRole("button", { name: "Só criar o ticket" })).not.toHaveClass("primary");
-    expect(screen.queryByRole("button", { name: "Criar aqui" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Criar aqui" })).toHaveClass("primary");
+    expect(screen.queryByRole("button", { name: "Só criar o ticket" })).not.toBeInTheDocument();
+    const block = path().querySelector<HTMLElement>(".assistant-proposal")!;
+    const group = screen.getByRole("button", { name: "Criar agrupador e mover" });
+    expect(block.contains(group)).toBe(true);
+    expect(group).not.toHaveClass("primary");
+    expect(block.contains(screen.getByRole("button", { name: "Criar aqui" }))).toBe(false);
+    const list = block.querySelector(".proposal-tickets")!;
+    expect(list.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("button", { name: "Um nível acima" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Escolher no mapa" })).toBeInTheDocument();
     expect(panel().querySelectorAll(".assistant-cards button.primary")).toHaveLength(1);
+  });
+
+  it("keeps Criar aqui reachable by keyboard right after the alternatives, before Um nível acima", async () => {
+    setup(resumed(withProposal({ alternatives: [target("t4")] })));
+    await shown();
+    const order = Array.from(path().querySelectorAll("button")).map((b) => b.textContent);
+    expect(order.indexOf("Criar aqui")).toBeGreaterThan(-1);
+    expect(order.indexOf("Criar aqui")).toBeLessThan(order.indexOf("Um nível acima"));
+    expect(order.indexOf("Um nível acima")).toBeLessThan(order.indexOf("Escolher no mapa"));
+  });
+
+  it("disables both create actions while one is in flight", async () => {
+    const createTicketFromConversation = vi.fn(() => new Promise<never>(() => {}));
+    setup(resumed(withProposal(), { createTicketFromConversation }));
+    await shown();
+    await userEvent.click(screen.getByRole("button", { name: "Criar agrupador e mover" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Criar aqui" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Criar agrupador e mover" })).toBeDisabled();
   });
 
   it("without a proposal nothing changes: Criar aqui stays and no proposal text shows", async () => {
@@ -765,11 +789,11 @@ describe("group proposal (ADR 0031)", () => {
     expect(props.onChanged).toHaveBeenCalled();
   });
 
-  it("Só criar o ticket sends no group", async () => {
+  it("Criar aqui sends no group even with a proposal", async () => {
     const client = resumed(withProposal());
     const props = setup(client);
     await shown();
-    await userEvent.click(screen.getByRole("button", { name: "Só criar o ticket" }));
+    await userEvent.click(screen.getByRole("button", { name: "Criar aqui" }));
     await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t2" }));
     expect(vi.mocked(client.createTicketFromConversation).mock.calls[0]![1]).not.toHaveProperty("group");
     await waitFor(() => expect(props.onCreated).toHaveBeenCalledWith("t9"));
@@ -789,7 +813,6 @@ describe("group proposal (ADR 0031)", () => {
       expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Criar agrupador e mover" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Criar aqui" })).toHaveClass("primary");
-      expect(screen.queryByRole("button", { name: "Só criar o ticket" })).not.toBeInTheDocument();
     };
 
     it("choosing an alternative drops the proposal", async () => {
