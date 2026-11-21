@@ -13,3 +13,6 @@ coverage/
 
 # Arquivos locais de coordenação (briefs e relatórios de executores)
 *.local.md
+
+# saída de relatórios do Vitest
+.vitest/

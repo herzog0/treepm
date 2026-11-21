@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ConfigError, assistantEnabled, loadConfig } from "../src/config.js";
+import { ConfigError, assistantEnabled, githubEnabled, loadConfig } from "../src/config.js";
 
 const valid = {
   DATABASE_URL: "postgresql://treepm_app:x@localhost:5432/db",
@@ -87,5 +87,85 @@ describe("loadConfig", () => {
     for (const file of files) {
       expect(readFileSync(file, "utf8"), file).not.toContain("DATABASE_MIGRATION_URL");
     }
+  });
+});
+
+describe("loadConfig — GitHub (ADR 0032)", () => {
+  const PEM = "-----BEGIN RSA PRIVATE KEY-----\nAAAA\nBBBB\n-----END RSA PRIVATE KEY-----\n";
+  const github = {
+    GITHUB_APP_ID: "5858226",
+    GITHUB_APP_SLUG: "treepm-dev",
+    GITHUB_APP_CLIENT_ID: "Iv1.cliente",
+    GITHUB_APP_CLIENT_SECRET: "segredo-do-cliente",
+    GITHUB_APP_PRIVATE_KEY: PEM,
+  };
+  const NAMES = Object.keys(github);
+
+  it("sem nenhuma das cinco, a API sobe e a ligação fica desligada", () => {
+    const config = loadConfig(valid);
+    expect(typeof githubEnabled).toBe("function");
+    expect(githubEnabled(config)).toBe(false);
+    for (const name of NAMES) expect(config).not.toHaveProperty(name, expect.any(String));
+  });
+
+  it("com as cinco, lê os valores e liga", () => {
+    const config = loadConfig({ ...valid, ...github });
+    expect(config.GITHUB_APP_ID).toBe("5858226");
+    expect(config.GITHUB_APP_SLUG).toBe("treepm-dev");
+    expect(config.GITHUB_APP_CLIENT_ID).toBe("Iv1.cliente");
+    expect(config.GITHUB_APP_CLIENT_SECRET).toBe("segredo-do-cliente");
+    expect(config.GITHUB_APP_PRIVATE_KEY).toBe(PEM);
+    expect(githubEnabled(config)).toBe(true);
+  });
+
+  it.each([1, 2, 3, 4])("com %i das cinco, a API não sobe e diz quais faltam", (count) => {
+    const present = NAMES.slice(0, count);
+    const missing = NAMES.slice(count);
+    const env: Record<string, string> = { ...valid };
+    for (const name of present) env[name] = github[name as keyof typeof github];
+    expect(() => loadConfig(env)).toThrow(ConfigError);
+    let message = "";
+    try {
+      loadConfig(env);
+    } catch (error) {
+      message = String((error as Error).message);
+    }
+    for (const name of missing) expect(message).toContain(name);
+    for (const name of present) expect(message).not.toContain(name);
+    for (const value of Object.values(github)) expect(message).not.toContain(value.slice(0, 12));
+  });
+
+  it("valor vazio vale como ausente: as cinco vazias desligam; uma vazia entre as presentes é falta", () => {
+    const empty = Object.fromEntries(NAMES.map((name) => [name, ""]));
+    expect(githubEnabled(loadConfig({ ...valid, ...empty }))).toBe(false);
+    expect(() => loadConfig({ ...valid, ...github, GITHUB_APP_SLUG: "" })).toThrow(/faltam: GITHUB_APP_SLUG/);
+  });
+
+  it("a chave privada com \\n literais (variável de uma linha só) volta a ter quebras de linha", () => {
+    const config = loadConfig({ ...valid, ...github, GITHUB_APP_PRIVATE_KEY: PEM.replaceAll("\n", "\\n") });
+    expect(config.GITHUB_APP_PRIVATE_KEY).toBe(PEM);
+  });
+
+  it("a chave privada com CRLF e espaços nas pontas é normalizada, não recusada", () => {
+    const config = loadConfig({ ...valid, ...github, GITHUB_APP_PRIVATE_KEY: `  ${PEM.replaceAll("\n", "\r\n")}  \r\n` });
+    expect(config.GITHUB_APP_PRIVATE_KEY).toBe(PEM);
+  });
+
+  it("a chave privada tem que ser um PEM", () => {
+    expect(() => loadConfig({ ...valid, ...github, GITHUB_APP_PRIVATE_KEY: "não é pem" })).toThrow(/GITHUB_APP_PRIVATE_KEY/);
+    try {
+      loadConfig({ ...valid, ...github, GITHUB_APP_PRIVATE_KEY: "não é pem" });
+    } catch (error) {
+      expect(String(error)).not.toContain("não é pem");
+    }
+  });
+
+  it("o identificador do app é numérico", () => {
+    expect(() => loadConfig({ ...valid, ...github, GITHUB_APP_ID: "abc" })).toThrow(/GITHUB_APP_ID/);
+  });
+
+  it(".env.example lista as cinco variáveis sem valor", () => {
+    const text = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
+    for (const name of NAMES) expect(text).toMatch(new RegExp(`^${name}=$`, "m"));
   });
 });

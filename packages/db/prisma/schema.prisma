@@ -58,6 +58,10 @@ model Organization {
   ticketConversations        TicketConversation[]
   ticketConversationMessages TicketConversationMessage[]
   branchSummaries            BranchSummary[]
+  githubInstallations        GithubInstallation[]
+  projectRepositories        ProjectRepository[]
+  ticketCodeLinks            TicketCodeLink[]
+  repositorySyncPages        RepositorySyncPage[]
 
   @@map("organizations")
 }
@@ -74,13 +78,15 @@ model Person {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization        Organization         @relation(fields: [orgId], references: [orgId])
-  teamMemberships     TeamMembership[]
-  projectMemberships  ProjectMembership[]
-  createdTickets      Ticket[]
-  ticketAssignees     TicketAssignee[]
-  activityEvents      ActivityEvent[]
-  ticketConversations TicketConversation[]
+  organization           Organization         @relation(fields: [orgId], references: [orgId])
+  teamMemberships        TeamMembership[]
+  projectMemberships     ProjectMembership[]
+  createdTickets         Ticket[]
+  ticketAssignees        TicketAssignee[]
+  activityEvents         ActivityEvent[]
+  ticketConversations    TicketConversation[]
+  connectedInstallations GithubInstallation[]
+  linkedRepositories     ProjectRepository[]
 
   @@id([orgId, id])
   @@unique([orgId, clerkUserId])
@@ -150,6 +156,7 @@ model Project {
   tickets             Ticket[]
   ticketConversations TicketConversation[]
   branchSummaries     BranchSummary[]
+  repositories        ProjectRepository[]
 
   @@id([orgId, id])
   @@unique([orgId, key])
@@ -213,6 +220,7 @@ model Ticket {
   assignees            TicketAssignee[]
   conversationsCreated TicketConversation[]
   branchSummaries      BranchSummary[]
+  codeLinks            TicketCodeLink[]
 
   @@id([orgId, id])
   @@unique([orgId, projectId, id])
@@ -320,4 +328,102 @@ model BranchSummary {
   @@id([orgId, ticketId])
   @@index([orgId, projectId])
   @@map("branch_summaries")
+}
+
+/// A instalação do GitHub App da organização (ADR 0032). No máximo uma por organização e uma por instalação do GitHub
+/// (índices únicos `org_id` e `installation_id`, este global). Nenhum token é guardado.
+model GithubInstallation {
+  orgId               String   @map("org_id")
+  id                  String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  /// O identificador da instalação no GitHub.
+  installationId      BigInt   @unique @map("installation_id")
+  accountLogin        String   @map("account_login")
+  accountType         String   @map("account_type")
+  /// all | selected (check no banco)
+  repositorySelection String   @map("repository_selection")
+  connectedByPersonId String?  @map("connected_by_person_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization        @relation(fields: [orgId], references: [orgId])
+  /// Remover a pessoa só anula `connectedByPersonId` (ON DELETE SET NULL (connected_by_person_id): ver a migration 0007).
+  connectedBy  Person?             @relation(fields: [orgId, connectedByPersonId], references: [orgId, id], onDelete: Restrict)
+  repositories ProjectRepository[]
+
+  @@id([orgId, id])
+  @@unique([orgId])
+  @@map("github_installations")
+}
+
+/// Repositório da instalação ligado a um projeto (retrato no momento da ligação).
+model ProjectRepository {
+  orgId             String   @map("org_id")
+  id                String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId         String   @map("project_id") @db.Uuid
+  installationRowId String   @map("installation_row_id") @db.Uuid
+  repoId            BigInt   @map("repo_id")
+  fullName          String   @map("full_name")
+  htmlUrl           String   @map("html_url")
+  private           Boolean
+  defaultBranch     String   @map("default_branch")
+  linkedByPersonId  String?  @map("linked_by_person_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization         @relation(fields: [orgId], references: [orgId])
+  project      Project              @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
+  installation GithubInstallation   @relation(fields: [orgId, installationRowId], references: [orgId, id], onDelete: Cascade)
+  /// Remover a pessoa só anula `linkedByPersonId` (SET NULL só na migration 0007).
+  linkedBy     Person?              @relation(fields: [orgId, linkedByPersonId], references: [orgId, id], onDelete: Restrict)
+  codeLinks    TicketCodeLink[]
+  syncPages    RepositorySyncPage[]
+
+  @@id([orgId, id])
+  @@unique([orgId, projectId, repoId])
+  @@unique([orgId, projectId, id])
+  @@index([orgId, installationRowId])
+  @@map("project_repositories")
+}
+
+/// Branch ou pull request ligado a um ticket pela chave dele (preenchida no passo 2). Os índices únicos parciais
+/// (branch por `ref`, pull request por `number`) e os checks vivem só na migration 0007.
+model TicketCodeLink {
+  orgId               String    @map("org_id")
+  id                  String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId           String    @map("project_id") @db.Uuid
+  ticketId            String    @map("ticket_id") @db.Uuid
+  projectRepositoryId String    @map("project_repository_id") @db.Uuid
+  /// branch | pull_request (check no banco)
+  kind                String
+  ref                 String
+  number              Int?
+  title               String?
+  /// branch: active; pull request: open | merged | closed (check no banco)
+  state               String
+  url                 String
+  providerUpdatedAt   DateTime? @map("provider_updated_at") @db.Timestamptz(3)
+  seenAt              DateTime  @map("seen_at") @db.Timestamptz(3)
+
+  organization Organization      @relation(fields: [orgId], references: [orgId])
+  ticket       Ticket            @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+  repository   ProjectRepository @relation(fields: [orgId, projectId, projectRepositoryId], references: [orgId, projectId, id], onDelete: Cascade)
+
+  @@id([orgId, id])
+  @@index([orgId, ticketId])
+  @@map("ticket_code_links")
+}
+
+/// Marca de sincronização por página consultada (ETag), usada no passo 2.
+model RepositorySyncPage {
+  orgId               String   @map("org_id")
+  projectRepositoryId String   @map("project_repository_id") @db.Uuid
+  /// branches | pulls (check no banco)
+  resource            String
+  page                Int
+  etag                String?
+  syncedAt            DateTime @default(now()) @map("synced_at") @db.Timestamptz(3)
+
+  organization Organization      @relation(fields: [orgId], references: [orgId])
+  repository   ProjectRepository @relation(fields: [orgId, projectRepositoryId], references: [orgId, id], onDelete: Cascade)
+
+  @@id([orgId, projectRepositoryId, resource, page])
+  @@map("repository_sync_pages")
 }

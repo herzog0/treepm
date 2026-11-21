@@ -13,6 +13,7 @@ export const meResponseSchema = z.object({
     slug: z.string(),
   }),
   assistant: z.object({ enabled: z.boolean() }),
+  github: z.object({ enabled: z.boolean() }),
   roles: z.object({
     clerk: z.enum(["admin", "member"]),
     teams: z.array(z.object({ teamId: z.string(), role: z.enum(["admin", "member"]) })),

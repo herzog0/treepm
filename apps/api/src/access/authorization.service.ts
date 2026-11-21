@@ -7,6 +7,9 @@ import {
   canCreateTicket,
   canEditTicket,
   canImportTickets,
+  canLinkRepository,
+  canListInstallationRepositories,
+  canManageGithubConnection,
   canRemoveTicket,
   canCreateTeam,
   canGrantProjectRole,
@@ -75,6 +78,17 @@ export class AuthorizationService {
   }
   attachTeamToProject(actor: Actor, projectId: string): void {
     this.require(canAttachTeamToProject(actor, projectId));
+  }
+
+  /** Conectar e desconectar o GitHub da organização (ADR 0032). */
+  manageGithubConnection(actor: Actor): void {
+    this.require(canManageGithubConnection(actor));
+  }
+  listInstallationRepositories(actor: Actor): void {
+    this.require(canListInstallationRepositories(actor));
+  }
+  linkRepository(actor: Actor, projectId: string): void {
+    this.require(canLinkRepository(actor, projectId));
   }
 
   createTicket(actor: Actor, projectId: string): void {
