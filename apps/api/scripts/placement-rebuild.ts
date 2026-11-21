@@ -4,7 +4,7 @@
  *
  *   pnpm --filter @treepm/api placement:rebuild <comando> [opções]
  *
- * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect.
+ * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, ticket-list, ticket-create, ticket-update.
  * Sobe a API real em processo (só a sessão é trocada), em 127.0.0.1 e porta efêmera, e fala com ela por HTTP.
  * O terminal mostra só progresso e contagens; todo texto de ticket fica nos arquivos de `--dir`.
  */
@@ -28,8 +28,53 @@ import {
 } from "./placement-rebuild/commands.js";
 import type { Context } from "./placement-rebuild/commands.js";
 import { parseCliArgs } from "./placement-rebuild/core.js";
+import type { CliOptions } from "./placement-rebuild/core.js";
+import { TicketCommandError, ticketCreateCommand, ticketListCommand, ticketUpdateCommand } from "./placement-rebuild/ticket-commands.js";
 
 const log = (line: string): void => console.log(line);
+
+/** Comandos de ticket: só as rotas da API, sem IA e sem arquivos de `--dir`. Recusa da API: código e mensagem, sem pilha, saída 1. */
+async function runTicketCommand(command: "ticket-list" | "ticket-create" | "ticket-update", options: CliOptions): Promise<number> {
+  const booted = await bootApp({
+    org: options.org as string,
+    user: options.user as string,
+    role: options.role ?? "org:admin",
+    fakeProviders: false,
+    fake503First: 0,
+    fake503JudgeAt: 0,
+    needsAi: false,
+  });
+  try {
+    const ctx = { client: new ApiClient(booted.baseUrl, booted.token), project: options.project as string, log };
+    if (command === "ticket-list") await ticketListCommand(ctx, options.json ?? false);
+    else if (command === "ticket-create") {
+      await ticketCreateCommand(ctx, {
+        title: options.title as string,
+        ...(options.descriptionFile ? { descriptionFile: options.descriptionFile } : {}),
+        ...(options.parent ? { parent: options.parent } : {}),
+        ...(options.status ? { status: options.status } : {}),
+      });
+    } else {
+      await ticketUpdateCommand(ctx, {
+        number: options.number as number,
+        ...(options.status ? { status: options.status } : {}),
+        ...(options.title !== undefined ? { title: options.title } : {}),
+        ...(options.descriptionFile ? { descriptionFile: options.descriptionFile } : {}),
+        ...(options.parent ? { parent: options.parent } : {}),
+        ...(options.root ? { root: true } : {}),
+      });
+    }
+    return 0;
+  } catch (error) {
+    if (error instanceof TicketCommandError) {
+      console.error(error.message);
+      return 1;
+    }
+    throw error;
+  } finally {
+    await booted.close();
+  }
+}
 
 async function main(): Promise<number> {
   const parsed = parseCliArgs(process.argv.slice(2));
@@ -38,7 +83,8 @@ async function main(): Promise<number> {
     return 2;
   }
   const { command, options } = parsed;
-  const dir = resolve(options.dir);
+  if (command === "ticket-list" || command === "ticket-create" || command === "ticket-update") return runTicketCommand(command, options);
+  const dir = resolve(options.dir as string);
   ensureDir(dir);
 
   if (command === "report" && options.collect) {
