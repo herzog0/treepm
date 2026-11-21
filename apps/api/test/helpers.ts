@@ -13,6 +13,8 @@ import type { SessionVerifier, VerifiedSession } from "../src/auth/session-verif
 import { SESSION_VERIFIER } from "../src/auth/session-verifier.js";
 import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, GROUP_NAMER, PLACEMENT_TIMEOUTS } from "../src/assistant/ports.js";
 import type { PlacementTimeouts } from "../src/assistant/ports.js";
+import { REPOSITORY_PROVIDER } from "../src/github/ports.js";
+import { APP_ID, FakeRepositoryProvider } from "./github-fakes.js";
 import { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeConversationProvider, FakeGroupNamer } from "./assistant-fakes.js";
 
 export { OWNER_URL };
@@ -53,6 +55,20 @@ export function sessionHeader(session: Partial<VerifiedSession> & { userId: stri
 /** Configuração com a IA ligada (as duas chaves; nenhuma é usada, os provedores são falsos). */
 export const AI_CONFIG: AppConfig = { ...TEST_CONFIG, ANTHROPIC_API_KEY: "a", TYPESAFE_API_KEY: "t" };
 
+/** Configuração com o GitHub ligado (as cinco variáveis; valores-sentinela, nenhum é usado: o provedor é falso). */
+export const GITHUB_SECRETS = {
+  clientSecret: "SENTINELA-client-secret-9f3a",
+  privateKey: "-----BEGIN RSA PRIVATE KEY-----\nSENTINELA-chave-privada-77c1\n-----END RSA PRIVATE KEY-----\n",
+} as const;
+export const GITHUB_CONFIG: AppConfig = {
+  ...TEST_CONFIG,
+  GITHUB_APP_ID: String(APP_ID),
+  GITHUB_APP_SLUG: "treepm-dev",
+  GITHUB_APP_CLIENT_ID: "Iv1.sentinela",
+  GITHUB_APP_CLIENT_SECRET: GITHUB_SECRETS.clientSecret,
+  GITHUB_APP_PRIVATE_KEY: GITHUB_SECRETS.privateKey,
+};
+
 export type DirectoryCalls = { users: string[]; organizations: string[] };
 
 /** Diretório falso determinístico, com chamadas registradas. */
@@ -79,7 +95,7 @@ export class FakeDirectory implements DirectoryProvider {
 export async function createTestApp(
   extraControllers: Type<unknown>[] = [],
   config: AppConfig = TEST_CONFIG,
-  options: { realAssistant?: boolean; timeouts?: PlacementTimeouts } = {},
+  options: { realAssistant?: boolean; realGithub?: boolean; timeouts?: PlacementTimeouts } = {},
 ): Promise<{
   app: INestApplication;
   directory: FakeDirectory;
@@ -89,6 +105,7 @@ export async function createTestApp(
   summarizer: FakeBranchSummarizer;
   affinity: FakeAffinityJudge;
   namer: FakeGroupNamer;
+  github: FakeRepositoryProvider;
 }> {
   const directory = new FakeDirectory();
   const verifier = new FakeSessionVerifier();
@@ -97,6 +114,7 @@ export async function createTestApp(
   const summarizer = new FakeBranchSummarizer();
   const affinity = new FakeAffinityJudge();
   const namer = new FakeGroupNamer();
+  const github = new FakeRepositoryProvider();
   let builder = Test.createTestingModule({
     imports: [AppModule],
     controllers: extraControllers,
@@ -114,6 +132,7 @@ export async function createTestApp(
       .overrideProvider(GROUP_NAMER)
       .useValue(namer);
   }
+  if (!options.realGithub) builder = builder.overrideProvider(REPOSITORY_PROVIDER).useValue(github);
   if (options.timeouts) builder = builder.overrideProvider(PLACEMENT_TIMEOUTS).useValue(options.timeouts);
   const moduleRef = await builder
     .overrideProvider(CONFIG)
@@ -126,7 +145,7 @@ export async function createTestApp(
   const app = moduleRef.createNestApplication({ logger: false });
   configureApp(app, config);
   await app.init();
-  return { app, directory, verifier, conversation, judge, summarizer, affinity, namer };
+  return { app, directory, verifier, conversation, judge, summarizer, affinity, namer, github };
 }
 
 export function ownerPoolWithCleanup(): pg.Pool {

@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { Principal } from "../access/principal.js";
 import { parseOutput } from "../common/zod.js";
-import { CONFIG, assistantEnabled } from "../config.js";
+import { CONFIG, assistantEnabled, githubEnabled } from "../config.js";
 import type { AppConfig } from "../config.js";
 import { meResponseSchema } from "./me.schema.js";
 import type { MeResponse } from "./me.schema.js";
@@ -21,6 +21,7 @@ export class MeService {
       },
       organization: { orgId: organization.orgId, name: organization.name, slug: organization.slug },
       assistant: { enabled: assistantEnabled(this.config) },
+      github: { enabled: githubEnabled(this.config) },
       roles: {
         clerk: actor.clerkRole,
         teams: [...actor.teamRoles].map(([teamId, role]) => ({ teamId, role })),

@@ -7,6 +7,7 @@ import type { FakeSessionVerifier } from "./helpers.js";
 import type { AppConfig } from "../src/config.js";
 import type { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeConversationProvider, FakeGroupNamer } from "./assistant-fakes.js";
 import type { PlacementTimeouts } from "../src/assistant/ports.js";
+import type { FakeRepositoryProvider } from "./github-fakes.js";
 import { seedWorld } from "./world.js";
 import type { World } from "./world.js";
 
@@ -20,6 +21,7 @@ export type Harness = {
   summarizer: () => FakeBranchSummarizer;
   affinity: () => FakeAffinityJudge;
   namer: () => FakeGroupNamer;
+  github: () => FakeRepositoryProvider;
   call: (method: string, path: string, session: string, body?: unknown) => Promise<request.Response>;
 };
 
@@ -34,9 +36,10 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
   let summarizer: FakeBranchSummarizer;
   let affinity: FakeAffinityJudge;
   let namer: FakeGroupNamer;
+  let github: FakeRepositoryProvider;
 
   beforeAll(async () => {
-    ({ app, verifier, conversation, judge, summarizer, affinity, namer } = await createTestApp([], config, options.timeouts ? { timeouts: options.timeouts } : {}));
+    ({ app, verifier, conversation, judge, summarizer, affinity, namer, github } = await createTestApp([], config, options.timeouts ? { timeouts: options.timeouts } : {}));
   });
   afterAll(async () => {
     await app.close();
@@ -68,6 +71,7 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     namer.reply = null;
     namer.fail = false;
     namer.hang = false;
+    github.reset();
     world = await seedWorld(pool);
   });
 
@@ -81,6 +85,7 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     summarizer: () => summarizer,
     affinity: () => affinity,
     namer: () => namer,
+    github: () => github,
     call: (method, path, session, body) => {
       const agent = request(app.getHttpServer());
       const verb = method.toLowerCase() as "get" | "post" | "put" | "patch" | "delete";

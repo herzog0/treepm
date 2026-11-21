@@ -81,3 +81,20 @@ export function visibleProjects<Project extends ProjectAccess>(
   return projects.filter((project) => canViewProject(actor, project));
 }
 export * from "./tickets.js";
+
+/** Allows organization admins to connect and disconnect the organization's GitHub installation (ADR 0032). */
+export function canManageGithubConnection(actor: Actor): boolean {
+  return actor.clerkRole === "admin";
+}
+
+/** Allows organization admins and managers of any project to list the repositories the installation can reach. */
+export function canListInstallationRepositories(actor: Actor): boolean {
+  if (actor.clerkRole === "admin") return true;
+  for (const role of actor.projectRoles.values()) if (role === "manager") return true;
+  return false;
+}
+
+/** Allows organization admins and the project's managers to link and unlink the project's repositories. */
+export function canLinkRepository(actor: Actor, projectId: string): boolean {
+  return canManageProject(actor, projectId);
+}
