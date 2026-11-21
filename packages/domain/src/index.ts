@@ -98,3 +98,4 @@ export function canListInstallationRepositories(actor: Actor): boolean {
 export function canLinkRepository(actor: Actor, projectId: string): boolean {
   return canManageProject(actor, projectId);
 }
+export * from "./code-links.js";

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ProviderUnavailableError } from "./ports.js";
-import type { InstallationDetails, ProviderRepository, UserInstallation } from "./ports.js";
+import type { BranchItem, InstallationDetails, ProviderRepository, PullRequestItem, SyncPage, UserInstallation } from "./ports.js";
 
 /** Cabeçalhos que o GitHub exige em toda requisição (o `User-Agent` é obrigatório). */
 export const GITHUB_HEADERS: Record<string, string> = {
@@ -101,4 +101,66 @@ export function classifyError(error: unknown): "invalid_code" | "not_found" | "u
   const httpStatus = typeof status === "number" ? status : response?.status;
   if (httpStatus === 404) return "not_found";
   return "unavailable";
+}
+
+const branchesPage = z.array(z.object({ name: z.string().min(1) }));
+const pullsPage = z.array(
+  z.object({
+    number: z.number().int().positive(),
+    title: z.string(),
+    state: z.enum(["open", "closed"]),
+    merged_at: z.string().nullable(),
+    html_url: z.string().min(1),
+    head: z.object({ ref: z.string().min(1) }),
+    updated_at: z.string().min(1),
+  }),
+);
+
+/** `GET /repos/{owner}/{repo}/branches` → só os nomes. */
+export function parseBranches(data: unknown): BranchItem[] {
+  return parse(branchesPage, data).map((item) => ({ name: item.name }));
+}
+
+/** `GET /repos/{owner}/{repo}/pulls` → os campos que o TreePM guarda; "mesclado" é `merged_at` não nulo. */
+export function parsePullRequests(data: unknown): PullRequestItem[] {
+  return parse(pullsPage, data).map((item) => ({
+    number: item.number,
+    title: item.title,
+    state: item.merged_at !== null ? "merged" : item.state,
+    url: item.html_url,
+    headRef: item.head.ref,
+    updatedAt: item.updated_at,
+  }));
+}
+
+/** `dono/nome` → as partes; qualquer outro formato é recusado antes de chegar à rede. */
+export function splitFullName(fullName: string): { owner: string; repo: string } {
+  const parts = fullName.split("/");
+  const [owner, repo] = parts;
+  if (parts.length !== 2 || !owner || !repo) throw new ProviderUnavailableError("Nome de repositório fora do formato dono/nome.");
+  return { owner, repo };
+}
+
+/** O cabeçalho `link` do GitHub traz `rel="next"` quando há próxima página. */
+export function hasNextLink(link: string | null | undefined): boolean {
+  return typeof link === "string" && /<[^>]*>\s*;\s*rel="next"/i.test(link);
+}
+
+/**
+ * Pede as páginas em série, da 1 até o teto. `etags[n - 1]` é o ETag guardado da página n. Para quando uma página
+ * não tem próxima, ao chegar no teto, ou quando a última página guardada responde `304` sem `link` para uma próxima.
+ * Um `304` com `link` para a próxima continua: entraram itens depois da última página guardada.
+ */
+export async function collectPages<T>(
+  fetchPage: (page: number, etag: string | null) => Promise<SyncPage<T>>,
+  etags: readonly (string | null)[],
+  ceiling: number,
+): Promise<SyncPage<T>[]> {
+  const pages: SyncPage<T>[] = [];
+  for (let page = 1; page <= ceiling; page += 1) {
+    const result = await fetchPage(page, etags[page - 1] ?? null);
+    pages.push(result);
+    if (!(result.notModified ? page < etags.length || result.hasNext : result.hasNext)) break;
+  }
+  return pages;
 }

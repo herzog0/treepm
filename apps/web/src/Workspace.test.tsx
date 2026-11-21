@@ -52,6 +52,45 @@ describe("Workspace", () => {
     expect(screen.getAllByRole("main")).toHaveLength(1);
   });
 
+  it("shows the GitHub section in the settings once /api/me says GitHub is enabled", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      if (input === "/api/me") {
+        return Response.json({
+          person: { id: "p", displayName: "Ana", email: "a@x.com", avatarUrl: null },
+          organization: { orgId: "org-1", name: "Org Alfa", slug: "alfa" },
+          roles: { clerk: "admin", teams: [], projects: [] },
+          github: { enabled: true },
+        });
+      }
+      if (input === "/api/github/installation") return Response.json({ installation: null });
+      return new Response(null, { status: 404 });
+    });
+    render(<Workspace orgId="org-1" view="settings" getToken={async () => "t"} fetch={fetchImpl} />);
+    expect(await screen.findByRole("heading", { name: "GitHub", level: 2 })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Conectar GitHub" })).toBeInTheDocument();
+  });
+
+  it("never calls a GitHub route when /api/me has no github field or says it is disabled", async () => {
+    for (const github of [undefined, { enabled: false }]) {
+      const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) =>
+        input === "/api/me"
+          ? Response.json({
+              person: { id: "p", displayName: "Ana", email: "a@x.com", avatarUrl: null },
+              organization: { orgId: "org-1", name: "Org Alfa", slug: "alfa" },
+              roles: { clerk: "admin", teams: [], projects: [] },
+              ...(github ? { github } : {}),
+            })
+          : new Response(null, { status: 404 }),
+      );
+      const { unmount } = render(<Workspace orgId="org-1" view="settings" getToken={async () => "t"} fetch={fetchImpl} />);
+      await waitFor(() => expect(fetchImpl).toHaveBeenCalledWith("/api/me", expect.anything()));
+      expect(await screen.findByRole("heading", { name: "Câmera" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "GitHub" })).not.toBeInTheDocument();
+      expect(fetchImpl.mock.calls.filter(([url]) => String(url).includes("github"))).toEqual([]);
+      unmount();
+    }
+  });
+
   it("shows an error with retry when /api/me fails", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 503 }));
     render(<Workspace orgId="org-1" view="map" getToken={async () => "t"} fetch={fetchImpl} />);

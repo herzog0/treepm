@@ -49,7 +49,7 @@ describe("com WEB_DIST_DIR (uma origem)", () => {
   });
 
   it("rota qualquer do SPA cai no index.html, preservando a query string", async () => {
-    for (const path of ["/qualquer/rota", "/?demo", "/?auth=abc", "/projeto/1?x=2"]) {
+    for (const path of ["/qualquer/rota", "/?demo", "/?auth=abc", "/projeto/1?x=2", "/github/callback", "/github/callback?code=c&state=s.t&installation_id=101&setup_action=install"]) {
       const res = await request(withWeb.getHttpServer()).get(path);
       expect(res.status, path).toBe(200);
       expect(res.text, path).toBe(INDEX);

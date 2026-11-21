@@ -2,38 +2,11 @@ import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { OctokitRepositoryProvider } from "../src/github/octokit-repository-provider.js";
 import { InvalidCodeError, ProviderUnavailableError } from "../src/github/ports.js";
+import { fakeFetch } from "./github-fake-fetch.js";
 
 // O adaptador real nunca fala com o GitHub nos testes: o `fetch` abaixo responde com JSON gravado à mão.
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs1", format: "pem" }, publicKeyEncoding: { type: "pkcs1", format: "pem" } });
 const credentials = { appId: "5858226", slug: "treepm-dev", clientId: "Iv1.cliente", clientSecret: "segredo-do-cliente", privateKey };
-
-type Call = { method: string; url: string; headers: Record<string, string> };
-type Route = { status?: number; body: unknown; link?: string };
-
-function fakeFetch(routes: Record<string, Route | Route[]>) {
-  const calls: Call[] = [];
-  const impl = (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    const request = input instanceof Request ? input : null;
-    const url = request?.url ?? String(input);
-    const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
-    const headers: Record<string, string> = {};
-    new Headers(init?.headers ?? request?.headers).forEach((value, key) => (headers[key] = value));
-    calls.push({ method, url, headers });
-    const path = url.replace("https://api.github.com", "").replace("https://github.com", "");
-    const key = `${method} ${path.split("?")[0]}`;
-    const entry = routes[key];
-    if (!entry) return Promise.reject(new Error(`rota não prevista no teste: ${key}`));
-    const route = Array.isArray(entry) ? (entry.shift() ?? entry[0]) : entry;
-    if (!route) return Promise.reject(new Error("sem resposta"));
-    const headers2: Record<string, string> = { "content-type": "application/json; charset=utf-8", date: new Date().toUTCString() };
-    if (route.link) headers2["link"] = route.link;
-    const response = new Response(JSON.stringify(route.body), { status: route.status ?? 200, headers: headers2 });
-    // `Response.url` é vazio em respostas sintéticas; o octokit usa a URL para normalizar a paginação.
-    Object.defineProperty(response, "url", { value: url });
-    return Promise.resolve(response);
-  };
-  return { impl: impl as typeof fetch, calls };
-}
 
 describe("OctokitRepositoryProvider (sem rede)", () => {
   it("monta a URL de instalação com o slug e o state", () => {
