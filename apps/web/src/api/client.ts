@@ -45,7 +45,6 @@ const projectSchema = z.object({
 });
 const projectTeamSchema = z.object({ projectId: z.string(), teamId: z.string() });
 const ticketStatus = z.enum(["todo", "in_progress", "in_review", "done", "cancelled"]);
-const ticketKind = z.enum(["ticket", "group"]);
 const ticketSummarySchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -53,9 +52,9 @@ const ticketSummarySchema = z.object({
   key: z.string(),
   parentId: z.string().nullable(),
   title: z.string(),
-  /** Tipo declarado (ADR 0031): só agrupador tem filhos; `status` é nulo e `progress` sempre existe nele. */
-  kind: ticketKind,
-  status: ticketStatus.nullable(),
+  /** Situação própria, sempre presente (ADR 0034): todo ticket pode ter filhos e continua sendo trabalho. */
+  status: ticketStatus,
+  /** Sobre todos os descendentes; `null` quando o ticket não tem filhos. */
   progress: z.object({ done: z.number(), total: z.number(), excluded: z.number() }).nullable(),
   assigneeIds: z.array(z.string()),
   /** Primeiros caracteres da descrição, para o card em "detalhe" do mapa (ADR 0027). */
@@ -95,7 +94,7 @@ const placementOutcomeSchema = z.object({
     .nullable(),
   /** `null` sem escopo (e numa API que ainda não manda o campo). */
   scope: z.object({ id: z.string(), title: z.string(), outOfScope: z.boolean() }).nullable().default(null),
-  /** Agrupador novo que a IA propõe no destino (ADR 0031); `null` sem proposta (e numa API que ainda não manda o campo). */
+  /** Ticket pai novo que a IA propõe no destino (ADR 0031, ADR 0034); `null` sem proposta (e numa API que ainda não manda o campo). */
   groupProposal: z
     .object({
       title: z.string(),
@@ -159,7 +158,6 @@ export type ProjectVisibility = z.output<typeof visibility>;
 export type ProjectMember = z.output<typeof projectMemberSchema>;
 export type Project = z.output<typeof projectSchema>;
 export type ProjectTeam = z.output<typeof projectTeamSchema>;
-export type TicketKind = z.output<typeof ticketKind>;
 export type TicketStatus = z.output<typeof ticketStatus>;
 export type TicketSummary = z.output<typeof ticketSummarySchema>;
 export type TicketDetail = z.output<typeof ticketDetailSchema>;
@@ -169,7 +167,7 @@ export type ConversationDetail = z.output<typeof conversationDetailSchema>;
 export type PlacementTarget = z.output<typeof placementTargetSchema>;
 export type PlacementOutcome = z.output<typeof placementOutcomeSchema>;
 export type GroupProposal = NonNullable<PlacementOutcome["groupProposal"]>;
-/** O agrupador novo que a pessoa confirmou: criado no pai escolhido, com estes tickets movidos para ele. */
+/** O ticket pai novo que a pessoa confirmou: criado no destino escolhido, com estes tickets movidos para ele. */
 export interface NewGroup {
   title: string;
   description: string;
@@ -181,7 +179,7 @@ export type ProjectRepository = z.output<typeof projectRepositorySchema>;
 export type CodeRefresh = z.output<typeof codeRefreshSchema>;
 export type CodeLink = z.output<typeof codeLinkSchema>;
 export type TicketCode = z.output<typeof ticketCodeSchema>;
-/** "O que entra aqui" de um agrupador (ADR 0033): o texto guardado, quem o escreveu por último e quando. */
+/** "O que entra aqui" de um ticket com filhos (ADR 0033, ADR 0034): o texto guardado, quem o escreveu por último e quando. */
 export type GroupSummary = z.output<typeof ticketSummaryTextSchema>;
 /** Corpo do retorno do GitHub: `code` e `state` da URL e, quando veio um inteiro positivo, o `installation_id`. */
 export interface CompleteGithubBody {
@@ -205,8 +203,6 @@ export interface CreateTicketBody {
   title: string;
   description?: string;
   parentId?: string | null;
-  /** Tipo do nó novo; sem ele a API cria um ticket. */
-  kind?: TicketKind;
   status?: TicketStatus;
   assigneeIds?: string[];
 }
@@ -215,8 +211,6 @@ export interface UpdateTicketBody {
   description?: string;
   status?: TicketStatus;
   parentId?: string | null;
-  /** Transforma o nó: ticket em agrupador sempre; agrupador em ticket só vazio. */
-  kind?: TicketKind;
 }
 
 export type ApiErrorKind =
@@ -343,14 +337,14 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       request("PUT", `${ticket(id)}/assignees/${personId}`, ticketDetailSchema),
     removeTicketAssignee: (id: string, personId: string) =>
       request("DELETE", `${ticket(id)}/assignees/${personId}`, null),
-    /** `scopeId`: o agrupador em que a procura vai começar (ADR 0033), ou `null` para o projeto inteiro; a IA recebe os títulos dos agrupadores dali. */
+    /** `scopeId`: o ticket em que a procura vai começar (ADR 0033, ADR 0034), ou `null` para o projeto inteiro; a IA recebe os títulos dos tickets com filhos dali. */
     openConversation: (projectId: string, body: { message: string; scopeId?: string | null }) =>
       request("POST", `${project(projectId)}/ticket-conversations`, conversationDetailSchema, body),
     sendConversationMessage: (id: string, body: { message: string; scopeId?: string | null }) =>
       request("POST", `${conversation(id)}/messages`, conversationDetailSchema, body),
     updateConversationDraft: (id: string, body: ConversationDraft) =>
       request("PATCH", `${conversation(id)}/draft`, conversationDetailSchema, body),
-    /** `scopeId`: procura só dentro desse agrupador (ADR 0031); sem ele, no projeto inteiro. */
+    /** `scopeId`: procura só dentro desse ticket (ADR 0031, ADR 0034); sem ele, no projeto inteiro. */
     findPlacement: (id: string, scopeId?: string) =>
       request("POST", `${conversation(id)}/placement`, placementOutcomeSchema, scopeId === undefined ? undefined : { scopeId }),
     createTicketFromConversation: (id: string, body: { parentId: string | null; group?: NewGroup }) =>
@@ -391,9 +385,7 @@ const MESSAGE_BY_CODE: Record<string, string> = {
   area_name_taken: "Já existe uma área com esse nome.",
   project_key_taken: "Já existe um projeto com essa chave.",
   person_inactive: "A pessoa não está mais na organização.",
-  ticket_has_children: "Este agrupador tem itens. Mova ou remova os itens antes de transformá-lo em ticket.",
-  parent_not_group: "Só um agrupador pode ter itens dentro dele.",
-  group_has_no_status: "Agrupador não tem situação própria.",
+  ticket_has_open_children: "Este ticket tem itens abertos. Conclua ou cancele os itens antes de concluí-lo.",
   ticket_cycle: "Um ticket não pode ser pai de si mesmo nem de um ancestral.",
   project_archived: "O projeto está arquivado e só aceita leitura.",
   assistant_not_configured: "O assistente não está configurado neste ambiente. Crie o ticket manualmente.",
@@ -402,7 +394,7 @@ const MESSAGE_BY_CODE: Record<string, string> = {
   conversation_changed: "A conversa mudou enquanto o assistente respondia. Mostramos a versão mais recente.",
   grouping_changed: "Algum desses tickets mudou de lugar. Procure de novo.",
   draft_required: "A conversa ainda não tem rascunho. Peça ao assistente para escrevê-lo antes de continuar.",
-  group_empty: "Este agrupador ainda não tem itens.",
+  ticket_has_no_items: "Este ticket ainda não tem itens.",
   github_unavailable: "O GitHub não respondeu. Tente de novo em instantes.",
   not_connected: "A organização não está ligada ao GitHub.",
   installation_unavailable: "A instalação do app no GitHub não está disponível.",
@@ -424,7 +416,7 @@ const MESSAGE_BY_KIND: Record<ApiErrorKind, string> = {
 /** `remove` diz que a ação foi remover: o mesmo código `ticket_has_children` pede outra frase. */
 export function describeApiError(error: ApiError, action?: "remove"): string {
   if (action === "remove" && error.code === "ticket_has_children") {
-    return "Este agrupador tem itens. Mova ou remova os itens antes de removê-lo.";
+    return "Este ticket tem itens. Mova ou remova os itens antes de removê-lo.";
   }
   return (error.code !== undefined ? MESSAGE_BY_CODE[error.code] : undefined) ?? MESSAGE_BY_KIND[error.kind];
 }

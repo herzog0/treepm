@@ -10,34 +10,32 @@ export const STATUS_TEXT: Record<TicketStatus, string> = {
 };
 
 /**
- * Agrupador sem nenhum ticket abaixo (progresso 0 de 0, sem cancelados) e sem itens: "vazio" (ADR 0031).
- * `itemCount` é o número de filhos diretos, quando quem chama o sabe; sem ele, vale só o progresso.
+ * O ticket tem algum descendente aberto (ADR 0034)? `progress` conta todos os descendentes, em qualquer nível, sem os
+ * cancelados na base: sobra trabalho quando `done < total`. Ticket sem filhos, ou com tudo finalizado, não tem.
  */
-export function isEmptyGroup(ticket: TicketSummary, itemCount?: number): boolean {
-  const { progress } = ticket;
-  return ticket.kind === "group" && progress !== null && progress.total === 0 && progress.excluded === 0 && (itemCount ?? 0) === 0;
+export function hasOpenDescendants(ticket: Pick<TicketSummary, "progress">): boolean {
+  return ticket.progress !== null && ticket.progress.done < ticket.progress.total;
 }
 
-/** Situação em texto; agrupador mostra o progresso com a base (ADR 0024) ou "vazio" (ADR 0031). */
-export function describeTicketState(ticket: TicketSummary, itemCount?: number): string {
-  if (isEmptyGroup(ticket, itemCount)) return "vazio";
-  if (ticket.progress) {
-    const { done, total, excluded } = ticket.progress;
-    const base = `${done} de ${total} concluídos`;
-    return excluded > 0 ? `${base} · ${excluded} ${excluded === 1 ? "cancelado" : "cancelados"}` : base;
-  }
-  return ticket.status ? STATUS_TEXT[ticket.status] : "";
+/** Progresso com a base: "n de m concluídos", mais os cancelados quando há. */
+export function describeProgress({ done, total, excluded }: NonNullable<TicketSummary["progress"]>): string {
+  const base = `${done} de ${total} concluídos`;
+  return excluded > 0 ? `${base} · ${excluded} ${excluded === 1 ? "cancelado" : "cancelados"}` : base;
 }
 
-/** Marcador do ticket: progresso no agrupador (vazio quando 0 de 0), situação própria no ticket. */
+/** Situação em texto: o progresso com a base quando há descendente aberto; senão, a situação própria. */
+export function describeTicketState(ticket: TicketSummary): string {
+  return hasOpenDescendants(ticket) && ticket.progress ? describeProgress(ticket.progress) : STATUS_TEXT[ticket.status];
+}
+
+/** Marcador do ticket: progresso quando há descendente aberto, situação própria nos demais casos. */
 export function TicketMark({ ticket }: { ticket: TicketSummary }) {
-  if (ticket.progress) return <StatusMark progress={ticket.progress} />;
-  return ticket.status ? <StatusMark status={ticket.status} /> : null;
+  if (hasOpenDescendants(ticket) && ticket.progress) return <StatusMark progress={ticket.progress} />;
+  return <StatusMark status={ticket.status} />;
 }
 
 /** Texto curto da situação no card (sem a contagem de cancelados, que cabe no cartão de seleção). */
-export function stateText(ticket: TicketSummary, itemCount?: number): string {
-  if (isEmptyGroup(ticket, itemCount)) return "vazio";
-  if (ticket.progress) return `${ticket.progress.done} de ${ticket.progress.total} concluídos`;
-  return ticket.status ? STATUS_TEXT[ticket.status] : "";
+export function stateText(ticket: TicketSummary): string {
+  if (hasOpenDescendants(ticket) && ticket.progress) return `${ticket.progress.done} de ${ticket.progress.total} concluídos`;
+  return STATUS_TEXT[ticket.status];
 }

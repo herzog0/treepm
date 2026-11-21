@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { ApiClient, ApiResult, Area, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, TicketStatus, TicketSummary } from "../api/client.js";
+import type { ApiClient, ApiResult, Area, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid" | "server_error", code?: string): ApiResult<never> => ({
@@ -27,12 +27,7 @@ export function makeProject(id: string, key: string, name: string, extra: Partia
 
 export function makeTicket(id: string, projectId: string, number: number, title: string, extra: Partial<TicketSummary> = {}): TicketSummary {
   const key = extra.key ?? `${projectId.toUpperCase()}-${number}`;
-  return { id, projectId, number, key, parentId: null, title, kind: "ticket", status: "todo", progress: null, assigneeIds: [], descriptionExcerpt: "", ...extra };
-}
-
-/** Agrupador (ADR 0031): sem situação própria e com progresso sempre presente (vazio é 0 de 0). */
-export function makeGroup(id: string, projectId: string, number: number, title: string, extra: Partial<TicketSummary> = {}): TicketSummary {
-  return makeTicket(id, projectId, number, title, { kind: "group", status: null, progress: { done: 0, total: 0, excluded: 0 }, ...extra });
+  return { id, projectId, number, key, parentId: null, title, status: "todo", progress: null, assigneeIds: [], descriptionExcerpt: "", ...extra };
 }
 
 /** Conversa de criação com a IA (ADR 0029): uma troca de mensagens e, por padrão, um rascunho. */
@@ -70,10 +65,12 @@ interface FakeData {
   github?: FakeGithub;
   /** Liga as rotas de "O que entra aqui" (ADR 0033) com as regras do contrato; sem isso elas lançam, como o resto. */
   summaries?: FakeSummaries;
+  /** Conversas de criação com a IA, por ID, para `createTicketFromConversation` do cliente em árvore; sem entrada, o rascunho é o padrão. */
+  conversations?: Record<string, ConversationDetail>;
 }
 
 export interface FakeSummaries {
-  /** Texto guardado por ID de agrupador; sem entrada, o agrupador está sem texto. */
+  /** Texto guardado por ID de ticket; sem entrada, o ticket está sem texto. */
   texts?: Record<string, NonNullable<GroupSummary["summary"]>>;
   /** O que `POST …/summary/regenerate` escreve quando dá certo. */
   regenerated?: string;
@@ -92,7 +89,7 @@ export interface FakeGithub {
   repositories?: GithubRepository[];
   /** Repositórios já ligados, por ID de projeto. */
   linked?: Record<string, ProjectRepository[]>;
-  /** Vínculos de código por ID de ticket (e de agrupador, que já traz os dos filhos). */
+  /** Vínculos de código por ID de ticket (o ticket com filhos já traz os dos filhos). */
   code?: Record<string, { links: CodeLink[]; syncedAt?: string | null }>;
   /** O que `POST /github/connect/complete` instala quando dá certo. */
   pendingInstallation?: GithubInstallation;
@@ -241,9 +238,9 @@ const SUMMARY_NAMES = ["getTicketSummary", "putTicketSummary", "regenerateTicket
 export const SUMMARY_MAX = 1000;
 
 /**
- * As rotas de "O que entra aqui" do contrato da ADR 0033, em memória: leitura para quem vê o projeto; gravar e pedir
- * à IA só para quem edita (administrador, gestor ou colaborador) e fora de projeto arquivado; 409 `not_a_group`,
- * 409 `group_empty`, 400 `validation_error` (de 1 a 1.000 caracteres) e a origem (`person` ao gravar, `assistant`
+ * As rotas de "O que entra aqui" do contrato da ADR 0033 como a ADR 0034 as mudou, em memória: leitura para qualquer
+ * ticket de quem vê o projeto; gravar e pedir à IA só para quem edita (administrador, gestor ou colaborador), fora de
+ * projeto arquivado e em ticket com filhos (409 `ticket_has_no_items`); 400 `validation_error` (de 1 a 1.000 caracteres) e a origem (`person` ao gravar, `assistant`
  * ao pedir) com a data. As chamadas continuam espiáveis (`vi.fn`).
  */
 function summaryMethods(data: FakeData): Partial<ApiClient> {
@@ -262,7 +259,7 @@ function summaryMethods(data: FakeData): Partial<ApiClient> {
     if (!entry) return failed("not_found");
     if (!canEdit(entry.projectId)) return failed("forbidden");
     if (archived(entry.projectId)) return failed("conflict", "project_archived");
-    if (entry.kind !== "group") return failed("conflict", "not_a_group");
+    if (!all.some((child) => child.parentId === id)) return failed("conflict", "ticket_has_no_items");
     return null;
   };
 
@@ -270,7 +267,6 @@ function summaryMethods(data: FakeData): Partial<ApiClient> {
     getTicketSummary: vi.fn(async (id: string) => {
       const entry = find(id);
       if (!entry) return failed("not_found");
-      if (entry.kind !== "group") return failed("conflict", "not_a_group");
       return answer(id);
     }),
     putTicketSummary: vi.fn(async (id: string, body: { text: string }) => {
@@ -284,9 +280,8 @@ function summaryMethods(data: FakeData): Partial<ApiClient> {
     regenerateTicketSummary: vi.fn(async (id: string) => {
       const problem = writable(id);
       if (problem) return problem;
-      if (!all.some((entry) => entry.parentId === id)) return failed("conflict", "group_empty");
       if (config.providerUp === false) return failed("unavailable", "assistant_unavailable");
-      texts.set(id, { text: config.regenerated ?? "Reúne os trabalhos de agora deste agrupador.", source: "assistant", updatedAt: now() });
+      texts.set(id, { text: config.regenerated ?? "Reúne os trabalhos de agora deste ticket.", source: "assistant", updatedAt: now() });
       return answer(id);
     }),
   };
@@ -322,24 +317,24 @@ export function makeClient(data: FakeData = {}): ApiClient {
 }
 
 /**
- * Cliente falso com a árvore de tickets em memória, que respeita o contrato da ADR 0031: o pai tem que ser
- * agrupador (409 `parent_not_group`), agrupador não tem situação (409 `group_has_no_status`), agrupador só vira
- * ticket vazio e só sai se estiver vazio (409 `ticket_has_children`). As chamadas continuam espiáveis (`vi.fn`).
+ * Cliente falso com a árvore de tickets em memória, que respeita o contrato da ADR 0034: sem tipo; qualquer ticket é pai
+ * possível (só o próprio e os descendentes dele não: 409 `ticket_cycle`); todo ticket tem situação; o progresso conta todos
+ * os descendentes e é nulo sem filhos; concluir com filho direto aberto é 409 `ticket_has_open_children`; remover ticket
+ * com filhos é 409 `ticket_has_children`. As chamadas continuam espiáveis (`vi.fn`).
  */
 export function makeTreeClient(data: FakeData = {}): ApiClient {
   const base = makeClient(data);
   const all: TicketSummary[] = Object.values(data.tickets ?? {}).flat().map((entry) => ({ ...entry }));
-  // A situação guardada de um agrupador, que volta a valer se ele virar ticket de novo (ADR 0031).
-  const stored = new Map<string, TicketStatus>();
   const descriptions = new Map<string, string>();
   const find = (id: string) => all.find((entry) => entry.id === id);
   const childrenOf = (id: string) => all.filter((entry) => entry.parentId === id);
-  const ticketLeaves = (id: string): TicketSummary[] => childrenOf(id).flatMap((child) => (child.kind === "group" ? ticketLeaves(child.id) : [child]));
+  const descendantsOf = (id: string): TicketSummary[] => childrenOf(id).flatMap((child) => [child, ...descendantsOf(child.id)]);
+  const open = (entry: TicketSummary) => entry.status !== "done" && entry.status !== "cancelled";
   const withProgress = (entry: TicketSummary): TicketSummary => {
-    if (entry.kind !== "group") return { ...entry };
-    const leaves = ticketLeaves(entry.id);
-    const excluded = leaves.filter((leaf) => leaf.status === "cancelled").length;
-    return { ...entry, status: null, progress: { done: leaves.filter((leaf) => leaf.status === "done").length, total: leaves.length - excluded, excluded } };
+    const below = descendantsOf(entry.id);
+    if (below.length === 0) return { ...entry, progress: null };
+    const excluded = below.filter((item) => item.status === "cancelled").length;
+    return { ...entry, progress: { done: below.filter((item) => item.status === "done").length, total: below.length - excluded, excluded } };
   };
   const detail = (entry: TicketSummary): TicketDetail => ({
     ...withProgress(entry),
@@ -349,7 +344,13 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
     updatedAt: "2026-11-20T10:00:00.000Z",
   });
   const conflict = (code: string) => failed("conflict", code);
-  const underTicket = (parentId: string | null) => parentId !== null && find(parentId)?.kind !== "group";
+  /**
+   * Reabertura (ADR 0034): quem recebe um filho direto aberto e está concluído volta para "a fazer", e a subida segue até
+   * o primeiro ancestral que não esteja concluído. Cancelado não é reaberto e interrompe a subida.
+   */
+  const reopenFrom = (parentId: string | null) => {
+    for (let at = parentId === null ? undefined : find(parentId); at && at.status === "done"; at = at.parentId === null ? undefined : find(at.parentId)) at.status = "todo";
+  };
 
   return {
     ...base,
@@ -359,39 +360,49 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
       return entry ? ok(detail(entry)) : failed("not_found");
     }),
     createTicket: vi.fn(async (projectId, body) => {
-      const parentId = body.parentId ?? null;
-      if (underTicket(parentId)) return conflict("parent_not_group");
       const number = Math.max(0, ...all.filter((entry) => entry.projectId === projectId).map((entry) => entry.number)) + 1;
-      const id = `new-${projectId}-${number}`;
-      const entry = body.kind === "group"
-        ? makeGroup(id, projectId, number, body.title, { parentId })
-        : makeTicket(id, projectId, number, body.title, { parentId, status: body.status ?? "todo" });
+      const entry = makeTicket(`new-${projectId}-${number}`, projectId, number, body.title, { parentId: body.parentId ?? null, status: body.status ?? "todo" });
       all.push(entry);
-      if (body.description) descriptions.set(id, body.description);
+      if (body.description) descriptions.set(entry.id, body.description);
+      if (open(entry)) reopenFrom(entry.parentId);
       return ok(detail(entry));
+    }),
+    createTicketFromConversation: vi.fn(async (id: string, body) => {
+      const parent = body.parentId === null ? null : find(body.parentId);
+      if (body.parentId !== null && !parent) return failed("not_found");
+      const projectId = data.conversations?.[id]?.projectId ?? parent?.projectId ?? data.projects?.[0]?.id ?? "";
+      const conversation = data.conversations?.[id] ?? makeConversation(id, projectId);
+      const nextNumber = () => Math.max(0, ...all.filter((entry) => entry.projectId === projectId).map((entry) => entry.number)) + 1;
+      let parentId = body.parentId;
+      if (body.group) {
+        const group = makeTicket(`group-${projectId}-${nextNumber()}`, projectId, nextNumber(), body.group.title, { parentId: body.parentId });
+        all.push(group);
+        if (body.group.description) descriptions.set(group.id, body.group.description);
+        for (const ticketId of body.group.ticketIds) {
+          const moved = find(ticketId);
+          if (moved) moved.parentId = group.id;
+        }
+        parentId = group.id;
+      }
+      const number = nextNumber();
+      const entry = makeTicket(`new-${projectId}-${number}`, projectId, number, conversation.draft?.title ?? "Novo ticket", { parentId });
+      all.push(entry);
+      if (conversation.draft?.description) descriptions.set(entry.id, conversation.draft.description);
+      reopenFrom(body.parentId);
+      return ok({ conversation: { ...conversation, status: "ticket_created" as const, createdTicketId: entry.id }, ticket: detail(entry) });
     }),
     updateTicket: vi.fn(async (id, body) => {
       const entry = find(id);
       if (!entry) return failed("not_found");
-      if (body.status !== undefined && (entry.kind === "group" || body.kind === "group")) return conflict("group_has_no_status");
       if (body.parentId !== undefined) {
-        if (underTicket(body.parentId)) return conflict("parent_not_group");
         for (let at = body.parentId; at !== null; at = find(at)?.parentId ?? null) if (at === id) return conflict("ticket_cycle");
       }
-      if (body.kind === "ticket" && entry.kind === "group" && childrenOf(id).length > 0) return conflict("ticket_has_children");
+      if (body.status === "done" && childrenOf(id).some(open)) return conflict("ticket_has_open_children");
       if (body.title !== undefined) entry.title = body.title;
       if (body.description !== undefined) descriptions.set(id, body.description);
       if (body.parentId !== undefined) entry.parentId = body.parentId;
       if (body.status !== undefined) entry.status = body.status;
-      if (body.kind === "group" && entry.kind === "ticket") {
-        if (entry.status) stored.set(id, entry.status);
-        entry.kind = "group";
-        entry.status = null;
-      } else if (body.kind === "ticket" && entry.kind === "group") {
-        entry.kind = "ticket";
-        entry.status = stored.get(id) ?? "todo";
-        entry.progress = null;
-      }
+      if ((body.status !== undefined || body.parentId !== undefined) && open(entry)) reopenFrom(entry.parentId);
       return ok(detail(entry));
     }),
     removeTicket: vi.fn(async (id: string) => {

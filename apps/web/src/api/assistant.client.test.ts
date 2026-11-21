@@ -18,7 +18,7 @@ const detail = {
 const target = { parentId: ID, path: [{ id: ID, title: "Ramo" }] };
 const outcome = { destination: target, alternatives: [], discarded: [], uncertain: false, stoppedEarly: null, scope: null, groupProposal: null, groupProposalSkipped: null };
 const ticketDetail = {
-  id: ID, projectId: OTHER, number: 1, key: "K-1", parentId: null, title: "T", kind: "ticket", status: "todo", progress: null,
+  id: ID, projectId: OTHER, number: 1, key: "K-1", parentId: null, title: "T", status: "todo", progress: null,
   assigneeIds: [], descriptionExcerpt: "", description: "", createdByPersonId: OTHER, createdAt: "x", updatedAt: "y",
 };
 
@@ -62,7 +62,7 @@ describe("ticket conversation calls", () => {
     await client.sendConversationMessage(ID, { message: "Mais" });
     expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/messages`, method: "POST", body: { message: "Mais" } });
   });
-  it("sends the scope when opening a conversation and with each message (a group id or null)", async () => {
+  it("sends the scope when opening a conversation and with each message (a ticket id or null)", async () => {
     const { client, fetchImpl } = setup(detail);
     await client.openConversation(OTHER, { message: "Oi", scopeId: ID });
     expect(lastCall(fetchImpl).body).toEqual({ message: "Oi", scopeId: ID });
@@ -84,7 +84,7 @@ describe("ticket conversation calls", () => {
     expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/placement`, method: "POST", body: undefined });
     expect(result).toEqual({ ok: true, data: outcome });
   });
-  it("sends the scope group in the body when there is one", async () => {
+  it("sends the scope ticket in the body when there is one", async () => {
     const { client, fetchImpl } = setup({ ...outcome, scope: { id: "t1", title: "Acesso", outOfScope: true } });
     const result = await client.findPlacement(ID, "t1");
     expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/placement`, method: "POST", body: { scopeId: "t1" } });
@@ -171,7 +171,7 @@ describe("describeApiError for the assistant", () => {
   });
 });
 
-describe("group summary calls (ADR 0033)", () => {
+describe("ticket summary calls (ADR 0033, ADR 0034)", () => {
   const summary = { summary: { text: "Reúne o que for do login.", source: "assistant", updatedAt: "2026-11-21T12:00:00.000Z" } };
   it("reads the summary, with or without text", async () => {
     const { client, fetchImpl } = setup(summary);
@@ -196,10 +196,9 @@ describe("group summary calls (ADR 0033)", () => {
     expect(lastCall(fetchImpl)).toEqual({ path: `/api/tickets/${ID}/summary/regenerate`, method: "POST", body: undefined });
   });
   it("keeps the error codes and says what each one means", async () => {
-    expect(await setup({ error: { code: "not_a_group" } }, 409).client.getTicketSummary(ID)).toEqual({ ok: false, error: { kind: "conflict", code: "not_a_group" } });
-    const empty = await setup({ error: { code: "group_empty" } }, 409).client.regenerateTicketSummary(ID);
-    expect(empty).toEqual({ ok: false, error: { kind: "conflict", code: "group_empty" } });
-    if (!empty.ok) expect(describeApiError(empty.error)).toBe("Este agrupador ainda não tem itens.");
+    const empty = await setup({ error: { code: "ticket_has_no_items" } }, 409).client.regenerateTicketSummary(ID);
+    expect(empty).toEqual({ ok: false, error: { kind: "conflict", code: "ticket_has_no_items" } });
+    if (!empty.ok) expect(describeApiError(empty.error)).toBe("Este ticket ainda não tem itens.");
     const down = await setup({ error: { code: "assistant_unavailable" } }, 503).client.regenerateTicketSummary(ID);
     expect(down).toEqual({ ok: false, error: { kind: "unavailable", code: "assistant_unavailable" } });
   });

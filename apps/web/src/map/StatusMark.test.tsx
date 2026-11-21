@@ -36,11 +36,8 @@ describe("StatusMark", () => {
     expect(element).toHaveAttribute("data-fill", "0.375");
   });
 
-  it("marks a progress of 0 de 0 as empty, so the stylesheet paints it with the neutral 'a fazer' color", () => {
-    expect(mark({ progress: { done: 0, total: 0, excluded: 0 } })).toHaveAttribute("data-empty", "true");
-    expect(mark({ progress: { done: 0, total: 1, excluded: 0 } })).not.toHaveAttribute("data-empty");
-    expect(mark({ progress: { done: 0, total: 0, excluded: 2 } })).not.toHaveAttribute("data-empty");
-    expect(mark({ status: "todo" })).not.toHaveAttribute("data-empty");
+  it("has no 'empty' variant: the card of a ticket without open descendants uses the status mark instead", () => {
+    expect(mark({ progress: { done: 0, total: 0, excluded: 0 } })).not.toHaveAttribute("data-empty");
   });
 
   it("exposes the fill as a CSS variable the stylesheet reads", () => {

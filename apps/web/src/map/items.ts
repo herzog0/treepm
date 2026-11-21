@@ -2,6 +2,7 @@ import type { TreeNode } from "@treepm/engine";
 import { mixIndicatorColors } from "@treepm/react";
 import type { MixColors } from "@treepm/react";
 import type { Me, Project, TicketStatus, TicketSummary } from "../api/client.js";
+import { hasOpenDescendants } from "./ticketState.js";
 
 export interface MapNode extends TreeNode {
   readonly kind: "organization" | "project" | "ticket" | "draft";
@@ -92,7 +93,7 @@ export function buildMapItems(
       parentId: ticket.parentId ?? project.id,
       kind: "ticket",
       label: ticket.title,
-      color: ticket.status ? STATUS_COLORS[ticket.status] : STATUS_COLORS.todo,
+      color: STATUS_COLORS[ticket.status],
       key: ticket.key,
       ticket,
       leafCount: 1,
@@ -117,9 +118,9 @@ export function buildMapItems(
 }
 
 /**
- * Agrupador ganha a mistura das cores dos tickets descendentes (o tipo vem de `kind`, não de ter filhos). Agrupador
- * sem nenhum ticket abaixo, vazio ou só com agrupadores vazios, fica na cor neutra de "a fazer". Só ele muda: os
- * tickets já estão pintados.
+ * Ticket com descendente aberto (ADR 0034) ganha a mistura das cores de todos os descendentes, cada um com a própria
+ * situação (os que também têm filhos entram como itens). Sem descendente aberto, ou sem filhos, fica com a cor da
+ * própria situação, como qualquer folha. Só quem tem descendente aberto muda: os demais já estão pintados.
  */
 function paintBranches(nodes: readonly MapNode[]): readonly MapNode[] {
   const childrenOf = new Map<string, MapNode[]>();
@@ -129,14 +130,11 @@ function paintBranches(nodes: readonly MapNode[]): readonly MapNode[] {
     if (siblings) siblings.push(node);
     else childrenOf.set(node.parentId, [node]);
   }
-  const leaves = (node: MapNode): MapNode[] => {
-    if (node.ticket?.kind !== "group") return [node];
-    return (childrenOf.get(node.id) ?? []).flatMap(leaves);
-  };
+  const descendants = (node: MapNode): MapNode[] => (childrenOf.get(node.id) ?? []).flatMap((child) => [child, ...descendants(child)]);
   return nodes.map((node) => {
-    if (node.ticket?.kind !== "group") return node;
-    const found = leaves(node);
-    if (found.length === 0) return { ...node, leafCount: 1, color: STATUS_COLORS.todo };
-    return { ...node, leafCount: found.length, color: mixWeightedColors(found.map((leaf) => ({ color: leaf.color, weight: 1 }))) };
+    if (!node.ticket || !hasOpenDescendants(node.ticket)) return node;
+    const found = descendants(node).filter((entry) => entry.ticket !== null);
+    if (found.length === 0) return node;
+    return { ...node, leafCount: found.length, color: mixWeightedColors(found.map((entry) => ({ color: entry.color, weight: 1 }))) };
   });
 }

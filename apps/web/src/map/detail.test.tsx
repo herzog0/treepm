@@ -2,7 +2,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import { Profiler } from "react";
 import type { SpatialNodeContent } from "@treepm/react";
 import { describe, expect, it, vi } from "vitest";
-import { makePerson, makeProject, makeGroup, makeTicket } from "../test/fakes.js";
+import { makePerson, makeProject, makeTicket } from "../test/fakes.js";
 import { buildMapItems } from "./items.js";
 import type { MapNode } from "./items.js";
 import { DETAIL_MIN_WIDTH, MapDetailProvider, buildDetailData, createMapScaleStore } from "./detail.js";
@@ -13,14 +13,20 @@ const project = makeProject("alfa", "ALFA", "Projeto Alfa");
 const people = [makePerson("p-ana", "Ana Souza"), makePerson("p-teo", "Teodoro"), makePerson("p-bia", "Bia")];
 
 const tickets = [
-  makeGroup("raiz", "alfa", 1, "Publicar o site", { progress: { done: 2, total: 5, excluded: 0 }, descriptionExcerpt: "Texto do pai" }),
+  makeTicket("raiz", "alfa", 1, "Publicar o site", { progress: { done: 2, total: 5, excluded: 0 }, descriptionExcerpt: "Texto do pai" }),
   makeTicket("a", "alfa", 2, "Escrever", { parentId: "raiz", status: "done" }),
   makeTicket("b", "alfa", 3, "Revisar", { parentId: "raiz", status: "in_review" }),
   makeTicket("c", "alfa", 4, "Montar", { parentId: "raiz", status: "in_progress" }),
   makeTicket("d", "alfa", 5, "Testar", { parentId: "raiz", status: "done" }),
   makeTicket("e", "alfa", 6, "Publicar", { parentId: "raiz", status: "todo" }),
   makeTicket("f", "alfa", 7, "Cancelado", { parentId: "raiz", status: "cancelled" }),
-  makeGroup("vazio", "alfa", 9, "Fase 2", { descriptionExcerpt: "Segunda etapa da entrega." }),
+  makeTicket("vazio", "alfa", 9, "Fase 2", { descriptionExcerpt: "Segunda etapa da entrega." }),
+  makeTicket("pai", "alfa", 10, "Pai aninhado", { status: "in_review", progress: { done: 0, total: 3, excluded: 0 } }),
+  makeTicket("meio", "alfa", 11, "Meio", { parentId: "pai", status: "in_progress", progress: { done: 0, total: 1, excluded: 0 } }),
+  makeTicket("neto", "alfa", 12, "Neto", { parentId: "meio", status: "todo" }),
+  makeTicket("irmao", "alfa", 13, "Irmão", { parentId: "pai", status: "todo" }),
+  makeTicket("fechado", "alfa", 14, "Pai fechado", { status: "done", progress: { done: 1, total: 1, excluded: 0 } }),
+  makeTicket("fechado-filho", "alfa", 15, "Filho feito", { parentId: "fechado", status: "done" }),
   makeTicket("folha", "alfa", 8, "Ajustar o rodapé", {
     status: "in_progress",
     descriptionExcerpt: "Trocar o texto legal do rodapé e conferir os links.",
@@ -84,16 +90,33 @@ describe("card em detalhe (ADR 0027)", () => {
     expect(container.querySelector("[data-state]")).toHaveAttribute("data-state", "progress");
   });
 
-  it("an empty group shows 'vazio', no count and no breakdown", () => {
+  it("a ticket without children shows its own status, no count and no breakdown (no 'vazio')", () => {
     const { ui } = setup(4);
     const { container } = render(ui("vazio", "full", 0));
     const card = container.querySelector(".node-detail")!;
-    expect(card).toHaveTextContent("vazio");
+    expect(card).toHaveTextContent("A fazer");
+    expect(card).not.toHaveTextContent("vazio");
     expect(card).not.toHaveTextContent("0 de 0");
     expect(card).not.toHaveTextContent(/\bitens?\b/);
     expect(card).toHaveTextContent("Segunda etapa da entrega.");
     expect(card.querySelector(".node-detail-breakdown")).toBeNull();
-    expect(container.querySelector("[data-state]")).toHaveAttribute("data-fill", "0");
+    expect(container.querySelector("[data-state]")).toHaveAttribute("data-state", "todo");
+  });
+
+  it("the breakdown counts every open descendant, parents included, with their own status", () => {
+    const { ui } = setup(4);
+    const { container } = render(ui("pai", "full", 2));
+    expect(container.querySelector(".node-detail-breakdown")).toHaveTextContent("1 em andamento · 2 a fazer");
+  });
+
+  it("a parent whose descendants are all finalized shows its own status and no breakdown", () => {
+    const { ui } = setup(4);
+    const { container } = render(ui("fechado", "full", 1));
+    const card = container.querySelector(".node-detail")!;
+    expect(card).toHaveTextContent("Concluído");
+    expect(card).not.toHaveTextContent("concluídos");
+    expect(card.querySelector(".node-detail-breakdown")).toBeNull();
+    expect(container.querySelector("[data-state]")).toHaveAttribute("data-state", "done");
   });
 
   it("uses the singular for one item", () => {

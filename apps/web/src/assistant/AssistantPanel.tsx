@@ -8,6 +8,7 @@ import type { MapDraft, MapNode } from "../map/items.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
+import { reopensOnReceiving } from "../ticket/reopen.js";
 import { PathCard } from "./PathCard.js";
 import { destinationUnder, oneLevelUp } from "./placement.js";
 import type { Destination } from "./placement.js";
@@ -24,7 +25,7 @@ export interface AssistantPanelProps {
   projects: readonly Project[];
   /** Projeto do ticket ou projeto selecionado; `null` pede a escolha antes da primeira mensagem. */
   initialProjectId: string | null;
-  /** Agrupador selecionado no mapa ao abrir: a procura começa dentro dele (ADR 0031). Ignorado se não for agrupador do projeto da conversa. */
+  /** Ticket selecionado no mapa ao abrir: a procura começa dentro dele (ADR 0031, ADR 0034). Ignorado se não for ticket do projeto da conversa. */
   initialScopeId?: string | null;
   /** Tickets de cada projeto, como o mapa os tem: o painel deriva daqui os caminhos que ele mesmo monta. */
   tickets: Readonly<Record<string, readonly TicketSummary[]>>;
@@ -61,8 +62,8 @@ export function AssistantPanel(props: AssistantPanelProps) {
   // O escopo vive só no estado do painel: não é gravado na conversa, e uma conversa retomada depois começa sem ele.
   const [scopeId, setScopeId] = useState<string | null>(props.initialScopeId ?? null);
   const project = projects.find((entry) => entry.id === projectId) ?? null;
-  const scopeGroup = project && scopeId !== null ? (props.tickets[project.id] ?? []).find((entry) => entry.id === scopeId && entry.kind === "group") : undefined;
-  const scope = scopeGroup ? { id: scopeGroup.id, title: scopeGroup.title } : null;
+  const scopeTicket = project && scopeId !== null ? (props.tickets[project.id] ?? []).find((entry) => entry.id === scopeId) : undefined;
+  const scope = scopeTicket ? { id: scopeTicket.id, title: scopeTicket.title } : null;
 
   // O foco entra no painel ao abrir e volta a quem o abriu ao fechar (o campo de texto toma o foco quando carrega).
   useEffect(() => {
@@ -114,7 +115,7 @@ interface ConversationProps extends AssistantPanelProps {
   project: Project;
   choosing: boolean;
   setChoosing: (choosing: boolean) => void;
-  /** Agrupador em que a procura começa; `null` procura no projeto inteiro. */
+  /** Ticket em que a procura começa; `null` procura no projeto inteiro. */
   scope: { id: string; title: string } | null;
   onRemoveScope: () => void;
 }
@@ -158,9 +159,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const [outcome, setOutcome] = useState<PlacementOutcome | null>(null);
   const [target, setTarget] = useState<Destination | null>(null);
   const [pickNotice, setPickNotice] = useState("");
-  // Frase que explica por que o destino escolhido no mapa não é o nó em que a pessoa clicou (ADR 0031).
-  const [pickedNote, setPickedNote] = useState("");
-  // A proposta de agrupador (ADR 0031) vale só para o destino da procura: trocar o destino, procurar de novo ou o 409 a descartam.
+  // A proposta de ticket pai novo (ADR 0031) vale só para o destino da procura: trocar o destino, procurar de novo ou o 409 a descartam.
   const [proposalDropped, setProposalDropped] = useState(false);
   const [unchecked, setUnchecked] = useState<string[]>([]);
   const sendingRef = useRef(false);
@@ -190,22 +189,20 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     if (element) element.scrollTop = element.scrollHeight;
   }, [conversation?.messages.length, outcome, sendError]);
 
-  // "Escolher no mapa": o próximo clique em agrupador ou projeto do mesmo projeto vira o destino. Um ticket não tem
-  // itens (ADR 0031): clicar nele escolhe o agrupador que o contém, ou a raiz do projeto, e o painel diz isso.
+  // "Escolher no mapa": o próximo clique em um ticket ou no projeto do mesmo projeto vira o destino (ADR 0034: qualquer
+  // ticket recebe filhos, então o ticket clicado é o destino).
   const register = useRef(registerPicker);
   register.current = registerPicker;
   const pick = useRef<(node: MapNode) => void>(() => undefined);
   pick.current = (node) => {
     const clicked = node.kind === "ticket" && node.ticket?.projectId === project.id ? node.ticket : null;
-    const parentId = node.kind === "project" && node.id === project.id ? null : clicked ? (clicked.kind === "group" ? clicked.id : clicked.parentId) : undefined;
+    const parentId = node.kind === "project" && node.id === project.id ? null : clicked ? clicked.id : undefined;
     if (parentId === undefined) {
-      setPickNotice(`Esta conversa é do projeto ${project.name}. Clique em um agrupador ou no próprio projeto.`);
+      setPickNotice(`Esta conversa é do projeto ${project.name}. Clique em um ticket ou no próprio projeto.`);
       return;
     }
-    const destination = destinationUnder(list, parentId);
-    setTarget(destination);
+    setTarget(destinationUnder(list, parentId));
     setProposalDropped(true);
-    setPickedNote(clicked && clicked.kind === "ticket" ? `«${clicked.title}» é um ticket. O destino passou a ser ${destination.path.length === 0 ? "a raiz do projeto" : `«${destination.path.at(-1)!.title}»`}.` : "");
     setPickNotice("");
     setChoosing(false);
   };
@@ -217,7 +214,6 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   }, [choosing, setChoosing]);
 
   const clearPlacement = () => {
-    setPickedNote("");
     setOutcome(null);
     setTarget(null);
     setChoosing(false);
@@ -241,7 +237,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     sendingRef.current = true;
     setSending(true);
     setSendError(null);
-    // O escopo vai com a abertura e com cada mensagem (ADR 0033): a IA recebe os agrupadores do lugar da procura.
+    // O escopo vai com a abertura e com cada mensagem (ADR 0033): a IA recebe os tickets com filhos do lugar da procura.
     const scopeId = scope?.id ?? null;
     const result = await safe(() => (conversation ? client.sendConversationMessage(conversation.id, { message, scopeId }) : client.openConversation(project.id, { message, scopeId })));
     sendingRef.current = false;
@@ -290,7 +286,6 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     setProposalDropped(true);
     const result = await search.run(() => (scopeId === null ? client.findPlacement(current.id) : client.findPlacement(current.id, scopeId)));
     if (!result.ok) return false;
-    setPickedNote("");
     setProposalDropped(false);
     setUnchecked([]);
     setOutcome(result.data);
@@ -352,6 +347,8 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     const ticketIds = proposal.tickets.filter((ticket) => !unchecked.includes(ticket.id)).map((ticket) => ticket.id);
     void createHere({ title: proposal.title, description: proposal.description, ticketIds });
   };
+  const destination = target?.parentId == null ? null : list.find((entry) => entry.id === target.parentId);
+  const reopenKey = destination && reopensOnReceiving(destination) ? destination.key : null;
   const whereStopped = (parentId: string | null) => (parentId === null ? project.name : list.find((entry) => entry.id === parentId)?.title ?? project.name);
 
   return (
@@ -421,7 +418,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 busy={busy}
                 error={create.error}
                 whereStopped={whereStopped}
-                pickedNote={pickedNote}
+                reopensKey={reopenKey}
                 outOfScope={scope && outcome.scope?.outOfScope && outcome.scope.id === scope.id ? { title: scope.title } : null}
                 onWholeProject={() => void searchWholeProject()}
                 proposal={proposal}
@@ -430,12 +427,10 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 onCreateGroup={confirmGroup}
                 onUse={(destination) => {
                   setProposalDropped(true);
-                  setPickedNote("");
                   setTarget(destination);
                 }}
                 onUp={() => {
                   setProposalDropped(true);
-                  setPickedNote("");
                   if (up) setTarget(up);
                 }}
                 onChoose={() => setChoosing(true)}

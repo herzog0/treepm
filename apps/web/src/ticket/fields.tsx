@@ -5,6 +5,7 @@ import { describeApiError } from "../api/client.js";
 import { STATUS_TEXT } from "../map/nodeContent.js";
 import { StatusMark } from "../map/StatusMark.js";
 import { useAction } from "../panel/useAction.js";
+import { isOpenStatus, reopenedNotice, reopensOnReceiving } from "./reopen.js";
 import { descendantIds } from "./tree.js";
 
 const STATUSES: readonly TicketStatus[] = ["todo", "in_progress", "in_review", "done", "cancelled"];
@@ -111,7 +112,12 @@ export function DescriptionField({ client, detail, canEdit, onSaved }: FieldBase
   );
 }
 
-export function StatusField({ client, detail, onSaved }: FieldBase) {
+/** Mensagem junto da situação quando a API recusa concluir com filho direto aberto (ADR 0034). */
+export const describeOpenItems = (count: number) =>
+  count === 1 ? "Conclua ou cancele o item aberto antes de concluir este ticket." : `Conclua ou cancele os ${count} itens abertos antes de concluir este ticket.`;
+
+/** `openItems`: filhos diretos abertos, contados na lista de itens da própria página. */
+export function StatusField({ client, detail, openItems, onSaved }: FieldBase & { openItems: number }) {
   const action = useAction();
   const change = async (status: TicketStatus) => {
     if (status === detail.status || action.busy) return;
@@ -128,7 +134,7 @@ export function StatusField({ client, detail, onSaved }: FieldBase) {
           </button>
         ))}
       </div>
-      <ActionError action={action} />
+      {action.error?.code === "ticket_has_open_children" ? <p role="alert" className="ticket-error">{describeOpenItems(openItems)}</p> : <ActionError action={action} />}
     </>
   );
 }
@@ -197,16 +203,20 @@ const TicketLabel = ({ ticket }: { ticket: TicketSummary }): ReactNode => (
 export function ParentField({ client, detail, parent, tickets, canEdit, onOpen, onSaved }: ParentProps) {
   const [picking, setPicking] = useState(false);
   const [filter, setFilter] = useState("");
+  const [reopened, setReopened] = useState<string | null>(null);
   const action = useAction();
   const blocked = descendantIds(tickets, detail.id);
   const needle = filter.trim().toLowerCase();
   const matches = (text: string) => needle === "" || text.toLowerCase().includes(needle);
-  // Só agrupador recebe itens (ADR 0031): tickets, o próprio nó e seus descendentes ficam fora.
-  const candidates = tickets.filter((entry) => entry.kind === "group" && entry.id !== detail.id && !blocked.has(entry.id) && matches(`${entry.key} ${entry.title}`));
+  // Qualquer ticket do projeto recebe itens (ADR 0034): só o próprio nó e seus descendentes ficam fora.
+  const candidates = tickets.filter((entry) => entry.id !== detail.id && !blocked.has(entry.id) && matches(`${entry.key} ${entry.title}`));
 
   const choose = async (parentId: string | null) => {
     const result = await action.run(() => client.updateTicket(detail.id, { parentId }));
     if (!result.ok) return;
+    // A escolha vale no clique, sem confirmação: o aviso diz o que a API fez (ADR 0034).
+    const target = parentId === null ? null : tickets.find((entry) => entry.id === parentId);
+    setReopened(target && reopensOnReceiving(target) && isOpenStatus(detail.status) ? target.key : null);
     setPicking(false);
     setFilter("");
     onSaved();
@@ -221,12 +231,13 @@ export function ParentField({ client, detail, parent, tickets, canEdit, onOpen, 
           <span>Raiz do projeto</span>
         )}
         {canEdit && (
-          <button type="button" className="text" aria-expanded={picking} onClick={() => setPicking((open) => !open)}>Mudar</button>
+          <button type="button" className="text" aria-expanded={picking} onClick={() => { setReopened(null); setPicking((open) => !open); }}>Mudar</button>
         )}
       </div>
+      {reopened !== null && <p className="ticket-notice" role="status">{reopenedNotice(reopened)}</p>}
       {picking && (
-        <div className="ticket-picker" role="group" aria-label="Escolher o agrupador pai">
-          <input aria-label="Filtrar agrupadores" autoFocus value={filter} onChange={(event) => setFilter(event.target.value)} />
+        <div className="ticket-picker" role="group" aria-label="Escolher o ticket pai">
+          <input aria-label="Filtrar tickets" autoFocus value={filter} onChange={(event) => setFilter(event.target.value)} />
           <div className="ticket-picker-list">
             {matches("Raiz do projeto") && <button type="button" disabled={action.busy} onClick={() => void choose(null)}>Raiz do projeto</button>}
             {candidates.map((entry) => (

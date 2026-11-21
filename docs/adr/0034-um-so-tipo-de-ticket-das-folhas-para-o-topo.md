@@ -16,6 +16,8 @@ Depois de criar os tickets `TREEPM-46`, `47` e `48` pelo painel da IA, Teodoro a
 - **Todo ticket pode ter filhos**, inclusive o que hoje é folha.
 - **O pai é trabalho de verdade.** Ele tem situação própria e é atacado depois dos filhos: quando todos os filhos estão finalizados (concluídos, cancelados ou removidos), o pai "virou uma nova folha".
 - **O projeto é resolvido das folhas para o topo.**
+- **O pai concluído que ganha um filho aberto é reaberto.** Dito no mesmo dia, em resposta à coordenação: "pai não pode ser concluído antes dos filhos serem concluídos. E se um filho novo for aberto depois do pai ser concluído, ele é reaberto tbm".
+- **"Filho" quer dizer isto:** B é filho de A quando A não pode ser dado por pronto antes de B ("é isso sim").
 - **Lugar ambíguo é aceitável.** A procura pode dar lugares diferentes para o mesmo ticket em análises diferentes; os casos são resolvidos um a um.
 - **A estrutura vem primeiro.**
 
@@ -28,15 +30,18 @@ O que está marcado abaixo como *(escolha da coordenação)* não foi dito por e
 - O tipo (`kind`) deixa de existir na API, no domínio e na interface. O pai de um ticket é qualquer ticket do mesmo projeto que não seja ele mesmo nem um descendente dele, ou nenhum (raiz do projeto).
 - Todo ticket tem situação, sempre, com os cinco valores de hoje. **Finalizado** é `done` ou `cancelled`; **aberto** é qualquer outro.
 - **Ticket da vez:** ticket aberto que não tem nenhum descendente aberto. É a "folha" da frase de Teodoro, e é calculado, nunca guardado. Um ticket sem filhos e aberto é da vez; um pai passa a ser da vez quando o último descendente aberto é finalizado ou removido.
-- **Nenhuma situação muda sozinha** *(escolha da coordenação)*. Finalizar o último filho não mexe na situação do pai; ele só passa a aparecer como da vez.
+- **Finalizar o último filho não mexe na situação do pai** *(escolha da coordenação)*; ele só passa a aparecer como da vez.
 - **Concluir um ticket que tem filho direto aberto é recusado** *(escolha da coordenação)*: 409 `ticket_has_open_children`, com a contagem. É a regra "as folhas primeiro" aplicada na hora de concluir. Cancelar um pai com filhos abertos é permitido e não mexe nos filhos.
-- **Pôr um ticket aberto dentro de um pai finalizado, ou reabrir um filho de um pai finalizado, é permitido** *(escolha da coordenação)*. O pai continua com a situação que tinha e volta a mostrar o progresso, porque passou a ter um descendente aberto. Não há reabertura automática.
+- **Reabertura (decisão de Teodoro):** quando um ticket concluído passa a ter um filho direto aberto, ele é reaberto na mesma transação. Isso acontece ao criar um ticket aberto dentro dele, ao mover um ticket aberto para dentro dele e ao reabrir um filho dele. A reabertura sobe: se o pai do reaberto também estava concluído, é reaberto também, e assim por diante. Com isso, um ticket concluído nunca tem filho direto aberto.
+  - O reaberto volta para "a fazer" (`todo`) *(escolha da coordenação)*.
+  - O pai **cancelado** não é reaberto *(escolha da coordenação)*: cancelar não é concluir, e os filhos de um cancelado ficam como estão.
+  - Cada reabertura grava o evento de mudança de situação de sempre, com a marca de que foi automática.
 - **Progresso:** todo ticket com filhos traz `progress`, calculado sobre **todos** os descendentes, em qualquer nível, e agora os descendentes que também são pais contam como itens (cada um é um trabalho). `excluded` conta os cancelados, `total` os demais, `done` os concluídos. Ticket sem filhos traz `progress: null`.
 
 ### Dados existentes
 
 - Nada é movido. Os agrupadores de hoje passam a ser tickets e voltam a mostrar a situação que está guardada no banco (a ADR 0031 preservava o valor ao transformar um ticket em agrupador).
-- Um ex-agrupador guardado como concluído que tenha filho aberto fica como está: é o mesmo estado permitido acima.
+- Em 2026-11-21 os 60 agrupadores do banco de desenvolvimento estavam todos guardados como "a fazer" (consulta da coordenação operacional), então nenhum ex-agrupador aparece concluído com filho aberto.
 - **Migration em dois passos**, porque a migration chega ao banco de desenvolvimento antes do código:
   - `0009`: tira a exigência de `parent_kind` e a chave estrangeira que inclui o tipo, e recria a chave do pai só com organização, projeto e ticket. As colunas `kind` e `parent_kind` **ficam**, sem uso pelo código novo, para o servidor antigo continuar funcionando até a troca.
   - Uma migration seguinte remove as duas colunas, depois de o código novo estar no ar.
@@ -70,7 +75,7 @@ O `export` e o `collect` passam a tratar como "grupo" o ticket que tem filhos. O
 O pedido de Teodoro: "escolhe um pai -> vê os filhos -> escolhe um filho que vai ser pai desse ticket -> assim por diante até achar o local certo", com toda folha como candidata.
 
 - **A descida:** em cada nível, os candidatos são todos os tickets daquele nível; a procura escolhe um, desce e repete até parar. Ticket sem filhos entra com título e o trecho da descrição, sem chamada ao Claude.
-- **Falta definir a pergunta.** A regra "o pai só é concluído depois dos filhos" dá uma direção que as perguntas atuais não têm: B fica dentro de A quando A não pode ser dado por pronto antes de B. Isso cobre "B é uma parte de A" e também "B precisa ficar pronto antes de A". A coordenação pergunta a Teodoro se é esse o sentido de "filho", com o exemplo dos tickets 46, 47 e 48, antes de escrever a pergunta ao Jev e de mexer no prompt da conversa.
+- **A pergunta tem direção.** Teodoro confirmou o sentido de "filho": B fica dentro de A quando A não pode ser dado por pronto antes de B. Isso cobre "B é uma parte de A" e também "B precisa ficar pronto antes de A". No exemplo dele, o `TREEPM-48` (opções clicáveis na exportação) é filho do `47` (opção sem cabeçalho), porque o 47 depende do 48. O texto da pergunta ao Jev e o ajuste do prompt da conversa saem desse sentido.
 - **O texto é testado com o Jev real antes de entrar**, com os casos de 2026-11-20 abaixo.
 
 ### O que a medição de 2026-11-20 diz
@@ -123,6 +128,6 @@ Resultado bom, declarado antes de medir: chegar ao grupo original não cai (21 a
 
 ## Em aberto
 
-1. O sentido de "filho" para a procura (acima), com Teodoro.
+1. O texto exato da pergunta ao Jev para um ticket candidato, a medir.
 2. O que fazer com os filhos abertos de um pai cancelado. Hoje: nada.
 3. Se o ticket da vez ganha um destaque próprio no mapa além do card de situação.

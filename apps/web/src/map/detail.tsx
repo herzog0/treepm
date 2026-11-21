@@ -2,6 +2,7 @@ import { createContext, useContext, useMemo, useSyncExternalStore } from "react"
 import type { ReactNode } from "react";
 import type { Person, TicketStatus } from "../api/client.js";
 import type { MapNode } from "./items.js";
+import { hasOpenDescendants } from "./ticketState.js";
 
 /** Largura na tela, em px, a partir da qual o card passa ao nível "detalhe" (ADR 0027; o quadro aprovado usa 300). */
 export const DETAIL_MIN_WIDTH = 300;
@@ -57,7 +58,7 @@ export type LeafStatusCounts = Readonly<Partial<Record<Exclude<TicketStatus, "do
 
 export interface MapDetailData {
   readonly people: ReadonlyMap<string, Person>;
-  /** Folhas por situação sob cada agrupador (sem as concluídas e as canceladas, que o progresso já conta). */
+  /** Descendentes abertos por situação sob cada ticket que tem descendente aberto (sem os concluídos e os cancelados, que o progresso já conta). */
   readonly leaves: ReadonlyMap<string, LeafStatusCounts>;
 }
 
@@ -69,15 +70,15 @@ export function buildDetailData(items: readonly MapNode[], people: readonly Pers
     if (siblings) siblings.push(item);
     else childrenOf.set(item.parentId, [item]);
   }
-  // Folhas são os tickets sob o agrupador; agrupador (vazio ou não) nunca conta como folha.
-  const leavesUnder = (node: MapNode): MapNode[] =>
-    node.ticket?.kind === "group" ? (childrenOf.get(node.id) ?? []).flatMap(leavesUnder) : [node];
+  // Descendentes abertos (ADR 0034): todo ticket sob o nó, folha ou não, com a própria situação. Só quem tem
+  // descendente aberto mostra o resumo; os demais usam o card de situação.
+  const below = (node: MapNode): MapNode[] => (childrenOf.get(node.id) ?? []).flatMap((child) => [child, ...below(child)]);
   const leaves = new Map<string, LeafStatusCounts>();
   for (const item of items) {
-    if (item.ticket?.kind !== "group") continue;
+    if (!item.ticket || !hasOpenDescendants(item.ticket)) continue;
     const counts: Partial<Record<"todo" | "in_progress" | "in_review", number>> = {};
-    for (const leaf of leavesUnder(item)) {
-      const status = leaf.ticket?.status;
+    for (const entry of below(item)) {
+      const status = entry.ticket?.status;
       if (status === "todo" || status === "in_progress" || status === "in_review") counts[status] = (counts[status] ?? 0) + 1;
     }
     leaves.set(item.id, counts);
