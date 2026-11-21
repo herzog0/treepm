@@ -7,10 +7,12 @@ interface ConfirmActionProps {
   accessibleLabel?: string;
   onConfirm: () => void;
   disabled?: boolean;
+  /** Explica o efeito da ação enquanto a confirmação está aberta. */
+  message?: string;
 }
 
 /** Confirmação em linha: o primeiro clique pede "Confirmar", o segundo executa. */
-export function ConfirmAction({ label, accessibleLabel, onConfirm, disabled = false }: ConfirmActionProps) {
+export function ConfirmAction({ label, accessibleLabel, onConfirm, disabled = false, message }: ConfirmActionProps) {
   const [asking, setAsking] = useState(false);
   const subject = accessibleLabel ?? label;
 
@@ -23,6 +25,7 @@ export function ConfirmAction({ label, accessibleLabel, onConfirm, disabled = fa
   }
   return (
     <span className="confirm-action">
+      {message && <span className="confirm-message">{message}</span>}
       <button
         type="button"
         className="danger"

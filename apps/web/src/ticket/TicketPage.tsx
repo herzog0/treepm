@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import type { KeyboardEvent } from "react";
 import type { ApiClient, Me, Person, Project, TicketDetail, TicketKind, TicketSummary } from "../api/client.js";
-import { describeApiError } from "../api/client.js";
+import { describeApiError, githubEnabled } from "../api/client.js";
+import { TicketCode } from "../github/TicketCode.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { canCreateTickets, canRemoveTickets } from "../import/permissions.js";
 import { LoadError } from "../LoadError.js";
@@ -259,6 +260,8 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
               )}
             </section>
           )}
+
+          {githubEnabled(me) && <TicketCode client={client} detail={detail} project={project} />}
 
           {canEdit && (isGroup ? children.length === 0 : true) && (
             <div className="ticket-kind-change">

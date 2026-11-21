@@ -32,7 +32,7 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
   const { state, retry } = useApiResource(() => client.getMe());
 
   // As configurações são da pessoa, não da organização: não esperam a API.
-  if (view === "settings") return <main className="tenant-settings"><SettingsScreen /></main>;
+  if (view === "settings") return <main className="tenant-settings"><SettingsScreen client={client} me={state.status === "ready" ? state.data : null} /></main>;
   if (state.status === "loading") return <p className="map-state" role="status">Carregando organização…</p>;
   if (state.status === "error") {
     return (

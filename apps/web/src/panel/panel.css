@@ -28,3 +28,7 @@
 .side-panel .panel-list { margin-bottom: 12px; }
 .side-panel .panel-manage { display: grid; gap: 12px; margin-bottom: 8px; }
 .side-panel .panel-ticket-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+
+/* Confirmação com explicação: o texto ocupa a linha inteira acima dos botões. */
+.confirm-action:has(.confirm-message) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.confirm-message { flex: 1 0 100%; color: var(--tp-text-2); font-size: 12px; line-height: 1.5; }

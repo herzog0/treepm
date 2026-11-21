@@ -10,9 +10,11 @@ import {
   useAuth,
   useSession,
 } from "@clerk/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createApiClient } from "./api/client.js";
 import { fetchMe, getMeIndicatorText } from "./api/me.js";
 import type { MeResult } from "./api/me.js";
+import { GITHUB_CALLBACK_PATH, GithubCallback } from "./github/GithubCallback.js";
 import { Loading } from "./Loading.js";
 import { ClerkPreferencesProvider } from "./preferences/ClerkPreferences.js";
 import { AppNav, useView } from "./nav/navigation.js";
@@ -43,6 +45,11 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
   const { isLoaded, isSignedIn, orgId, getToken } = useAuth();
   const { session } = useSession();
   const [view, navigate, projectId, ticketId, openTicket] = useView();
+  // O GitHub devolve o navegador para /github/callback (ADR 0032); a tela de retorno ocupa o lugar do mapa até a pessoa sair dela.
+  const [onGithubCallback, setOnGithubCallback] = useState(() => window.location.pathname === GITHUB_CALLBACK_PATH);
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
+  const callbackClient = useMemo(() => createApiClient({ getToken: () => getTokenRef.current() }), []);
   // Trocar de organização descarta o ticket aberto (ADR 0026): o ID não existe na outra.
   const previousOrgId = useRef(orgId);
   useEffect(() => {
@@ -105,15 +112,28 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
           <UserButton />
         </div>
       </header>
-      <ClerkPreferencesProvider>
-        <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} ticketId={ticketId} onOpenTicket={openTicket} getToken={getToken} />
-      </ClerkPreferencesProvider>
+      {onGithubCallback ? (
+        <main className="tenant-settings">
+          <GithubCallback
+            client={callbackClient}
+            onOpenSettings={() => {
+              setOnGithubCallback(false);
+              navigate("settings");
+            }}
+          />
+        </main>
+      ) : (
+        <ClerkPreferencesProvider>
+          <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} ticketId={ticketId} onOpenTicket={openTicket} getToken={getToken} />
+        </ClerkPreferencesProvider>
+      )}
     </div>
   );
 }
 
 export default function AuthenticatedApp({ publishableKey }: { publishableKey: string }) {
-  const appUrl = window.location.pathname;
+  // Entrar pela volta do GitHub não faz de /github/callback a raiz da aplicação para os redirecionamentos do Clerk.
+  const appUrl = window.location.pathname === GITHUB_CALLBACK_PATH ? "/" : window.location.pathname;
 
   return (
     <ClerkProvider
