@@ -1,5 +1,7 @@
-import { InvalidCodeError, ProviderUnavailableError } from "../src/github/ports.js";
-import type { CodeExchange, InstallationDetails, ProviderRepository, RepositoryProvider } from "../src/github/ports.js";
+import { createHash } from "node:crypto";
+import { collectPages } from "../src/github/github-api.js";
+import { BRANCH_PAGE_CEILING, InvalidCodeError, ProviderUnavailableError, PULL_PAGE_CEILING } from "../src/github/ports.js";
+import type { BranchItem, CodeExchange, InstallationDetails, ProviderRepository, PullRequestItem, RepositoryProvider, SyncPage } from "../src/github/ports.js";
 
 /** O GitHub App de desenvolvimento do ADR 0032 (identificador usado nos testes). */
 export const APP_ID = 5858226;
@@ -19,7 +21,19 @@ export class FakeRepositoryProvider implements RepositoryProvider {
   /** O erro lançado quando `fail` está ligado (padrão: `ProviderUnavailableError`). */
   failWith: Error | null = null;
   /** Falha só nesta operação. */
-  failOn: "exchangeCode" | "getInstallation" | "listRepositories" | null = null;
+  failOn: "exchangeCode" | "getInstallation" | "listRepositories" | "listBranches" | "listPullRequests" | null = null;
+  /** Nomes de branch por repositório (`dono/nome`), na ordem em que o GitHub os devolveria. */
+  readonly branches = new Map<string, string[]>();
+  /** Pull requests por repositório (`dono/nome`), do criado mais recentemente para o mais antigo. */
+  readonly pulls = new Map<string, PullRequestItem[]>();
+  /** Erro lançado nas listas de um repositório (`dono/nome`), sem afetar os outros. */
+  readonly repoErrors = new Map<string, Error>();
+  /** Cada página pedida ao "GitHub", na ordem, com o ETag condicional enviado. */
+  readonly pageRequests: { resource: "branches" | "pulls"; fullName: string; page: number; etag: string | null }[] = [];
+  /** Itens por página do falso (o real usa 100). */
+  pageSize = 100;
+  /** Sempre responde 200, como se o ETag guardado não valesse mais (token de instalação novo). */
+  ignoreEtags = false;
 
   installUrl(state: string): string {
     this.calls.push("installUrl");
@@ -45,7 +59,53 @@ export class FakeRepositoryProvider implements RepositoryProvider {
     return Promise.resolve(this.repositories.get(installationId) ?? []);
   }
 
+  listBranches(installationId: number, fullName: string, etags: readonly (string | null)[]): Promise<SyncPage<BranchItem>[]> {
+    this.calls.push(`listBranches:${installationId}:${fullName}`);
+    return this.pages("branches", installationId, fullName, etags, BRANCH_PAGE_CEILING, "listBranches", () => (this.branches.get(fullName) ?? []).map((name) => ({ name })));
+  }
+
+  listPullRequests(installationId: number, fullName: string, etags: readonly (string | null)[]): Promise<SyncPage<PullRequestItem>[]> {
+    this.calls.push(`listPullRequests:${installationId}:${fullName}`);
+    return this.pages("pulls", installationId, fullName, etags, PULL_PAGE_CEILING, "listPullRequests", () => this.pulls.get(fullName) ?? []);
+  }
+
+  private pages<T>(
+    resource: "branches" | "pulls",
+    installationId: number,
+    fullName: string,
+    etags: readonly (string | null)[],
+    ceiling: number,
+    operation: "listBranches" | "listPullRequests",
+    items: () => T[],
+  ): Promise<SyncPage<T>[]> {
+    if (this.fail || this.failOn === operation) return Promise.reject(this.failWith ?? new ProviderUnavailableError());
+    const failure = this.repoErrors.get(fullName);
+    if (failure) return Promise.reject(failure);
+    // Instalação suspensa ou repositório fora da instalação (apagado, transferido, sem acesso): o GitHub responde 403/404.
+    if (this.installations.get(installationId)?.suspended) return Promise.reject(new ProviderUnavailableError());
+    if (!this.repositories.get(installationId)?.some((item) => item.fullName === fullName)) return Promise.reject(new ProviderUnavailableError());
+    const all = items();
+    return collectPages<T>(
+      (page, etag): Promise<SyncPage<T>> => {
+        this.pageRequests.push({ resource, fullName, page, etag });
+        const slice = all.slice((page - 1) * this.pageSize, page * this.pageSize);
+        const current = `W/"${createHash("md5").update(JSON.stringify([resource, page, slice])).digest("hex").slice(0, 10)}"`;
+        const hasNext = page * this.pageSize < all.length;
+        if (!this.ignoreEtags && etag !== null && etag === current) return Promise.resolve({ notModified: true, hasNext });
+        return Promise.resolve({ notModified: false, etag: current, items: slice, hasNext });
+      },
+      etags,
+      ceiling,
+    );
+  }
+
   reset(): void {
+    this.branches.clear();
+    this.pulls.clear();
+    this.repoErrors.clear();
+    this.pageRequests.length = 0;
+    this.pageSize = 100;
+    this.ignoreEtags = false;
     this.calls.length = 0;
     this.codes.clear();
     this.installations.clear();

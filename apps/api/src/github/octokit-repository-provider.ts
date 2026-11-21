@@ -1,7 +1,19 @@
 import { App, Octokit } from "octokit";
-import { GITHUB_HEADERS, classifyError, installUrl, parseInstallation, parseRepositories, parseUserInstallations } from "./github-api.js";
-import { InvalidCodeError, ProviderUnavailableError } from "./ports.js";
-import type { CodeExchange, InstallationDetails, ProviderRepository, RepositoryProvider } from "./ports.js";
+import {
+  GITHUB_HEADERS,
+  classifyError,
+  collectPages,
+  hasNextLink,
+  installUrl,
+  parseBranches,
+  parseInstallation,
+  parsePullRequests,
+  parseRepositories,
+  parseUserInstallations,
+  splitFullName,
+} from "./github-api.js";
+import { BRANCH_PAGE_CEILING, InvalidCodeError, ProviderUnavailableError, PULL_PAGE_CEILING } from "./ports.js";
+import type { BranchItem, CodeExchange, InstallationDetails, ProviderRepository, PullRequestItem, RepositoryProvider, SyncPage } from "./ports.js";
 
 export type GithubAppCredentials = {
   appId: string;
@@ -91,6 +103,53 @@ export class OctokitRepositoryProvider implements RepositoryProvider {
       const octokit = await this.app.getInstallationOctokit(installationId);
       const repositories = await octokit.paginate("GET /installation/repositories", { per_page: PER_PAGE });
       return parseRepositories([{ repositories }]);
+    } catch (error) {
+      if (error instanceof ProviderUnavailableError) throw error;
+      throw new ProviderUnavailableError();
+    }
+  }
+
+  listBranches(installationId: number, fullName: string, etags: readonly (string | null)[]): Promise<SyncPage<BranchItem>[]> {
+    return this.listPages(installationId, fullName, "branches", etags, BRANCH_PAGE_CEILING, parseBranches);
+  }
+
+  listPullRequests(installationId: number, fullName: string, etags: readonly (string | null)[]): Promise<SyncPage<PullRequestItem>[]> {
+    return this.listPages(installationId, fullName, "pulls", etags, PULL_PAGE_CEILING, parsePullRequests);
+  }
+
+  /** Páginas em série, com `If-None-Match`; `304` vira `notModified`. Qualquer outra falha vira 503, sem corpo na mensagem. */
+  private async listPages<T>(
+    installationId: number,
+    fullName: string,
+    resource: "branches" | "pulls",
+    etags: readonly (string | null)[],
+    ceiling: number,
+    parseItems: (data: unknown) => T[],
+  ): Promise<SyncPage<T>[]> {
+    try {
+      const { owner, repo } = splitFullName(fullName);
+      const octokit = await this.app.getInstallationOctokit(installationId);
+      return await collectPages<T>(
+        async (page, etag): Promise<SyncPage<T>> => {
+          try {
+            const params = { owner, repo, per_page: PER_PAGE, page, headers: etag ? { "if-none-match": etag } : {} };
+            const response =
+              resource === "branches"
+                ? await octokit.request("GET /repos/{owner}/{repo}/branches", params)
+                : await octokit.request("GET /repos/{owner}/{repo}/pulls", { ...params, state: "all" });
+            const headers = response.headers as Record<string, string | undefined>;
+            return { notModified: false, etag: headers["etag"] ?? null, items: parseItems(response.data), hasNext: hasNextLink(headers["link"]) };
+          } catch (error) {
+            if (typeof error === "object" && error !== null && (error as { status?: unknown }).status === 304) {
+              const headers = (error as { response?: { headers?: Record<string, string | undefined> } }).response?.headers;
+              return { notModified: true, hasNext: hasNextLink(headers?.["link"]) };
+            }
+            throw error;
+          }
+        },
+        etags,
+        ceiling,
+      );
     } catch (error) {
       if (error instanceof ProviderUnavailableError) throw error;
       throw new ProviderUnavailableError();

@@ -3,6 +3,8 @@ import { AccessModule } from "../access/access.module.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { CONFIG, githubEnabled } from "../config.js";
 import type { AppConfig } from "../config.js";
+import { CodeController } from "./code.controller.js";
+import { CodeService } from "./code.service.js";
 import { GithubEnabledGuard } from "./github-enabled.guard.js";
 import { GithubController } from "./github.controller.js";
 import { GithubService } from "./github.service.js";
@@ -12,10 +14,11 @@ import { ProjectRepositoriesController } from "./project-repositories.controller
 
 @Module({
   imports: [AccessModule],
-  controllers: [GithubController, ProjectRepositoriesController],
+  controllers: [GithubController, ProjectRepositoriesController, CodeController],
   providers: [
     ActivityService,
     GithubService,
+    CodeService,
     GithubEnabledGuard,
     {
       provide: REPOSITORY_PROVIDER,
