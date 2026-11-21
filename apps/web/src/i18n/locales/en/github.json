@@ -1,1 +1,78 @@
-{}
+{
+  "title": "GitHub",
+  "callback": {
+    "working": "Checking the connection with GitHub…",
+    "done": "GitHub connected to account {{account}}.",
+    "continue": "Continue",
+    "back": "Back",
+    "notice": {
+      "requested": "The installation request was sent and needs to be approved on GitHub.",
+      "incomplete": "The installation was not finished on GitHub."
+    },
+    "error": {
+      "expired": "The connection expired. Start again in Settings.",
+      "notYours": "This installation does not belong to your GitHub account.",
+      "personalOnly": "For now TreePM only supports the app installed on a personal GitHub account.",
+      "noInstallation": "GitHub did not find the app installation. Install it again.",
+      "ambiguous": "There is more than one installation of the app on your account. Start again in Settings.",
+      "alreadyConnected": "This organization is already linked to GitHub.",
+      "inUse": "This GitHub installation is already in use.",
+      "unavailable": "GitHub did not respond. Try again in a moment.",
+      "forbidden": "Only an organization administrator can connect GitHub.",
+      "generic": "Could not complete the connection with GitHub."
+    }
+  },
+  "settings": {
+    "loading": "Loading…",
+    "notConnected": "The organization is not linked to GitHub.",
+    "connect": "Connect GitHub",
+    "readOnlyHint": "TreePM only reads: repository names, branches and pull requests. No code is copied.",
+    "askAdmin": "Ask an organization administrator to connect.",
+    "connectedTo": "Connected to account {{account}} since {{date}}.",
+    "selectedOnly": "The app only sees the repositories chosen at installation.",
+    "disconnect": "Disconnect",
+    "disconnectWarning": "The repositories linked to projects and the ticket code links will be removed from TreePM. The app stays installed on GitHub until you remove it there."
+  },
+  "repositories": {
+    "title": "Repositories",
+    "loading": "Loading repositories…",
+    "empty": "No repository linked to this project.",
+    "list": "Project repositories",
+    "private": "private",
+    "remove": "Remove",
+    "removeLabel": "Remove {{name}}",
+    "removeWarning": "The ticket code links to this repository will be removed.",
+    "link": "Link repository",
+    "searching": "Searching repositories…",
+    "filter": "Filter repositories",
+    "allLinked": "All the repositories the app can see are already linked.",
+    "none": "No repository found.",
+    "available": "Available repositories",
+    "cancel": "Cancel"
+  },
+  "code": {
+    "title": "Code",
+    "notSynced": "Not synced yet",
+    "updated": "Updated {{when}}",
+    "refresh": "Refresh",
+    "refreshFailed": "Could not refresh now.",
+    "relative": {
+      "now": "just now",
+      "minutes_one": "{{count}} minute ago",
+      "minutes_other": "{{count}} minutes ago",
+      "hours_one": "{{count}} hour ago",
+      "hours_other": "{{count}} hours ago",
+      "days_one": "{{count}} day ago",
+      "days_other": "{{count}} days ago"
+    },
+    "state": {
+      "open": "open",
+      "merged": "merged",
+      "closed": "closed"
+    },
+    "noLinksItems": "No branch or pull request mentions this ticket or the items inside it.",
+    "noLinks": "No branch or pull request mentions {{key}}. Include the key in the branch name or in the PR title.",
+    "unreadable": "Could not read {{name}} now.",
+    "truncated": "{{name}} has more branches or pull requests than TreePM reads; the oldest are left out."
+  }
+}
