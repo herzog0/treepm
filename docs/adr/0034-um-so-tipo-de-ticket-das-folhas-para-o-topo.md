@@ -1,6 +1,6 @@
 # ADR 0034 — Um só tipo de ticket, resolvido das folhas para o topo
 
-**Status:** Aceita por Teodoro em 2026-11-21. A estrutura (primeira fatia) foi implementada no mesmo dia (PR #78, migration `0009_single_ticket_type`), ainda sem teste com sessão real. A procura por tickets sem filhos (segunda fatia) foi medida par a par em 2026-11-21 e não mudou nada ainda: espera o julgamento de Teodoro sobre os pares. As colunas do tipo antigo saíram do banco (PR #84, migration `0010_drop_ticket_kind`). Substitui a primeira versão desta ADR, que propunha manter os agrupadores. **Data:** 2026-11-21.
+**Status:** Aceita por Teodoro em 2026-11-21. A estrutura (primeira fatia) foi implementada no mesmo dia (PR #78, migration `0009_single_ticket_type`), ainda sem teste com sessão real. A procura por tickets sem filhos (segunda fatia) foi medida em 2026-11-21 e nenhuma regra foi adotada: a procura não muda, e a fatia fica parada até existirem mais tickets colocados à mão dentro de tickets sem filhos. As colunas do tipo antigo saíram do banco (PR #84, migration `0010_drop_ticket_kind`). Substitui a primeira versão desta ADR, que propunha manter os agrupadores. **Data:** 2026-11-21.
 
 Substitui, na [ADR 0031](0031-agrupadores.md), o tipo declarado, a regra "só agrupador tem filhos" e as transformações entre tipos; na [ADR 0024](0024-tickets-primeiro-recorte-e-importacao-por-lista.md), a regra de que o ticket com filhos não tem situação própria; e ajusta, na [ADR 0033](0033-descricao-antes-da-procura-e-texto-fixo-do-agrupador.md), a quem se aplica o texto "O que entra aqui".
 
@@ -186,7 +186,74 @@ Os pares em que a W1 deu direção nas duas rodadas (entra → dentro de), para 
 | 34 — Busca do caminho do topo até a folha | 35 — Mudança de pai quando a edição muda a categoria |
 | 2 — Testar as telas de administração com sessão real | 11 — Reduzir as idas ao banco por requisição |
 
-O que fica decidido: nada na procura muda por enquanto. A regra de comparar os dois sentidos da W1 só vira proposta depois do julgamento de Teodoro sobre essa lista. Pontos que a proposta terá de resolver: a descida entre tickets que já têm filhos continua com a pergunta de lista de hoje; o que fazer quando um ticket cabe dentro de dois (a "Proposta visual" é pré-requisito de dois tickets, e a árvore só guarda um pai); e se a procura continua dentro do ticket escolhido.
+O que ficou decidido naquele momento: nada na procura muda. A regra de comparar os dois sentidos da W1 esperava o julgamento de Teodoro sobre essa lista; ele deixou a decisão com a coordenação (seções abaixo). Pontos que qualquer proposta terá de resolver: a descida entre tickets que já têm filhos continua com a pergunta de lista de hoje; o que fazer quando um ticket cabe dentro de dois (a "Proposta visual" é pré-requisito de dois tickets, e a árvore só guarda um pai); e se a procura continua dentro do ticket escolhido.
+
+### Referência cega e critério, fixados antes de rotular (2026-11-21)
+
+Teodoro, sobre a lista acima: "Não sei dizer sobre as suas perguntas classificatórias. Vc é quem decide." E perguntou como a qualidade está sendo aferida, sugerindo comparar o Jev com a resposta de um modelo bom da Anthropic.
+
+**O que a medição acima compara, de fato.** A referência é a própria árvore do projeto (`gabarito.json`): seis tickets na raiz e os filhos de cada um, quase toda vinda da lista que a coordenação importou. Ela é plana, então "irmão aceito como pai" conta como erro só porque a árvore não tem ticket dentro de irmão; ninguém julgou esses pares pelo sentido de "filho" que Teodoro definiu. O Claude aparece na medição só como resumidor (escreve o texto do ticket que tem filhos); não julga nada. E a árvore guarda o 48 dentro do 46, quando a única opinião de Teodoro sobre um par é o 48 dentro do 47.
+
+**O que muda.** A decisão sobre a regra passa a ser da coordenação, medida contra uma referência escrita por um modelo da Anthropic, como ele sugeriu. A coordenação não rotula os pares ela mesma: já viu as notas do Jev.
+
+Tudo abaixo foi escrito **antes** de a referência existir.
+
+**Referência.**
+
+- Entrada: os 48 tickets da árvore de 2026-11-21, só título e descrição, embaralhados e com rótulos neutros. Sem pai, sem número, sem situação, sem nota do Jev e sem a lista de nove pares.
+- Dois rotuladores independentes (agentes novos, Claude Fable 5.2), cada um com um embaralhamento diferente. A instrução traz a definição de Teodoro (um ticket fica dentro de outro quando esse outro não pode ser dado por pronto antes dele) e nenhum exemplo deste projeto.
+- Cada rotulador diz, para cada ticket, dentro de qual ticket ele fica (um, ou nenhum) e quais outros tickets também não podem ser concluídos antes dele. "Não dá para dizer" é resposta permitida.
+- Rótulo de um par ordenado (A dentro de B): **sim**, quando os dois rotuladores marcaram a relação direta; **não**, quando nenhum marcou, nem direta nem por cadeia; **indeterminado** no resto, fora da conta.
+
+**A referência só vale se:**
+
+1. os dois rotuladores colocarem, sem serem levados a isso, o 48 dentro do 47 e o 47 dentro do 46;
+2. das relações diretas marcadas por pelo menos um, 60% ou mais forem marcadas pelos dois.
+
+Se falhar em qualquer um, não há referência, e a regra não é julgada por ela.
+
+**Regra congelada (R).** Para dois tickets sem filhos, com a W1 (média das três repetições, rodada de 2026-11-21): "A entra em B" quando a nota de A dentro de B passa de 0,4 e supera a de B dentro de A em mais de 0,2. Os limites não são reajustados depois de a referência existir. Nenhuma chamada nova ao Jev: valem os arquivos já coletados.
+
+**Critério.**
+
+- Precisão de R: dos pares que R aceita e que têm rótulo, a parcela rotulada "sim" no mesmo sentido.
+- **Adota-se R** como proposta da segunda fatia se a precisão for 0,8 ou mais, com pelo menos cinco pares com rótulo e nenhum aceito no sentido contrário ao da referência.
+- **Descarta-se R** se a precisão ficar abaixo de 0,6 ou se dois ou mais pares saírem no sentido contrário.
+- Entre os dois, R não é adotada como está.
+- Cobertura (das relações "sim" entre irmãos, quantas R encontra): relatada, não decide. Cobertura baixa significa que a IA sugere pouco, e não que sugere errado.
+- Para comparar, W0, W1 e W2 com o limite simples de 0,7 contra a mesma referência.
+
+**Se R não for adotada,** a alternativa a propor é o modelo da Anthropic escolher o pai entre os filhos do destino, no fim da descida. A concordância entre os dois rotuladores já é uma primeira medida disso.
+
+**Limites desta aferição.** Concordar com a referência quer dizer que o Jev concorda com o Claude, e não que os dois estão certos. É um projeto só, de 48 tickets, e muitos têm só o título.
+
+### Resultado da referência cega (2026-11-21)
+
+Arquivos em `~/.local/share/treepm-ops/rebuild-2026-11-20/referencia/` (entradas, rótulos, `score.py`, `resultado.md`). O `score.py` foi escrito antes de os rótulos existirem.
+
+**A referência não passou no próprio teste.**
+
+- Os dois rotuladores concordaram entre si: 51 relações diretas marcadas pelos dois, de 61 marcadas por pelo menos um (0,84); o mesmo pai em 42 dos 48 tickets; os mesmos 8 tickets no topo.
+- Os dois, sem ver um ao outro, montaram os três tickets de Teodoro **ao contrário** do que ele disse: o 46 dentro do 47, o 47 dentro do 48 e o 48 no topo. Os motivos escritos: "a opção de tirar o cabeçalho pressupõe a exportação em CSV existente; a exportação não promete opções" e "a opção sem cabeçalho é uma das opções que a exportação com opções clicáveis precisa oferecer".
+- O teste pedia o 48 dentro do 47. Nenhum dos dois marcou essa relação, nem direta nem por cadeia. (A outra metade do teste, o 47 dentro do 46, não vem de uma frase de Teodoro; a falha se sustenta só no par 47 e 48.)
+
+**Consequência, pelo critério escrito antes:** não há referência, e a regra R não é julgada por ela. R não é adotada. As contagens de R contra esses rótulos estão em `resultado.md` e não são citadas aqui como precisão, porque os rótulos vêm de uma referência inválida.
+
+**A alternativa anunciada cai junto.** O modelo da Anthropic escolher o pai no fim da descida não é proposto: a concordância de 0,84 mostra que ele é consistente, e não que acerta, e as duas rodadas inverteram o único par que Teodoro julgou. Também não foi testado na condição real (com a árvore existente à vista). Fica nem confirmado, nem refutado.
+
+**O que dá para dizer sobre a causa, com cuidado.**
+
+- A inversão pode vir da redação da instrução, e não das palavras de Teodoro. A instrução dizia "B é um pedaço do que A promete entregar", e um dos motivos repete esse termo ("a exportação não promete opções"). Ele disse só que o pai não pode ser concluído antes dos filhos.
+- Hipótese, a partir de um único exemplo: pela regra de reabertura, o pai concluído é reaberto quando ganha um filho, então o que o pai entrega cresce com os filhos. Perguntar "o texto do pai já promete isto?" pode ser o teste errado.
+- Refazer a rotulagem com outra redação até o exemplo sair certo não é feito: seria ajustar a referência a um exemplo.
+
+**O problema de fundo:** o projeto tem **um** julgamento humano sobre "ticket dentro de ticket sem filhos" (o 48 dentro do 47). Nenhuma medição do Jev ou do Claude tem onde se apoiar enquanto for assim.
+
+**Decisão da coordenação.**
+
+- A procura não muda: desce pelos tickets que têm filhos, como hoje. Colocar um ticket dentro de um ticket sem filhos continua sendo ato da pessoa (o campo de pai, ou "Novo ticket" com o ticket selecionado no mapa).
+- A segunda fatia fica parada. **Condição para reabrir:** existirem mais tickets colocados à mão, por pessoas, dentro de tickets que não tinham filhos. A exportação da árvore já os registra; eles viram a referência.
+- Nenhuma capacidade nova no painel da IA sai daqui. Isso seria outra ADR e decisão de Teodoro.
 
 ## Consequências
 
@@ -199,6 +266,6 @@ O que fica decidido: nada na procura muda por enquanto. A regra de comparar os d
 
 ## Em aberto
 
-1. O texto exato da pergunta ao Jev para um ticket candidato, a medir.
+1. A procura dentro de tickets sem filhos (segunda fatia): parada, com a condição de reabertura em "Resultado da referência cega".
 2. O que fazer com os filhos abertos de um pai cancelado. Hoje: nada.
 3. Se o ticket da vez ganha um destaque próprio no mapa além do card de situação.
