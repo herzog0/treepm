@@ -1,1 +1,15 @@
-{}
+{
+  "line": "Línea {{line}}: {{message}}",
+  "unreadable": "no se pudo interpretar la lista.",
+  "issue": {
+    "text_before_first_item": "Hay texto antes del primer elemento. Empieza la lista con “- ” o “* ”.",
+    "stray_line": "Esta línea no es un elemento y no está con sangría bajo el elemento anterior, así que no pertenece a ninguna descripción.",
+    "empty_title": "El elemento no tiene título.",
+    "title_too_long": "El título pasa de {{max}} caracteres.",
+    "description_too_long": "La descripción pasa de {{max}} caracteres.",
+    "too_many_items": "La lista pasa de {{max}} elementos. Importa en lotes más pequeños.",
+    "depth_too_deep": "La lista pasa de {{max}} niveles de profundidad.",
+    "empty_list": "No hay ningún elemento en la lista.",
+    "marker_on_parent": "La marca de este elemento no se usa: un ticket con elementos no tiene estado propio, y el progreso viene de sus elementos."
+  }
+}

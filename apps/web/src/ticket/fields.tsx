@@ -1,11 +1,13 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
+import type { TFunction } from "i18next";
 import type { KeyboardEvent, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { ApiClient, Person, TicketDetail, TicketStatus, TicketSummary, UpdateTicketBody } from "../api/client.js";
 import { useDescribeApiError } from "../api/errorText.js";
-import { STATUS_TEXT } from "../map/nodeContent.js";
+import { useStatusText } from "../map/nodeContent.js";
 import { StatusMark } from "../map/StatusMark.js";
 import { useAction } from "../panel/useAction.js";
-import { isOpenStatus, reopenedNotice, reopensOnReceiving } from "./reopen.js";
+import { isOpenStatus, reopenedNoticeText, reopensOnReceiving } from "./reopen.js";
 import { descendantIds } from "./tree.js";
 
 const STATUSES: readonly TicketStatus[] = ["todo", "in_progress", "in_review", "done", "cancelled"];
@@ -66,19 +68,23 @@ function useTextEdit(client: ApiClient, detail: TicketDetail, field: "title" | "
   return { editing, draft, setDraft, action, start, startButton, cancel, canSave, save };
 }
 
-const EditActions = ({ canSave, onSave, onCancel }: { canSave: boolean; onSave: () => void; onCancel: () => void }) => (
-  <div className="ticket-actions">
-    <button type="button" className="primary" disabled={!canSave} onClick={onSave}>Salvar</button>
-    <button type="button" onClick={onCancel}>Cancelar</button>
-  </div>
-);
+const EditActions = ({ canSave, onSave, onCancel }: { canSave: boolean; onSave: () => void; onCancel: () => void }) => {
+  const { t } = useTranslation("ticket");
+  return (
+    <div className="ticket-actions">
+      <button type="button" className="primary" disabled={!canSave} onClick={onSave}>{t("common.save")}</button>
+      <button type="button" onClick={onCancel}>{t("common.cancel")}</button>
+    </div>
+  );
+};
 
 export const TitleField = forwardRef<HTMLHeadingElement, FieldBase & { canEdit: boolean }>(function TitleField({ client, detail, canEdit, onSaved }, ref) {
+  const { t } = useTranslation("ticket");
   const edit = useTextEdit(client, detail, "title", onSaved);
   if (edit.editing) {
     return (
       <div className="ticket-edit" onKeyDown={cancelOnEscape(edit.cancel)}>
-        <input aria-label="Título" autoFocus value={edit.draft} onChange={(event) => edit.setDraft(event.target.value)} />
+        <input aria-label={t("title.label")} autoFocus value={edit.draft} onChange={(event) => edit.setDraft(event.target.value)} />
         <EditActions canSave={edit.canSave} onSave={() => void edit.save()} onCancel={edit.cancel} />
         <ActionError action={edit.action} />
       </div>
@@ -87,27 +93,28 @@ export const TitleField = forwardRef<HTMLHeadingElement, FieldBase & { canEdit: 
   return (
     <div className="ticket-title-row">
       <h1 ref={ref} tabIndex={-1} className="ticket-title">{detail.title}</h1>
-      {canEdit && <button ref={edit.startButton} type="button" className="text" onClick={edit.start}>Editar título</button>}
+      {canEdit && <button ref={edit.startButton} type="button" className="text" onClick={edit.start}>{t("title.edit")}</button>}
     </div>
   );
 });
 
 export function DescriptionField({ client, detail, canEdit, onSaved }: FieldBase & { canEdit: boolean }) {
+  const { t } = useTranslation("ticket");
   const edit = useTextEdit(client, detail, "description", onSaved);
   return (
     <section className="ticket-section" aria-labelledby="ticket-description-heading">
       <div className="ticket-section-head">
-        <h2 id="ticket-description-heading">Descrição</h2>
-        {canEdit && !edit.editing && <button ref={edit.startButton} type="button" className="text" onClick={edit.start}>Editar descrição</button>}
+        <h2 id="ticket-description-heading">{t("description.heading")}</h2>
+        {canEdit && !edit.editing && <button ref={edit.startButton} type="button" className="text" onClick={edit.start}>{t("description.edit")}</button>}
       </div>
       {edit.editing ? (
         <div className="ticket-edit" onKeyDown={cancelOnEscape(edit.cancel)}>
-          <textarea aria-label="Descrição" rows={8} autoFocus value={edit.draft} onChange={(event) => edit.setDraft(event.target.value)} />
+          <textarea aria-label={t("description.heading")} rows={8} autoFocus value={edit.draft} onChange={(event) => edit.setDraft(event.target.value)} />
           <EditActions canSave={edit.canSave} onSave={() => void edit.save()} onCancel={edit.cancel} />
           <ActionError action={edit.action} />
         </div>
       ) : detail.description.trim() === "" ? (
-        <p className="ticket-muted">Sem descrição.</p>
+        <p className="ticket-muted">{t("description.empty")}</p>
       ) : (
         <p className="ticket-description">{detail.description}</p>
       )}
@@ -115,12 +122,14 @@ export function DescriptionField({ client, detail, canEdit, onSaved }: FieldBase
   );
 }
 
-/** Mensagem junto da situação quando a API recusa concluir com filho direto aberto (ADR 0034). */
-export const describeOpenItems = (count: number) =>
-  count === 1 ? "Conclua ou cancele o item aberto antes de concluir este ticket." : `Conclua ou cancele os ${count} itens abertos antes de concluir este ticket.`;
+/** Mensagem junto da situação quando a API recusa concluir com filho direto aberto (ADR 0034), no idioma ativo. */
+// O singular não leva o número ("o item aberto"), então a regra de plural do catálogo (todas as formas com `{{count}}`) não o cobre: duas chaves.
+export const openItemsText = (t: TFunction<"ticket">, count: number): string => (count === 1 ? t("status.openItem") : t("status.openItemsMany", { count }));
 
 /** `openItems`: filhos diretos abertos, contados na lista de itens da própria página. */
 export function StatusField({ client, detail, openItems, onSaved }: FieldBase & { openItems: number }) {
+  const { t } = useTranslation("ticket");
+  const statusText = useStatusText();
   const action = useAction();
   const change = async (status: TicketStatus) => {
     if (status === detail.status || action.busy) return;
@@ -129,15 +138,15 @@ export function StatusField({ client, detail, openItems, onSaved }: FieldBase & 
   };
   return (
     <>
-      <div className="ticket-status-group" role="group" aria-label="Situação">
+      <div className="ticket-status-group" role="group" aria-label={t("status.group")}>
         {STATUSES.map((status) => (
           <button key={status} type="button" aria-pressed={detail.status === status} disabled={action.busy} onClick={() => void change(status)}>
             <StatusMark status={status} />
-            {STATUS_TEXT[status]}
+            {statusText(status)}
           </button>
         ))}
       </div>
-      {action.error?.code === "ticket_has_open_children" ? <p role="alert" className="ticket-error">{describeOpenItems(openItems)}</p> : <ActionError action={action} />}
+      {action.error?.code === "ticket_has_open_children" ? <p role="alert" className="ticket-error">{openItemsText(t, openItems)}</p> : <ActionError action={action} />}
     </>
   );
 }
@@ -145,11 +154,12 @@ export function StatusField({ client, detail, openItems, onSaved }: FieldBase & 
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]!.toUpperCase()).join("");
 
 export function PeopleField({ client, detail, people, canEdit, onSaved }: FieldBase & { people: readonly Person[]; canEdit: boolean }) {
+  const { t } = useTranslation("ticket");
   const [adding, setAdding] = useState(false);
   const action = useAction();
   const assigned = new Set(detail.assigneeIds);
   const candidates = people.filter((person) => person.active && !assigned.has(person.id));
-  const nameOf = (id: string) => people.find((person) => person.id === id)?.displayName ?? "Pessoa removida";
+  const nameOf = (id: string) => people.find((person) => person.id === id)?.displayName ?? t("people.removed");
 
   const add = async (personId: string) => {
     if (personId === "") return;
@@ -166,20 +176,20 @@ export function PeopleField({ client, detail, people, canEdit, onSaved }: FieldB
   return (
     <>
       <div className="ticket-people">
-        {detail.assigneeIds.length === 0 && !canEdit && <span className="ticket-muted">Ninguém atribuído</span>}
+        {detail.assigneeIds.length === 0 && !canEdit && <span className="ticket-muted">{t("people.nobody")}</span>}
         {detail.assigneeIds.map((id) => (
           <span key={id} className="ticket-person">
             <span aria-hidden="true" className="ticket-avatar">{initials(nameOf(id))}</span>
             {nameOf(id)}
             {canEdit && (
-              <button type="button" className="ticket-person-remove" aria-label={`Remover ${nameOf(id)}`} disabled={action.busy} onClick={() => void remove(id)}>×</button>
+              <button type="button" className="ticket-person-remove" aria-label={t("people.remove", { name: nameOf(id) })} disabled={action.busy} onClick={() => void remove(id)}>×</button>
             )}
           </span>
         ))}
-        {canEdit && !adding && <button type="button" className="ticket-dashed" onClick={() => setAdding(true)}>Adicionar</button>}
+        {canEdit && !adding && <button type="button" className="ticket-dashed" onClick={() => setAdding(true)}>{t("people.add")}</button>}
         {canEdit && adding && (
-          <select aria-label="Adicionar pessoa" autoFocus value="" disabled={action.busy} onChange={(event) => void add(event.target.value)}>
-            <option value="">Escolher pessoa</option>
+          <select aria-label={t("people.addLabel")} autoFocus value="" disabled={action.busy} onChange={(event) => void add(event.target.value)}>
+            <option value="">{t("people.choose")}</option>
             {candidates.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}
           </select>
         )}
@@ -204,12 +214,14 @@ const TicketLabel = ({ ticket }: { ticket: TicketSummary }): ReactNode => (
 );
 
 export function ParentField({ client, detail, parent, tickets, canEdit, onOpen, onSaved }: ParentProps) {
+  const { t } = useTranslation("ticket");
   const [picking, setPicking] = useState(false);
   const [filter, setFilter] = useState("");
   const [reopened, setReopened] = useState<string | null>(null);
   const action = useAction();
   const blocked = descendantIds(tickets, detail.id);
   const needle = filter.trim().toLowerCase();
+  const rootText = t("parent.root");
   const matches = (text: string) => needle === "" || text.toLowerCase().includes(needle);
   // Qualquer ticket do projeto recebe itens (ADR 0034): só o próprio nó e seus descendentes ficam fora.
   const candidates = tickets.filter((entry) => entry.id !== detail.id && !blocked.has(entry.id) && matches(`${entry.key} ${entry.title}`));
@@ -231,18 +243,18 @@ export function ParentField({ client, detail, parent, tickets, canEdit, onOpen, 
         {parent ? (
           <button type="button" className="ticket-chip ticket-chip-button" onClick={() => onOpen(parent.id)}><TicketLabel ticket={parent} /></button>
         ) : (
-          <span>Raiz do projeto</span>
+          <span>{rootText}</span>
         )}
         {canEdit && (
-          <button type="button" className="text" aria-expanded={picking} onClick={() => { setReopened(null); setPicking((open) => !open); }}>Mudar</button>
+          <button type="button" className="text" aria-expanded={picking} onClick={() => { setReopened(null); setPicking((open) => !open); }}>{t("parent.change")}</button>
         )}
       </div>
-      {reopened !== null && <p className="ticket-notice" role="status">{reopenedNotice(reopened)}</p>}
+      {reopened !== null && <p className="ticket-notice" role="status">{reopenedNoticeText(t, reopened)}</p>}
       {picking && (
-        <div className="ticket-picker" role="group" aria-label="Escolher o ticket pai">
-          <input aria-label="Filtrar tickets" autoFocus value={filter} onChange={(event) => setFilter(event.target.value)} />
+        <div className="ticket-picker" role="group" aria-label={t("parent.pickerLabel")}>
+          <input aria-label={t("parent.filter")} autoFocus value={filter} onChange={(event) => setFilter(event.target.value)} />
           <div className="ticket-picker-list">
-            {matches("Raiz do projeto") && <button type="button" disabled={action.busy} onClick={() => void choose(null)}>Raiz do projeto</button>}
+            {matches(rootText) && <button type="button" disabled={action.busy} onClick={() => void choose(null)}>{rootText}</button>}
             {candidates.map((entry) => (
               <button key={entry.id} type="button" disabled={action.busy} onClick={() => void choose(entry.id)}><TicketLabel ticket={entry} /></button>
             ))}

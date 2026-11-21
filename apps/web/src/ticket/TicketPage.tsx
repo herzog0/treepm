@@ -1,12 +1,13 @@
 import { useEffect, useRef } from "react";
 import type { KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { ApiClient, Me, Person, Project, TicketDetail, TicketStatus, TicketSummary } from "../api/client.js";
 import { assistantEnabled, githubEnabled } from "../api/client.js";
 import { TicketCode } from "../github/TicketCode.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { canCreateTickets, canRemoveTickets } from "../import/permissions.js";
 import { LoadError } from "../LoadError.js";
-import { STATUS_TEXT, TicketMark, describeProgress, describeTicketState } from "../map/nodeContent.js";
+import { TicketMark, progressText, ticketStateText, useStatusText } from "../map/nodeContent.js";
 import { StatusMark } from "../map/StatusMark.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
@@ -52,6 +53,7 @@ const CloseIcon = () => (
 );
 
 function Header({ keyText, path, onClose }: { keyText: string; path: string; onClose: () => void }) {
+  const { t } = useTranslation("ticket");
   return (
     <header className="ticket-header">
       <div className="ticket-crumbs">
@@ -59,7 +61,7 @@ function Header({ keyText, path, onClose }: { keyText: string; path: string; onC
         {path !== "" && <span aria-hidden="true">·</span>}
         {path !== "" && <span className="ticket-path">{path}</span>}
       </div>
-      <button type="button" className="ticket-close" aria-label="Fechar e voltar ao mapa" onClick={onClose}>
+      <button type="button" className="ticket-close" aria-label={t("page.close")} onClick={onClose}>
         <CloseIcon />
       </button>
     </header>
@@ -68,6 +70,7 @@ function Header({ keyText, path, onClose }: { keyText: string; path: string; onC
 
 /** Página do ticket (ADR 0026): região complementar à direita do mapa, de leitura e edição. */
 export function TicketPage(props: TicketPageProps) {
+  const { t } = useTranslation("ticket");
   const { ticketId, creating, onClose, onCancelCreate } = props;
   const ref = useRef<HTMLElement>(null);
 
@@ -86,7 +89,7 @@ export function TicketPage(props: TicketPageProps) {
 
   const createProject = creating ? props.projects.find((project) => project.id === creating.projectId) ?? null : null;
   return (
-    <aside ref={ref} className="ticket-page" aria-label="Página do ticket" tabIndex={-1} onKeyDown={onKeyDown}>
+    <aside ref={ref} className="ticket-page" aria-label={t("page.label")} tabIndex={-1} onKeyDown={onKeyDown}>
       {creating ? (
         <>
           <Header keyText={createProject?.key ?? ""} path={createProject?.name ?? ""} onClose={onClose} />
@@ -100,6 +103,7 @@ export function TicketPage(props: TicketPageProps) {
 }
 
 function ViewTicket(props: TicketPageProps & { ticketId: string }) {
+  const { t } = useTranslation("ticket");
   const describeError = useDescribeApiError();
   const { client, ticketId, onClose } = props;
   const detail = useApiResource(() => safe(() => client.getTicket(ticketId)));
@@ -110,7 +114,7 @@ function ViewTicket(props: TicketPageProps & { ticketId: string }) {
         <Header keyText="" path="" onClose={onClose} />
         <div className="ticket-body">
           <div className="ticket-scroll">
-            {detail.state.status === "loading" && <p role="status">Carregando ticket…</p>}
+            {detail.state.status === "loading" && <p role="status">{t("page.loading")}</p>}
             {detail.state.status === "error" &&
               (detail.state.error.kind === "not_found" ? (
                 <p role="alert">{describeError(detail.state.error)}</p>
@@ -132,6 +136,7 @@ interface LoadedProps extends TicketPageProps {
 }
 
 function LoadedTicket(props: LoadedProps) {
+  const { t } = useTranslation("ticket");
   const { client, detail, onClose } = props;
   const tickets = useApiResource(() => safe(() => client.listTickets(detail.projectId)));
   const people = useApiResource(() => safe(() => client.listPeople()));
@@ -143,7 +148,7 @@ function LoadedTicket(props: LoadedProps) {
       <>
         <Header keyText={detail.key} path="" onClose={onClose} />
         <div className="ticket-body">
-          <div className="ticket-scroll"><p role="status">Carregando ticket…</p></div>
+          <div className="ticket-scroll"><p role="status">{t("page.loading")}</p></div>
         </div>
       </>
     );
@@ -158,6 +163,9 @@ interface ReadyProps extends LoadedProps {
 }
 
 function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail, reloadList, onOpenTicket, onClose, onChanged, onRemoved, onStartCreate }: ReadyProps) {
+  const { t } = useTranslation("ticket");
+  const { t: tMap } = useTranslation("map");
+  const statusText = useStatusText();
   const describeError = useDescribeApiError();
   const title = useRef<HTMLHeadingElement>(null);
   const removal = useAction();
@@ -196,38 +204,38 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
         <div className="ticket-scroll">
           {!canEdit && (
             <p className="ticket-notice">
-              {archived ? "O projeto está arquivado: esta página é só de leitura." : "Você tem acesso só de leitura a este projeto."}
+              {t(archived ? "readOnly.archived" : "readOnly.reader")}
             </p>
           )}
           <TitleField ref={title} client={client} detail={detail} canEdit={canEdit} onSaved={refresh} />
           <dl className="ticket-fields">
-            <dt>Situação</dt>
+            <dt>{t("fields.status")}</dt>
             <dd>
               {canEdit ? (
                 <StatusField client={client} detail={detail} openItems={openItems} onSaved={refresh} />
               ) : (
                 <span className="ticket-chip">
                   <StatusMark status={detail.status} />
-                  {STATUS_TEXT[detail.status]}
+                  {statusText(detail.status)}
                 </span>
               )}
             </dd>
             {detail.progress && (
               <>
-                <dt>Progresso</dt>
+                <dt>{t("fields.progress")}</dt>
                 <dd>
                   <span className="ticket-chip">
                     <StatusMark progress={detail.progress} />
-                    {describeProgress(detail.progress)}
+                    {progressText(tMap, detail.progress)}
                   </span>
                 </dd>
               </>
             )}
-            <dt>Pessoas</dt>
+            <dt>{t("fields.people")}</dt>
             <dd>
               <PeopleField client={client} detail={detail} people={people} canEdit={canEdit} onSaved={refresh} />
             </dd>
-            <dt>Ticket pai</dt>
+            <dt>{t("fields.parent")}</dt>
             <dd>
               <ParentField client={client} detail={detail} parent={parent} tickets={list} canEdit={canEdit} onOpen={onOpenTicket} onSaved={refresh} />
             </dd>
@@ -238,17 +246,17 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
 
           <section className="ticket-section" aria-labelledby="ticket-children-heading">
             <div className="ticket-section-head">
-              <h2 id="ticket-children-heading">Itens</h2>
+              <h2 id="ticket-children-heading">{t("items.heading")}</h2>
               {canEdit && (
                 <span className="ticket-section-actions">
                   <button type="button" className="text" onClick={() => onStartCreate({ projectId: detail.projectId, parentId: detail.id, parent: { key: detail.key, status: detail.status } })}>
-                    Novo ticket aqui dentro
+                    {t("items.newHere")}
                   </button>
                 </span>
               )}
             </div>
             {children.length === 0 ? (
-              <p className="ticket-muted">Nenhum ticket aqui dentro.</p>
+              <p className="ticket-muted">{t("items.empty")}</p>
             ) : (
               <ul className="ticket-children" aria-labelledby="ticket-children-heading">
                 {children.map((child) => (
@@ -259,7 +267,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
                         <span className="ticket-key">{child.key}</span>
                         <span className="ticket-child-title">{child.title}</span>
                       </span>
-                      <span className="ticket-child-state">{describeTicketState(child)}</span>
+                      <span className="ticket-child-state">{ticketStateText(tMap, child)}</span>
                     </button>
                   </li>
                 ))}
@@ -271,7 +279,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
 
           {canRemove && (
             <div className="ticket-danger">
-              <ConfirmAction label="Remover ticket" disabled={removal.busy} onConfirm={() => void remove()} />
+              <ConfirmAction label={t("remove.label")} disabled={removal.busy} onConfirm={() => void remove()} />
               {removal.error && <p role="alert">{describeError(removal.error, "remove")}</p>}
             </div>
           )}

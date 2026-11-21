@@ -1,1 +1,84 @@
-{}
+{
+  "page": {
+    "label": "Página do ticket",
+    "close": "Fechar e voltar ao mapa",
+    "loading": "Carregando ticket…"
+  },
+  "readOnly": {
+    "archived": "O projeto está arquivado: esta página é só de leitura.",
+    "reader": "Você tem acesso só de leitura a este projeto."
+  },
+  "common": {
+    "save": "Salvar",
+    "cancel": "Cancelar"
+  },
+  "fields": {
+    "status": "Situação",
+    "progress": "Progresso",
+    "people": "Pessoas",
+    "parent": "Ticket pai"
+  },
+  "create": {
+    "heading": "Novo ticket",
+    "inside": "Em {{project}}, dentro do ticket aberto.",
+    "atRoot": "Em {{project}}, na raiz do projeto.",
+    "title": "Título",
+    "description": "Descrição",
+    "submit": "Criar",
+    "cancel": "Cancelar"
+  },
+  "title": {
+    "label": "Título",
+    "edit": "Editar título"
+  },
+  "description": {
+    "heading": "Descrição",
+    "edit": "Editar descrição",
+    "empty": "Sem descrição."
+  },
+  "status": {
+    "group": "Situação",
+    "openItem": "Conclua ou cancele o item aberto antes de concluir este ticket.",
+    "openItemsMany": "Conclua ou cancele os {{count}} itens abertos antes de concluir este ticket."
+  },
+  "people": {
+    "nobody": "Ninguém atribuído",
+    "removed": "Pessoa removida",
+    "remove": "Remover {{name}}",
+    "add": "Adicionar",
+    "addLabel": "Adicionar pessoa",
+    "choose": "Escolher pessoa"
+  },
+  "parent": {
+    "root": "Raiz do projeto",
+    "change": "Mudar",
+    "pickerLabel": "Escolher o ticket pai",
+    "filter": "Filtrar tickets"
+  },
+  "reopen": {
+    "warning": "«{{key}}» está concluído e volta para \"A fazer\" ao receber este ticket.",
+    "notice": "«{{key}}» estava concluído e voltou para \"A fazer\"."
+  },
+  "summary": {
+    "heading": "O que entra aqui",
+    "edit": "Editar",
+    "write": "Escrever",
+    "refresh": "Atualizar pela IA",
+    "refreshConfirm": "O texto atual será substituído por um novo, escrito a partir dos itens de agora.",
+    "hint": "A IA usa este texto para decidir se um ticket novo pertence a este ticket.",
+    "counter": "{{length}} de {{max}} caracteres",
+    "writtenByAssistant": "Escrito pela IA em {{date}}",
+    "editedByPerson": "Editado por uma pessoa em {{date}}",
+    "empty": "Ainda sem texto. A IA escreve um na primeira procura que passar por aqui, ou você pode escrever agora.",
+    "writing": "Escrevendo…",
+    "invalid": "O texto precisa ter entre 1 e {{max}} caracteres."
+  },
+  "items": {
+    "heading": "Itens",
+    "newHere": "Novo ticket aqui dentro",
+    "empty": "Nenhum ticket aqui dentro."
+  },
+  "remove": {
+    "label": "Remover ticket"
+  }
+}
