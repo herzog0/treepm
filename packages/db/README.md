@@ -18,4 +18,4 @@ pnpm --filter @treepm/db typecheck
 DATABASE_MIGRATION_URL=... pnpm --filter @treepm/db migrate:deploy
 ```
 
-Migrações em `prisma/migrations`: `0001` tabelas e `app_uuid_v7()`, `0002` papel `treepm_app` e grants, `0003` RLS forçado e políticas, `0004` tickets, `0005` conversas de novo ticket com a IA, `0006` tipo do nó (`ticket` ou `group`, ADR 0031): a coluna `kind`, e `parent_kind` na chave estrangeira do pai, que só aceita `group` (por isso só agrupador tem filhos, mesmo em requisições simultâneas). Em produção `treepm_app` nasce `NOLOGIN`; a senha é definida fora do Git.
+Migrações em `prisma/migrations`: `0001` tabelas e `app_uuid_v7()`, `0002` papel `treepm_app` e grants, `0003` RLS forçado e políticas, `0004` tickets, `0005` conversas de novo ticket com a IA, `0006` tipo do nó (`ticket` ou `group`, ADR 0031): a coluna `kind`, e `parent_kind` na chave estrangeira do pai, que só aceita `group` (por isso só agrupador tem filhos, mesmo em requisições simultâneas). A `0009` tirou essa exigência (ADR 0034: todo ticket pode ter filhos) e a `0010` removeu as colunas `kind` e `parent_kind`. Em produção `treepm_app` nasce `NOLOGIN`; a senha é definida fora do Git.
