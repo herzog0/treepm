@@ -1,1 +1,76 @@
-{}
+{
+  "panel": {
+    "label": "Nuevo ticket con el asistente",
+    "title": "Nuevo ticket",
+    "subtitle": "El asistente conoce el árbol y recuerda las conversaciones anteriores",
+    "project": "{{key}} · {{name}}",
+    "close": "Cerrar conversación"
+  },
+  "project": {
+    "question": "¿En qué proyecto?",
+    "option": "{{key}} · {{name}}"
+  },
+  "loading": "Cargando la conversación…",
+  "scope": {
+    "searching": "Buscando dentro de «{{title}}»",
+    "wholeProject": "Buscar en todo el proyecto"
+  },
+  "conversation": {
+    "new": "Nueva conversación",
+    "delete": "Eliminar conversación",
+    "hint": "Describe la tarea. El asistente pregunta lo que falte, escribe el ticket y busca su lugar en el árbol.",
+    "waiting": "El asistente está respondiendo…",
+    "reply": "Respuesta del asistente"
+  },
+  "error": {
+    "retry": "Intentar de nuevo",
+    "manual": "Crear manualmente"
+  },
+  "draft": {
+    "region": "Borrador del ticket",
+    "heading": "Borrador",
+    "title": "Título",
+    "description": "Descripción",
+    "searching": "Buscando el lugar… la primera búsqueda en un proyecto puede tardar.",
+    "notReady": "La IA aún tiene una pregunta antes de buscar el lugar.",
+    "save": "Guardar borrador",
+    "search": "Buscar el lugar",
+    "searchAnyway": "Buscar de todos modos",
+    "searchAgain": "Buscar de nuevo"
+  },
+  "message": {
+    "label": "Mensaje para el asistente",
+    "placeholder": "Describe la tarea o responde al asistente",
+    "send": "Enviar",
+    "over": "El mensaje pasó de {{max}} caracteres ({{length}}). Acórtalo para enviarlo.",
+    "within": "{{length}} de {{max}} caracteres"
+  },
+  "pick": {
+    "otherProject": "Esta conversación es del proyecto {{name}}. Haz clic en un ticket o en el propio proyecto.",
+    "instruction": "Haz clic en un ticket o en el proyecto, en el mapa. Esc cancela.",
+    "choose": "Elegir en el mapa",
+    "cancel": "Cancelar elección"
+  },
+  "path": {
+    "region": "Ruta encontrada",
+    "heading": "Ruta, de arriba hacia abajo",
+    "root": "Raíz del proyecto",
+    "newTicket": "Ticket nuevo: {{title}}",
+    "entersHere": "Entra aquí, como hijo del paso anterior.",
+    "otherPlaces": "Otros lugares posibles",
+    "use": "Usar: {{label}}",
+    "create": "Crear aquí",
+    "up": "Subir un nivel",
+    "uncertain": "No estoy seguro del lugar: sirve más de un ticket. Elige una de las opciones de abajo, sube un nivel o usa «Elegir en el mapa».",
+    "outOfScope": "Este ticket quizá no quepa en «{{title}}».",
+    "stopped": {
+      "candidates_too_large": "La búsqueda se detuvo en «{{where}}» porque había demasiados tickets para comparar a la vez. Revisa si el lugar sirve o elige otro.",
+      "max_levels": "La búsqueda se detuvo en «{{where}}» al llegar al límite de niveles. Revisa si el lugar sirve o elige otro."
+    }
+  },
+  "proposal": {
+    "line": "Este ticket parece formar un grupo con otros de aquí.",
+    "list": "Tickets que van al ticket padre nuevo",
+    "create": "Crear ticket padre y mover"
+  }
+}

@@ -1,1 +1,50 @@
-{}
+{
+  "canvas": {
+    "label": "Demostración de navegación espacial",
+    "toolbar": "Cámara y colores",
+    "zoomOut": "Alejar",
+    "reset": "Restablecer encuadre",
+    "zoomIn": "Acercar",
+    "colors": "Colores"
+  },
+  "breadcrumb": "Ruta del enfoque",
+  "help": "Rueda para acercar · arrastra para desplazar · combina ambos · clic para seleccionar · Explorar rama para enfocar · C colores · Esc limpiar",
+  "metrics": {
+    "scene": "{{visible}} en escena · {{total}} nodos locales",
+    "zoom": "zoom {{percent}}%"
+  },
+  "node": {
+    "label": "{{id}} · {{label}}. {{children}}, {{descendants}}.",
+    "consumerData": "Dato del consumidor: {{value}}",
+    "meta": "{{children}} · nivel {{depth}}",
+    "children_one": "{{count}} hijo",
+    "children_many": "{{count}} hijos",
+    "children_other": "{{count}} hijos",
+    "descendants_one": "{{count}} descendiente",
+    "descendants_many": "{{count}} descendientes",
+    "descendants_other": "{{count}} descendientes",
+    "grouped_one": "{{count}} nodo agrupado: {{list}}. Amplía para revelar.",
+    "grouped_many": "{{count}} nodos agrupados: {{list}}. Amplía para revelar.",
+    "grouped_other": "{{count}} nodos agrupados: {{list}}. Amplía para revelar."
+  },
+  "selection": {
+    "region": "Nodo seleccionado",
+    "close": "Cerrar selección",
+    "explore": "Explorar rama",
+    "summary": "{{children}} · {{descendants}} · nivel {{depth}}"
+  },
+  "data": {
+    "root": "Constelación",
+    "regions": {
+      "aurora": "Aurora",
+      "coral": "Coral",
+      "forest": "Bosque",
+      "ocean": "Océano",
+      "amber": "Ámbar",
+      "iris": "Iris"
+    },
+    "layer": "{{region}} · capa {{level}}",
+    "sector": "{{region}} · sector {{index}}",
+    "element": "{{region}} · elemento {{index}}"
+  }
+}

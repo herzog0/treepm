@@ -1,1 +1,76 @@
-{}
+{
+  "panel": {
+    "label": "New ticket with the assistant",
+    "title": "New ticket",
+    "subtitle": "The assistant knows the tree and remembers earlier conversations",
+    "project": "{{key}} · {{name}}",
+    "close": "Close conversation"
+  },
+  "project": {
+    "question": "Which project?",
+    "option": "{{key}} · {{name}}"
+  },
+  "loading": "Loading the conversation…",
+  "scope": {
+    "searching": "Searching inside “{{title}}”",
+    "wholeProject": "Search the whole project"
+  },
+  "conversation": {
+    "new": "New conversation",
+    "delete": "Delete conversation",
+    "hint": "Describe the task. The assistant asks what is missing, writes the ticket and looks for its place in the tree.",
+    "waiting": "The assistant is replying…",
+    "reply": "Assistant reply"
+  },
+  "error": {
+    "retry": "Try again",
+    "manual": "Create manually"
+  },
+  "draft": {
+    "region": "Ticket draft",
+    "heading": "Draft",
+    "title": "Title",
+    "description": "Description",
+    "searching": "Looking for the place… the first search in a project can take a while.",
+    "notReady": "The AI still has a question before looking for the place.",
+    "save": "Save draft",
+    "search": "Find the place",
+    "searchAnyway": "Search anyway",
+    "searchAgain": "Search again"
+  },
+  "message": {
+    "label": "Message to the assistant",
+    "placeholder": "Describe the task or reply to the assistant",
+    "send": "Send",
+    "over": "The message is over {{max}} characters ({{length}}). Shorten it to send.",
+    "within": "{{length}} of {{max}} characters"
+  },
+  "pick": {
+    "otherProject": "This conversation is about project {{name}}. Click a ticket or the project itself.",
+    "instruction": "Click a ticket or the project on the map. Esc cancels.",
+    "choose": "Choose on the map",
+    "cancel": "Cancel choosing"
+  },
+  "path": {
+    "region": "Path found",
+    "heading": "Path, from top to bottom",
+    "root": "Project root",
+    "newTicket": "New ticket: {{title}}",
+    "entersHere": "Goes here, as a child of the previous step.",
+    "otherPlaces": "Other possible places",
+    "use": "Use: {{label}}",
+    "create": "Create here",
+    "up": "Up one level",
+    "uncertain": "I'm not sure about the place: more than one ticket fits. Choose one of the options below, go up a level or use “Choose on the map”.",
+    "outOfScope": "This ticket may not fit in “{{title}}”.",
+    "stopped": {
+      "candidates_too_large": "The search stopped at “{{where}}” because there were too many tickets to compare at once. Check whether the place works or choose another.",
+      "max_levels": "The search stopped at “{{where}}” on reaching the level limit. Check whether the place works or choose another."
+    }
+  },
+  "proposal": {
+    "line": "This ticket seems to form a group with others here.",
+    "list": "Tickets that go to the new parent ticket",
+    "create": "Create parent ticket and move"
+  }
+}

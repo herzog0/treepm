@@ -1,1 +1,47 @@
-{}
+{
+  "canvas": {
+    "label": "Spatial navigation demo",
+    "toolbar": "Camera and colors",
+    "zoomOut": "Zoom out",
+    "reset": "Reset view",
+    "zoomIn": "Zoom in",
+    "colors": "Colors"
+  },
+  "breadcrumb": "Focus path",
+  "help": "Wheel to zoom · drag to pan · combine both · click to select · Explore branch to focus · C colors · Esc clear",
+  "metrics": {
+    "scene": "{{visible}} on stage · {{total}} local nodes",
+    "zoom": "zoom {{percent}}%"
+  },
+  "node": {
+    "label": "{{id}} · {{label}}. {{children}}, {{descendants}}.",
+    "consumerData": "Consumer data: {{value}}",
+    "meta": "{{children}} · level {{depth}}",
+    "children_one": "{{count}} child",
+    "children_other": "{{count}} children",
+    "descendants_one": "{{count}} descendant",
+    "descendants_other": "{{count}} descendants",
+    "grouped_one": "{{count}} node grouped: {{list}}. Zoom in to reveal.",
+    "grouped_other": "{{count}} nodes grouped: {{list}}. Zoom in to reveal."
+  },
+  "selection": {
+    "region": "Selected node",
+    "close": "Close selection",
+    "explore": "Explore branch",
+    "summary": "{{children}} · {{descendants}} · level {{depth}}"
+  },
+  "data": {
+    "root": "Constellation",
+    "regions": {
+      "aurora": "Aurora",
+      "coral": "Coral",
+      "forest": "Forest",
+      "ocean": "Ocean",
+      "amber": "Amber",
+      "iris": "Iris"
+    },
+    "layer": "{{region}} · layer {{level}}",
+    "sector": "{{region}} · sector {{index}}",
+    "element": "{{region}} · item {{index}}"
+  }
+}

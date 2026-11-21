@@ -17,15 +17,14 @@ i18n/
   parity.ts / parity.test.ts     paridade dos catálogos
 ```
 
-Área = diretório de `src`; `app` é a raiz (`App.tsx`, `Workspace.tsx`…). Cada área já tem seus três arquivos (vazios, `{}`,
-até serem convertidos) e já está registrada em `resources.ts`: quem converte uma área só edita os arquivos dela.
+Área = diretório de `src`; `app` é a raiz (`App.tsx`, `Workspace.tsx`…). Toda área tem os seus três arquivos, registrados em
+`resources.ts`. Área nova: crie os três arquivos e registre-os lá.
 
-## Converter um componente
+## Texto novo ou alterado
 
 1. Leia a ADR 0035 (tabela de termos fixos: vale letra por letra).
-2. Escreva o teste primeiro (TDD) e rode: ele falha. Os testes existentes em português não mudam.
-3. Coloque o texto em `locales/pt-BR/<área>.json` **exatamente como está hoje** (nem uma letra, nem pontuação), e a
-   tradução em `en` e `es-MX` na mesma mudança.
+2. Escreva o teste primeiro (TDD) e rode: ele falha.
+3. Coloque o texto em `locales/pt-BR/<área>.json` e a tradução em `en` e `es-MX` na mesma mudança.
 4. No componente:
 
 ```tsx
@@ -34,8 +33,12 @@ const { t } = useTranslation("settings");   // o namespace é a área
 <button aria-label={t("camera.close")}>
 ```
 
-5. Tire o diretório de `I18N_PENDING_DIRECTORIES` em `eslint.config.js` (na raiz): a partir daí `pnpm exec eslint apps/web`
-   acusa texto literal no `.tsx` dele (texto dentro de JSX e `aria-label`, `title`, `placeholder`, `alt`).
+5. A regra de lint vale para todo `.tsx` de `apps/web/src` fora de testes: `pnpm exec eslint apps/web` acusa texto literal
+   dentro de JSX e em `aria-label`, `title`, `placeholder` e `alt`. Não há diretório isento.
+
+A regra só enxerga JSX e atributos. Texto em função, objeto de rótulos ou `throw new Error` que chegue à tela também entra
+pelo catálogo (receba o `t`, veja abaixo). O que a IA escreve (rascunho, respostas, título de ticket pai proposto) e o que vem
+da API (títulos, nomes) não é texto de interface e aparece como veio.
 
 Fora de componente (funções puras, hooks), receba o `t` por parâmetro (`import type { TFunction } from "i18next"`) ou use
 `useTranslation` num hook. Evite `i18n.t` solto: ele não re-renderiza quando o idioma muda.
@@ -94,8 +97,7 @@ formatNumber(language, 1234.5);   // 1.234,5 · 1,234.5 · 1,234.5
 toUpper(language, texto);
 ```
 
-`github/time.ts` (`formatDate`, `relativeTime`) e `plural.ts` ainda são do português e são das áreas de quem converte `github/`
-e as áreas que os usam: troque-os por estas funções e por chaves de plural.
+Tempo relativo ("há 2 minutos"): `relativeTimeText` em `github/relativeTime.ts`, com chaves de plural do catálogo.
 
 ## Testes
 
@@ -106,6 +108,9 @@ e as áreas que os usam: troque-os por estas funções e por chaves de plural.
 - Um teste por idioma que renderiza a sua área e confere os textos esperados e a ausência de português: veja
   `screens.test.tsx` (função `expectNoPortuguese`).
 - A verificação de texto literal tem teste próprio (`noLiteralText.test.ts`).
+- `fullScreens.test.tsx` renderiza as telas principais em `en` e `es-MX` com o cliente falso e falha se sobrar palavra que só
+  existe no português dos catálogos. Os dados falsos desse teste usam palavras neutras (nomes próprios e termos iguais nos três
+  idiomas): português nos dados falsos seria confundido com texto de interface.
 
 ## Idioma ativo
 

@@ -7,6 +7,9 @@ import type { MapDraft, MapNode } from "../map/items.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "../i18n/format.js";
+import type { Language } from "../i18n/languages.js";
 import { reopensOnReceiving } from "../ticket/reopen.js";
 import { PathCard } from "./PathCard.js";
 import { destinationUnder, oneLevelUp } from "./placement.js";
@@ -56,6 +59,7 @@ const SendIcon = () => (
 /** Painel de conversa para criar ticket com a IA (ADR 0029): região complementar de 440 px à direita do mapa. */
 export function AssistantPanel(props: AssistantPanelProps) {
   const { projects, initialProjectId, onClose } = props;
+  const { t } = useTranslation("assistant");
   const ref = useRef<HTMLElement>(null);
   const [projectId, setProjectId] = useState(initialProjectId);
   const [choosing, setChoosing] = useState(false);
@@ -83,23 +87,23 @@ export function AssistantPanel(props: AssistantPanelProps) {
   };
 
   return (
-    <aside ref={ref} className="assistant-panel" aria-label="Novo ticket com o assistente" tabIndex={-1} onKeyDown={onKeyDown}>
+    <aside ref={ref} className="assistant-panel" aria-label={t("panel.label")} tabIndex={-1} onKeyDown={onKeyDown}>
       <header className="assistant-header">
         <div>
-          <h2>Novo ticket</h2>
-          <p>{project ? `${project.key} · ${project.name}` : "O assistente conhece a árvore e lembra das conversas anteriores"}</p>
+          <h2>{t("panel.title")}</h2>
+          <p>{project ? t("panel.project", { key: project.key, name: project.name }) : t("panel.subtitle")}</p>
         </div>
-        <button type="button" className="assistant-close" aria-label="Fechar conversa" onClick={onClose}>
+        <button type="button" className="assistant-close" aria-label={t("panel.close")} onClick={onClose}>
           <CloseIcon />
         </button>
       </header>
       {project === null ? (
         <div className="assistant-scroll">
-          <h3>Em qual projeto?</h3>
+          <h3>{t("project.question")}</h3>
           <ul className="assistant-projects">
             {projects.map((entry) => (
               <li key={entry.id}>
-                <button type="button" onClick={() => setProjectId(entry.id)}>{entry.key} · {entry.name}</button>
+                <button type="button" onClick={() => setProjectId(entry.id)}>{t("project.option", { key: entry.key, name: entry.name })}</button>
               </li>
             ))}
           </ul>
@@ -122,6 +126,7 @@ interface ConversationProps extends AssistantPanelProps {
 
 /** A conversa aberta mais recente da pessoa no projeto continua de onde parou. */
 function ProjectConversation(props: ConversationProps) {
+  const { t } = useTranslation("assistant");
   const { client, project } = props;
   const loaded = useApiResource(() =>
     safe(async (): Promise<ApiResult<ConversationDetail | null>> => {
@@ -133,7 +138,7 @@ function ProjectConversation(props: ConversationProps) {
   );
 
   if (loaded.state.status === "loading") {
-    return <div className="assistant-scroll"><p role="status" className="assistant-hint">Carregando a conversa…</p></div>;
+    return <div className="assistant-scroll"><p role="status" className="assistant-hint">{t("loading")}</p></div>;
   }
   if (loaded.state.status === "error") {
     return <div className="assistant-scroll"><LoadError error={loaded.state.error} onRetry={loaded.retry} /></div>;
@@ -148,6 +153,8 @@ interface Edit {
 
 function Chat(props: ConversationProps & { initial: ConversationDetail | null }) {
   const describeError = useDescribeApiError();
+  const { t, i18n } = useTranslation("assistant");
+  const language = i18n.language as Language;
   const { client, project, tickets, choosing, setChoosing, onChanged, onCreated, onManualCreate, scope } = props;
   const registerPicker = props.registerPicker;
   const list = tickets[project.id] ?? [];
@@ -199,7 +206,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     const clicked = node.kind === "ticket" && node.ticket?.projectId === project.id ? node.ticket : null;
     const parentId = node.kind === "project" && node.id === project.id ? null : clicked ? clicked.id : undefined;
     if (parentId === undefined) {
-      setPickNotice(`Esta conversa é do projeto ${project.name}. Clique em um ticket ou no próprio projeto.`);
+      setPickNotice(t("pick.otherProject", { name: project.name }));
       return;
     }
     setTarget(destinationUnder(list, parentId));
@@ -356,53 +363,53 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     <>
       {scope && (
         <div className="assistant-scope">
-          <span>Procurando dentro de «{scope.title}»</span>
-          <button type="button" className="text" disabled={busy} onClick={() => void searchWholeProject()}>Procurar no projeto inteiro</button>
+          <span>{t("scope.searching", { title: scope.title })}</span>
+          <button type="button" className="text" disabled={busy} onClick={() => void searchWholeProject()}>{t("scope.wholeProject")}</button>
         </div>
       )}
       {conversation && (
         <div className="assistant-header-actions" style={{ justifyContent: "flex-end", padding: "6px 12px 0" }}>
-          <button type="button" className="text" onClick={reset}>Nova conversa</button>
-          <ConfirmAction label="Apagar conversa" disabled={removal.busy} onConfirm={() => void remove()} />
+          <button type="button" className="text" onClick={reset}>{t("conversation.new")}</button>
+          <ConfirmAction label={t("conversation.delete")} disabled={removal.busy} onConfirm={() => void remove()} />
         </div>
       )}
       <div ref={scroller} className="assistant-scroll">
         {removal.error && <p role="alert">{describeError(removal.error)}</p>}
-        {!conversation && <p className="assistant-hint">Descreva a tarefa. O assistente pergunta o que faltar, escreve o ticket e procura o lugar dele na árvore.</p>}
+        {!conversation && <p className="assistant-hint">{t("conversation.hint")}</p>}
         {conversation?.messages.map((message) => (
           <div key={message.id} className={message.author === "person" ? "assistant-person" : "assistant-reply"}>{message.body}</div>
         ))}
-        {sending && <p role="status" className="assistant-waiting">O assistente está respondendo…</p>}
+        {sending && <p role="status" className="assistant-waiting">{t("conversation.waiting")}</p>}
         {sendError && (
           <div className="assistant-error">
             <p role="alert">{describeError(sendError)}</p>
             {(retryable || canCreateManually) && (
               <div>
-                {retryable && <button type="button" onClick={() => void send()} disabled={sending}>Tentar de novo</button>}
-                <button type="button" onClick={() => onManualCreate({ projectId: project.id, parentId: manualParent, ...(fields ? { draft: { title: fields.title, description: fields.description } } : {}) })}>Criar manualmente</button>
+                {retryable && <button type="button" onClick={() => void send()} disabled={sending}>{t("error.retry")}</button>}
+                <button type="button" onClick={() => onManualCreate({ projectId: project.id, parentId: manualParent, ...(fields ? { draft: { title: fields.title, description: fields.description } } : {}) })}>{t("error.manual")}</button>
               </div>
             )}
           </div>
         )}
         {draft && fields && (
           <div className="assistant-cards">
-            <section className="assistant-card" aria-label="Rascunho do ticket">
-              <h3>Rascunho</h3>
+            <section className="assistant-card" aria-label={t("draft.region")}>
+              <h3>{t("draft.heading")}</h3>
               <label>
-                Título
+                {t("draft.title")}
                 <input value={fields.title} onChange={(event) => setEdit({ ...fields, title: event.target.value })} />
               </label>
               <label>
-                Descrição
+                {t("draft.description")}
                 <textarea rows={6} value={fields.description} onChange={(event) => setEdit({ ...fields, description: event.target.value })} />
               </label>
               {(save.error || search.error) && <p role="alert">{describeError((save.error ?? search.error)!)}</p>}
-              {search.busy && <p role="status" className="assistant-hint">Procurando o lugar… a primeira procura em um projeto pode demorar.</p>}
-              {!conversation!.ready && !outcome && <p className="assistant-hint assistant-not-ready">A IA ainda tem uma pergunta antes de procurar o lugar.</p>}
+              {search.busy && <p role="status" className="assistant-hint">{t("draft.searching")}</p>}
+              {!conversation!.ready && !outcome && <p className="assistant-hint assistant-not-ready">{t("draft.notReady")}</p>}
               <div className="assistant-actions">
-                {dirty && <button type="button" disabled={save.busy || fields.title.trim() === ""} onClick={() => void saveDraft()}>Salvar rascunho</button>}
+                {dirty && <button type="button" disabled={save.busy || fields.title.trim() === ""} onClick={() => void saveDraft()}>{t("draft.save")}</button>}
                 <button type="button" className={outcome || !conversation!.ready ? undefined : "primary"} disabled={busy || fields.title.trim() === ""} onClick={() => void searchPlace()}>
-                  {outcome ? "Procurar de novo" : conversation!.ready ? "Procurar o lugar" : "Procurar assim mesmo"}
+                  {outcome ? t("draft.searchAgain") : conversation!.ready ? t("draft.search") : t("draft.searchAnyway")}
                 </button>
               </div>
             </section>
@@ -442,15 +449,15 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
           </div>
         )}
       </div>
-      <div className="assistant-visually-hidden" role="status" aria-live="polite" aria-label="Resposta do assistente">{announcement}</div>
+      <div className="assistant-visually-hidden" role="status" aria-live="polite" aria-label={t("conversation.reply")}>{announcement}</div>
       <form className="assistant-form" onSubmit={(event) => { event.preventDefault(); void send(); }}>
         <div className="assistant-form-field">
-          <label className="assistant-visually-hidden" htmlFor="assistant-message">Mensagem para o assistente</label>
+          <label className="assistant-visually-hidden" htmlFor="assistant-message">{t("message.label")}</label>
           <textarea
             id="assistant-message"
             autoFocus
             rows={2}
-            placeholder="Descreva a tarefa ou responda ao assistente"
+            placeholder={t("message.placeholder")}
             value={text}
             aria-invalid={overLimit ? true : undefined}
             onChange={(event) => setText(event.target.value)}
@@ -458,11 +465,11 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
           />
           {text.length >= WARN_AT && (
             <p className={`assistant-count ${overLimit ? "is-over" : ""}`}>
-              {overLimit ? `A mensagem passou de 4.000 caracteres (${text.length}). Encurte para enviar.` : `${text.length} de 4.000 caracteres`}
+              {overLimit ? t("message.over", { max: formatNumber(language, MAX_MESSAGE), length: text.length }) : t("message.within", { max: formatNumber(language, MAX_MESSAGE), length: text.length })}
             </p>
           )}
         </div>
-        <button type="submit" className="assistant-send" aria-label="Enviar" disabled={!canSend}>
+        <button type="submit" className="assistant-send" aria-label={t("message.send")} disabled={!canSend}>
           <SendIcon />
         </button>
       </form>

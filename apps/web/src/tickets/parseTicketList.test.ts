@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { describeTicketListIssue, parseTicketList } from "./parseTicketList.js";
+import i18n from "i18next";
+import { parseTicketList, ticketListIssueText } from "./parseTicketList.js";
 
 function items(text: string) {
   const result = parseTicketList(text);
@@ -177,7 +178,8 @@ describe("parseTicketList: erros", () => {
   });
 });
 
-describe("describeTicketListIssue", () => {
+describe("ticketListIssueText in Portuguese", () => {
+  const describeIssue = (issue: { line: number; code: string }) => ticketListIssueText(i18n.getFixedT("pt-BR", "tickets"), "pt-BR", issue);
   it.each([
     "text_before_first_item",
     "stray_line",
@@ -189,14 +191,14 @@ describe("describeTicketListIssue", () => {
     "empty_list",
     "marker_on_parent",
   ])("describes %s in Portuguese with the line number", (code) => {
-    const message = describeTicketListIssue({ line: 7, code });
+    const message = describeIssue({ line: 7, code });
     expect(message).toMatch(/^Linha 7: /);
     expect(message.length).toBeGreaterThan(15);
     expect(message).not.toContain(code);
   });
 
   it("falls back for an unknown code", () => {
-    expect(describeTicketListIssue({ line: 2, code: "xyz" })).toMatch(/^Linha 2: /);
+    expect(describeIssue({ line: 2, code: "xyz" })).toMatch(/^Linha 2: /);
   });
 });
 
