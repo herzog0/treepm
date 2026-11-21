@@ -1,5 +1,6 @@
 import type { ApiError, GroupProposal, PlacementOutcome, Project } from "../api/client.js";
-import { reopenWarning } from "../ticket/reopen.js";
+import { useTranslation } from "react-i18next";
+import { reopenWarningText } from "../ticket/reopen.js";
 import { destinationLabel } from "./placement.js";
 import type { Destination } from "./placement.js";
 import { useDescribeApiError } from "../api/errorText.js";
@@ -38,12 +39,14 @@ interface PathCardProps {
 /** O caminho do topo até a base, em palavras: sem probabilidades (ADR 0029). */
 export function PathCard(props: PathCardProps) {
   const describeError = useDescribeApiError();
+  const { t } = useTranslation("assistant");
+  const { t: tTicket } = useTranslation("ticket");
   const { project, target, outcome, options, draftTitle, choosing, pickNotice, busy } = props;
   const others = options.filter((option) => option.parentId !== target.parentId);
   const steps = [
-    { name: project.name, note: target.path.length === 0 ? "Raiz do projeto" : "" },
+    { name: project.name, note: target.path.length === 0 ? t("path.root") : "" },
     ...target.path.map((step) => ({ name: step.title, note: "" })),
-    { name: `Ticket novo: ${draftTitle}`, note: "Entra aqui, como filho do passo anterior." },
+    { name: t("path.newTicket", { title: draftTitle }), note: t("path.entersHere") },
   ];
   const stopped = outcome.stoppedEarly;
   const { proposal } = props;
@@ -51,8 +54,8 @@ export function PathCard(props: PathCardProps) {
   const checkedCount = proposal ? proposal.tickets.filter((ticket) => !props.unchecked.includes(ticket.id)).length : 0;
 
   return (
-    <section className="assistant-card is-path" aria-label="Caminho encontrado">
-      <h3>Caminho, do topo até a base</h3>
+    <section className="assistant-card is-path" aria-label={t("path.region")}>
+      <h3>{t("path.heading")}</h3>
       <ol className="assistant-steps">
         {steps.map((step, position) => (
           <li key={position}>
@@ -62,13 +65,13 @@ export function PathCard(props: PathCardProps) {
           </li>
         ))}
       </ol>
-      {props.reopensKey !== null && <p className="assistant-notice" role="status">{reopenWarning(props.reopensKey)}</p>}
+      {props.reopensKey !== null && <p className="assistant-notice" role="status">{reopenWarningText(tTicket, props.reopensKey)}</p>}
       {proposal && (
         <div className="assistant-proposal">
-          <p className="proposal-line">Este ticket parece formar um grupo com outros daqui.</p>
+          <p className="proposal-line">{t("proposal.line")}</p>
           <p className="proposal-title">{proposal.title}</p>
           {proposal.description !== "" && <p className="proposal-description">{proposal.description}</p>}
-          <ul className="proposal-tickets" aria-label="Tickets que vão para o ticket pai novo">
+          <ul className="proposal-tickets" aria-label={t("proposal.list")}>
             {proposal.tickets.map((ticket) => {
               const checked = !props.unchecked.includes(ticket.id);
               return (
@@ -82,50 +85,48 @@ export function PathCard(props: PathCardProps) {
             })}
           </ul>
           <div className="proposal-actions">
-            <button type="button" disabled={busy} onClick={props.onCreateGroup}>Criar ticket pai e mover</button>
+            <button type="button" disabled={busy} onClick={props.onCreateGroup}>{t("proposal.create")}</button>
           </div>
         </div>
       )}
       {props.outOfScope && (
         <p className="assistant-notice" role="status">
-          Este ticket talvez não caiba em «{props.outOfScope.title}».{" "}
-          <button type="button" className="text" disabled={busy} onClick={props.onWholeProject}>Procurar no projeto inteiro</button>
+          {t("path.outOfScope", { title: props.outOfScope.title })}{" "}
+          <button type="button" className="text" disabled={busy} onClick={props.onWholeProject}>{t("scope.wholeProject")}</button>
         </p>
       )}
       {outcome.uncertain && (
-        <p className="assistant-notice">Não tenho certeza do lugar: mais de um ticket serve. Escolha uma das opções abaixo, suba um nível ou use «Escolher no mapa».</p>
+        <p className="assistant-notice">{t("path.uncertain")}</p>
       )}
       {stopped && (
         <p className="assistant-notice">
-          {stopped.reason === "candidates_too_large"
-            ? `A procura parou em «${props.whereStopped(stopped.parentId)}» porque havia tickets demais para comparar de uma vez. Confira se o lugar serve ou escolha outro.`
-            : `A procura parou em «${props.whereStopped(stopped.parentId)}» ao atingir o limite de níveis. Confira se o lugar serve ou escolha outro.`}
+          {t(stopped.reason === "candidates_too_large" ? "path.stopped.candidates_too_large" : "path.stopped.max_levels", { where: props.whereStopped(stopped.parentId) })}
         </p>
       )}
       {others.length > 0 && (
         <>
-          <p className="assistant-sub">Outros lugares possíveis</p>
+          <p className="assistant-sub">{t("path.otherPlaces")}</p>
           <ul className="assistant-alternatives">
             {others.map((option) => (
               <li key={option.parentId ?? "root"}>
-                <button type="button" onClick={() => props.onUse(option)}>Usar: {destinationLabel(option)}</button>
+                <button type="button" onClick={() => props.onUse(option)}>{t("path.use", { label: destinationLabel(t, option) })}</button>
               </li>
             ))}
           </ul>
         </>
       )}
       {choosing && (
-        <p className="assistant-notice" role="status">Clique em um ticket ou no projeto, no mapa. Esc cancela.</p>
+        <p className="assistant-notice" role="status">{t("pick.instruction")}</p>
       )}
       {choosing && pickNotice !== "" && <p role="alert">{pickNotice}</p>}
       {props.error && <p role="alert">{describeError(props.error)}</p>}
       <div className="assistant-actions">
-        <button type="button" className="primary" disabled={busy} onClick={props.onCreate}>Criar aqui</button>
-        <button type="button" disabled={!props.canGoUp} onClick={props.onUp}>Um nível acima</button>
+        <button type="button" className="primary" disabled={busy} onClick={props.onCreate}>{t("path.create")}</button>
+        <button type="button" disabled={!props.canGoUp} onClick={props.onUp}>{t("path.up")}</button>
         {choosing ? (
-          <button type="button" className="text" onClick={props.onCancelChoose}>Cancelar escolha</button>
+          <button type="button" className="text" onClick={props.onCancelChoose}>{t("pick.cancel")}</button>
         ) : (
-          <button type="button" className="text" onClick={props.onChoose}>Escolher no mapa</button>
+          <button type="button" className="text" onClick={props.onChoose}>{t("pick.choose")}</button>
         )}
       </div>
     </section>

@@ -150,25 +150,6 @@ export function parseTicketList(text: string): ParseTicketListResult {
   return { ok: true, items, warnings };
 }
 
-// i18n: substituída por `ticketListIssueText` / `useTicketListIssueText`; removida na limpeza final (ainda usada por import/ImportScreen)
-const MESSAGE_BY_CODE: Record<string, string> = {
-  text_before_first_item: "Há texto antes do primeiro item. Comece a lista com “- ” ou “* ”.",
-  stray_line: "Esta linha não é um item e não está recuada sob o item anterior, então não pertence a nenhuma descrição.",
-  empty_title: "O item está sem título.",
-  title_too_long: `O título passa de ${MAX_TITLE} caracteres.`,
-  description_too_long: `A descrição passa de ${MAX_DESCRIPTION.toLocaleString("pt-BR")} caracteres.`,
-  too_many_items: `A lista passa de ${MAX_ITEMS} itens. Importe em lotes menores.`,
-  depth_too_deep: `A lista passa de ${MAX_DEPTH} níveis de profundidade.`,
-  empty_list: "Não há nenhum item na lista.",
-  marker_on_parent: "O marcador deste item não aparece: ticket com filhos não tem situação própria, e o progresso vem dos filhos.",
-};
-
-// i18n: substituída por `ticketListIssueText`; removida na limpeza final
-/** Traduz um erro ou aviso do interpretador em mensagem para a pessoa que colou a lista. */
-export function describeTicketListIssue({ line, code }: TicketListIssue): string {
-  return `Linha ${line}: ${MESSAGE_BY_CODE[code] ?? "a lista não pôde ser interpretada."}`;
-}
-
 const KNOWN_CODES = ["text_before_first_item", "stray_line", "empty_title", "title_too_long", "description_too_long", "too_many_items", "depth_too_deep", "empty_list", "marker_on_parent"] as const;
 type KnownCode = (typeof KNOWN_CODES)[number];
 const isKnownCode = (code: string): code is KnownCode => (KNOWN_CODES as readonly string[]).includes(code);

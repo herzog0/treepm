@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import type { PlacementTarget, TicketSummary } from "../api/client.js";
 import { ancestorsOf } from "../ticket/tree.js";
 
@@ -19,5 +20,5 @@ export function oneLevelUp(destination: Destination): Destination | null {
   return { parentId: path.at(-1)?.id ?? null, path };
 }
 
-export const destinationLabel = (destination: Destination): string =>
-  destination.path.length === 0 ? "Raiz do projeto" : destination.path.map((step) => step.title).join(" › ");
+export const destinationLabel = (t: TFunction<"assistant">, destination: Destination): string =>
+  destination.path.length === 0 ? t("path.root") : destination.path.map((step) => step.title).join(" › ");

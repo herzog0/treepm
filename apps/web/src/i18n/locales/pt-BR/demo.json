@@ -1,1 +1,53 @@
-{}
+{
+  "canvas": {
+    "label": "Demo de navegação espacial",
+    "toolbar": "Câmera e cores",
+    "zoomOut": "Reduzir zoom",
+    "reset": "Restaurar enquadramento",
+    "zoomIn": "Ampliar zoom",
+    "colors": "Cores"
+  },
+  "breadcrumb": "Caminho do foco",
+  "help": "Wheel para zoom · arraste para pan · combine os dois · clique para selecionar · Explorar ramo para focar · C cores · Esc limpar",
+  "metrics": {
+    "scene": "{{visible}} na cena · {{total}} nós locais",
+    "zoom": "zoom {{percent}}%"
+  },
+  "node": {
+    "label": "{{id}} · {{label}}. {{children}}, {{descendants}}.",
+    "consumerData": "Dado do consumidor: {{value}}",
+    "meta": "{{children}} · nível {{depth}}",
+    "children_zero": "{{count}} filhos",
+    "children_one": "{{count}} filhos",
+    "children_many": "{{count}} filhos",
+    "children_other": "{{count}} filhos",
+    "descendants_zero": "{{count}} descendentes",
+    "descendants_one": "{{count}} descendentes",
+    "descendants_many": "{{count}} descendentes",
+    "descendants_other": "{{count}} descendentes",
+    "grouped_zero": "{{count}} nós agrupados: {{list}}. Amplie para revelar.",
+    "grouped_one": "{{count}} nós agrupados: {{list}}. Amplie para revelar.",
+    "grouped_many": "{{count}} nós agrupados: {{list}}. Amplie para revelar.",
+    "grouped_other": "{{count}} nós agrupados: {{list}}. Amplie para revelar."
+  },
+  "selection": {
+    "region": "Nó selecionado",
+    "close": "Fechar seleção",
+    "explore": "Explorar ramo",
+    "summary": "{{children}} · {{descendants}} · nível {{depth}}"
+  },
+  "data": {
+    "root": "Constelação",
+    "regions": {
+      "aurora": "Aurora",
+      "coral": "Coral",
+      "forest": "Bosque",
+      "ocean": "Oceano",
+      "amber": "Âmbar",
+      "iris": "Íris"
+    },
+    "layer": "{{region}} · camada {{level}}",
+    "sector": "{{region}} · setor {{index}}",
+    "element": "{{region}} · elemento {{index}}"
+  }
+}

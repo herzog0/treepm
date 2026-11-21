@@ -2,7 +2,7 @@ import i18n from "i18next";
 import { describe, expect, it } from "vitest";
 import type { Language } from "../i18n/languages.js";
 import { setTestLanguage } from "../test/i18n.js";
-import { describeTicketListIssue, ticketListIssueText } from "./parseTicketList.js";
+import { ticketListIssueText } from "./parseTicketList.js";
 
 const CODES = ["text_before_first_item", "stray_line", "empty_title", "title_too_long", "description_too_long", "too_many_items", "depth_too_deep", "empty_list", "marker_on_parent"];
 
@@ -14,6 +14,7 @@ describe.each([
       description_too_long: "A descrição passa de 20.000 caracteres.",
       too_many_items: "A lista passa de 500 itens. Importe em lotes menores.",
       text_before_first_item: "Há texto antes do primeiro item. Comece a lista com “- ” ou “* ”.",
+      empty_list: "Não há nenhum item na lista.",
     },
     unknown: "Linha 2: a lista não pôde ser interpretada.",
   },
@@ -49,11 +50,5 @@ describe.each([
       expect(message.length).toBeGreaterThan(15);
     }
     expect(ticketListIssueText(t, language, { line: 2, code: "xyz" })).toBe(unknown);
-  });
-});
-
-describe("describeTicketListIssue (kept for import/)", () => {
-  it("still answers in Portuguese", () => {
-    expect(describeTicketListIssue({ line: 1, code: "empty_list" })).toBe("Linha 1: Não há nenhum item na lista.");
   });
 });

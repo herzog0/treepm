@@ -6,8 +6,7 @@ import { useIsDetail } from "./detail.js";
 import { TicketMark, cardStateText } from "./ticketState.js";
 
 // Nomes das situações para os outros diretórios: `useStatusText` / `statusText` (de `ticketState.tsx`, reexportados aqui).
-// As antigas (`STATUS_TEXT`, `describeProgress`, `describeTicketState`) seguem exportadas até a limpeza final.
-export { STATUS_TEXT, TicketMark, describeProgress, describeTicketState, progressText, statusText, ticketStateText, useStatusText } from "./ticketState.js";
+export { TicketMark, progressText, statusText, ticketStateText, useStatusText } from "./ticketState.js";
 
 /**
  * Conteúdo do nó por nível de detalhe (ADR 0025): completo, compacto, chip e ponto; mais o "detalhe" da

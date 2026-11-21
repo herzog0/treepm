@@ -7,7 +7,7 @@ import { LoadError } from "../LoadError.js";
 import { StatusMark } from "../map/StatusMark.js";
 import { useStatusText } from "../map/nodeContent.js";
 import { useAction } from "../panel/useAction.js";
-import { describeTicketListIssue, parseTicketList } from "../tickets/parseTicketList.js";
+import { parseTicketList, useTicketListIssueText } from "../tickets/parseTicketList.js";
 import { canCreateTickets } from "./permissions.js";
 import "./import.css";
 import { useDescribeApiError } from "../api/errorText.js";
@@ -106,6 +106,7 @@ interface ImportFormProps {
 function ImportForm({ client, projectId, projectKey, projectName, onExit }: ImportFormProps) {
   const { t } = useTranslation("import");
   const describeError = useDescribeApiError();
+  const describeIssue = useTicketListIssueText();
   const [text, setText] = useState("");
   const [fileError, setFileError] = useState(false);
   const action = useAction();
@@ -180,7 +181,7 @@ function ImportForm({ client, projectId, projectKey, projectName, onExit }: Impo
           {parsed && !parsed.ok && (
             <ul className="import-errors" aria-label={t("preview.errors")}>
               {parsed.errors.map((issue, position) => (
-                <li key={position}>{describeTicketListIssue(issue)}</li>
+                <li key={position}>{describeIssue(issue)}</li>
               ))}
             </ul>
           )}
@@ -196,7 +197,7 @@ function ImportForm({ client, projectId, projectKey, projectName, onExit }: Impo
               {parsed.warnings.length > 0 && (
                 <ul className="import-warnings" aria-label={t("preview.warnings")}>
                   {parsed.warnings.map((issue, position) => (
-                    <li key={position}>{describeTicketListIssue(issue)}</li>
+                    <li key={position}>{describeIssue(issue)}</li>
                   ))}
                 </ul>
               )}

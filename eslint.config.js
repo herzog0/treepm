@@ -3,10 +3,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 import noLiteralUiText from "./eslint-rules/no-literal-ui-text.js";
 
-// Verificação contra texto literal em componente (ADR 0035), ligada por diretório de apps/web/src.
-// Ela vale para todo `.tsx` fora de testes, exceto para os diretórios abaixo, que ainda não foram convertidos para o
-// catálogo de traduções. Ao converter um diretório, tire-o desta lista: este é o único lugar a editar.
-const I18N_PENDING_DIRECTORIES = ["panel", "ticket", "tickets", "import", "github", "map", "assistant", "demo"];
+// Verificação contra texto literal em componente (ADR 0035): vale para todo `.tsx` de apps/web/src, fora de testes.
 
 export default tseslint.config(
   { ignores: ["**/dist/**", "**/node_modules/**", "**/*.config.js"] },
@@ -25,7 +22,7 @@ export default tseslint.config(
   },
   {
     files: ["apps/web/src/**/*.tsx"],
-    ignores: ["**/*.test.tsx", "apps/web/src/test/**", ...I18N_PENDING_DIRECTORIES.map((directory) => `apps/web/src/${directory}/**`)],
+    ignores: ["**/*.test.tsx", "apps/web/src/test/**"],
     plugins: { treepm: { rules: { "no-literal-ui-text": noLiteralUiText } } },
     rules: { "treepm/no-literal-ui-text": "error" },
   }
