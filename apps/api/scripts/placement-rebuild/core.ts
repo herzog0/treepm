@@ -308,6 +308,20 @@ export type CliOptions = {
   fakeProviders?: boolean;
   /** `report`: lê a execução do `leave-one-out` em vez da do `rebuild`. */
   loo?: boolean;
+  /** `collect` e `report --collect`: a variante da coleta (nome dos arquivos). Padrão `base`. */
+  variant?: string;
+  /** `collect`: roda também a coleta D (o Claude vê o esboço do projeto). */
+  claudeOutline?: boolean;
+  /** `collect`: o texto dos agrupadores nas coletas A, A− e B: o resumo do produto ou uma definição escrita pelo Claude. */
+  groupText?: "summary" | "definition";
+  /** `collect`: arquivo JSON `{ "<número>": "<descrição>" }` com descrições novas para o rascunho. */
+  ticketDescriptions?: string;
+  /** `report --collect`: compara as duas variantes (a primeira é a A). */
+  compare?: [string, string];
+  /** `report --collect --compare`: projeto da variante B (padrão: o mesmo de `--project`). */
+  compareProject?: string;
+  /** `report --collect --compare`: números dos agrupadores "de fase" no gabarito. */
+  phaseGroups?: number[];
   /** `report`: lê a coleta do `collect` em vez da do `rebuild`. */
   collect?: boolean;
   /** `collect`: quantas vezes cada requisição do Jev é repetida com o payload idêntico (padrão 3). */
@@ -356,6 +370,13 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--loo": "loo",
   "--collect": "collect",
   "--repeats": "repeats",
+  "--variant": "variant",
+  "--claude-outline": "claudeOutline",
+  "--group-text": "groupText",
+  "--ticket-descriptions": "ticketDescriptions",
+  "--compare": "compare",
+  "--compare-project": "compareProject",
+  "--phase-groups": "phaseGroups",
   "--scope-check": "scopeCheck",
   "--flat": "flat",
   "--role": "role",
@@ -379,12 +400,18 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     const flag = rest[i] as string;
     const key = FLAGS[flag];
     if (!key) return fail(`Opção desconhecida: ${flag}.`);
-    if (key === "fakeProviders" || key === "loo" || key === "collect" || key === "scopeCheck" || key === "flat") {
+    if (key === "fakeProviders" || key === "loo" || key === "collect" || key === "claudeOutline" || key === "scopeCheck" || key === "flat") {
       options[key] = true;
       continue;
     }
     const value = rest[++i];
     if (value === undefined) return fail(`A opção ${flag} precisa de um valor.`);
+    if (key === "compare") {
+      const second = rest[++i];
+      if (second === undefined) return fail("--compare precisa de duas variantes.");
+      options[key] = [value, second];
+      continue;
+    }
     if (key === "repeats") {
       const parsed = Number(value);
       if (!Number.isInteger(parsed) || parsed < 1) return fail(`${flag} deve ser um inteiro maior que zero.`);
@@ -403,6 +430,24 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   }
   if (options["flat"] !== undefined && command !== "leave-one-out") return fail("--flat só existe no leave-one-out.");
   if (options["flat"] !== undefined && options["scopeCheck"] !== undefined) return fail("--flat não combina com --scope-check.");
+  const variantOk = (name: unknown): boolean => typeof name === "string" && /^[a-z0-9-]+$/.test(name);
+  if (options["variant"] !== undefined && !variantOk(options["variant"])) return fail("--variant só aceita letras minúsculas, dígitos e hífen.");
+  const compare = options["compare"] as [string, string] | undefined;
+  if (compare !== undefined && !(variantOk(compare[0]) && variantOk(compare[1]))) return fail("--compare só aceita variantes com letras minúsculas, dígitos e hífen.");
+  if (options["groupText"] !== undefined && options["groupText"] !== "summary" && options["groupText"] !== "definition") return fail("--group-text é `summary` ou `definition`.");
+  for (const key of ["claudeOutline", "groupText", "ticketDescriptions"]) {
+    if (options[key] !== undefined && command !== "collect") return fail(`--${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)} só existe no collect.`);
+  }
+  if (options["variant"] !== undefined && command !== "collect" && !(command === "report" && options["collect"] !== undefined)) return fail("--variant só existe no collect e no report --collect.");
+  for (const key of ["compare", "compareProject", "phaseGroups"]) {
+    if (options[key] !== undefined && !(command === "report" && options["collect"] !== undefined)) return fail(`--${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)} só existe no report --collect.`);
+  }
+  if ((options["compareProject"] !== undefined || options["phaseGroups"] !== undefined) && compare === undefined) return fail("--compare-project e --phase-groups dependem de --compare.");
+  if (options["phaseGroups"] !== undefined) {
+    const numbers = String(options["phaseGroups"]).split(",").map(Number);
+    if (numbers.some((n) => !Number.isInteger(n) || n < 1)) return fail("--phase-groups deve ser uma lista de números de ticket separados por vírgula.");
+    options["phaseGroups"] = numbers;
+  }
   if (options["repeats"] !== undefined && command !== "collect") return fail("--repeats só existe no collect.");
   if (options["collect"] !== undefined && command !== "report") return fail("--collect só existe no report.");
   if (options["collect"] !== undefined && options["loo"] !== undefined) return fail("--collect não combina com --loo.");

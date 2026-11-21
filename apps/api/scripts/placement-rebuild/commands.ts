@@ -78,6 +78,11 @@ export type Context = {
   collectKit?: CollectKit;
   /** `collect`: repetições de cada requisição do Jev (padrão 3). */
   repeats?: number;
+  /** `collect`: variante (nome dos arquivos; padrão `base`), coleta D, texto dos agrupadores e descrições novas. */
+  variant?: string;
+  claudeOutline?: boolean;
+  groupText?: "summary" | "definition";
+  ticketDescriptionsPath?: string;
   /** `leave-one-out --flat`: mede a proposta de agrupador na árvore achatada; nunca confirma a proposta. */
   flat?: boolean;
 };
