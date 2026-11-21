@@ -19,6 +19,8 @@ const meSchema = z.object({
   }),
   /** Ausente em uma API antiga: a IA conta como desligada (ADR 0029). */
   assistant: z.object({ enabled: z.boolean() }).optional(),
+  /** Ausente em uma API antiga: o GitHub conta como desligado (ADR 0032). */
+  github: z.object({ enabled: z.boolean() }).optional(),
 });
 const personSchema = z.object({
   id: z.string(),
@@ -109,6 +111,38 @@ const placementOutcomeSchema = z.object({
     .default(null),
 });
 const createdFromConversationSchema = z.object({ conversation: conversationDetailSchema, ticket: ticketDetailSchema });
+const githubInstallationSchema = z.object({
+  accountLogin: z.string(),
+  accountType: z.string(),
+  repositorySelection: z.enum(["all", "selected"]),
+  connectedAt: z.string(),
+});
+const githubRepositorySchema = z.object({
+  repoId: z.number(),
+  fullName: z.string(),
+  private: z.boolean(),
+  htmlUrl: z.string(),
+  defaultBranch: z.string(),
+});
+const projectRepositorySchema = githubRepositorySchema.extend({ id: z.string(), linkedAt: z.string() });
+const codeRefreshSchema = z.object({
+  refreshed: z.boolean(),
+  syncedAt: z.string().nullable(),
+  repositories: z.array(z.object({ id: z.string(), fullName: z.string(), status: z.enum(["ok", "truncated", "unavailable"]) })),
+});
+const codeLinkSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["branch", "pull_request"]),
+  ticket: z.object({ id: z.string(), key: z.string(), title: z.string() }),
+  repository: z.object({ fullName: z.string(), htmlUrl: z.string() }),
+  ref: z.string(),
+  number: z.number().nullable(),
+  title: z.string().nullable(),
+  state: z.enum(["active", "open", "merged", "closed"]),
+  url: z.string(),
+  updatedAt: z.string().nullable(),
+});
+const ticketCodeSchema = z.object({ repositories: z.number(), syncedAt: z.string().nullable(), links: z.array(codeLinkSchema) });
 const errorBodySchema = z.object({ error: z.object({ code: z.string() }) });
 
 export type Me = z.output<typeof meSchema>;
@@ -137,6 +171,18 @@ export interface NewGroup {
   title: string;
   description: string;
   ticketIds: string[];
+}
+export type GithubInstallation = z.output<typeof githubInstallationSchema>;
+export type GithubRepository = z.output<typeof githubRepositorySchema>;
+export type ProjectRepository = z.output<typeof projectRepositorySchema>;
+export type CodeRefresh = z.output<typeof codeRefreshSchema>;
+export type CodeLink = z.output<typeof codeLinkSchema>;
+export type TicketCode = z.output<typeof ticketCodeSchema>;
+/** Corpo do retorno do GitHub: `code` e `state` da URL e, quando veio um inteiro positivo, o `installation_id`. */
+export interface CompleteGithubBody {
+  code: string;
+  state: string;
+  installationId?: number;
 }
 export type CreatedFromConversation = z.output<typeof createdFromConversationSchema>;
 
@@ -309,6 +355,22 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     removeConversation: (id: string) => request("DELETE", conversation(id), null),
     importTickets: (projectId: string, body: ImportTicketsBody) =>
       request("POST", `${project(projectId)}/tickets/import`, z.array(ticketSummarySchema), body),
+
+    getGithubInstallation: () =>
+      request("GET", "/api/github/installation", z.object({ installation: githubInstallationSchema.nullable() })),
+    connectGithub: () => request("POST", "/api/github/connect", z.object({ url: z.string() })),
+    completeGithubConnection: (body: CompleteGithubBody) =>
+      request("POST", "/api/github/connect/complete", z.object({ installation: githubInstallationSchema }), body),
+    disconnectGithub: () => request("DELETE", "/api/github/installation", null),
+    listGithubRepositories: () => request("GET", "/api/github/repositories", z.array(githubRepositorySchema)),
+    listProjectRepositories: (projectId: string) =>
+      request("GET", `${project(projectId)}/repositories`, z.array(projectRepositorySchema)),
+    linkProjectRepository: (projectId: string, body: { repoId: number }) =>
+      request("POST", `${project(projectId)}/repositories`, projectRepositorySchema, body),
+    unlinkProjectRepository: (projectId: string, repositoryId: string) =>
+      request("DELETE", `${project(projectId)}/repositories/${repositoryId}`, null),
+    refreshProjectCode: (projectId: string) => request("POST", `${project(projectId)}/code/refresh`, codeRefreshSchema),
+    getTicketCode: (id: string) => request("GET", `${ticket(id)}/code`, ticketCodeSchema),
   };
 }
 
@@ -330,6 +392,11 @@ const MESSAGE_BY_CODE: Record<string, string> = {
   conversation_changed: "A conversa mudou enquanto o assistente respondia. Mostramos a versão mais recente.",
   grouping_changed: "Algum desses tickets mudou de lugar. Procure de novo.",
   draft_required: "A conversa ainda não tem rascunho. Peça ao assistente para escrevê-lo antes de continuar.",
+  github_unavailable: "O GitHub não respondeu. Tente de novo em instantes.",
+  not_connected: "A organização não está ligada ao GitHub.",
+  installation_unavailable: "A instalação do app no GitHub não está disponível.",
+  repository_already_linked: "Este repositório já está ligado.",
+  repository_not_found: "O app não tem acesso a este repositório.",
   person_without_project_access: "A pessoa ainda não tem acesso ao projeto. Conceda um papel no projeto antes de atribuir.",
 };
 
@@ -350,3 +417,6 @@ export function describeApiError(error: ApiError, action?: "remove"): string {
   }
   return (error.code !== undefined ? MESSAGE_BY_CODE[error.code] : undefined) ?? MESSAGE_BY_KIND[error.kind];
 }
+
+/** O GitHub está ligado nesta API? Uma API antiga não manda o campo: conta como desligado. */
+export const githubEnabled = (me: Me): boolean => me.github?.enabled === true;

@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { ApiClient, ApiResult, Area, ConversationDetail, Me, Person, PlacementOutcome, Project, Team, TicketDetail, TicketStatus, TicketSummary } from "../api/client.js";
+import type { ApiClient, ApiResult, Area, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, TicketStatus, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid" | "server_error", code?: string): ApiResult<never> => ({
@@ -7,9 +7,10 @@ export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "
   error: code === undefined ? { kind } : { kind, code },
 });
 
-export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean } = {}): Me {
+export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean; github?: boolean } = {}): Me {
   return {
     ...(overrides.assistant === undefined ? {} : { assistant: { enabled: overrides.assistant } }),
+    ...(overrides.github === undefined ? {} : { github: { enabled: overrides.github } }),
     person: { id: "person-1", displayName: "Ana", email: "ana@example.com", avatarUrl: null },
     organization: { orgId: overrides.orgId ?? "org-1", name: overrides.orgName ?? "Equipe Alfa", slug: "alfa" },
     roles: { clerk: overrides.clerk ?? "admin", teams: [], projects: [] },
@@ -65,6 +66,162 @@ interface FakeData {
   people?: Person[];
   /** Tickets por ID de projeto, na ordem da listagem. */
   tickets?: Record<string, TicketSummary[]>;
+  /** Liga as rotas do GitHub (ADR 0032) com as regras do contrato; sem isso elas lançam, como o resto. */
+  github?: FakeGithub;
+}
+
+export interface FakeGithub {
+  /** Falso: toda rota responde 404 `github_disabled`. */
+  enabled?: boolean;
+  /** Instalação da organização; `null` é "não ligada". */
+  installation?: GithubInstallation | null;
+  /** Repositórios que o app enxerga. */
+  repositories?: GithubRepository[];
+  /** Repositórios já ligados, por ID de projeto. */
+  linked?: Record<string, ProjectRepository[]>;
+  /** Vínculos de código por ID de ticket (e de agrupador, que já traz os dos filhos). */
+  code?: Record<string, { links: CodeLink[]; syncedAt?: string | null }>;
+  /** O que `POST /github/connect/complete` instala quando dá certo. */
+  pendingInstallation?: GithubInstallation;
+  /** Erro de `POST /github/connect/complete`, no formato `[tipo, código]`. */
+  completeError?: [Parameters<typeof failed>[0], string?];
+  /** O GitHub não enxerga a instalação (409 `installation_unavailable` nas rotas de repositório). */
+  installationUnavailable?: boolean;
+  /** Resultado de `POST /projects/:id/code/refresh`; o padrão é tudo `ok`. */
+  refresh?: CodeRefresh | ApiResult<never>;
+  /** URL devolvida por `POST /github/connect`. */
+  connectUrl?: string;
+}
+
+export const makeInstallation = (extra: Partial<GithubInstallation> = {}): GithubInstallation => ({
+  accountLogin: "herzog0",
+  accountType: "User",
+  repositorySelection: "all",
+  connectedAt: "2026-11-20T15:00:00.000Z",
+  ...extra,
+});
+
+export const makeGithubRepository = (repoId: number, fullName: string, extra: Partial<GithubRepository> = {}): GithubRepository => ({
+  repoId,
+  fullName,
+  private: false,
+  htmlUrl: `https://github.com/${fullName}`,
+  defaultBranch: "main",
+  ...extra,
+});
+
+export function makeCodeLink(id: string, ticket: { id: string; key: string; title: string }, extra: Partial<CodeLink> = {}): CodeLink {
+  const repository = extra.repository ?? { fullName: "herzog0/treepm", htmlUrl: "https://github.com/herzog0/treepm" };
+  return {
+    id,
+    kind: "pull_request",
+    ticket,
+    repository,
+    ref: "feat/login",
+    number: 12,
+    title: "Corrige o login",
+    state: "open",
+    url: `${repository.htmlUrl}/pull/12`,
+    updatedAt: "2026-11-21T10:00:00.000Z",
+    ...extra,
+  };
+}
+
+const GITHUB_NAMES = [
+  "getGithubInstallation", "connectGithub", "completeGithubConnection", "disconnectGithub", "listGithubRepositories",
+  "listProjectRepositories", "linkProjectRepository", "unlinkProjectRepository", "refreshProjectCode", "getTicketCode",
+] as const;
+
+/**
+ * As rotas do GitHub do contrato da ADR 0032, em memória: papéis (administrador da organização, gestor do projeto),
+ * códigos de erro e o estado ligado/desligado. As chamadas continuam espiáveis (`vi.fn`).
+ */
+function githubMethods(data: FakeData): Partial<ApiClient> {
+  const github = data.github!;
+  const me = data.me ?? makeMe();
+  const disabled = () => github.enabled === false;
+  const gone = () => failed("not_found", "github_disabled");
+  const isAdmin = me.roles.clerk === "admin";
+  const managerOf = (projectId: string) => me.roles.projects.some((entry) => entry.projectId === projectId && entry.role === "manager");
+  const canLink = (projectId: string) => isAdmin || managerOf(projectId);
+  let installation = github.installation ?? null;
+  const linked = new Map<string, ProjectRepository[]>(Object.entries(github.linked ?? {}).map(([id, list]) => [id, [...list]]));
+  const code = new Map(Object.entries(github.code ?? {}));
+  let sequence = 0;
+  const archived = (projectId: string) => data.projects?.find((entry) => entry.id === projectId)?.archivedAt != null;
+  const unavailable = () => (installation === null ? failed("conflict", "not_connected") : github.installationUnavailable ? failed("conflict", "installation_unavailable") : null);
+
+  return {
+    getGithubInstallation: vi.fn(async () => (disabled() ? gone() : ok({ installation }))),
+    connectGithub: vi.fn(async () => {
+      if (disabled()) return gone();
+      if (!isAdmin) return failed("forbidden");
+      return ok({ url: github.connectUrl ?? "https://github.com/apps/treepm-dev/installations/new?state=abc" });
+    }),
+    completeGithubConnection: vi.fn(async () => {
+      if (disabled()) return gone();
+      if (!isAdmin) return failed("forbidden");
+      if (github.completeError) return failed(...github.completeError);
+      if (installation !== null) return failed("conflict", "already_connected");
+      installation = github.pendingInstallation ?? makeInstallation();
+      return ok({ installation });
+    }),
+    disconnectGithub: vi.fn(async () => {
+      if (disabled()) return gone();
+      if (!isAdmin) return failed("forbidden");
+      if (installation === null) return failed("not_found", "not_connected");
+      installation = null;
+      linked.clear();
+      code.clear();
+      return ok(undefined);
+    }),
+    listGithubRepositories: vi.fn(async () => {
+      if (disabled()) return gone();
+      if (!isAdmin && me.roles.projects.every((entry) => entry.role !== "manager")) return failed("forbidden");
+      return unavailable() ?? ok((github.repositories ?? []).map((entry) => ({ ...entry })));
+    }),
+    listProjectRepositories: vi.fn(async (projectId: string) => (disabled() ? gone() : ok((linked.get(projectId) ?? []).map((entry) => ({ ...entry }))))),
+    linkProjectRepository: vi.fn(async (projectId: string, body: { repoId: number }) => {
+      if (disabled()) return gone();
+      if (!canLink(projectId)) return failed("forbidden");
+      if (archived(projectId)) return failed("conflict", "project_archived");
+      const problem = unavailable();
+      if (problem) return problem;
+      const found = (github.repositories ?? []).find((entry) => entry.repoId === body.repoId);
+      if (!found) return failed("not_found", "repository_not_found");
+      const list = linked.get(projectId) ?? [];
+      if (list.some((entry) => entry.repoId === body.repoId)) return failed("conflict", "repository_already_linked");
+      const entry: ProjectRepository = { ...found, id: `link-${++sequence}`, linkedAt: "2026-11-21T12:00:00.000Z" };
+      linked.set(projectId, [...list, entry]);
+      return ok(entry);
+    }),
+    unlinkProjectRepository: vi.fn(async (projectId: string, repositoryId: string) => {
+      if (disabled()) return gone();
+      if (!canLink(projectId)) return failed("forbidden");
+      if (archived(projectId)) return failed("conflict", "project_archived");
+      linked.set(projectId, (linked.get(projectId) ?? []).filter((entry) => entry.id !== repositoryId));
+      return ok(undefined);
+    }),
+    refreshProjectCode: vi.fn(async (projectId: string) => {
+      if (disabled()) return gone();
+      if (archived(projectId)) return failed("conflict", "project_archived");
+      if (installation === null) return failed("conflict", "not_connected");
+      if (github.refresh && "ok" in github.refresh) return github.refresh;
+      const result: CodeRefresh = github.refresh ?? {
+        refreshed: true,
+        syncedAt: "2026-11-21T12:00:00.000Z",
+        repositories: (linked.get(projectId) ?? []).map((entry) => ({ id: entry.id, fullName: entry.fullName, status: "ok" as const })),
+      };
+      for (const [id, entry] of code) code.set(id, { ...entry, syncedAt: result.syncedAt });
+      return ok(result);
+    }),
+    getTicketCode: vi.fn(async (id: string): Promise<ApiResult<TicketCode>> => {
+      if (disabled()) return gone();
+      const entry = code.get(id);
+      const repositories = [...linked.values()].reduce((count, list) => count + list.length, 0);
+      return ok({ repositories, syncedAt: entry?.syncedAt ?? null, links: (entry?.links ?? []).map((link) => ({ ...link })) });
+    }),
+  };
 }
 
 /** Cliente falso: cada método lança se não for configurado, para o teste dizer o que precisa. */
@@ -79,6 +236,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "getTicket", "createTicket", "updateTicket", "removeTicket", "putTicketAssignee", "removeTicketAssignee",
     "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement",
     "createTicketFromConversation", "listConversations", "getConversation", "removeConversation",
+    ...GITHUB_NAMES,
   ] as const;
   const base = Object.fromEntries(names.map((name) => [name, unexpected(name)])) as unknown as ApiClient;
   return {
@@ -89,6 +247,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     listTeams: vi.fn(async () => ok(data.teams ?? [])),
     listPeople: vi.fn(async () => ok(data.people ?? [])),
     listTickets: vi.fn(async (projectId: string) => ok(data.tickets?.[projectId] ?? [])),
+    ...(data.github ? githubMethods(data) : {}),
   };
 }
 

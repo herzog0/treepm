@@ -1,4 +1,7 @@
 import { useState } from "react";
+import type { ApiClient, Me } from "../api/client.js";
+import { githubEnabled } from "../api/client.js";
+import { GithubSettings } from "../github/GithubSettings.js";
 import { usePreferences } from "../preferences/context.js";
 import type { TicketCloseCamera } from "../preferences/model.js";
 import "./settings.css";
@@ -9,7 +12,7 @@ const OPTIONS: readonly { value: TicketCloseCamera; label: string }[] = [
 ];
 
 /** Página de configurações (ADR 0028): seções por assunto; cada preferência aplica na hora, sem botão de salvar. */
-export function SettingsScreen() {
+export function SettingsScreen({ client, me }: { client?: ApiClient | undefined; me?: Me | null | undefined } = {}) {
   const { preferences, save } = usePreferences();
   const [failed, setFailed] = useState(false);
 
@@ -41,6 +44,7 @@ export function SettingsScreen() {
         </div>
         {failed && <p role="alert" className="settings-error">Não foi possível salvar a preferência. Tente de novo.</p>}
       </section>
+      {client && me && githubEnabled(me) && <GithubSettings client={client} me={me} />}
     </div>
   );
 }

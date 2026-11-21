@@ -1,0 +1,26 @@
+/* Tela de retorno do GitHub (ADR 0032). */
+.github-callback { max-width: 520px; padding: 24px clamp(10px, 2vw, 22px); color: var(--tp-text); }
+.github-callback h1 { margin: 0 0 16px; font-size: 22px; font-weight: 600; }
+.github-callback p, .github-callback p[role="alert"] { margin: 0 0 16px; font-size: 14px; line-height: 1.5; }
+
+/* Repositórios do projeto, no painel lateral. */
+.panel-repositories .repo-name { overflow-wrap: anywhere; }
+.panel-repositories .repo-private { margin-left: 6px; }
+.panel-repositories .repo-choice { display: grid; gap: 8px; margin-top: 8px; padding: 8px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-field); background: var(--tp-card); }
+.panel-repositories .repo-choice-list { display: grid; max-height: 220px; overflow: auto; gap: 2px; }
+.panel-repositories .repo-choice-list button { justify-content: flex-start; border-color: transparent; background: transparent; text-align: left; overflow-wrap: anywhere; }
+.panel-repositories .repo-choice input { width: 100%; box-sizing: border-box; }
+
+/* Seção "Código" da página do ticket. */
+.ticket-code-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-height: 26px; }
+.ticket-code-sync { display: inline-flex; align-items: center; gap: 10px; color: var(--tp-text-3); font-size: 12px; }
+.ticket-code-list { margin: 6px 0 0; padding: 4px; border: 1px solid var(--tp-divider); border-radius: var(--tp-radius-field); list-style: none; }
+.ticket-code-item { display: flex; align-items: baseline; gap: 9px; min-width: 0; padding: 7px 10px; }
+.ticket-page .ticket-code-item .status-mark { --mark-size: 12px; align-self: center; flex: none; }
+.ticket-code-item a { min-width: 0; overflow-wrap: anywhere; color: var(--tp-accent-soft); }
+.ticket-code-item .ticket-key { color: var(--tp-text-3); font-size: 11px; }
+.ticket-code-meta { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 8px; margin-left: auto; flex: none; max-width: 45%; overflow-wrap: anywhere; color: var(--tp-text-3); font-size: 12px; text-align: right; }
+.ticket-code-state { color: var(--tp-text-2); }
+.ticket-code-warning { margin: 6px 0 0; color: var(--tp-review); font-size: 12px; }
+.panel-repositories .row { flex-wrap: wrap; }
+.panel-repositories .row > .confirm-action:has(.confirm-message) { flex: 1 0 100%; }

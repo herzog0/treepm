@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import type { ApiClient, Me, Person, Project, ProjectMember, ProjectRole, ProjectVisibility, Team, TicketKind } from "../api/client.js";
-import { describeApiError } from "../api/client.js";
+import { describeApiError, githubEnabled } from "../api/client.js";
+import { ProjectRepositories } from "../github/ProjectRepositories.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
 import { ConfirmAction } from "./ConfirmAction.js";
@@ -83,6 +84,8 @@ export function ProjectDetail({ client, me, project, onChanged, onBack, onImport
           onChanged={onChanged}
         />
       )}
+
+      {githubEnabled(me) && <ProjectRepositories client={client} me={me} project={project} />}
 
       <h3>Times do projeto</h3>
       {teams.state.status === "loading" && <p role="status">Carregando times…</p>}
