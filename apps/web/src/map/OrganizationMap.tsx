@@ -7,6 +7,7 @@ import { useApiResource } from "../api/useApiResource.js";
 import { CommandBar } from "../command/CommandBar.js";
 import { AssistantPanel } from "../assistant/AssistantPanel.js";
 import type { MapPicker } from "../assistant/types.js";
+import type { ConversationSummary } from "../api/client.js";
 import { canCreateTickets } from "../import/permissions.js";
 import { LoadError } from "../LoadError.js";
 import { usePreferences } from "../preferences/context.js";
@@ -39,22 +40,23 @@ interface PanelState {
 }
 
 interface AssistantState {
+  /** Há conversa de novo ticket na barra (à vista ou recolhida). */
   open: boolean;
-  /** Projeto escolhido ao abrir; `null` faz o painel perguntar. */
+  /** A folha da conversa está à vista; recolhida, a conversa continua montada e a barra mostra "Conversa em andamento" (ADR 0036). */
+  expanded: boolean;
+  /** Retoma a conversa aberta mais recente do projeto (`true`) ou começa uma vazia. */
+  resume: boolean;
+  /** Projeto escolhido ao abrir; `null` faz a folha perguntar. */
   projectId: string | null;
   /** Ticket selecionado ao abrir: a procura da IA começa dentro dele (ADR 0031, ADR 0034). */
   scopeId: string | null;
   /** Texto da barra de pedidos, enviado como a primeira mensagem (ADR 0036). */
   message: string | null;
-  /** Muda a cada abertura: uma conversa nova a partir da barra recomeça o painel, mesmo com ele já aberto. */
+  /** Muda a cada abertura: uma conversa nova a partir da barra recomeça a folha, mesmo com ela já aberta. */
   nonce: number;
 }
 
-const PlusIcon = () => (
-  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-    <path d="M7 2.5v9M2.5 7h9" />
-  </svg>
-);
+const CLOSED: AssistantState = { open: false, expanded: false, resume: false, projectId: null, scopeId: null, message: null, nonce: 0 };
 
 interface MapViewProps {
   client: ApiClient;
@@ -95,25 +97,38 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   const [draft, setDraft] = useState<MapDraft | null>(null);
   const items = useMemo(() => buildMapItems(me.organization, projects, ticketsByProject, draft, t), [me.organization, projects, ticketsByProject, draft, t]);
   const [panel, setPanel] = useState<PanelState>({ open: false, tab: "areas", projectId: null });
-  // Conversa com a IA para criar ticket (ADR 0029): um painel por vez com a página do ticket e o painel de projetos.
-  const [assistant, setAssistant] = useState<AssistantState>({ open: false, projectId: null, scopeId: null, message: null, nonce: 0 });
+  // Conversa com a IA para criar ticket (ADR 0029): mora na folha da barra de pedidos (ADR 0036) e convive com a página do ticket e o painel de áreas.
+  const [assistant, setAssistant] = useState<AssistantState>(CLOSED);
   const pickerRef = useRef<MapPicker | null>(null);
+  // Há conversa em andamento (mensagem, resposta a caminho ou texto digitado)? Quem sabe é a conversa; recolher uma vazia a encerra.
+  const progressRef = useRef(false);
+  const reportProgress = useCallback((active: boolean) => {
+    progressRef.current = active;
+  }, []);
   const creatableProjects = useMemo(() => projects.filter((project) => canCreateTickets(me, project)), [me, projects]);
   const assistantAvailable = me.assistant?.enabled === true && creatableProjects.length > 0;
 
   const [creating, setCreating] = useState<CreateRequest | null>(null);
   const pageOpen = openTicketId !== null || creating !== null;
   // Valores que os ouvintes (seleção, teclado) leem sem precisar ser refeitos a cada render.
-  const live = useRef({ selectedId: null as string | null, selected: null as MapNode | null, pageOpen, openTicketId, creating, panelOpen: false, assistantOpen: false });
+  const live = useRef({ selectedId: null as string | null, selected: null as MapNode | null, pageOpen, openTicketId, creating, panelOpen: false, assistantExpanded: false });
 
+  // Encerra a conversa na barra (criou o ticket, foi para a criação manual): a conversa guardada na API continua lá.
   const closeAssistant = useCallback(() => {
     pickerRef.current = null;
+    progressRef.current = false;
     setDraft(null);
-    setAssistant((current) => (current.open ? { open: false, projectId: null, scopeId: null, message: null, nonce: current.nonce } : current));
+    setAssistant((current) => (current.open ? { ...CLOSED, nonce: current.nonce } : current));
   }, []);
+  // Recolhe a folha sem encerrar a conversa; uma conversa vazia, sem nada a guardar, se encerra.
+  const collapseAssistant = useCallback(() => {
+    if (!live.current.assistantExpanded) return;
+    pickerRef.current?.cancel();
+    if (!progressRef.current) closeAssistant();
+    else setAssistant((current) => (current.expanded ? { ...current, expanded: false } : current));
+  }, [closeAssistant]);
 
   const openTicket = useCallback((id: string) => {
-    closeAssistant();
     setCreating(null);
     setPanel((current) => (current.open ? { ...current, open: false } : current));
     onOpenTicketChange(id);
@@ -134,8 +149,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
       return;
     }
     if (node?.kind === "draft") return;
-    // Com a conversa aberta, o painel de projetos não toma o lugar dela.
-    if (node?.kind === "project" && !live.current.assistantOpen) setPanel({ open: true, tab: "projects", projectId: node.id });
+    if (node?.kind === "project") setPanel({ open: true, tab: "projects", projectId: node.id });
     // Ativar um ticket que já está selecionado (clique ou Enter no nó) o abre; o primeiro clique só seleciona.
     if (node?.kind === "ticket" && node.id === live.current.selectedId) openTicket(node.id);
   }, [openTicket]);
@@ -153,7 +167,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   useLayoutEffect(() => scaleStore.notify(), [scaleStore, canvas.camera.scale, layout]);
   const canvasRef = useRef(canvas);
   canvasRef.current = canvas;
-  live.current = { selectedId, selected, pageOpen, openTicketId, creating, panelOpen: panel.open, assistantOpen: assistant.open };
+  live.current = { selectedId, selected, pageOpen, openTicketId, creating, panelOpen: panel.open, assistantExpanded: assistant.open && assistant.expanded };
   const hasOpenNode = openTicketId !== null && index.itemById.has(openTicketId);
 
   // Abrir o painel de áreas e projetos fecha a página; abrir um ticket fecha o painel (também pela URL).
@@ -163,12 +177,10 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   useEffect(() => {
     if (openTicketId !== null) setPanel((current) => (current.open ? { ...current, open: false } : current));
   }, [openTicketId]);
+  // Abrir um ticket, a criação manual ou o painel de áreas recolhe a folha da conversa, e a conversa segue (ADR 0036). O contrário não fecha nada.
   useEffect(() => {
-    if (panel.open && assistant.open) closeAssistant();
-  }, [panel.open, assistant.open, closeAssistant]);
-  useEffect(() => {
-    if (openTicketId !== null) closeAssistant();
-  }, [openTicketId, closeAssistant]);
+    if (openTicketId !== null || creating !== null || panel.open) collapseAssistant();
+  }, [openTicketId, creating, panel.open, collapseAssistant]);
 
   // O ticket aberto fica selecionado. Sem nó (projeto arquivado, ticket inexistente) não há o que selecionar.
   useEffect(() => {
@@ -234,10 +246,9 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   // Fechar a página devolve o foco ao mapa (a menos que o painel tenha tomado o lugar dela).
   const wasOpen = useRef(false);
   useEffect(() => {
-    const sideOpen = pageOpen || assistant.open;
-    if (wasOpen.current && !sideOpen && !live.current.panelOpen) canvasRef.current.stageRef.current?.focus();
-    wasOpen.current = sideOpen;
-  }, [pageOpen, assistant.open]);
+    if (wasOpen.current && !pageOpen && !live.current.panelOpen) canvasRef.current.stageRef.current?.focus();
+    wasOpen.current = pageOpen;
+  }, [pageOpen]);
 
   // Esc fecha a página (ou cancela a criação) e Enter abre o ticket selecionado, com o foco no mapa.
   useEffect(() => {
@@ -247,8 +258,9 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
         pickerRef.current.cancel();
         return;
       }
-      if (event.key === "Escape" && live.current.assistantOpen) {
-        closeAssistant();
+      if (event.key === "Escape" && live.current.assistantExpanded) {
+        collapseAssistant();
+        canvasRef.current.stageRef.current?.focus();
         return;
       }
       if (event.key === "Escape" && live.current.pageOpen) {
@@ -267,20 +279,43 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closePage, closeAssistant, openTicket]);
+  }, [closePage, collapseAssistant, openTicket]);
 
   // Projeto da conversa: o do ticket ou do projeto selecionado; sem seleção, o único em que a pessoa pode criar.
-  const openAssistant = (message: string | null = null) => {
+  const chooseProject = () => {
     const current = live.current.selected;
     const selectedProjectId = current?.kind === "project" ? current.id : current?.kind === "ticket" ? current.ticket?.projectId ?? null : null;
-    const chosen = creatableProjects.find((project) => project.id === selectedProjectId) ?? (creatableProjects.length === 1 ? creatableProjects[0] : undefined);
-    setCreating(null);
-    setPanel((state) => (state.open ? { ...state, open: false } : state));
-    if (live.current.openTicketId !== null) onOpenTicketChange(null);
-    canvasRef.current.selectNode(null);
+    return creatableProjects.find((project) => project.id === selectedProjectId) ?? (creatableProjects.length === 1 ? creatableProjects[0] : undefined);
+  };
+  const openAssistant = (message: string | null = null, resume = false) => {
+    const current = live.current.selected;
+    const chosen = chooseProject();
+    // A página do ticket e o painel de áreas ficam como estão (ADR 0036). Com a página aberta o ticket dela segue selecionado.
+    if (live.current.openTicketId === null) canvasRef.current.selectNode(null);
     // Qualquer ticket selecionado do projeto da conversa define o escopo (ADR 0034); projeto ou nenhuma seleção procuram no projeto inteiro.
     const scopeId = current?.kind === "ticket" && chosen && current.ticket?.projectId === chosen.id ? current.ticket.id : null;
-    setAssistant((state) => ({ open: true, projectId: chosen?.id ?? null, scopeId, message, nonce: state.nonce + 1 }));
+    progressRef.current = false;
+    setAssistant((state) => ({ open: true, expanded: true, resume, projectId: chosen?.id ?? null, scopeId, message, nonce: state.nonce + 1 }));
+  };
+
+  // "Continuar conversa": o título da conversa anterior do projeto que valeria para a conversa nova (ADR 0036).
+  const loadResumable = async (): Promise<string | null> => {
+    const chosen = chooseProject();
+    if (!chosen) return null;
+    try {
+      const list = await client.listConversations(chosen.id);
+      if (!list.ok) return null;
+      const latest: ConversationSummary | undefined = list.data.filter((entry) => entry.status === "open").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+      if (!latest) return null;
+      const title = latest.draft?.title.trim();
+      if (title) return title;
+      const detail = await client.getConversation(latest.id);
+      if (!detail.ok) return null;
+      const first = detail.data.messages.find((message) => message.author === "person")?.body.trim();
+      return first ? (first.length > 80 ? `${first.slice(0, 80)}…` : first) : null;
+    } catch {
+      return null;
+    }
   };
 
   // "Criar ticket «texto»" da barra: a conversa com a IA, ou a criação manual com o título preenchido (ADR 0036).
@@ -302,7 +337,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   const showCreateFirst = items.length === 1 && canCreateProject;
 
   return (
-    <div className={`map-workspace ${pageOpen ? "has-ticket-page" : ""} ${assistant.open ? "has-assistant" : ""}`}>
+    <div className={`map-workspace ${pageOpen ? "has-ticket-page" : ""}`}>
     <MapDetailProvider store={scaleStore} data={detailData}>
     <SpatialCanvasView
       controller={canvas}
@@ -348,7 +383,46 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
             onOpenTicket={openTicket}
             onCreate={startCreateFromBar}
             returnFocus={() => canvasRef.current.stageRef.current?.focus()}
-          />
+            conversation={!assistant.open ? "none" : assistant.expanded ? "expanded" : "collapsed"}
+            assistantAvailable={assistantAvailable}
+            loadResumable={loadResumable}
+            onNewConversation={() => openAssistant()}
+            onResumeConversation={() => openAssistant(null, true)}
+            onReopenConversation={() => setAssistant((current) => (current.open ? { ...current, expanded: true } : current))}
+            onCollapseConversation={collapseAssistant}
+          >
+            {assistant.open && (
+              <AssistantPanel
+                key={assistant.nonce}
+                client={client}
+                projects={creatableProjects}
+                initialProjectId={assistant.projectId}
+                initialScopeId={assistant.scopeId}
+                initialMessage={assistant.message}
+                expanded={assistant.expanded}
+                resume={assistant.resume}
+                tickets={ticketsByProject}
+                onCollapse={() => {
+                  collapseAssistant();
+                  canvasRef.current.stageRef.current?.focus();
+                }}
+                onProgress={reportProgress}
+                onCreated={(ticketId) => {
+                  closeAssistant();
+                  openTicket(ticketId);
+                }}
+                onManualCreate={(request) => {
+                  closeAssistant();
+                  setCreating(request);
+                }}
+                onDraftChange={setDraft}
+                onChanged={onChanged}
+                registerPicker={(picker) => {
+                  pickerRef.current = picker;
+                }}
+              />
+            )}
+          </CommandBar>
           {selected && selected.kind !== "draft" && selected.id !== openTicketId && (
             <aside
               className={`spatial-selection ${panel.open ? "is-beside-panel" : ""}`}
@@ -385,17 +459,6 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               {t("createFirst")}
             </button>
           )}
-          {assistantAvailable && !assistant.open && (
-            <button
-              type="button"
-              className="map-new-ticket"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={() => openAssistant()}
-            >
-              <PlusIcon />
-              {t("newTicket")}
-            </button>
-          )}
           {panel.open && (
             <SidePanel
               client={client}
@@ -420,28 +483,6 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
       )}
     />
     </MapDetailProvider>
-    {assistant.open && (
-      <AssistantPanel
-        key={assistant.nonce}
-        client={client}
-        projects={creatableProjects}
-        initialProjectId={assistant.projectId}
-        initialScopeId={assistant.scopeId}
-        initialMessage={assistant.message}
-        tickets={ticketsByProject}
-        onClose={closeAssistant}
-        onCreated={openTicket}
-        onManualCreate={(request) => {
-          closeAssistant();
-          setCreating(request);
-        }}
-        onDraftChange={setDraft}
-        onChanged={onChanged}
-        registerPicker={(picker) => {
-          pickerRef.current = picker;
-        }}
-      />
-    )}
     {pageOpen && (
       <TicketPage
         client={client}

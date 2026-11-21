@@ -15,7 +15,7 @@ function setup(assistantAvailable: boolean) {
 }
 
 describe("manual ticket creation next to the assistant button", () => {
-  it("with the assistant on, the floating Novo ticket is the main action: this one becomes a secondary 'Criar sem o assistente'", async () => {
+  it("with the assistant on, the bar's conversation is the main action: this one becomes a secondary 'Criar sem o assistente'", async () => {
     const { onCreateTicket } = setup(true);
     const manual = await screen.findByRole("button", { name: "Criar sem o assistente" });
     expect(manual).not.toHaveClass("primary");

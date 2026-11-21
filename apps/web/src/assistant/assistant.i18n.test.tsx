@@ -71,7 +71,7 @@ const resumed = (placement: PlacementOutcome | null, conversation = makeConversa
 
 function setup(client: ApiClient, extra: Partial<AssistantPanelProps> = {}) {
   const props: AssistantPanelProps = {
-    client, projects: [alfa], initialProjectId: "p1", tickets, onClose: vi.fn(), onCreated: vi.fn(), onManualCreate: vi.fn(),
+    client, projects: [alfa], initialProjectId: "p1", tickets, expanded: true, resume: true, onCollapse: vi.fn(), onProgress: vi.fn(), onCreated: vi.fn(), onManualCreate: vi.fn(),
     onDraftChange: vi.fn(), onChanged: vi.fn(), registerPicker: vi.fn(), ...extra,
   };
   const view = render(<AssistantPanel {...props} />);
@@ -81,7 +81,7 @@ const projectNode = (id: string): MapNode => ({ id, parentId: "org", kind: "proj
 
 const TEXT = {
   en: {
-    panel: "New ticket with the assistant", title: "New ticket", subtitle: "The assistant knows the tree and remembers earlier conversations", close: "Close conversation",
+    panel: "New ticket with the assistant", title: "New ticket", subtitle: "The assistant knows the tree and remembers earlier conversations", collapse: "Collapse",
     which: "Which project?", loading: "Loading the conversation…",
     hint: "Describe the task. The assistant asks what is missing, writes the ticket and looks for its place in the tree.",
     message: "Message to the assistant", placeholder: "Describe the task or reply to the assistant", send: "Send", reply: "Assistant reply",
@@ -89,7 +89,7 @@ const TEXT = {
     draftRegion: "Ticket draft", draft: "Draft", titleField: "Title", description: "Description",
     searching: "Looking for the place… the first search in a project can take a while.", notReady: "The AI still has a question before looking for the place.",
     save: "Save draft", find: "Find the place", anyway: "Search anyway", again: "Search again",
-    scope: "Searching inside “Acesso”", whole: "Search the whole project",
+    scope: "Inside ALFA-1", removeScope: "Remove the scope", whole: "Search the whole project",
     over: "The message is over 4,000 characters (4001). Shorten it to send.", within: "3600 of 4,000 characters",
     path: "Path found", pathTitle: "Path, from top to bottom", root: "Project root", newTicket: "New ticket: Corrigir o login", enters: "Goes here, as a child of the previous step.",
     proposalLine: "This ticket seems to form a group with others here.", proposalList: "Tickets that go to the new parent ticket", createGroup: "Create parent ticket and move",
@@ -102,7 +102,7 @@ const TEXT = {
     create: "Create here", up: "Up one level", choose: "Choose on the map", cancelChoose: "Cancel choosing", unavailable: "The assistant did not respond.",
   },
   "es-MX": {
-    panel: "Nuevo ticket con el asistente", title: "Nuevo ticket", subtitle: "El asistente conoce el árbol y recuerda las conversaciones anteriores", close: "Cerrar conversación",
+    panel: "Nuevo ticket con el asistente", title: "Nuevo ticket", subtitle: "El asistente conoce el árbol y recuerda las conversaciones anteriores", collapse: "Contraer",
     which: "¿En qué proyecto?", loading: "Cargando la conversación…",
     hint: "Describe la tarea. El asistente pregunta lo que falte, escribe el ticket y busca su lugar en el árbol.",
     message: "Mensaje para el asistente", placeholder: "Describe la tarea o responde al asistente", send: "Enviar", reply: "Respuesta del asistente",
@@ -110,7 +110,7 @@ const TEXT = {
     draftRegion: "Borrador del ticket", draft: "Borrador", titleField: "Título", description: "Descripción",
     searching: "Buscando el lugar… la primera búsqueda en un proyecto puede tardar.", notReady: "La IA aún tiene una pregunta antes de buscar el lugar.",
     save: "Guardar borrador", find: "Buscar el lugar", anyway: "Buscar de todos modos", again: "Buscar de nuevo",
-    scope: "Buscando dentro de «Acesso»", whole: "Buscar en todo el proyecto",
+    scope: "Dentro de ALFA-1", removeScope: "Quitar el alcance", whole: "Buscar en todo el proyecto",
     over: "El mensaje pasó de 4,000 caracteres (4001). Acórtalo para enviarlo.", within: "3600 de 4,000 caracteres",
     path: "Ruta encontrada", pathTitle: "Ruta, de arriba hacia abajo", root: "Raíz del proyecto", newTicket: "Ticket nuevo: Corrigir o login", enters: "Entra aquí, como hijo del paso anterior.",
     proposalLine: "Este ticket parece formar un grupo con otros de aquí.", proposalList: "Tickets que van al ticket padre nuevo", createGroup: "Crear ticket padre y mover",
@@ -126,7 +126,8 @@ const TEXT = {
 
 describe.each(["en", "es-MX"] as const)("assistant panel in %s", (language) => {
   const text = TEXT[language];
-  const panel = () => screen.getByRole("complementary", { name: text.panel });
+  // A folha é a região da conversa; o nome do projeto e as ações ficam na linha de cima da barra, ao lado dela.
+  const panel = () => screen.getByRole("region", { name: text.panel }).closest<HTMLElement>(".assistant-sheet")!;
   const card = () => screen.getByRole("region", { name: text.path });
   const find = async (name: string) => userEvent.click(await screen.findByRole("button", { name }));
 
@@ -136,7 +137,7 @@ describe.each(["en", "es-MX"] as const)("assistant panel in %s", (language) => {
     expect(await screen.findByText(text.hint)).toBeInTheDocument();
     expect(within(panel()).getByRole("heading", { level: 2, name: text.title })).toBeInTheDocument();
     expect(panel()).toHaveTextContent("ALFA · Projeto Alfa");
-    expect(screen.getByRole("button", { name: text.close })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: text.collapse })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: text.message })).toHaveAttribute("placeholder", text.placeholder);
     expect(screen.getByRole("button", { name: text.send })).toBeInTheDocument();
     expectNoPortuguese(panel(), language);
@@ -268,7 +269,7 @@ describe.each(["en", "es-MX"] as const)("assistant panel in %s", (language) => {
     expectNoPortuguese(panel(), language);
   });
 
-  it("translates the scope line and the out-of-scope warning", async () => {
+  it("translates the scope chip and the out-of-scope warning", async () => {
     await setTestLanguage(language);
     setup(resumed(makePlacement({ destination: target("t2"), scope: { id: "t1", title: "Acesso", outOfScope: true } })), { initialScopeId: "t1" });
     expect(await screen.findByText(text.scope)).toBeInTheDocument();
@@ -276,7 +277,7 @@ describe.each(["en", "es-MX"] as const)("assistant panel in %s", (language) => {
     const path = await screen.findByRole("region", { name: text.path });
     expect(path).toHaveTextContent(text.outOfScope);
     expect(within(path).getByRole("button", { name: text.whole })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: text.whole })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: text.removeScope })).toBeInTheDocument();
     expectNoPortuguese(panel(), language);
   });
 
@@ -307,7 +308,8 @@ describe.each(["en", "es-MX"] as const)("assistant panel in %s", (language) => {
     const picker = vi.mocked(props.registerPicker).mock.calls.filter(([entry]) => entry !== null).at(-1)![0] as MapPicker;
     act(() => picker.pick(projectNode("p9")));
     expect(await screen.findByRole("alert")).toHaveTextContent(text.pickNotice);
-    expectNoPortuguese(panel(), language);
+    // Escolhendo, a região da folha se recolhe e a instrução ocupa a linha de cima.
+    expectNoPortuguese(document.querySelector<HTMLElement>(".assistant-sheet")!, language);
   });
 
   it("translates a provider error with its two ways out", async () => {

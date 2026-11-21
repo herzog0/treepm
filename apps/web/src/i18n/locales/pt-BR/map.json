@@ -13,7 +13,6 @@
   "organizationKey": "Organização",
   "help": "Wheel para zoom · arraste para pan · combine os dois · clique para selecionar · Explorar ramo para focar · C cores · Esc limpar",
   "createFirst": "Criar primeiro projeto",
-  "newTicket": "Novo ticket",
   "selection": {
     "region": "Nó selecionado",
     "close": "Fechar seleção",

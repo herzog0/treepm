@@ -206,21 +206,25 @@ describe("keyboard", () => {
     expect(document.activeElement).toBe(document.querySelector(".spatial-stage"));
   }, SLOW);
 
-  it("Esc first cancels a pending choice on the map, and only then folds the sheet", async () => {
+  it("Esc first cancels a pending choice on the map, then folds the conversation sheet, and only then the results sheet", async () => {
     const only = withAssistant(makePanelMe("member", [{ projectId: "p1", role: "manager" }]));
     render(<Host client={makeFullClient()} me={only} />);
-    await userEvent.click(await screen.findByRole("button", { name: "Novo ticket" }));
+    await userEvent.click(await bar());
+    await userEvent.click(await screen.findByRole("option", { name: /Nova conversa/ }));
     await userEvent.type(await screen.findByRole("textbox", { name: "Mensagem para o assistente" }), "O login quebra{Enter}");
     await userEvent.click(await screen.findByRole("button", { name: "Procurar o lugar" }));
     await userEvent.click(await screen.findByRole("button", { name: "Escolher no mapa" }));
     expect(screen.getByText(/Clique em um ticket ou no projeto, no mapa/)).toBeInTheDocument();
-    const field = await typed("login");
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByText(/Clique em um ticket ou no projeto, no mapa/)).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Novo ticket com o assistente" })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "Novo ticket com o assistente" })).not.toBeInTheDocument();
+    const field = await typed("login");
     expect(screen.getByRole("listbox")).toBeInTheDocument();
-    expect(field).toHaveValue("login");
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(field).toHaveValue("");
   }, SLOW);
 
   it("Esc with nothing of the bar in play still closes the ticket page", async () => {
@@ -259,7 +263,7 @@ describe("the create action", () => {
     render(<Host client={client} me={only} />);
     const field = await typed("exportar csv");
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
-    expect(await screen.findByRole("complementary", { name: "Novo ticket com o assistente" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Novo ticket com o assistente" })).toBeInTheDocument();
     await waitFor(() => expect(client.openConversation).toHaveBeenCalledWith("p1", { message: "exportar csv", scopeId: null }));
     expect(field).toHaveValue("");
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
@@ -297,7 +301,7 @@ describe("the create action", () => {
     await typed("exportar csv");
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
     expect(await screen.findByDisplayValue("exportar csv")).toBeInTheDocument();
-    expect(screen.queryByRole("complementary", { name: "Novo ticket com o assistente" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Novo ticket com o assistente" })).not.toBeInTheDocument();
   }, SLOW);
 });
 

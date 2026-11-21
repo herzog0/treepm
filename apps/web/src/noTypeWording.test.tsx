@@ -123,7 +123,7 @@ describe("no screen says 'agrupador' (ADR 0034)", () => {
       getConversation: vi.fn(async (id: string) => ok(makeConversation(id, "p1"))),
       findPlacement: vi.fn(async () => ok(outcome)),
     });
-    render(<AssistantPanel client={client} projects={[alfa]} initialProjectId="p1" initialScopeId="t1" tickets={{ p1: tickets }} onClose={vi.fn()} onCreated={vi.fn()} onManualCreate={vi.fn()} onDraftChange={vi.fn()} onChanged={vi.fn()} registerPicker={vi.fn()} />);
+    render(<AssistantPanel client={client} projects={[alfa]} initialProjectId="p1" initialScopeId="t1" tickets={{ p1: tickets }} expanded resume onCollapse={vi.fn()} onProgress={vi.fn()} onCreated={vi.fn()} onManualCreate={vi.fn()} onDraftChange={vi.fn()} onChanged={vi.fn()} registerPicker={vi.fn()} />);
     await userEvent.click(await screen.findByRole("button", { name: "Procurar o lugar" }));
     await screen.findByRole("region", { name: "Caminho encontrado" });
     expect(screen.getByRole("button", { name: "Criar ticket pai e mover" })).toBeInTheDocument();

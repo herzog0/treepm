@@ -13,7 +13,6 @@
   "organizationKey": "Organization",
   "help": "Wheel to zoom · drag to pan · combine both · click to select · Explore branch to focus · C colors · Esc clear",
   "createFirst": "Create first project",
-  "newTicket": "New ticket",
   "selection": {
     "region": "Selected node",
     "close": "Close selection",

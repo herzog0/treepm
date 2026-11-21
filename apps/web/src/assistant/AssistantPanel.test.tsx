@@ -44,7 +44,10 @@ function setup(client: ApiClient, extra: Partial<AssistantPanelProps> = {}) {
     projects: [alfa],
     initialProjectId: "p1",
     tickets,
-    onClose: vi.fn(),
+    expanded: true,
+    resume: true,
+    onCollapse: vi.fn(),
+    onProgress: vi.fn(),
     onCreated: vi.fn(),
     onManualCreate: vi.fn(),
     onDraftChange: vi.fn(),
@@ -57,7 +60,7 @@ function setup(client: ApiClient, extra: Partial<AssistantPanelProps> = {}) {
 }
 /** O texto da resposta também vai para a região viva; as buscas de mensagem olham só a lista. */
 const thread = () => within(panel().querySelector<HTMLElement>(".assistant-scroll")!);
-const panel = () => screen.getByRole("complementary", { name: "Novo ticket com o assistente" });
+const panel = () => screen.getByRole("region", { name: "Novo ticket com o assistente" });
 const box = () => screen.getByRole("textbox", { name: "Mensagem para o assistente" });
 const lastPicker = (props: AssistantPanelProps) => vi.mocked(props.registerPicker).mock.calls.filter(([picker]) => picker !== null).at(-1)![0] as MapPicker;
 const projectNode = (id: string): MapNode => ({ id, parentId: "org", kind: "project", label: id, color: "#fff", key: id, ticket: null, leafCount: 1 });
@@ -83,7 +86,8 @@ describe("project and resumed conversation", () => {
     await waitFor(() => expect(client.listConversations).toHaveBeenCalledWith("p1"));
     expect(screen.queryByRole("heading", { name: "Em qual projeto?" })).not.toBeInTheDocument();
     expect(box()).toBeInTheDocument();
-    expect(panel()).toHaveTextContent("Projeto Alfa");
+    // O nome do projeto está na linha de cima da barra, ao lado da folha.
+    expect(panel().closest(".assistant-sheet")).toHaveTextContent("ALFA · Projeto Alfa");
   });
 
   it("resumes the most recent open conversation, with its messages and draft", async () => {
@@ -543,18 +547,43 @@ describe("path found", () => {
   });
 });
 
-describe("closing", () => {
-  it("the close button and Esc close without creating, and Esc does not reach the map", async () => {
+describe("collapsing", () => {
+  it("the collapse button folds the sheet through onCollapse, without ending anything", async () => {
     const props = setup(clientWith());
-    const onWindowKey = vi.fn();
-    window.addEventListener("keydown", onWindowKey);
     await screen.findByRole("textbox", { name: "Mensagem para o assistente" });
-    await userEvent.keyboard("{Escape}");
-    expect(props.onClose).toHaveBeenCalledTimes(1);
-    expect(onWindowKey).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: "Fechar conversa" }));
-    expect(props.onClose).toHaveBeenCalledTimes(2);
-    window.removeEventListener("keydown", onWindowKey);
+    await userEvent.click(screen.getByRole("button", { name: "Recolher" }));
+    expect(props.onCollapse).toHaveBeenCalledTimes(1);
+    expect(props.onCreated).not.toHaveBeenCalled();
+  });
+
+  it("tells the map whether there is a conversation under way", async () => {
+    const props = setup(clientWith());
+    await screen.findByRole("textbox", { name: "Mensagem para o assistente" });
+    expect(props.onProgress).toHaveBeenLastCalledWith(false);
+    await userEvent.type(box(), "O login");
+    expect(props.onProgress).toHaveBeenLastCalledWith(true);
+    await userEvent.clear(box());
+    expect(props.onProgress).toHaveBeenLastCalledWith(false);
+  });
+
+  it("starts empty, without looking for an earlier conversation, when it does not resume", async () => {
+    const client = clientWith();
+    setup(client, { resume: false });
+    expect(await screen.findByRole("textbox", { name: "Mensagem para o assistente" })).toBeInTheDocument();
+    expect(client.listConversations).not.toHaveBeenCalled();
+    expect(panel()).toHaveTextContent("Descreva a tarefa.");
+  });
+
+  it("hides the whole sheet from the accessibility tree when folded, but keeps the conversation", async () => {
+    const client = clientWith();
+    const props: AssistantPanelProps = { client, projects: [alfa], initialProjectId: "p1", tickets, expanded: true, resume: true, onCollapse: vi.fn(), onProgress: vi.fn(), onCreated: vi.fn(), onManualCreate: vi.fn(), onDraftChange: vi.fn(), onChanged: vi.fn(), registerPicker: vi.fn() };
+    const { rerender } = render(<AssistantPanel {...props} />);
+    await userEvent.type(await screen.findByRole("textbox", { name: "Mensagem para o assistente" }), "meio digitado");
+    rerender(<AssistantPanel {...props} expanded={false} />);
+    expect(screen.queryByRole("region", { name: "Novo ticket com o assistente" })).not.toBeInTheDocument();
+    rerender(<AssistantPanel {...props} expanded />);
+    expect(screen.getByRole("textbox", { name: "Mensagem para o assistente" })).toHaveValue("meio digitado");
+    expect(client.listConversations).toHaveBeenCalledTimes(1);
   });
 
   it("reports no draft to the map when it closes", async () => {
@@ -576,23 +605,23 @@ describe("scope from the selection (ADR 0031)", () => {
     findPlacement.mockResolvedValue(ok(placements.at(-1)!));
     return clientWith({ listConversations: vi.fn(async () => ok([{ ...makeConversation("c1", "p1"), messages: undefined }])), findPlacement, ...extra });
   };
-  const line = () => screen.queryByText(/Procurando dentro de/);
+  const line = () => screen.queryByText(/^Dentro de ALFA-/);
   const search = async () => userEvent.click(await screen.findByRole("button", { name: "Procurar o lugar" }));
   const scoped = (extra: Partial<PlacementOutcome> = {}) => makePlacement({ destination: target("t1", "t2"), scope: { id: "t1", title: "Acesso", outOfScope: false }, ...extra });
   const whole = () => makePlacement({ destination: target("t4") });
 
-  it("shows the fixed line with the ticket title and the action, above the draft", async () => {
+  it("shows the scope chip with the ticket key and the × action, above the draft", async () => {
     setup(resumed([scoped()]), { initialScopeId: "t1" });
     const draft = await screen.findByRole("region", { name: "Rascunho do ticket" });
-    expect(line()).toHaveTextContent("Procurando dentro de «Acesso»");
-    expect(screen.getByRole("button", { name: "Procurar no projeto inteiro" })).toBeInTheDocument();
+    expect(line()).toHaveTextContent("Dentro de ALFA-1");
+    expect(screen.getByRole("button", { name: "Tirar o escopo" })).toBeInTheDocument();
     expect(line()!.compareDocumentPosition(draft) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("shows the line even before there is a conversation", async () => {
+  it("shows the chip even before there is a conversation", async () => {
     setup(clientWith(), { initialScopeId: "t1" });
     await screen.findByRole("textbox", { name: "Mensagem para o assistente" });
-    expect(line()).toHaveTextContent("«Acesso»");
+    expect(line()).toHaveTextContent("Dentro de ALFA-1");
   });
 
   it("sends the scope with the search", async () => {
@@ -621,23 +650,23 @@ describe("scope from the selection (ADR 0031)", () => {
     expect(line()).not.toBeInTheDocument();
   });
 
-  it("Procurar no projeto inteiro removes the scope; the next search goes without it", async () => {
+  it("the chip × removes the scope; the next search goes without it", async () => {
     const client = resumed([whole()]);
     setup(client, { initialScopeId: "t1" });
     await screen.findByRole("region", { name: "Rascunho do ticket" });
-    await userEvent.click(screen.getByRole("button", { name: "Procurar no projeto inteiro" }));
+    await userEvent.click(screen.getByRole("button", { name: "Tirar o escopo" }));
     expect(line()).not.toBeInTheDocument();
     expect(client.findPlacement).not.toHaveBeenCalled();
     await search();
     await waitFor(() => expect(client.findPlacement).toHaveBeenCalledWith("c1"));
   });
 
-  it("with a result already on screen, removing the scope searches again without it", async () => {
+  it("with a result already on screen, removing the scope with the × searches again without it", async () => {
     const client = resumed([scoped(), whole()]);
     setup(client, { initialScopeId: "t1" });
     await search();
     await screen.findByRole("region", { name: "Caminho encontrado" });
-    await userEvent.click(screen.getByRole("button", { name: "Procurar no projeto inteiro" }));
+    await userEvent.click(screen.getByRole("button", { name: "Tirar o escopo" }));
     await waitFor(() => expect(client.findPlacement).toHaveBeenCalledTimes(2));
     expect(client.findPlacement).toHaveBeenLastCalledWith("c1");
     expect(line()).not.toBeInTheDocument();
@@ -914,7 +943,7 @@ describe("scope in the conversation (ADR 0033)", () => {
     const client = resumed();
     setup(client, { initialScopeId: "t5" });
     await screen.findByText("O login quebra no Safari");
-    expect(screen.getByText(/Procurando dentro de/)).toHaveTextContent("«Solto»");
+    expect(screen.getByText("Dentro de ALFA-5")).toBeInTheDocument();
     await userEvent.type(box(), "Sim{Enter}");
     await waitFor(() => expect(client.sendConversationMessage).toHaveBeenCalledWith("c1", { message: "Sim", scopeId: "t5" }));
   });
@@ -927,13 +956,13 @@ describe("scope in the conversation (ADR 0033)", () => {
     await waitFor(() => expect(client.sendConversationMessage).toHaveBeenCalledWith("c1", { message: "Sim", scopeId: null }));
   });
 
-  it("after Procurar no projeto inteiro, the next messages go with a null scope", async () => {
+  it("after the chip ×, the next messages go with a null scope", async () => {
     const client = resumed();
     setup(client, { initialScopeId: "t1" });
     await screen.findByText("O login quebra no Safari");
     await userEvent.type(box(), "Primeira{Enter}");
     await waitFor(() => expect(client.sendConversationMessage).toHaveBeenLastCalledWith("c1", { message: "Primeira", scopeId: "t1" }));
-    await userEvent.click(screen.getByRole("button", { name: "Procurar no projeto inteiro" }));
+    await userEvent.click(screen.getByRole("button", { name: "Tirar o escopo" }));
     await userEvent.type(box(), "Segunda{Enter}");
     await waitFor(() => expect(client.sendConversationMessage).toHaveBeenLastCalledWith("c1", { message: "Segunda", scopeId: null }));
   });

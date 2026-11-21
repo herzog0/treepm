@@ -1,32 +1,29 @@
 /* Painel de conversa para criar ticket com a IA (ADR 0029). Cores só por tokens de `theme.css`. */
-.map-workspace { --assistant-width: 440px; }
-@media (min-width: 1000px) {
-  .map-workspace.has-assistant > .org-map { margin-right: var(--assistant-width); }
-}
-
-.assistant-panel {
-  position: absolute; z-index: 10; top: 0; right: 0; bottom: 0;
-  display: flex; flex-direction: column; width: var(--assistant-width); max-width: 100%; box-sizing: border-box;
-  border-left: 1px solid var(--tp-divider); background: var(--tp-surface); color: var(--tp-text);
-  box-shadow: -24px 0 56px color-mix(in srgb, var(--tp-bg) 45%, transparent);
-  font: 400 13px/1.5 var(--tp-font); cursor: default; user-select: text; outline: none;
-}
-@media (max-width: 999px) { .assistant-panel { width: 100%; } }
-
-.assistant-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 12px 12px 18px; border-bottom: 1px solid var(--tp-divider); }
-.assistant-header h2 { margin: 0; font-size: 14px; font-weight: 600; }
-.assistant-header p { margin: 0; color: var(--tp-text-3); font-size: 12px; }
-.assistant-scope { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--tp-divider); background: var(--tp-raised); color: var(--tp-text-2); font-size: 12px; }
-.assistant-panel .assistant-scope .text { min-height: 28px; padding: 0 8px; border-color: transparent; background: transparent; font-size: 12px; white-space: nowrap; }
+/*
+ * Folha da conversa de novo ticket (ADR 0029, ADR 0036 fatia 3): vive dentro da barra de pedidos, com a largura dela.
+ * A linha de cima (`assistant-top`) toma o lugar do campo; o corpo (`assistant-body`) é a folha, que rola por dentro.
+ * Cores só por tokens de `theme.css`; medidas da prancha "Barra 4" do desenho aprovado.
+ */
+.assistant-sheet { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; color: var(--tp-text); font: 400 13px/1.5 var(--tp-font); cursor: default; user-select: text; }
+.assistant-top { display: flex; flex: none; align-items: center; gap: 10px; box-sizing: border-box; min-height: 48px; padding: 0 8px 0 14px; }
+.assistant-chip-slot { display: contents; }
+.assistant-title { display: flex; flex: 1; flex-direction: column; min-width: 0; line-height: 1.25; }
+.assistant-title h2 { margin: 0; overflow: hidden; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-title p { margin: 0; overflow: hidden; color: var(--tp-text-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-pick { padding: 6px 8px 6px 14px; }
+.assistant-pick-text { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.assistant-pick-text p { margin: 0; color: var(--tp-text-2); font-size: 13px; }
+.assistant-pick-text [role="alert"] { color: var(--tp-danger-text); font-size: 12px; }
+.assistant-body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; max-height: min(600px, 70vh); border-top: 1px solid var(--tp-border); outline: none; }
 .assistant-notice .text { min-height: 24px; padding: 0 4px; border-color: transparent; background: transparent; font-size: 12px; text-decoration: underline; }
-.assistant-header-actions { display: flex; align-items: center; gap: 4px; }
-.assistant-panel .assistant-close { display: grid; place-items: center; flex: none; width: 30px; height: 30px; padding: 0; border: 0; background: transparent; color: var(--tp-text-2); }
-.assistant-panel .assistant-close:hover:not(:disabled) { background: var(--tp-selected); color: var(--tp-text); }
-.assistant-panel .assistant-header-actions .text, .assistant-panel .assistant-header-actions .destructive { min-height: 28px; padding: 0 8px; border-color: transparent; background: transparent; font-size: 12px; }
+.assistant-header-actions { display: flex; flex: none; align-items: center; gap: 4px; }
+.assistant-sheet .assistant-close { display: grid; place-items: center; flex: none; width: 30px; height: 30px; min-height: 0; padding: 0; border: 0; background: transparent; color: var(--tp-text-2); }
+.assistant-sheet .assistant-close:hover:not(:disabled) { background: var(--tp-selected); color: var(--tp-text); }
+.assistant-sheet .assistant-header-actions .text, .assistant-sheet .assistant-header-actions .destructive, .assistant-sheet .assistant-pick .text { min-height: 28px; padding: 0 8px; border-color: transparent; background: transparent; font-size: 12px; white-space: nowrap; }
 
-.assistant-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; }
-.assistant-person { align-self: flex-end; max-width: 330px; padding: 9px 12px; border-radius: 12px 12px 3px 12px; background: var(--tp-selected); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.assistant-reply { align-self: flex-start; max-width: 370px; color: var(--tp-text); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; }
+.assistant-person { align-self: flex-end; max-width: 80%; padding: 9px 12px; border-radius: 12px 12px 3px 12px; background: var(--tp-selected); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-reply { align-self: flex-start; max-width: 90%; color: var(--tp-text); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .assistant-hint, .assistant-waiting { margin: 0; color: var(--tp-text-3); font-size: 12px; }
 .assistant-waiting { align-self: flex-start; }
 .assistant-projects { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
@@ -66,30 +63,18 @@
 .assistant-error [role="alert"] { margin: 0; }
 .assistant-error div { display: flex; flex-wrap: wrap; gap: 8px; }
 
-.assistant-form { display: flex; align-items: flex-end; gap: 8px; padding: 12px 14px 14px; border-top: 1px solid var(--tp-divider); }
+.assistant-form { display: flex; flex: none; align-items: flex-end; gap: 8px; padding: 12px 14px 14px; border-top: 1px solid var(--tp-divider); }
 .assistant-form-field { display: grid; flex: 1; min-width: 0; gap: 4px; }
-.assistant-panel .assistant-form textarea { box-sizing: border-box; width: 100%; padding: 9px 12px; border-radius: var(--tp-radius-panel); line-height: 1.5; resize: none; }
+.assistant-sheet .assistant-form textarea { box-sizing: border-box; width: 100%; padding: 9px 12px; border-radius: var(--tp-radius-panel); line-height: 1.5; resize: none; }
 .assistant-count { margin: 0; color: var(--tp-text-3); font-size: 11.5px; }
 .assistant-count.is-over { color: var(--tp-danger-text); }
-.assistant-panel .assistant-send { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border-color: transparent; border-radius: var(--tp-radius-panel); background: var(--tp-accent); color: var(--tp-on-accent); }
-.assistant-panel .assistant-send:hover:not(:disabled) { background: var(--tp-accent-soft); border-color: transparent; }
-.assistant-panel .assistant-send:disabled { background: var(--tp-selected); color: var(--tp-text-3); opacity: 1; }
+.assistant-sheet .assistant-send { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border-color: transparent; border-radius: var(--tp-radius-panel); background: var(--tp-accent); color: var(--tp-on-accent); }
+.assistant-sheet .assistant-send:hover:not(:disabled) { background: var(--tp-accent-soft); border-color: transparent; }
+.assistant-sheet .assistant-send:disabled { background: var(--tp-selected); color: var(--tp-text-3); opacity: 1; }
 .assistant-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
-
-/* Botão flutuante: a ação principal do mapa. */
-.map-new-ticket {
-  position: absolute; z-index: 7; right: 14px; bottom: 14px; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px 0 14px;
-  border: 0; border-radius: 22px; background: var(--tp-accent); color: var(--tp-on-accent); font: 600 13.5px/1 var(--tp-font);
-  box-shadow: 0 10px 28px color-mix(in srgb, var(--tp-bg) 50%, transparent); cursor: pointer;
-}
-.map-new-ticket:hover { background: var(--tp-accent-soft); }
-.map-new-ticket:focus-visible { outline: 2px solid var(--tp-accent-soft); outline-offset: 2px; }
 
 /* Card tracejado do rascunho no mapa: não é um ticket. */
 .org-map .spatial-node:has(.node-draft) .spatial-card-visual { border: 1px dashed var(--tp-accent); background: color-mix(in srgb, var(--tp-accent) 12%, transparent); box-shadow: none; outline: 3px solid var(--tp-accent); outline-offset: 3px; }
 .org-map .spatial-node:has(.node-draft) .spatial-card-button { background: transparent; color: var(--tp-accent-soft); }
 .org-map .node-draft { display: contents; }
 .org-map.is-color-mode .spatial-node:has(.node-draft) .spatial-card-button { color: var(--tp-accent-soft); }
-/* O painel de áreas e projetos cobre a borda direita do mapa: o botão fica ao lado dele. */
-.org-map:has(.side-panel) .map-new-ticket { right: 394px; }
-@media (max-width: 700px) { .org-map:has(.side-panel) .map-new-ticket { right: 14px; bottom: 64px; } }

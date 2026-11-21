@@ -1,8 +1,9 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TicketSummary } from "../api/client.js";
 import { TicketMark, ticketStateText } from "../map/ticketState.js";
+import { AiIcon, PlusIcon } from "./icons.js";
 import { searchTickets } from "./search.js";
 import "./command.css";
 
@@ -20,31 +21,35 @@ export interface CommandBarProps {
   onCreate: (text: string) => void;
   /** Devolve o foco ao palco do mapa. */
   returnFocus: () => void;
+  /** A conversa de novo ticket mora na barra (ADR 0036): sem conversa, à vista ou recolhida (em andamento). */
+  conversation: "none" | "expanded" | "collapsed";
+  /** A IA está ligada: com o campo vazio, a folha oferece a conversa. */
+  assistantAvailable: boolean;
+  /** Título da conversa anterior que "Continuar conversa" retomaria (o rascunho ou o começo da primeira mensagem); `null` quando não há. */
+  loadResumable: () => Promise<string | null>;
+  onNewConversation: () => void;
+  onResumeConversation: () => void;
+  onReopenConversation: () => void;
+  onCollapseConversation: () => void;
+  /** A folha da conversa, que fica dentro da barra, embaixo do campo. */
+  children?: ReactNode;
 }
-
-const AiIcon = () => (
-  <svg aria-hidden="true" width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
-    <path d="M7 2c.5 3.6 1.4 4.5 5 5-3.6.5-4.5 1.4-5 5-.5-3.6-1.4-4.5-5-5 3.6-.5 4.5-1.4 5-5Z" />
-    <path d="M12.5 1c.2 1.4.6 1.8 2 2-1.4.2-1.8.6-2 2-.2-1.4-.6-1.8-2-2 1.4-.2 1.8-.6 2-2Z" />
-  </svg>
-);
-const PlusIcon = () => (
-  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-    <path d="M7 2.5v9M2.5 7h9" />
-  </svg>
-);
 
 type Option = { kind: "ticket"; ticket: TicketSummary } | { kind: "create" };
 
 /** Barra de pedidos no topo do mapa (ADR 0036, fatia 1): busca de tickets e a ação "Criar ticket". */
-export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTicket, onCreate, returnFocus }: CommandBarProps) {
+export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTicket, onCreate, returnFocus, conversation, assistantAvailable, loadResumable, onNewConversation, onResumeConversation, onReopenConversation, onCollapseConversation, children }: CommandBarProps) {
   const { t } = useTranslation("command");
   const { t: tMap } = useTranslation("map");
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
+  const zone = useRef<HTMLElement>(null);
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  // Com o campo vazio e a IA ligada, a folha oferece a conversa; nada vem destacado, para o Enter não começar uma sem querer.
+  const [emptyActive, setEmptyActive] = useState(-1);
+  const [resumeTitle, setResumeTitle] = useState<string | null>(null);
 
   const trimmed = text.trim();
   const found = useMemo(() => searchTickets(text, tickets), [text, tickets]);
@@ -54,8 +59,38 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
     return list;
   }, [found, canCreate, trimmed]);
   const sheetOpen = open && trimmed !== "";
+  const emptyOpen = open && trimmed === "" && assistantAvailable && canCreate && conversation === "none";
+  const emptyOptions = useMemo(() => (resumeTitle === null ? (["new"] as const) : (["resume", "new"] as const)), [resumeTitle]);
+  const emptyIndex = Math.min(emptyActive, emptyOptions.length - 1);
   const optionId = (index: number) => `${id}-option-${index}`;
   const activeIndex = Math.min(active, Math.max(options.length - 1, 0));
+
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
+  // A rolagem da folha da conversa é dela: a roda não chega ao zoom do mapa.
+  useEffect(() => {
+    const element = zone.current;
+    if (!element) return;
+    const stop = (event: WheelEvent) => event.stopPropagation();
+    element.addEventListener("wheel", stop);
+    return () => element.removeEventListener("wheel", stop);
+  }, []);
+
+  // A conversa anterior é consultada cada vez que a folha vazia abre: o projeto depende do que está selecionado no mapa.
+  const loadRef = useRef(loadResumable);
+  loadRef.current = loadResumable;
+  useEffect(() => {
+    setResumeTitle(null);
+    setEmptyActive(-1);
+    if (!emptyOpen) return;
+    let current = true;
+    void loadRef.current().then((title) => {
+      if (current) setResumeTitle(title);
+    });
+    return () => {
+      current = false;
+    };
+  }, [emptyOpen]);
 
   // Ctrl+K e ⌘K levam o foco à barra de qualquer lugar da tela do mapa. Em fase de captura, porque a página do ticket e os
   // painéis param a propagação das teclas.
@@ -63,6 +98,12 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== "k" || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
       event.preventDefault();
+      // Com a conversa à vista o campo da barra está recolhido: o foco vai ao campo de mensagem dela.
+      const message = conversationRef.current === "expanded" ? (zone.current?.querySelector<HTMLElement>("#assistant-message") ?? zone.current?.querySelector<HTMLElement>(".assistant-body")) : null;
+      if (message) {
+        message.focus();
+        return;
+      }
       input.current?.focus();
       input.current?.select();
     };
@@ -75,6 +116,11 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
     setOpen(false);
     setActive(0);
     input.current?.blur();
+  };
+  const chooseConversation = (kind: "resume" | "new") => {
+    finish();
+    if (kind === "resume") onResumeConversation();
+    else onNewConversation();
   };
   const choose = (option: Option) => {
     if (option.kind === "ticket") {
@@ -93,28 +139,44 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
     if (event.key.toLowerCase() === "k" && (event.ctrlKey || event.metaKey)) return;
     if (event.key === "Escape" && pickerActive()) return;
     event.stopPropagation();
+    // As setas e o Enter do campo não valem para o que se digita dentro da folha da conversa.
+    const fromField = event.target === input.current;
     switch (event.key) {
       case "Escape":
         event.preventDefault();
         setText("");
         setOpen(false);
         setActive(0);
+        // A folha da conversa se recolhe sem encerrar a conversa (ADR 0036).
+        if (conversation === "expanded") onCollapseConversation();
         returnFocus();
         return;
       case "ArrowDown":
       case "ArrowUp": {
+        if (!fromField) return;
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        if (emptyOpen) {
+          event.preventDefault();
+          setEmptyActive((emptyIndex + step + emptyOptions.length) % emptyOptions.length);
+          return;
+        }
         if (options.length === 0) return;
         event.preventDefault();
         setOpen(true);
-        const step = event.key === "ArrowDown" ? 1 : -1;
         setActive((activeIndex + step + options.length) % options.length);
         return;
       }
       case "Enter": {
-        if (event.repeat || event.nativeEvent.isComposing) return;
+        if (!fromField || event.repeat || event.nativeEvent.isComposing) return;
         if ((event.ctrlKey || event.metaKey) && canCreate && trimmed !== "") {
           event.preventDefault();
           choose({ kind: "create" });
+          return;
+        }
+        const chosen = emptyOpen && emptyIndex >= 0 ? emptyOptions[emptyIndex] : undefined;
+        if (chosen) {
+          event.preventDefault();
+          chooseConversation(chosen);
           return;
         }
         const option = sheetOpen ? options[activeIndex] : undefined;
@@ -129,6 +191,7 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
 
   return (
     <section
+      ref={zone}
       className="command-zone"
       data-aside={aside}
       aria-label={t("bar.label")}
@@ -138,8 +201,8 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
         if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
       }}
     >
-      <div className={`command-bar ${sheetOpen ? "is-open" : ""}`}>
-        <div className="command-field">
+      <div className={`command-bar ${sheetOpen || emptyOpen || conversation === "expanded" ? "is-open" : ""}`}>
+        <div className="command-field" hidden={conversation === "expanded"}>
           <span className="command-icon"><AiIcon /></span>
           <input
             ref={input}
@@ -149,10 +212,10 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
             spellCheck={false}
             aria-label={t("bar.input")}
             placeholder={t("bar.input")}
-            aria-expanded={sheetOpen}
+            aria-expanded={sheetOpen || emptyOpen}
             aria-controls={`${id}-list`}
             aria-autocomplete="list"
-            aria-activedescendant={sheetOpen && options.length > 0 ? optionId(activeIndex) : undefined}
+            aria-activedescendant={sheetOpen && options.length > 0 ? optionId(activeIndex) : emptyOpen && emptyIndex >= 0 ? optionId(emptyIndex) : undefined}
             value={text}
             onChange={(event) => {
               setText(event.target.value);
@@ -161,8 +224,42 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
             }}
             onFocus={() => setOpen(true)}
           />
+          {conversation === "collapsed" && (
+            <button type="button" className="command-progress" onClick={onReopenConversation}>{t("conversation.inProgress")}</button>
+          )}
           <kbd>{sheetOpen ? t("bar.escape") : t("bar.shortcut")}</kbd>
         </div>
+        {emptyOpen && (
+          <div className="command-sheet" onMouseDown={(event) => event.preventDefault()}>
+            <div id={`${id}-list`} role="listbox" aria-label={t("sheet.label")}>
+              <div role="group" aria-labelledby={`${id}-conversation`}>
+                <div id={`${id}-conversation`} className="command-heading">{t("sheet.conversation")}</div>
+                {emptyOptions.map((kind, index) => (
+                  <div
+                    key={kind}
+                    id={optionId(index)}
+                    role="option"
+                    aria-selected={index === emptyIndex}
+                    className={`command-option ${index === emptyIndex ? "is-active" : ""}`}
+                    onMouseMove={() => setEmptyActive(index)}
+                    onClick={() => chooseConversation(kind)}
+                  >
+                    <span className="command-action-icon">{kind === "resume" ? <AiIcon /> : <PlusIcon />}</span>
+                    <span className="command-title">
+                      {kind === "resume" ? (
+                        <>
+                          {t("conversation.resume")} <span className="command-resume-title">{resumeTitle}</span>
+                        </>
+                      ) : (
+                        t("conversation.new")
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
         {sheetOpen && (
           <div className="command-sheet" onMouseDown={(event) => event.preventDefault()}>
             <div id={`${id}-list`} role="listbox" aria-label={t("sheet.label")}>
@@ -213,6 +310,7 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
             </div>
           </div>
         )}
+        {children}
       </div>
     </section>
   );

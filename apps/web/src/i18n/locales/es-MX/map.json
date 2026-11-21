@@ -13,7 +13,6 @@
   "organizationKey": "Organización",
   "help": "Rueda para acercar · arrastra para desplazar · combina ambos · clic para seleccionar · Explorar rama para enfocar · C colores · Esc limpiar",
   "createFirst": "Crear primer proyecto",
-  "newTicket": "Nuevo ticket",
   "selection": {
     "region": "Nodo seleccionado",
     "close": "Cerrar selección",

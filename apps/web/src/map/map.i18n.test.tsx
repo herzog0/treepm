@@ -57,7 +57,8 @@ const TEXT = {
     explore: "Explore branch",
     open: "Open",
     createFirst: "Create first project",
-    newTicket: "New ticket",
+    barInput: "Ask for anything",
+    newConversation: "New conversation",
     org: (n: string) => new RegExp(`^Equipe Alfa\\. Organization with ${n}\\.`),
     project: /ALFA · Projeto Alfa\. Project\./,
     ticket: /ALFA-1 · Publicar\. Ticket\./,
@@ -91,7 +92,8 @@ const TEXT = {
     explore: "Explorar rama",
     open: "Abrir",
     createFirst: "Crear primer proyecto",
-    newTicket: "Nuevo ticket",
+    barInput: "Pide lo que quieras",
+    newConversation: "Nueva conversación",
     org: (n: string) => new RegExp(`^Equipe Alfa\\. Organización con ${n}\\.`),
     project: /ALFA · Projeto Alfa\. Proyecto\./,
     ticket: /ALFA-1 · Publicar\. Ticket\./,
@@ -157,7 +159,9 @@ describe.each(["en", "es-MX"] as const)("map in %s", (language) => {
     expect(within(card).getByRole("button", { name: text.explore })).toBeInTheDocument();
     expect(within(card).getByRole("button", { name: text.open })).toBeInTheDocument();
     expect(card).toHaveTextContent(text.states.in_review);
-    expect(screen.getByRole("button", { name: text.newTicket })).toBeInTheDocument();
+    // O botão flutuante "Novo ticket" saiu (ADR 0036): a conversa começa pela barra, com o campo vazio em foco.
+    await userEvent.click(screen.getByRole("combobox", { name: text.barInput }));
+    expect(await screen.findByRole("option", { name: text.newConversation })).toBeInTheDocument();
     expectNoMapPortuguese(container, language);
   }, SLOW);
 

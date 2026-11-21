@@ -4,7 +4,7 @@
     "title": "New ticket",
     "subtitle": "The assistant knows the tree and remembers earlier conversations",
     "project": "{{key}} · {{name}}",
-    "close": "Close conversation"
+    "collapse": "Collapse"
   },
   "project": {
     "question": "Which project?",
@@ -12,8 +12,9 @@
   },
   "loading": "Loading the conversation…",
   "scope": {
-    "searching": "Searching inside “{{title}}”",
-    "wholeProject": "Search the whole project"
+    "wholeProject": "Search the whole project",
+    "chip": "Inside {{key}}",
+    "remove": "Remove the scope"
   },
   "conversation": {
     "new": "New conversation",

@@ -14,10 +14,16 @@
       "navigate": "↑ ↓ navegar",
       "open": "Enter abrir",
       "close": "Esc fechar"
-    }
+    },
+    "conversation": "Conversa"
   },
   "action": {
     "create": "Criar ticket «{{text}}»",
     "createShortcut": "Ctrl Enter"
+  },
+  "conversation": {
+    "inProgress": "Conversa em andamento",
+    "resume": "Continuar conversa",
+    "new": "Nova conversa"
   }
 }
