@@ -33,10 +33,14 @@ describe("agrupadores do lugar da procura na conversa (ADR 0033)", () => {
 
   it("a ordem é a do número do ticket, não a do título nem a da criação", async () => {
     await h.pool.query(
-      "insert into tickets (org_id, project_id, number, kind, title, created_by_person_id) values ('org_A', $1, 9, 'group', 'Aaa', $2), ('org_A', $1, 3, 'group', 'Zzz', $2), ('org_A', $1, 5, 'group', 'Mmm', $2)",
+      "insert into tickets (org_id, project_id, number, title, created_by_person_id) values ('org_A', $1, 9, 'Aaa', $2), ('org_A', $1, 3, 'Zzz', $2), ('org_A', $1, 5, 'Mmm', $2)",
       [priv(), h.world().people.manager],
     );
-    await h.pool.query("update projects set next_ticket_number = 10 where id = $1", [priv()]);
+    await h.pool.query(
+      "insert into tickets (org_id, project_id, number, parent_id, title, created_by_person_id) select 'org_A', $1, 20 + number, id, 'filho', $2 from tickets where project_id = $1",
+      [priv(), h.world().people.manager],
+    );
+    await h.pool.query("update projects set next_ticket_number = 40 where id = $1", [priv()]);
     await open();
     expect(lastCall()?.groups).toEqual(["Zzz", "Mmm", "Aaa"]);
   });
@@ -129,17 +133,16 @@ describe("agrupadores do lugar da procura na conversa (ADR 0033)", () => {
 });
 
 describe("scopeId na conversa: os mesmos erros da procura", () => {
-  const groupIn = async (projectId: string, orgId: string, number: number, title: string, kind = "group") =>
+  const groupIn = async (projectId: string, orgId: string, number: number, title: string) =>
     (await rows(
-      "insert into tickets (org_id, project_id, number, kind, title, created_by_person_id) values ($1,$2,$3,$4,$5,(select id from people where org_id = $1 limit 1)) returning id",
-      [orgId, projectId, number, kind, title],
+      "insert into tickets (org_id, project_id, number, title, created_by_person_id) values ($1,$2,$3,$4,(select id from people where org_id = $1 limit 1)) returning id",
+      [orgId, projectId, number, title],
     ))[0].id as string;
 
   const cases: [string, () => Promise<string>, number, string | undefined][] = [
     ["escopo inexistente: 404", async () => UNKNOWN_ID, 404, undefined],
     ["escopo de outro projeto da mesma organização: 404", () => groupIn(h.world().projects.org, "org_A", 1, "De outro projeto"), 404, undefined],
     ["escopo de outra organização: 404", () => groupIn(h.world().other.project, "org_B", 1, "De outra organização"), 404, undefined],
-    ["escopo do tipo ticket: 409 scope_not_group", async () => tree.login, 409, "scope_not_group"],
   ];
 
   describe.each(cases)("%s", (_name, scope, status, code) => {
@@ -162,6 +165,13 @@ describe("scopeId na conversa: os mesmos erros da procura", () => {
       expect(h.conversation().calls).toHaveLength(0);
       expect(await count("ticket_conversation_messages")).toBe(2);
     });
+  });
+
+  it("ticket sem filhos como escopo: aceito (ADR 0034), sem o erro scope_not_group, e a conversa segue", async () => {
+    tree = await seedTree(h.pool, h.world());
+    const res = await open("contributor", { scopeId: tree.login });
+    expect(res.status).toBe(201);
+    expect(lastCall()?.groups).toEqual([]);
   });
 
   it("scopeId que não é um id: 400, como o corpo inválido de sempre", async () => {

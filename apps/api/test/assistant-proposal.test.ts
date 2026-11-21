@@ -19,8 +19,8 @@ const addTicket = async (title: string, parentId: string | null, description = "
   await h.pool.query("update projects set next_ticket_number = next_ticket_number + 1 where id = $1", [priv()]);
   return (
     await rows(
-      "insert into tickets (org_id, project_id, number, parent_id, parent_kind, title, description, created_by_person_id) values ('org_A',$1,$2,$3,$4,$5,$6,$7) returning id",
-      [priv(), number, parentId, parentId === null ? null : "group", title, description, h.world().people.manager],
+      "insert into tickets (org_id, project_id, number, parent_id, title, description, created_by_person_id) values ('org_A',$1,$2,$3,$4,$5,$6) returning id",
+      [priv(), number, parentId, title, description, h.world().people.manager],
     )
   )[0].id as string;
 };

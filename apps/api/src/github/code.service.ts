@@ -278,7 +278,7 @@ export class CodeService {
     }
   }
 
-  /** `GET /api/tickets/:id/code`: só lê o banco. Agrupador traz os vínculos dele e os de todos os descendentes. */
+  /** `GET /api/tickets/:id/code`: só lê o banco. Traz os vínculos do ticket e os de todos os descendentes (ADR 0034). */
   async read(tx: TenantClient, principal: Principal, ticketId: string): Promise<TicketCode> {
     const orgId = principal.organization.orgId;
     const ticket = await tx.ticket.findFirst({ where: { orgId, id: ticketId } });
@@ -287,16 +287,14 @@ export class CodeService {
     if (!project || !this.authorization.canView(principal.actor, project)) throw new NotFoundException("Ticket não encontrado.");
 
     const family = new Map<string, { id: string; number: number; title: string }>([[ticket.id, ticket]]);
-    if (ticket.kind === "group") {
-      const all = await tx.ticket.findMany({ where: { orgId, projectId: project.id }, select: { id: true, parentId: true, number: true, title: true } });
-      const children = new Map<string, typeof all>();
-      for (const row of all) if (row.parentId) children.set(row.parentId, [...(children.get(row.parentId) ?? []), row]);
-      const queue = [ticket.id];
-      for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
-        for (const child of children.get(id) ?? []) {
-          family.set(child.id, child);
-          queue.push(child.id);
-        }
+    const all = await tx.ticket.findMany({ where: { orgId, projectId: project.id }, select: { id: true, parentId: true, number: true, title: true } });
+    const children = new Map<string, typeof all>();
+    for (const row of all) if (row.parentId) children.set(row.parentId, [...(children.get(row.parentId) ?? []), row]);
+    const queue = [ticket.id];
+    for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+      for (const child of children.get(id) ?? []) {
+        family.set(child.id, child);
+        queue.push(child.id);
       }
     }
 

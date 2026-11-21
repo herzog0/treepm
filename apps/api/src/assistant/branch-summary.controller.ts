@@ -58,8 +58,7 @@ export class BranchSummaryController {
     @Param("id", new ZodPipe(idSchema)) id: string,
   ): Promise<GroupTextResponse> {
     this.requireEnabled();
-    const { ticket } = await this.findVisibleTicket(tx, actor, id);
-    this.requireGroup(ticket);
+    await this.findVisibleTicket(tx, actor, id);
     return this.view(tx, id);
   }
 
@@ -71,7 +70,7 @@ export class BranchSummaryController {
     @Body(new ZodPipe(groupTextBodySchema)) body: z.output<typeof groupTextBodySchema>,
   ): Promise<GroupTextResponse> {
     this.requireEnabled();
-    const { project, ticket } = await this.requireEditableGroup(tx, principal, id);
+    const { project, ticket } = await this.requireEditableParent(tx, principal, id);
     await this.store(tx, principal, { projectId: project.id, ticketId: id, key: `${project.key}-${ticket.number}`, text: body.text, source: "person" });
     return this.view(tx, id);
   }
@@ -86,18 +85,15 @@ export class BranchSummaryController {
   ): Promise<GroupTextResponse> {
     const summarizer = this.requireEnabled().summarizer;
     const input = await tenant.run(async (tx, principal) => {
-      const { ticket } = await this.requireEditableGroup(tx, principal, id);
+      const { ticket } = await this.requireEditableParent(tx, principal, id);
       const children = await tx.ticket.findMany({
         where: { parentId: id },
         orderBy: { number: "asc" },
-        select: { id: true, kind: true, title: true },
+        select: { id: true, title: true },
       });
-      if (children.length === 0) {
-        throw new ConflictException({ code: "group_empty", message: "O agrupador não tem itens para a IA resumir." });
-      }
       // O filho agrupador entra com o texto guardado dele, se houver; sem texto, só com o título (nada é escrito em cadeia).
       const texts = await tx.branchSummary.findMany({
-        where: { ticketId: { in: children.filter((child) => child.kind === "group").map((child) => child.id) } },
+        where: { ticketId: { in: children.map((child) => child.id) } },
         select: { ticketId: true, summary: true },
       });
       const byId = new Map(texts.map((text) => [text.ticketId, text.summary]));
@@ -120,7 +116,7 @@ export class BranchSummaryController {
     }
 
     return tenant.run(async (tx, principal) => {
-      const { project, ticket } = await this.requireEditableGroup(tx, principal, id);
+      const { project, ticket } = await this.requireEditableParent(tx, principal, id);
       await this.store(tx, principal, {
         projectId: project.id,
         ticketId: id,
@@ -155,20 +151,21 @@ export class BranchSummaryController {
     return { project, ticket };
   }
 
-  private requireGroup(ticket: { kind: string }): void {
-    if (ticket.kind !== "group") {
-      throw new ConflictException({ code: "not_a_group", message: "Só um agrupador tem esse texto." });
+  /** Gravar ou regenerar o texto só faz sentido em ticket que tem filhos (ADR 0034): senão, 409 `ticket_has_no_items`. */
+  private async requireItems(tx: TenantClient, ticket: { id: string }): Promise<void> {
+    if ((await tx.ticket.count({ where: { parentId: ticket.id } })) === 0) {
+      throw new ConflictException({ code: "ticket_has_no_items", message: "O ticket não tem itens: não há o que resumir." });
     }
   }
 
-  /** Visível (404), pode editar o ticket (403), projeto não arquivado (409) e agrupador (409). */
-  private async requireEditableGroup(tx: TenantClient, principal: Principal, id: string) {
+  /** Visível (404), pode editar o ticket (403), projeto não arquivado (409) e ticket com filhos (409). */
+  private async requireEditableParent(tx: TenantClient, principal: Principal, id: string) {
     const found = await this.findVisibleTicket(tx, principal.actor, id);
     this.authorization.editTicket(principal.actor, found.project.id);
     if (found.project.archivedAt) {
       throw new ConflictException({ code: "project_archived", message: "Projeto arquivado é somente leitura." });
     }
-    this.requireGroup(found.ticket);
+    await this.requireItems(tx, found.ticket);
     return found;
   }
 

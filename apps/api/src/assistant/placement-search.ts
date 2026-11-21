@@ -21,7 +21,7 @@ export type JudgeInput = Parameters<BranchJudge["judge"]>[0];
 
 export type PlacementDeps = {
   judge: BranchJudge;
-  /** Candidatos de um nó: os seus filhos diretos do tipo agrupador, vazios ou não (ADR 0031); `null` é a raiz do projeto. Sem agrupador filho não há candidatos, e a procura termina no nó. */
+  /** Candidatos de um nó: os seus filhos diretos que têm filhos (ADR 0034); `null` é a raiz do projeto. Sem filho que tenha filhos não há candidatos, e a procura termina no nó. */
   candidates(parentId: string | null): Promise<readonly BranchCandidate[]>;
   /** A requisição cabe no limite de tokens do juiz? Se não, a procura para naquele nível. */
   fits(input: JudgeInput): boolean;

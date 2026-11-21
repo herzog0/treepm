@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AI_CONFIG, TEST_CONFIG } from "./helpers.js";
-import { seedGroups, seedTree } from "./assistant-tree.js";
+import { seedLeaves, seedTree } from "./assistant-tree.js";
 import type { Tree } from "./assistant-tree.js";
 import { useHarness } from "./harness.js";
 import { as } from "./world.js";
@@ -57,8 +57,8 @@ describe("GET /tickets/:id/summary", () => {
     expect(res.body.summary.updatedAt).toBe(at.toISOString());
   });
 
-  it("texto da pessoa, inclusive de agrupador vazio", async () => {
-    const [empty] = await seedGroups(h.pool, h.world(), [{ title: "Acesso" }]);
+  it("texto guardado de um ticket que não tem (mais) filhos continua sendo lido", async () => {
+    const [empty] = await seedLeaves(h.pool, h.world(), [{ title: "Acesso" }]);
     await personText(empty!, "Tudo sobre acesso");
     const res = await read(empty!);
     expect(res.body.summary).toMatchObject({ text: "Tudo sobre acesso", source: "person" });
@@ -83,12 +83,12 @@ describe("GET /tickets/:id/summary", () => {
     expect((await read("nao-e-id")).status).toBe(400);
   });
 
-  it("ticket que não é agrupador: 409 not_a_group", async () => {
+  it("ticket sem filhos: 200 com summary nulo (ADR 0034)", async () => {
     tree = await seedTree(h.pool, h.world());
     for (const ticket of [tree.login, tree.loose]) {
       const res = await read(ticket);
-      expect(res.status).toBe(409);
-      expect(errorOf(res)).toBe("not_a_group");
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ summary: null });
     }
   });
 
@@ -125,10 +125,12 @@ describe("PUT /tickets/:id/summary", () => {
     expect(await stored(tree.auth)).toMatchObject({ summary: "Segundo", source: "person", model: null, edited_by_person_id: h.world().people.contributor });
   });
 
-  it("agrupador vazio aceita texto", async () => {
-    const [empty] = await seedGroups(h.pool, h.world(), [{ title: "Acesso" }]);
-    expect((await write(empty!, { text: "Texto antes dos itens" })).status).toBe(200);
-    expect((await stored(empty!))?.summary).toBe("Texto antes dos itens");
+  it("ticket sem filhos não aceita texto: 409 ticket_has_no_items", async () => {
+    const [empty] = await seedLeaves(h.pool, h.world(), [{ title: "Acesso" }]);
+    const res = await write(empty!, { text: "Texto antes dos itens" });
+    expect(res.status).toBe(409);
+    expect(errorOf(res)).toBe("ticket_has_no_items");
+    expect(await stored(empty!)).toBeUndefined();
   });
 
   it("limites: de 1 a 1000 caracteres depois de aparar", async () => {
@@ -183,11 +185,11 @@ describe("PUT /tickets/:id/summary", () => {
     expect((await stored(tree.auth))?.summary).toBe("Texto da IA");
   });
 
-  it("ticket que não é agrupador: 409 not_a_group, e nada é gravado", async () => {
+  it("ticket sem filhos: 409 ticket_has_no_items, e nada é gravado", async () => {
     tree = await seedTree(h.pool, h.world());
     const res = await write(tree.login, { text: "novo" });
     expect(res.status).toBe(409);
-    expect(errorOf(res)).toBe("not_a_group");
+    expect(errorOf(res)).toBe("ticket_has_no_items");
     expect(await rows("select 1 from branch_summaries")).toEqual([]);
   });
 
@@ -266,12 +268,12 @@ describe("POST /tickets/:id/summary/regenerate", () => {
     expect(h.summarizer().calls.map((c) => c.title)).not.toContain("Billing");
   });
 
-  it("agrupador vazio: 409 group_empty, sem chamar a IA, e o texto guardado fica", async () => {
-    const [empty] = await seedGroups(h.pool, h.world(), [{ title: "Acesso", description: "Quem entra" }]);
+  it("ticket sem filhos: 409 ticket_has_no_items, sem chamar a IA, e o texto guardado fica", async () => {
+    const [empty] = await seedLeaves(h.pool, h.world(), [{ title: "Acesso", description: "Quem entra" }]);
     await personText(empty!, "Texto da pessoa");
     const res = await regenerate(empty!);
     expect(res.status).toBe(409);
-    expect(errorOf(res)).toBe("group_empty");
+    expect(errorOf(res)).toBe("ticket_has_no_items");
     expect(h.summarizer().calls).toHaveLength(0);
     expect(await stored(empty!)).toMatchObject({ summary: "Texto da pessoa", source: "person" });
     expect(await events()).toEqual([]);
@@ -323,11 +325,11 @@ describe("POST /tickets/:id/summary/regenerate", () => {
     expect(h.summarizer().calls).toHaveLength(0);
   });
 
-  it("ticket que não é agrupador: 409 not_a_group", async () => {
+  it("ticket sem filhos (da árvore): 409 ticket_has_no_items", async () => {
     tree = await seedTree(h.pool, h.world());
     const res = await regenerate(tree.login);
     expect(res.status).toBe(409);
-    expect(errorOf(res)).toBe("not_a_group");
+    expect(errorOf(res)).toBe("ticket_has_no_items");
     expect(h.summarizer().calls).toHaveLength(0);
   });
 
@@ -366,35 +368,6 @@ describe("POST /tickets/:id/summary/regenerate", () => {
       payload: { key: "PRIV-1", source: "assistant" },
     });
     expect(JSON.stringify(recorded[0]?.payload)).not.toContain("Resumo de Auth");
-  });
-});
-
-describe("transformar agrupador vazio em ticket apaga o texto guardado", () => {
-  const patch = (id: string, body: unknown) => h.call("PATCH", `/api/tickets/${id}`, as("contributor"), body);
-
-  it("o texto da pessoa e o da IA somem, e só os dele", async () => {
-    const [a, b, c] = await seedGroups(h.pool, h.world(), [{ title: "A" }, { title: "B" }, { title: "C" }]);
-    await personText(a!, "da pessoa");
-    await aiText(b!, "da IA");
-    await personText(c!, "fica");
-    expect((await patch(a!, { kind: "ticket" })).status).toBe(200);
-    expect((await patch(b!, { kind: "ticket" })).status).toBe(200);
-    expect(await rows("select ticket_id from branch_summaries")).toEqual([{ ticket_id: c }]);
-  });
-
-  it("agrupador com filhos não vira ticket e o texto fica", async () => {
-    tree = await seedTree(h.pool, h.world());
-    await personText(tree.auth);
-    expect((await patch(tree.auth, { kind: "ticket" })).status).toBe(409);
-    expect((await stored(tree.auth))?.summary).toBe("Texto da pessoa");
-  });
-
-  it("transformar em ticket e voltar a agrupador começa sem texto", async () => {
-    const [a] = await seedGroups(h.pool, h.world(), [{ title: "A" }]);
-    await personText(a!);
-    await patch(a!, { kind: "ticket" });
-    await patch(a!, { kind: "group" });
-    expect((await read(a!)).body).toEqual({ summary: null });
   });
 });
 

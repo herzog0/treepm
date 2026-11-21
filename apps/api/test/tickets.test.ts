@@ -34,7 +34,6 @@ describe("criação e leitura", () => {
       number: 1,
       key: "PRIV-1",
       parentId: null,
-      kind: "ticket",
       title: "Primeiro",
       status: "todo",
       progress: null,
@@ -65,7 +64,7 @@ describe("criação e leitura", () => {
   });
 
   it("aceita descrição, situação, pai e atribuídos na criação", async () => {
-    const parent = await ticket("priv", { kind: "group" });
+    const parent = await ticket("priv", {});
     const res = await create("priv", {
       title: "Filho",
       description: "texto",
@@ -79,7 +78,7 @@ describe("criação e leitura", () => {
   });
 
   it("lista em ordem de number, sem descrição, com assigneeIds ordenados e progresso do pai", async () => {
-    const root = await ticket("priv", { title: "Raiz", description: "longa", kind: "group" });
+    const root = await ticket("priv", { title: "Raiz", description: "longa" });
     await ticket("priv", { title: "A", parentId: root.id, status: "done", description: "x" });
     await ticket("priv", { title: "B", parentId: root.id, status: "cancelled" });
     const c = await ticket("priv", { title: "C", parentId: root.id, status: "in_progress" });
@@ -94,7 +93,7 @@ describe("criação e leitura", () => {
     expect(res.body.map((t: Body) => t.descriptionExcerpt)).toEqual(["longa", "x", "", ""]);
     expect(res.body[0]).toMatchObject({
       key: "PRIV-1",
-      status: null,
+      status: "todo",
       progress: { done: 1, total: 2, excluded: 1 },
     });
     expect(res.body[1]).toMatchObject({ status: "done", progress: null, parentId: root.id });
@@ -119,14 +118,14 @@ describe("criação e leitura", () => {
   });
 
   it("devolve o detalhe com descrição e progresso do pai", async () => {
-    const root = await ticket("priv", { description: "detalhe", kind: "group" });
+    const root = await ticket("priv", { description: "detalhe" });
     await ticket("priv", { parentId: root.id, status: "done" });
     const res = await h.call("GET", `/api/tickets/${root.id}`, as("reader"));
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       id: root.id,
       description: "detalhe",
-      status: null,
+      status: "todo",
       progress: { done: 1, total: 1, excluded: 0 },
     });
   });
@@ -272,39 +271,6 @@ describe("projeto arquivado", () => {
   });
 });
 
-describe("agrupador com filhos", () => {
-  it("tem status null, recusa mudar situação e remover; ao perder o último filho segue agrupador, vazio", async () => {
-    const parent = await ticket("priv", { kind: "group" });
-    const child = await ticket("priv", { parentId: parent.id });
-    const detail = await h.call("GET", `/api/tickets/${parent.id}`, as("admin"));
-    expect(detail.body).toMatchObject({ kind: "group", status: null, progress: { done: 0, total: 1, excluded: 0 } });
-
-    const patch = await h.call("PATCH", `/api/tickets/${parent.id}`, as("admin"), { status: "done" });
-    expect(patch.status).toBe(409);
-    expect(patch.body.error.code).toBe("group_has_no_status");
-    const del = await h.call("DELETE", `/api/tickets/${parent.id}`, as("admin"));
-    expect(del.status).toBe(409);
-    expect(del.body.error.code).toBe("ticket_has_children");
-    expect((await h.call("PATCH", `/api/tickets/${parent.id}`, as("admin"), { title: "Renomeado" })).status).toBe(200);
-
-    expect((await h.call("DELETE", `/api/tickets/${child.id}`, as("admin"))).status).toBe(204);
-    const back = await h.call("GET", `/api/tickets/${parent.id}`, as("admin"));
-    expect(back.body).toMatchObject({ kind: "group", status: null, progress: { done: 0, total: 0, excluded: 0 } });
-  });
-
-  it("mover o último filho para outro agrupador deixa o antigo vazio; vira ticket com a situação guardada", async () => {
-    const a = await ticket("priv", { status: "in_review" });
-    expect((await h.call("PATCH", `/api/tickets/${a.id}`, as("admin"), { kind: "group" })).status).toBe(200);
-    const b = await ticket("priv", { kind: "group" });
-    const c = await ticket("priv", { parentId: a.id });
-    const res = await h.call("PATCH", `/api/tickets/${c.id}`, as("admin"), { parentId: b.id });
-    expect(res.status).toBe(200);
-    expect(res.body.parentId).toBe(b.id);
-    const back = await h.call("PATCH", `/api/tickets/${a.id}`, as("admin"), { kind: "ticket" });
-    expect(back.body).toMatchObject({ kind: "ticket", status: "in_review", progress: null });
-  });
-});
-
 describe("PATCH e parentesco", () => {
   it("altera título, descrição e situação de uma folha; exige ao menos um campo", async () => {
     const t = await ticket("priv");
@@ -321,9 +287,9 @@ describe("PATCH e parentesco", () => {
   });
 
   it("ciclo: o próprio ticket ou um descendente como pai devolve 409 ticket_cycle", async () => {
-    const a = await ticket("priv", { kind: "group" });
-    const b = await ticket("priv", { parentId: a.id, kind: "group" });
-    const c = await ticket("priv", { parentId: b.id, kind: "group" });
+    const a = await ticket("priv", {});
+    const b = await ticket("priv", { parentId: a.id });
+    const c = await ticket("priv", { parentId: b.id });
     for (const parentId of [a.id, b.id, c.id]) {
       const res = await h.call("PATCH", `/api/tickets/${a.id}`, as("admin"), { parentId });
       expect(res.status, parentId).toBe(409);
@@ -342,7 +308,7 @@ describe("PATCH e parentesco", () => {
   });
 
   it("muda o pai, vira raiz com null e mantém o número", async () => {
-    const a = await ticket("priv", { kind: "group" });
+    const a = await ticket("priv", {});
     const b = await ticket("priv");
     const moved = await h.call("PATCH", `/api/tickets/${b.id}`, as("admin"), { parentId: a.id });
     expect(moved.body).toMatchObject({ parentId: a.id, number: 2 });
@@ -465,7 +431,7 @@ describe("importação em lote", () => {
     expect(byTitle["a"].parentId).toBe(byTitle["Fase 1"].id);
     expect(byTitle["b1"].parentId).toBe(byTitle["b"].id);
     expect(byTitle["Fase 2"].parentId).toBeNull();
-    expect(byTitle["Fase 1"]).toMatchObject({ kind: "group", status: null, progress: { done: 1, total: 2, excluded: 0 }, assigneeIds: [] });
+    expect(byTitle["Fase 1"]).toMatchObject({ status: "in_progress", progress: { done: 1, total: 3, excluded: 0 }, assigneeIds: [] });
     expect(byTitle["Fase 2"]).toMatchObject({ status: "todo", progress: null });
     expect(res.body[0]).not.toHaveProperty("description");
     const stored = await h.pool.query("select description, status from tickets where number = 1 and project_id = $1", [projectOf("priv")]);
@@ -481,7 +447,7 @@ describe("importação em lote", () => {
   });
 
   it("importa sob um ticket existente com parentId", async () => {
-    const root = await ticket("priv", { kind: "group" });
+    const root = await ticket("priv", {});
     const res = await importTo({ parentId: root.id, items: [{ title: "x" }, { title: "y" }] });
     expect(res.status).toBe(201);
     expect(res.body.map((t: Body) => t.parentId)).toEqual([root.id, root.id]);

@@ -35,11 +35,11 @@ async function ready(projectId = OPEN(), repos = [REPO_APP]): Promise<string[]> 
   return ids;
 }
 
-async function ticket(projectId: string, number: number, over: { title?: string; kind?: "ticket" | "group"; parent?: string } = {}): Promise<string> {
+async function ticket(projectId: string, number: number, over: { title?: string; parent?: string } = {}): Promise<string> {
   const admin = (await rows("select id from people where org_id = 'org_A' and clerk_role = 'admin' limit 1"))[0]?.["id"];
   const created = await rows(
-    "insert into tickets (org_id, project_id, number, parent_id, parent_kind, kind, title, created_by_person_id) values ('org_A',$1,$2,$3,$4,$5,$6,$7) returning id",
-    [projectId, number, over.parent ?? null, over.parent ? "group" : null, over.kind ?? "ticket", over.title ?? `Ticket ${number}`, admin],
+    "insert into tickets (org_id, project_id, number, parent_id, title, created_by_person_id) values ('org_A',$1,$2,$3,$4,$5) returning id",
+    [projectId, number, over.parent ?? null, over.title ?? `Ticket ${number}`, admin],
   );
   return String(created[0]?.["id"]);
 }
@@ -113,7 +113,7 @@ describe("regra de ligação na sincronização", () => {
 
   it("agrupador também recebe vínculo", async () => {
     await ready();
-    await ticket(OPEN(), 1, { kind: "group" });
+    await ticket(OPEN(), 1, {});
     h.github().branches.set("herzog0/app", ["open-1-epico"]);
     await refresh("admin");
     expect(await links()).toHaveLength(1);
@@ -544,8 +544,8 @@ describe("GET /api/tickets/:id/code", () => {
 
   it("agrupador: os vínculos dele e os de todos os descendentes, em dois níveis; irmãos e primos ficam de fora", async () => {
     await world();
-    const g1 = await ticket(OPEN(), 1, { kind: "group", title: "Raiz" });
-    const g2 = await ticket(OPEN(), 2, { kind: "group", parent: g1, title: "Meio" });
+    const g1 = await ticket(OPEN(), 1, { title: "Raiz" });
+    const g2 = await ticket(OPEN(), 2, { parent: g1, title: "Meio" });
     await ticket(OPEN(), 3, { parent: g2, title: "Folha" });
     await ticket(OPEN(), 4, { parent: g1, title: "Filha direta" });
     await ticket(OPEN(), 5, { title: "Fora" });
@@ -563,7 +563,7 @@ describe("GET /api/tickets/:id/code", () => {
 
   it("ordem: PR abertos, branches, mesclados, fechados; dentro de cada grupo o mais recente primeiro (branches por nome)", async () => {
     await world();
-    const g = await ticket(OPEN(), 1, { kind: "group" });
+    const g = await ticket(OPEN(), 1, {});
     h.github().branches.set("herzog0/app", ["open-1-zeta", "open-1-alfa", "open-1-meio"]);
     h.github().pulls.set("herzog0/app", [
       pr(10, { title: "OPEN-1 mesclado velho", state: "merged", updatedAt: "2026-11-01T00:00:00Z" }),

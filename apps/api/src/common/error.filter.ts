@@ -1,7 +1,7 @@
 import { Catch, HttpException, HttpStatus, Logger } from "@nestjs/common";
 import type { ArgumentsHost, ExceptionFilter } from "@nestjs/common";
 
-type ErrorBody = { error: { code: string; message: string } };
+type ErrorBody = { error: { code: string; message: string; details?: Record<string, unknown> } };
 
 const CODES: Record<number, string> = {
   [HttpStatus.BAD_REQUEST]: "validation_error",
@@ -14,23 +14,23 @@ const CODES: Record<number, string> = {
 
 const INTERNAL_MESSAGE = "Erro interno do servidor.";
 
-const PARENT_FK = "tickets_org_id_project_id_parent_id_parent_kind_fkey";
+const PARENT_FK = "tickets_org_id_project_id_parent_id_fkey";
 
 /**
- * Corrida na regra "só agrupador tem filhos" (ADR 0031): a conferência da API passou, mas o banco recusou pela chave
- * estrangeira do pai (23503 ou 23001). Vira 409 sem a mensagem do banco. Recusa ao gravar o filho (insert ou update
- * dele): o pai deixou de ser agrupador. Recusa ao mexer no pai (update do tipo ou delete): ele ganhou filho.
+ * Corrida na regra do pai (ADR 0034): a conferência da API passou, mas o banco recusou pela chave estrangeira do pai
+ * (23503 ou 23001). Vira resposta sem a mensagem do banco. Recusa ao gravar o filho (insert ou update dele): o pai foi
+ * removido enquanto isso, 404. Recusa ao mexer no pai (delete): ele ganhou filho, 409 `ticket_has_children`.
  */
-export function parentRuleConflict(exception: unknown): { code: string; message: string } | null {
+export function parentRuleConflict(exception: unknown): { status: number; code: string; message: string } | null {
   const cause = (exception as { meta?: { driverAdapterError?: { cause?: { originalCode?: string; originalMessage?: string } } } })
     ?.meta?.driverAdapterError?.cause;
   if (!cause || (cause.originalCode !== "23503" && cause.originalCode !== "23001")) return null;
   const message = cause.originalMessage ?? "";
   if (!message.includes(PARENT_FK)) return null;
   if (message.startsWith("insert or update")) {
-    return { code: "parent_not_group", message: "Só um agrupador pode ter filhos; o pai escolhido mudou." };
+    return { status: HttpStatus.NOT_FOUND, code: "not_found", message: "Ticket pai não encontrado." };
   }
-  return { code: "ticket_has_children", message: "O agrupador ganhou filhos; mova ou remova os filhos antes." };
+  return { status: HttpStatus.CONFLICT, code: "ticket_has_children", message: "O ticket ganhou filhos; mova ou remova os filhos antes." };
 }
 
 /** Formato único `{ error: { code, message } }`; erros internos nunca vazam detalhes. */
@@ -50,11 +50,14 @@ export class ErrorFilter implements ExceptionFilter {
     ) {
       const status = exception.getStatus();
       const payload = exception.getResponse();
-      const custom = typeof payload === "object" ? (payload as { code?: unknown; message?: unknown }) : {};
+      const custom = typeof payload === "object" ? (payload as { code?: unknown; message?: unknown; details?: unknown }) : {};
+      const details =
+        typeof custom.details === "object" && custom.details !== null ? (custom.details as Record<string, unknown>) : undefined;
       response.status(status).json({
         error: {
           code: typeof custom.code === "string" ? custom.code : (CODES[status] ?? "error"),
           message: typeof custom.message === "string" ? custom.message : exception.message,
+          ...(details ? { details } : {}),
         },
       });
       return;
@@ -62,7 +65,7 @@ export class ErrorFilter implements ExceptionFilter {
 
     const conflict = parentRuleConflict(exception);
     if (conflict) {
-      response.status(HttpStatus.CONFLICT).json({ error: conflict });
+      response.status(conflict.status).json({ error: { code: conflict.code, message: conflict.message } });
       return;
     }
 

@@ -5,7 +5,6 @@ export const MAX_IMPORT_ITEMS = 500;
 export const MAX_IMPORT_DEPTH = 20;
 
 export const ticketStatusSchema = z.enum(["todo", "in_progress", "in_review", "done", "cancelled"]);
-export const ticketKindSchema = z.enum(["ticket", "group"]);
 export const ticketTitleSchema = z.string().trim().min(1).max(200);
 export const ticketDescriptionSchema = z.string().max(20_000);
 const titleSchema = ticketTitleSchema;
@@ -16,7 +15,6 @@ export const createTicketSchema = z
     title: titleSchema,
     description: descriptionSchema.optional(),
     parentId: idSchema.nullable().optional(),
-    kind: ticketKindSchema.optional(),
     status: ticketStatusSchema.optional(),
     assigneeIds: z.array(idSchema).max(100).optional(),
   })
@@ -28,7 +26,6 @@ export const updateTicketSchema = z
     description: descriptionSchema,
     status: ticketStatusSchema,
     parentId: idSchema.nullable(),
-    kind: ticketKindSchema,
   })
   .partial()
   .strict()
@@ -38,7 +35,6 @@ export type ImportItem = {
   title: string;
   description?: string | undefined;
   status?: z.output<typeof ticketStatusSchema> | undefined;
-  kind?: z.output<typeof ticketKindSchema> | undefined;
   children?: ImportItem[] | undefined;
 };
 
@@ -48,14 +44,11 @@ function itemSchema(depthLeft: number): z.ZodType<ImportItem> {
     title: titleSchema,
     description: descriptionSchema.optional(),
     status: ticketStatusSchema.optional(),
-    kind: ticketKindSchema.optional(),
   };
   if (depthLeft <= 1) return z.object(base).strict();
   return z
     .object({ ...base, children: z.array(z.lazy(() => itemSchema(depthLeft - 1))).optional() })
-    .strict()
-    // Só agrupador tem filhos (ADR 0031): um item declarado como ticket não pode trazer filhos.
-    .refine((item) => item.kind !== "ticket" || (item.children?.length ?? 0) === 0, "Ticket não tem filhos.");
+    .strict();
 }
 
 function countItems(items: readonly ImportItem[]): number {
@@ -84,10 +77,9 @@ export const ticketSummarySchema = z.object({
   number: z.number(),
   key: z.string(),
   parentId: z.string().nullable(),
-  kind: ticketKindSchema,
   title: z.string(),
   descriptionExcerpt: z.string(),
-  status: ticketStatusSchema.nullable(),
+  status: ticketStatusSchema,
   progress: progressSchema.nullable(),
   assigneeIds: z.array(z.string()),
 });
