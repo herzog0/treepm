@@ -1,6 +1,6 @@
 # ADR 0032 — Ligação com repositórios de código: GitHub primeiro
 
-**Status:** Proposta. A direção foi pedida por Teodoro; o desenho abaixo é da coordenação e espera a leitura dele e as decisões listadas no fim. Nada foi implementado. **Data:** 2026-11-20.
+**Status:** Aceita por Teodoro em 2026-11-21 (ver "Decisões de Teodoro"). Nada foi implementado: a implementação espera a criação do GitHub App. **Data:** 2026-11-20.
 
 ## Contexto
 
@@ -17,15 +17,17 @@ O que a documentação do GitHub diz e que pesa no desenho (lida em 2026-11-20):
 - O GitHub recomenda webhooks em vez de consultas periódicas; quando a consulta é inevitável, requisições condicionais.
 - O formato do token de instalação está mudando (anúncio de abril de 2026): não se deve supor um tamanho fixo.
 
-Ficaram **sem confirmação** na leitura, e precisam ser conferidos antes da implementação: se a permissão Metadata: read é obrigatória ou automática; os campos dos eventos `installation` e `installation_repositories`; o limite da busca de código; se há reentrega automática de webhook que falhou.
+Conferido em 2026-11-21: um GitHub App tem a permissão **Metadata: read** por padrão, e ela volta a "somente leitura" sempre que o app pede qualquer permissão que dê acesso a repositório; não há como pedir Contents sem ela.
+
+Ficaram **sem confirmação** na leitura, e precisam ser conferidos antes da implementação: os campos dos eventos `installation` e `installation_repositories`; o limite da busca de código; se há reentrega automática de webhook que falhou.
 
 Hoje o TreePM só existe no ambiente local. Sem endereço público, o GitHub não tem para onde mandar webhooks.
 
-## Decisão proposta
+## Decisão
 
 ### GitHub App, só leitura
 
-A ligação é um **GitHub App** do TreePM, com as permissões mínimas de leitura: **Contents: read** e **Pull requests: read** (mais Metadata: read, se for exigida). Nenhuma permissão de escrita: o TreePM não cria branch, não comenta em PR e não muda nada no repositório.
+A ligação é um **GitHub App** do TreePM, com as permissões mínimas de leitura: **Contents: read** e **Pull requests: read**, mais **Metadata: read**, que o GitHub impõe. Nenhuma permissão de escrita: o TreePM não cria branch, não comenta em PR e não muda nada no repositório.
 
 Não se usa token pessoal nem OAuth app: o acesso tem que sobreviver à saída da pessoa que conectou e ficar restrito aos repositórios que a organização escolheu.
 
@@ -61,7 +63,15 @@ Variáveis opcionais na API, como as da IA: identificador do app, chave privada,
 
 ### Segunda fatia: a IA lê o código
 
-Fica **fora da implementação desta ADR** e depende de autorização explícita de Teodoro. Código-fonte é outra categoria de dado: a ADR 0029 autorizou enviar à Anthropic e à TypeSafe texto de tickets e de conversas, não código de clientes. Quando for decidida, a proposta é: ligada por organização, desligada por padrão; a IA consulta árvore de arquivos e trechos sob demanda, durante a hidratação de um ticket; nada de código é guardado pelo TreePM.
+Fica **fora da implementação desta ADR**. Código-fonte é outra categoria de dado: a ADR 0029 autorizou enviar à Anthropic e à TypeSafe texto de tickets e de conversas, não código de clientes.
+
+Em 2026-11-21 Teodoro autorizou, com uma condição: "Pode enviar os trechos de código pra anthropic, mas coloca isso como algo a ser aceito pelo usuário em termos de uso ou privacidade do site." O que isso fixa:
+
+- **Só a Anthropic.** A autorização não inclui a TypeSafe: código não vai para o Jev.
+- **Só depois do aceite.** O TreePM ainda não tem termos de uso nem política de privacidade, nem registro de aceite. Enquanto esse aceite não existir e não estiver registrado para a organização, **nenhum trecho de código é enviado**.
+- O texto dos termos, quem aceita (a proposta da coordenação é o administrador da organização, que é quem liga o GitHub) e onde o aceite fica guardado são decisão de uma ADR própria, antes da implementação da segunda fatia.
+
+O resto da proposta continua: a IA consulta árvore de arquivos e trechos sob demanda, durante a hidratação de um ticket, e nada de código é guardado pelo TreePM.
 
 ## Fora desta ADR
 
@@ -78,8 +88,10 @@ Fica **fora da implementação desta ADR** e depende de autorização explícita
 - Mais uma integração com segredo de longa duração (a chave privada do app), que fica com a coordenação operacional.
 - A conferência da instalação exige um passo de login do usuário no GitHub além da instalação do app.
 
-## Decisões que esperam Teodoro
+## Decisões de Teodoro (2026-11-21)
 
-1. **Criar o GitHub App** (ou pedir ao grokbot): nome, permissões Contents: read e Pull requests: read, Setup URL do ambiente local, e guardar a chave privada e os segredos no arquivo de variáveis da API. É o que destrava a implementação.
-2. **A primeira fatia como está descrita** (rastreio por chave no nome do branch e no título do PR, seção "Código", só leitura): confirmar ou ajustar.
-3. **A IA lendo código:** sim ou não a enviar trechos de código dos repositórios ligados à Anthropic, e se o padrão é desligado por organização.
+Resposta dele às três decisões que esta ADR deixava abertas: "segue as suas recomendações, pode pedir pro grok o que quiser. Pode enviar os trechos de código pra anthropic, mas coloca isso como algo a ser aceito pelo usuário em termos de uso ou privacidade do site."
+
+1. **Criar o GitHub App:** pedido à coordenação operacional na issue #1, com nome, permissões (Contents: read, Pull requests: read e a Metadata: read imposta), Setup URL do ambiente local e a guarda da chave privada e dos segredos no arquivo de variáveis da API. É o que destrava a implementação.
+2. **Primeira fatia:** confirmada como descrita (rastreio pela chave no nome do branch e no título do PR, seção "Código", só leitura).
+3. **A IA lendo código:** autorizada só para a Anthropic e só depois do aceite do usuário, como descrito em "Segunda fatia".

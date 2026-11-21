@@ -1,6 +1,6 @@
 # ADR 0030 — Ticket folha como candidato na procura do caminho
 
-**Status:** Aceita. A reconstrução do `TREEPM` está **suspensa** depois da primeira medição (ver "Resultado da primeira medição"). **Data:** 2026-11-20.
+**Status:** Aceita, com a regra de candidatos substituída pela [ADR 0031](0031-agrupadores.md). A reconstrução do `TREEPM` foi **cancelada** em 2026-11-21 (ver "Resultado da primeira medição"). **Data:** 2026-11-20.
 
 ## Contexto
 
@@ -96,6 +96,8 @@ O que os números mostram:
 O que **não** se conclui daqui: nada sobre os limiares, o texto das perguntas ou a regra da faixa do meio. É uma rodada, cada colocação depende das anteriores, e os mesmos 45 itens seriam ao mesmo tempo ajuste e prova.
 
 O que esta rodada não mediu é o uso para o qual a procura foi desenhada: pôr **um** ticket em uma árvore já organizada. A medição seguinte tira um ticket por vez de uma cópia da árvore original, pede o lugar e o devolve. Organizar uma lista inteira de uma vez é outra funcionalidade (IDEA-010) e pede outra técnica.
+
+**Decisão de 2026-11-21:** Teodoro aceitou a recomendação da coordenação de **não reconstruir** o `TREEPM`. Do zero, 9 de 45 voltaram ao lugar; com a árvore organizada e os agrupadores da ADR 0031, 23 de 39 voltam sozinhos e outros 10 ficam entre as opções oferecidas. Os seis grupos do `TREEPM` já são agrupadores desde a migration 0006. Os seis projetos de medição (`ENSAIO`, `BASE`, `DEPOIS`, `ESCOPO`, `PLANO` e `GRUPOS`) foram arquivados no mesmo dia; os arquivos das rodadas continuam fora do Git, com a coordenação.
 
 A ferramenta classificou 8 tickets como "mais fundo" por olhar a ascendência no gabarito, e não na árvore reconstruída; os números acima já estão corrigidos; a correção da ferramenta vem em seguida.
 
