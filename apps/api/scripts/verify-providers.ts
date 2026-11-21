@@ -76,8 +76,8 @@ async function step<T>(name: string, sent: unknown, run: () => Promise<T>, usage
 
 await step(
   "1. Turno de conversa (Claude Opus 5.5, esforço medium)",
-  { history: [{ author: "person", body: PERSON_MESSAGE }], draft: null },
-  () => new ClaudeConversationProvider(streamer).turn({ history: [{ author: "person", body: PERSON_MESSAGE }], draft: null }),
+  { history: [{ author: "person", body: PERSON_MESSAGE }], draft: null, groups: [] },
+  () => new ClaudeConversationProvider(streamer).turn({ history: [{ author: "person", body: PERSON_MESSAGE }], draft: null, groups: [] }),
   () => claudeUsage,
 );
 await step(

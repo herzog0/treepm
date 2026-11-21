@@ -61,6 +61,9 @@ import { TicketsService } from "../tickets/tickets.service.js";
 import type { TicketDetail } from "../tickets/tickets.schema.js";
 import type { ProjectRow } from "../tickets/tickets.service.js";
 
+/** Teto dos títulos de agrupadores que vão ao Claude em cada turno (ADR 0033). */
+const MAX_GROUP_TITLES = 30;
+
 type ConversationRow = {
   orgId: string;
   id: string;
@@ -120,8 +123,11 @@ export class TicketConversationsController {
     @Body(new ZodPipe(conversationMessageBodySchema)) body: z.output<typeof conversationMessageBodySchema>,
   ): Promise<ConversationDetail> {
     const provider = this.requireProvider();
-    await tenant.run((tx, principal) => this.requireWritableProject(tx, principal, projectId));
-    const turn = await this.ask(provider, { history: [{ author: "person", body: body.message }], draft: null });
+    const groups = await tenant.run(async (tx, principal) => {
+      await this.requireWritableProject(tx, principal, projectId);
+      return this.scopeGroupTitles(tx, projectId, body.scopeId);
+    });
+    const turn = await this.ask(provider, { history: [{ author: "person", body: body.message }], draft: null, groups });
     return tenant.run(async (tx, principal) => {
       const project = await this.requireWritableProject(tx, principal, projectId);
       const created = await tx.ticketConversation.create({
@@ -154,7 +160,8 @@ export class TicketConversationsController {
         orderBy: { position: "asc" },
         select: { author: true, body: true },
       });
-      return { conversation, messages };
+      const groups = await this.scopeGroupTitles(tx, conversation.projectId, body.scopeId);
+      return { conversation, messages, groups };
     });
     const history = [
       ...seen.messages.map((m) => ({ author: m.author as "person" | "assistant", body: m.body })),
@@ -164,7 +171,7 @@ export class TicketConversationsController {
       seen.conversation.draftTitle === null
         ? null
         : { title: seen.conversation.draftTitle, description: seen.conversation.draftDescription ?? "" };
-    const turn = await this.ask(provider, { history, draft: current });
+    const turn = await this.ask(provider, { history, draft: current, groups: seen.groups });
     return tenant.run(async (tx, principal) => {
       await tx.$queryRaw`select 1 from ticket_conversations where id = ${id}::uuid for update`; // serializa turnos concorrentes
       const { conversation } = await this.requireWritable(tx, principal, id);
@@ -212,23 +219,16 @@ export class TicketConversationsController {
           where: { projectId: conversation.projectId },
           select: { id: true, parentId: true, kind: true, number: true, title: true, description: true },
         }),
-        tx.branchSummary.findMany({ where: { projectId: conversation.projectId }, select: { ticketId: true, summary: true, contentMark: true } }),
+        tx.branchSummary.findMany({ where: { projectId: conversation.projectId }, select: { ticketId: true, summary: true } }),
       ]);
-      if (body.scopeId) {
-        // Do projeto da conversa (outro projeto e outra organização, esta pela RLS, são o mesmo 404) e só agrupador.
-        const scope = tickets.find((ticket) => ticket.id === body.scopeId);
-        if (!scope) throw new NotFoundException("Agrupador de escopo não encontrado.");
-        if (scope.kind !== "group") {
-          throw new ConflictException({ code: "scope_not_group", message: "O escopo da procura precisa ser um agrupador." });
-        }
-      }
+      if (body.scopeId) this.requireScopeGroup(tickets.find((ticket) => ticket.id === body.scopeId));
       return {
         draft: { title: conversation.draftTitle, description: conversation.draftDescription ?? "" },
         snapshot: {
           projectId: conversation.projectId,
           projectName: project.name,
           tickets,
-          summaries: new Map(summaries.map((s) => [s.ticketId, { summary: s.summary, contentMark: s.contentMark }])),
+          summaries: new Map(summaries.map((s) => [s.ticketId, { summary: s.summary }])),
         },
       };
     });
@@ -366,6 +366,31 @@ export class TicketConversationsController {
       });
     }
     return { judge: this.judge, summarizer: this.summarizer, affinity: this.affinity, namer: this.namer };
+  }
+
+  /** Do projeto da conversa (outro projeto e outra organização, esta pela RLS, são o mesmo 404) e só agrupador. */
+  private requireScopeGroup(scope: { kind: string } | undefined): void {
+    if (!scope) throw new NotFoundException("Agrupador de escopo não encontrado.");
+    if (scope.kind !== "group") {
+      throw new ConflictException({ code: "scope_not_group", message: "O escopo da procura precisa ser um agrupador." });
+    }
+  }
+
+  /**
+   * Os títulos dos agrupadores do lugar da procura (ADR 0033): filhos diretos do escopo, ou da raiz do projeto sem
+   * escopo; no máximo 30, na ordem do número. Confere o escopo como a procura. Só títulos, nenhum id.
+   */
+  private async scopeGroupTitles(tx: TenantClient, projectId: string, scopeId: string | null | undefined): Promise<string[]> {
+    if (scopeId) {
+      this.requireScopeGroup(await tx.ticket.findFirst({ where: { id: scopeId, projectId }, select: { kind: true } }) ?? undefined);
+    }
+    const rows = await tx.ticket.findMany({
+      where: { projectId, kind: "group", parentId: scopeId ?? null },
+      orderBy: { number: "asc" },
+      take: MAX_GROUP_TITLES,
+      select: { title: true },
+    });
+    return rows.map((row) => row.title);
   }
 
   private draftRequired(): ConflictException {

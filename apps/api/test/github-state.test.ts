@@ -10,7 +10,30 @@ function decodePayload(token: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(payload ?? "", "base64url").toString("utf8")) as Record<string, unknown>;
 }
 
+/** Um token cuja assinatura (43 caracteres base64url) termina em `ending`, achado variando o nonce. */
+function tokenWithSignatureEnding(ending: string): { payload: string; signature: string } {
+  for (let attempt = 0; attempt < 10_000; attempt++) {
+    const [payload = "", signature = ""] = signState(SECRET, subject, NOW, `nonce-${attempt}`).split(".");
+    if (signature.endsWith(ending)) return { payload, signature };
+  }
+  throw new Error(`nenhuma assinatura terminou em ${ending}`);
+}
+
 describe("state assinado da conexão com o GitHub", () => {
+  it("adulterar o PRIMEIRO caractere da assinatura é recusado, inclusive quando ela termina em 'A'", () => {
+    const { payload, signature } = tokenWithSignatureEnding("A");
+    const flipped = `${signature.startsWith("A") ? "B" : "A"}${signature.slice(1)}`;
+    expect(verifyState(SECRET, `${payload}.${flipped}`, subject, NOW)).toBe(false);
+  });
+
+  it("o último caractere só carrega 4 bits úteis: 'A' trocado por 'B' decodifica para os mesmos bytes e é aceito", () => {
+    const { payload, signature } = tokenWithSignatureEnding("A");
+    const sameBytes = `${signature.slice(0, -1)}B`;
+    expect(Buffer.from(sameBytes, "base64url").equals(Buffer.from(signature, "base64url"))).toBe(true);
+    // Codificação não canônica da MESMA assinatura, não uma falsificação.
+    expect(verifyState(SECRET, `${payload}.${sameBytes}`, subject, NOW)).toBe(true);
+  });
+
   it("assina e verifica para a mesma organização e o mesmo usuário", () => {
     const token = signState(SECRET, subject, NOW);
     expect(token).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
@@ -64,7 +87,7 @@ describe("state assinado da conexão com o GitHub", () => {
   it("recusa assinatura adulterada, truncada, vazia ou de outro tamanho", () => {
     const token = signState(SECRET, subject, NOW);
     const [payload, signature = ""] = token.split(".");
-    const flipped = `${signature.slice(0, -1)}${signature.endsWith("A") ? "B" : "A"}`;
+    const flipped = `${signature.startsWith("A") ? "B" : "A"}${signature.slice(1)}`;
     expect(verifyState(SECRET, `${payload}.${flipped}`, subject, NOW)).toBe(false);
     expect(verifyState(SECRET, `${payload}.${signature.slice(0, 10)}`, subject, NOW)).toBe(false);
     expect(verifyState(SECRET, `${payload}.${signature}${signature}`, subject, NOW)).toBe(false);
