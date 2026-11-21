@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ApiClient, Me, Person, Team, TeamRole } from "../api/client.js";
 import type { ResourceState } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
@@ -14,21 +15,22 @@ export interface TeamDetailProps {
   onRemoved: () => void;
 }
 
-const ROLE_LABEL: Record<TeamRole, string> = { admin: "Administrador do time", member: "Membro" };
+const ROLE_KEY = { admin: "detail.roleAdmin", member: "detail.roleMember" } as const satisfies Record<TeamRole, string>;
 
 export function TeamDetail({ client, me, team, people, onRetryPeople, onChanged, onRemoved }: TeamDetailProps) {
+  const { t } = useTranslation("teams");
   const isOrgAdmin = me.roles.clerk === "admin";
   const isTeamAdmin = me.roles.teams.some((entry) => entry.teamId === team.id && entry.role === "admin");
   const canManage = isOrgAdmin || isTeamAdmin;
   const titleId = useId();
 
   return (
-    <section className="teams-open" aria-label={`Time ${team.name}`}>
+    <section className="teams-open" aria-label={t("detail.region", { name: team.name })}>
       <h2 id={titleId}>{team.name}</h2>
       {canManage && <RenameForm client={client} team={team} onChanged={onChanged} />}
       {isOrgAdmin && <RemoveTeam client={client} team={team} onRemoved={onRemoved} />}
-      <h3>Membros</h3>
-      {people.status === "loading" && <p role="status">Carregando pessoas…</p>}
+      <h3>{t("detail.members")}</h3>
+      {people.status === "loading" && <p role="status">{t("detail.loadingPeople")}</p>}
       {people.status === "error" && <LoadError error={people.error} onRetry={onRetryPeople} />}
       {people.status === "ready" && (
         <Members client={client} team={team} people={people.data} canManage={canManage} onChanged={onChanged} />
@@ -38,6 +40,7 @@ export function TeamDetail({ client, me, team, people, onRetryPeople, onChanged,
 }
 
 function RenameForm({ client, team, onChanged }: { client: ApiClient; team: Team; onChanged: () => void }) {
+  const { t } = useTranslation("teams");
   const [name, setName] = useState(team.name);
   const { pending, error, run } = useMutation();
   const inputId = useId();
@@ -51,7 +54,7 @@ function RenameForm({ client, team, onChanged }: { client: ApiClient; team: Team
 
   return (
     <form className="teams-form" onSubmit={(event) => void submit(event)}>
-      <label htmlFor={inputId}>Nome do time</label>
+      <label htmlFor={inputId}>{t("detail.rename.label")}</label>
       <div className="teams-row">
         <input
           id={inputId}
@@ -61,7 +64,7 @@ function RenameForm({ client, team, onChanged }: { client: ApiClient; team: Team
           aria-invalid={error ? true : undefined}
         />
         <button type="submit" disabled={pending || trimmed === "" || trimmed === team.name}>
-          Renomear
+          {t("detail.rename.submit")}
         </button>
       </div>
       {error && (
@@ -74,6 +77,7 @@ function RenameForm({ client, team, onChanged }: { client: ApiClient; team: Team
 }
 
 function RemoveTeam({ client, team, onRemoved }: { client: ApiClient; team: Team; onRemoved: () => void }) {
+  const { t } = useTranslation("teams");
   const [confirming, setConfirming] = useState(false);
   const { pending, error, run } = useMutation();
 
@@ -88,19 +92,19 @@ function RemoveTeam({ client, team, onRemoved }: { client: ApiClient; team: Team
           <button
             type="button"
             className="teams-destructive"
-            aria-label="Confirmar remoção do time"
+            aria-label={t("detail.remove.confirmLabel")}
             disabled={pending}
             onClick={() => void confirm()}
           >
-            Confirmar
+            {t("detail.remove.confirm")}
           </button>
           <button type="button" disabled={pending} onClick={() => setConfirming(false)}>
-            Cancelar
+            {t("detail.remove.cancel")}
           </button>
         </div>
       ) : (
         <button type="button" className="destructive" onClick={() => setConfirming(true)}>
-          Remover time
+          {t("detail.remove.action")}
         </button>
       )}
       {error && (
@@ -121,6 +125,7 @@ interface MembersProps {
 }
 
 function Members({ client, team, people, canManage, onChanged }: MembersProps) {
+  const { t } = useTranslation("teams");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const { pending, error, run } = useMutation();
   const byId = new Map(people.map((p) => [p.id, p]));
@@ -138,7 +143,7 @@ function Members({ client, team, people, canManage, onChanged }: MembersProps) {
   return (
     <>
       {team.members.length === 0 ? (
-        <p>Este time ainda não tem membros.</p>
+        <p>{t("detail.noMembers")}</p>
       ) : (
         <ul className="teams-members">
           {team.members.map((member) => {
@@ -153,37 +158,37 @@ function Members({ client, team, people, canManage, onChanged }: MembersProps) {
                 {canManage ? (
                   <div className="teams-row">
                     <select
-                      aria-label={`Papel de ${label}`}
+                      aria-label={t("detail.roleOf", { name: label })}
                       value={member.role}
                       disabled={pending}
                       onChange={(event) => void changeRole(member.personId, event.target.value as TeamRole)}
                     >
-                      <option value="admin">{ROLE_LABEL.admin}</option>
-                      <option value="member">{ROLE_LABEL.member}</option>
+                      <option value="admin">{t(ROLE_KEY.admin)}</option>
+                      <option value="member">{t(ROLE_KEY.member)}</option>
                     </select>
                     {confirmingId === member.personId ? (
                       <>
                         <button
                           type="button"
                           className="teams-destructive"
-                          aria-label={`Confirmar remoção de ${label}`}
+                          aria-label={t("detail.confirmRemoveMember", { name: label })}
                           disabled={pending}
                           onClick={() => void remove(member.personId)}
                         >
-                          Confirmar
+                          {t("detail.remove.confirm")}
                         </button>
                         <button type="button" disabled={pending} onClick={() => setConfirmingId(null)}>
-                          Cancelar
+                          {t("detail.remove.cancel")}
                         </button>
                       </>
                     ) : (
                       <button type="button" className="destructive" onClick={() => setConfirmingId(member.personId)}>
-                        Remover {label}
+                        {t("detail.removeMemberLabel", { name: label })}
                       </button>
                     )}
                   </div>
                 ) : (
-                  <span>{ROLE_LABEL[member.role]}</span>
+                  <span>{t(ROLE_KEY[member.role])}</span>
                 )}
               </li>
             );
@@ -201,13 +206,14 @@ function Members({ client, team, people, canManage, onChanged }: MembersProps) {
 }
 
 function AddMember({ client, team, people, onChanged }: { client: ApiClient; team: Team; people: Person[]; onChanged: () => void }) {
+  const { t } = useTranslation("teams");
   const [personId, setPersonId] = useState("");
   const [role, setRole] = useState<TeamRole>("member");
   const { pending, error, run } = useMutation();
   const inTeam = new Set(team.members.map((m) => m.personId));
   const candidates = people.filter((p) => p.active && !inTeam.has(p.id));
 
-  if (candidates.length === 0) return <p>Todas as pessoas ativas da organização já estão neste time.</p>;
+  if (candidates.length === 0) return <p>{t("detail.everyoneIn")}</p>;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -221,20 +227,20 @@ function AddMember({ client, team, people, onChanged }: { client: ApiClient; tea
   return (
     <form className="teams-form" onSubmit={(event) => void submit(event)}>
       <div className="teams-row">
-        <select aria-label="Pessoa a incluir" value={personId} onChange={(event) => setPersonId(event.target.value)}>
-          <option value="">Escolha uma pessoa</option>
+        <select aria-label={t("detail.personToAdd")} value={personId} onChange={(event) => setPersonId(event.target.value)}>
+          <option value="">{t("detail.pickPerson")}</option>
           {candidates.map((p) => (
             <option key={p.id} value={p.id}>
               {p.displayName}
             </option>
           ))}
         </select>
-        <select aria-label="Papel da pessoa a incluir" value={role} onChange={(event) => setRole(event.target.value as TeamRole)}>
-          <option value="member">{ROLE_LABEL.member}</option>
-          <option value="admin">{ROLE_LABEL.admin}</option>
+        <select aria-label={t("detail.roleToAdd")} value={role} onChange={(event) => setRole(event.target.value as TeamRole)}>
+          <option value="member">{t(ROLE_KEY.member)}</option>
+          <option value="admin">{t(ROLE_KEY.admin)}</option>
         </select>
         <button type="submit" disabled={pending || personId === ""}>
-          Incluir
+          {t("detail.add")}
         </button>
       </div>
       {error && (

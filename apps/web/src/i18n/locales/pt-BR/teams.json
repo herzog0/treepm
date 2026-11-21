@@ -1,0 +1,44 @@
+{
+  "title": "Times",
+  "hint": "Para convidar gente nova para a organização, use o menu da organização, no cabeçalho.",
+  "list": {
+    "title": "Times da organização",
+    "loading": "Carregando times…",
+    "empty": "Nenhum time cadastrado.",
+    "pick": "Escolha um time para ver os membros.",
+    "members_zero": "{{count}} membros",
+    "members_one": "{{count}} membro",
+    "members_many": "{{count}} membros",
+    "members_other": "{{count}} membros"
+  },
+  "create": {
+    "label": "Nome do novo time",
+    "submit": "Criar time"
+  },
+  "detail": {
+    "region": "Time {{name}}",
+    "roleAdmin": "Administrador do time",
+    "roleMember": "Membro",
+    "members": "Membros",
+    "loadingPeople": "Carregando pessoas…",
+    "rename": {
+      "label": "Nome do time",
+      "submit": "Renomear"
+    },
+    "remove": {
+      "confirmLabel": "Confirmar remoção do time",
+      "confirm": "Confirmar",
+      "cancel": "Cancelar",
+      "action": "Remover time"
+    },
+    "noMembers": "Este time ainda não tem membros.",
+    "roleOf": "Papel de {{name}}",
+    "confirmRemoveMember": "Confirmar remoção de {{name}}",
+    "removeMemberLabel": "Remover {{name}}",
+    "everyoneIn": "Todas as pessoas ativas da organização já estão neste time.",
+    "personToAdd": "Pessoa a incluir",
+    "roleToAdd": "Papel da pessoa a incluir",
+    "pickPerson": "Escolha uma pessoa",
+    "add": "Incluir"
+  }
+}

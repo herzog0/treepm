@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ApiClient, Me, Team } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
@@ -11,9 +12,8 @@ export interface TeamsScreenProps {
   me: Me;
 }
 
-const membersLabel = (count: number) => `${count} ${count === 1 ? "membro" : "membros"}`;
-
 export function TeamsScreen({ client, me }: TeamsScreenProps) {
+  const { t } = useTranslation("teams");
   const teams = useApiResource(() => client.listTeams());
   const people = useApiResource(() => client.listPeople());
   const [openId, setOpenId] = useState<string | null>(null);
@@ -60,24 +60,24 @@ export function TeamsScreen({ client, me }: TeamsScreenProps) {
 
   return (
     <main className="teams-screen">
-      <h1>Times</h1>
+      <h1>{t("title")}</h1>
       <p className="teams-hint">
-        Para convidar gente nova para a organização, use o menu da organização, no cabeçalho.
+        {t("hint")}
       </p>
       <div className="teams-layout">
         <section className="teams-list" aria-labelledby="teams-list-title">
-          <h2 id="teams-list-title">Times da organização</h2>
-          {teams.state.status === "loading" && <p role="status">Carregando times…</p>}
+          <h2 id="teams-list-title">{t("list.title")}</h2>
+          {teams.state.status === "loading" && <p role="status">{t("list.loading")}</p>}
           {teams.state.status === "error" && <LoadError error={teams.state.error} onRetry={teams.retry} />}
           {list &&
             (list.length === 0 ? (
-              <p>Nenhum time cadastrado.</p>
+              <p>{t("list.empty")}</p>
             ) : (
               <ul>
                 {list.map((team) => (
                   <li key={team.id}>
                     <button type="button" aria-current={team.id === openId ? "true" : undefined} onClick={() => setOpenId(team.id)}>
-                      <span>{team.name}</span> <small>{membersLabel(team.members.length)}</small>
+                      <span>{team.name}</span> <small>{t("list.members", { count: team.members.length })}</small>
                     </button>
                   </li>
                 ))}
@@ -85,7 +85,7 @@ export function TeamsScreen({ client, me }: TeamsScreenProps) {
             ))}
           {isOrgAdmin && (
             <form className="teams-form" onSubmit={(event) => void submitCreate(event)}>
-              <label htmlFor="new-team-name">Nome do novo time</label>
+              <label htmlFor="new-team-name">{t("create.label")}</label>
               <div className="teams-row">
                 <input
                   id="new-team-name"
@@ -95,7 +95,7 @@ export function TeamsScreen({ client, me }: TeamsScreenProps) {
                   aria-invalid={create.error ? true : undefined}
                 />
                 <button type="submit" className="primary" disabled={create.pending || name.trim() === ""}>
-                  Criar time
+                  {t("create.submit")}
                 </button>
               </div>
               {create.error && (
@@ -122,7 +122,7 @@ export function TeamsScreen({ client, me }: TeamsScreenProps) {
               }}
             />
           ) : (
-            teams.state.status === "ready" && <p>Escolha um time para ver os membros.</p>
+            teams.state.status === "ready" && <p>{t("list.pick")}</p>
           )}
         </div>
       </div>

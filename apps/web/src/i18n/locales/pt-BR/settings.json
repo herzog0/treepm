@@ -1,0 +1,20 @@
+{
+  "title": "Configurações",
+  "camera": {
+    "title": "Câmera",
+    "onTicketClose": {
+      "label": "Ao fechar um ticket",
+      "restore": "Voltar ao lugar de antes",
+      "stay": "Ficar onde está"
+    }
+  },
+  "language": {
+    "title": "Idioma",
+    "label": "Idioma da interface",
+    "auto": "Automático",
+    "pt-BR": "Português (Brasil)",
+    "en": "English",
+    "es-MX": "Español (México)"
+  },
+  "saveFailed": "Não foi possível salvar a preferência. Tente de novo."
+}

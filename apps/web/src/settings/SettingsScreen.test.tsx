@@ -23,7 +23,7 @@ describe("SettingsScreen", () => {
   });
 
   it("reflects a stored preference", () => {
-    setup({ initial: { camera: { onTicketClose: "stay" } } });
+    setup({ initial: { camera: { onTicketClose: "stay" }, language: "auto" } });
     expect(screen.getByRole("radio", { name: "Ficar onde está" })).toBeChecked();
   });
 
@@ -31,7 +31,7 @@ describe("SettingsScreen", () => {
     const { onSave } = setup();
     expect(screen.queryByRole("button", { name: /salvar/i })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("radio", { name: "Ficar onde está" }));
-    expect(onSave).toHaveBeenCalledWith({ camera: { onTicketClose: "stay" } });
+    expect(onSave).toHaveBeenCalledWith({ camera: { onTicketClose: "stay" }, language: "auto" });
     await waitFor(() => expect(screen.getByRole("radio", { name: "Ficar onde está" })).toBeChecked());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });

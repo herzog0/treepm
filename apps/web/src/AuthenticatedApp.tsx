@@ -1,4 +1,3 @@
-import { ptBR } from "@clerk/localizations/pt-BR";
 import {
   ClerkProvider,
   OrganizationList,
@@ -11,21 +10,27 @@ import {
   useSession,
 } from "@clerk/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createApiClient } from "./api/client.js";
-import { fetchMe, getMeIndicatorText } from "./api/me.js";
+import { fetchMe } from "./api/me.js";
 import type { MeResult } from "./api/me.js";
 import { GITHUB_CALLBACK_PATH, GithubCallback } from "./github/GithubCallback.js";
+import { clerkLocalization } from "./i18n/clerk.js";
+import { LanguageSync } from "./i18n/LanguageSync.js";
+import type { Language } from "./i18n/languages.js";
 import { Loading } from "./Loading.js";
 import { ClerkPreferencesProvider } from "./preferences/ClerkPreferences.js";
 import { AppNav, useView } from "./nav/navigation.js";
 import { Workspace } from "./Workspace.js";
 
-const localization = {
-  ...ptBR,
-  formFieldInputPlaceholder__signUpPassword: "Crie uma senha",
-} satisfies typeof ptBR;
+function meIndicatorKey(result: MeResult | null) {
+  if (!result) return null;
+  if (result.status === "ok") return result.data.roles.clerk === "admin" ? "meIndicator.admin" : "meIndicator.member";
+  return result.status === "unavailable" ? "meIndicator.unavailable" : "meIndicator.noAccess";
+}
 
 function MeIndicator({ getToken }: { getToken: () => Promise<string | null> }) {
+  const { t } = useTranslation();
   const [result, setResult] = useState<MeResult | null>(null);
 
   useEffect(() => {
@@ -38,10 +43,12 @@ function MeIndicator({ getToken }: { getToken: () => Promise<string | null> }) {
     };
   }, [getToken]);
 
-  return <span className="tenant-api-status" role="status">{getMeIndicatorText(result)}</span>;
+  const key = meIndicatorKey(result);
+  return <span className="tenant-api-status" role="status">{key && t(key)}</span>;
 }
 
 function OrganizationGate({ appUrl }: { appUrl: string }) {
+  const { t } = useTranslation();
   const { isLoaded, isSignedIn, orgId, getToken } = useAuth();
   const { session } = useSession();
   const [view, navigate, projectId, ticketId, openTicket] = useView();
@@ -73,7 +80,7 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
   if (mustChooseOrganization) {
     return (
       <main className="entry-screen">
-        <h1>Escolha ou crie uma organização</h1>
+        <h1>{t("chooseOrganization")}</h1>
         <TaskChooseOrganization redirectUrlComplete={appUrl} />
       </main>
     );
@@ -83,7 +90,7 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
     const isSignUp = new URLSearchParams(window.location.search).get("auth") === "sign-up";
     return (
       <main className="entry-screen">
-        <h1>TreePM</h1>
+        <h1>{t("brand")}</h1>
         {isSignUp ? <SignUp routing="hash" /> : <SignIn routing="hash" />}
       </main>
     );
@@ -92,7 +99,7 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
   if (!orgId) {
     return (
       <main className="entry-screen">
-        <h1>Escolha ou crie uma organização</h1>
+        <h1>{t("chooseOrganization")}</h1>
         <OrganizationList hidePersonal />
         <UserButton />
       </main>
@@ -103,7 +110,7 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
     <div className="tenant-shell">
       <header className="tenant-header">
         <div className="tenant-brand">
-          <strong>TreePM</strong>
+          <strong>{t("brand")}</strong>
           <AppNav view={view} onNavigate={navigate} />
         </div>
         <div className="tenant-controls">
@@ -123,22 +130,22 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
           />
         </main>
       ) : (
-        <ClerkPreferencesProvider>
-          <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} ticketId={ticketId} onOpenTicket={openTicket} getToken={getToken} />
-        </ClerkPreferencesProvider>
+        <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} ticketId={ticketId} onOpenTicket={openTicket} getToken={getToken} />
       )}
     </div>
   );
 }
 
 export default function AuthenticatedApp({ publishableKey }: { publishableKey: string }) {
+  // O idioma ativo vem da preferência da pessoa (dentro do Clerk) ou do navegador; a tradução do Clerk o acompanha.
+  const { i18n } = useTranslation();
   // Entrar pela volta do GitHub não faz de /github/callback a raiz da aplicação para os redirecionamentos do Clerk.
   const appUrl = window.location.pathname === GITHUB_CALLBACK_PATH ? "/" : window.location.pathname;
 
   return (
     <ClerkProvider
       publishableKey={publishableKey}
-      localization={localization}
+      localization={clerkLocalization(i18n.language as Language)}
       signInUrl={appUrl}
       signUpUrl={`${appUrl}?auth=sign-up`}
       signInFallbackRedirectUrl={appUrl}
@@ -146,7 +153,10 @@ export default function AuthenticatedApp({ publishableKey }: { publishableKey: s
       afterSignOutUrl={appUrl}
       taskUrls={{ "choose-organization": `${appUrl}?auth=choose-organization` }}
     >
-      <OrganizationGate appUrl={appUrl} />
+      <ClerkPreferencesProvider>
+        <LanguageSync />
+        <OrganizationGate appUrl={appUrl} />
+      </ClerkPreferencesProvider>
     </ClerkProvider>
   );
 }

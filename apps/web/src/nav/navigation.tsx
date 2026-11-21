@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import type { MouseEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 export type View = "map" | "teams" | "settings" | "import";
 
 /** Seções da barra; a tela de importação é aberta pelo detalhe do projeto e conta como parte do mapa. */
 type NavView = Exclude<View, "import">;
 
-const LINKS: readonly { view: NavView; label: string }[] = [
-  { view: "map", label: "Mapa" },
-  { view: "teams", label: "Times" },
-  { view: "settings", label: "Configurações" },
-];
+const LINKS: readonly NavView[] = ["map", "teams", "settings"];
 
 interface Route {
   view: View;
@@ -76,20 +73,21 @@ export function useView(): [View, (view: View, projectId?: string | null) => voi
 }
 
 export function AppNav({ view, onNavigate }: { view: View; onNavigate: (view: View) => void }) {
+  const { t } = useTranslation("nav");
   return (
-    <nav className="app-nav" aria-label="Seções">
+    <nav className="app-nav" aria-label={t("label")}>
       {LINKS.map((link) => (
         <a
-          key={link.view}
-          href={viewHref(link.view)}
-          aria-current={(view === "import" ? "map" : view) === link.view ? "page" : undefined}
+          key={link}
+          href={viewHref(link)}
+          aria-current={(view === "import" ? "map" : view) === link ? "page" : undefined}
           onClick={(event: MouseEvent<HTMLAnchorElement>) => {
             if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
             event.preventDefault();
-            onNavigate(link.view);
+            onNavigate(link);
           }}
         >
-          {link.label}
+          {t(link)}
         </a>
       ))}
     </nav>

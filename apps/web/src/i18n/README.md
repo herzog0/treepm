@@ -1,0 +1,118 @@
+# Interface em três idiomas (ADR 0035)
+
+`pt-BR` (idioma de origem), `en` e `es-MX`. Nenhum texto visível fica escrito em componente: tudo vem de um catálogo.
+Biblioteca: `i18next` + `react-i18next`. Os três catálogos são embutidos no pacote (sem carregamento assíncrono).
+
+## Estrutura
+
+```
+i18n/
+  locales/<idioma>/<área>.json   um arquivo por idioma e por área (diretório de src)
+  resources.ts                   registra os arquivos; dele saem os tipos das chaves
+  index.ts                       a instância do i18next e o <html lang>
+  languages.ts                   idiomas, preferência "auto" e a escolha pelo navegador
+  format.ts                      datas, números e maiúsculas no idioma ativo
+  clerk.ts                       tradução dos componentes do Clerk por idioma
+  LanguageSync.tsx               aplica a preferência da pessoa (dentro do provedor de preferências)
+  parity.ts / parity.test.ts     paridade dos catálogos
+```
+
+Área = diretório de `src`; `app` é a raiz (`App.tsx`, `Workspace.tsx`…). Cada área já tem seus três arquivos (vazios, `{}`,
+até serem convertidos) e já está registrada em `resources.ts`: quem converte uma área só edita os arquivos dela.
+
+## Converter um componente
+
+1. Leia a ADR 0035 (tabela de termos fixos: vale letra por letra).
+2. Escreva o teste primeiro (TDD) e rode: ele falha. Os testes existentes em português não mudam.
+3. Coloque o texto em `locales/pt-BR/<área>.json` **exatamente como está hoje** (nem uma letra, nem pontuação), e a
+   tradução em `en` e `es-MX` na mesma mudança.
+4. No componente:
+
+```tsx
+const { t } = useTranslation("settings");   // o namespace é a área
+<h1>{t("title")}</h1>
+<button aria-label={t("camera.close")}>
+```
+
+5. Tire o diretório de `I18N_PENDING_DIRECTORIES` em `eslint.config.js` (na raiz): a partir daí `pnpm exec eslint apps/web`
+   acusa texto literal no `.tsx` dele (texto dentro de JSX e `aria-label`, `title`, `placeholder`, `alt`).
+
+Fora de componente (funções puras, hooks), receba o `t` por parâmetro (`import type { TFunction } from "i18next"`) ou use
+`useTranslation` num hook. Evite `i18n.t` solto: ele não re-renderiza quando o idioma muda.
+
+## Nomes de chave
+
+Pelo sentido, em inglês, aninhados por tela e elemento: `settings.camera.onTicketClose.label`, `teams.detail.remove.confirm`.
+Nunca pelo texto. A chave é tipada a partir do catálogo `pt-BR`: chave inexistente não compila.
+Chave dinâmica só com união de literais (`` t(`camera.onTicketClose.${option}`) ``), e todas as chaves da união têm de existir.
+
+## Variáveis
+
+Sempre interpolação do catálogo, nunca concatenação: `"removeMemberLabel": "Remover {{name}}"` e
+`t("detail.removeMemberLabel", { name })`. A ordem das palavras muda de idioma para idioma, então a variável fica dentro
+da frase. Os três idiomas usam as **mesmas** variáveis em cada texto (o teste de paridade confere).
+
+## Plural
+
+Nunca `count === 1 ? … : …`. Passe `count` e escreva uma forma por categoria da regra do idioma:
+
+```json
+// pt-BR                              // en                          // es-MX
+"members_zero":  "{{count}} membros", "members_one":   "{{count}} member",  "members_one":   "{{count}} miembro",
+"members_one":   "{{count}} membro",  "members_other": "{{count}} members", "members_many":  "{{count}} miembros",
+"members_many":  "{{count}} membros",                                       "members_other": "{{count}} miembros"
+"members_other": "{{count}} membros"
+```
+
+`t("list.members", { count })`. Todas as formas usam `{{count}}`. As categorias exigidas são as do `Intl.PluralRules`
+do idioma: `en` = `one`/`other`; `pt-BR` e `es-MX` = `one`/`many`/`other` (`many` cobre milhões). O português manda o 0
+para o singular, então onde o texto de hoje diz "0 membros" use também `_zero` (permitido em qualquer idioma). O teste de paridade
+acusa forma que falta ou que o idioma não usa.
+
+## Marcação no meio da frase (negrito, link, código)
+
+Use `Trans` com marcação no catálogo, sem quebrar a frase em pedaços:
+
+```json
+"hint": "Defina <code>VITE_CLERK_PUBLISHABLE_KEY</code> em <code>apps/web/.env.local</code>."
+```
+```tsx
+<Trans i18nKey="config.hint" components={{ code: <code /> }} />   // com useTranslation("app") no mesmo componente, ou ns="app"
+```
+
+As etiquetas (`<code>`, `<0>`) também têm de ser as mesmas nos três idiomas.
+
+## Datas, números e maiúsculas
+
+De `i18n/format.ts`, sempre com o idioma ativo; nunca `"pt-BR"` fixo, nem `toLocaleString("pt-BR")`:
+
+```tsx
+const { i18n } = useTranslation();
+const language = i18n.language as Language;   // "pt-BR" | "en" | "es-MX"
+formatDate(language, iso);        // 20 de novembro de 2026 · November 20, 2026 · 20 de noviembre de 2026
+formatNumber(language, 1234.5);   // 1.234,5 · 1,234.5 · 1,234.5
+toUpper(language, texto);
+```
+
+`github/time.ts` (`formatDate`, `relativeTime`) e `plural.ts` ainda são do português e são das áreas de quem converte `github/`
+e as áreas que os usam: troque-os por estas funções e por chaves de plural.
+
+## Testes
+
+- `test-setup.ts` fixa `pt-BR` antes de cada teste: os testes existentes não mudam.
+- Para outro idioma, `await setTestLanguage("en")` (`test/i18n.ts`) antes do `render`.
+- `parity.test.ts` percorre **todos** os `locales/*/*.json`: mesmos arquivos, mesmas chaves, mesmas variáveis e as formas de
+  plural de cada idioma. Também confere que todo arquivo está registrado em `resources.ts`.
+- Um teste por idioma que renderiza a sua área e confere os textos esperados e a ausência de português: veja
+  `screens.test.tsx` (função `expectNoPortuguese`).
+- A verificação de texto literal tem teste próprio (`noLiteralText.test.ts`).
+
+## Idioma ativo
+
+Preferência `language` (`"auto" | "pt-BR" | "en" | "es-MX"`, ADR 0028), em Configurações. `LanguageSync` aplica: `"auto"`
+segue `navigator.languages` (`pt*` → `pt-BR`, `es*` → `es-MX`, outro → `en`). Antes de entrar, vale o navegador.
+`<html lang>` e a tradução do Clerk acompanham, sem recarregar.
+
+## Traduções
+
+Primeira versão escrita pela IA; precisa de revisão de quem fala o idioma. Espanhol com "tú", neutro para o México.
