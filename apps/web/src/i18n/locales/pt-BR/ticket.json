@@ -4,6 +4,13 @@
     "close": "Fechar e voltar ao mapa",
     "loading": "Carregando ticket…"
   },
+  "header": {
+    "viewOnMap": "Ver no mapa",
+    "copyLink": "Copiar link",
+    "more": "Mais ações",
+    "linkCopied": "Link copiado",
+    "copyFailed": "Não foi possível copiar o link"
+  },
   "readOnly": {
     "archived": "O projeto está arquivado: esta página é só de leitura.",
     "reader": "Você tem acesso só de leitura a este projeto."

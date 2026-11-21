@@ -212,7 +212,8 @@ describe("the open page and the map", () => {
     const client = makeFullClient();
     render(<Host client={client} initial="t3" />);
     await screen.findByRole("heading", { level: 1, name: "Publicar" });
-    await userEvent.click(screen.getByRole("button", { name: "Em revisão" }));
+    await userEvent.click(screen.getByRole("button", { name: "A fazer" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Em revisão" }));
     await waitFor(() => expect(client.listProjects).toHaveBeenCalledTimes(2));
     expect(client.updateTicket).toHaveBeenCalledWith("t3", { status: "in_review" });
     expect(screen.queryByRole("status", { name: /Carregando mapa/ })).not.toBeInTheDocument();
@@ -223,6 +224,7 @@ describe("the open page and the map", () => {
     const onChange = vi.fn();
     render(<Host client={makeFullClient()} initial="t3" onChange={onChange} />);
     await screen.findByRole("heading", { level: 1, name: "Publicar" });
+    await userEvent.click(screen.getByRole("button", { name: "Mais ações" }));
     await userEvent.click(screen.getByRole("button", { name: "Remover ticket" }));
     await userEvent.click(screen.getByRole("button", { name: "Confirmar: Remover ticket" }));
     await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(null));
