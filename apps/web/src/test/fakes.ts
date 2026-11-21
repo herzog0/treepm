@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { ApiClient, ApiResult, Area, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, TicketStatus, TicketSummary } from "../api/client.js";
+import type { ApiClient, ApiResult, Area, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, TicketStatus, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid" | "server_error", code?: string): ApiResult<never> => ({
@@ -68,6 +68,19 @@ interface FakeData {
   tickets?: Record<string, TicketSummary[]>;
   /** Liga as rotas do GitHub (ADR 0032) com as regras do contrato; sem isso elas lançam, como o resto. */
   github?: FakeGithub;
+  /** Liga as rotas de "O que entra aqui" (ADR 0033) com as regras do contrato; sem isso elas lançam, como o resto. */
+  summaries?: FakeSummaries;
+}
+
+export interface FakeSummaries {
+  /** Texto guardado por ID de agrupador; sem entrada, o agrupador está sem texto. */
+  texts?: Record<string, NonNullable<GroupSummary["summary"]>>;
+  /** O que `POST …/summary/regenerate` escreve quando dá certo. */
+  regenerated?: string;
+  /** Falso: o provedor da IA não responde (503 `assistant_unavailable`) em `regenerate`. */
+  providerUp?: boolean;
+  /** Instante gravado em `updatedAt` pelas escritas. */
+  now?: string;
 }
 
 export interface FakeGithub {
@@ -224,6 +237,61 @@ function githubMethods(data: FakeData): Partial<ApiClient> {
   };
 }
 
+const SUMMARY_NAMES = ["getTicketSummary", "putTicketSummary", "regenerateTicketSummary"] as const;
+export const SUMMARY_MAX = 1000;
+
+/**
+ * As rotas de "O que entra aqui" do contrato da ADR 0033, em memória: leitura para quem vê o projeto; gravar e pedir
+ * à IA só para quem edita (administrador, gestor ou colaborador) e fora de projeto arquivado; 409 `not_a_group`,
+ * 409 `group_empty`, 400 `validation_error` (de 1 a 1.000 caracteres) e a origem (`person` ao gravar, `assistant`
+ * ao pedir) com a data. As chamadas continuam espiáveis (`vi.fn`).
+ */
+function summaryMethods(data: FakeData): Partial<ApiClient> {
+  const config = data.summaries!;
+  const me = data.me ?? makeMe();
+  const all = Object.values(data.tickets ?? {}).flat();
+  const texts = new Map(Object.entries(config.texts ?? {}));
+  const now = () => config.now ?? "2026-11-21T12:00:00.000Z";
+  const find = (id: string) => all.find((entry) => entry.id === id);
+  const canEdit = (projectId: string) =>
+    me.roles.clerk === "admin" || me.roles.projects.some((entry) => entry.projectId === projectId && (entry.role === "manager" || entry.role === "contributor"));
+  const archived = (projectId: string) => data.projects?.find((entry) => entry.id === projectId)?.archivedAt != null;
+  const answer = (id: string): ApiResult<GroupSummary> => ok({ summary: texts.has(id) ? { ...texts.get(id)! } : null });
+  const writable = (id: string): ApiResult<never> | null => {
+    const entry = find(id);
+    if (!entry) return failed("not_found");
+    if (!canEdit(entry.projectId)) return failed("forbidden");
+    if (archived(entry.projectId)) return failed("conflict", "project_archived");
+    if (entry.kind !== "group") return failed("conflict", "not_a_group");
+    return null;
+  };
+
+  return {
+    getTicketSummary: vi.fn(async (id: string) => {
+      const entry = find(id);
+      if (!entry) return failed("not_found");
+      if (entry.kind !== "group") return failed("conflict", "not_a_group");
+      return answer(id);
+    }),
+    putTicketSummary: vi.fn(async (id: string, body: { text: string }) => {
+      const problem = writable(id);
+      if (problem) return problem;
+      const text = body.text.trim();
+      if (text.length < 1 || text.length > SUMMARY_MAX) return failed("invalid", "validation_error");
+      texts.set(id, { text, source: "person", updatedAt: now() });
+      return answer(id);
+    }),
+    regenerateTicketSummary: vi.fn(async (id: string) => {
+      const problem = writable(id);
+      if (problem) return problem;
+      if (!all.some((entry) => entry.parentId === id)) return failed("conflict", "group_empty");
+      if (config.providerUp === false) return failed("unavailable", "assistant_unavailable");
+      texts.set(id, { text: config.regenerated ?? "Reúne os trabalhos de agora deste agrupador.", source: "assistant", updatedAt: now() });
+      return answer(id);
+    }),
+  };
+}
+
 /** Cliente falso: cada método lança se não for configurado, para o teste dizer o que precisa. */
 export function makeClient(data: FakeData = {}): ApiClient {
   const unexpected = (name: string) => vi.fn(async () => {
@@ -237,6 +305,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement",
     "createTicketFromConversation", "listConversations", "getConversation", "removeConversation",
     ...GITHUB_NAMES,
+    ...SUMMARY_NAMES,
   ] as const;
   const base = Object.fromEntries(names.map((name) => [name, unexpected(name)])) as unknown as ApiClient;
   return {
@@ -248,6 +317,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     listPeople: vi.fn(async () => ok(data.people ?? [])),
     listTickets: vi.fn(async (projectId: string) => ok(data.tickets?.[projectId] ?? [])),
     ...(data.github ? githubMethods(data) : {}),
+    ...(data.summaries ? summaryMethods(data) : {}),
   };
 }
 

@@ -143,6 +143,9 @@ const codeLinkSchema = z.object({
   updatedAt: z.string().nullable(),
 });
 const ticketCodeSchema = z.object({ repositories: z.number(), syncedAt: z.string().nullable(), links: z.array(codeLinkSchema) });
+const ticketSummaryTextSchema = z.object({
+  summary: z.object({ text: z.string(), source: z.enum(["assistant", "person"]), updatedAt: z.string() }).nullable(),
+});
 const errorBodySchema = z.object({ error: z.object({ code: z.string() }) });
 
 export type Me = z.output<typeof meSchema>;
@@ -178,6 +181,8 @@ export type ProjectRepository = z.output<typeof projectRepositorySchema>;
 export type CodeRefresh = z.output<typeof codeRefreshSchema>;
 export type CodeLink = z.output<typeof codeLinkSchema>;
 export type TicketCode = z.output<typeof ticketCodeSchema>;
+/** "O que entra aqui" de um agrupador (ADR 0033): o texto guardado, quem o escreveu por último e quando. */
+export type GroupSummary = z.output<typeof ticketSummaryTextSchema>;
 /** Corpo do retorno do GitHub: `code` e `state` da URL e, quando veio um inteiro positivo, o `installation_id`. */
 export interface CompleteGithubBody {
   code: string;
@@ -338,9 +343,10 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       request("PUT", `${ticket(id)}/assignees/${personId}`, ticketDetailSchema),
     removeTicketAssignee: (id: string, personId: string) =>
       request("DELETE", `${ticket(id)}/assignees/${personId}`, null),
-    openConversation: (projectId: string, body: { message: string }) =>
+    /** `scopeId`: o agrupador em que a procura vai começar (ADR 0033), ou `null` para o projeto inteiro; a IA recebe os títulos dos agrupadores dali. */
+    openConversation: (projectId: string, body: { message: string; scopeId?: string | null }) =>
       request("POST", `${project(projectId)}/ticket-conversations`, conversationDetailSchema, body),
-    sendConversationMessage: (id: string, body: { message: string }) =>
+    sendConversationMessage: (id: string, body: { message: string; scopeId?: string | null }) =>
       request("POST", `${conversation(id)}/messages`, conversationDetailSchema, body),
     updateConversationDraft: (id: string, body: ConversationDraft) =>
       request("PATCH", `${conversation(id)}/draft`, conversationDetailSchema, body),
@@ -371,6 +377,10 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       request("DELETE", `${project(projectId)}/repositories/${repositoryId}`, null),
     refreshProjectCode: (projectId: string) => request("POST", `${project(projectId)}/code/refresh`, codeRefreshSchema),
     getTicketCode: (id: string) => request("GET", `${ticket(id)}/code`, ticketCodeSchema),
+
+    getTicketSummary: (id: string) => request("GET", `${ticket(id)}/summary`, ticketSummaryTextSchema),
+    putTicketSummary: (id: string, body: { text: string }) => request("PUT", `${ticket(id)}/summary`, ticketSummaryTextSchema, body),
+    regenerateTicketSummary: (id: string) => request("POST", `${ticket(id)}/summary/regenerate`, ticketSummaryTextSchema),
   };
 }
 
@@ -392,6 +402,7 @@ const MESSAGE_BY_CODE: Record<string, string> = {
   conversation_changed: "A conversa mudou enquanto o assistente respondia. Mostramos a versão mais recente.",
   grouping_changed: "Algum desses tickets mudou de lugar. Procure de novo.",
   draft_required: "A conversa ainda não tem rascunho. Peça ao assistente para escrevê-lo antes de continuar.",
+  group_empty: "Este agrupador ainda não tem itens.",
   github_unavailable: "O GitHub não respondeu. Tente de novo em instantes.",
   not_connected: "A organização não está ligada ao GitHub.",
   installation_unavailable: "A instalação do app no GitHub não está disponível.",
@@ -420,3 +431,6 @@ export function describeApiError(error: ApiError, action?: "remove"): string {
 
 /** O GitHub está ligado nesta API? Uma API antiga não manda o campo: conta como desligado. */
 export const githubEnabled = (me: Me): boolean => me.github?.enabled === true;
+
+/** A IA está ligada nesta API? Uma API antiga não manda o campo: conta como desligada. */
+export const assistantEnabled = (me: Me): boolean => me.assistant?.enabled === true;

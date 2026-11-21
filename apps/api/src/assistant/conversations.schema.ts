@@ -5,8 +5,12 @@ import { ticketDescriptionSchema, ticketTitleSchema } from "../tickets/tickets.s
 
 export const MAX_PERSON_MESSAGE = 4000;
 
+/**
+ * A mensagem da pessoa e, opcionalmente, o agrupador do lugar da procura (ADR 0033): vale só para aquele turno e não é
+ * guardado na conversa. `null` ou ausente: a raiz do projeto.
+ */
 export const conversationMessageBodySchema = z
-  .object({ message: z.string().trim().min(1).max(MAX_PERSON_MESSAGE) })
+  .object({ message: z.string().trim().min(1).max(MAX_PERSON_MESSAGE), scopeId: idSchema.nullable().optional() })
   .strict();
 
 export const draftBodySchema = z

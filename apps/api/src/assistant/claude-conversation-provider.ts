@@ -7,7 +7,7 @@ import { ticketDescriptionSchema, ticketTitleSchema } from "../tickets/tickets.s
 import { CLAUDE_MODEL, FALLBACK_BETA, MAX_TOKENS, callClaude, requireEndTurn } from "./claude-call.js";
 import type { ClaudeStreamer, FinalMessage, StreamParams } from "./claude-call.js";
 import type { ConversationProvider, ConversationTurn, ConversationTurnInput } from "./ports.js";
-import { SYSTEM_PROMPT, draftBlock } from "./prompts.js";
+import { SYSTEM_PROMPT, draftBlock, groupsBlock } from "./prompts.js";
 
 export { sdkStreamer } from "./claude-call.js";
 export type { ClaudeStreamer } from "./claude-call.js";
@@ -65,6 +65,7 @@ export class ClaudeConversationProvider implements ConversationProvider {
               role: "user",
               content: [
                 { type: "text", text: draftBlock(input.draft) },
+                { type: "text", text: groupsBlock(input.groups) },
                 { type: "text", text: message.body },
               ],
             }

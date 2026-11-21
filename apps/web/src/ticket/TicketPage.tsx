@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { KeyboardEvent } from "react";
 import type { ApiClient, Me, Person, Project, TicketDetail, TicketKind, TicketSummary } from "../api/client.js";
-import { describeApiError, githubEnabled } from "../api/client.js";
+import { assistantEnabled, describeApiError, githubEnabled } from "../api/client.js";
 import { TicketCode } from "../github/TicketCode.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { canCreateTickets, canRemoveTickets } from "../import/permissions.js";
@@ -11,6 +11,7 @@ import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
 import { CreateTicket } from "./CreateTicket.js";
+import { GroupSummary } from "./GroupSummary.js";
 import { DescriptionField, ParentField, PeopleField, StatusField, TitleField } from "./fields.js";
 import { ancestorsOf } from "./tree.js";
 import "./ticket.css";
@@ -224,6 +225,8 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
             </dd>
           </dl>
           <DescriptionField client={client} detail={detail} canEdit={canEdit} onSaved={refresh} />
+
+          {isGroup && assistantEnabled(me) && <GroupSummary client={client} groupId={detail.id} canEdit={canEdit} hasItems={children.length > 0} />}
 
           {isGroup && (
             <section className="ticket-section" aria-labelledby="ticket-children-heading">

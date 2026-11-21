@@ -186,11 +186,12 @@ describe("conversas de criação — regras no banco", () => {
     ).rejects.toMatchObject(CHECK);
   });
 
-  it("o resumo cabe em 600 caracteres e é único por ticket", async () => {
+  it("o resumo cabe em 1000 caracteres (o texto da pessoa; a IA escreve até 600) e é único por ticket", async () => {
     await expect(
-      owner.query("update branch_summaries set summary = $2 where ticket_id = $1", [a.ticket, "x".repeat(601)]),
+      owner.query("update branch_summaries set summary = $2 where ticket_id = $1", [a.ticket, "x".repeat(1001)]),
     ).rejects.toMatchObject(CHECK);
-    await owner.query("update branch_summaries set summary = $2 where ticket_id = $1", [a.ticket, "x".repeat(600)]);
+    await expect(owner.query("update branch_summaries set summary = '' where ticket_id = $1", [a.ticket])).rejects.toMatchObject(CHECK);
+    await owner.query("update branch_summaries set summary = $2 where ticket_id = $1", [a.ticket, "x".repeat(1000)]);
     await expect(
       owner.query(
         "insert into branch_summaries (org_id, project_id, ticket_id, summary, content_mark, model) values ($1, $2, $3, 's', 'm', 'x')",

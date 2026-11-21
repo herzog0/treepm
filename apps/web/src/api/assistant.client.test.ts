@@ -62,6 +62,17 @@ describe("ticket conversation calls", () => {
     await client.sendConversationMessage(ID, { message: "Mais" });
     expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/messages`, method: "POST", body: { message: "Mais" } });
   });
+  it("sends the scope when opening a conversation and with each message (a group id or null)", async () => {
+    const { client, fetchImpl } = setup(detail);
+    await client.openConversation(OTHER, { message: "Oi", scopeId: ID });
+    expect(lastCall(fetchImpl).body).toEqual({ message: "Oi", scopeId: ID });
+    await client.openConversation(OTHER, { message: "Oi", scopeId: null });
+    expect(lastCall(fetchImpl).body).toEqual({ message: "Oi", scopeId: null });
+    await client.sendConversationMessage(ID, { message: "Mais", scopeId: OTHER });
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/messages`, method: "POST", body: { message: "Mais", scopeId: OTHER } });
+    await client.sendConversationMessage(ID, { message: "Mais", scopeId: null });
+    expect(lastCall(fetchImpl).body).toEqual({ message: "Mais", scopeId: null });
+  });
   it("adjusts the draft", async () => {
     const { client, fetchImpl } = setup(detail);
     await client.updateConversationDraft(ID, { title: "T", description: "D" });
@@ -157,5 +168,39 @@ describe("describeApiError for the assistant", () => {
     const message = describeApiError({ kind: code.startsWith("assistant") ? "unavailable" : "conflict", code });
     expect(message).toContain(fragment);
     expect(message).not.toMatch(/Recarregue e tente|API está indisponível/);
+  });
+});
+
+describe("group summary calls (ADR 0033)", () => {
+  const summary = { summary: { text: "Reúne o que for do login.", source: "assistant", updatedAt: "2026-11-21T12:00:00.000Z" } };
+  it("reads the summary, with or without text", async () => {
+    const { client, fetchImpl } = setup(summary);
+    expect(await client.getTicketSummary(ID)).toEqual({ ok: true, data: summary });
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/tickets/${ID}/summary`, method: "GET", body: undefined });
+    const empty = setup({ summary: null });
+    expect(await empty.client.getTicketSummary(ID)).toEqual({ ok: true, data: { summary: null } });
+  });
+  it("rejects an unknown source as an unavailable API", async () => {
+    const { client } = setup({ summary: { ...summary.summary, source: "robot" } });
+    expect(await client.getTicketSummary(ID)).toEqual({ ok: false, error: { kind: "unavailable" } });
+  });
+  it("writes the text with PUT", async () => {
+    const { client, fetchImpl } = setup({ summary: { ...summary.summary, source: "person" } });
+    const result = await client.putTicketSummary(ID, { text: "Texto" });
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/tickets/${ID}/summary`, method: "PUT", body: { text: "Texto" } });
+    expect(result.ok && result.data.summary?.source).toBe("person");
+  });
+  it("asks the assistant for a new text with POST", async () => {
+    const { client, fetchImpl } = setup(summary);
+    await client.regenerateTicketSummary(ID);
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/tickets/${ID}/summary/regenerate`, method: "POST", body: undefined });
+  });
+  it("keeps the error codes and says what each one means", async () => {
+    expect(await setup({ error: { code: "not_a_group" } }, 409).client.getTicketSummary(ID)).toEqual({ ok: false, error: { kind: "conflict", code: "not_a_group" } });
+    const empty = await setup({ error: { code: "group_empty" } }, 409).client.regenerateTicketSummary(ID);
+    expect(empty).toEqual({ ok: false, error: { kind: "conflict", code: "group_empty" } });
+    if (!empty.ok) expect(describeApiError(empty.error)).toBe("Este agrupador ainda não tem itens.");
+    const down = await setup({ error: { code: "assistant_unavailable" } }, 503).client.regenerateTicketSummary(ID);
+    expect(down).toEqual({ ok: false, error: { kind: "unavailable", code: "assistant_unavailable" } });
   });
 });

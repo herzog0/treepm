@@ -76,3 +76,11 @@
 .ticket-kind { flex: none; padding: 1px 6px; border: 1px solid var(--tp-border-strong); border-radius: 4px; color: var(--tp-text-2); font-size: 11px; }
 .ticket-section-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 12px; }
 .ticket-kind-change { margin-top: 24px; }
+
+/* Seção "O que entra aqui" do agrupador (ADR 0033). */
+.ticket-summary-meta { margin: 6px 0 0; color: var(--tp-text-3); font-size: 12px; }
+.ticket-summary-count { margin: 0; color: var(--tp-text-3); font-size: 12px; }
+.ticket-summary-count.is-over { color: var(--tp-danger-text); }
+.ticket-summary-head { flex-wrap: wrap; }
+.ticket-summary-head > .ticket-section-actions:has(.confirm-message) { flex: 1 0 100%; justify-content: flex-start; }
+.ticket-summary-head .confirm-action { flex-wrap: wrap; }

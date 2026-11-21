@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeGroup, makeProject, makeTicket, makeTreeClient } from "./fakes.js";
+import { makeGroup, makeMe, makeProject, makeTicket, makeTreeClient } from "./fakes.js";
 
 const project = makeProject("p1", "ALFA", "Alfa");
 function setup() {
@@ -62,5 +62,46 @@ describe("the tree fake follows the ADR 0031 contract", () => {
 
   it("serves the ticket detail from the same tree", async () => {
     expect(await setup().getTicket("t3")).toMatchObject({ ok: true, data: { id: "t3", kind: "ticket", description: "" } });
+  });
+});
+
+describe("the summary fake follows the ADR 0033 contract", () => {
+  const me = (clerk: "admin" | "member", role?: "reader" | "contributor") => ({ ...makeMe({ clerk }), roles: { clerk, teams: [], projects: role ? [{ projectId: "p1", role }] : [] } });
+  const make = (extra: { me?: ReturnType<typeof me>; archived?: boolean; providerUp?: boolean } = {}) =>
+    makeTreeClient({
+      me: extra.me ?? me("admin"),
+      projects: [extra.archived ? makeProject("p1", "ALFA", "Alfa", { archivedAt: "2026-01-01T00:00:00.000Z" }) : project],
+      tickets: { p1: [makeGroup("g1", "p1", 1, "Fase 1"), makeTicket("t1", "p1", 2, "Feito", { parentId: "g1" }), makeGroup("g2", "p1", 3, "Vazio"), makeTicket("t2", "p1", 4, "Solto")] },
+      summaries: { texts: { g1: { text: "Fase um", source: "assistant", updatedAt: "2026-11-20T10:00:00.000Z" } }, providerUp: extra.providerUp ?? true },
+    });
+
+  it("reads null without text and refuses a plain ticket with not_a_group", async () => {
+    const client = make();
+    expect(await client.getTicketSummary("g2")).toEqual({ ok: true, data: { summary: null } });
+    expect(code(await client.getTicketSummary("t2"))).toBe("not_a_group");
+    expect(await client.getTicketSummary("nada")).toMatchObject({ ok: false, error: { kind: "not_found" } });
+  });
+
+  it("writes as a person, trimming, and enforces 1 to 1.000 characters", async () => {
+    const client = make();
+    expect(await client.putTicketSummary("g1", { text: "  Novo  " })).toMatchObject({ ok: true, data: { summary: { text: "Novo", source: "person" } } });
+    expect(code(await client.putTicketSummary("g1", { text: "   " }))).toBe("validation_error");
+    expect(code(await client.putTicketSummary("g1", { text: "a".repeat(1001) }))).toBe("validation_error");
+    expect(await client.putTicketSummary("g1", { text: "a".repeat(1000) })).toMatchObject({ ok: true });
+    expect(code(await client.putTicketSummary("t2", { text: "x" }))).toBe("not_a_group");
+  });
+
+  it("only editors write: a reader gets 403, an archived project 409 project_archived", async () => {
+    expect(await make({ me: me("member", "reader") }).putTicketSummary("g1", { text: "x" })).toMatchObject({ ok: false, error: { kind: "forbidden" } });
+    expect(await make({ me: me("member", "contributor") }).putTicketSummary("g1", { text: "x" })).toMatchObject({ ok: true });
+    expect(code(await make({ archived: true }).putTicketSummary("g1", { text: "x" }))).toBe("project_archived");
+    expect(code(await make({ archived: true }).regenerateTicketSummary("g1"))).toBe("project_archived");
+  });
+
+  it("regenerates as the assistant, refusing an empty group and an unavailable provider", async () => {
+    expect(await make().regenerateTicketSummary("g1")).toMatchObject({ ok: true, data: { summary: { source: "assistant" } } });
+    expect(code(await make().regenerateTicketSummary("g2"))).toBe("group_empty");
+    expect(await make({ providerUp: false }).regenerateTicketSummary("g1")).toMatchObject({ ok: false, error: { kind: "unavailable", code: "assistant_unavailable" } });
+    expect(await make({ me: me("member", "reader") }).regenerateTicketSummary("g1")).toMatchObject({ ok: false, error: { kind: "forbidden" } });
   });
 });

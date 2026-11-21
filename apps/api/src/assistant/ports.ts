@@ -8,8 +8,11 @@ export type TicketDraft = { title: string; description: string };
 
 export type ConversationMessage = { author: "person" | "assistant"; body: string };
 
-/** O histórico termina na mensagem nova da pessoa; `draft` é o rascunho atual (ou ainda não há). */
-export type ConversationTurnInput = { history: readonly ConversationMessage[]; draft: TicketDraft | null };
+/**
+ * O histórico termina na mensagem nova da pessoa; `draft` é o rascunho atual (ou ainda não há). `groups` são os títulos
+ * dos agrupadores do lugar da procura (ADR 0033): no máximo 30, na ordem do número; só títulos.
+ */
+export type ConversationTurnInput = { history: readonly ConversationMessage[]; draft: TicketDraft | null; groups: readonly string[] };
 
 export type ConversationTurn = {
   message: string;
@@ -43,8 +46,8 @@ export class AssistantUnavailableError extends Error {
 
 /**
  * Agrupador filho direto de um nó, candidato a pai do ticket novo (ADR 0031; ticket nunca é candidato). `summary` é o
- * texto que o juiz vê: o resumo do agrupador quando `hasChildren`, ou o trecho da descrição do agrupador vazio (pode
- * ser vazio).
+ * texto que o juiz vê (ADR 0033): o texto guardado do agrupador, com ou sem itens (escrito pela IA ou pela pessoa); sem
+ * texto guardado, o trecho da descrição do agrupador vazio (pode ser vazio).
  */
 export type BranchCandidate = { id: string; title: string; summary: string; hasChildren: boolean };
 

@@ -87,6 +87,7 @@ model Person {
   ticketConversations    TicketConversation[]
   connectedInstallations GithubInstallation[]
   linkedRepositories     ProjectRepository[]
+  editedBranchSummaries  BranchSummary[]
 
   @@id([orgId, id])
   @@unique([orgId, clerkUserId])
@@ -312,18 +313,25 @@ model TicketConversationMessage {
 }
 
 model BranchSummary {
-  orgId       String   @map("org_id")
-  projectId   String   @map("project_id") @db.Uuid
-  ticketId    String   @map("ticket_id") @db.Uuid
-  summary     String
-  contentMark String   @map("content_mark")
-  model       String
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  orgId            String   @map("org_id")
+  projectId        String   @map("project_id") @db.Uuid
+  ticketId         String   @map("ticket_id") @db.Uuid
+  summary          String
+  /// Registro do conteúdo de que a IA escreveu o texto; não é mais comparado em lugar nenhum (ADR 0033).
+  contentMark      String   @map("content_mark")
+  /// Modelo que escreveu; nulo se e só se `source = person` (check na migration 0008). O texto vai até 1000 caracteres.
+  model            String?
+  /// assistant | person (check na migration 0008): quem escreveu por último.
+  source           String   @default("assistant")
+  editedByPersonId String?  @map("edited_by_person_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   organization Organization @relation(fields: [orgId], references: [orgId])
   project      Project      @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
   ticket       Ticket       @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+  /// Remover a pessoa só anula `editedByPersonId` (SET NULL só na migration 0008).
+  editedBy     Person?      @relation(fields: [orgId, editedByPersonId], references: [orgId, id], onDelete: Restrict)
 
   @@id([orgId, ticketId])
   @@index([orgId, projectId])

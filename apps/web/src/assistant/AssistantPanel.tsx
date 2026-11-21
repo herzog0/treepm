@@ -241,7 +241,9 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     sendingRef.current = true;
     setSending(true);
     setSendError(null);
-    const result = await safe(() => (conversation ? client.sendConversationMessage(conversation.id, { message }) : client.openConversation(project.id, { message })));
+    // O escopo vai com a abertura e com cada mensagem (ADR 0033): a IA recebe os agrupadores do lugar da procura.
+    const scopeId = scope?.id ?? null;
+    const result = await safe(() => (conversation ? client.sendConversationMessage(conversation.id, { message, scopeId }) : client.openConversation(project.id, { message, scopeId })));
     sendingRef.current = false;
     setSending(false);
     if (result.ok) {
@@ -269,9 +271,11 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     if (!conversation || !fields) return null;
     const result = await save.run(() => client.updateConversationDraft(conversation.id, { title: fields.title.trim(), description: fields.description }));
     if (!result.ok) return null;
-    setConversation(result.data);
+    // Editar à mão não muda o parecer da IA: vale o `ready` da última resposta (ADR 0033).
+    const saved = { ...result.data, ready: conversation.ready };
+    setConversation(saved);
     setEdit(null);
-    return result.data;
+    return saved;
   };
 
   /** `scopeId`: o escopo desta procura (`null`: o projeto inteiro). Devolve se a procura deu resultado. */
@@ -396,10 +400,11 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
               </label>
               {(save.error || search.error) && <p role="alert">{describeApiError((save.error ?? search.error)!)}</p>}
               {search.busy && <p role="status" className="assistant-hint">Procurando o lugar… a primeira procura em um projeto pode demorar.</p>}
+              {!conversation!.ready && !outcome && <p className="assistant-hint assistant-not-ready">A IA ainda tem uma pergunta antes de procurar o lugar.</p>}
               <div className="assistant-actions">
                 {dirty && <button type="button" disabled={save.busy || fields.title.trim() === ""} onClick={() => void saveDraft()}>Salvar rascunho</button>}
-                <button type="button" className={outcome ? undefined : "primary"} disabled={busy || fields.title.trim() === ""} onClick={() => void searchPlace()}>
-                  {outcome ? "Procurar de novo" : "Procurar o lugar"}
+                <button type="button" className={outcome || !conversation!.ready ? undefined : "primary"} disabled={busy || fields.title.trim() === ""} onClick={() => void searchPlace()}>
+                  {outcome ? "Procurar de novo" : conversation!.ready ? "Procurar o lugar" : "Procurar assim mesmo"}
                 </button>
               </div>
             </section>

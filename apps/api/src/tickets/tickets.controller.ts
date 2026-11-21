@@ -231,6 +231,8 @@ export class TicketsController {
     const fields = Object.keys(data);
     if (fields.length > 0) {
       await tx.ticket.update({ where: { orgId_id: { orgId: project.orgId, id } }, data });
+      // O texto fixo é do agrupador (ADR 0033): o ticket que deixa de ser agrupador (sempre vazio) perde o dele.
+      if (currentKind === "group" && nextKind !== "group") await tx.branchSummary.deleteMany({ where: { ticketId: id } });
       await this.activity.record(tx, principal, {
         kind: "ticket.updated",
         subjectType: "ticket",

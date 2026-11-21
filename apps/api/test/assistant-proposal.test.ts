@@ -104,6 +104,19 @@ describe("placement — proposta de agrupador dentro de um agrupador", () => {
     expect(res.body.groupProposal.tickets.map((t: { id: string }) => t.id)).toEqual([tree.saml]);
   });
 
+  it("o destino com texto guardado (da pessoa) leva esse texto à afinidade, sem chamar o resumidor para ele", async () => {
+    const id = await start();
+    await addTicket("Parser de XML", tree.sso);
+    await h.pool.query(
+      "insert into branch_summaries (org_id, project_id, ticket_id, summary, content_mark, source, model, edited_by_person_id) values ('org_A', $1, $2, 'Entrada com a conta da empresa', 'pessoa', 'person', null, $3)",
+      [priv(), tree.sso, h.world().people.manager],
+    );
+    affinityScores({ [tree.saml]: 0.9 });
+    await placement(id);
+    expect(h.affinity().calls[0]?.destination).toEqual({ title: "SSO", summary: "Entrada com a conta da empresa" });
+    expect(h.summarizer().calls.map((c) => c.title)).not.toContain("SSO");
+  });
+
   it("todos os soltos do agrupador passam: same_as_destination, sem chamar o Claude", async () => {
     const id = await start();
     affinityScores({ [tree.saml]: 0.99 });

@@ -39,7 +39,7 @@ describe("POST /projects/:id/ticket-conversations", () => {
       ],
     });
     expect(h.conversation().calls).toEqual([
-      { history: [{ author: "person", body: "Quero corrigir o login" }], draft: null },
+      { history: [{ author: "person", body: "Quero corrigir o login" }], draft: null, groups: [] },
     ]);
     const stored = await rows("select status, author_person_id, draft_title from ticket_conversations");
     expect(stored).toEqual([{ status: "open", author_person_id: h.world().people.contributor, draft_title: "Rascunho 1" }]);
