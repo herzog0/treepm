@@ -1,6 +1,6 @@
 # ADR 0035 — Interface em três idiomas: português, inglês e espanhol do México
 
-**Status:** Aceita por Teodoro em 2026-11-21 quanto ao objetivo; os pontos marcados como escolha da coordenação valem até ele dizer o contrário. O idioma do texto escrito pela IA está em aberto. Nada implementado. **Data:** 2026-11-21.
+**Status:** Aceita por Teodoro em 2026-11-21 quanto ao objetivo; os pontos marcados como escolha da coordenação valem até ele dizer o contrário. O idioma do texto escrito pela IA está em aberto. A web inteira foi convertida em 2026-11-21 (PRs #81 a #88: `i18next` 27 com `react-i18next` 18, um catálogo por área, regra de lint contra texto literal em toda a web e teste de tela inteira por idioma). As traduções de inglês e de espanhol foram escritas pela IA e ainda não foram revisadas por quem fala o idioma; nada foi conferido com sessão real. **Data:** 2026-11-21.
 
 ## Contexto
 

@@ -1,6 +1,6 @@
 # ADR 0034 — Um só tipo de ticket, resolvido das folhas para o topo
 
-**Status:** Aceita por Teodoro em 2026-11-21. A estrutura (primeira fatia) foi implementada no mesmo dia (PR #78, migration `0009_single_ticket_type`), ainda sem teste com sessão real. A procura por tickets sem filhos (segunda fatia) espera a medição da pergunta. Substitui a primeira versão desta ADR, que propunha manter os agrupadores. **Data:** 2026-11-21.
+**Status:** Aceita por Teodoro em 2026-11-21. A estrutura (primeira fatia) foi implementada no mesmo dia (PR #78, migration `0009_single_ticket_type`), ainda sem teste com sessão real. A procura por tickets sem filhos (segunda fatia) foi medida par a par em 2026-11-21 e não mudou nada ainda: espera o julgamento de Teodoro sobre os pares. As colunas do tipo antigo saíram do banco (PR #84, migration `0010_drop_ticket_kind`). Substitui a primeira versão desta ADR, que propunha manter os agrupadores. **Data:** 2026-11-21.
 
 Substitui, na [ADR 0031](0031-agrupadores.md), o tipo declarado, a regra "só agrupador tem filhos" e as transformações entre tipos; na [ADR 0024](0024-tickets-primeiro-recorte-e-importacao-por-lista.md), a regra de que o ticket com filhos não tem situação própria; e ajusta, na [ADR 0033](0033-descricao-antes-da-procura-e-texto-fixo-do-agrupador.md), a quem se aplica o texto "O que entra aqui".
 
@@ -84,7 +84,7 @@ Pontos que a implementação decidiu além do texto acima:
 - **Concorrência:** "concluir" trava a linha do ticket antes de contar os filhos, e a reabertura trava os ancestrais de baixo para cima antes de gravar o filho. Entre "concluir o pai" e "criar filho aberto" ao mesmo tempo, ou a conclusão é recusada, ou o pai é concluído e em seguida reaberto.
 - **TDD:** quatro comportamentos da API têm cobertura mas não foram vistos falhando antes (candidatos só com filhos, escopo em ticket sem filhos, bloco `groups`, proposta criando ticket comum).
 
-Falta: a migration que remove as colunas `kind` e `parent_kind` e o índice antigo, depois de o código novo estar no ar.
+A migration `0010_drop_ticket_kind` (PR #84) removeu depois as colunas `kind` e `parent_kind` e o índice antigo.
 
 ## Segunda fatia — a procura considera todo ticket
 
@@ -132,6 +132,61 @@ Teodoro aceitou a variação em casos ambíguos. Dois padrões dessa lista são 
 - **Um ticket vira ímã.** "Aplicar a base visual aos cards do mapa" recebeu quatro tickets.
 
 Resultado bom, declarado antes de medir: chegar ao grupo original não cai (21 a 23 de 39); nos pares em que a direção inverteu, no máximo um sentido passa; Teodoro julga os tickets que entraram em outro ticket.
+
+### Medição da pergunta, par a par (2026-11-21)
+
+Comando `pairs` da ferramenta de medição (PR #84). Para cada ticket com pai, uma pergunta `Noul` por candidato: o pai real (com o texto escrito sem o ticket testado, e também só com título e descrição), cada irmão e cada outro ticket da raiz com filhos. Três redações: **W0**, a de hoje ("cabe dentro do assunto"); **W1**, dependência ("o candidato só pode ser dado por pronto depois que o trabalho do ticket estiver feito"); **W2**, parte ("o trabalho do ticket é uma parte do trabalho do candidato"). Três repetições por pergunta; vale a média. Duas rodadas independentes: a árvore original (39 testados, 539 pares) e a árvore de 2026-11-21 com os tickets 46 a 48 (41 testados, 596 pares).
+
+Na árvore original, com os limites de hoje (acima de 0,7 é "sim"):
+
+| | W0 | W1 | W2 |
+| --- | ---: | ---: | ---: |
+| Pai real reconhecido (de 39) | 25 | 1 | 18 |
+| Pai real, só com título e descrição | 27 | 1 | 7 |
+| Irmão aceito como pai (de 266 pares) | 73 | 0 | 13 |
+| Pares de irmãos aceitos nos dois sentidos | 22 | 0 | 1 |
+| Outro ticket da raiz aceito (de 195 pares) | 34 | 0 | 5 |
+| Pai real com nota maior que todos os irmãos (de 39) | 21 | 17 | 27 |
+| Pares cuja resposta muda de faixa entre repetições | 64 | 34 | 40 |
+
+A rodada com a árvore de 2026-11-21 deu a mesma figura (pai real 29, 1 e 17; irmãos 70, 0 e 14; dois sentidos 18, 0 e 1).
+
+O que os números mostram:
+
+- **W0, feita ticket a ticket, aceita quase tudo.** É o defeito de 2026-11-20, agora medido.
+- **W1 é rígida demais para servir de pergunta única:** não aceita irmão nenhum, mas reconhece 1 dos 39 pais reais. Os pais dessa árvore foram escritos como assuntos ("Design da plataforma"), e não como um trabalho que depende de partes.
+- **W2 é a que mais separa o pai real dos irmãos,** e ainda assim reconhece menos da metade dos pais com o limite de hoje.
+- **Nenhuma redação tem direção sozinha.** A nota de "A dentro de B" e a de "B dentro de A" andam juntas nas três (correlação entre 0,58 e 0,66). As redações novas ficam mais exigentes, e não mais direcionadas.
+- **Comparando os dois sentidos da W1, a direção aparece em um subconjunto pequeno.** Pares de irmãos em que um sentido passa de 0,4 e supera o inverso em mais de 0,2: 11 em cada rodada, 9 em comum, nenhum invertido entre as rodadas. Os limites 0,4 e 0,2 foram escolhidos **depois** de ver a lista; não são uma regra validada.
+
+O exemplo de Teodoro (os tickets 46, 47 e 48), em que ele disse que o 48 é filho do 47:
+
+| Pergunta | W0 | W1 | W2 |
+| --- | ---: | ---: | ---: |
+| 48 dentro de 47 (o que ele disse) | 0,59 | 0,44 | 0,19 |
+| 47 dentro de 48 (o inverso) | 0,95 | 0,23 | 0,74 |
+| 47 dentro de 46, com 46 ainda sem filhos | 0,97 | 0,13 | 0,41 |
+| 48 dentro de 46, com 46 ainda sem filhos | 0,95 | 0,14 | 0,42 |
+
+- Só a W1 concorda com ele na direção entre 47 e 48, e com nota abaixo do limite de hoje. A W2 e a W0 apontam o sentido contrário.
+- A W1 não colocaria o 47 nem o 48 dentro do 46. A W2 chega perto, sem passar do limite.
+- **Os três tickets têm duas relações diferentes:** o 47 é uma parte do 46, e o 48 é um pré-requisito do 47. Nenhuma redação sozinha coloca os três.
+
+Os pares em que a W1 deu direção nas duas rodadas (entra → dentro de), para Teodoro julgar:
+
+| Entra | Dentro de |
+| --- | --- |
+| 22 — API de tickets com permissões por papel de projeto | 23 — Cliente da API e interpretador da lista na web |
+| 13 — Proposta visual em alta fidelidade | 15 — Aplicar a base visual ao cabeçalho, ao painel lateral e à tela de times |
+| 21 — Banco: tabelas de ticket com RLS | 25 — Aplicar a migration de tickets no banco de desenvolvimento |
+| 20 — ADR 0024: modelo de ticket e importação por lista | 25 — Aplicar a migration de tickets no banco de desenvolvimento |
+| 23 — Cliente da API e interpretador da lista na web | 26 — Tela de importação de lista com prévia |
+| 26 — Tela de importação de lista com prévia | 28 — Importar esta lista no projeto TreePM |
+| 44 — DNS de treepm.ai | 45 — Primeiro deploy e teste em produção |
+| 34 — Busca do caminho do topo até a folha | 35 — Mudança de pai quando a edição muda a categoria |
+| 2 — Testar as telas de administração com sessão real | 11 — Reduzir as idas ao banco por requisição |
+
+O que fica decidido: nada na procura muda por enquanto. A regra de comparar os dois sentidos da W1 só vira proposta depois do julgamento de Teodoro sobre essa lista. Pontos que a proposta terá de resolver: a descida entre tickets que já têm filhos continua com a pergunta de lista de hoje; o que fazer quando um ticket cabe dentro de dois (a "Proposta visual" é pré-requisito de dois tickets, e a árvore só guarda um pai); e se a procura continua dentro do ticket escolhido.
 
 ## Consequências
 
