@@ -1,6 +1,6 @@
 # ADR 0034 — Um só tipo de ticket, resolvido das folhas para o topo
 
-**Status:** Aceita por Teodoro em 2026-11-21. A estrutura (primeira fatia) vai para implementação; a procura por tickets sem filhos (segunda fatia) espera uma resposta dele e uma medição. Substitui a primeira versão desta ADR, que propunha manter os agrupadores. **Data:** 2026-11-21.
+**Status:** Aceita por Teodoro em 2026-11-21. A estrutura (primeira fatia) foi implementada no mesmo dia (PR #78, migration `0009_single_ticket_type`), ainda sem teste com sessão real. A procura por tickets sem filhos (segunda fatia) espera a medição da pergunta. Substitui a primeira versão desta ADR, que propunha manter os agrupadores. **Data:** 2026-11-21.
 
 Substitui, na [ADR 0031](0031-agrupadores.md), o tipo declarado, a regra "só agrupador tem filhos" e as transformações entre tipos; na [ADR 0024](0024-tickets-primeiro-recorte-e-importacao-por-lista.md), a regra de que o ticket com filhos não tem situação própria; e ajusta, na [ADR 0033](0033-descricao-antes-da-procura-e-texto-fixo-do-agrupador.md), a quem se aplica o texto "O que entra aqui".
 
@@ -69,6 +69,22 @@ O que está marcado abaixo como *(escolha da coordenação)* não foi dito por e
 ### Ferramenta de medição
 
 O `export` e o `collect` passam a tratar como "grupo" o ticket que tem filhos. O mínimo para continuarem rodando.
+
+### Como ficou na implementação (PR #78)
+
+Pontos que a implementação decidiu além do texto acima:
+
+- **Erros com detalhe.** As respostas de erro da API ganharam um campo opcional `error.details`; `ticket_has_open_children` traz `details.openChildCount`.
+- **Corpo com `kind`:** 400 `validation_error`, como qualquer campo desconhecido.
+- **Importação por lista:** um item `done` que tenha filho aberto na própria lista nasce `todo`; e a importação dentro de um pai concluído o reabre.
+- **Evento da reabertura:** um `ticket.updated` por ticket reaberto, com `automatic: true` e `causedBy` (a chave do ticket que causou). O ator é a pessoa que fez a operação.
+- **Texto guardado em ticket sem filhos:** `GET …/summary` o devolve, mas a procura usa o trecho da descrição enquanto o ticket não tiver filhos.
+- **Código (ADR 0032):** `GET /api/tickets/:id/code` devolve os vínculos do ticket e de todos os descendentes, para qualquer ticket.
+- **"Mudar o pai"** aplica a escolha no clique, sem confirmação; por isso o aviso da reabertura aparece depois ("«CHAVE» estava concluído e voltou para "A fazer"."). No cartão do caminho e em "Novo ticket aqui dentro" o aviso aparece antes.
+- **Concorrência:** "concluir" trava a linha do ticket antes de contar os filhos, e a reabertura trava os ancestrais de baixo para cima antes de gravar o filho. Entre "concluir o pai" e "criar filho aberto" ao mesmo tempo, ou a conclusão é recusada, ou o pai é concluído e em seguida reaberto.
+- **TDD:** quatro comportamentos da API têm cobertura mas não foram vistos falhando antes (candidatos só com filhos, escopo em ticket sem filhos, bloco `groups`, proposta criando ticket comum).
+
+Falta: a migration que remove as colunas `kind` e `parent_kind` e o índice antigo, depois de o código novo estar no ar.
 
 ## Segunda fatia — a procura considera todo ticket
 
