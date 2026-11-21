@@ -1,6 +1,6 @@
 # ADR 0032 — Ligação com repositórios de código: GitHub primeiro
 
-**Status:** Aceita por Teodoro em 2026-11-21 (ver "Decisões de Teodoro"). Nada foi implementado: a implementação espera a criação do GitHub App. **Data:** 2026-11-20.
+**Status:** Aceita por Teodoro em 2026-11-21 (ver "Decisões de Teodoro"). O GitHub App de desenvolvimento existe desde 2026-11-21; a primeira fatia ainda não foi implementada. **Data:** 2026-11-20.
 
 ## Contexto
 
@@ -41,7 +41,7 @@ A API conhece uma interface de provedor de repositórios (instalações, reposit
 - **Administrador da organização ou gestor do projeto** liga repositórios da instalação a um projeto. Um projeto aceita vários repositórios.
 - Quem vê o projeto vê as ligações dos tickets dele.
 
-A instalação fica presa à organização do TreePM (o tenant do Clerk) em tabela própria com RLS. Ao voltar do GitHub pela Setup URL, a API **não confia** no `installation_id` recebido: confere, com um token do usuário que instalou, que a instalação é dele, e só então grava. Sem essa conferência, alguém poderia prender à própria organização a instalação de outra empresa.
+A instalação fica presa à organização do TreePM (o tenant do Clerk) em tabela própria com RLS. O app foi criado com "Request user authorization (OAuth) during installation" marcado; nesse modo o GitHub desabilita a Setup URL e, depois da instalação, redireciona para a **Callback URL** com `installation_id`, `setup_action` e `code`. Ao receber esse retorno, a API **não confia** no `installation_id` recebido: confere, com um token do usuário que instalou, que a instalação é dele, e só então grava. Sem essa conferência, alguém poderia prender à própria organização a instalação de outra empresa.
 
 ### Primeira fatia: rastreio de branch e de pull request
 
@@ -92,6 +92,6 @@ O resto da proposta continua: a IA consulta árvore de arquivos e trechos sob de
 
 Resposta dele às três decisões que esta ADR deixava abertas: "segue as suas recomendações, pode pedir pro grok o que quiser. Pode enviar os trechos de código pra anthropic, mas coloca isso como algo a ser aceito pelo usuário em termos de uso ou privacidade do site."
 
-1. **Criar o GitHub App:** pedido à coordenação operacional na issue #1, com nome, permissões (Contents: read, Pull requests: read e a Metadata: read imposta), Setup URL do ambiente local e a guarda da chave privada e dos segredos no arquivo de variáveis da API. É o que destrava a implementação.
+1. **Criar o GitHub App:** criado pela coordenação operacional em 2026-11-21: `TreePM (dev)`, slug `treepm-dev`, App ID 5858226, só na conta `herzog0`, com Contents: read, Pull requests: read e a Metadata: read imposta, webhook desativado, Callback URL `http://localhost:5173/github/callback` e autorização do usuário na instalação. Não foi instalado em repositório nenhum. As cinco variáveis (`GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY`, esta em PEM PKCS#1 de várias linhas) estão no arquivo de variáveis locais da API.
 2. **Primeira fatia:** confirmada como descrita (rastreio pela chave no nome do branch e no título do PR, seção "Código", só leitura).
 3. **A IA lendo código:** autorizada só para a Anthropic e só depois do aceite do usuário, como descrito em "Segunda fatia".
