@@ -1,23 +1,31 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ApiClient, CodeLink, CodeRefresh, Project, TicketDetail, TicketStatus } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { StatusMark } from "../map/StatusMark.js";
 import { safe } from "../panel/safe.js";
-import { relativeTime } from "./time.js";
+import { relativeTimeText } from "./relativeTime.js";
 import "./github.css";
 
 /** Depois deste tempo sem sincronizar, abrir a página dispara uma atualização em segundo plano. */
 const STALE_AFTER_MS = 5 * 60_000;
 
 const MARK: Record<CodeLink["state"], TicketStatus> = { active: "in_progress", open: "in_review", merged: "done", closed: "cancelled" };
-const STATE_TEXT: Record<CodeLink["state"], string> = { active: "", open: "aberto", merged: "mesclado", closed: "fechado" };
 
-function warningsOf(repositories: CodeRefresh["repositories"]): string[] {
-  return repositories.flatMap((entry) =>
+/** Só os vínculos de pull request mostram a situação; o branch (`active`) não tem texto. */
+const STATE_KEY = { open: "open", merged: "merged", closed: "closed" } as const;
+
+interface Warning {
+  kind: "unreadable" | "truncated";
+  fullName: string;
+}
+
+function warningsOf(repositories: CodeRefresh["repositories"]): Warning[] {
+  return repositories.flatMap((entry): Warning[] =>
     entry.status === "unavailable"
-      ? [`Não foi possível ler ${entry.fullName} agora.`]
+      ? [{ kind: "unreadable", fullName: entry.fullName }]
       : entry.status === "truncated"
-        ? [`${entry.fullName} tem mais branches ou pull requests do que o TreePM lê; os mais antigos ficam de fora.`]
+        ? [{ kind: "truncated", fullName: entry.fullName }]
         : [],
   );
 }
@@ -27,10 +35,11 @@ function warningsOf(repositories: CodeRefresh["repositories"]): string[] {
  * O pai só a monta com `github.enabled`; sem repositório ligado ao projeto ela não aparece.
  */
 export function TicketCode({ client, detail, project }: { client: ApiClient; detail: TicketDetail; project: Project | null }) {
+  const { t } = useTranslation("github");
   const code = useApiResource(() => safe(() => client.getTicketCode(detail.id)));
   const [refreshing, setRefreshing] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [warnings, setWarnings] = useState<string[]>([]);
+  const [warnings, setWarnings] = useState<Warning[]>([]);
   const autoStarted = useRef(false);
   const archived = project !== null && project.archivedAt !== null;
   const data = code.state.status === "ready" ? code.state.data : null;
@@ -68,21 +77,19 @@ export function TicketCode({ client, detail, project }: { client: ApiClient; det
   return (
     <section className="ticket-section" aria-labelledby="ticket-code-heading">
       <div className="ticket-code-head">
-        <h2 id="ticket-code-heading">Código</h2>
+        <h2 id="ticket-code-heading">{t("code.title")}</h2>
         <span className="ticket-code-sync">
-          <span>{data.syncedAt === null ? "Ainda não sincronizado" : `Atualizado ${relativeTime(data.syncedAt)}`}</span>
+          <span>{data.syncedAt === null ? t("code.notSynced") : t("code.updated", { when: relativeTimeText(t, data.syncedAt) })}</span>
           {!archived && (
             <button type="button" className="text" disabled={refreshing} onClick={() => void refresh()}>
-              Atualizar
+              {t("code.refresh")}
             </button>
           )}
         </span>
       </div>
       {data.links.length === 0 ? (
         <p className="ticket-muted">
-          {hasItems
-            ? "Nenhum branch ou pull request cita este ticket nem os itens dentro dele."
-            : `Nenhum branch ou pull request cita ${detail.key}. Inclua a chave no nome do branch ou no título do PR.`}
+          {hasItems ? t("code.noLinksItems") : t("code.noLinks", { key: detail.key })}
         </p>
       ) : (
         <ul className="ticket-code-list">
@@ -94,7 +101,7 @@ export function TicketCode({ client, detail, project }: { client: ApiClient; det
                 {link.kind === "pull_request" ? `#${link.number} ${link.title}` : link.ref}
               </a>
               <span className="ticket-code-meta">
-                {link.kind === "pull_request" && <span className="ticket-code-state">{STATE_TEXT[link.state]}</span>}
+                {link.kind === "pull_request" && link.state !== "active" && <span className="ticket-code-state">{t(`code.state.${STATE_KEY[link.state]}`)}</span>}
                 <span>{link.repository.fullName}</span>
               </span>
             </li>
@@ -102,9 +109,9 @@ export function TicketCode({ client, detail, project }: { client: ApiClient; det
         </ul>
       )}
       {warnings.map((warning) => (
-        <p key={warning} className="ticket-code-warning">{warning}</p>
+        <p key={`${warning.kind}-${warning.fullName}`} className="ticket-code-warning">{t(`code.${warning.kind}`, { name: warning.fullName })}</p>
       ))}
-      {failed && <p className="ticket-muted">Não foi possível atualizar agora.</p>}
+      {failed && <p className="ticket-muted">{t("code.refreshFailed")}</p>}
     </section>
   );
 }

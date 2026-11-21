@@ -1,1 +1,53 @@
-{}
+{
+  "loading": "Loading project…",
+  "unavailable": {
+    "notFound": "Project not found or you have no access.",
+    "archived": "The project is archived and does not accept import.",
+    "noPermission": "You do not have permission to import tickets in this project.",
+    "back": "Back to the map"
+  },
+  "header": {
+    "path": "Path",
+    "title": "Import list",
+    "intro": "Paste a Markdown list: each item becomes a ticket, the indentation says who is whose child. Optional markers set the status of the tickets."
+  },
+  "input": {
+    "label": "List",
+    "chooseFile": "Choose file",
+    "placeholder": "- First delivery\n  - [x] Completed step\n  - [/] Step in progress\n- [ ] Another delivery",
+    "fileError": "Could not read the file.",
+    "markers": "Markers"
+  },
+  "legend": {
+    "todo": "to do",
+    "in_progress": "in progress",
+    "in_review": "in review",
+    "done": "done",
+    "cancelled": "canceled"
+  },
+  "preview": {
+    "title": "Preview",
+    "empty": "The tree appears here while you paste or type the list.",
+    "errors": "List errors",
+    "warnings": "List warnings",
+    "tree": "Preview of the tree",
+    "subitems_one": "{{count}} subitem",
+    "subitems_other": "{{count}} subitems"
+  },
+  "summary": {
+    "line": "{{tickets}} · {{roots}} · {{leaves}}",
+    "tickets_one": "{{count}} ticket",
+    "tickets_other": "{{count}} tickets",
+    "roots_one": "{{count}} root",
+    "roots_other": "{{count}} roots",
+    "leaves_one": "{{count}} leaf",
+    "leaves_other": "{{count}} leaves"
+  },
+  "actions": {
+    "cancel": "Cancel",
+    "import": "Import",
+    "importing": "Importing…",
+    "importCount_one": "Import {{count}} ticket",
+    "importCount_other": "Import {{count}} tickets"
+  }
+}

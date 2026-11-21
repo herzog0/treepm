@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ApiClient, GithubRepository, Me, Project, ProjectRepository } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
@@ -8,8 +9,6 @@ import { useAction } from "../panel/useAction.js";
 import "./github.css";
 import { useDescribeApiError } from "../api/errorText.js";
 
-const REMOVE_WARNING = "Os vínculos de código dos tickets com este repositório serão removidos.";
-
 /** Seção "Repositórios" do detalhe do projeto (ADR 0032). O pai só a monta com `github.enabled`; sem organização ligada ela não aparece. */
 export function ProjectRepositories({ client, me, project }: { client: ApiClient; me: Me; project: Project }) {
   const installation = useApiResource(() => safe(() => client.getGithubInstallation()));
@@ -18,6 +17,7 @@ export function ProjectRepositories({ client, me, project }: { client: ApiClient
 }
 
 function LinkedRepositories({ client, me, project }: { client: ApiClient; me: Me; project: Project }) {
+  const { t } = useTranslation("github");
   const linked = useApiResource(() => safe(() => client.listProjectRepositories(project.id)));
   const [choosing, setChoosing] = useState(false);
   const canManage = me.roles.clerk === "admin" || me.roles.projects.some((entry) => entry.projectId === project.id && entry.role === "manager");
@@ -25,14 +25,14 @@ function LinkedRepositories({ client, me, project }: { client: ApiClient; me: Me
 
   return (
     <section className="panel-repositories" aria-labelledby={`project-repositories-${project.id}`}>
-      <h3 id={`project-repositories-${project.id}`}>Repositórios</h3>
-      {linked.state.status === "loading" && <p role="status">Carregando repositórios…</p>}
+      <h3 id={`project-repositories-${project.id}`}>{t("repositories.title")}</h3>
+      {linked.state.status === "loading" && <p role="status">{t("repositories.loading")}</p>}
       {linked.state.status === "error" && <LoadError error={linked.state.error} onRetry={linked.retry} />}
       {linked.state.status === "ready" &&
         (linked.state.data.length === 0 ? (
-          <p>Nenhum repositório ligado a este projeto.</p>
+          <p>{t("repositories.empty")}</p>
         ) : (
-          <ul className="panel-list" aria-label="Repositórios do projeto">
+          <ul className="panel-list" aria-label={t("repositories.list")}>
             {linked.state.data.map((repository) => (
               <RepositoryRow key={repository.id} client={client} projectId={project.id} repository={repository} canEdit={canEdit} onRemoved={linked.reload} />
             ))}
@@ -40,7 +40,7 @@ function LinkedRepositories({ client, me, project }: { client: ApiClient; me: Me
         ))}
       {canEdit && linked.state.status === "ready" && !choosing && (
         <button type="button" onClick={() => setChoosing(true)}>
-          Ligar repositório
+          {t("repositories.link")}
         </button>
       )}
       {canEdit && linked.state.status === "ready" && choosing && (
@@ -72,6 +72,7 @@ function RepositoryRow({
   canEdit: boolean;
   onRemoved: () => void;
 }) {
+  const { t } = useTranslation("github");
   const describeError = useDescribeApiError();
   const action = useAction();
   const remove = async () => {
@@ -85,13 +86,13 @@ function RepositoryRow({
           <a href={repository.htmlUrl} target="_blank" rel="noopener noreferrer">
             {repository.fullName}
           </a>
-          {repository.private && <small className="badge repo-private">privado</small>}
+          {repository.private && <small className="badge repo-private">{t("repositories.private")}</small>}
         </span>
         {canEdit && (
           <ConfirmAction
-            label="Remover"
-            accessibleLabel={`Remover ${repository.fullName}`}
-            message={REMOVE_WARNING}
+            label={t("repositories.remove")}
+            accessibleLabel={t("repositories.removeLabel", { name: repository.fullName })}
+            message={t("repositories.removeWarning")}
             disabled={action.busy}
             onConfirm={() => void remove()}
           />
@@ -116,6 +117,7 @@ function Choice({
   onCancel: () => void;
   onLinked: () => void;
 }) {
+  const { t } = useTranslation("github");
   const describeError = useDescribeApiError();
   const available = useApiResource(() => safe(() => client.listGithubRepositories()));
   const [filter, setFilter] = useState("");
@@ -132,24 +134,24 @@ function Choice({
 
   return (
     <div className="repo-choice">
-      {available.state.status === "loading" && <p role="status">Buscando repositórios…</p>}
+      {available.state.status === "loading" && <p role="status">{t("repositories.searching")}</p>}
       {available.state.status === "error" && <LoadError error={available.state.error} onRetry={available.retry} />}
       {available.state.status === "ready" && (
         <>
           <label>
-            Filtrar repositórios
+            {t("repositories.filter")}
             <input value={filter} onChange={(event) => setFilter(event.target.value)} />
           </label>
           {candidates.length === 0 ? (
-            <p>Todos os repositórios que o app enxerga já estão ligados.</p>
+            <p>{t("repositories.allLinked")}</p>
           ) : shown.length === 0 ? (
-            <p>Nenhum repositório encontrado.</p>
+            <p>{t("repositories.none")}</p>
           ) : (
-            <div className="repo-choice-list" role="group" aria-label="Repositórios disponíveis">
+            <div className="repo-choice-list" role="group" aria-label={t("repositories.available")}>
               {shown.map((entry) => (
                 <button key={entry.repoId} type="button" disabled={link.busy} onClick={() => void choose(entry)}>
                   {entry.fullName}
-                  {entry.private && <small className="badge">privado</small>}
+                  {entry.private && <small className="badge">{t("repositories.private")}</small>}
                 </button>
               ))}
             </div>
@@ -158,7 +160,7 @@ function Choice({
       )}
       {link.error && <p role="alert">{describeError(link.error)}</p>}
       <button type="button" className="text" onClick={onCancel}>
-        Cancelar
+        {t("repositories.cancel")}
       </button>
     </div>
   );

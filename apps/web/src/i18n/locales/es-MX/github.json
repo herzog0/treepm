@@ -1,1 +1,81 @@
-{}
+{
+  "title": "GitHub",
+  "callback": {
+    "working": "Comprobando la conexión con GitHub…",
+    "done": "GitHub conectado a la cuenta {{account}}.",
+    "continue": "Continuar",
+    "back": "Volver",
+    "notice": {
+      "requested": "La solicitud de instalación se envió y debe aprobarse en GitHub.",
+      "incomplete": "La instalación no se completó en GitHub."
+    },
+    "error": {
+      "expired": "La conexión expiró. Empieza de nuevo en Configuración.",
+      "notYours": "Esta instalación no pertenece a tu cuenta de GitHub.",
+      "personalOnly": "Por ahora TreePM solo acepta la app instalada en una cuenta personal de GitHub.",
+      "noInstallation": "GitHub no encontró la instalación de la app. Instálala de nuevo.",
+      "ambiguous": "Hay más de una instalación de la app en tu cuenta. Empieza de nuevo en Configuración.",
+      "alreadyConnected": "Esta organización ya está vinculada a GitHub.",
+      "inUse": "Esta instalación de GitHub ya está en uso.",
+      "unavailable": "GitHub no respondió. Inténtalo de nuevo en unos instantes.",
+      "forbidden": "Solo un administrador de la organización puede conectar GitHub.",
+      "generic": "No se pudo completar la conexión con GitHub."
+    }
+  },
+  "settings": {
+    "loading": "Cargando…",
+    "notConnected": "La organización no está vinculada a GitHub.",
+    "connect": "Conectar GitHub",
+    "readOnlyHint": "TreePM solo lee: nombres de repositorios, ramas y pull requests. No se copia ningún código.",
+    "askAdmin": "Pide a un administrador de la organización que la conecte.",
+    "connectedTo": "Conectada a la cuenta {{account}} desde el {{date}}.",
+    "selectedOnly": "La app solo ve los repositorios elegidos en la instalación.",
+    "disconnect": "Desconectar",
+    "disconnectWarning": "Los repositorios vinculados a los proyectos y los vínculos de código de los tickets se quitarán de TreePM. La app sigue instalada en GitHub hasta que la quites allá."
+  },
+  "repositories": {
+    "title": "Repositorios",
+    "loading": "Cargando repositorios…",
+    "empty": "Ningún repositorio vinculado a este proyecto.",
+    "list": "Repositorios del proyecto",
+    "private": "privado",
+    "remove": "Quitar",
+    "removeLabel": "Quitar {{name}}",
+    "removeWarning": "Se quitarán los vínculos de código de los tickets con este repositorio.",
+    "link": "Vincular repositorio",
+    "searching": "Buscando repositorios…",
+    "filter": "Filtrar repositorios",
+    "allLinked": "Todos los repositorios que ve la app ya están vinculados.",
+    "none": "No se encontró ningún repositorio.",
+    "available": "Repositorios disponibles",
+    "cancel": "Cancelar"
+  },
+  "code": {
+    "title": "Código",
+    "notSynced": "Aún no sincronizado",
+    "updated": "Actualizado {{when}}",
+    "refresh": "Actualizar",
+    "refreshFailed": "No se pudo actualizar ahora.",
+    "relative": {
+      "now": "ahora",
+      "minutes_one": "hace {{count}} minuto",
+      "minutes_many": "hace {{count}} minutos",
+      "minutes_other": "hace {{count}} minutos",
+      "hours_one": "hace {{count}} hora",
+      "hours_many": "hace {{count}} horas",
+      "hours_other": "hace {{count}} horas",
+      "days_one": "hace {{count}} día",
+      "days_many": "hace {{count}} días",
+      "days_other": "hace {{count}} días"
+    },
+    "state": {
+      "open": "abierto",
+      "merged": "fusionado",
+      "closed": "cerrado"
+    },
+    "noLinksItems": "Ninguna rama ni pull request menciona este ticket ni los elementos dentro de él.",
+    "noLinks": "Ninguna rama ni pull request menciona {{key}}. Incluye la clave en el nombre de la rama o en el título del PR.",
+    "unreadable": "No se pudo leer {{name}} ahora.",
+    "truncated": "{{name}} tiene más ramas o pull requests de los que TreePM lee; los más antiguos se quedan fuera."
+  }
+}

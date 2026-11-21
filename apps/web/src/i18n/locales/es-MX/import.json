@@ -1,1 +1,58 @@
-{}
+{
+  "loading": "Cargando proyecto…",
+  "unavailable": {
+    "notFound": "Proyecto no encontrado o sin acceso.",
+    "archived": "El proyecto está archivado y no acepta importación.",
+    "noPermission": "No tienes permiso para importar tickets en este proyecto.",
+    "back": "Volver al mapa"
+  },
+  "header": {
+    "path": "Ruta",
+    "title": "Importar lista",
+    "intro": "Pega una lista en Markdown: cada elemento se convierte en un ticket, la sangría define quién es hijo de quién. Los marcadores opcionales definen el estado de los tickets."
+  },
+  "input": {
+    "label": "Lista",
+    "chooseFile": "Elegir archivo",
+    "placeholder": "- Primera entrega\n  - [x] Paso terminado\n  - [/] Paso en curso\n- [ ] Otra entrega",
+    "fileError": "No se pudo leer el archivo.",
+    "markers": "Marcadores"
+  },
+  "legend": {
+    "todo": "por hacer",
+    "in_progress": "en curso",
+    "in_review": "en revisión",
+    "done": "terminado",
+    "cancelled": "cancelado"
+  },
+  "preview": {
+    "title": "Vista previa",
+    "empty": "El árbol aparece aquí mientras pegas o escribes la lista.",
+    "errors": "Errores de la lista",
+    "warnings": "Avisos de la lista",
+    "tree": "Vista previa del árbol",
+    "subitems_one": "{{count}} subelemento",
+    "subitems_many": "{{count}} subelementos",
+    "subitems_other": "{{count}} subelementos"
+  },
+  "summary": {
+    "line": "{{tickets}} · {{roots}} · {{leaves}}",
+    "tickets_one": "{{count}} ticket",
+    "tickets_many": "{{count}} tickets",
+    "tickets_other": "{{count}} tickets",
+    "roots_one": "{{count}} raíz",
+    "roots_many": "{{count}} raíces",
+    "roots_other": "{{count}} raíces",
+    "leaves_one": "{{count}} hoja",
+    "leaves_many": "{{count}} hojas",
+    "leaves_other": "{{count}} hojas"
+  },
+  "actions": {
+    "cancel": "Cancelar",
+    "import": "Importar",
+    "importing": "Importando…",
+    "importCount_one": "Importar {{count}} ticket",
+    "importCount_many": "Importar {{count}} tickets",
+    "importCount_other": "Importar {{count}} tickets"
+  }
+}

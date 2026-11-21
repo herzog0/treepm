@@ -1,1 +1,63 @@
-{}
+{
+  "loading": "Carregando projeto…",
+  "unavailable": {
+    "notFound": "Projeto não encontrado ou sem acesso.",
+    "archived": "O projeto está arquivado e não aceita importação.",
+    "noPermission": "Você não tem permissão para importar tickets neste projeto.",
+    "back": "Voltar ao mapa"
+  },
+  "header": {
+    "path": "Caminho",
+    "title": "Importar lista",
+    "intro": "Cole uma lista em Markdown: cada item vira um ticket, o recuo define quem é filho de quem. Marcadores opcionais definem a situação dos tickets."
+  },
+  "input": {
+    "label": "Lista",
+    "chooseFile": "Escolher arquivo",
+    "placeholder": "- Primeira entrega\n  - [x] Passo concluído\n  - [/] Passo em andamento\n- [ ] Outra entrega",
+    "fileError": "Não foi possível ler o arquivo.",
+    "markers": "Marcadores"
+  },
+  "legend": {
+    "todo": "a fazer",
+    "in_progress": "em andamento",
+    "in_review": "em revisão",
+    "done": "concluído",
+    "cancelled": "cancelado"
+  },
+  "preview": {
+    "title": "Prévia",
+    "empty": "A árvore aparece aqui enquanto você cola ou digita a lista.",
+    "errors": "Erros da lista",
+    "warnings": "Avisos da lista",
+    "tree": "Prévia da árvore",
+    "subitems_zero": "{{count}} subitens",
+    "subitems_one": "{{count}} subitem",
+    "subitems_many": "{{count}} subitens",
+    "subitems_other": "{{count}} subitens"
+  },
+  "summary": {
+    "line": "{{tickets}} · {{roots}} · {{leaves}}",
+    "tickets_zero": "{{count}} tickets",
+    "tickets_one": "{{count}} ticket",
+    "tickets_many": "{{count}} tickets",
+    "tickets_other": "{{count}} tickets",
+    "roots_zero": "{{count}} raízes",
+    "roots_one": "{{count}} raiz",
+    "roots_many": "{{count}} raízes",
+    "roots_other": "{{count}} raízes",
+    "leaves_zero": "{{count}} folhas",
+    "leaves_one": "{{count}} folha",
+    "leaves_many": "{{count}} folhas",
+    "leaves_other": "{{count}} folhas"
+  },
+  "actions": {
+    "cancel": "Cancelar",
+    "import": "Importar",
+    "importing": "Importando…",
+    "importCount_zero": "Importar {{count}} tickets",
+    "importCount_one": "Importar {{count}} ticket",
+    "importCount_many": "Importar {{count}} tickets",
+    "importCount_other": "Importar {{count}} tickets"
+  }
+}
