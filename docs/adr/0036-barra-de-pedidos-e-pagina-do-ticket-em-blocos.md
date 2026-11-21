@@ -1,6 +1,6 @@
 # ADR 0036 — Barra de pedidos no topo do mapa e página do ticket com descrição em blocos
 
-**Status:** Desenho aprovado por Teodoro em 2026-11-21 ("design aprovado, pode implementar"). Os pontos marcados como escolha da coordenação valem até ele dizer o contrário. As duas capacidades de IA da seção "Propostas, à espera de Teodoro" não são implementadas antes da resposta dele. As fatias 1, 2 e 3 (a barra com busca, a página do ticket e a conversa dentro da barra) foram implementadas em 2026-11-21 (PRs #92, #93 e #94), e a descrição em blocos (fatia 4) também (PR #96). Nada foi testado com sessão real. **Data:** 2026-11-21.
+**Status:** Desenho aprovado por Teodoro em 2026-11-21 ("design aprovado, pode implementar"). Os pontos marcados como escolha da coordenação valem até ele dizer o contrário. As duas capacidades de IA foram autorizadas por ele em 2026-11-21 ("Segue a sua recomendação pras coisas em aberto"); a pergunta sobre o projeto segue a [ADR 0037](0037-relacoes-entre-tickets-e-camada-de-consulta.md), e nenhuma das duas foi implementada. As fatias 1, 2 e 3 (a barra com busca, a página do ticket e a conversa dentro da barra) foram implementadas em 2026-11-21 (PRs #92, #93 e #94), e a descrição em blocos (fatia 4) também (PR #96). Nada foi testado com sessão real. **Data:** 2026-11-21.
 
 Muda, na [ADR 0029](0029-novo-ticket-pela-conversa-com-a-ia.md), onde a conversa de novo ticket aparece (o painel lateral dá lugar à barra); e, na [ADR 0026](0026-pagina-do-ticket-e-zoom-ate-a-folha.md), o desenho interno da página do ticket. A largura de 620 px, o deslize e o foco do mapa continuam como estão.
 
@@ -100,7 +100,7 @@ O que existe hoje:
 **Menções**
 
 - "@" abre a lista de tickets do mesmo projeto, com a busca da barra.
-- A menção é guardada como a **chave do ticket no texto** (`TREEPM-47`). Qualquer chave de um ticket existente do mesmo projeto, digitada ou inserida, aparece como menção: marcador de situação, chave e título atuais, e o clique abre o ticket.
+- A menção é guardada como a **chave do ticket no texto** (`TREEPM-47`). A [ADR 0037](0037-relacoes-entre-tickets-e-camada-de-consulta.md) acrescenta uma ligação gravada no banco, derivada desse texto. Qualquer chave de um ticket existente do mesmo projeto, digitada ou inserida, aparece como menção: marcador de situação, chave e título atuais, e o clique abre o ticket.
 - Chave que não existe (ticket apagado, ou de outro projeto) aparece como texto comum.
 - Não há lista de "quem menciona este ticket" neste recorte.
 - A chave é estável porque a chave do projeto não pode ser alterada e o número do ticket não muda.
@@ -126,17 +126,13 @@ O que existe hoje:
   - a digitação de verdade ("/" abre o menu, "@" abre a lista, `Enter` insere, salvar ao sair) roda em **navegador real, sem janela**, em uma suíte separada (`test:browser`, modo navegador do Vitest com Chromium), que entra nas verificações obrigatórias.
 - Se a suíte de navegador não for viável no ambiente, a implementação para e relata antes de seguir.
 
-### Propostas, à espera de Teodoro
+### Capacidades de IA, autorizadas em 2026-11-21
 
-Estão no canvas aprovado, mas enviam à Anthropic mais do que ele autorizou até aqui (texto de ticket e texto de conversa, sem identificadores). Nenhuma das duas é desenhada na interface antes da resposta dele.
+Estão no canvas aprovado e enviam à Anthropic mais do que estava autorizado até então (texto de ticket e texto de conversa, sem identificadores). Ficaram à espera de Teodoro, que respondeu em 2026-11-21: "Segue a sua recomendação pras coisas em aberto".
 
-**Pergunta sobre o projeto** (prancha "Barra 3"). Para responder "o que falta para fechar a Fase 1?", o modelo precisa de mais do que texto:
+**Pergunta sobre o projeto** (prancha "Barra 3"). A proposta original enviava, por ticket do projeto, título, trecho da descrição, **situação**, **de qual ticket é filho** e um rótulo neutro, a cada pergunta. A [ADR 0037](0037-relacoes-entre-tickets-e-camada-de-consulta.md) troca isso por ferramentas de consulta: a IA pede só os tickets de que precisa. A lista do que vai e do que não vai à Anthropic está lá.
 
-- por ticket do projeto: título, trecho da descrição, **situação**, **de qual ticket é filho** e um rótulo neutro (`T01`, `T02`…) no lugar da chave e do id;
-- a pergunta e a conversa;
-- nada sobre pessoas (responsáveis, autor), nenhum id e nenhuma chave. O código troca os rótulos pelas chaves ao mostrar a resposta.
-
-**"Pedir ao assistente para escrever"** (item do menu de blocos): enviaria o título, a descrição atual, os títulos do caminho até a raiz e o pedido.
+**"Pedir ao assistente para escrever"** (item do menu de blocos): envia o título, a descrição atual, os títulos do caminho até a raiz e o pedido. Nada sobre pessoas, nenhum id e nenhuma chave. O texto volta como proposta, que a pessoa aceita ou descarta; nada é salvo sem ela.
 
 ### Fatias
 
@@ -144,7 +140,7 @@ Estão no canvas aprovado, mas enviam à Anthropic mais do que ele autorizou at�
 2. **Página do ticket: novo desenho,** com a descrição ainda em área de texto. Só web.
 3. **Conversa dentro da barra;** saem o painel lateral e o botão. Só web.
 4. **Descrição em blocos,** com menções e a suíte de navegador. Só web, com dependência nova.
-5. **As duas capacidades de IA,** só depois da resposta de Teodoro. API e web.
+5. **As duas capacidades de IA,** autorizadas em 2026-11-21 (`TREEPM-79` e `TREEPM-80`). API e web.
 
 As fatias 1 e 2 não trazem dependência nova nem enviam nada novo a provedor. Todo texto novo entra no catálogo nos três idiomas (ADR 0035), e todo comportamento novo começa por um teste que falha.
 
