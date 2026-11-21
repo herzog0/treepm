@@ -60,7 +60,9 @@ describe("no screen says 'agrupador' (ADR 0034)", () => {
     await screen.findByRole("heading", { level: 1, name: "Acesso" });
     await screen.findByRole("region", { name: "O que entra aqui" });
     expectNoWord();
-    await userEvent.click(screen.getByRole("button", { name: "Concluído" }));
+    await userEvent.click(screen.getByRole("button", { name: "A fazer" }));
+    expectNoWord();
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Concluído" }));
     await screen.findByRole("alert");
     expectNoWord();
     await userEvent.click(screen.getByRole("button", { name: "Mudar" }));
@@ -72,6 +74,7 @@ describe("no screen says 'agrupador' (ADR 0034)", () => {
     await screen.findByRole("heading", { level: 1, name: "Solto" });
     expect(screen.getByText("Nenhum ticket aqui dentro.")).toBeInTheDocument();
     expectNoWord();
+    await userEvent.click(screen.getByRole("button", { name: "Mais ações" }));
     await userEvent.click(screen.getByRole("button", { name: "Remover ticket" }));
     expectNoWord();
   });

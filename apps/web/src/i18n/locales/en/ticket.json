@@ -4,6 +4,13 @@
     "close": "Close and go back to the map",
     "loading": "Loading ticket…"
   },
+  "header": {
+    "viewOnMap": "Show on map",
+    "copyLink": "Copy link",
+    "more": "More actions",
+    "linkCopied": "Link copied",
+    "copyFailed": "Could not copy the link"
+  },
   "readOnly": {
     "archived": "This project is archived: this page is read-only.",
     "reader": "You have read-only access to this project."

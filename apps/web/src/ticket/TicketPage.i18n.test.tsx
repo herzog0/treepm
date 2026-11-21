@@ -37,13 +37,13 @@ function setup(options: { me?: Me; project?: Project; ticketId?: string; overrid
     updateTicket: vi.fn(async (id: string) => ok(detailOf(summaries.find((entry) => entry.id === id)!))),
     ...options.override,
   });
-  const handlers = { onOpenTicket: vi.fn(), onClose: vi.fn(), onChanged: vi.fn(), onRemoved: vi.fn(), onStartCreate: vi.fn(), onCancelCreate: vi.fn(), onCreated: vi.fn() };
+  const handlers = { onOpenTicket: vi.fn(), onClose: vi.fn(), onChanged: vi.fn(), onRemoved: vi.fn(), onShowOnMap: vi.fn(), onStartCreate: vi.fn(), onCancelCreate: vi.fn(), onCreated: vi.fn() };
   const view = render(<TicketPage client={client} me={me} projects={[theProject]} ticketId={options.ticketId ?? "t1"} creating={null} {...handlers} />);
   return { client, view };
 }
 
 /** Textos em português do catálogo `ticket` que o idioma testado traduziu de outro jeito: nenhum pode sobrar na tela. */
-const PORTUGUESE = ["Página do ticket", "Situação", "Progresso", "Pessoas", "Ticket pai", "Descrição", "O que entra aqui", "Itens", "Raiz do projeto", "Novo ticket aqui dentro", "Carregando", "Escrito pela IA", "concluídos"];
+const PORTUGUESE = ["Ver no mapa", "Copiar link", "Mais ações", "Link copiado", "Página do ticket", "Situação", "Progresso", "Pessoas", "Ticket pai", "Descrição", "O que entra aqui", "Itens", "Raiz do projeto", "Novo ticket aqui dentro", "Carregando", "Escrito pela IA", "concluídos"];
 const expectNoPortuguese = (container: HTMLElement) => {
   const visible = `${container.textContent ?? ""} ${[...container.querySelectorAll("[aria-label]")].map((node) => node.getAttribute("aria-label")).join(" ")}`;
   for (const text of PORTUGUESE) expect(visible, `Portuguese text left: "${text}"`).not.toContain(text);
@@ -59,6 +59,7 @@ describe.each([
     archived: "This project is archived: this page is read-only.", reader: "You have read-only access to this project.",
     empty: "No tickets inside.", noDescription: "No description.", noOne: "No one assigned",
     pick: "Choose the parent ticket", filter: "Filter tickets",
+    viewOnMap: "Show on map", copyLink: "Copy link", more: "More actions", linkCopied: "Link copied", copyFailed: "Could not copy the link",
   },
   {
     language: "es-MX" as const,
@@ -69,6 +70,7 @@ describe.each([
     archived: "Este proyecto está archivado: esta página es de solo lectura.", reader: "Tienes acceso de solo lectura a este proyecto.",
     empty: "Ningún ticket aquí dentro.", noDescription: "Sin descripción.", noOne: "Nadie asignado",
     pick: "Elige el ticket padre", filter: "Filtrar tickets",
+    viewOnMap: "Ver en el mapa", copyLink: "Copiar enlace", more: "Más acciones", linkCopied: "Enlace copiado", copyFailed: "No se pudo copiar el enlace",
   },
 ])("ticket page in $language", (expected) => {
   const { language } = expected;
@@ -80,9 +82,8 @@ describe.each([
     await screen.findByRole("heading", { level: 1, name: "Planejar a fase" });
     expect(within(page).getByRole("button", { name: expected.close })).toBeInTheDocument();
     for (const term of [expected.status, expected.people, expected.parent, expected.root]) expect(page).toHaveTextContent(term);
-    expect(within(page).getByRole("group", { name: expected.status })).toBeInTheDocument();
     expect(page).toHaveTextContent(expected.progress);
-    expect(within(page).getByRole("button", { name: expected.chip })).toHaveAttribute("aria-pressed", "true");
+    expect(within(page).getByRole("button", { name: expected.chip })).toHaveAttribute("aria-haspopup", "menu");
     expect(within(page).getByRole("button", { name: expected.editTitle })).toBeInTheDocument();
     expect(within(page).getByRole("button", { name: expected.editDescription })).toBeInTheDocument();
     expect(within(page).getByRole("heading", { level: 2, name: expected.description })).toBeInTheDocument();
@@ -90,6 +91,7 @@ describe.each([
     expect(within(page).getByRole("button", { name: expected.add })).toBeInTheDocument();
     expect(within(page).getByRole("heading", { level: 2, name: expected.items })).toBeInTheDocument();
     expect(within(page).getByRole("button", { name: expected.newHere })).toBeInTheDocument();
+    await userEvent.click(within(page).getByRole("button", { name: expected.more }));
     expect(within(page).getByRole("button", { name: expected.removeTicket })).toBeInTheDocument();
     expect(within(page).getByRole("button", { name: /ALFA-2/ })).toHaveTextContent(expected.itemState === "To do" ? "In progress" : "En curso");
     expect(await within(page).findByRole("region", { name: expected.summary })).toHaveTextContent(expected.summaryMeta);
@@ -123,7 +125,8 @@ describe.each([
     const updateTicket = vi.fn(async () => failed("conflict", "ticket_has_open_children"));
     setup({ override: { updateTicket } });
     await screen.findByRole("heading", { level: 1, name: "Planejar a fase" });
-    await userEvent.click(screen.getByRole("button", { name: expected.doneButton }));
+    await userEvent.click(screen.getByRole("button", { name: expected.chip }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: expected.doneButton }));
     expect(await screen.findByRole("alert")).toHaveTextContent(expected.openItems);
   });
 
@@ -131,10 +134,35 @@ describe.each([
     await setTestLanguage(language);
     setup({ ticketId: "t4" });
     await screen.findByRole("heading", { level: 1, name: "Fase vazia" });
-    await userEvent.click(screen.getAllByRole("button").find((button) => button.getAttribute("aria-expanded") === "false")!);
+    await userEvent.click(screen.getAllByRole("button").find((button) => button.getAttribute("aria-expanded") === "false" && !button.hasAttribute("aria-haspopup"))!);
     const picker = screen.getByRole("group", { name: expected.pick });
     expect(within(picker).getByRole("textbox", { name: expected.filter })).toBeInTheDocument();
     expect(within(picker).getByRole("button", { name: expected.root })).toBeInTheDocument();
+  });
+
+  it("names the header buttons, the status menu and the copy notices in the language", async () => {
+    await setTestLanguage(language);
+    const user = userEvent.setup();
+    const { view } = setup();
+    const page = await screen.findByRole("complementary", { name: expected.page });
+    await screen.findByRole("heading", { level: 1, name: "Planejar a fase" });
+    for (const name of [expected.viewOnMap, expected.copyLink, expected.more, expected.close]) expect(within(page).getByRole("button", { name })).toBeInTheDocument();
+    await user.click(within(page).getByRole("button", { name: expected.copyLink }));
+    expect(await within(page).findByRole("status")).toHaveTextContent(expected.linkCopied);
+    await user.click(within(page).getByRole("button", { name: expected.chip }));
+    expect(within(screen.getByRole("menu", { name: expected.status })).getAllByRole("menuitemradio")).toHaveLength(5);
+    expectNoPortuguese(view.container);
+  });
+
+  it("says the link could not be copied, in the language", async () => {
+    await setTestLanguage(language);
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValueOnce(new Error("negado"));
+    setup();
+    const page = await screen.findByRole("complementary", { name: expected.page });
+    await screen.findByRole("heading", { level: 1, name: "Planejar a fase" });
+    await user.click(within(page).getByRole("button", { name: expected.copyLink }));
+    expect(await within(page).findByRole("alert")).toHaveTextContent(expected.copyFailed);
   });
 
   it("shows the summary editor with the formatted counter", async () => {

@@ -6,6 +6,7 @@ import type { ApiClient, Person, TicketDetail, TicketStatus, TicketSummary, Upda
 import { useDescribeApiError } from "../api/errorText.js";
 import { useStatusText } from "../map/nodeContent.js";
 import { StatusMark } from "../map/StatusMark.js";
+import { OptionMenu } from "./menu.js";
 import { useAction } from "../panel/useAction.js";
 import { isOpenStatus, reopenedNoticeText, reopensOnReceiving } from "./reopen.js";
 import { descendantIds } from "./tree.js";
@@ -138,15 +139,26 @@ export function StatusField({ client, detail, openItems, onSaved }: FieldBase & 
   };
   return (
     <>
-      <div className="ticket-status-group" role="group" aria-label={t("status.group")}>
-        {STATUSES.map((status) => (
-          <button key={status} type="button" aria-pressed={detail.status === status} disabled={action.busy} onClick={() => void change(status)}>
-            <StatusMark status={status} />
-            {statusText(status)}
-          </button>
-        ))}
-      </div>
+      <OptionMenu
+        label={t("status.group")}
+        trigger={<StatusValue status={detail.status} />}
+        options={STATUSES.map((status) => ({ value: status, label: statusText(status), mark: <StatusMark status={status} /> }))}
+        value={detail.status}
+        disabled={action.busy}
+        onChoose={(status) => void change(status)}
+      />
       {action.error?.code === "ticket_has_open_children" ? <p role="alert" className="ticket-error">{openItemsText(t, openItems)}</p> : <ActionError action={action} />}
+    </>
+  );
+}
+
+/** Marcador e texto da situação: o valor da linha, com ou sem menu. */
+export function StatusValue({ status }: { status: TicketStatus }) {
+  const statusText = useStatusText();
+  return (
+    <>
+      <StatusMark status={status} />
+      {statusText(status)}
     </>
   );
 }

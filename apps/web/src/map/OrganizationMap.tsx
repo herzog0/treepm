@@ -206,6 +206,16 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     };
   }, [frameId, framesDraft, layout]);
 
+  // "Ver no mapa" da página do ticket: o mesmo enquadramento de quando ele abre, sob demanda.
+  const showOnMap = (ticketId: string) => {
+    const current = canvasRef.current;
+    const target = current.layout.nodeById.get(ticketId);
+    const rect = current.stageRef.current?.getBoundingClientRect();
+    if (!target || !rect) return;
+    const { bounds, requiredScale } = ticketFocus(target, { width: rect.width, height: rect.height });
+    current.fitBounds(bounds, false, undefined, requiredScale);
+  };
+
   // Ao fechar a página, a câmera volta ao lugar de antes, se a pessoa não preferir ficar onde está (ADR 0028).
   const { preferences } = usePreferences();
   // A conversa com a IA conta como a página: fechá-la sem criar devolve a câmera ao lugar de antes, pela mesma preferência.
@@ -415,6 +425,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
           closePage();
           selectNode(null);
         }}
+        onShowOnMap={showOnMap}
         onStartCreate={setCreating}
         onCancelCreate={() => setCreating(null)}
         onCreated={openTicket}

@@ -81,8 +81,8 @@ describe("TicketPage content", () => {
     const view = within(page());
     expect(view.getByText("ALFA-2")).toBeInTheDocument();
     expect(view.getByText("Projeto Alfa › Planejar a fase")).toBeInTheDocument();
-    expect(view.getByRole("button", { name: "Em andamento" })).toHaveAttribute("aria-pressed", "true");
-    expect(view.getByRole("button", { name: "A fazer" })).toHaveAttribute("aria-pressed", "false");
+    expect(view.getByRole("button", { name: "Em andamento" })).toHaveAttribute("aria-haspopup", "menu");
+    expect(view.queryByRole("menu")).not.toBeInTheDocument();
     expect(view.getByText("Bruno")).toBeInTheDocument();
     expect(view.getByRole("button", { name: /ALFA-1.*Planejar a fase/ })).toBeInTheDocument();
     expect(view.getByText("Descrição de teste")).toBeInTheDocument();
@@ -99,7 +99,7 @@ describe("TicketPage content", () => {
     const view = within(page());
     expect(view.queryByText("Agrupador")).not.toBeInTheDocument();
     expect(view.getByText("Situação")).toBeInTheDocument();
-    expect(view.getByRole("button", { name: "Em revisão" })).toHaveAttribute("aria-pressed", "true");
+    expect(view.getByRole("button", { name: "Em revisão" })).toHaveAttribute("aria-haspopup", "menu");
     expect(view.getByText("Progresso")).toBeInTheDocument();
     expect(view.getByText("1 de 3 concluídos")).toBeInTheDocument();
     expect(view.getByText("Raiz do projeto")).toBeInTheDocument();
@@ -127,7 +127,7 @@ describe("TicketPage content", () => {
     await loaded();
     const view = within(page());
     expect(view.getByText("Situação")).toBeInTheDocument();
-    expect(view.getByRole("button", { name: "A fazer" })).toHaveAttribute("aria-pressed", "true");
+    expect(view.getByRole("button", { name: "A fazer" })).toHaveAttribute("aria-haspopup", "menu");
     expect(view.queryByText("Progresso")).not.toBeInTheDocument();
     expect(view.queryByText("vazio")).not.toBeInTheDocument();
     expect(view.getByRole("heading", { name: "Itens" })).toBeInTheDocument();
@@ -160,7 +160,7 @@ describe("TicketPage content", () => {
     await loaded();
     const view = within(page());
     expect(view.getByText("2 de 2 concluídos · 1 cancelado")).toBeInTheDocument();
-    expect(view.getByRole("button", { name: "Em andamento" })).toHaveAttribute("aria-pressed", "true");
+    expect(view.getByRole("button", { name: "Em andamento" })).toHaveAttribute("aria-haspopup", "menu");
   });
 
   it("opens the parent when the parent is clicked", async () => {
@@ -193,7 +193,8 @@ describe("TicketPage editing", () => {
     const client = clientWith();
     const { onChanged } = setup({ client });
     await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Em revisão" }));
+    await userEvent.click(within(page()).getByRole("button", { name: "Em andamento" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Em revisão" }));
     expect(client.updateTicket).toHaveBeenCalledWith("t2", { status: "in_review" });
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(client.getTicket).toHaveBeenCalledTimes(2));
@@ -203,9 +204,11 @@ describe("TicketPage editing", () => {
     const updateTicket = vi.fn().mockResolvedValueOnce(failed("conflict", "project_archived")).mockImplementation(async () => ok(detailOf(summaries[1]!)));
     setup({ client: clientWith({ updateTicket }) });
     await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Concluído" }));
+    await userEvent.click(within(page()).getByRole("button", { name: "Em andamento" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Concluído" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("O projeto está arquivado");
-    await userEvent.click(within(page()).getByRole("button", { name: "Concluído" }));
+    await userEvent.click(within(page()).getByRole("button", { name: "Em andamento" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Concluído" }));
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 
@@ -213,7 +216,8 @@ describe("TicketPage editing", () => {
     const client = clientWith();
     setup({ client, ticketId: "t1" });
     await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "A fazer" }));
+    await userEvent.click(within(page()).getByRole("button", { name: "Em revisão" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "A fazer" }));
     expect(client.updateTicket).toHaveBeenCalledWith("t1", { status: "todo" });
   });
 
@@ -221,30 +225,35 @@ describe("TicketPage editing", () => {
     const updateTicket = vi.fn(async () => failed("conflict", "ticket_has_open_children"));
     const { onChanged } = setup({ client: clientWith({ updateTicket }), ticketId: "t1" });
     await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Concluído" }));
+    await userEvent.click(within(page()).getByRole("button", { name: "Em revisão" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Concluído" }));
     expect(updateTicket).toHaveBeenCalledWith("t1", { status: "done" });
     expect(await screen.findByRole("alert")).toHaveTextContent("Conclua ou cancele os 2 itens abertos antes de concluir este ticket.");
-    expect(within(page()).getByRole("button", { name: "Em revisão" })).toHaveAttribute("aria-pressed", "true");
-    expect(within(page()).getByRole("button", { name: "Concluído" })).toHaveAttribute("aria-pressed", "false");
+    // A situação volta ao que era: o botão ainda mostra "Em revisão".
+    expect(within(page()).getByRole("button", { name: "Em revisão" })).toHaveAttribute("aria-haspopup", "menu");
+    expect(within(page()).queryByRole("button", { name: "Concluído" })).not.toBeInTheDocument();
     expect(onChanged).not.toHaveBeenCalled();
   });
 
   it("refuses to conclude with one open item: singular message", async () => {
     setup({ client: clientWith({ updateTicket: vi.fn(async () => failed("conflict", "ticket_has_open_children")) }), ticketId: "t7" });
     await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Concluído" }));
+    await userEvent.click(within(page()).getByRole("button", { name: "A fazer" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Concluído" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Conclua ou cancele o item aberto antes de concluir este ticket.");
-    expect(within(page()).getByRole("button", { name: "A fazer" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(page()).getByRole("button", { name: "A fazer" })).toHaveAttribute("aria-haspopup", "menu");
   });
 
   it("the open-items message sits next to the status control and goes away after the next success", async () => {
     const updateTicket = vi.fn().mockResolvedValueOnce(failed("conflict", "ticket_has_open_children")).mockImplementation(async () => ok(detailOf(summaries[0]!)));
     setup({ client: clientWith({ updateTicket }), ticketId: "t1" });
     await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Concluído" }));
+    await userEvent.click(within(page()).getByRole("button", { name: "Em revisão" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Concluído" }));
     const alert = await screen.findByRole("alert");
-    expect(within(page()).getByRole("group", { name: "Situação" }).parentElement).toContainElement(alert);
-    await userEvent.click(within(page()).getByRole("button", { name: "A fazer" }));
+    expect(within(page()).getByRole("button", { name: "Em revisão" }).closest("dd")).toContainElement(alert);
+    await userEvent.click(within(page()).getByRole("button", { name: "Em revisão" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "A fazer" }));
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 
@@ -394,7 +403,8 @@ describe("TicketPage editing", () => {
     const client = clientWith();
     const { onRemoved } = setup({ client });
     await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Remover ticket" }));
+    await userEvent.click(within(page()).getByRole("button", { name: "Mais ações" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remover ticket" }));
     expect(client.removeTicket).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Confirmar: Remover ticket" }));
     expect(client.removeTicket).toHaveBeenCalledWith("t2");
@@ -404,7 +414,8 @@ describe("TicketPage editing", () => {
   it("shows ticket_has_children as a removal message when the API refuses to remove a ticket with items", async () => {
     const { onRemoved } = setup({ client: clientWith({ removeTicket: vi.fn(async () => failed("conflict", "ticket_has_children")) }), ticketId: "t1" });
     await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Remover ticket" }));
+    await userEvent.click(within(page()).getByRole("button", { name: "Mais ações" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remover ticket" }));
     await userEvent.click(screen.getByRole("button", { name: "Confirmar: Remover ticket" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Este ticket tem itens. Mova ou remova os itens antes de removê-lo.");
     expect(onRemoved).not.toHaveBeenCalled();
@@ -415,6 +426,7 @@ describe("TicketPage removal wording", () => {
   it("every ticket says Remover ticket, with or without items", async () => {
     setup({ client: clientWith(), ticketId: "t5" });
     await loaded();
+    await userEvent.click(within(page()).getByRole("button", { name: "Mais ações" }));
     expect(within(page()).getByRole("button", { name: "Remover ticket" })).toBeInTheDocument();
     expect(within(page()).queryByRole("button", { name: "Remover agrupador" })).not.toBeInTheDocument();
   });
@@ -423,7 +435,8 @@ describe("TicketPage removal wording", () => {
     const client = clientWith();
     const { onRemoved } = setup({ client, ticketId: "t5" });
     await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Remover ticket" }));
+    await userEvent.click(within(page()).getByRole("button", { name: "Mais ações" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remover ticket" }));
     expect(client.removeTicket).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Confirmar: Remover ticket" }));
     expect(client.removeTicket).toHaveBeenCalledWith("t5");
