@@ -13,7 +13,7 @@ type Action = ReturnType<typeof useAction>;
 const ActionError = ({ action }: { action: Action }) => (action.error ? <p role="alert" className="ticket-error">{describeApiError(action.error)}</p> : null);
 
 /** Esc dentro da edição cancela só a edição: não chega à página, que fecharia. */
-function cancelOnEscape(onCancel: () => void) {
+export function cancelOnEscape(onCancel: () => void) {
   return (event: KeyboardEvent) => {
     if (event.key !== "Escape") return;
     event.stopPropagation();

@@ -114,7 +114,7 @@ describe("sending messages", () => {
     const client = clientWith();
     setup(client);
     await userEvent.type(await screen.findByRole("textbox", { name: "Mensagem para o assistente" }), "O login quebra{Enter}");
-    await waitFor(() => expect(client.openConversation).toHaveBeenCalledWith("p1", { message: "O login quebra" }));
+    await waitFor(() => expect(client.openConversation).toHaveBeenCalledWith("p1", { message: "O login quebra", scopeId: null }));
     await waitFor(() => expect(thread().getByText("Entendi. Isso acontece em todas as versões?")).toBeInTheDocument());
     expect(box()).toHaveValue("");
   });
@@ -124,7 +124,7 @@ describe("sending messages", () => {
     setup(client);
     await waitFor(() => expect(thread().getByText("Entendi. Isso acontece em todas as versões?")).toBeInTheDocument());
     await userEvent.type(box(), "Sim, em todas{Enter}");
-    await waitFor(() => expect(client.sendConversationMessage).toHaveBeenCalledWith("c1", { message: "Sim, em todas" }));
+    await waitFor(() => expect(client.sendConversationMessage).toHaveBeenCalledWith("c1", { message: "Sim, em todas", scopeId: null }));
   });
 
   it("Shift+Enter breaks the line instead of sending", async () => {
@@ -198,7 +198,7 @@ describe("failures", () => {
     expect(box()).toHaveValue("Meu texto");
     await userEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
     await waitFor(() => expect(openConversation).toHaveBeenCalledTimes(2));
-    expect(openConversation).toHaveBeenLastCalledWith("p1", { message: "Meu texto" });
+    expect(openConversation).toHaveBeenLastCalledWith("p1", { message: "Meu texto", scopeId: null });
     await waitFor(() => expect(thread().getByText("Entendi. Isso acontece em todas as versões?")).toBeInTheDocument());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(props.onManualCreate).not.toHaveBeenCalled();
@@ -264,7 +264,7 @@ describe("memory", () => {
     expect(screen.queryByText("O login quebra no Safari")).not.toBeInTheDocument();
     expect(client.removeConversation).not.toHaveBeenCalled();
     await userEvent.type(box(), "Outro assunto{Enter}");
-    await waitFor(() => expect(client.openConversation).toHaveBeenCalledWith("p1", { message: "Outro assunto" }));
+    await waitFor(() => expect(client.openConversation).toHaveBeenCalledWith("p1", { message: "Outro assunto", scopeId: null }));
   });
 
   it("Apagar conversa needs the second click on the same place", async () => {
@@ -302,9 +302,12 @@ describe("draft", () => {
     expect(screen.getByRole("button", { name: "Salvar rascunho" })).toBeDisabled();
   });
 
-  it("offers Procurar o lugar as soon as there is a draft, even when the AI is not ready", async () => {
-    setup(resumed({ listConversations: vi.fn(async () => ok([{ ...makeConversation("c1", "p1", { ready: false }), messages: undefined }])) }));
-    expect(await screen.findByRole("button", { name: "Procurar o lugar" })).toBeEnabled();
+  it("offers the search as soon as there is a draft, even when the AI is not ready (as Procurar assim mesmo)", async () => {
+    setup(resumed({
+      listConversations: vi.fn(async () => ok([{ ...makeConversation("c1", "p1", { ready: false }), messages: undefined }])),
+      getConversation: vi.fn(async (id: string) => ok(makeConversation(id, "p1", { ready: false }))),
+    }));
+    expect(await screen.findByRole("button", { name: "Procurar assim mesmo" })).toBeEnabled();
   });
 
   it("has no draft section nor search button before there is a draft", async () => {
@@ -878,5 +881,138 @@ describe("group proposal (ADR 0031)", () => {
     expect(screen.getByRole("button", { name: /Usar: Relatórios/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Criar aqui" })).toBeInTheDocument();
     expect(props.onCreated).not.toHaveBeenCalled();
+  });
+});
+
+describe("scope in the conversation (ADR 0033)", () => {
+  const resumed = (extra: Partial<Record<keyof ApiClient, unknown>> = {}) =>
+    clientWith({ listConversations: vi.fn(async () => ok([{ ...makeConversation("c1", "p1"), messages: undefined }])), ...extra });
+
+  it("opens the conversation with the selected group as the scope", async () => {
+    const client = clientWith();
+    setup(client, { initialScopeId: "t1" });
+    await userEvent.type(await screen.findByRole("textbox", { name: "Mensagem para o assistente" }), "O login quebra{Enter}");
+    await waitFor(() => expect(client.openConversation).toHaveBeenCalledWith("p1", { message: "O login quebra", scopeId: "t1" }));
+  });
+
+  it("opens the conversation with a null scope when nothing is selected", async () => {
+    const client = clientWith();
+    setup(client);
+    await userEvent.type(await screen.findByRole("textbox", { name: "Mensagem para o assistente" }), "O login quebra{Enter}");
+    await waitFor(() => expect(client.openConversation).toHaveBeenCalledWith("p1", { message: "O login quebra", scopeId: null }));
+  });
+
+  it("sends the scope with each message of a conversation already open", async () => {
+    const client = resumed();
+    setup(client, { initialScopeId: "t1" });
+    await screen.findByText("O login quebra no Safari");
+    await userEvent.type(box(), "Sim, em todas{Enter}");
+    await waitFor(() => expect(client.sendConversationMessage).toHaveBeenCalledWith("c1", { message: "Sim, em todas", scopeId: "t1" }));
+  });
+
+  it("treats a selection that is not a group of the project as no scope", async () => {
+    const client = resumed();
+    setup(client, { initialScopeId: "t5" });
+    await screen.findByText("O login quebra no Safari");
+    await userEvent.type(box(), "Sim{Enter}");
+    await waitFor(() => expect(client.sendConversationMessage).toHaveBeenCalledWith("c1", { message: "Sim", scopeId: null }));
+  });
+
+  it("after Procurar no projeto inteiro, the next messages go with a null scope", async () => {
+    const client = resumed();
+    setup(client, { initialScopeId: "t1" });
+    await screen.findByText("O login quebra no Safari");
+    await userEvent.type(box(), "Primeira{Enter}");
+    await waitFor(() => expect(client.sendConversationMessage).toHaveBeenLastCalledWith("c1", { message: "Primeira", scopeId: "t1" }));
+    await userEvent.click(screen.getByRole("button", { name: "Procurar no projeto inteiro" }));
+    await userEvent.type(box(), "Segunda{Enter}");
+    await waitFor(() => expect(client.sendConversationMessage).toHaveBeenLastCalledWith("c1", { message: "Segunda", scopeId: null }));
+  });
+
+  it("retrying after a failure sends the same scope again", async () => {
+    const openConversation = vi.fn().mockResolvedValueOnce(failed("unavailable", "assistant_unavailable")).mockResolvedValue(ok(makeConversation("c-new", "p1")));
+    setup(clientWith({ openConversation }), { initialScopeId: "t1" });
+    await userEvent.type(await screen.findByRole("textbox", { name: "Mensagem para o assistente" }), "Meu texto{Enter}");
+    await userEvent.click(await screen.findByRole("button", { name: "Tentar de novo" }));
+    await waitFor(() => expect(openConversation).toHaveBeenLastCalledWith("p1", { message: "Meu texto", scopeId: "t1" }));
+  });
+});
+
+describe("the AI is not ready yet (ADR 0033)", () => {
+  const withReady = (ready: boolean, extra: Partial<Record<keyof ApiClient, unknown>> = {}) =>
+    clientWith({
+      listConversations: vi.fn(async () => ok([{ ...makeConversation("c1", "p1", { ready }), messages: undefined }])),
+      getConversation: vi.fn(async (id: string) => ok(makeConversation(id, "p1", { ready }))),
+      ...extra,
+    });
+  const QUESTION = "A IA ainda tem uma pergunta antes de procurar o lugar.";
+  const draftCard = async () => within(await screen.findByRole("region", { name: "Rascunho do ticket" }));
+
+  it("with ready false the search stops being the main action, is renamed and a line says why, right above it", async () => {
+    setup(withReady(false));
+    const card = await draftCard();
+    const button = card.getByRole("button", { name: "Procurar assim mesmo" });
+    expect(button).not.toHaveClass("primary");
+    expect(card.queryByRole("button", { name: "Procurar o lugar" })).not.toBeInTheDocument();
+    const line = card.getByText(QUESTION);
+    expect(line.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(line.nextElementSibling).toBe(button.parentElement);
+    expect(panel().querySelectorAll("button.primary")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Enviar" })).toBeInTheDocument();
+  });
+
+  it("with ready true everything is as before", async () => {
+    setup(withReady(true));
+    const card = await draftCard();
+    expect(card.getByRole("button", { name: "Procurar o lugar" })).toHaveClass("primary");
+    expect(card.queryByRole("button", { name: "Procurar assim mesmo" })).not.toBeInTheDocument();
+    expect(screen.queryByText(QUESTION)).not.toBeInTheDocument();
+  });
+
+  it("with ready false the person can still search", async () => {
+    const client = withReady(false);
+    setup(client);
+    await userEvent.click(await screen.findByRole("button", { name: "Procurar assim mesmo" }));
+    await waitFor(() => expect(client.findPlacement).toHaveBeenCalledWith("c1"));
+    expect(await screen.findByRole("region", { name: "Caminho encontrado" })).toBeInTheDocument();
+  });
+
+  it("after a search the button is Procurar de novo and the line is gone, ready or not", async () => {
+    setup(withReady(false));
+    await userEvent.click(await screen.findByRole("button", { name: "Procurar assim mesmo" }));
+    await screen.findByRole("region", { name: "Caminho encontrado" });
+    expect(screen.getByRole("button", { name: "Procurar de novo" })).not.toHaveClass("primary");
+    expect(screen.queryByText(QUESTION)).not.toBeInTheDocument();
+  });
+
+  it("editing the draft by hand does not change the rule: the last answer's ready holds", async () => {
+    const client = withReady(false, { updateConversationDraft: vi.fn(async (id: string, body: { title: string; description: string }) => ok(makeConversation(id, "p1", { draft: body, ready: true }))) });
+    setup(client);
+    const title = await screen.findByRole("textbox", { name: "Título" });
+    await userEvent.type(title, " no Safari");
+    expect(screen.getByText(QUESTION)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Procurar assim mesmo" })).not.toHaveClass("primary");
+    await userEvent.click(screen.getByRole("button", { name: "Salvar rascunho" }));
+    await waitFor(() => expect(client.updateConversationDraft).toHaveBeenCalled());
+    expect(screen.getByText(QUESTION)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Procurar assim mesmo" })).toBeInTheDocument();
+  });
+
+  it("a new answer from the assistant with ready true restores the main action", async () => {
+    const client = withReady(false, { sendConversationMessage: vi.fn(async (id: string) => ok(makeConversation(id, "p1", { ready: true }))) });
+    setup(client);
+    await screen.findByText(QUESTION);
+    await userEvent.type(box(), "Em todas as versões{Enter}");
+    expect(await screen.findByRole("button", { name: "Procurar o lugar" })).toHaveClass("primary");
+    expect(screen.queryByText(QUESTION)).not.toBeInTheDocument();
+  });
+
+  it("without a draft there is no line", async () => {
+    setup(clientWith({
+      listConversations: vi.fn(async () => ok([{ ...makeConversation("c1", "p1", { draft: null, ready: false }), messages: undefined }])),
+      getConversation: vi.fn(async (id: string) => ok(makeConversation(id, "p1", { draft: null, ready: false }))),
+    }));
+    await screen.findByText("O login quebra no Safari");
+    expect(screen.queryByText(QUESTION)).not.toBeInTheDocument();
   });
 });
