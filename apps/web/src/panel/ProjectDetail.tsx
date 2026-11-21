@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { ApiClient, Me, Person, Project, ProjectMember, ProjectRole, ProjectVisibility, Team } from "../api/client.js";
 import { githubEnabled } from "../api/client.js";
 import { useDescribeApiError } from "../api/errorText.js";
@@ -7,7 +8,7 @@ import { ProjectRepositories } from "../github/ProjectRepositories.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
 import { ConfirmAction } from "./ConfirmAction.js";
-import { ROLES, ROLE_LABELS, VISIBILITIES, VISIBILITY_LABELS } from "./labels.js";
+import { ROLES, VISIBILITIES } from "./labels.js";
 import { canCreateTickets } from "../import/permissions.js";
 import { safe } from "./safe.js";
 import { useAction } from "./useAction.js";
@@ -31,6 +32,7 @@ const ActionError = ({ error }: { error: ReturnType<typeof useAction>["error"] }
 };
 
 export function ProjectDetail({ client, me, project, onChanged, onBack, onImport, onCreateTicket, assistantAvailable = false }: ProjectDetailProps) {
+  const { t } = useTranslation("panel");
   const canManage =
     me.roles.clerk === "admin" ||
     me.roles.projects.some((entry) => entry.projectId === project.id && entry.role === "manager");
@@ -40,25 +42,25 @@ export function ProjectDetail({ client, me, project, onChanged, onBack, onImport
   return (
     <section aria-labelledby="project-title">
       <button type="button" className="panel-back" onClick={onBack}>
-        Voltar para a lista
+        {t("detail.back")}
       </button>
       <h2 id="project-title">{project.name}</h2>
       <p>
         <code>{project.key}</code>
-        {project.visibility === "private" && <small className="badge">Privado</small>}
-        {project.archivedAt !== null && <small className="badge">Arquivado</small>}
+        {project.visibility === "private" && <small className="badge">{t("projects.private")}</small>}
+        {project.archivedAt !== null && <small className="badge">{t("projects.archived")}</small>}
       </p>
 
       {canCreateTickets(me, project) && (onCreateTicket || onImport) && (
         <div className="panel-ticket-actions">
           {onCreateTicket && (
             <button type="button" className={`panel-new-ticket ${assistantAvailable ? "" : "primary"}`} onClick={() => onCreateTicket(project.id)}>
-              {assistantAvailable ? "Criar sem o assistente" : "Novo ticket"}
+              {assistantAvailable ? t("detail.newTicketNoAssistant") : t("detail.newTicket")}
             </button>
           )}
           {onImport && (
             <button type="button" className="panel-import" onClick={() => onImport(project.id)}>
-              Importar lista
+              {t("detail.import")}
             </button>
           )}
         </div>
@@ -67,11 +69,11 @@ export function ProjectDetail({ client, me, project, onChanged, onBack, onImport
       {canManage ? (
         <ManageProject client={client} project={project} onChanged={onChanged} />
       ) : (
-        <p>Visibilidade: {VISIBILITY_LABELS[project.visibility]}</p>
+        <p>{t("detail.visibilityLine", { value: t(`visibility.${project.visibility}`) })}</p>
       )}
 
-      <h3>Pessoas com acesso</h3>
-      {people.state.status === "loading" && <p role="status">Carregando pessoas…</p>}
+      <h3>{t("detail.people.title")}</h3>
+      {people.state.status === "loading" && <p role="status">{t("detail.people.loading")}</p>}
       {people.state.status === "error" && <LoadError error={people.state.error} onRetry={people.retry} />}
       {people.state.status === "ready" && (
         <MembersSection
@@ -85,8 +87,8 @@ export function ProjectDetail({ client, me, project, onChanged, onBack, onImport
 
       {githubEnabled(me) && <ProjectRepositories client={client} me={me} project={project} />}
 
-      <h3>Times do projeto</h3>
-      {teams.state.status === "loading" && <p role="status">Carregando times…</p>}
+      <h3>{t("detail.teams.title")}</h3>
+      {teams.state.status === "loading" && <p role="status">{t("detail.teams.loading")}</p>}
       {teams.state.status === "error" && <LoadError error={teams.state.error} onRetry={teams.retry} />}
       {teams.state.status === "ready" && (
         <TeamsSection client={client} project={project} teams={teams.state.data} canManage={canManage} onChanged={onChanged} />
@@ -96,6 +98,7 @@ export function ProjectDetail({ client, me, project, onChanged, onBack, onImport
 }
 
 function ManageProject({ client, project, onChanged }: { client: ApiClient; project: Project; onChanged: () => void }) {
+  const { t } = useTranslation("panel");
   const [name, setName] = useState(project.name);
   const action = useAction();
   const archived = project.archivedAt !== null;
@@ -117,15 +120,15 @@ function ManageProject({ client, project, onChanged }: { client: ApiClient; proj
     <div className="panel-manage">
       <form className="panel-form" onSubmit={rename}>
         <label>
-          Nome do projeto
+          {t("detail.manage.nameLabel")}
           <input value={name} onChange={(event) => setName(event.target.value)} />
         </label>
         <button type="submit" disabled={action.busy || trimmed === "" || trimmed === project.name}>
-          Salvar nome
+          {t("detail.manage.saveName")}
         </button>
       </form>
       <label className="panel-field">
-        Visibilidade
+        {t("projects.form.visibility")}
         <select
           value={project.visibility}
           disabled={action.busy}
@@ -133,17 +136,17 @@ function ManageProject({ client, project, onChanged }: { client: ApiClient; proj
         >
           {VISIBILITIES.map((value) => (
             <option key={value} value={value}>
-              {VISIBILITY_LABELS[value]}
+              {t(`visibility.${value}`)}
             </option>
           ))}
         </select>
       </label>
       {archived ? (
         <button type="button" disabled={action.busy} onClick={() => void update({ archived: false })}>
-          Desarquivar projeto
+          {t("detail.manage.unarchive")}
         </button>
       ) : (
-        <ConfirmAction label="Arquivar projeto" disabled={action.busy} onConfirm={() => void update({ archived: true })} />
+        <ConfirmAction label={t("detail.manage.archive")} disabled={action.busy} onConfirm={() => void update({ archived: true })} />
       )}
       <ActionError error={action.error} />
     </div>
@@ -163,15 +166,16 @@ function MembersSection({
   canManage: boolean;
   onChanged: () => void;
 }) {
-  const nameOf = (personId: string) => people.find((person) => person.id === personId)?.displayName ?? "Pessoa desconhecida";
+  const { t } = useTranslation("panel");
+  const nameOf = (personId: string) => people.find((person) => person.id === personId)?.displayName ?? t("detail.people.unknown");
   const candidates = people.filter((person) => person.active && !project.members.some((member) => member.personId === person.id));
 
   return (
     <>
       {project.members.length === 0 ? (
-        <p>Ninguém tem papel neste projeto.</p>
+        <p>{t("detail.people.nobody")}</p>
       ) : (
-        <ul className="panel-list" aria-label="Pessoas com acesso">
+        <ul className="panel-list" aria-label={t("detail.people.title")}>
           {project.members.map((member) => (
             <MemberRow
               key={member.personId}
@@ -205,6 +209,7 @@ function MemberRow({
   canManage: boolean;
   onChanged: () => void;
 }) {
+  const { t } = useTranslation("panel");
   const action = useAction();
 
   const changeRole = async (role: ProjectRole) => {
@@ -223,26 +228,26 @@ function MemberRow({
         {canManage ? (
           <span className="row-actions">
             <select
-              aria-label={`Papel de ${name}`}
+              aria-label={t("detail.people.roleOf", { name })}
               value={member.role}
               disabled={action.busy}
               onChange={(event) => void changeRole(event.target.value as ProjectRole)}
             >
               {ROLES.map((role) => (
                 <option key={role} value={role}>
-                  {ROLE_LABELS[role]}
+                  {t(`roles.${role}`)}
                 </option>
               ))}
             </select>
             <ConfirmAction
-              label="Revogar"
-              accessibleLabel={`Revogar acesso de ${name}`}
+              label={t("detail.people.revoke")}
+              accessibleLabel={t("detail.people.revokeLabel", { name })}
               disabled={action.busy}
               onConfirm={() => void revoke()}
             />
           </span>
         ) : (
-          <small>{ROLE_LABELS[member.role]}</small>
+          <small>{t(`roles.${member.role}`)}</small>
         )}
       </div>
       <ActionError error={action.error} />
@@ -261,6 +266,7 @@ function AddMember({
   candidates: readonly Person[];
   onChanged: () => void;
 }) {
+  const { t } = useTranslation("panel");
   const [personId, setPersonId] = useState("");
   const [role, setRole] = useState<ProjectRole>("reader");
   const action = useAction();
@@ -278,9 +284,9 @@ function AddMember({
   return (
     <form className="panel-form" onSubmit={(event) => void submit(event)}>
       <label>
-        Pessoa
+        {t("detail.people.person")}
         <select value={personId} onChange={(event) => setPersonId(event.target.value)}>
-          <option value="">Escolha uma pessoa</option>
+          <option value="">{t("detail.people.pickPerson")}</option>
           {candidates.map((person) => (
             <option key={person.id} value={person.id}>
               {person.displayName}
@@ -289,17 +295,17 @@ function AddMember({
         </select>
       </label>
       <label>
-        Papel da nova pessoa
+        {t("detail.people.newRole")}
         <select value={role} onChange={(event) => setRole(event.target.value as ProjectRole)}>
           {ROLES.map((value) => (
             <option key={value} value={value}>
-              {ROLE_LABELS[value]}
+              {t(`roles.${value}`)}
             </option>
           ))}
         </select>
       </label>
       <button type="submit" disabled={action.busy || personId === ""}>
-        Dar acesso
+        {t("detail.people.grant")}
       </button>
       <ActionError error={action.error} />
     </form>
@@ -319,6 +325,7 @@ function TeamsSection({
   canManage: boolean;
   onChanged: () => void;
 }) {
+  const { t } = useTranslation("panel");
   const [teamId, setTeamId] = useState("");
   const addAction = useAction();
   const removeAction = useAction();
@@ -340,13 +347,13 @@ function TeamsSection({
 
   return (
     <>
-      <p>Associar um time não dá acesso às pessoas dele; o acesso vem dos papéis acima.</p>
+      <p>{t("detail.teams.hint")}</p>
       {project.teamIds.length === 0 ? (
-        <p>Nenhum time associado.</p>
+        <p>{t("detail.teams.none")}</p>
       ) : (
-        <ul className="panel-list" aria-label="Times do projeto">
+        <ul className="panel-list" aria-label={t("detail.teams.title")}>
           {project.teamIds.map((id) => {
-            const name = teams.find((team) => team.id === id)?.name ?? "Time desconhecido";
+            const name = teams.find((team) => team.id === id)?.name ?? t("detail.teams.unknown");
             return (
               <li key={id}>
                 <div className="row">
@@ -354,11 +361,11 @@ function TeamsSection({
                   {canManage && (
                     <button
                       type="button"
-                      aria-label={`Desassociar ${name}`}
+                      aria-label={t("detail.teams.unlinkLabel", { name })}
                       disabled={removeAction.busy}
                       onClick={() => void remove(id)}
                     >
-                      Desassociar
+                      {t("detail.teams.unlink")}
                     </button>
                   )}
                 </div>
@@ -371,9 +378,9 @@ function TeamsSection({
       {canManage && (
         <form className="panel-form" onSubmit={(event) => void add(event)}>
           <label>
-            Time
+            {t("detail.teams.team")}
             <select value={teamId} onChange={(event) => setTeamId(event.target.value)}>
-              <option value="">Escolha um time</option>
+              <option value="">{t("detail.teams.pickTeam")}</option>
               {candidates.map((team) => (
                 <option key={team.id} value={team.id}>
                   {team.name}
@@ -382,7 +389,7 @@ function TeamsSection({
             </select>
           </label>
           <button type="submit" disabled={addAction.busy || teamId === ""}>
-            Associar time
+            {t("detail.teams.link")}
           </button>
           <ActionError error={addAction.error} />
         </form>

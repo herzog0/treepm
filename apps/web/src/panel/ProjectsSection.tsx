@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { ApiClient, Me, Project, ProjectVisibility } from "../api/client.js";
 import { ProjectDetail } from "./ProjectDetail.js";
-import { PROJECT_KEY_HELP, PROJECT_KEY_PATTERN, VISIBILITIES, VISIBILITY_LABELS } from "./labels.js";
+import { PROJECT_KEY_PATTERN, VISIBILITIES } from "./labels.js";
 import { useAction } from "./useAction.js";
 import { useDescribeApiError } from "../api/errorText.js";
 
@@ -20,6 +21,7 @@ export interface ProjectsSectionProps {
 }
 
 export function ProjectsSection({ client, me, projects, selectedProject, onChanged, onImportProject, onCreateTicket, assistantAvailable }: ProjectsSectionProps) {
+  const { t } = useTranslation("panel");
   const [openId, setOpenId] = useState<string | null>(selectedProject?.id ?? null);
   // O projeto recém-criado pode demorar a chegar em `projects`; até lá usamos a resposta da API.
   const [created, setCreated] = useState<Project | null>(null);
@@ -54,10 +56,10 @@ export function ProjectsSection({ client, me, projects, selectedProject, onChang
 
   return (
     <section aria-labelledby="projects-title">
-      <h2 id="projects-title">Projetos</h2>
+      <h2 id="projects-title">{t("projects.title")}</h2>
       {canCreate && projects.length > 0 && !creating && (
         <button type="button" className="panel-add" onClick={() => setCreating(true)}>
-          Novo projeto
+          {t("projects.new")}
         </button>
       )}
       {showForm && (
@@ -73,15 +75,15 @@ export function ProjectsSection({ client, me, projects, selectedProject, onChang
         />
       )}
       {projects.length === 0 ? (
-        !canCreate && <p>Nenhum projeto criado.</p>
+        !canCreate && <p>{t("projects.empty")}</p>
       ) : (
         <ul className="panel-list">
           {projects.map((project) => (
             <li key={project.id}>
               <button type="button" className="panel-item" onClick={() => setOpenId(project.id)}>
                 <span>{project.name}</span> <code>{project.key}</code>
-                {project.visibility === "private" && <small className="badge">Privado</small>}
-                {project.archivedAt !== null && <small className="badge">Arquivado</small>}
+                {project.visibility === "private" && <small className="badge">{t("projects.private")}</small>}
+                {project.archivedAt !== null && <small className="badge">{t("projects.archived")}</small>}
               </button>
             </li>
           ))}
@@ -100,6 +102,7 @@ function CreateProjectForm({
   onCancel: (() => void) | null;
   onCreated: (project: Project) => void;
 }) {
+  const { t } = useTranslation("panel");
   const describeError = useDescribeApiError();
   const [name, setName] = useState("");
   const [key, setKey] = useState("");
@@ -121,17 +124,17 @@ function CreateProjectForm({
   };
 
   const keyTaken = action.error?.code === "project_key_taken";
-  const keyMessage = keyInvalid ? PROJECT_KEY_HELP : keyTaken && action.error ? describeError(action.error) : null;
+  const keyMessage = keyInvalid ? t("projects.keyHelp") : keyTaken && action.error ? describeError(action.error) : null;
 
   return (
-    <form className="panel-form" onSubmit={(event) => void submit(event)} aria-label="Novo projeto">
+    <form className="panel-form" onSubmit={(event) => void submit(event)} aria-label={t("projects.form.label")}>
       <label>
-        Nome
+        {t("projects.form.name")}
         <input value={name} onChange={(event) => setName(event.target.value)} aria-invalid={nameMissing} />
       </label>
-      {nameMissing && <p role="alert">Informe o nome do projeto.</p>}
+      {nameMissing && <p role="alert">{t("projects.form.nameMissing")}</p>}
       <label>
-        Chave
+        {t("projects.form.key")}
         <input
           value={key}
           onChange={(event) => setKey(event.target.value.toUpperCase())}
@@ -145,22 +148,22 @@ function CreateProjectForm({
         </p>
       )}
       <label>
-        Visibilidade
+        {t("projects.form.visibility")}
         <select value={visibility} onChange={(event) => setVisibility(event.target.value as ProjectVisibility)}>
           {VISIBILITIES.map((value) => (
             <option key={value} value={value}>
-              {VISIBILITY_LABELS[value]}
+              {t(`visibility.${value}`)}
             </option>
           ))}
         </select>
       </label>
       <div className="row-actions">
         <button type="submit" className="primary" disabled={action.busy}>
-          Criar projeto
+          {t("projects.form.submit")}
         </button>
         {onCancel && (
           <button type="button" onClick={onCancel}>
-            Cancelar
+            {t("projects.form.cancel")}
           </button>
         )}
       </div>
