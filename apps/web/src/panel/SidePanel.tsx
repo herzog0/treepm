@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { KeyboardEvent, PointerEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { ApiClient, Me, Project } from "../api/client.js";
 import { AreasSection } from "./AreasSection.js";
 import { ProjectsSection } from "./ProjectsSection.js";
@@ -25,15 +26,13 @@ export interface SidePanelProps {
   assistantAvailable?: boolean;
 }
 
-const TABS: readonly { tab: PanelTab; label: string }[] = [
-  { tab: "areas", label: "Áreas" },
-  { tab: "projects", label: "Projetos" },
-];
+const TABS: readonly PanelTab[] = ["areas", "projects"];
 
 const stop = (event: PointerEvent) => event.stopPropagation();
 
 /** Sobreposição à direita do mapa. Nada do que acontece aqui dentro chega aos gestos e atalhos do mapa. */
 export function SidePanel({ client, me, projects, tab, selectedProjectId, onTabChange, onClose, onChanged, onImportProject, onCreateTicket, assistantAvailable }: SidePanelProps) {
+  const { t } = useTranslation("panel");
   const ref = useRef<HTMLElement>(null);
 
   // A roda é um listener nativo no palco do mapa: só um listener nativo aqui o intercepta.
@@ -65,7 +64,7 @@ export function SidePanel({ client, me, projects, tab, selectedProjectId, onTabC
     <aside
       ref={ref}
       className="side-panel"
-      aria-label="Áreas e projetos"
+      aria-label={t("panel.label")}
       tabIndex={-1}
       onPointerDown={stop}
       onPointerMove={stop}
@@ -74,23 +73,23 @@ export function SidePanel({ client, me, projects, tab, selectedProjectId, onTabC
       onKeyDown={onKeyDown}
     >
       <header className="side-panel-header">
-        <div role="tablist" aria-label="Seções do painel">
+        <div role="tablist" aria-label={t("panel.sections")}>
           {TABS.map((item) => (
             <button
-              key={item.tab}
+              key={item}
               type="button"
               role="tab"
-              id={`side-panel-tab-${item.tab}`}
-              aria-selected={tab === item.tab}
+              id={`side-panel-tab-${item}`}
+              aria-selected={tab === item}
               aria-controls="side-panel-body"
-              onClick={() => onTabChange(item.tab)}
+              onClick={() => onTabChange(item)}
             >
-              {item.label}
+              {t(`panel.tabs.${item}`)}
             </button>
           ))}
         </div>
         <button type="button" className="side-panel-close" onClick={onClose}>
-          Fechar
+          {t("panel.close")}
         </button>
       </header>
       <div className="side-panel-body" id="side-panel-body" role="tabpanel" aria-labelledby={`side-panel-tab-${tab}`}>

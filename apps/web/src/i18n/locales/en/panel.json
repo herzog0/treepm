@@ -1,1 +1,99 @@
-{}
+{
+  "panel": {
+    "label": "Areas and projects",
+    "sections": "Panel sections",
+    "close": "Close",
+    "tabs": {
+      "areas": "Areas",
+      "projects": "Projects"
+    }
+  },
+  "confirm": {
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "label": "Confirm: {{subject}}"
+  },
+  "areas": {
+    "title": "Areas",
+    "loading": "Loading areas…",
+    "empty": "No areas yet.",
+    "create": {
+      "label": "New area name",
+      "submit": "Create area",
+      "missing": "Enter the area name."
+    },
+    "row": {
+      "renameField": "New name of {{name}}",
+      "save": "Save",
+      "cancel": "Cancel",
+      "rename": "Rename",
+      "renameLabel": "Rename {{name}}",
+      "remove": "Remove",
+      "removeLabel": "Remove {{name}}"
+    }
+  },
+  "projects": {
+    "title": "Projects",
+    "new": "New project",
+    "empty": "No projects created.",
+    "private": "Private",
+    "archived": "Archived",
+    "form": {
+      "label": "New project",
+      "name": "Name",
+      "nameMissing": "Enter the project name.",
+      "key": "Key",
+      "visibility": "Visibility",
+      "submit": "Create project",
+      "cancel": "Cancel"
+    },
+    "keyHelp": "The key must start with an uppercase letter and be 2 to 10 characters long, using only uppercase letters and numbers."
+  },
+  "visibility": {
+    "organization": "The whole organization",
+    "private": "Private"
+  },
+  "roles": {
+    "manager": "Manager",
+    "contributor": "Contributor",
+    "reader": "Reader"
+  },
+  "detail": {
+    "back": "Back to the list",
+    "newTicket": "New ticket",
+    "newTicketNoAssistant": "Create without the assistant",
+    "import": "Import list",
+    "visibilityLine": "Visibility: {{value}}",
+    "manage": {
+      "nameLabel": "Project name",
+      "saveName": "Save name",
+      "archive": "Archive project",
+      "unarchive": "Unarchive project"
+    },
+    "people": {
+      "title": "People with access",
+      "loading": "Loading people…",
+      "unknown": "Unknown person",
+      "nobody": "Nobody has a role on this project.",
+      "roleOf": "Role of {{name}}",
+      "revoke": "Revoke",
+      "revokeLabel": "Revoke access of {{name}}",
+      "person": "Person",
+      "pickPerson": "Choose a person",
+      "newRole": "Role of the new person",
+      "grant": "Give access"
+    },
+    "teams": {
+      "title": "Project teams",
+      "loading": "Loading teams…",
+      "hint": "Linking a team does not give access to its people; access comes from the roles above.",
+      "none": "No teams linked.",
+      "unknown": "Unknown team",
+      "unlink": "Unlink",
+      "unlinkLabel": "Unlink {{name}}",
+      "team": "Team",
+      "pickTeam": "Choose a team",
+      "link": "Link team"
+    }
+  }
+}

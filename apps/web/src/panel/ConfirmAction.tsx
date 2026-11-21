@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface ConfirmActionProps {
   /** Texto do primeiro botão, ex.: "Remover". */
@@ -13,6 +14,7 @@ interface ConfirmActionProps {
 
 /** Confirmação em linha: o primeiro clique pede "Confirmar", o segundo executa. */
 export function ConfirmAction({ label, accessibleLabel, onConfirm, disabled = false, message }: ConfirmActionProps) {
+  const { t } = useTranslation("panel");
   const [asking, setAsking] = useState(false);
   const subject = accessibleLabel ?? label;
 
@@ -29,17 +31,17 @@ export function ConfirmAction({ label, accessibleLabel, onConfirm, disabled = fa
       <button
         type="button"
         className="danger"
-        aria-label={`Confirmar: ${subject}`}
+        aria-label={t("confirm.label", { subject })}
         disabled={disabled}
         onClick={() => {
           setAsking(false);
           onConfirm();
         }}
       >
-        Confirmar
+        {t("confirm.confirm")}
       </button>
       <button type="button" onClick={() => setAsking(false)}>
-        Cancelar
+        {t("confirm.cancel")}
       </button>
     </span>
   );

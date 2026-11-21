@@ -1,1 +1,99 @@
-{}
+{
+  "panel": {
+    "label": "Áreas e projetos",
+    "sections": "Seções do painel",
+    "close": "Fechar",
+    "tabs": {
+      "areas": "Áreas",
+      "projects": "Projetos"
+    }
+  },
+  "confirm": {
+    "confirm": "Confirmar",
+    "cancel": "Cancelar",
+    "label": "Confirmar: {{subject}}"
+  },
+  "areas": {
+    "title": "Áreas",
+    "loading": "Carregando áreas…",
+    "empty": "Nenhuma área cadastrada.",
+    "create": {
+      "label": "Nome da nova área",
+      "submit": "Criar área",
+      "missing": "Informe o nome da área."
+    },
+    "row": {
+      "renameField": "Novo nome de {{name}}",
+      "save": "Salvar",
+      "cancel": "Cancelar",
+      "rename": "Renomear",
+      "renameLabel": "Renomear {{name}}",
+      "remove": "Remover",
+      "removeLabel": "Remover {{name}}"
+    }
+  },
+  "projects": {
+    "title": "Projetos",
+    "new": "Novo projeto",
+    "empty": "Nenhum projeto criado.",
+    "private": "Privado",
+    "archived": "Arquivado",
+    "form": {
+      "label": "Novo projeto",
+      "name": "Nome",
+      "nameMissing": "Informe o nome do projeto.",
+      "key": "Chave",
+      "visibility": "Visibilidade",
+      "submit": "Criar projeto",
+      "cancel": "Cancelar"
+    },
+    "keyHelp": "A chave deve começar com uma letra maiúscula e ter de 2 a 10 caracteres, só letras maiúsculas e números."
+  },
+  "visibility": {
+    "organization": "Toda a organização",
+    "private": "Privado"
+  },
+  "roles": {
+    "manager": "Gestor",
+    "contributor": "Colaborador",
+    "reader": "Leitor"
+  },
+  "detail": {
+    "back": "Voltar para a lista",
+    "newTicket": "Novo ticket",
+    "newTicketNoAssistant": "Criar sem o assistente",
+    "import": "Importar lista",
+    "visibilityLine": "Visibilidade: {{value}}",
+    "manage": {
+      "nameLabel": "Nome do projeto",
+      "saveName": "Salvar nome",
+      "archive": "Arquivar projeto",
+      "unarchive": "Desarquivar projeto"
+    },
+    "people": {
+      "title": "Pessoas com acesso",
+      "loading": "Carregando pessoas…",
+      "unknown": "Pessoa desconhecida",
+      "nobody": "Ninguém tem papel neste projeto.",
+      "roleOf": "Papel de {{name}}",
+      "revoke": "Revogar",
+      "revokeLabel": "Revogar acesso de {{name}}",
+      "person": "Pessoa",
+      "pickPerson": "Escolha uma pessoa",
+      "newRole": "Papel da nova pessoa",
+      "grant": "Dar acesso"
+    },
+    "teams": {
+      "title": "Times do projeto",
+      "loading": "Carregando times…",
+      "hint": "Associar um time não dá acesso às pessoas dele; o acesso vem dos papéis acima.",
+      "none": "Nenhum time associado.",
+      "unknown": "Time desconhecido",
+      "unlink": "Desassociar",
+      "unlinkLabel": "Desassociar {{name}}",
+      "team": "Time",
+      "pickTeam": "Escolha um time",
+      "link": "Associar time"
+    }
+  }
+}
