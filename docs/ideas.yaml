@@ -328,6 +328,7 @@ ideas:
       - Rastreio de branch e visibilidade geral do repositório a partir da plataforma.
       - A IA da plataforma passa a poder consultar o código para hidratar tickets.
       - Enviar código a um provedor de IA exige autorização própria, fora do que a ADR 0029 autorizou.
+      - Em 2026-11-21 Teodoro autorizou enviar trechos de código à Anthropic, desde que isso seja aceito pelo usuário nos termos de uso ou na privacidade do site; sem esse aceite nada é enviado (ADR 0032).
     relationships:
       - type: related_to
         target: IDEA-019
