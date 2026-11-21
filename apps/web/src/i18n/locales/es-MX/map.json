@@ -1,1 +1,79 @@
-{}
+{
+  "loading": "Cargando mapa…",
+  "canvas": {
+    "label": "Mapa de la organización",
+    "toolbar": "Cámara y colores",
+    "zoomOut": "Alejar",
+    "reset": "Restablecer encuadre",
+    "zoomIn": "Acercar",
+    "colors": "Colores"
+  },
+  "breadcrumb": "Ruta del enfoque",
+  "panelToggle": "Áreas y proyectos",
+  "organizationKey": "Organización",
+  "help": "Rueda para acercar · arrastra para desplazar · combina ambos · clic para seleccionar · Explorar rama para enfocar · C colores · Esc limpiar",
+  "createFirst": "Crear primer proyecto",
+  "newTicket": "Nuevo ticket",
+  "selection": {
+    "region": "Nodo seleccionado",
+    "close": "Cerrar selección",
+    "explore": "Explorar rama",
+    "open": "Abrir",
+    "projects_one": "{{count}} proyecto",
+    "projects_many": "{{count}} proyectos",
+    "projects_other": "{{count}} proyectos"
+  },
+  "node": {
+    "organization_one": "{{label}}. Organización con {{count}} proyecto.",
+    "organization_many": "{{label}}. Organización con {{count}} proyectos.",
+    "organization_other": "{{label}}. Organización con {{count}} proyectos.",
+    "ticket": "{{label}}. Ticket.",
+    "project": "{{label}}. Proyecto.",
+    "draft": "Borrador de ticket: {{label}}. Aún no creado."
+  },
+  "group": {
+    "projects_one": "{{count}} proyecto agrupado: {{members}}. Acerca para revelar.",
+    "projects_many": "{{count}} proyectos agrupados: {{members}}. Acerca para revelar.",
+    "projects_other": "{{count}} proyectos agrupados: {{members}}. Acerca para revelar.",
+    "items_one": "{{count}} elemento agrupado: {{members}}. Acerca para revelar.",
+    "items_many": "{{count}} elementos agrupados: {{members}}. Acerca para revelar.",
+    "items_other": "{{count}} elementos agrupados: {{members}}. Acerca para revelar."
+  },
+  "status": {
+    "todo": "Por hacer",
+    "in_progress": "En curso",
+    "in_review": "En revisión",
+    "done": "Terminado",
+    "cancelled": "Cancelado"
+  },
+  "progress": {
+    "base": "{{done}} de {{total}} terminados",
+    "withCanceled_one": "{{done}} de {{total}} terminados · {{count}} cancelado",
+    "withCanceled_many": "{{done}} de {{total}} terminados · {{count}} cancelados",
+    "withCanceled_other": "{{done}} de {{total}} terminados · {{count}} cancelados"
+  },
+  "count": {
+    "projects_one": "{{count}} proyecto",
+    "projects_many": "{{count}} proyectos",
+    "projects_other": "{{count}} proyectos",
+    "items_one": "{{count}} elemento",
+    "items_many": "{{count}} elementos",
+    "items_other": "{{count}} elementos",
+    "itemsAtRoot_one": "{{count}} elemento en la raíz",
+    "itemsAtRoot_many": "{{count}} elementos en la raíz",
+    "itemsAtRoot_other": "{{count}} elementos en la raíz"
+  },
+  "leaves": {
+    "in_review": "{{number}} en revisión",
+    "in_progress": "{{number}} en curso",
+    "todo": "{{number}} por hacer"
+  },
+  "draft": {
+    "notCreated": "Aún no creado",
+    "title": "Nuevo ticket",
+    "key": "Nuevo"
+  },
+  "person": {
+    "unknown": "Persona desconocida"
+  }
+}

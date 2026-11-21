@@ -1,4 +1,6 @@
 import type { TreeNode } from "@treepm/engine";
+import type { TFunction } from "i18next";
+import i18n from "../i18n/index.js";
 import { mixIndicatorColors } from "@treepm/react";
 import type { MixColors } from "@treepm/react";
 import type { Me, Project, TicketStatus, TicketSummary } from "../api/client.js";
@@ -65,6 +67,7 @@ export function buildMapItems(
   projects: readonly Project[],
   ticketsByProject: Readonly<Record<string, readonly TicketSummary[]>>,
   draft?: MapDraft | null,
+  t: TFunction<"map"> = i18n.getFixedT(null, "map"),
 ): readonly MapNode[] {
   const root: MapNode = {
     id: organization.orgId,
@@ -108,9 +111,9 @@ export function buildMapItems(
     id: DRAFT_NODE_ID,
     parentId,
     kind: "draft",
-    label: draft.title.trim() === "" ? "Novo ticket" : draft.title.trim(),
+    label: draft.title.trim() === "" ? t("draft.title") : draft.title.trim(),
     color: ACCENT_COLOR,
-    key: "Novo",
+    key: t("draft.key"),
     ticket: null,
     leafCount: 1,
   };

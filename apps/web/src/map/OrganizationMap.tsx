@@ -2,13 +2,13 @@ import { SpatialCanvasView, useSpatialCanvas } from "@treepm/react";
 import type { SpatialCanvasLabels, SpatialNodeContent } from "@treepm/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient, ApiResult, Me, Person, Project, TicketSummary } from "../api/client.js";
+import { useTranslation } from "react-i18next";
 import { useApiResource } from "../api/useApiResource.js";
 import { AssistantPanel } from "../assistant/AssistantPanel.js";
 import type { MapPicker } from "../assistant/types.js";
 import { canCreateTickets } from "../import/permissions.js";
 import { LoadError } from "../LoadError.js";
 import { usePreferences } from "../preferences/context.js";
-import { plural } from "../plural.js";
 import { SidePanel } from "../panel/SidePanel.js";
 import { ticketFocus } from "../ticket/focus.js";
 import { TicketPage } from "../ticket/TicketPage.js";
@@ -20,7 +20,8 @@ import type { MapDraft } from "./items.js";
 import { useRestoreCameraPlace } from "./cameraPlace.js";
 import { computeMapMaxScale } from "./zoom.js";
 import type { MapNode } from "./items.js";
-import { TicketMark, describeTicketState, renderNodeContent } from "./nodeContent.js";
+import { TicketMark, renderNodeContent } from "./nodeContent.js";
+import { ticketStateText } from "./ticketState.js";
 import "@treepm/react/styles.css";
 import "../demo/Demo.css";
 import "./map.css";
@@ -29,25 +30,7 @@ import "../assistant/assistant.css";
 
 const getLabel = (node: MapNode) => node.label;
 const getColor = (node: MapNode) => node.color;
-const labels: SpatialCanvasLabels = {
-  canvas: "Mapa da organização",
-  toolbar: "Câmera e cores",
-  zoomOut: "Reduzir zoom",
-  reset: "Restaurar enquadramento",
-  zoomIn: "Ampliar zoom",
-  colors: "Cores",
-};
 const describeNode = (node: MapNode) => (node.key ? `${node.key} · ${node.label}` : node.label);
-const getNodeAriaLabel = ({ node, childCount }: SpatialNodeContent<MapNode>) =>
-  node.kind === "organization"
-    ? `${node.label}. Organização com ${plural(childCount, "projeto", "projetos")}.`
-    : node.kind === "ticket"
-      ? `${describeNode(node)}. Ticket.`
-      : node.kind === "draft"
-        ? `Rascunho do ticket: ${node.label}. Ainda não criado.`
-        : `${describeNode(node)}. Projeto.`;
-const getGroupAriaLabel = (members: readonly MapNode[]) =>
-  `${members.every((member) => member.kind === "project") ? plural(members.length, "projeto", "projetos") : plural(members.length, "item", "itens")} agrupados: ${members.map(describeNode).join(", ")}. Amplie para revelar.`;
 interface PanelState {
   open: boolean;
   tab: PanelTab;
@@ -81,8 +64,31 @@ interface MapViewProps {
 }
 
 function MapView({ client, me, projects, people, ticketsByProject, onChanged, onImport, openTicketId, onOpenTicketChange }: MapViewProps) {
+  const { t } = useTranslation("map");
+  const labels = useMemo<SpatialCanvasLabels>(
+    () => ({ canvas: t("canvas.label"), toolbar: t("canvas.toolbar"), zoomOut: t("canvas.zoomOut"), reset: t("canvas.reset"), zoomIn: t("canvas.zoomIn"), colors: t("canvas.colors") }),
+    [t],
+  );
+  const getNodeAriaLabel = useCallback(
+    ({ node, childCount }: SpatialNodeContent<MapNode>) =>
+      node.kind === "organization"
+        ? t("node.organization", { label: node.label, count: childCount })
+        : node.kind === "ticket"
+          ? t("node.ticket", { label: describeNode(node) })
+          : node.kind === "draft"
+            ? t("node.draft", { label: node.label })
+            : t("node.project", { label: describeNode(node) }),
+    [t],
+  );
+  const getGroupAriaLabel = useCallback(
+    (members: readonly MapNode[]) => {
+      const options = { count: members.length, members: members.map(describeNode).join(", ") };
+      return members.every((member) => member.kind === "project") ? t("group.projects", options) : t("group.items", options);
+    },
+    [t],
+  );
   const [draft, setDraft] = useState<MapDraft | null>(null);
-  const items = useMemo(() => buildMapItems(me.organization, projects, ticketsByProject, draft), [me.organization, projects, ticketsByProject, draft]);
+  const items = useMemo(() => buildMapItems(me.organization, projects, ticketsByProject, draft, t), [me.organization, projects, ticketsByProject, draft, t]);
   const [panel, setPanel] = useState<PanelState>({ open: false, tab: "areas", projectId: null });
   // Conversa com a IA para criar ticket (ADR 0029): um painel por vez com a página do ticket e o painel de projetos.
   const [assistant, setAssistant] = useState<AssistantState>({ open: false, projectId: null, scopeId: null });
@@ -277,7 +283,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
       getGroupAriaLabel={getGroupAriaLabel}
       renderContext={() => (
         <section className="spatial-context">
-          <nav className="spatial-breadcrumb" aria-label="Caminho do foco">
+          <nav className="spatial-breadcrumb" aria-label={t("breadcrumb")}>
             {breadcrumb.map((item, position) => (
               <span key={item.id}>
                 {position > 0 && <i aria-hidden="true">›</i>}
@@ -298,7 +304,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
             aria-expanded={panel.open}
             onClick={() => setPanel((current) => ({ ...current, open: !current.open }))}
           >
-            Áreas e projetos
+            {t("panelToggle")}
           </button>
         </section>
       )}
@@ -307,27 +313,27 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
           {selected && selected.kind !== "draft" && selected.id !== openTicketId && (
             <aside
               className={`spatial-selection ${panel.open ? "is-beside-panel" : ""}`}
-              aria-label="Nó selecionado"
+              aria-label={t("selection.region")}
               onPointerDown={(event) => event.stopPropagation()}
             >
               <div>
-                <code>{selected.key ?? "Organização"}</code>
-                <button onClick={() => selectNode(null)} aria-label="Fechar seleção">×</button>
+                <code>{selected.key ?? t("organizationKey")}</code>
+                <button onClick={() => selectNode(null)} aria-label={t("selection.close")}>×</button>
               </div>
               <strong>{selected.label}</strong>
               {selected.ticket ? (
                 <p className="selection-state">
                   <TicketMark ticket={selected.ticket} />
-                  <span>{describeTicketState(selected.ticket)}</span>
+                  <span>{ticketStateText(t, selected.ticket)}</span>
                 </p>
               ) : (
                 <p>{(() => {
                   const count = index.childrenByParentId.get(selected.id)?.length ?? 0;
-                  return selected.kind === "project" ? plural(count, "item", "itens") : `${count} projetos`;
+                  return selected.kind === "project" ? t("count.items", { count }) : t("selection.projects", { count });
                 })()}</p>
               )}
-              <button onClick={() => focusNode(selected.id)}>Explorar ramo</button>
-              {selected.kind === "ticket" && <button onClick={() => openTicket(selected.id)}>Abrir</button>}
+              <button onClick={() => focusNode(selected.id)}>{t("selection.explore")}</button>
+              {selected.kind === "ticket" && <button onClick={() => openTicket(selected.id)}>{t("selection.open")}</button>}
             </aside>
           )}
           {showCreateFirst && (
@@ -337,7 +343,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               onPointerDown={(event) => event.stopPropagation()}
               onClick={() => setPanel({ open: true, tab: "projects", projectId: null })}
             >
-              Criar primeiro projeto
+              {t("createFirst")}
             </button>
           )}
           {assistantAvailable && !assistant.open && (
@@ -348,7 +354,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               onClick={openAssistant}
             >
               <PlusIcon />
-              Novo ticket
+              {t("newTicket")}
             </button>
           )}
           {panel.open && (
@@ -370,7 +376,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               }}
             />
           )}
-          <div className="spatial-help">Wheel para zoom · arraste para pan · combine os dois · clique para selecionar · Explorar ramo para focar · C cores · Esc limpar</div>
+          <div className="spatial-help">{t("help")}</div>
         </>
       )}
     />
@@ -450,6 +456,7 @@ async function loadMapData(client: ApiClient): Promise<ApiResult<MapData>> {
 }
 
 export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTicketChange }: OrganizationMapProps) {
+  const { t } = useTranslation("map");
   const { state, reload, retry } = useApiResource(() => loadMapData(client));
   const [ownTicketId, setOwnTicketId] = useState<string | null>(null);
   const controlled = openTicketId !== undefined;
@@ -459,7 +466,7 @@ export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTick
   }, [controlled, onOpenTicketChange]);
 
   if (state.status === "loading") {
-    return <p className="map-state" role="status">Carregando mapa…</p>;
+    return <p className="map-state" role="status">{t("loading")}</p>;
   }
   if (state.status === "error") {
     return (
