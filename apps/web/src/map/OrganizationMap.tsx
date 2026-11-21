@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ApiClient, ApiResult, Me, Person, Project, TicketSummary } from "../api/client.js";
 import { useTranslation } from "react-i18next";
 import { useApiResource } from "../api/useApiResource.js";
+import { CommandBar } from "../command/CommandBar.js";
 import { AssistantPanel } from "../assistant/AssistantPanel.js";
 import type { MapPicker } from "../assistant/types.js";
 import { canCreateTickets } from "../import/permissions.js";
@@ -43,6 +44,10 @@ interface AssistantState {
   projectId: string | null;
   /** Ticket selecionado ao abrir: a procura da IA começa dentro dele (ADR 0031, ADR 0034). */
   scopeId: string | null;
+  /** Texto da barra de pedidos, enviado como a primeira mensagem (ADR 0036). */
+  message: string | null;
+  /** Muda a cada abertura: uma conversa nova a partir da barra recomeça o painel, mesmo com ele já aberto. */
+  nonce: number;
 }
 
 const PlusIcon = () => (
@@ -91,7 +96,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   const items = useMemo(() => buildMapItems(me.organization, projects, ticketsByProject, draft, t), [me.organization, projects, ticketsByProject, draft, t]);
   const [panel, setPanel] = useState<PanelState>({ open: false, tab: "areas", projectId: null });
   // Conversa com a IA para criar ticket (ADR 0029): um painel por vez com a página do ticket e o painel de projetos.
-  const [assistant, setAssistant] = useState<AssistantState>({ open: false, projectId: null, scopeId: null });
+  const [assistant, setAssistant] = useState<AssistantState>({ open: false, projectId: null, scopeId: null, message: null, nonce: 0 });
   const pickerRef = useRef<MapPicker | null>(null);
   const creatableProjects = useMemo(() => projects.filter((project) => canCreateTickets(me, project)), [me, projects]);
   const assistantAvailable = me.assistant?.enabled === true && creatableProjects.length > 0;
@@ -104,7 +109,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   const closeAssistant = useCallback(() => {
     pickerRef.current = null;
     setDraft(null);
-    setAssistant((current) => (current.open ? { open: false, projectId: null, scopeId: null } : current));
+    setAssistant((current) => (current.open ? { open: false, projectId: null, scopeId: null, message: null, nonce: current.nonce } : current));
   }, []);
 
   const openTicket = useCallback((id: string) => {
@@ -255,7 +260,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   }, [closePage, closeAssistant, openTicket]);
 
   // Projeto da conversa: o do ticket ou do projeto selecionado; sem seleção, o único em que a pessoa pode criar.
-  const openAssistant = () => {
+  const openAssistant = (message: string | null = null) => {
     const current = live.current.selected;
     const selectedProjectId = current?.kind === "project" ? current.id : current?.kind === "ticket" ? current.ticket?.projectId ?? null : null;
     const chosen = creatableProjects.find((project) => project.id === selectedProjectId) ?? (creatableProjects.length === 1 ? creatableProjects[0] : undefined);
@@ -265,7 +270,22 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     canvasRef.current.selectNode(null);
     // Qualquer ticket selecionado do projeto da conversa define o escopo (ADR 0034); projeto ou nenhuma seleção procuram no projeto inteiro.
     const scopeId = current?.kind === "ticket" && chosen && current.ticket?.projectId === chosen.id ? current.ticket.id : null;
-    setAssistant({ open: true, projectId: chosen?.id ?? null, scopeId });
+    setAssistant((state) => ({ open: true, projectId: chosen?.id ?? null, scopeId, message, nonce: state.nonce + 1 }));
+  };
+
+  // "Criar ticket «texto»" da barra: a conversa com a IA, ou a criação manual com o título preenchido (ADR 0036).
+  const startCreateFromBar = (text: string) => {
+    if (assistantAvailable) {
+      openAssistant(text);
+      return;
+    }
+    const current = live.current.selected;
+    const selectedProjectId = current?.kind === "project" ? current.id : current?.kind === "ticket" ? current.ticket?.projectId ?? null : null;
+    const chosen = creatableProjects.find((project) => project.id === selectedProjectId) ?? creatableProjects[0];
+    if (!chosen) return;
+    setPanel((state) => (state.open ? { ...state, open: false } : state));
+    if (live.current.openTicketId !== null) onOpenTicketChange(null);
+    setCreating({ projectId: chosen.id, parentId: null, draft: { title: text, description: "" } });
   };
 
   const canCreateProject = me.roles.clerk === "admin";
@@ -310,6 +330,15 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
       )}
       renderOverlay={() => (
         <>
+          <CommandBar
+            tickets={ticketsByProject}
+            aside={pageOpen ? "ticket" : panel.open ? "areas" : "none"}
+            canCreate={creatableProjects.length > 0}
+            pickerActive={() => pickerRef.current !== null}
+            onOpenTicket={openTicket}
+            onCreate={startCreateFromBar}
+            returnFocus={() => canvasRef.current.stageRef.current?.focus()}
+          />
           {selected && selected.kind !== "draft" && selected.id !== openTicketId && (
             <aside
               className={`spatial-selection ${panel.open ? "is-beside-panel" : ""}`}
@@ -351,7 +380,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               type="button"
               className="map-new-ticket"
               onPointerDown={(event) => event.stopPropagation()}
-              onClick={openAssistant}
+              onClick={() => openAssistant()}
             >
               <PlusIcon />
               {t("newTicket")}
@@ -383,10 +412,12 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     </MapDetailProvider>
     {assistant.open && (
       <AssistantPanel
+        key={assistant.nonce}
         client={client}
         projects={creatableProjects}
         initialProjectId={assistant.projectId}
         initialScopeId={assistant.scopeId}
+        initialMessage={assistant.message}
         tickets={ticketsByProject}
         onClose={closeAssistant}
         onCreated={openTicket}

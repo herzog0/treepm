@@ -1,0 +1,23 @@
+{
+  "bar": {
+    "label": "Request bar",
+    "input": "Ask for anything",
+    "shortcut": "Ctrl K",
+    "escape": "Esc"
+  },
+  "sheet": {
+    "label": "Results",
+    "tickets": "Tickets",
+    "actions": "Actions",
+    "noTickets": "No tickets found",
+    "keys": {
+      "navigate": "↑ ↓ navigate",
+      "open": "Enter open",
+      "close": "Esc close"
+    }
+  },
+  "action": {
+    "create": "Create ticket «{{text}}»",
+    "createShortcut": "Ctrl Enter"
+  }
+}

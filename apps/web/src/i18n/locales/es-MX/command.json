@@ -1,0 +1,23 @@
+{
+  "bar": {
+    "label": "Barra de peticiones",
+    "input": "Pide lo que quieras",
+    "shortcut": "Ctrl K",
+    "escape": "Esc"
+  },
+  "sheet": {
+    "label": "Resultados",
+    "tickets": "Tickets",
+    "actions": "Acciones",
+    "noTickets": "No se encontró ningún ticket",
+    "keys": {
+      "navigate": "↑ ↓ navegar",
+      "open": "Enter abrir",
+      "close": "Esc cerrar"
+    }
+  },
+  "action": {
+    "create": "Crear ticket «{{text}}»",
+    "createShortcut": "Ctrl Enter"
+  }
+}
