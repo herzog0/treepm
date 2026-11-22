@@ -13,6 +13,10 @@ async function lint(code: string, area: string, file = "Fake.tsx") {
 // Toda área de `apps/web/src`, mais a raiz (`""`): nenhuma fica de fora da regra.
 const AREAS = ["teams/", "settings/", "nav/", "preferences/", "panel/", "ticket/", "tickets/", "import/", "github/", "map/", "assistant/", "command/", "demo/", "api/", "i18n/", ""];
 
+// Cada caso roda o ESLint de verdade sobre 16 áreas (cerca de 1 s com a máquina livre, e a primeira chamada carrega a
+// configuração inteira): com a máquina carregada passa dos 5 s padrão. Prazo próprio só para os testes que fazem esse trabalho.
+const HEAVY = 30000;
+
 const component = (body: string) => `export function Fake() { return (${body}); }`;
 
 describe("no-literal-ui-text", () => {
@@ -25,7 +29,7 @@ describe("no-literal-ui-text", () => {
     ["alt", '<img alt="Logo" />'],
     ["attribute with a string expression", '<a title={"Dica"} />'],
     ["a string literal in a JSX expression", '<p>{"Texto solto"}</p>'],
-  ])("flags %s in a converted area", async (_name, jsx) => {
+  ])("flags %s in a converted area", { timeout: HEAVY }, async (_name, jsx) => {
     for (const area of AREAS) {
       expect(await lint(component(jsx), area)).toHaveLength(1);
     }
@@ -45,7 +49,7 @@ describe("no-literal-ui-text", () => {
     expect(await lint(component("<p>Olá</p>"), "teams/", "Fake.test.tsx")).toEqual([]);
   });
 
-  it("looks at every directory of the web app: nothing is pending conversion any more", async () => {
+  it("looks at every directory of the web app: nothing is pending conversion any more", { timeout: HEAVY }, async () => {
     const { readdirSync } = await import("node:fs");
     const directories = readdirSync(`${root}apps/web/src`, { withFileTypes: true }).filter((entry) => entry.isDirectory() && entry.name !== "test").map((entry) => `${entry.name}/`);
     for (const area of directories) expect(AREAS, `${area} is not covered by this test`).toContain(area);
