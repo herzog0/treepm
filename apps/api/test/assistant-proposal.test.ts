@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AI_CONFIG } from "./helpers.js";
+import { AI_CONFIG, openApiTransactions } from "./helpers.js";
 import { seedGroups, seedTree } from "./assistant-tree.js";
 import type { Tree } from "./assistant-tree.js";
 import { useHarness } from "./harness.js";
@@ -204,7 +204,7 @@ describe("placement — falha da proposta não derruba a procura", () => {
     affinityScores({ [tree.loose]: 0.9 });
     const open: number[] = [];
     const probe = async () => {
-      open.push((await rows("select count(*)::int as n from pg_stat_activity where usename = 'treepm_app' and state like 'idle in transaction%'"))[0].n);
+      open.push(await openApiTransactions(h.pool));
     };
     h.affinity().onCall = probe;
     h.namer().onCall = probe;

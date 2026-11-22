@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AI_CONFIG, TEST_CONFIG } from "./helpers.js";
+import { AI_CONFIG, TEST_CONFIG, openApiTransactions } from "./helpers.js";
 import { seedLeaves, seedTree } from "./assistant-tree.js";
 import type { Tree } from "./assistant-tree.js";
 import { useHarness } from "./harness.js";
@@ -24,7 +24,7 @@ const stored = async (ticketId: string) =>
     | undefined;
 const events = async () => rows("select kind, subject_type, subject_id, actor_person_id, payload from activity_events where kind = 'ticket.summary_updated' order by occurred_at, id");
 const openTransactions = async () =>
-  (await rows("select count(*)::int as n from pg_stat_activity where usename = 'treepm_app' and state like 'idle in transaction%'"))[0].n as number;
+  openApiTransactions(h.pool);
 const aiText = (ticketId: string, text = "Texto da IA") =>
   h.pool.query(
     "insert into branch_summaries (org_id, project_id, ticket_id, summary, content_mark, source, model) values ('org_A', $1, $2, $3, 'marca-antiga', 'assistant', 'claude-opus-5-5')",

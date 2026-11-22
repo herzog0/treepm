@@ -1,7 +1,7 @@
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createTestApp, ownerPoolWithCleanup, sessionHeader, truncateAll } from "./helpers.js";
+import { createTestApp, ownerPoolWithCleanup, sessionHeader, truncateAll, openApiTransactions } from "./helpers.js";
 import type { FakeDirectory } from "./helpers.js";
 
 const pool = ownerPoolWithCleanup();
@@ -24,10 +24,7 @@ beforeEach(async () => {
 
 /** Conexões da API com transação aberta, vistas pelo papel dono. */
 async function openAppTransactions(): Promise<number> {
-  const result = await pool.query<{ n: string }>(
-    "select count(*)::text as n from pg_stat_activity where usename = 'treepm_app' and state like 'idle in transaction%'",
-  );
-  return Number(result.rows[0]?.n);
+  return openApiTransactions(pool);
 }
 
 const admin = sessionHeader({ userId: "user_1", orgId: "org_A", orgRole: "org:admin" });

@@ -1,6 +1,6 @@
 import { Logger } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AI_CONFIG } from "./helpers.js";
+import { AI_CONFIG, openApiTransactions } from "./helpers.js";
 import { useHarness } from "./harness.js";
 import { as } from "./world.js";
 import type { Who } from "./world.js";
@@ -54,7 +54,7 @@ describe("POST /projects/:id/ticket-conversations", () => {
   it("não há transação aberta enquanto o provedor responde", async () => {
     let during = -1;
     h.conversation().onCall = async () => {
-      during = (await rows("select count(*)::int as n from pg_stat_activity where usename = 'treepm_app' and state like 'idle in transaction%'"))[0].n;
+      during = await openApiTransactions(h.pool);
     };
     expect((await open("contributor")).status).toBe(201);
     expect(during).toBe(0);

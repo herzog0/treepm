@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ClaudeProjectAnswerer } from "../src/assistant/claude-project-answerer.js";
 import type { ClaudeStreamer } from "../src/assistant/claude-call.js";
 import type { ToolExecutor } from "../src/assistant/ports.js";
-import { AI_CONFIG, TEST_CONFIG } from "./helpers.js";
+import { AI_CONFIG, TEST_CONFIG, openApiTransactions } from "./helpers.js";
 import { seedTree } from "./assistant-tree.js";
 import { useHarness } from "./harness.js";
 import { as } from "./world.js";
@@ -14,8 +14,7 @@ const h = useHarness(AI_CONFIG);
 const UNKNOWN_ID = "0199aaaa-bbbb-7ccc-8ddd-eeeeffff0000";
 const rows = async (sql: string, params: unknown[] = []) => (await h.pool.query(sql, params)).rows;
 const errorOf = (res: { body: { error?: { code: string } } }) => res.body.error?.code;
-const openTransactions = async () =>
-  (await rows("select count(*)::int as n from pg_stat_activity where usename = 'treepm_app' and state like 'idle in transaction%'"))[0].n as number;
+const openTransactions = () => openApiTransactions(h.pool);
 
 const ask = (projectId: string, body: unknown = { question: "Quantos tickets?", history: [] }, who: Who | "outsider" = "contributor", org = "org_A") =>
   h.call("POST", `/api/projects/${projectId}/assistant/ask`, as(who, org), body);

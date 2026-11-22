@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AI_CONFIG } from "./helpers.js";
+import { AI_CONFIG, openApiTransactions } from "./helpers.js";
 import { seedGroups, seedTree } from "./assistant-tree.js";
 import type { Tree } from "./assistant-tree.js";
 import { useHarness } from "./harness.js";
@@ -122,9 +122,7 @@ describe("agrupadores do lugar da procura na conversa (ADR 0033)", () => {
     tree = await seedTree(h.pool, h.world());
     const idle: number[] = [];
     h.conversation().onCall = async () => {
-      idle.push(
-        (await rows("select count(*)::int as n from pg_stat_activity where usename = 'treepm_app' and state like 'idle in transaction%'"))[0].n as number,
-      );
+      idle.push(await openApiTransactions(h.pool));
     };
     const id = (await open("contributor", { scopeId: tree.auth })).body.id as string;
     await send(id, { scopeId: tree.auth });
