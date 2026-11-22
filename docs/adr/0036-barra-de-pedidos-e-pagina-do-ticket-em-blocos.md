@@ -1,6 +1,6 @@
 # ADR 0036 — Barra de pedidos no topo do mapa e página do ticket com descrição em blocos
 
-**Status:** Desenho aprovado por Teodoro em 2026-11-21 ("design aprovado, pode implementar"). Os pontos marcados como escolha da coordenação valem até ele dizer o contrário. As duas capacidades de IA foram autorizadas por ele em 2026-11-21 ("Segue a sua recomendação pras coisas em aberto"); a pergunta sobre o projeto segue a [ADR 0037](0037-relacoes-entre-tickets-e-camada-de-consulta.md), e nenhuma das duas foi implementada. As fatias 1, 2 e 3 (a barra com busca, a página do ticket e a conversa dentro da barra) foram implementadas em 2026-11-21 (PRs #92, #93 e #94), e a descrição em blocos (fatia 4) também (PR #96). Nada foi testado com sessão real. **Data:** 2026-11-21.
+**Status:** Desenho aprovado por Teodoro em 2026-11-21 ("design aprovado, pode implementar"). Os pontos marcados como escolha da coordenação valem até ele dizer o contrário. As duas capacidades de IA foram autorizadas por ele em 2026-11-21 ("Segue a sua recomendação pras coisas em aberto"); a pergunta sobre o projeto segue a [ADR 0037](0037-relacoes-entre-tickets-e-camada-de-consulta.md), e "Pedir ao assistente para escrever" foi implementada em 2026-11-21 (PR #103), sem chamada a provedor real nem teste com sessão real; a pergunta sobre o projeto ainda não. As fatias 1, 2 e 3 (a barra com busca, a página do ticket e a conversa dentro da barra) foram implementadas em 2026-11-21 (PRs #92, #93 e #94), e a descrição em blocos (fatia 4) também (PR #96). Nada foi testado com sessão real. **Data:** 2026-11-21.
 
 Muda, na [ADR 0029](0029-novo-ticket-pela-conversa-com-a-ia.md), onde a conversa de novo ticket aparece (o painel lateral dá lugar à barra); e, na [ADR 0026](0026-pagina-do-ticket-e-zoom-ate-a-folha.md), o desenho interno da página do ticket. A largura de 620 px, o deslize e o foco do mapa continuam como estão.
 
@@ -205,3 +205,15 @@ Web com 1.333 testes em `jsdom` e 46 em navegador.
 - A web ganha a primeira dependência de edição de texto e a primeira suíte de teste em navegador.
 - A conversa de novo ticket deixa de disputar o lado direito da tela com a página do ticket.
 - Os testes do painel lateral são migrados um a um para a barra, e não apagados.
+
+## Como ficou na implementação (fatia 5, "Pedir ao assistente para escrever")
+
+- **Rota:** `POST /api/tickets/:id/description/draft`, com o pedido (até 2.000 caracteres) e o texto atual do editor, que pode não estar salvo. Devolve o trecho em markdown (até 6.000 caracteres). Só para quem pode alterar o ticket. Não grava nada e não cria evento.
+- **O que vai à Anthropic:** o título do ticket, o texto do editor, os títulos dos tickets acima dele e o pedido, em uma mensagem só. Um teste confere a mensagem exata e que o log leva só modelo, tempo e tamanho.
+- **Modelo:** o mesmo dos outros adaptadores (Claude Opus 5.5), esforço baixo, prazo de 30 segundos. Texto vazio ou acima do limite é tratado como falha, nunca cortado.
+- **Idioma:** o do pedido *(escolha da coordenação; a decisão geral segue no `TREEPM-56`)*.
+- **Onde aparece:** só na página do ticket, com o assistente ligado e a pessoa podendo editar. A criação manual não tem o item.
+- **Na tela:** o campo do pedido flutua junto do cursor, como os menus "/" e "@". A proposta é desenhada pelo mesmo componente que mostra a descrição, só para leitura, com "Inserir" e "Descartar". `Esc` durante a espera cancela o pedido e mantém o texto digitado.
+- **Não salva sozinho:** o foco no campo e nos botões conta como dentro da edição, e `Esc` neles não desfaz a edição nem fecha a página.
+- API com 1.217 testes; web com 1.336 e 81 na suíte de navegador.
+- Nenhuma chamada a provedor real foi feita; a conferência visual foi por cinco capturas sem janela, com dados falsos.

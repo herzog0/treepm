@@ -1,6 +1,6 @@
 # ADR 0037 — Relações entre tickets e camada de consulta do projeto
 
-**Status:** Aceita por Teodoro em 2026-11-21 quanto à direção ("Segue a sua recomendação pras coisas em aberto"). A coordenação tinha recomendado a tabela de relações, a camada de consulta e gravar a ligação "menciona"; o restante desta ADR está marcado como escolha da coordenação e vale até ele dizer o contrário. Nada foi implementado. **Data:** 2026-11-21.
+**Status:** Aceita por Teodoro em 2026-11-21 quanto à direção ("Segue a sua recomendação pras coisas em aberto"). A coordenação tinha recomendado a tabela de relações, a camada de consulta e gravar a ligação "menciona"; o restante desta ADR está marcado como escolha da coordenação e vale até ele dizer o contrário. A tabela, a ligação "menciona" e a camada de consulta foram implementadas em 2026-11-21 (PRs #100, #104 e #106); "depende de" e a pergunta sobre o projeto ainda não. Nada foi testado com sessão real. **Data:** 2026-11-21.
 
 Muda, na [ADR 0036](0036-barra-de-pedidos-e-pagina-do-ticket-em-blocos.md), a regra de que a menção é guardada só como a chave no texto (a chave continua, e passa a existir também uma ligação gravada) e a forma de responder a pergunta sobre o projeto (a IA consulta, em vez de receber todos os tickets). Não muda a árvore, o significado de "filho" nem a procura do lugar do ticket novo ([ADR 0034](0034-um-so-tipo-de-ticket-das-folhas-para-o-topo.md)).
 
@@ -134,3 +134,31 @@ A migration da fatia 1 é aplicada no Neon de desenvolvimento pela coordenação
 4. Se as dependências aparecem no mapa.
 5. O token por pessoa e o servidor MCP (ADR própria).
 6. O idioma do texto escrito pela IA (`TREEPM-56`).
+
+## Como ficou na implementação (fatias 1, 2 e 4)
+
+**Tabela e domínio (PR #100, migration `0011_ticket_relations`)**
+
+- A regra de menção ficou em `packages/domain` (`scanTicketKeys` e `mentionedKeys`). Uma lista única de 18 casos roda no teste do domínio e na suíte de navegador, que carrega cada caso no editor e confere as etiquetas desenhadas.
+- **Um caso exigiu regra nova:** itálico com sublinhado (`_TREEPM-8_`). O editor desenha a etiqueta, e a leitura do markdown cru rejeitava a chave por estar colada no sublinhado; o domínio passou a desconsiderar o sublinhado que abre e fecha ênfase.
+- **Não conta como menção:** bloco de código cercado, código em linha e o endereço de um link. Imagem em markdown continua sendo texto, como no editor.
+- Fora da lista de casos: autolink e HTML.
+
+**"Menciona" (PR #104)**
+
+- Os caminhos que gravam descrição são três: criar (usado também pela conversa com a IA e pelo pai criado por uma proposta), importar por lista e alterar. Os três refazem as ligações na mesma transação.
+- A importação faz um número fixo de consultas, qualquer que seja o tamanho da lista.
+- Duas gravações simultâneas da mesma ligação não falham: a segunda é ignorada. O teste reproduziu a falha antes da correção.
+- O detalhe do ticket devolve `mentionedBy`; a página mostra "Mencionado em" logo abaixo da descrição.
+- **Preenchimento do que já existia:** subcomando `relations-rebuild` da ferramenta local, por uma rota de reconstrução do projeto (para quem pode alterar tickets). No projeto `TREEPM`, em 2026-11-21, leu 84 tickets e criou 2 ligações; a segunda execução não mudou nada.
+
+**Camada de consulta (PR #106)**
+
+- `ProjectQueryService`, sem rota HTTP, com quatro operações: `search`, `ticket`, `list` e `overview`. O ticket e o filtro "dentro de" são identificados pelo número.
+- Confere em cada chamada que a pessoa enxerga o projeto. Nenhuma saída tem campo de pessoa nem data.
+- Tetos: busca com 8 por padrão e 50 no máximo; listagem com 50 e 200; filhos, cada lista de ligações e tickets do topo com 200.
+- Número fixo de operações de banco por chamada (2, 8, 3 e 3), conferido com 8 e com 80 tickets.
+- A busca carrega os tickets do projeto e filtra em memória, como a barra faz no navegador. Em projeto muito grande isso pode pesar; não foi otimizado.
+- A regra de busca da barra passou para `packages/domain`; a web delega a ela.
+
+Suítes depois das três fatias: domain 237, db 186, api 1.272, web 1.341 e 81 na suíte de navegador.
