@@ -21,6 +21,8 @@ const meSchema = z.object({
   assistant: z.object({ enabled: z.boolean() }).optional(),
   /** Ausente em uma API antiga: o GitHub conta como desligado (ADR 0032). */
   github: z.object({ enabled: z.boolean() }).optional(),
+  /** A chave "Permitir acesso por MCP" da organização (ADR 0038). Ausente em uma API antiga: a seção não aparece. */
+  mcp: z.object({ enabled: z.boolean() }).optional(),
 });
 const personSchema = z.object({
   id: z.string(),
@@ -153,6 +155,20 @@ const askAnswerSchema = z.object({ text: z.string(), model: z.string() });
 const ticketSummaryTextSchema = z.object({
   summary: z.object({ text: z.string(), source: z.enum(["assistant", "person"]), updatedAt: z.string() }).nullable(),
 });
+const accessTokenSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  project: z.object({ id: z.string(), key: z.string() }),
+  tokenPrefix: z.string(),
+  createdAt: z.string(),
+  lastUsedAt: z.string().nullable(),
+  expiresAt: z.string(),
+  revokedAt: z.string().nullable(),
+});
+/** O token inteiro só existe nesta resposta (ADR 0038). */
+const createdAccessTokenSchema = accessTokenSchema.extend({ token: z.string() });
+const organizationAccessTokenSchema = accessTokenSchema.extend({ person: z.object({ id: z.string(), displayName: z.string() }) });
+const mcpStateSchema = z.object({ mcp: z.object({ enabled: z.boolean() }) });
 const errorBodySchema = z.object({ error: z.object({ code: z.string() }) });
 
 export type Me = z.output<typeof meSchema>;
@@ -199,6 +215,14 @@ export interface CompleteGithubBody {
   code: string;
   state: string;
   installationId?: number;
+}
+export type AccessToken = z.output<typeof accessTokenSchema>;
+export type CreatedAccessToken = z.output<typeof createdAccessTokenSchema>;
+export type OrganizationAccessToken = z.output<typeof organizationAccessTokenSchema>;
+export interface CreateAccessTokenBody {
+  projectId: string;
+  name: string;
+  expiresInDays: 30 | 90 | 365;
 }
 export type CreatedFromConversation = z.output<typeof createdFromConversationSchema>;
 
@@ -401,6 +425,15 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     /** Pergunta sobre o projeto (ADR 0037): `history` leva as mensagens anteriores da folha, que a API não guarda. Não grava nada. */
     askProject: (projectId: string, body: AskBody, options: { signal?: AbortSignal } = {}) =>
       request("POST", `${project(projectId)}/assistant/ask`, askAnswerSchema, body, options.signal),
+
+    /** A chave "Permitir acesso por MCP" (ADR 0038); só administrador. */
+    setMcpEnabled: (mcpEnabled: boolean) => request("PATCH", "/api/organization", mcpStateSchema, { mcpEnabled }),
+    /** Cria um token de acesso por MCP para um projeto (ADR 0038); a resposta é a única vez em que o token inteiro aparece. */
+    createAccessToken: (body: CreateAccessTokenBody) => request("POST", "/api/access-tokens", createdAccessTokenSchema, body),
+    listAccessTokens: () => request("GET", "/api/access-tokens", z.array(accessTokenSchema)),
+    /** Todos os tokens da organização, com a pessoa de cada um; só administrador. */
+    listOrganizationAccessTokens: () => request("GET", "/api/access-tokens/organization", z.array(organizationAccessTokenSchema)),
+    revokeAccessToken: (id: string) => request("DELETE", `/api/access-tokens/${id}`, null),
   };
 }
 
@@ -411,3 +444,6 @@ export const githubEnabled = (me: Me): boolean => me.github?.enabled === true;
 
 /** A IA está ligada nesta API? Uma API antiga não manda o campo: conta como desligada. */
 export const assistantEnabled = (me: Me): boolean => me.assistant?.enabled === true;
+
+/** A seção de MCP aparece nesta API? Uma API antiga não manda o campo: conta como ausente. */
+export const mcpAvailable = (me: Me): boolean => me.mcp !== undefined;
