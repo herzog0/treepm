@@ -24,7 +24,8 @@
     "progress": "Progress",
     "people": "People",
     "parent": "Parent ticket",
-    "dependsOn": "Depends on"
+    "dependsOn": "Depends on",
+    "idea": "Idea"
   },
   "create": {
     "heading": "New ticket",
@@ -33,7 +34,8 @@
     "title": "Title",
     "description": "Description",
     "submit": "Create",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "headingIdea": "New idea"
   },
   "title": {
     "label": "Title",
@@ -90,7 +92,8 @@
   "items": {
     "heading": "Items",
     "newHere": "New ticket inside",
-    "empty": "No tickets inside."
+    "empty": "No tickets inside.",
+    "newIdeaHere": "New idea in here"
   },
   "mentionedBy": {
     "heading": "Mentioned in"
@@ -209,7 +212,17 @@
     "contributionPersonAdded": "<who>{{actor}}</who> added <name>{{person}}</name> to <name>{{area}}</name>",
     "contributionPersonAdded_noActor": "<name>{{person}}</name> added to <name>{{area}}</name>",
     "contributionPersonRemoved": "<who>{{actor}}</who> removed <name>{{person}}</name> from <name>{{area}}</name>",
-    "contributionPersonRemoved_noActor": "<name>{{person}}</name> removed from <name>{{area}}</name>"
+    "contributionPersonRemoved_noActor": "<name>{{person}}</name> removed from <name>{{area}}</name>",
+    "ideaRegistered": "<who>{{actor}}</who> registered this as an idea",
+    "ideaRegistered_noActor": "Registered as an idea",
+    "ideaStageChanged": "<who>{{actor}}</who> changed the stage from <name>{{from}}</name> to <name>{{to}}</name>",
+    "ideaStageChanged_noActor": "Stage changed from <name>{{from}}</name> to <name>{{to}}</name>",
+    "ideaAccepted": "<who>{{actor}}</who> accepted the idea",
+    "ideaAccepted_noActor": "Idea accepted",
+    "ideaDiscarded": "<who>{{actor}}</who> discarded the idea",
+    "ideaDiscarded_noActor": "Idea discarded",
+    "ideaReopened": "<who>{{actor}}</who> reopened the idea",
+    "ideaReopened_noActor": "Idea reopened"
   },
   "contributions": {
     "heading": "Areas",
@@ -241,5 +254,16 @@
       "loading": "Loading comments…",
       "empty": "No comments on this area."
     }
+  },
+  "idea": {
+    "stageMenu": "Idea stage",
+    "partOf": "Part of idea",
+    "accept": "Accept",
+    "discard": "Discard",
+    "reopen": "Reopen",
+    "acceptMessage": "The idea and everything inside it become regular tickets, in the same place, as “To do”.",
+    "discardMessage": "The whole subtree stays out of the process, drawn more muted. You can reopen it later.",
+    "make": "Turn into an idea",
+    "makeRefused": "A ticket with work in progress or done, in it or below it, cannot be turned into an idea."
   }
 }

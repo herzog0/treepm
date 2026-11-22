@@ -267,3 +267,30 @@ describe("seção Atividade: não altera o que a página já faz", () => {
     expect(await within(await section()).findByText(/criou este ticket/)).toBeInTheDocument();
   });
 });
+
+describe("activity: idea entries (ADR 0042)", () => {
+  it("writes the five idea sentences from the catalog", async () => {
+    setup({
+      "": page([
+        entry<"idea_registered">({ type: "idea_registered" }),
+        entry<"idea_stage_changed">({ type: "idea_stage_changed", from: "new", to: "refining" }),
+        entry<"idea_accepted">({ type: "idea_accepted" }),
+        entry<"idea_discarded">({ type: "idea_discarded" }),
+        entry<"idea_reopened">({ type: "idea_reopened" }),
+      ]),
+    });
+    // A API manda da mais recente para a mais antiga; a seção mostra a mais antiga primeiro.
+    expect(await texts()).toEqual([
+      "Ana reabriu a ideia",
+      "Ana descartou a ideia",
+      "Ana aceitou a ideia",
+      "Ana mudou o estágio de Nova para Em refinamento",
+      "Ana registrou como ideia",
+    ]);
+  });
+
+  it("without an actor, writes the impersonal sentences", async () => {
+    setup({ "": page([entry<"idea_accepted">({ type: "idea_accepted", actor: null }), entry<"idea_stage_changed">({ type: "idea_stage_changed", actor: null, from: "refining", to: "ready" })]) });
+    expect(await texts()).toEqual(["Estágio mudado de Em refinamento para Pronta para triagem", "Ideia aceita"]);
+  });
+});

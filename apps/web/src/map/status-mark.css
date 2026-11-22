@@ -13,3 +13,6 @@
 .status-mark[data-state="in_review"] { --mark: var(--tp-review); }
 .status-mark[data-state="done"], .status-mark[data-state="progress"] { --mark: var(--tp-done); }
 .status-mark[data-state="cancelled"] { border-style: dashed; background: none; }
+.status-mark[data-state="idea"] { --mark: var(--tp-idea); }
+/* Ideia descartada (ADR 0042): a mesma cor, apagada com o fundo (a cópia hexadecimal é `IDEA_DISCARDED_COLOR`). */
+.status-mark[data-state="idea-discarded"] { --mark: color-mix(in srgb, var(--tp-idea) 50%, var(--tp-bg)); }

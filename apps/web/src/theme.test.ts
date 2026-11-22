@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ACCENT_COLOR, STATUS_COLORS } from "./map/items.js";
+import { ACCENT_COLOR, IDEA_COLOR, IDEA_DISCARDED_COLOR, STATUS_COLORS } from "./map/items.js";
 
 const SRC = import.meta.dirname;
 const theme = readFileSync(resolve(SRC, "theme.css"), "utf8");
@@ -27,6 +27,7 @@ const TOKENS: Record<string, string> = {
   "--tp-doing": "#6ea8ff",
   "--tp-review": "#e7b450",
   "--tp-done": "#4fc48c",
+  "--tp-idea": "#e879c6",
   "--tp-danger": "#e5687a",
   "--tp-danger-text": "#f0919b",
 };
@@ -51,6 +52,7 @@ describe("theme.css", () => {
 
   it("keeps the hexadecimal copies used by the map colors in sync with the tokens", () => {
     expect(ACCENT_COLOR).toBe(TOKENS["--tp-accent"]);
+    expect(IDEA_COLOR).toBe(TOKENS["--tp-idea"]);
     expect(STATUS_COLORS).toEqual({
       todo: TOKENS["--tp-todo"],
       in_progress: TOKENS["--tp-doing"],
@@ -58,6 +60,17 @@ describe("theme.css", () => {
       done: TOKENS["--tp-done"],
       cancelled: TOKENS["--tp-todo"],
     });
+  });
+});
+
+describe("idea color (ADR 0042)", () => {
+  it("is distinct from every status color and from the accent", () => {
+    expect([...new Set([...Object.values(STATUS_COLORS), ACCENT_COLOR])]).not.toContain(IDEA_COLOR);
+  });
+
+  it("draws the discarded idea as the idea color blended 50% with the background, the same blend the stylesheet applies", () => {
+    expect(IDEA_DISCARDED_COLOR).toBe("#78416a");
+    expect(readFileSync(resolve(SRC, "map/status-mark.css"), "utf8")).toMatch(/color-mix\(in srgb, var\(--tp-idea\) 50%, var\(--tp-bg\)\)/);
   });
 });
 

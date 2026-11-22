@@ -24,7 +24,8 @@
       "assistant_consent_required": "A IA está desligada nesta organização. Um administrador precisa ativá-la em Configurações. Crie o ticket manualmente.",
       "comment_removed": "Este comentário já foi removido.",
       "contribution_area_taken": "O ticket já tem uma contribuição dessa área.",
-      "area_in_use": "Há tickets com contribuição dessa área. Remova a contribuição neles antes de apagá-la."
+      "area_in_use": "Há tickets com contribuição dessa área. Remova a contribuição neles antes de apagá-la.",
+      "ticket_in_idea": "Este ticket faz parte de uma ideia: a situação só muda depois que a ideia for aceita."
     },
     "kind": {
       "unauthenticated": "Sua sessão expirou. Entre novamente.",

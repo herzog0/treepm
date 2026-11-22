@@ -182,6 +182,7 @@ function TicketRef({ target, onOpen, children }: { target: ActivityTicketRef; on
 
 function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket: (id: string) => void }) {
   const { t } = useTranslation("ticket");
+  const { t: tMap } = useTranslation("map");
   const statusText = useStatusText();
   const ticketText = (target: ActivityTicketRef): string => {
     if (target.id !== null) return `${target.key ?? ""} ${target.title ?? ""}`.trim();
@@ -228,6 +229,16 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
         components: { ...(from === null ? {} : { from: ref(from) }), ...(to === null ? {} : { to: ref(to) }) },
       });
     }
+    case "idea_registered":
+      return render("ideaRegistered");
+    case "idea_stage_changed":
+      return render("ideaStageChanged", { values: { from: tMap(`idea.stage.${entry.from}`), to: tMap(`idea.stage.${entry.to}`) } });
+    case "idea_accepted":
+      return render("ideaAccepted");
+    case "idea_discarded":
+      return render("ideaDiscarded");
+    case "idea_reopened":
+      return render("ideaReopened");
     case "assignee_added":
     case "assignee_removed":
       return render(entry.type === "assignee_added" ? "assigneeAdded" : "assigneeRemoved", { values: { person: entry.person?.displayName ?? t("people.removed") } });

@@ -24,7 +24,8 @@
     "progress": "Progreso",
     "people": "Personas",
     "parent": "Ticket padre",
-    "dependsOn": "Depende de"
+    "dependsOn": "Depende de",
+    "idea": "Idea"
   },
   "create": {
     "heading": "Nuevo ticket",
@@ -33,7 +34,8 @@
     "title": "Título",
     "description": "Descripción",
     "submit": "Crear",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "headingIdea": "Nueva idea"
   },
   "title": {
     "label": "Título",
@@ -90,7 +92,8 @@
   "items": {
     "heading": "Elementos",
     "newHere": "Nuevo ticket aquí dentro",
-    "empty": "Ningún ticket aquí dentro."
+    "empty": "Ningún ticket aquí dentro.",
+    "newIdeaHere": "Nueva idea aquí dentro"
   },
   "mentionedBy": {
     "heading": "Mencionado en"
@@ -209,7 +212,17 @@
     "contributionPersonAdded": "<who>{{actor}}</who> agregó a <name>{{person}}</name> en <name>{{area}}</name>",
     "contributionPersonAdded_noActor": "<name>{{person}}</name> agregada en <name>{{area}}</name>",
     "contributionPersonRemoved": "<who>{{actor}}</who> quitó a <name>{{person}}</name> de <name>{{area}}</name>",
-    "contributionPersonRemoved_noActor": "<name>{{person}}</name> quitada de <name>{{area}}</name>"
+    "contributionPersonRemoved_noActor": "<name>{{person}}</name> quitada de <name>{{area}}</name>",
+    "ideaRegistered": "<who>{{actor}}</who> registró esto como idea",
+    "ideaRegistered_noActor": "Registrado como idea",
+    "ideaStageChanged": "<who>{{actor}}</who> cambió la etapa de <name>{{from}}</name> a <name>{{to}}</name>",
+    "ideaStageChanged_noActor": "Etapa cambiada de <name>{{from}}</name> a <name>{{to}}</name>",
+    "ideaAccepted": "<who>{{actor}}</who> aceptó la idea",
+    "ideaAccepted_noActor": "Idea aceptada",
+    "ideaDiscarded": "<who>{{actor}}</who> descartó la idea",
+    "ideaDiscarded_noActor": "Idea descartada",
+    "ideaReopened": "<who>{{actor}}</who> reabrió la idea",
+    "ideaReopened_noActor": "Idea reabierta"
   },
   "contributions": {
     "heading": "Áreas",
@@ -242,5 +255,16 @@
       "loading": "Cargando comentarios…",
       "empty": "No hay comentarios en esta área."
     }
+  },
+  "idea": {
+    "stageMenu": "Etapa de la idea",
+    "partOf": "Parte de la idea",
+    "accept": "Aceptar",
+    "discard": "Descartar",
+    "reopen": "Reabrir",
+    "acceptMessage": "La idea y todo lo que está dentro de ella pasan a ser tickets comunes, en el mismo lugar, en “Por hacer”.",
+    "discardMessage": "Todo el subárbol sigue fuera del proceso, dibujado más tenue. Se puede reabrir después.",
+    "make": "Convertir en idea",
+    "makeRefused": "No se puede convertir en idea un ticket con trabajo en curso o terminado, en él o debajo de él."
   }
 }

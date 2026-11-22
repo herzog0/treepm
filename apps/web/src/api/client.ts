@@ -51,6 +51,16 @@ const projectSchema = z.object({
 });
 const projectTeamSchema = z.object({ projectId: z.string(), teamId: z.string() });
 const ticketStatus = z.enum(["todo", "in_progress", "in_review", "done", "cancelled"]);
+/** Estágios de ideia (ADR 0042): fora do processo, separados da situação. */
+const ideaStage = z.enum(["new", "refining", "ready", "discarded"]);
+/**
+ * Lugar do ticket numa ideia (ADR 0042): `null` (ou ausente, numa API que ainda não manda o campo) para o ticket comum;
+ * a raiz de uma ideia traz o estágio; um ticket dentro dela traz a raiz.
+ */
+const ideaSchema = z
+  .union([z.object({ root: z.literal(true), stage: ideaStage }), z.object({ root: z.literal(false), rootId: z.string(), rootKey: z.string() })])
+  .nullable()
+  .optional();
 const ticketSummarySchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -61,7 +71,8 @@ const ticketSummarySchema = z.object({
   /** Situação própria, sempre presente (ADR 0034): todo ticket pode ter filhos e continua sendo trabalho. */
   status: ticketStatus,
   /** Sobre todos os descendentes; `null` quando o ticket não tem filhos. */
-  progress: z.object({ done: z.number(), total: z.number(), excluded: z.number() }).nullable(),
+  progress: z.object({ done: z.number(), total: z.number(), excluded: z.number(), /** Raízes de ideia abaixo do ticket, fora de `done`, `total` e `excluded` (ADR 0042); ausente = zero. */ ideas: z.number().optional() }).nullable(),
+  idea: ideaSchema,
   assigneeIds: z.array(z.string()),
   /** Primeiros caracteres da descrição, para o card em "detalhe" do mapa (ADR 0027). */
   descriptionExcerpt: z.string(),
@@ -83,6 +94,8 @@ const ticketDetailSchema = ticketSummarySchema.extend({
   /** Quem lê pode mexer nelas (falso em projeto arquivado). */
   canEditContributions: z.boolean().optional(),
   description: z.string(),
+  /** Quem lê pode aceitar e descartar a ideia (gestor do projeto, ADR 0042); ausente = não. */
+  canTriageIdea: z.boolean().optional(),
   /** Os tickets do projeto que mencionam este na descrição, em ordem de número (ADR 0037). */
   mentionedBy: z.array(ticketLinkSchema),
   /** Os tickets de que este depende e os que dependem deste, em ordem de número (ADR 0037). */
@@ -187,6 +200,11 @@ const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("description_changed") }),
   z.object({ ...activityBase, type: z.literal("status_changed"), from: ticketStatus, to: ticketStatus, automatic: z.boolean(), causedBy: activityTicketSchema.nullable() }),
   z.object({ ...activityBase, type: z.literal("parent_changed"), from: activityTicketSchema.nullable(), to: activityTicketSchema.nullable() }),
+  z.object({ ...activityBase, type: z.literal("idea_registered") }),
+  z.object({ ...activityBase, type: z.literal("idea_stage_changed"), from: ideaStage, to: ideaStage }),
+  z.object({ ...activityBase, type: z.literal("idea_accepted") }),
+  z.object({ ...activityBase, type: z.literal("idea_discarded") }),
+  z.object({ ...activityBase, type: z.literal("idea_reopened") }),
   z.object({ ...activityBase, type: z.literal("assignee_added"), person: activityPersonSchema.nullable() }),
   z.object({ ...activityBase, type: z.literal("assignee_removed"), person: activityPersonSchema.nullable() }),
   z.object({ ...activityBase, type: z.literal("dependency_added"), ticket: activityTicketSchema }),
@@ -255,6 +273,8 @@ export type ProjectMember = z.output<typeof projectMemberSchema>;
 export type Project = z.output<typeof projectSchema>;
 export type ProjectTeam = z.output<typeof projectTeamSchema>;
 export type TicketStatus = z.output<typeof ticketStatus>;
+export type IdeaStage = z.output<typeof ideaStage>;
+export type TicketIdea = NonNullable<z.output<typeof ideaSchema>>;
 export type TicketSummary = z.output<typeof ticketSummarySchema>;
 export type TicketDetail = z.output<typeof ticketDetailSchema>;
 export type Contribution = z.output<typeof contributionSchema>;
@@ -321,6 +341,8 @@ export interface CreateTicketBody {
   parentId?: string | null;
   status?: TicketStatus;
   assigneeIds?: string[];
+  /** Registra o ticket como raiz de uma ideia, no estágio "Nova" (ADR 0042). */
+  idea?: boolean;
 }
 export interface UpdateTicketBody {
   title?: string;
@@ -451,6 +473,12 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       request("POST", `${project(projectId)}/tickets`, ticketDetailSchema, body),
     updateTicket: (id: string, body: UpdateTicketBody) => request("PATCH", ticket(id), ticketDetailSchema, body),
     removeTicket: (id: string) => request("DELETE", ticket(id), null),
+    /** Ideias (ADR 0042): todas devolvem o detalhe do ticket. Mudar o estágio é de quem edita; aceitar e descartar, do gestor. */
+    putIdeaStage: (id: string, body: { stage: Exclude<IdeaStage, "discarded"> }) => request("PUT", `${ticket(id)}/idea-stage`, ticketDetailSchema, body),
+    acceptIdea: (id: string) => request("POST", `${ticket(id)}/idea/accept`, ticketDetailSchema),
+    discardIdea: (id: string) => request("POST", `${ticket(id)}/idea/discard`, ticketDetailSchema),
+    /** Transforma um ticket comum em ideia (409 com código próprio quando há trabalho em andamento nele ou abaixo dele). */
+    makeIdea: (id: string) => request("POST", `${ticket(id)}/idea`, ticketDetailSchema),
     putTicketAssignee: (id: string, personId: string) =>
       request("PUT", `${ticket(id)}/assignees/${personId}`, ticketDetailSchema),
     removeTicketAssignee: (id: string, personId: string) =>

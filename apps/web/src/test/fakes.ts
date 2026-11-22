@@ -72,6 +72,8 @@ interface FakeData {
   mcp?: FakeMcp;
   /** Liga as rotas do aceite da organização para a IA (ADR 0039) com as regras do contrato; sem isso elas lançam, como o resto. */
   aiConsent?: FakeAiConsent;
+  /** Quem lê pode aceitar e descartar ideias (`canTriageIdea` do detalhe; padrão: sim). Só o cliente em árvore usa. */
+  canTriageIdea?: boolean;
   /** Conversas de criação com a IA, por ID, para `createTicketFromConversation` do cliente em árvore; sem entrada, o rascunho é o padrão. */
   conversations?: Record<string, ConversationDetail>;
 }
@@ -452,7 +454,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "createTeam", "renameTeam", "removeTeam", "putTeamMember", "removeTeamMember",
     "createArea", "renameArea", "removeArea", "getProject", "createProject", "updateProject",
     "putProjectMember", "removeProjectMember", "putProjectTeam", "removeProjectTeam",
-    "getTicket", "createTicket", "updateTicket", "removeTicket", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency",
+    "getTicket", "createTicket", "updateTicket", "removeTicket", "putIdeaStage", "acceptIdea", "discardIdea", "makeIdea", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency",
     "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement",
     "createTicketFromConversation", "listConversations", "getConversation", "removeConversation",
     ...GITHUB_NAMES,
@@ -496,14 +498,24 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
   const childrenOf = (id: string) => all.filter((entry) => entry.parentId === id);
   const descendantsOf = (id: string): TicketSummary[] => childrenOf(id).flatMap((child) => [child, ...descendantsOf(child.id)]);
   const open = (entry: TicketSummary) => entry.status !== "done" && entry.status !== "cancelled";
+  /** A raiz de ideia em que o ticket está (ele próprio ou um ancestral), se houver (ADR 0042). */
+  const ideaRootOf = (entry: TicketSummary): TicketSummary | undefined => {
+    for (let at: TicketSummary | undefined = entry; at; at = at.parentId === null ? undefined : find(at.parentId)) if (at.idea?.root === true) return at;
+    return undefined;
+  };
   const withProgress = (entry: TicketSummary): TicketSummary => {
-    const below = descendantsOf(entry.id);
-    if (below.length === 0) return { ...entry, progress: null };
+    const root = ideaRootOf(entry);
+    const idea = root === undefined ? null : root.id === entry.id ? entry.idea : { root: false as const, rootId: root.id, rootKey: root.key };
+    // Ideias não entram na conta (ADR 0042): `ideas` conta as raízes abaixo.
+    const below = descendantsOf(entry.id).filter((item) => ideaRootOf(item) === undefined);
+    const ideas = descendantsOf(entry.id).filter((item) => item.idea?.root === true).length;
+    if (below.length === 0 && ideas === 0) return { ...entry, idea, progress: null };
     const excluded = below.filter((item) => item.status === "cancelled").length;
-    return { ...entry, progress: { done: below.filter((item) => item.status === "done").length, total: below.length - excluded, excluded } };
+    return { ...entry, idea, progress: { done: below.filter((item) => item.status === "done").length, total: below.length - excluded, excluded, ...(ideas > 0 ? { ideas } : {}) } };
   };
   const detail = (entry: TicketSummary): TicketDetail => ({
     ...withProgress(entry),
+    canTriageIdea: data.canTriageIdea ?? true,
     description: descriptions.get(entry.id) ?? "",
     mentionedBy: [], dependsOn: [], blocks: [],
     contributions: [], canEditContributions: true,
@@ -529,10 +541,10 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
     }),
     createTicket: vi.fn(async (projectId, body) => {
       const number = Math.max(0, ...all.filter((entry) => entry.projectId === projectId).map((entry) => entry.number)) + 1;
-      const entry = makeTicket(`new-${projectId}-${number}`, projectId, number, body.title, { parentId: body.parentId ?? null, status: body.status ?? "todo" });
+      const entry = makeTicket(`new-${projectId}-${number}`, projectId, number, body.title, { parentId: body.parentId ?? null, status: body.status ?? "todo", ...(body.idea ? { idea: { root: true as const, stage: "new" as const } } : {}) });
       all.push(entry);
       if (body.description) descriptions.set(entry.id, body.description);
-      if (open(entry)) reopenFrom(entry.parentId);
+      if (open(entry) && ideaRootOf(entry) === undefined) reopenFrom(entry.parentId);
       return ok(detail(entry));
     }),
     createTicketFromConversation: vi.fn(async (id: string, body) => {
@@ -565,12 +577,44 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
       if (body.parentId !== undefined) {
         for (let at = body.parentId; at !== null; at = find(at)?.parentId ?? null) if (at === id) return conflict("ticket_cycle");
       }
-      if (body.status === "done" && childrenOf(id).some(open)) return conflict("ticket_has_open_children");
+      if (body.status !== undefined && ideaRootOf(entry)) return conflict("ticket_in_idea");
+      if (body.status === "done" && childrenOf(id).some((child) => open(child) && ideaRootOf(child) === undefined)) return conflict("ticket_has_open_children");
       if (body.title !== undefined) entry.title = body.title;
       if (body.description !== undefined) descriptions.set(id, body.description);
       if (body.parentId !== undefined) entry.parentId = body.parentId;
       if (body.status !== undefined) entry.status = body.status;
       if ((body.status !== undefined || body.parentId !== undefined) && open(entry)) reopenFrom(entry.parentId);
+      return ok(detail(entry));
+    }),
+    putIdeaStage: vi.fn(async (id: string, body) => {
+      const entry = find(id);
+      if (!entry) return failed("not_found");
+      if (entry.idea?.root !== true) return conflict("ticket_not_idea");
+      entry.idea = { root: true, stage: body.stage };
+      return ok(detail(entry));
+    }),
+    acceptIdea: vi.fn(async (id: string) => {
+      const entry = find(id);
+      if (!entry) return failed("not_found");
+      if (data.canTriageIdea === false) return failed("forbidden");
+      if (entry.idea?.root !== true) return conflict("ticket_not_idea");
+      entry.idea = null;
+      reopenFrom(entry.parentId);
+      return ok(detail(entry));
+    }),
+    discardIdea: vi.fn(async (id: string) => {
+      const entry = find(id);
+      if (!entry) return failed("not_found");
+      if (data.canTriageIdea === false) return failed("forbidden");
+      if (entry.idea?.root !== true) return conflict("ticket_not_idea");
+      entry.idea = { root: true, stage: "discarded" };
+      return ok(detail(entry));
+    }),
+    makeIdea: vi.fn(async (id: string) => {
+      const entry = find(id);
+      if (!entry) return failed("not_found");
+      if ([entry, ...descendantsOf(id)].some((item) => item.status === "in_progress" || item.status === "in_review" || item.status === "done")) return conflict("ticket_has_work");
+      entry.idea = { root: true, stage: "new" };
       return ok(detail(entry));
     }),
     removeTicket: vi.fn(async (id: string) => {

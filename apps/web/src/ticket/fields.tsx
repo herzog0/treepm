@@ -2,10 +2,11 @@ import { forwardRef, useEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { ApiClient, Person, TicketDetail, TicketStatus, TicketSummary, UpdateTicketBody } from "../api/client.js";
+import type { ApiClient, IdeaStage, Person, TicketDetail, TicketStatus, TicketSummary, UpdateTicketBody } from "../api/client.js";
 import { useDescribeApiError } from "../api/errorText.js";
 import { useStatusText } from "../map/nodeContent.js";
 import { StatusMark } from "../map/StatusMark.js";
+import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { OptionMenu } from "./menu.js";
 import { useAction } from "../panel/useAction.js";
 import { isOpenStatus, reopenedNoticeText, reopensOnReceiving } from "./reopen.js";
@@ -244,6 +245,87 @@ export function StatusField({ client, detail, openItems, onSaved }: FieldBase & 
       />
       {action.error?.code === "ticket_has_open_children" ? <p role="alert" className="ticket-error">{openItemsText(t, openItems)}</p> : <ActionError action={action} />}
     </>
+  );
+}
+
+const IDEA_STAGES: readonly Exclude<IdeaStage, "discarded">[] = ["new", "refining", "ready"];
+
+/** Marcador e nome do estágio de uma ideia (ADR 0042): o valor da linha "Ideia", com ou sem menu. */
+export function IdeaStageValue({ stage }: { stage: IdeaStage }) {
+  const { t } = useTranslation("map");
+  return (
+    <>
+      <StatusMark idea={{ discarded: stage === "discarded" }} />
+      {t(`idea.stage.${stage}`)}
+    </>
+  );
+}
+
+/**
+ * Linha "Ideia" da raiz de uma ideia (ADR 0042), no lugar da situação. Quem edita muda o estágio num menu; quem pode fazer a
+ * triagem (`canTriage`) também aceita e descarta, cada um com a confirmação que diz o que acontece com a subárvore. A ideia
+ * descartada mostra "Descartada" e "Reabrir" (volta para "Em refinamento"). Quem só lê vê o estágio.
+ */
+export function IdeaField({ client, detail, stage, canEdit, canTriage, onSaved }: FieldBase & { stage: IdeaStage; canEdit: boolean; canTriage: boolean }) {
+  const { t } = useTranslation("ticket");
+  const { t: tMap } = useTranslation("map");
+  const action = useAction();
+  const run = async (call: () => ReturnType<typeof client.acceptIdea>) => {
+    if (action.busy) return;
+    const result = await action.run(call);
+    if (result.ok) onSaved();
+  };
+  if (!canEdit) {
+    return (
+      <span className="ticket-value">
+        <IdeaStageValue stage={stage} />
+      </span>
+    );
+  }
+  const stageValue = <IdeaStageValue stage={stage} />;
+  return (
+    <>
+      <span className="ticket-idea-row">
+        {stage === "discarded" ? (
+          <>
+            <span className="ticket-value">{stageValue}</span>
+            <button type="button" className="text" disabled={action.busy} onClick={() => void run(() => client.putIdeaStage(detail.id, { stage: "refining" }))}>{t("idea.reopen")}</button>
+          </>
+        ) : (
+          <>
+            <OptionMenu
+              label={t("idea.stageMenu")}
+              trigger={stageValue}
+              options={IDEA_STAGES.map((value) => ({ value, label: tMap(`idea.stage.${value}`), mark: <StatusMark idea={{ discarded: false }} /> }))}
+              value={stage as (typeof IDEA_STAGES)[number]}
+              disabled={action.busy}
+              onChoose={(next) => void run(() => client.putIdeaStage(detail.id, { stage: next }))}
+            />
+            {canTriage && (
+              <>
+                <ConfirmAction label={t("idea.accept")} tone="neutral" message={t("idea.acceptMessage")} disabled={action.busy} onConfirm={() => void run(() => client.acceptIdea(detail.id))} />
+                <ConfirmAction label={t("idea.discard")} message={t("idea.discardMessage")} disabled={action.busy} onConfirm={() => void run(() => client.discardIdea(detail.id))} />
+              </>
+            )}
+          </>
+        )}
+      </span>
+      <ActionError action={action} />
+    </>
+  );
+}
+
+/** Linha "Situação" de um ticket dentro de uma ideia (ADR 0042): "Parte da ideia <chave>", com o link para a raiz; sem menu. */
+export function InsideIdeaValue({ rootId, rootKey, discarded, onOpen }: { rootId: string; rootKey: string; discarded: boolean; onOpen: (id: string) => void }) {
+  const { t } = useTranslation("ticket");
+  return (
+    <span className="ticket-value">
+      <StatusMark idea={{ discarded }} />
+      <span>
+        {t("idea.partOf")}{" "}
+        <button type="button" className="ticket-activity-ref" onClick={() => onOpen(rootId)}>{rootKey}</button>
+      </span>
+    </span>
   );
 }
 

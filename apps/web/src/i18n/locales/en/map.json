@@ -66,5 +66,17 @@
   },
   "person": {
     "unknown": "Unknown person"
+  },
+  "idea": {
+    "inside": "Idea",
+    "root": "Idea · {{stage}}",
+    "stage": {
+      "new": "New",
+      "refining": "Refining",
+      "ready": "Ready for triage",
+      "discarded": "Discarded"
+    },
+    "count_one": "{{count}} idea",
+    "count_other": "{{count}} ideas"
   }
 }

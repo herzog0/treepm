@@ -36,7 +36,7 @@ function CardContent({ context }: { context: SpatialNodeContent<MapNode> }) {
   if (lod === "chip") {
     return (
       <>
-        {ticket && <TicketMark ticket={ticket} />}
+        {ticket && <TicketMark ticket={ticket} discarded={node.ideaDiscarded} />}
         <strong>{node.label}</strong>
       </>
     );
@@ -48,7 +48,7 @@ function CardContent({ context }: { context: SpatialNodeContent<MapNode> }) {
       <strong>{node.label}</strong>
       {ticket && (
         <span className="node-state">
-          <TicketMark ticket={ticket} />
+          <TicketMark ticket={ticket} discarded={node.ideaDiscarded} />
           {lod === "full" && <span>{cardStateText(t, ticket)}</span>}
         </span>
       )}
