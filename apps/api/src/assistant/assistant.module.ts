@@ -10,15 +10,17 @@ import { BranchSummaryController } from "./branch-summary.controller.js";
 import { TicketConversationsController } from "./conversations.controller.js";
 import { TicketsModule } from "../tickets/tickets.module.js";
 import { ClaudeBranchSummarizer } from "./claude-branch-summarizer.js";
+import { ClaudeDescriptionWriter } from "./claude-description-writer.js";
+import { DescriptionDraftController } from "./description-draft.controller.js";
 import { ClaudeGroupNamer } from "./claude-group-namer.js";
 import { JevAffinityJudge } from "./jev-affinity-judge.js";
 import { JevBranchJudge, sdkSystemOne } from "./jev-branch-judge.js";
 import { PlacementService } from "./placement.service.js";
-import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, GROUP_NAMER, PLACEMENT_TIMEOUTS } from "./ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS } from "./ports.js";
 
 @Module({
   imports: [AccessModule, TicketsModule],
-  controllers: [TicketConversationsController, BranchSummaryController],
+  controllers: [TicketConversationsController, BranchSummaryController, DescriptionDraftController],
   providers: [
     ActivityService,
     PlacementService,
@@ -62,6 +64,14 @@ import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER,
       useFactory: (config: AppConfig) =>
         assistantEnabled(config) && config.ANTHROPIC_API_KEY
           ? new ClaudeGroupNamer(sdkStreamer(new Anthropic({ apiKey: config.ANTHROPIC_API_KEY, maxRetries: 0 })))
+          : null,
+    },
+    {
+      provide: DESCRIPTION_WRITER,
+      inject: [CONFIG],
+      useFactory: (config: AppConfig) =>
+        assistantEnabled(config) && config.ANTHROPIC_API_KEY
+          ? new ClaudeDescriptionWriter(sdkStreamer(new Anthropic({ apiKey: config.ANTHROPIC_API_KEY, maxRetries: 0 })))
           : null,
     },
     // Os prazos da ADR (30 s a descida, 20 s a proposta) valem quando nada os troca; os testes trocam.

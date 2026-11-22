@@ -59,3 +59,19 @@
 .description-hint { margin: 10px 0 0; color: var(--tp-text-3); font-size: 12px; }
 .ticket-page .description-invite { display: block; width: 100%; min-height: 30px; margin: 6px 0 0; padding: 0 8px; border: 0; border-radius: var(--tp-radius-control); background: transparent; color: var(--tp-text-3); font: inherit; text-align: left; cursor: text; }
 .ticket-page .description-invite:hover:not(:disabled) { border: 0; background: color-mix(in srgb, var(--tp-selected) 45%, transparent); }
+
+/* Pedir ao assistente para escrever (fatia 5): o campo e a proposta, junto do cursor como os menus. */
+.description-menu-separator { height: 1px; margin: 4px 2px; background: var(--tp-border); }
+.description-writer { position: fixed; z-index: 40; box-sizing: border-box; max-height: min(70vh, 480px); display: flex; flex-direction: column; gap: 6px; overflow: auto; padding: 8px; border: 1px solid var(--tp-border-strong); border-radius: var(--tp-radius-panel); background: var(--tp-card); box-shadow: 0 16px 40px color-mix(in srgb, var(--tp-bg) 65%, transparent); font: 400 13px/1.4 var(--tp-font); }
+.description-writer-input { box-sizing: border-box; width: 100%; min-height: 32px; padding: 0 10px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-bar); color: var(--tp-text); font: inherit; }
+.description-writer-input:focus-visible { outline: none; border-color: var(--tp-accent); }
+.description-writer-input[readonly] { color: var(--tp-text-3); cursor: progress; }
+.description-writer-hint { padding: 0 2px; color: var(--tp-text-3); font-size: 11.5px; }
+.description-writer-status { min-height: 0; color: var(--tp-accent-soft); }
+.description-writer-status:empty { display: none; }
+.description-writer-error { display: flex; align-items: center; gap: 10px; }
+.description-writer-error p { margin: 0; flex: 1; color: var(--tp-text-2); }
+.description-writer-proposal { display: flex; flex-direction: column; gap: 8px; min-height: 0; border-top: 1px solid var(--tp-border); padding-top: 8px; }
+.description-writer-text { min-height: 0; overflow: auto; }
+.description-writer-text .description { margin-top: 0; }
+.description-writer-actions { display: flex; gap: 8px; }

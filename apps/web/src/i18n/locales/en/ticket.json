@@ -101,11 +101,24 @@
     "quote": "Quote",
     "code": "Code",
     "mention": "Mention ticket",
+    "assistant": "Ask the assistant to write",
     "empty": "No block matches."
   },
   "mention": {
     "label": "Mention ticket",
     "footer": "Enter inserts · Esc closes",
     "empty": "No ticket found."
+  },
+  "writer": {
+    "label": "Ask the assistant to write",
+    "prompt": "What should the assistant write?",
+    "hint": "Enter sends · Esc closes",
+    "writing": "Writing…",
+    "writingHint": "Esc cancels",
+    "proposal": "Assistant's proposal",
+    "insert": "Insert",
+    "discard": "Discard",
+    "error": "The assistant isn't available right now.",
+    "retry": "Try again"
   }
 }

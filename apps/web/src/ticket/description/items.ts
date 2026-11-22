@@ -1,10 +1,11 @@
+import type { Editor, Range } from "@tiptap/core";
 import type { TFunction } from "i18next";
 import { fold, MAX_RESULTS, searchTickets } from "../../command/search.js";
 import type { MentionContext } from "./decorations.js";
 import type { MenuItem } from "./suggestions.js";
 
 /** Os blocos do menu "/" (ADR 0036), com o atalho de markdown que faz o mesmo. */
-export function blockItems(t: TFunction<"ticket">, query: string): MenuItem[] {
+export function blockItems(t: TFunction<"ticket">, query: string, askAssistant?: (editor: Editor, range: Range) => void): MenuItem[] {
   const all: MenuItem[] = [
     { id: "text", label: t("blocks.text"), glyph: "T", hint: "", run: (editor, range) => void editor.chain().focus().deleteRange(range).setParagraph().run() },
     { id: "heading", label: t("blocks.heading"), glyph: "H", hint: "#", run: (editor, range) => void editor.chain().focus().deleteRange(range).setHeading({ level: 1 }).run() },
@@ -14,6 +15,10 @@ export function blockItems(t: TFunction<"ticket">, query: string): MenuItem[] {
     { id: "code", label: t("blocks.code"), glyph: "<>", hint: "```", run: (editor, range) => void editor.chain().focus().deleteRange(range).toggleCodeBlock().run() },
     // Escrever "@" no lugar abre a lista de tickets pelo mesmo caminho de quem digita.
     { id: "mention", label: t("blocks.mention"), glyph: "@", hint: "@", run: (editor, range) => void editor.chain().focus().deleteRange(range).insertContent("@").run() },
+    // Só com o assistente ligado e a pessoa podendo editar: depois de uma linha separadora.
+    ...(askAssistant
+      ? [{ id: "assistant", label: t("blocks.assistant"), glyph: "✦", hint: "", separatorBefore: true, run: (editor: Editor, range: Range) => askAssistant(editor, range) }]
+      : []),
   ];
   const needle = fold(query).trim();
   return needle === "" ? all : all.filter((item) => fold(item.label).includes(needle));

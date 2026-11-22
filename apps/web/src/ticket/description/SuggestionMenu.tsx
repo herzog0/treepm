@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { StatusMark } from "../../map/StatusMark.js";
@@ -42,8 +43,9 @@ export function SuggestionMenu({ state, idPrefix }: { state: MenuState; idPrefix
       <div className="description-menu-title" aria-hidden="true">{blocks ? t("blocks.label") : t("mention.label")}</div>
       {state.items.length === 0 && <div className="description-menu-empty">{blocks ? t("blocks.empty") : t("mention.empty")}</div>}
       {state.items.map((item, index) => (
+        <Fragment key={item.id}>
+          {item.separatorBefore && index > 0 && <div className="description-menu-separator" role="separator" />}
         <button
-          key={item.id}
           id={optionId(idPrefix, index)}
           type="button"
           tabIndex={-1}
@@ -66,6 +68,7 @@ export function SuggestionMenu({ state, idPrefix }: { state: MenuState; idPrefix
             </>
           )}
         </button>
+        </Fragment>
       ))}
       {!blocks && <div className="description-menu-foot">{t("mention.footer")}</div>}
     </div>

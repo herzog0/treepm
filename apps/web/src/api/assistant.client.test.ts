@@ -205,3 +205,23 @@ describe("ticket summary calls (ADR 0033, ADR 0034)", () => {
     expect(down).toEqual({ ok: false, error: { kind: "unavailable", code: "assistant_unavailable" } });
   });
 });
+
+describe("description draft", () => {
+  it("asks for a text with POST, sends the request and the current text, and can be aborted", async () => {
+    const { client, fetchImpl } = setup({ text: "## Critérios", model: "m" });
+    const controller = new AbortController();
+    const result = await client.draftTicketDescription(ID, { request: "Escreva", description: "Texto" }, { signal: controller.signal });
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/tickets/${ID}/description/draft`, method: "POST", body: { request: "Escreva", description: "Texto" } });
+    expect(fetchImpl.mock.calls.at(-1)![1]?.signal).toBe(controller.signal);
+    expect(result).toEqual({ ok: true, data: { text: "## Critérios", model: "m" } });
+  });
+  it("an aborted request is a failure, never an exception", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new DOMException("aborted", "AbortError"));
+    const client = createApiClient({ getToken: async () => "tok", fetch: fetchImpl });
+    expect(await client.draftTicketDescription(ID, { request: "x", description: "" })).toEqual({ ok: false, error: { kind: "unavailable" } });
+  });
+  it("keeps the 503 code when the assistant is down", async () => {
+    const down = await setup({ error: { code: "assistant_unavailable" } }, 503).client.draftTicketDescription(ID, { request: "x", description: "" });
+    expect(down).toEqual({ ok: false, error: { kind: "unavailable", code: "assistant_unavailable" } });
+  });
+});

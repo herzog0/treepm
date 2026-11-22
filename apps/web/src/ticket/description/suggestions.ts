@@ -13,6 +13,8 @@ export interface MenuItem {
   /** Bloco: o glifo e o atalho de markdown mostrados na linha. */
   glyph?: string;
   hint?: string;
+  /** Uma linha separadora antes deste item (o do assistente). */
+  separatorBefore?: boolean;
   /** Menção: o ticket. */
   ticket?: TicketSummary;
   run: (editor: Editor, range: Range) => void;
