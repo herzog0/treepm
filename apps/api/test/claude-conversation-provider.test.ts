@@ -221,14 +221,24 @@ describe("o prompt de sistema da conversa (ADR 0044)", () => {
     expect(SYSTEM_PROMPT).not.toContain(phrase);
   });
 
-  it("manda propor filhos quando a pessoa pede a quebra ou o pedido tem partes independentes, e perguntar uma vez na dúvida", () => {
+  it("manda propor filhos por padrão com três ou mais peças, mesmo sem pedido, e um ticket só para ação única", () => {
     expect(SYSTEM_PROMPT).toContain('"children"');
     expect(SYSTEM_PROMPT).toMatch(/quebrar, dividir ou separar/);
-    expect(SYSTEM_PROMPT).toMatch(/partes independentes/);
-    expect(SYSTEM_PROMPT).toMatch(/pergunte uma vez/);
+    expect(SYSTEM_PROMPT).toMatch(/mesmo sem ela pedir/);
+    expect(SYSTEM_PROMPT).toMatch(/três ou mais peças/);
+    expect(SYSTEM_PROMPT).toMatch(/duas peças/);
+    expect(SYSTEM_PROMPT).toMatch(/Cada peça vira um filho/);
+    expect(SYSTEM_PROMPT).toMatch(/juntar tudo num ticket só/);
+    expect(SYSTEM_PROMPT).toMatch(/ação única/);
+    expect(SYSTEM_PROMPT).toMatch(/passos da mesma entrega não são peças/);
     expect(SYSTEM_PROMPT).toMatch(/até 20 filhos/);
     expect(SYSTEM_PROMPT).toMatch(/só um nível/);
-    expect(SYSTEM_PROMPT).toMatch(/ticket só/);
+  });
+
+  it("não traz mais a regra antiga de partes independentes feitas por pessoas diferentes", () => {
+    expect(SYSTEM_PROMPT).not.toContain("pessoas diferentes fariam em momentos diferentes");
+    expect(SYSTEM_PROMPT).not.toContain("pessoas diferentes em momentos diferentes");
+    expect(SYSTEM_PROMPT).not.toMatch(/partes independentes/);
   });
 
   it("manda preservar o pedido: não reescrever nem resumir, palavras dela, nada fica de fora", () => {

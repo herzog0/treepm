@@ -1,0 +1,43 @@
+{
+  "id": "trocar-texto-em-telas",
+  "messages": [
+    "trocar 'Salvar' por 'Gravar' nas telas de Configurações, Times e Projeto"
+  ],
+  "expectChildren": false,
+  "mustMention": [
+    {
+      "label": "Salvar",
+      "anyOf": [
+        "salvar"
+      ]
+    },
+    {
+      "label": "Gravar",
+      "anyOf": [
+        "gravar"
+      ]
+    },
+    {
+      "label": "Configurações",
+      "anyOf": [
+        "configurações"
+      ]
+    },
+    {
+      "label": "Times",
+      "anyOf": [
+        "times"
+      ]
+    },
+    {
+      "label": "Projeto",
+      "anyOf": [
+        "projeto"
+      ]
+    }
+  ],
+  "mustNotMention": [
+    "critérios de aceite",
+    "resultado esperado"
+  ]
+}

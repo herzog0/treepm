@@ -158,17 +158,29 @@ describe("cobertura da conferência do aceite", () => {
     }
   });
 
-  it("nas ferramentas de linha de comando, quem monta provedor de verdade é só o verificador (dados fictícios) e as duas entradas conferidas", () => {
+  it("nas ferramentas de linha de comando, quem monta provedor de verdade são só as ferramentas de dados fictícios (verificador e medição da conversa) e as duas entradas conferidas", () => {
     const real = /new (Anthropic|TypeSafeClient)\(/;
     const builders = files(SCRIPTS)
       .filter((file) => real.test(readFileSync(file, "utf8")))
       .map(rel)
       .sort();
-    // `verify-providers.ts` usa só texto fictício; `app.ts` (boot da API e `collect`) e `pairs-kit.ts` (`pairs`) leem tickets
+    // `verify-providers.ts` e `measure-conversation.ts` usam só texto fixo (o primeiro, fictício; a segunda, os casos em
+    // `scripts/conversation-cases/`), sem ler ticket nem dado de organização; `app.ts` (boot da API e `collect`) e `pairs-kit.ts` (`pairs`) leem tickets
     // de uma organização e são conferidos pelos pontos de entrada abaixo.
-    expect(builders).toEqual(["scripts/placement-rebuild/app.ts", "scripts/placement-rebuild/pairs-kit.ts", "scripts/verify-providers.ts"]);
+    expect(builders).toEqual([
+      "scripts/measure-conversation.ts",
+      "scripts/placement-rebuild/app.ts",
+      "scripts/placement-rebuild/pairs-kit.ts",
+      "scripts/verify-providers.ts",
+    ]);
     expect(readFileSync(join(SCRIPTS, "placement-rebuild", "app.ts"), "utf8")).toMatch(/requireAssistantConsentOfOrg\(baseConfig, options\.org\)/);
     expect(readFileSync(join(SCRIPTS, "placement-rebuild.ts"), "utf8")).toMatch(/requireAssistantConsentOfOrg\(loadConfig\(process\.env\), options\.org\)/);
     expect(readFileSync(join(SCRIPTS, "verify-providers.ts"), "utf8")).not.toMatch(/organizationConsent|requireAssistantConsent/);
+    // A medição só manda ao provedor os textos fixos dos casos: sem banco, sem dado de organização, sem `--org`.
+    const measure = readFileSync(join(SCRIPTS, "measure-conversation.ts"), "utf8");
+    const code = measure.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(code).not.toMatch(/prisma|PrismaClient|requireAssistantConsent|organizationConsent|["']org["']\s*:/i);
+    expect(code).not.toMatch(/from "\.\.\/src\/(db|prisma|database)/);
+    expect(code).toMatch(/conversation-cases/);
   });
 });
