@@ -34,11 +34,11 @@ Usamos fornecedores que tratam dados em nosso nome:
 | Fornecedor | O que faz | Onde |
 | --- | --- | --- |
 | Clerk | Cadastro, login e organizações | `[A PREENCHER: confirmar região]` |
-| Neon | Banco de dados | São Paulo |
-| Fly.io | Servidores da aplicação | São Paulo |
-| GitHub | Leitura de repositórios, só para organizações que o ligam | Estados Unidos |
-| Anthropic | Assistente de IA, só para organizações que o ativam | Estados Unidos |
-| TypeSafe | Assistente de IA, só para organizações que o ativam | Estados Unidos |
+| Neon | Banco de dados | São Paulo `[A PREENCHER: confirmar depois de criado o banco de produção]` |
+| Fly.io | Servidores da aplicação | São Paulo `[A PREENCHER: confirmar depois da publicação]` |
+| GitHub | Leitura de repositórios, só para organizações que o ligam | `[A PREENCHER: confirmar região]` |
+| Anthropic | Assistente de IA, só para organizações que o ativam | `[A PREENCHER: confirmar região]` |
+| TypeSafe | Assistente de IA, só para organizações que o ativam | Estados Unidos, segundo a política dela |
 
 Não vendemos dados pessoais.
 
@@ -66,7 +66,7 @@ Se a organização permitir, você pode conectar um cliente de IA seu a um proje
 
 ## 6. Transferência internacional
 
-Alguns fornecedores ficam fora do Brasil, principalmente nos Estados Unidos. `[REVISÃO JURÍDICA: mecanismo de transferência internacional aplicável pela LGPD.]`
+Alguns fornecedores ficam fora do Brasil. `[REVISÃO JURÍDICA: mecanismo de transferência internacional aplicável pela LGPD.]`
 
 ## 7. Por quanto tempo guardamos
 
