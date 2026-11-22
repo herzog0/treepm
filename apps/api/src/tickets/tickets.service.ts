@@ -1,6 +1,6 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { descriptionExcerpt, isFinished, ticketProgress, ticketsToReopen } from "@treepm/domain";
+import { descriptionExcerpt, isFinished, mentionedKeys, ticketProgress, ticketsToReopen } from "@treepm/domain";
 import type { TicketNode, TicketStatus } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
@@ -33,6 +33,12 @@ export type TicketDetailRow = TicketRow & {
   updatedAt: Date;
 };
 
+/** Quanto a chave do projeto é seguida de "-" no texto: filtro grosso do banco; quem decide é `mentionedKeys`. */
+const MANY = 20;
+
+export type MentionSource = { id: string; number: number; description: string };
+export type MentionCounts = { created: number; removed: number };
+
 export type Progress = ReturnType<typeof ticketProgress>;
 
 export function statusOf(row: { status: string }): TicketStatus {
@@ -60,10 +66,13 @@ export function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, prog
   };
 }
 
-export function toDetail(project: Pick<ProjectRow, "key">, row: TicketDetailRow, progress: Progress): TicketDetail {
+export type MentionedByRow = { number: number; id: string; title: string; status: string };
+
+export function toDetail(project: Pick<ProjectRow, "key">, row: TicketDetailRow, progress: Progress, mentionedBy: readonly MentionedByRow[] = []): TicketDetail {
   return parseOutput(ticketDetailSchema, {
     ...toSummary(project, row, progress),
     description: row.description,
+    mentionedBy: mentionedBy.map((from) => ({ id: from.id, key: `${project.key}-${from.number}`, title: from.title, status: from.status })),
     createdByPersonId: row.createdByPersonId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -153,12 +162,102 @@ export class TicketsService {
   }
 
   async detail(tx: TenantClient, project: ProjectRow, id: string): Promise<TicketDetail> {
-    const [row, nodes] = await Promise.all([
+    const [row, nodes, mentions] = await Promise.all([
       tx.ticket.findFirstOrThrow({ where: { id }, include: { assignees: { select: { personId: true } } } }),
       tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, parentId: true, status: true } }),
+      tx.ticketRelation.findMany({
+        where: { toTicketId: id, kind: "mentions" },
+        select: { from: { select: { id: true, number: true, title: true, status: true } } },
+      }),
     ]);
     const progress = ticketProgress(toNodes(nodes));
-    return toDetail(project, row, progress);
+    const mentionedBy = mentions.map((relation) => relation.from).sort((a, b) => a.number - b.number);
+    return toDetail(project, row, progress, mentionedBy);
+  }
+
+  /**
+   * A regra única de "menciona" (ADR 0037): os números de ticket do projeto que a descrição cita (pela mesma `mentionedKeys`
+   * que a web usa), sem o próprio ticket. Não sabe se o número existe.
+   */
+  private mentionedNumbers(project: Pick<ProjectRow, "key">, source: MentionSource): number[] {
+    const prefix = `${project.key}-`;
+    const numbers = mentionedKeys(source.description)
+      .filter((key) => key.startsWith(prefix))
+      .map((key) => Number(key.slice(prefix.length)))
+      .filter((number) => Number.isSafeInteger(number) && number !== source.number);
+    return [...new Set(numbers)];
+  }
+
+  /**
+   * Faz as ligações `mentions` que saem de cada fonte serem exatamente as da sua descrição (ADR 0037): apaga as que sobraram
+   * e cria as que faltam, sem recriar as que continuam. Só lê e mexe em `kind = 'mentions'`; `depends_on` nunca é tocada.
+   * Faz uma consulta por etapa, não uma por ticket.
+   */
+  async reconcileMentions(tx: TenantClient, project: ProjectRow, sources: readonly MentionSource[]): Promise<MentionCounts> {
+    if (sources.length === 0) return { created: 0, removed: 0 };
+    const wanted = new Map(sources.map((source) => [source.id, this.mentionedNumbers(project, source)]));
+    const allNumbers = [...new Set([...wanted.values()].flat())];
+    const idOf = new Map<number, string>();
+    if (allNumbers.length > 0) {
+      const found = await tx.ticket.findMany({ where: { projectId: project.id, number: { in: allNumbers } }, select: { id: true, number: true } });
+      for (const row of found) idOf.set(row.number, row.id);
+    }
+    const existing = await tx.ticketRelation.findMany({
+      where: { fromTicketId: { in: sources.map((source) => source.id) }, kind: "mentions" },
+      select: { id: true, fromTicketId: true, toTicketId: true },
+    });
+    const wantedPairs = new Set<string>();
+    for (const [from, numbers] of wanted) for (const number of numbers) if (idOf.has(number)) wantedPairs.add(`${from}>${idOf.get(number)}`);
+    const have = new Set(existing.map((row) => `${row.fromTicketId}>${row.toTicketId}`));
+    const stale = existing.filter((row) => !wantedPairs.has(`${row.fromTicketId}>${row.toTicketId}`)).map((row) => row.id);
+    const missing = [...wantedPairs].filter((pair) => !have.has(pair)).map((pair) => pair.split(">") as [string, string]);
+    if (stale.length > 0) await tx.ticketRelation.deleteMany({ where: { id: { in: stale } } });
+    let created = 0;
+    if (missing.length > 0) {
+      // As ligações das candidatas não estão travadas: outra transação pode ter criado a mesma entre a leitura e aqui.
+      const result = await tx.ticketRelation.createMany({
+        data: missing.map(([fromTicketId, toTicketId]) => ({ orgId: project.orgId, projectId: project.id, fromTicketId, toTicketId, kind: "mentions" })),
+        skipDuplicates: true,
+      });
+      created = result.count;
+    }
+    return { created, removed: stale.length };
+  }
+
+  /** Uma descrição acaba de ser gravada (criação ou alteração): refaz as ligações que saem deste ticket. */
+  async syncMentions(tx: TenantClient, project: ProjectRow, ticket: { id: string; number: number }, description: string): Promise<void> {
+    await this.reconcileMentions(tx, project, [{ id: ticket.id, number: ticket.number, description }]);
+  }
+
+  /**
+   * Tickets com os números `numbers` acabam de ser criados (um ou vários, ainda sem as ligações deles): as descrições do
+   * projeto escritas antes que já citam essas chaves passam a ter a ligação. O banco só acha candidatas (texto que contém a
+   * chave, ou, para muitos números de uma vez, que contém a chave do projeto com hífen); quem decide é `mentionedKeys`.
+   * Uma consulta só, não uma por ticket novo.
+   */
+  async backfillMentionsTo(tx: TenantClient, project: ProjectRow, created: readonly { id: string; number: number }[]): Promise<void> {
+    if (created.length === 0) return;
+    const newIds = new Set(created.map((row) => row.id));
+    const prefix = `${project.key}-`;
+    const candidates = await tx.ticket.findMany({
+      where: {
+        projectId: project.id,
+        id: { notIn: [...newIds] },
+        ...(created.length <= MANY
+          ? { OR: created.map((row) => ({ description: { contains: `${prefix}${row.number}` } })) }
+          : { description: { contains: prefix } }),
+      },
+      select: { id: true, number: true, description: true },
+    });
+    const newNumbers = new Set(created.map((row) => row.number));
+    const sources = candidates.filter((candidate) => this.mentionedNumbers(project, candidate).some((number) => newNumbers.has(number)));
+    await this.reconcileMentions(tx, project, sources);
+  }
+
+  /** Refaz as ligações `mentions` de todos os tickets do projeto (ferramenta local) e devolve as contagens. */
+  async rebuildMentions(tx: TenantClient, project: ProjectRow): Promise<{ read: number } & MentionCounts> {
+    const sources = await tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, number: true, description: true } });
+    return { read: sources.length, ...(await this.reconcileMentions(tx, project, sources)) };
   }
 
   /**
@@ -199,6 +298,8 @@ export class TicketsService {
         createdByPersonId: principal.person.id,
       },
     });
+    await this.syncMentions(tx, project, created, created.description);
+    await this.backfillMentionsTo(tx, project, [created]);
     if (assigneeIds.length > 0) {
       await tx.ticketAssignee.createMany({
         data: assigneeIds.map((personId) => ({ orgId: project.orgId, ticketId: created.id, personId })),

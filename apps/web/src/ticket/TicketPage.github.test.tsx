@@ -16,7 +16,7 @@ const summaries: TicketSummary[] = [
   makeTicket("t3", "p1", 3, "Revisar o texto", { key: "ALFA-3", parentId: "t1" }),
 ];
 const detailOf = (summary: TicketSummary): TicketDetail => ({
-  ...summary, description: "Descrição", createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
+  ...summary, description: "Descrição", mentionedBy: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
 });
 const t2 = { id: "t2", key: "ALFA-2", title: "Escrever o texto" };
 const t3 = { id: "t3", key: "ALFA-3", title: "Revisar o texto" };

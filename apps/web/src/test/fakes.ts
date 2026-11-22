@@ -340,6 +340,7 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
   const detail = (entry: TicketSummary): TicketDetail => ({
     ...withProgress(entry),
     description: descriptions.get(entry.id) ?? "",
+    mentionedBy: [],
     createdByPersonId: "person-1",
     createdAt: "2026-11-20T10:00:00.000Z",
     updatedAt: "2026-11-20T10:00:00.000Z",

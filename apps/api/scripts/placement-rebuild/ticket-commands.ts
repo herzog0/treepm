@@ -148,3 +148,12 @@ export async function ticketUpdateCommand(ctx: TicketContext, input: TicketUpdat
   if (input.root) ctx.log(`${ticket.key}: pai → nenhum (raiz)`);
   reportReopened(ctx, reopened(before, await listRows(ctx), ticket.id));
 }
+
+/**
+ * `relations-rebuild`: refaz as ligações "menciona" de todos os tickets do projeto a partir das descrições (ADR 0037), pela
+ * rota da API e a mesma regra de quem grava descrição. Imprime só contagens. Rodar de novo não muda nada.
+ */
+export async function relationsRebuildCommand(ctx: TicketContext): Promise<void> {
+  const result = await call<{ read: number; created: number; removed: number }>("refazer ligações", ctx, "POST", `/projects/${ctx.project}/tickets/mentions/rebuild`);
+  ctx.log(`Tickets lidos: ${result.read}; ligações criadas: ${result.created}; ligações removidas: ${result.removed}`);
+}

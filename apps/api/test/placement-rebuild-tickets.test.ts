@@ -2,11 +2,12 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { APP_URL } from "@treepm/db/testing";
+import { ownerPoolWithCleanup } from "./helpers.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { bootApp } from "../scripts/placement-rebuild/app.js";
 import type { Booted } from "../scripts/placement-rebuild/app.js";
 import { ApiClient } from "../scripts/placement-rebuild/client.js";
-import { ticketCreateCommand, ticketListCommand, ticketUpdateCommand } from "../scripts/placement-rebuild/ticket-commands.js";
+import { relationsRebuildCommand, ticketCreateCommand, ticketListCommand, ticketUpdateCommand } from "../scripts/placement-rebuild/ticket-commands.js";
 import type { TicketContext } from "../scripts/placement-rebuild/ticket-commands.js";
 
 process.env["DATABASE_URL"] = APP_URL;
@@ -237,5 +238,36 @@ describe("ticket-update", () => {
     await ticketUpdateCommand(ctx, { number: 2, parent: 1 });
     expect((await detail(a)).status).not.toBe("done");
     expect(lines.join("\n")).toMatch(/reaberto/i);
+  });
+});
+
+describe("relations-rebuild", () => {
+  const owner = ownerPoolWithCleanup();
+  const withDescription = async (title: string, description: string): Promise<string> => {
+    const response = await client.request("POST", `/projects/${project}/tickets`, { title, description });
+    expect(response.status).toBe(201);
+    return (response.body as { id: string }).id;
+  };
+  const mentionedBy = async (id: string): Promise<string[]> =>
+    ((await client.request("GET", `/tickets/${id}`)).body as { mentionedBy: { key: string }[] }).mentionedBy.map((row) => row.key);
+  const countRelations = async (): Promise<number> =>
+    Number((await owner.query("select count(*) from ticket_relations where project_id = $1", [project])).rows[0].count);
+
+  it("refaz as ligações do projeto, imprime as contagens e na segunda vez não muda nada", async () => {
+    const a = await add(project, "Alvo");
+    const prefix = (await rows(project))[0]?.key.replace(/-\d+$/, "") as string;
+    await withDescription("Cita", `ver ${prefix}-1`);
+    expect(await countRelations()).toBe(1);
+    // Como num projeto cujas descrições já existiam antes da ligação ser gravada: sem ligações.
+    await owner.query("delete from ticket_relations where project_id = $1", [project]);
+    expect(await mentionedBy(a)).toEqual([]);
+    lines = [];
+    await relationsRebuildCommand(ctx);
+    expect(lines).toEqual(["Tickets lidos: 2; ligações criadas: 1; ligações removidas: 0"]);
+    expect(await mentionedBy(a)).toEqual([`${prefix}-2`]);
+    lines = [];
+    await relationsRebuildCommand(ctx);
+    expect(lines).toEqual(["Tickets lidos: 2; ligações criadas: 0; ligações removidas: 0"]);
+    expect(await countRelations()).toBe(1);
   });
 });

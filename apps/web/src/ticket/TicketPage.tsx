@@ -7,7 +7,7 @@ import { TicketCode } from "../github/TicketCode.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { canCreateTickets, canRemoveTickets } from "../import/permissions.js";
 import { LoadError } from "../LoadError.js";
-import { TicketMark, progressText, ticketStateText } from "../map/nodeContent.js";
+import { TicketMark, progressText, statusText, ticketStateText } from "../map/nodeContent.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
@@ -321,6 +321,28 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
             </div>
           </dl>
           <DescriptionField client={client} detail={detail} canEdit={canEdit} assistant={assistantEnabled(me)} tickets={list} onOpenTicket={onOpenTicket} onSaved={refresh} />
+
+          {detail.mentionedBy.length > 0 && (
+            <section className="ticket-section" aria-labelledby="ticket-mentioned-by-heading">
+              <div className="ticket-section-head">
+                <h2 id="ticket-mentioned-by-heading">{t("mentionedBy.heading")}</h2>
+              </div>
+              <ul className="ticket-children" aria-labelledby="ticket-mentioned-by-heading">
+                {detail.mentionedBy.map((from) => (
+                  <li key={from.id}>
+                    <button type="button" className="ticket-child" onClick={() => onOpenTicket(from.id)}>
+                      <span className="ticket-child-main">
+                        <TicketMark ticket={{ status: from.status, progress: null }} />
+                        <span className="ticket-key">{from.key}</span>
+                        <span className="ticket-child-title">{from.title}</span>
+                      </span>
+                      <span className="ticket-child-state">{statusText(tMap, from.status)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {children.length > 0 && assistantEnabled(me) && <ItemsSummary client={client} ticketId={detail.id} canEdit={canEdit} />}
 

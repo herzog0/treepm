@@ -548,6 +548,11 @@ describe("parseCliArgs: comandos de ticket", () => {
     expect(parseCliArgs(["ticket-create", ...base, "--title", "T"])).toMatchObject({ ok: true, command: "ticket-create", options: { title: "T" } });
     expect(parseCliArgs(["ticket-update", ...base, "--number", "3", "--status", "done"])).toMatchObject({ ok: true, options: { number: 3, status: "done" } });
   });
+  it("relations-rebuild pede só --org, --user e --project e não aceita opção de ticket", () => {
+    expect(parseCliArgs(["relations-rebuild", ...base])).toMatchObject({ ok: true, command: "relations-rebuild" });
+    expect(parseCliArgs(["relations-rebuild", "--org", "o", "--user", "u"]).ok).toBe(false);
+    expect(parseCliArgs(["relations-rebuild", ...base, "--title", "T"]).ok).toBe(false);
+  });
   it("exigem --org, --user e --project", () => {
     for (const command of ["ticket-list", "ticket-create", "ticket-update"]) {
       const parsed = parseCliArgs([command, "--org", "o", "--title", "T", "--number", "1", "--status", "done"]);

@@ -84,8 +84,12 @@ export const ticketSummarySchema = z.object({
   assigneeIds: z.array(z.string()),
 });
 
+/** Ticket que menciona outro na descrição (ADR 0037), para a seção "Mencionado em". */
+export const mentionedBySchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatusSchema });
+
 export const ticketDetailSchema = ticketSummarySchema.extend({
   description: z.string(),
+  mentionedBy: z.array(mentionedBySchema),
   createdByPersonId: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),

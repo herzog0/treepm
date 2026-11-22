@@ -16,7 +16,7 @@ const summaries: TicketSummary[] = [
   makeTicket("t4", "p1", 4, "Fase vazia", { key: "ALFA-4" }),
 ];
 const detailOf = (summary: TicketSummary): TicketDetail => ({
-  ...summary, description: "Descrição", createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
+  ...summary, description: "Descrição", mentionedBy: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
 });
 const byAi = { text: "Reúne o trabalho da entrega de dezembro.", source: "assistant" as const, updatedAt: "2026-11-21T12:00:00.000Z" };
 const byPerson = { text: "Tudo que sai em dezembro.", source: "person" as const, updatedAt: "2026-11-20T12:00:00.000Z" };
