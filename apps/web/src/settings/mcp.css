@@ -1,0 +1,43 @@
+/* Seção "Clientes de IA (MCP)" das Configurações (ADR 0038). */
+.settings-mcp p { margin: 0 0 10px; font-size: 14px; }
+.settings-mcp .settings-hint { color: var(--tp-text-2); font-size: 13px; }
+.settings-mcp h3 { margin: 18px 0 8px; font-size: 14px; font-weight: 600; }
+.settings-mcp h4 { margin: 0; font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.mcp-switch { margin-bottom: 4px; }
+.mcp-switch .settings-hint { margin: 4px 0 0; }
+.mcp-switch input[type="checkbox"] { accent-color: var(--tp-accent); }
+.mcp-tokens { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mcp-token { display: grid; justify-items: start; gap: 8px; padding: 10px 12px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-field); background: var(--tp-card); }
+.mcp-token-inactive { opacity: 0.55; }
+.mcp-token-head, .mcp-token-meta { justify-self: stretch; }
+.mcp-token-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.mcp-token-status { color: var(--tp-text-2); font-size: 12px; }
+.mcp-token-status-active { color: var(--tp-done); }
+.mcp-token-status-revoked { color: var(--tp-danger-text); }
+.mcp-token-person { margin-left: auto; color: var(--tp-text-2); font-size: 12px; }
+.mcp-token-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px 14px; margin: 0; font-size: 12px; }
+.mcp-token-meta div { min-width: 0; }
+.mcp-token-meta dt { color: var(--tp-text-3); }
+.mcp-token-meta dd { margin: 0; overflow-wrap: anywhere; }
+.mcp-token code { font-family: var(--tp-font-mono); }
+.mcp-form { display: grid; gap: 12px; }
+.mcp-field { display: grid; gap: 4px; min-width: 0; }
+.mcp-field :is(input[type="text"], select) { width: 100%; box-sizing: border-box; }
+.mcp-validity { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.mcp-created { display: grid; gap: 10px; margin-top: 14px; padding: 12px; border: 1px solid var(--tp-border-strong); border-radius: var(--tp-radius-panel); background: var(--tp-card); }
+.mcp-created h3 { margin: 0; }
+.mcp-created h3:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 2px; }
+.mcp-created p { margin: 0; }
+.mcp-warning { color: var(--tp-review); }
+.mcp-copy-status { min-height: 1.2em; color: var(--tp-done); font-size: 13px; }
+.mcp-block-code { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mcp-secret { flex: 1 1 240px; min-width: 0; padding: 8px 10px; border-radius: var(--tp-radius-field); background: var(--tp-bg); font-family: var(--tp-font-mono); font-size: 12px; overflow-wrap: anywhere; user-select: all; }
+.mcp-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--tp-divider); }
+.mcp-tabs button[role="tab"] { border-color: transparent; border-bottom-left-radius: 0; border-bottom-right-radius: 0; background: transparent; color: var(--tp-text-2); }
+.mcp-tabs button[role="tab"][aria-selected="true"] { border-color: var(--tp-border); border-bottom-color: var(--tp-card); background: var(--tp-card); color: var(--tp-text); margin-bottom: -1px; }
+.mcp-tabpanel { display: grid; gap: 10px; }
+.mcp-tabpanel:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 2px; }
+.mcp-snippet { display: grid; gap: 4px; }
+.mcp-snippet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mcp-snippet pre { margin: 0; padding: 10px; overflow-x: auto; border-radius: var(--tp-radius-field); background: var(--tp-bg); font-family: var(--tp-font-mono); font-size: 12px; line-height: 1.5; }
+.mcp-snippet code { font-family: inherit; white-space: pre; }

@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ApiClient, Me } from "../api/client.js";
-import { githubEnabled } from "../api/client.js";
+import { githubEnabled, mcpAvailable } from "../api/client.js";
 import { GithubSettings } from "../github/GithubSettings.js";
 import { LANGUAGE_PREFERENCES } from "../i18n/languages.js";
 import type { LanguagePreference } from "../i18n/languages.js";
 import { usePreferences } from "../preferences/context.js";
 import type { Preferences, TicketCloseCamera } from "../preferences/model.js";
+import { McpSettings } from "./McpSettings.js";
 import "./settings.css";
 
 const CAMERA_OPTIONS: readonly TicketCloseCamera[] = ["restore", "stay"];
@@ -72,6 +73,7 @@ export function SettingsScreen({ client, me }: { client?: ApiClient | undefined;
         {failed === "language" && <p role="alert" className="settings-error">{t("saveFailed")}</p>}
       </section>
       {client && me && githubEnabled(me) && <GithubSettings client={client} me={me} />}
+      {client && me && mcpAvailable(me) && <McpSettings client={client} me={me} />}
     </div>
   );
 }

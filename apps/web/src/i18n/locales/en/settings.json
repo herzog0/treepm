@@ -16,5 +16,99 @@
     "en": "English",
     "es-MX": "Español (México)"
   },
-  "saveFailed": "Couldn't save the preference. Try again."
+  "saveFailed": "Couldn't save the preference. Try again.",
+  "mcp": {
+    "title": "AI clients (MCP)",
+    "switch": {
+      "label": "Allow MCP access",
+      "hint": "People in the organization can connect their own AI clients to the projects they can see, read-only."
+    },
+    "askAdmin": "An organization administrator needs to allow MCP access.",
+    "notice": {
+      "switchFailed": "Couldn't change MCP access. Try again.",
+      "disabledMeanwhile": "MCP access was turned off."
+    },
+    "loading": "Loading…",
+    "retry": "Try again",
+    "never": "never",
+    "own": {
+      "title": "Your tokens",
+      "empty": "You haven't created any token yet."
+    },
+    "organization": {
+      "title": "Organization tokens",
+      "empty": "No tokens in the organization."
+    },
+    "status": {
+      "active": "Active",
+      "expired": "Expired",
+      "revoked": "Revoked"
+    },
+    "field": {
+      "project": "Project",
+      "token": "Token fragment",
+      "createdAt": "Created on",
+      "lastUsedAt": "Last used",
+      "expiresAt": "Valid until"
+    },
+    "revoke": "Revoke",
+    "revokeNamed": "Revoke {{name}}",
+    "revokeWarning": "The client using this token loses access immediately.",
+    "create": {
+      "title": "Create token",
+      "project": "Project",
+      "name": "Name",
+      "validity": "Validity",
+      "days": "{{days}} days",
+      "submit": "Create token",
+      "projectOption": "{{key}} · {{name}}",
+      "projectOptionArchived": "{{key}} · {{name}} (archived)",
+      "noProjects": "You can't see any project to link a token to yet."
+    },
+    "created": {
+      "title": "Token created",
+      "warning": "Copy the token now: it won't be shown again.",
+      "snippets": "Ready-made configuration, with the address and the token filled in:",
+      "clients": "AI client",
+      "codexHint": "Run the export line before opening Codex, in the same terminal.",
+      "close": "Close"
+    },
+    "client": {
+      "claudeCode": "Claude Code",
+      "cursor": "Cursor",
+      "codex": "Codex"
+    },
+    "block": {
+      "command": {
+        "title": "Command",
+        "what": "command"
+      },
+      "mcpJson": {
+        "title": "mcp.json",
+        "what": "mcp.json"
+      },
+      "configToml": {
+        "title": "config.toml",
+        "what": "config.toml"
+      },
+      "envVariable": {
+        "title": "Environment variable",
+        "what": "variable"
+      }
+    },
+    "copy": {
+      "button": "Copy",
+      "named": "Copy {{what}}",
+      "copied": "Copied: {{what}}.",
+      "failed": "Couldn't copy. Select the text and copy it by hand.",
+      "what": {
+        "token": "token"
+      }
+    },
+    "errors": {
+      "limit": "You already have 10 active tokens. Revoke one before creating another.",
+      "projectGone": "The project no longer exists or you can't see it.",
+      "projects": "Couldn't load the projects."
+    }
+  }
 }

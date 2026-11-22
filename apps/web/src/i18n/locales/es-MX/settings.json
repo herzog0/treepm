@@ -16,5 +16,99 @@
     "en": "English",
     "es-MX": "Español (México)"
   },
-  "saveFailed": "No se pudo guardar la preferencia. Inténtalo de nuevo."
+  "saveFailed": "No se pudo guardar la preferencia. Inténtalo de nuevo.",
+  "mcp": {
+    "title": "Clientes de IA (MCP)",
+    "switch": {
+      "label": "Permitir acceso por MCP",
+      "hint": "Las personas de la organización podrán conectar clientes de IA propios a los proyectos que ven, solo para lectura."
+    },
+    "askAdmin": "Un administrador de la organización debe permitir el acceso por MCP.",
+    "notice": {
+      "switchFailed": "No se pudo cambiar el acceso por MCP. Inténtalo de nuevo.",
+      "disabledMeanwhile": "El acceso por MCP se desactivó."
+    },
+    "loading": "Cargando…",
+    "retry": "Reintentar",
+    "never": "nunca",
+    "own": {
+      "title": "Tus tokens",
+      "empty": "Todavía no has creado ningún token."
+    },
+    "organization": {
+      "title": "Tokens de la organización",
+      "empty": "No hay tokens en la organización."
+    },
+    "status": {
+      "active": "Activo",
+      "expired": "Vencido",
+      "revoked": "Revocado"
+    },
+    "field": {
+      "project": "Proyecto",
+      "token": "Fragmento del token",
+      "createdAt": "Creado el",
+      "lastUsedAt": "Último uso",
+      "expiresAt": "Vigencia"
+    },
+    "revoke": "Revocar",
+    "revokeNamed": "Revocar {{name}}",
+    "revokeWarning": "El cliente que usa este token pierde el acceso de inmediato.",
+    "create": {
+      "title": "Crear token",
+      "project": "Proyecto",
+      "name": "Nombre",
+      "validity": "Vigencia",
+      "days": "{{days}} días",
+      "submit": "Crear token",
+      "projectOption": "{{key}} · {{name}}",
+      "projectOptionArchived": "{{key}} · {{name}} (archivado)",
+      "noProjects": "Todavía no ves ningún proyecto al que ligar un token."
+    },
+    "created": {
+      "title": "Token creado",
+      "warning": "Copia el token ahora: no se mostrará de nuevo.",
+      "snippets": "Configuración lista, con la dirección y el token ya puestos:",
+      "clients": "Cliente de IA",
+      "codexHint": "Ejecuta la línea de exportación antes de abrir Codex, en la misma terminal.",
+      "close": "Cerrar"
+    },
+    "client": {
+      "claudeCode": "Claude Code",
+      "cursor": "Cursor",
+      "codex": "Codex"
+    },
+    "block": {
+      "command": {
+        "title": "Comando",
+        "what": "comando"
+      },
+      "mcpJson": {
+        "title": "mcp.json",
+        "what": "mcp.json"
+      },
+      "configToml": {
+        "title": "config.toml",
+        "what": "config.toml"
+      },
+      "envVariable": {
+        "title": "Variable de entorno",
+        "what": "variable"
+      }
+    },
+    "copy": {
+      "button": "Copiar",
+      "named": "Copiar {{what}}",
+      "copied": "Copiado: {{what}}.",
+      "failed": "No se pudo copiar. Selecciona el texto y cópialo a mano.",
+      "what": {
+        "token": "token"
+      }
+    },
+    "errors": {
+      "limit": "Ya tienes 10 tokens activos. Revoca alguno antes de crear otro.",
+      "projectGone": "El proyecto ya no existe o no lo ves.",
+      "projects": "No se pudieron cargar los proyectos."
+    }
+  }
 }

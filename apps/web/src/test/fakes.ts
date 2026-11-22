@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { ApiClient, ApiResult, Area, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, TicketSummary } from "../api/client.js";
+import type { AccessToken, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid" | "server_error", code?: string): ApiResult<never> => ({
@@ -7,8 +7,9 @@ export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "
   error: code === undefined ? { kind } : { kind, code },
 });
 
-export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean; github?: boolean } = {}): Me {
+export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean; github?: boolean; mcp?: boolean } = {}): Me {
   return {
+    ...(overrides.mcp === undefined ? {} : { mcp: { enabled: overrides.mcp } }),
     ...(overrides.assistant === undefined ? {} : { assistant: { enabled: overrides.assistant } }),
     ...(overrides.github === undefined ? {} : { github: { enabled: overrides.github } }),
     person: { id: "person-1", displayName: "Ana", email: "ana@example.com", avatarUrl: null },
@@ -65,6 +66,8 @@ interface FakeData {
   github?: FakeGithub;
   /** Liga as rotas de "O que entra aqui" (ADR 0033) com as regras do contrato; sem isso elas lançam, como o resto. */
   summaries?: FakeSummaries;
+  /** Liga as rotas de tokens de acesso por MCP (ADR 0038) com as regras do contrato; sem isso elas lançam, como o resto. */
+  mcp?: FakeMcp;
   /** Conversas de criação com a IA, por ID, para `createTicketFromConversation` do cliente em árvore; sem entrada, o rascunho é o padrão. */
   conversations?: Record<string, ConversationDetail>;
 }
@@ -234,6 +237,102 @@ function githubMethods(data: FakeData): Partial<ApiClient> {
   };
 }
 
+const MCP_NAMES = ["setMcpEnabled", "createAccessToken", "listAccessTokens", "listOrganizationAccessTokens", "revokeAccessToken"] as const;
+
+export interface FakeMcp {
+  /** A chave da organização; padrão: o que `me.mcp` diz. */
+  enabled?: boolean;
+  /** Tokens da organização, de qualquer pessoa; os da pessoa de `me` saem em `listAccessTokens`. */
+  tokens?: OrganizationAccessToken[];
+  /** Token inteiro que a criação devolve. */
+  secret?: string;
+  /** Erro de `createAccessToken` no formato `[tipo, código]`. */
+  createError?: [Parameters<typeof failed>[0], string?];
+  /** Faz `setMcpEnabled` falhar com este tipo de erro. */
+  switchError?: Parameters<typeof failed>[0];
+}
+
+/** Referência da organização falsa, em base64url, como no token real (`tpm_<referência>_<segredo>`). */
+const FAKE_ORG_REF = btoa("org_EXEMPLO_ficticia").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+/** Segredo falso no formato real: 43 caracteres de base64url; começa pela semente. */
+export const fakeSecret = (seed: string): string =>
+  (seed.replace(/[^A-Za-z0-9_-]/g, "") + "Q9vXw2Lm8Rt5Yp0aUe7NzHc4BsGfKd3JhTy6WqEr1Ci").slice(0, 43);
+/** Token inteiro falso: `tpm_<referência>_<segredo de 43 caracteres>`. */
+export const fakeToken = (seed: string): string => `tpm_${FAKE_ORG_REF}_${fakeSecret(seed)}`;
+/** O que a API guarda e mostra: os 8 primeiros caracteres do segredo. */
+export const prefixOf = (token: string): string => token.slice(-43).slice(0, 8);
+
+export const makeToken = (id: string, name: string, extra: Partial<OrganizationAccessToken> = {}): OrganizationAccessToken => ({
+  id,
+  name,
+  project: { id: "p1", key: "ALFA" },
+  tokenPrefix: prefixOf(fakeToken(id)),
+  createdAt: "2026-11-10T12:00:00.000Z",
+  lastUsedAt: null,
+  expiresAt: "2099-01-01T00:00:00.000Z",
+  revokedAt: null,
+  person: { id: "person-1", displayName: "Ana" },
+  ...extra,
+});
+
+/** As rotas de MCP do contrato da ADR 0038, em memória: papéis, a chave, o limite de 10 ativos e o token que só a criação devolve. */
+function mcpMethods(data: FakeData): Partial<ApiClient> {
+  const config = data.mcp!;
+  const me = data.me ?? makeMe();
+  const isAdmin = me.roles.clerk === "admin";
+  let enabled = config.enabled ?? me.mcp?.enabled ?? false;
+  const tokens = (config.tokens ?? []).map((entry) => ({ ...entry }));
+  const strip = (entry: OrganizationAccessToken): AccessToken => {
+    const copy: Partial<OrganizationAccessToken> = { ...entry };
+    delete copy.person;
+    return copy as AccessToken;
+  };
+  const active = (entry: OrganizationAccessToken) => entry.revokedAt === null && Date.parse(entry.expiresAt) > Date.now();
+  let sequence = 0;
+
+  return {
+    setMcpEnabled: vi.fn(async (value: boolean) => {
+      if (!isAdmin) return failed("forbidden");
+      if (config.switchError) return failed(config.switchError);
+      enabled = value;
+      return ok({ mcp: { enabled } });
+    }),
+    createAccessToken: vi.fn(async (body: { projectId: string; name: string; expiresInDays: 30 | 90 | 365 }) => {
+      if (!enabled) return failed("forbidden", "mcp_disabled");
+      if (config.createError) return failed(...config.createError);
+      const project = data.projects?.find((entry) => entry.id === body.projectId);
+      if (!project) return failed("not_found");
+      if (tokens.filter((entry) => entry.person.id === me.person.id && active(entry)).length >= 10) return failed("conflict", "access_token_limit");
+      sequence += 1;
+      const entry = makeToken(`new${sequence}`, body.name.trim(), {
+        project: { id: project.id, key: project.key },
+        person: { id: me.person.id, displayName: me.person.displayName },
+        createdAt: "2026-11-21T12:00:00.000Z",
+        expiresAt: new Date(Date.parse("2026-11-21T12:00:00.000Z") + body.expiresInDays * 86_400_000).toISOString(),
+      });
+      const token = config.secret ?? fakeToken(entry.id);
+      entry.tokenPrefix = prefixOf(token);
+      tokens.push(entry);
+      return ok({ ...strip(entry), token });
+    }),
+    listAccessTokens: vi.fn(async () => {
+      if (!enabled) return failed("forbidden", "mcp_disabled");
+      return ok(tokens.filter((entry) => entry.person.id === me.person.id).map(strip));
+    }),
+    listOrganizationAccessTokens: vi.fn(async () => {
+      if (!isAdmin) return failed("forbidden");
+      if (!enabled) return failed("forbidden", "mcp_disabled");
+      return ok(tokens.map((entry) => ({ ...entry })));
+    }),
+    revokeAccessToken: vi.fn(async (id: string) => {
+      const entry = tokens.find((candidate) => candidate.id === id);
+      if (!entry || (entry.person.id !== me.person.id && !isAdmin)) return failed("not_found");
+      if (entry.revokedAt === null) entry.revokedAt = "2026-11-21T12:30:00.000Z";
+      return ok(undefined);
+    }),
+  };
+}
+
 const SUMMARY_NAMES = ["getTicketSummary", "putTicketSummary", "regenerateTicketSummary"] as const;
 export const SUMMARY_MAX = 1000;
 
@@ -300,6 +399,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement",
     "createTicketFromConversation", "listConversations", "getConversation", "removeConversation",
     ...GITHUB_NAMES,
+    ...MCP_NAMES,
     ...SUMMARY_NAMES,
     "draftTicketDescription",
     "askProject",
@@ -314,6 +414,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     listPeople: vi.fn(async () => ok(data.people ?? [])),
     listTickets: vi.fn(async (projectId: string) => ok(data.tickets?.[projectId] ?? [])),
     ...(data.github ? githubMethods(data) : {}),
+    ...(data.mcp ? mcpMethods(data) : {}),
     ...(data.summaries ? summaryMethods(data) : {}),
   };
 }
