@@ -351,6 +351,39 @@ describe("o teto do que sai para a Anthropic", () => {
     expect(JSON.parse(captured[0]!).tools).toHaveLength(4);
   });
 
+  it("comentário do ticket nunca vai ao provedor (ADR 0040), nem quando as ferramentas leem o ticket que o tem", async () => {
+    await seed();
+    const word = "COMENTARIO-RECONHECIVEL-7Q2";
+    const [ticket] = await rows("select id from tickets where project_id = $1 and number = 4", [priv()]);
+    for (const [body, removed] of [[`${word} aberto, fale com a diretoria`, false], ["", true]] as const) {
+      await h.pool.query(
+        "insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body, removed_at, removed_by_person_id) values ('org_A', $1, $2, $3, $4, $5, $6)",
+        [priv(), ticket.id, h.world().people.manager, body, removed ? new Date() : null, removed ? h.world().people.manager : null],
+      );
+    }
+    expect((await rows("select count(*)::int as n from ticket_comments where body like $1", [`%${word}%`]))[0].n).toBe(1);
+    const captured: string[] = [];
+    h.answerer().delegate = new ClaudeProjectAnswerer(
+      scripted(
+        [
+          turn([use("a", "search_tickets", { query: word }), use("b", "search_tickets", { query: "diretoria" }), use("c", "project_overview", {})], "tool_use"),
+          turn([use("d", "read_ticket", { ticket: "T4" }), use("e", "list_tickets", { under: "T1" })], "tool_use"),
+          turn([{ type: "text", text: "Nada sobre comentários." }]),
+        ],
+        captured,
+      ),
+    );
+    const res = await ask(priv(), { question: `O que dizem os comentários de PRIV-4? ${word}`, history: [] });
+    expect(res.status).toBe(200);
+    expect(captured).toHaveLength(3);
+    const sent = captured.join("\n");
+    // o ticket foi de fato lido (controle positivo), e a palavra só aparece onde a própria pergunta a pôs
+    expect(sent).toContain("Depende de T2 e menciona T3");
+    // a palavra só pode estar onde a própria pergunta e a busca roteirizada a puseram; o texto do comentário, nunca
+    expect(sent).not.toContain("fale com a diretoria");
+    expect(sent).not.toContain("aberto, fale");
+  });
+
   it("o detector acha o que procura (controle negativo)", async () => {
     await seed();
     const raw = JSON.stringify(await rows("select t.id, 'PRIV-4' as k, p.display_name, p.email from tickets t, people p where p.clerk_user_id = 'u_manager' limit 1"));

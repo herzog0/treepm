@@ -24,7 +24,7 @@ let counter = 0;
 type Part<T extends ActivityEntry["type"]> = Omit<Extract<ActivityEntry, { type: T }>, "id" | "occurredAt" | "actor"> & Partial<Pick<ActivityEntry, "id" | "occurredAt" | "actor">>;
 const entry = <T extends ActivityEntry["type"]>(data: Part<T>): ActivityEntry =>
   ({ id: `e${++counter}`, occurredAt: at(5), actor: ana, ...data }) as ActivityEntry;
-const page = (entries: ActivityEntry[], before: string | null = null): ActivityPage => ({ entries, before });
+const page = (entries: ActivityEntry[], before: string | null = null): ActivityPage => ({ entries, before, canComment: false });
 const ref = (n: number, title = `Título ${n}`) => ({ id: `r${n}`, key: `ALFA-${n}`, title });
 const gone = (key: string | null = null) => ({ id: null, key, title: null });
 

@@ -174,14 +174,18 @@ const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("dependency_added"), ticket: activityTicketSchema }),
   z.object({ ...activityBase, type: z.literal("dependency_removed"), ticket: activityTicketSchema }),
   z.object({ ...activityBase, type: z.literal("summary_updated"), source: z.enum(["person", "assistant"]) }),
+  z.object({ ...activityBase, type: z.literal("comment"), body: z.string().nullable(), editedAt: z.string().nullable(), removed: z.boolean(), canEdit: z.boolean(), canRemove: z.boolean() }),
 ]);
-/** Entrada de um tipo que esta versão da tela não conhece (a API pode ganhar tipos antes da tela, como `comment`) é descartada, sem erro. */
+const commentEntrySchema = activityEntrySchema.refine((entry) => entry.type === "comment").transform((entry) => entry as Extract<z.output<typeof activityEntrySchema>, { type: "comment" }>);
+/** Entrada de um tipo que esta versão da tela não conhece (a API pode ganhar tipos antes da tela) é descartada, sem erro. */
 const activityPageSchema = z.object({
   entries: z.array(z.unknown()).transform((items) => items.flatMap((item) => {
     const parsed = activityEntrySchema.safeParse(item);
     return parsed.success ? [parsed.data] : [];
   })),
   before: z.string().nullable(),
+  /** Quem lê pode escrever comentário agora (falso para leitor e projeto arquivado). */
+  canComment: z.boolean(),
 });
 const accessTokenSchema = z.object({
   id: z.string(),
@@ -231,6 +235,7 @@ export type TicketSummary = z.output<typeof ticketSummarySchema>;
 export type TicketDetail = z.output<typeof ticketDetailSchema>;
 export type ActivityEntry = z.output<typeof activityEntrySchema>;
 export type ActivityPage = z.output<typeof activityPageSchema>;
+export type ActivityComment = Extract<ActivityEntry, { type: "comment" }>;
 export type ActivityTicketRef = z.output<typeof activityTicketSchema>;
 export type ConversationDraft = NonNullable<z.output<typeof draftSchema>>;
 export interface AskBody {
@@ -471,6 +476,11 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       const text = params.toString();
       return request("GET", `${ticket(id)}/activity${text === "" ? "" : `?${text}`}`, activityPageSchema, undefined, options.signal);
     },
+
+    /** Comentários do ticket (ADR 0040, fatia 2): a resposta é a entrada de atividade do comentário. */
+    createTicketComment: (id: string, body: { body: string }) => request("POST", `${ticket(id)}/comments`, commentEntrySchema, body),
+    updateComment: (id: string, body: { body: string }) => request("PATCH", `/api/comments/${id}`, commentEntrySchema, body),
+    removeComment: (id: string) => request("DELETE", `/api/comments/${id}`, null),
 
     getTicketSummary: (id: string) => request("GET", `${ticket(id)}/summary`, ticketSummaryTextSchema),
     putTicketSummary: (id: string, body: { text: string }) => request("PUT", `${ticket(id)}/summary`, ticketSummaryTextSchema, body),

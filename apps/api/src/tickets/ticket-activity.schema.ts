@@ -17,7 +17,8 @@ const base = { id: z.string(), occurredAt: z.string(), actor: personSchema.nulla
 
 /**
  * Entradas da atividade do ticket. Os dados do tipo ficam no mesmo nível de `id`, `occurredAt` e `actor`.
- * Um tipo novo (por exemplo `comment`, ADR 0040 fatia 2) entra como mais um membro da união.
+ * Um tipo novo entra como mais um membro da união. `comment` (ADR 0040, fatia 2): `id` é o do comentário, `occurredAt`
+ * a criação e `actor` o autor; `body` é nulo quando removido; `canEdit` e `canRemove` valem para quem está lendo.
  */
 export const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("created") }),
@@ -37,10 +38,20 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("dependency_added"), ticket: ticketRefSchema }),
   z.object({ ...base, type: z.literal("dependency_removed"), ticket: ticketRefSchema }),
   z.object({ ...base, type: z.literal("summary_updated"), source: z.enum(["person", "assistant"]) }),
+  z.object({
+    ...base,
+    type: z.literal("comment"),
+    body: z.string().nullable(),
+    editedAt: z.string().nullable(),
+    removed: z.boolean(),
+    canEdit: z.boolean(),
+    canRemove: z.boolean(),
+  }),
 ]);
 
-export const activityPageSchema = z.object({ entries: z.array(activityEntrySchema), before: z.string().nullable() });
+export const activityPageSchema = z.object({ entries: z.array(activityEntrySchema), before: z.string().nullable(), canComment: z.boolean() });
 
 export type ActivityEntry = z.output<typeof activityEntrySchema>;
 export type ActivityPage = z.output<typeof activityPageSchema>;
 export type ActivityQuery = z.output<typeof activityQuerySchema>;
+export type CommentEntry = Extract<ActivityEntry, { type: "comment" }>;

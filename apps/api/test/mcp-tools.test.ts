@@ -72,6 +72,25 @@ describe("search_tickets", () => {
 });
 
 describe("get_ticket", () => {
+  it("não devolve comentário, nem a busca acha texto de comentário (ADR 0040)", async () => {
+    const token = await setup();
+    const word = "COMENTARIO-RECONHECIVEL-9Z4";
+    const [ticket] = (await h.pool.query("select id from tickets where project_id = $1 and number = 2", [priv()])).rows;
+    await h.pool.query("insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body) values ('org_A', $1, $2, $3, $4)", [priv(), ticket.id, h.world().people.manager, `${word} texto só da conversa`]);
+    const res = await h.tool(token, "PRIV", "get_ticket", { key: "PRIV-2" });
+    expectConsistent(res);
+    expect(res.isError).toBe(false);
+    expect(res.text).not.toContain(word);
+    expect(res.text).not.toContain("só da conversa");
+    expect(Object.keys(res.json ?? {})).not.toContain("comments");
+    for (const [name, args] of [["search_tickets", { query: word }], ["search_tickets", { query: "conversa" }], ["get_project_overview", {}], ["list_tickets", {}], ["get_ticket", { key: "PRIV-1" }]] as const) {
+      const out = await h.tool(token, "PRIV", name, args);
+      expect(out.text, name).not.toContain(word);
+      expect(out.text, name).not.toContain("só da conversa");
+    }
+    expect((await h.tool(token, "PRIV", "search_tickets", { query: word })).json).toEqual({ tickets: [], truncated: false });
+  });
+
   it("devolve o ticket com descrição inteira, pai, caminho, filhos e ligações nos dois sentidos", async () => {
     const token = await setup();
     const res = await h.tool(token, "PRIV", "get_ticket", { key: "PRIV-2" });

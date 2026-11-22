@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { APP_URL } from "@treepm/db/testing";
 import { createPrismaClient, withTenant } from "@treepm/db";
 import type { TenantClient } from "@treepm/db";
+import { buildActor } from "../src/access/actor.js";
 import { TicketActivityService } from "../src/tickets/ticket-activity.service.js";
 import { AI_CONFIG } from "./helpers.js";
 import { useHarness } from "./harness.js";
@@ -41,7 +42,13 @@ const find = (p: Page, type: string): Entry => {
 };
 const personId = (who: Who) => h.world().people[who];
 const count = async (sql: string) => Number((await h.pool.query(sql)).rows[0].count);
-const events = async (id: string) => (await h.pool.query("select * from activity_events where subject_id = $1 order by occurred_at, id", [id])).rows;
+const events = async (id: string) => (await h.pool.query("select * from activity_events where subject_id = $1 and kind not like 'ticket.comment_%' order by occurred_at, id", [id])).rows;
+const comment = async (id: string, body = "comentário", who: Who = "contributor"): Promise<string> => {
+  const res = await h.call("POST", `/api/tickets/${id}/comments`, as(who), { body });
+  expect(res.status, JSON.stringify(res.body)).toBe(201);
+  return (res.body as { id: string }).id;
+};
+const placeComment = (id: string, minutes: number) => h.pool.query("update ticket_comments set created_at = $1 where id = $2", [new Date(Date.parse("2026-11-01T12:00:00Z") + minutes * MIN), id]);
 /** Põe todos os eventos do ticket em instantes conhecidos: `minutes[i]` para o i-ésimo na ordem de gravação. */
 const place = async (id: string, minutes: number[]): Promise<void> => {
   const rows = await events(id);
@@ -218,6 +225,7 @@ describe("ticket sem evento de criação, e eventos que não valem", () => {
     const t = await add();
     await insertEvent(t.id, "ticket.something_new", { a: 1 });
     await insertEvent(t.id, "ticket.comment_created", { commentId: UNKNOWN_ID });
+    await insertEvent(t.id, "ticket.comment_added", { key: "PRIV-1", commentId: UNKNOWN_ID });
     await insertEvent(t.id, "ticket.updated", "isto não é objeto");
     await insertEvent(t.id, "ticket.updated", { fields: ["status"], status: { from: "x", to: "y" } });
     await insertEvent(t.id, "ticket.updated", { fields: ["title"], title: { from: 1, to: 2 } });
@@ -289,12 +297,15 @@ describe("edições seguidas da descrição", () => {
     await patch(t.id, { status: "in_progress" });
     for (let i = 0; i < 5; i++) await patch(t.id, { description: `w${i}` });
     await place(t.id, [0, ...Array.from({ length: 12 }, (_, i) => 1 + i * 3), 40, ...Array.from({ length: 5 }, (_, i) => 41 + i * 2)]);
+    // Comentários no meio: um entre os dois grupos, outro no meio do segundo (que passa a ser dois grupos).
+    await placeComment(await comment(t.id), 37);
+    await placeComment(await comment(t.id), 44);
     const whole = await page(t.id, "?limit=100");
-    expect(types(whole)).toEqual(["description_changed", "status_changed", "description_changed", "created"]);
-    for (const limit of [1, 2, 3]) {
+    expect(types(whole)).toEqual(["description_changed", "comment", "description_changed", "status_changed", "comment", "description_changed", "created"]);
+    for (const limit of [1, 2, 3, 4]) {
       const seen: Entry[] = [];
       let before: string | null = null;
-      for (let guard = 0; guard < 10; guard++) {
+      for (let guard = 0; guard < 12; guard++) {
         const p: Page = await page(t.id, `?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`);
         seen.push(...p.entries);
         before = p.before;
@@ -314,11 +325,15 @@ describe("paginação", () => {
 
   it("página a página, até o fim, sem repetir nem perder entrada, também com instantes iguais", async () => {
     const t = await busy(7);
+    const first = await comment(t.id, "um");
+    const second = await comment(t.id, "dois", "manager");
     await h.pool.query("update activity_events set occurred_at = '2026-11-01T12:00:00Z' where subject_id = $1", [t.id]);
+    await h.pool.query("update ticket_comments set created_at = '2026-11-01T12:00:00Z' where id in ($1, $2)", [first, second]);
     const whole = await page(t.id, "?limit=100");
-    expect(whole.entries).toHaveLength(8);
+    expect(whole.entries).toHaveLength(10);
+    expect(types(whole).filter((type) => type === "comment")).toHaveLength(2);
     expect(whole.before).toBeNull();
-    for (const limit of [1, 2, 3, 7, 8]) {
+    for (const limit of [1, 2, 3, 7, 8, 10]) {
       const seen: Entry[] = [];
       let before: string | null = null;
       let pages = 0;
@@ -331,7 +346,7 @@ describe("paginação", () => {
         pages += 1;
       } while (before && pages < 20);
       expect(seen.map((e) => e.id), `limit ${limit}`).toEqual(whole.entries.map((e) => e.id));
-      expect(pages).toBe(Math.ceil(8 / limit));
+      expect(pages).toBe(Math.ceil(10 / limit));
     }
   });
 
@@ -462,7 +477,7 @@ describe("custo", () => {
             return value;
           },
         }) as TenantClient;
-        const result = await new TicketActivityService().read(counting, project, ticket, { limit });
+        const result = await new TicketActivityService().read(counting, project, ticket, { limit }, { personId: personId("admin"), actor: buildActor("admin", [], []) });
         return { queries, entries: result.entries.length };
       });
     } finally {
@@ -470,7 +485,7 @@ describe("custo", () => {
     }
   };
 
-  it("a quantidade de consultas não cresce com as entradas (eventos, tickets e pessoas em lote)", async () => {
+  it("a quantidade de consultas não cresce com as entradas (eventos, comentários, tickets e pessoas em lote)", async () => {
     const parent = await add({ title: "P" });
     const other = await add({ title: "O" });
     const t = await add({});
@@ -488,6 +503,6 @@ describe("custo", () => {
     expect(many.entries).toBeGreaterThan(few.entries);
     expect(many.entries).toBe(30);
     expect(many.queries).toBe(few.queries);
-    expect(many.queries).toBeLessThanOrEqual(3);
+    expect(many.queries).toBeLessThanOrEqual(4);
   });
 });

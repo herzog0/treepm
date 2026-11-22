@@ -191,16 +191,16 @@ export class TicketsController {
     return this.tickets.detail(tx, project, id);
   }
 
-  /** Histórico do ticket (ADR 0040): entradas da mais recente para a mais antiga; só lê. */
+  /** Atividade do ticket (ADR 0040): mudanças e comentários, da entrada mais recente para a mais antiga; só lê. */
   @Get("tickets/:id/activity")
   async activityOf(
     @Tx() tx: TenantClient,
-    @CurrentPrincipal() { actor }: Principal,
+    @CurrentPrincipal() { actor, person }: Principal,
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Query(new ZodPipe(activityQuerySchema)) query: z.output<typeof activityQuerySchema>,
   ): Promise<ActivityPage> {
     const { project, ticket } = await this.findVisibleTicket(tx, actor, id);
-    return this.ticketActivity.read(tx, project, ticket, query);
+    return this.ticketActivity.read(tx, project, ticket, query, { personId: person.id, actor });
   }
 
   @Patch("tickets/:id")

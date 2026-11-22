@@ -461,6 +461,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     ...SUMMARY_NAMES,
     "draftTicketDescription",
     "askProject",
+    "createTicketComment", "updateComment", "removeComment",
   ] as const;
   const base = Object.fromEntries(names.map((name) => [name, unexpected(name)])) as unknown as ApiClient;
   return {
@@ -472,7 +473,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     listPeople: vi.fn(async () => ok(data.people ?? [])),
     listTickets: vi.fn(async (projectId: string) => ok(data.tickets?.[projectId] ?? [])),
     // Atividade vazia por padrão: os testes que não falam dela não mudam (ADR 0040).
-    ticketActivity: vi.fn(async (): Promise<ApiResult<ActivityPage>> => ok({ entries: [], before: null })),
+    ticketActivity: vi.fn(async (): Promise<ApiResult<ActivityPage>> => ok({ entries: [], before: null, canComment: false })),
     ...(data.github ? githubMethods(data) : {}),
     ...(data.mcp ? mcpMethods(data) : {}),
     ...(data.aiConsent ? aiConsentMethods(data) : {}),
