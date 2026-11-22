@@ -32,7 +32,7 @@ Contrato em `docs/adr/0022-api-nestjs-e-hospedagem-na-fly.md`. Um app serve `tre
 docker build --build-arg VITE_CLERK_PUBLISHABLE_KEY=pk_test_exemplo -t treepm-local .
 ```
 
-A imagem roda como o usuário `node` (uid 1000), só com dependências de produção, `dist` da API/`@treepm/db`/`@treepm/domain` (inclui o Prisma Client gerado) e o web em `/app/web`. Sem CLI do prisma e sem migrações. Tamanho: cerca de 551 MB (base `node:22.23.1-slim` com 329 MB).
+A imagem roda como o usuário `node` (uid 1000), só com dependências de produção, `dist` da API/`@treepm/db`/`@treepm/domain` (inclui o Prisma Client gerado) e o web em `/app/web`. Sem CLI do prisma, sem migrações e sem os scripts de desenvolvimento de `apps/api/scripts` (`github-check`, `verify-providers`, `placement-rebuild`; precisam do `tsx`). Tamanho: cerca de 619 MB (base `node:22.23.1-slim` com 329 MB), medido em 2026-11-21.
 
 **Memória da VM.** `fly.toml` usa `shared-cpu-1x` com 256 MB, o menor preset. Medido localmente: o contêiner limitado a 256 MB (sem swap) ficou em cerca de 55 MiB após uma rajada de requisições a `/` e `/api/me`, sem OOM. Não é teste de carga; se a produção estourar, subir para 512 MB.
 

@@ -25,10 +25,10 @@ RUN pnpm build
 # o CLI e suas dependências (só usadas por ele) são removidos do store, sem efeito em runtime: migrar é feito fora da Fly (ADR 0021, docs/deploy.md).
 RUN pnpm --filter @treepm/api deploy --prod --legacy /out/api \
  && cd /out/api \
- && rm -rf src test vitest.config.ts tsconfig*.json \
+ && rm -rf src scripts test vitest.config.ts tsconfig*.json \
  && rm -rf node_modules/@treepm/*/test node_modules/@treepm/*/vitest.config.ts \
            node_modules/@treepm/*/prisma node_modules/@treepm/*/prisma.config.ts \
-           node_modules/@treepm/db/src node_modules/@treepm/*/tsconfig*.json \
+           node_modules/@treepm/db/src node_modules/@treepm/domain/src node_modules/@treepm/*/tsconfig*.json \
            node_modules/@treepm/*/docker-compose.test.yml \
  && cd node_modules/.pnpm \
  && rm -rf prisma@* @prisma+studio-core* @prisma+dev@* @prisma+streams-local* \
