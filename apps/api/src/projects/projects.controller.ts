@@ -19,7 +19,7 @@ import { CurrentPrincipal } from "../access/principal.js";
 import type { Principal } from "../access/principal.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { orConflict } from "../common/conflict.js";
-import { idSchema, nameSchema, projectRoleSchema, visibilitySchema } from "../common/schemas.js";
+import { PROJECT_KEY_PATTERN, idSchema, nameSchema, projectRoleSchema, visibilitySchema } from "../common/schemas.js";
 import { ZodPipe, parseOutput } from "../common/zod.js";
 import { Tx } from "../db/tx.decorator.js";
 
@@ -38,7 +38,7 @@ const teamOutput = z.object({ projectId: z.string(), teamId: z.string() });
 const createSchema = z
   .object({
     name: nameSchema,
-    key: z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/, "2 a 10 caracteres: A-Z e 0-9, começando por letra"),
+    key: z.string().regex(PROJECT_KEY_PATTERN, "2 a 10 caracteres: A-Z e 0-9, começando por letra"),
     visibility: visibilitySchema.default("organization"),
   })
   .strict();

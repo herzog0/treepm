@@ -13,6 +13,8 @@ import type { SessionVerifier, VerifiedSession } from "../src/auth/session-verif
 import { SESSION_VERIFIER } from "../src/auth/session-verifier.js";
 import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER } from "../src/assistant/ports.js";
 import type { PlacementTimeouts } from "../src/assistant/ports.js";
+import { ACCESS_TOKEN_CLOCK } from "../src/access-tokens/clock.js";
+import type { AccessTokenClock } from "../src/access-tokens/clock.js";
 import { REPOSITORY_PROVIDER } from "../src/github/ports.js";
 import { APP_ID, FakeRepositoryProvider } from "./github-fakes.js";
 import { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer, FakeProjectAnswerer } from "./assistant-fakes.js";
@@ -69,11 +71,16 @@ export const GITHUB_CONFIG: AppConfig = {
   GITHUB_APP_PRIVATE_KEY: GITHUB_SECRETS.privateKey,
 };
 
-export type DirectoryCalls = { users: string[]; organizations: string[] };
+export type DirectoryCalls = { users: string[]; organizations: string[]; memberships: { orgId: string; userId: string }[] };
 
 /** Diretório falso determinístico, com chamadas registradas. */
 export class FakeDirectory implements DirectoryProvider {
-  readonly calls: DirectoryCalls = { users: [], organizations: [] };
+  readonly calls: DirectoryCalls = { users: [], organizations: [], memberships: [] };
+  /**
+   * Participação no Clerk por `orgId:userId` (ADR 0038): o papel (`org:admin`) ou `null` para quem saiu da organização.
+   * Sem entrada, vale o papel da semeadura: `u_admin` é administrador e os demais são membros.
+   */
+  readonly memberships = new Map<string, string | null>();
   /** Gancho executado a cada consulta (por exemplo, para observar o banco). */
   onCall: (() => Promise<void>) | null = null;
   async getUser(userId: string) {
@@ -85,6 +92,13 @@ export class FakeDirectory implements DirectoryProvider {
       avatarUrl: `https://img.test/${userId}.png`,
     });
   }
+  async getMembership(orgId: string, userId: string) {
+    this.calls.memberships.push({ orgId, userId });
+    await this.onCall?.();
+    const key = `${orgId}:${userId}`;
+    if (this.memberships.has(key)) return this.memberships.get(key) ?? null;
+    return userId === "u_admin" ? "org:admin" : "org:member";
+  }
   async getOrganization(orgId: string) {
     this.calls.organizations.push(orgId);
     await this.onCall?.();
@@ -95,7 +109,7 @@ export class FakeDirectory implements DirectoryProvider {
 export async function createTestApp(
   extraControllers: Type<unknown>[] = [],
   config: AppConfig = TEST_CONFIG,
-  options: { realAssistant?: boolean; realGithub?: boolean; timeouts?: PlacementTimeouts } = {},
+  options: { realAssistant?: boolean; realGithub?: boolean; timeouts?: PlacementTimeouts; clock?: AccessTokenClock } = {},
 ): Promise<{
   app: INestApplication;
   directory: FakeDirectory;
@@ -141,6 +155,7 @@ export async function createTestApp(
       .useValue(answerer);
   }
   if (!options.realGithub) builder = builder.overrideProvider(REPOSITORY_PROVIDER).useValue(github);
+  if (options.clock) builder = builder.overrideProvider(ACCESS_TOKEN_CLOCK).useValue(options.clock);
   if (options.timeouts) builder = builder.overrideProvider(PLACEMENT_TIMEOUTS).useValue(options.timeouts);
   const moduleRef = await builder
     .overrideProvider(CONFIG)

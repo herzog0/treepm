@@ -22,6 +22,7 @@ export class MeService {
       organization: { orgId: organization.orgId, name: organization.name, slug: organization.slug },
       assistant: { enabled: assistantEnabled(this.config) },
       github: { enabled: githubEnabled(this.config) },
+      mcp: { enabled: organization.mcpEnabled },
       roles: {
         clerk: actor.clerkRole,
         teams: [...actor.teamRoles].map(([teamId, role]) => ({ teamId, role })),
