@@ -59,6 +59,10 @@
       "moveDown": "Descer «{{title}}»",
       "noDescription": "Sem descrição."
     },
+    "idea": {
+      "label": "Registrar como ideia",
+      "hint": "Entra como ideia no estágio «Nova», com as partes dentro dela."
+    },
     "warning": {
       "unknownKeys": "O rascunho cita tickets que não existem: {{keys}}. Corrija as chaves para criar.",
       "tooLong": "A descrição do ticket pai passou do limite junto com o pedido original. Encurte a descrição para criar."
@@ -93,6 +97,12 @@
       "candidates_too_large": "A procura parou em «{{where}}» porque havia tickets demais para comparar de uma vez. Confira se o lugar serve ou escolha outro.",
       "max_levels": "A procura parou em «{{where}}» ao atingir o limite de níveis. Confira se o lugar serve ou escolha outro."
     },
+    "ideaNote": "Entra como ideia no estágio «Nova», fora do processo, até alguém aceitá-la.",
+    "newIdea": "Ideia nova: {{title}}",
+    "createIdea": "Registrar ideia aqui",
+    "createIdeaWithParts_one": "Registrar ideia e {{count}} parte",
+    "createIdeaWithParts_many": "Registrar ideia e {{count}} partes",
+    "createIdeaWithParts_other": "Registrar ideia e {{count}} partes",
     "createWithParts_one": "Criar ticket e {{count}} parte",
     "createWithParts_many": "Criar ticket e {{count}} partes",
     "createWithParts_other": "Criar ticket e {{count}} partes",

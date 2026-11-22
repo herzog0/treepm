@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   draftTexts,
@@ -117,5 +120,53 @@ describe("checkDraft", () => {
     expect(checkDraft(baseCase, { ...turn, draft: { ...turn.draft, description: "alfa na fase 2" } }).invented).toHaveLength(1);
     expect(checkDraft(baseCase, { ...turn, message: "Veja TREEPM-1" }).ticketKeys).toEqual(["TREEPM-1"]);
     expect(checkDraft(baseCase, { ...turn, message: "Criei tudo." }).passes).toBe(false);
+  });
+});
+
+describe("expectIdea (TREEPM-242)", () => {
+  const base = { id: "x", messages: ["m"], expectChildren: "either" as const, mustMention: [], mustNotMention: [] };
+  const draft = (idea?: boolean) => ({ message: "ok", ready: true, draft: { title: "T", description: "d", children: [], ...(idea === undefined ? {} : { idea }) } });
+
+  it("expectIdea true: passa com idea verdadeiro e falha sem ele; relata o que veio", () => {
+    expect(checkDraft({ ...base, expectIdea: true }, draft(true))).toMatchObject({ idea: true, ideaOk: true, passes: true });
+    expect(checkDraft({ ...base, expectIdea: true }, draft(false))).toMatchObject({ idea: false, ideaOk: false, passes: false });
+    expect(checkDraft({ ...base, expectIdea: true }, draft())).toMatchObject({ idea: false, ideaOk: false, passes: false });
+  });
+
+  it("expectIdea false: falha se idea vier verdadeiro", () => {
+    expect(checkDraft({ ...base, expectIdea: false }, draft(true))).toMatchObject({ ideaOk: false, passes: false });
+    expect(checkDraft({ ...base, expectIdea: false }, draft(false))).toMatchObject({ ideaOk: true, passes: true });
+  });
+
+  it("sem expectIdea, idea não é exigido nem proibido, mas é relatado", () => {
+    expect(checkDraft(base, draft(true))).toMatchObject({ idea: true, ideaOk: true, passes: true });
+    expect(checkDraft(base, draft())).toMatchObject({ idea: false, ideaOk: true, passes: true });
+  });
+
+  it("sem rascunho, idea é falso e nada passa", () => {
+    expect(checkDraft({ ...base, expectIdea: true }, { message: "q", ready: false, draft: null })).toMatchObject({ idea: false, passes: false });
+  });
+});
+
+describe("os casos da medição (TREEPM-242)", () => {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), "../scripts/conversation-cases");
+  const cases = new Map(readdirSync(dir).filter((n) => n.endsWith(".json")).map((n) => { const c = JSON.parse(readFileSync(join(dir, n), "utf8")) as Record<string, unknown>; return [c["id"] as string, c]; }));
+
+  it("ideia-declarada: pedido que começa com 'Ideia:', três peças, espera filhos e idea verdadeiro", () => {
+    const c = cases.get("ideia-declarada") as { messages: string[]; expectChildren: unknown; expectIdea: unknown; minChildren: number; mustMention: unknown[] };
+    expect(c).toBeDefined();
+    expect(c.messages).toHaveLength(1);
+    expect(c.messages[0]).toMatch(/^Ideia:/);
+    expect(c.expectChildren).toBe(true);
+    expect(c.expectIdea).toBe(true);
+    expect(c.minChildren).toBeGreaterThanOrEqual(3);
+    expect(c.mustMention.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("botao-play espera idea; ticket-simples e defeito-com-passos esperam que não; os outros não têm o campo", () => {
+    expect(cases.get("botao-play")?.["expectIdea"]).toBe(true);
+    expect(cases.get("ticket-simples")?.["expectIdea"]).toBe(false);
+    expect(cases.get("defeito-com-passos")?.["expectIdea"]).toBe(false);
+    for (const [id, c] of cases) if (!["ideia-declarada", "botao-play", "ticket-simples", "defeito-com-passos"].includes(id)) expect(c).not.toHaveProperty("expectIdea");
   });
 });

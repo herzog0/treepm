@@ -1,0 +1,61 @@
+{
+  "id": "ideia-declarada",
+  "messages": [
+    "Ideia: um painel de metas por equipe. Cada equipe define metas trimestrais com um responsável, o painel mostra o progresso de cada meta em uma barra, e quando uma meta passa de 90% a equipe recebe um aviso no canal dela."
+  ],
+  "expectChildren": true,
+  "expectIdea": true,
+  "minChildren": 3,
+  "maxChildren": 6,
+  "mustMention": [
+    {
+      "label": "painel de metas",
+      "anyOf": [
+        "painel de metas",
+        "painel"
+      ]
+    },
+    {
+      "label": "por equipe",
+      "anyOf": [
+        "equipe"
+      ]
+    },
+    {
+      "label": "metas trimestrais",
+      "anyOf": [
+        "trimestra"
+      ]
+    },
+    {
+      "label": "responsável",
+      "anyOf": [
+        "responsável"
+      ]
+    },
+    {
+      "label": "barra de progresso",
+      "anyOf": [
+        "barra",
+        "progresso"
+      ]
+    },
+    {
+      "label": "aviso acima de 90%",
+      "anyOf": [
+        "90%",
+        "90 %"
+      ]
+    },
+    {
+      "label": "canal da equipe",
+      "anyOf": [
+        "canal"
+      ]
+    }
+  ],
+  "mustNotMention": [
+    "critérios de aceite",
+    "resultado esperado"
+  ]
+}

@@ -150,7 +150,7 @@ describe("ClaudeConversationProvider — o resultado", () => {
     const turn = await new ClaudeConversationProvider(streamer(ok({ ...goodOutput, ready: true }))).turn(input);
     expect(turn).toEqual({
       message: "Qual é o prazo?",
-      draft: { title: "Corrigir login", description: "Detalhes", children: [] },
+      draft: { title: "Corrigir login", description: "Detalhes", children: [], idea: false },
       ready: true,
       model: "claude-opus-5-5",
     });
@@ -159,6 +159,24 @@ describe("ClaudeConversationProvider — o resultado", () => {
   it("guarda o modelo da resposta, que pode ser o da alternativa", async () => {
     const turn = await new ClaudeConversationProvider(streamer(ok(goodOutput, { model: "claude-opus-4-8" }))).turn(input);
     expect(turn.model).toBe("claude-opus-4-8");
+  });
+
+  it("devolve idea do rascunho; ausente na saída, falso", async () => {
+    const withIdea = { ...goodOutput, draft: { title: "T", description: "D", children: [], idea: true } };
+    expect((await new ClaudeConversationProvider(streamer(ok(withIdea))).turn(input)).draft?.idea).toBe(true);
+    expect((await new ClaudeConversationProvider(streamer(ok(goodOutput))).turn(input)).draft?.idea).toBe(false);
+  });
+
+  it("idea que não é booleano é tratado como falha", async () => {
+    const bad = { ...goodOutput, draft: { title: "T", description: "D", children: [], idea: "sim" } };
+    await expect(new ClaudeConversationProvider(streamer(ok(bad))).turn(input)).rejects.toBeInstanceOf(AssistantUnavailableError);
+  });
+
+  it("o formato pedido ao modelo inclui idea no rascunho", async () => {
+    const captured: Captured[] = [];
+    await new ClaudeConversationProvider(streamer(ok(), captured)).turn(input);
+    const format = JSON.stringify((captured[0]!.params as { output_config: unknown }).output_config);
+    expect(format).toContain('"idea"');
   });
 
   it("sem rascunho, `ready` nunca é verdadeiro", async () => {
@@ -235,6 +253,19 @@ describe("o prompt de sistema da conversa (ADR 0044)", () => {
     expect(SYSTEM_PROMPT).toMatch(/só um nível/);
   });
 
+  it("só liga idea quando a pessoa diz que é ideia; nunca por achar o pedido vago; desliga quando ela voltar atrás", () => {
+    expect(SYSTEM_PROMPT).toMatch(/"idea"/);
+    expect(SYSTEM_PROMPT).toMatch(/"ideia:"/);
+    expect(SYSTEM_PROMPT).toMatch(/é só uma ideia/);
+    expect(SYSTEM_PROMPT).toMatch(/registra como ideia/);
+    expect(SYSTEM_PROMPT).toMatch(/nunca por achar o pedido vago/);
+    expect(SYSTEM_PROMPT).toMatch(/não é mais só ideia/);
+    expect(SYSTEM_PROMPT).toMatch(/Com "idea" ligado, diga na mensagem, em uma frase, que vai registrar como ideia/);
+    expect(SYSTEM_PROMPT).toMatch(/palavra "ideia" fica no pedido/);
+    expect(SYSTEM_PROMPT).toMatch(/quebra em filhos vale igual para ideia/);
+    expect(SYSTEM_PROMPT).toMatch(/"idea" do rascunho atual vale/);
+  });
+
   it("não traz mais a regra antiga de partes independentes feitas por pessoas diferentes", () => {
     expect(SYSTEM_PROMPT).not.toContain("pessoas diferentes fariam em momentos diferentes");
     expect(SYSTEM_PROMPT).not.toContain("pessoas diferentes em momentos diferentes");
@@ -297,7 +328,7 @@ describe("ClaudeConversationProvider — rascunho com filhos (ADR 0044)", () => 
 
   it("devolve o rascunho com os filhos, na ordem", async () => {
     const turn = await new ClaudeConversationProvider(streamer(ok({ ...goodOutput, draft: family }))).turn(input);
-    expect(turn.draft).toEqual(family);
+    expect(turn.draft).toEqual({ ...family, idea: false });
   });
 
   it("aceita exatamente 20 filhos e trata 21 como indisponível", async () => {

@@ -201,6 +201,8 @@ interface Edit {
   description: string;
   /** Os filhos do rascunho com as edições à mão; vazia quando o rascunho é de um ticket só. */
   children: PartEdit[];
+  /** Registrar como ideia ao criar (ADR 0044, adendo). */
+  idea: boolean;
 }
 
 /** A mensagem que a pessoa acabou de enviar: aparece na conversa antes de a resposta chegar e, se falhar, fica como não respondida. */
@@ -244,8 +246,8 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const removal = useAction();
 
   const draft = conversation?.draft ?? null;
-  const fields: Edit | null = draft ? edit ?? { title: draft.title, description: draft.description, children: toPartEdits(draft.children) } : null;
-  const dirty = draft !== null && fields !== null && (fields.title !== draft.title || fields.description !== draft.description || !samePartList(fields.children, draft.children));
+  const fields: Edit | null = draft ? edit ?? { title: draft.title, description: draft.description, children: toPartEdits(draft.children), idea: draft.idea } : null;
+  const dirty = draft !== null && fields !== null && (fields.title !== draft.title || fields.description !== draft.description || fields.idea !== draft.idea || !samePartList(fields.children, draft.children));
   const blankTitle = fields !== null && (fields.title.trim() === "" || fields.children.some((part) => part.title.trim() === ""));
   const busy = save.busy || search.busy || create.busy || removal.busy;
   const partCount = draft?.children.length ?? 0;
@@ -392,6 +394,8 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
       title: fields.title.trim(),
       description: fields.description,
       ...(withParts ? { children: fields.children.map((part) => ({ title: part.title.trim(), description: part.description })) } : {}),
+      // A opção só vai quando mudou: sem ela no corpo, a API a mantém como está.
+      ...(fields.idea !== conversation.draft!.idea ? { idea: fields.idea } : {}),
     };
     const result = await save.run(() => client.updateConversationDraft(conversation.id, body));
     if (!result.ok) return null;
@@ -486,6 +490,9 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     void createHere({ title: proposal.title, description: proposal.description, ticketIds });
   };
   const destination = target?.parentId == null ? null : list.find((entry) => entry.id === target.parentId);
+  // Um lugar que já está dentro de uma ideia (ou é a raiz dela): o que nasce ali é parte dela, sem estágio próprio, e a opção some.
+  const insideIdea = destination != null && destination.idea != null;
+  const asIdea = fields !== null && fields.idea && !insideIdea;
   const reopenKey = destination && reopensOnReceiving(destination) ? destination.key : null;
   const whereStopped = (parentId: string | null) => (parentId === null ? project.name : list.find((entry) => entry.id === parentId)?.title ?? project.name);
 
@@ -565,6 +572,15 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
               {fields.children.length > 0 || partCount > 0 ? (
                 <DraftParts parts={fields.children} mentions={{ projectId: project.id, tickets: list }} disabled={save.busy} onChange={(children) => setEdit({ ...fields, children })} />
               ) : null}
+              {!insideIdea && (
+                <div className="assistant-idea-option">
+                  <label>
+                    <input type="checkbox" checked={fields.idea} disabled={busy} aria-describedby="assistant-idea-hint" onChange={(event) => setEdit({ ...fields, idea: event.target.checked })} />
+                    {t("draft.idea.label")}
+                  </label>
+                  <small id="assistant-idea-hint">{t("draft.idea.hint")}</small>
+                </div>
+              )}
               {preview && preview.unknownKeys.length > 0 && <p role="alert" className="assistant-warning">{t("draft.warning.unknownKeys", { keys: preview.unknownKeys.join(", ") })}</p>}
               {preview?.descriptionTooLong === true && <p role="alert" className="assistant-warning">{t("draft.warning.tooLong")}</p>}
               {(save.error || search.error) && <p role="alert">{describeError((save.error ?? search.error)!)}</p>}
@@ -606,6 +622,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 onChoose={() => setChoosing(true)}
                 onCreate={() => void createHere()}
                 parts={partCount}
+                idea={asIdea}
                 createBlocked={createBlocked}
               />
             )}

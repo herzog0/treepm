@@ -28,6 +28,7 @@ const turnFormat = z.object({
       children: z
         .array(z.object({ title: z.string(), description: z.string() }))
         .describe("Os filhos do ticket, na ordem; lista vazia quando o rascunho é um ticket só. Filhos não têm filhos."),
+      idea: z.boolean().describe("Verdadeiro só quando a pessoa disse que o pedido é uma ideia; falso nos demais casos."),
     })
     .nullable()
     .describe("Rascunho completo do ticket (com os filhos, se houver), ou null se ainda não houver o que propor."),
@@ -42,6 +43,7 @@ const turnLimits = z.object({
       title: ticketTitleSchema,
       description: ticketDescriptionSchema,
       children: z.array(z.object({ title: ticketTitleSchema, description: ticketDescriptionSchema })).max(MAX_DRAFT_CHILDREN).default([]),
+      idea: z.boolean().default(false),
     })
     .nullable(),
   ready: z.boolean(),

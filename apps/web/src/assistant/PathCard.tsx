@@ -33,6 +33,8 @@ interface PathCardProps {
   onCreateGroup: () => void;
   /** Quantas partes (filhos) o rascunho tem; elas nascem dentro do ticket (ADR 0044). */
   parts: number;
+  /** O que nasce aqui é uma ideia (a opção ligada e o lugar fora de uma ideia): o card e o botão dizem isso. */
+  idea: boolean;
   /** A prévia recusa a criação: os botões de criar ficam desabilitados. */
   createBlocked: boolean;
 }
@@ -47,7 +49,7 @@ export function PathCard(props: PathCardProps) {
   const steps = [
     { name: project.name, note: target.path.length === 0 ? t("path.root") : "" },
     ...target.path.map((step) => ({ name: step.title, note: "" })),
-    { name: t("path.newTicket", { title: draftTitle }), note: t("path.entersHere") },
+    { name: t(props.idea ? "path.newIdea" : "path.newTicket", { title: draftTitle }), note: t("path.entersHere") },
   ];
   const stopped = outcome.stoppedEarly;
   const { proposal } = props;
@@ -66,6 +68,7 @@ export function PathCard(props: PathCardProps) {
           </li>
         ))}
       </ol>
+      {props.idea && <p className="assistant-notice">{t("path.ideaNote")}</p>}
       {props.parts > 0 && <p className="assistant-notice">{t("path.partsNote", { count: props.parts })}</p>}
       {props.reopensKey !== null && <p className="assistant-notice" role="status">{reopenWarningText(tTicket, props.reopensKey)}</p>}
       {proposal && (
@@ -119,7 +122,7 @@ export function PathCard(props: PathCardProps) {
       )}
       {props.error && <p role="alert">{describeError(props.error)}</p>}
       <div className="assistant-actions">
-        <button type="button" className="primary" disabled={busy || props.createBlocked} onClick={props.onCreate}>{props.parts > 0 ? t("path.createWithParts", { count: props.parts }) : t("path.create")}</button>
+        <button type="button" className="primary" disabled={busy || props.createBlocked} onClick={props.onCreate}>{props.idea ? (props.parts > 0 ? t("path.createIdeaWithParts", { count: props.parts }) : t("path.createIdea")) : props.parts > 0 ? t("path.createWithParts", { count: props.parts }) : t("path.create")}</button>
         <button type="button" disabled={!props.canGoUp} onClick={props.onUp}>{t("path.up")}</button>
         <button type="button" className="text" onClick={props.onChoose}>{t("pick.choose")}</button>
       </div>

@@ -4,6 +4,7 @@
     "Ideia de alta prioridade: implementar uma função de botão \"play\", ao clicar abre drop-down com algumas opções de template, que são basicamente filtros de tasks e o modo play (ao selecionar) navega de task em task do filtro, com botão de avançar no topo (ou retroceder) caso a pessoa queria ir pra próxima task ou anterior. Modo standup é uma das sub opções do botão play."
   ],
   "expectChildren": true,
+  "expectIdea": true,
   "minChildren": 3,
   "maxChildren": 7,
   "mustMention": [

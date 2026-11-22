@@ -16,7 +16,11 @@ export const MAX_DRAFT_CHILDREN = 20;
  * O rascunho da conversa: um ticket (sem `children`, ou lista vazia) ou um pai com filhos (ADR 0044). A citação do pedido
  * não faz parte dele: a API a monta na hora de criar.
  */
-export type ConversationDraft = TicketDraft & { children?: readonly DraftChild[] };
+export type ConversationDraft = TicketDraft & {
+  children?: readonly DraftChild[];
+  /** Registrar como ideia ao criar (ADR 0044, adendo); ausente = falso. */
+  idea?: boolean;
+};
 
 export type ConversationMessage = { author: "person" | "assistant"; body: string };
 

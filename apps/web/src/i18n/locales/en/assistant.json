@@ -58,6 +58,10 @@
       "moveDown": "Move “{{title}}” down",
       "noDescription": "No description."
     },
+    "idea": {
+      "label": "Register as an idea",
+      "hint": "It enters as an idea in the “New” stage, with the parts inside it."
+    },
     "warning": {
       "unknownKeys": "The draft mentions tickets that do not exist: {{keys}}. Fix the keys to create.",
       "tooLong": "The parent ticket's description went over the limit together with the original request. Shorten the description to create."
@@ -92,6 +96,11 @@
       "candidates_too_large": "The search stopped at “{{where}}” because there were too many tickets to compare at once. Check whether the place works or choose another.",
       "max_levels": "The search stopped at “{{where}}” on reaching the level limit. Check whether the place works or choose another."
     },
+    "ideaNote": "It enters as an idea in the “New” stage, outside the process, until someone accepts it.",
+    "newIdea": "New idea: {{title}}",
+    "createIdea": "Register idea here",
+    "createIdeaWithParts_one": "Register idea and {{count}} part",
+    "createIdeaWithParts_other": "Register idea and {{count}} parts",
     "createWithParts_one": "Create ticket and {{count}} part",
     "createWithParts_other": "Create ticket and {{count}} parts",
     "partsNote_one": "{{count}} part is created inside the ticket.",

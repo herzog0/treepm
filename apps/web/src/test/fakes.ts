@@ -34,14 +34,14 @@ export function makeTicket(id: string, projectId: string, number: number, title:
 }
 
 /** Conversa de criação com a IA (ADR 0029): uma troca de mensagens e, por padrão, um rascunho. */
-type DraftExtra = { title: string; description: string; children?: ConversationDraftChild[] };
+type DraftExtra = { title: string; description: string; children?: ConversationDraftChild[]; idea?: boolean };
 export function makeConversation(id: string, projectId: string, extra: Omit<Partial<ConversationDetail>, "draft"> & { draft?: DraftExtra | null } = {}): ConversationDetail {
   const { draft = { title: "Corrigir o login", description: "O login falha no Safari." }, ...rest } = extra;
   return {
     id,
     projectId,
     status: "open",
-    draft: draft === null ? null : { ...draft, children: draft.children ?? [] },
+    draft: draft === null ? null : { ...draft, children: draft.children ?? [], idea: draft.idea ?? false },
     ready: true,
     createdTicketId: null,
     createdAt: "2026-11-20T10:00:00.000Z",

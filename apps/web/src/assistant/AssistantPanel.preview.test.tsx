@@ -17,6 +17,7 @@ const preview = (extra: Partial<DraftPreview> = {}): DraftPreview => ({
   description: `${QUOTE}\n\nOrganizado pela IA.`,
   quote: QUOTE,
   children: [],
+  idea: false,
   unknownKeys: [],
   descriptionTooLong: false,
   ...extra,

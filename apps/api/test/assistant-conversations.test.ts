@@ -141,7 +141,7 @@ describe("POST /ticket-conversations/:id/messages", () => {
     expect(res.body.ready).toBe(true);
     const call = h.conversation().calls[1];
     expect(call?.history.map((m) => m.body)).toEqual(["Quero corrigir o login", expect.stringContaining("Entendi"), "Segunda mensagem"]);
-    expect(call?.draft).toEqual({ title: "Rascunho 1", description: "Quero corrigir o login" });
+    expect(call?.draft).toEqual({ title: "Rascunho 1", description: "Quero corrigir o login", idea: false });
     expect((await rows("select position from ticket_conversation_messages order by position")).map((r) => r.position)).toEqual([1, 2, 3, 4]);
   });
 
@@ -150,7 +150,7 @@ describe("POST /ticket-conversations/:id/messages", () => {
     await patch("contributor", id, { title: "Editado", description: "à mão" });
     h.conversation().reply = () => ({ message: "Mais uma pergunta", draft: null, ready: false, model: "claude-opus-5-5" });
     const res = await send("contributor", id);
-    expect(res.body.draft).toEqual({ title: "Editado", description: "à mão", children: [] });
+    expect(res.body.draft).toEqual({ title: "Editado", description: "à mão", children: [], idea: false });
   });
 
   it("503 assistant_unavailable não grava a mensagem nova", async () => {
@@ -306,7 +306,7 @@ describe("PATCH /ticket-conversations/:id/draft", () => {
     h.conversation().calls.length = 0;
     const res = await patch("contributor", id, { title: "  Título novo  ", description: "Descrição nova" });
     expect(res.status).toBe(200);
-    expect(res.body.draft).toEqual({ title: "Título novo", description: "Descrição nova", children: [] });
+    expect(res.body.draft).toEqual({ title: "Título novo", description: "Descrição nova", children: [], idea: false });
     expect(h.conversation().calls).toHaveLength(0);
     expect((await rows("select draft_title from ticket_conversations"))[0].draft_title).toBe("Título novo");
   });
@@ -324,7 +324,7 @@ describe("PATCH /ticket-conversations/:id/draft", () => {
   it("aceita os limites exatos e descrição omitida vira vazia", async () => {
     const id = await start();
     expect((await patch("contributor", id, { title: "x".repeat(200), description: "y".repeat(20_000) })).status).toBe(200);
-    expect((await patch("contributor", id, { title: "t" })).body.draft).toEqual({ title: "t", description: "", children: [] });
+    expect((await patch("contributor", id, { title: "t" })).body.draft).toEqual({ title: "t", description: "", children: [], idea: false });
   });
 
   it("conversa fechada: 409 conversation_closed", async () => {

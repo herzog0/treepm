@@ -58,6 +58,10 @@
 .assistant-proposal .proposal-tickets label { display: flex; align-items: flex-start; gap: 8px; margin: 0; overflow-wrap: anywhere; }
 .assistant-proposal .proposal-actions { margin-top: 10px; }
 .assistant-proposal .proposal-tickets input[type="checkbox"] { width: auto; min-height: 0; padding: 0; flex: none; margin-top: 2px; }
+.assistant-idea-option { display: grid; gap: 2px; margin: 10px 0 0; }
+.assistant-card .assistant-idea-option label { display: flex; align-items: center; gap: 8px; margin: 0; }
+.assistant-idea-option input[type="checkbox"] { width: auto; min-height: 0; padding: 0; flex: none; }
+.assistant-idea-option small { padding-left: 24px; color: var(--tp-text-3); font-size: 11.5px; }
 .assistant-card .assistant-sub { margin: 12px 0 0; color: var(--tp-text-3); font-size: 11.5px; }
 
 .assistant-error { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
@@ -137,4 +141,8 @@
   .assistant-part-body { padding-left: 0; }
   .assistant-part-body .text { min-height: 44px; }
   .assistant-projects button, .assistant-alternatives button { min-height: 44px; }
+  /* O controle de marcar da ideia: a linha inteira é o alvo, com 44 px. */
+  .assistant-card .assistant-idea-option label { min-height: 44px; }
+  .assistant-idea-option input[type="checkbox"] { width: 22px; height: 22px; }
+  .assistant-idea-option small { padding-left: 30px; }
 }

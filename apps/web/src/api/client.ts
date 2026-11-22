@@ -120,14 +120,16 @@ const ticketDetailSchema = ticketSummarySchema.extend({
   updatedAt: z.string(),
 });
 const draftChildSchema = z.object({ title: z.string(), description: z.string() });
-/** Rascunho da conversa (ADR 0044): `children` vazio é um ticket só; a API sempre o manda (e um servidor antigo vale como vazio). */
-const draftSchema = z.object({ title: z.string(), description: z.string(), children: z.array(draftChildSchema).default([]) }).nullable();
+/** Rascunho da conversa (ADR 0044): `children` vazio é um ticket só; a API sempre o manda (e um servidor antigo vale como vazio). `idea`: registrar como ideia ao criar (falso num servidor antigo). */
+const draftSchema = z.object({ title: z.string(), description: z.string(), children: z.array(draftChildSchema).default([]), idea: z.boolean().default(false) }).nullable();
 /** O que a criação vai gravar, como a API monta (`GET …/preview`, ADR 0044): o pai com a citação, os filhos e o que ela recusaria. */
 const draftPreviewSchema = z.object({
   title: z.string(),
   description: z.string(),
   quote: z.string(),
   children: z.array(draftChildSchema),
+  /** O rascunho será registrado como ideia ao criar (um servidor antigo vale como falso). */
+  idea: z.boolean().default(false),
   unknownKeys: z.array(z.string()),
   descriptionTooLong: z.boolean(),
 });
@@ -325,6 +327,8 @@ export interface ConversationDraftBody {
   title: string;
   description: string;
   children?: ConversationDraftChild[];
+  /** Registrar como ideia ao criar (ADR 0044, adendo); ausente mantém a opção como está. */
+  idea?: boolean;
 }
 export interface AskBody {
   question: string;
