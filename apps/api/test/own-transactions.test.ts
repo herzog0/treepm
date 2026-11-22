@@ -6,19 +6,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { OwnTransactions, Tenant } from "../src/db/own-transactions.js";
 import type { TenantRunner } from "../src/db/own-transactions.js";
 import { Tx } from "../src/db/tx.decorator.js";
-import { createTestApp, ownerPoolWithCleanup, truncateAll } from "./helpers.js";
+import { createTestApp, ownerPoolWithCleanup, truncateAll, openApiTransactions } from "./helpers.js";
 import { as, seedWorld } from "./world.js";
 import type { World } from "./world.js";
 
 const pool = ownerPoolWithCleanup();
-
-/** Transações da API abertas e paradas no banco neste instante (`treepm_app` é o papel da API). */
-async function openApiTransactions(): Promise<number> {
-  const r = await pool.query<{ n: number }>(
-    "select count(*)::int as n from pg_stat_activity where usename = 'treepm_app' and state like 'idle in transaction%'",
-  );
-  return r.rows[0]?.n ?? -1;
-}
 
 /** O que o "provedor" faz quando é chamado (definido por cada teste). */
 const provider: { onCall: () => Promise<void> } = { onCall: async () => undefined };
@@ -29,7 +21,7 @@ class ProbeController {
   @Post("plain")
   async plain(@Tx() tx: TenantClient) {
     await tx.team.count();
-    return { openDuring: await openApiTransactions() };
+    return { openDuring: await openApiTransactions(pool) };
   }
 
   /** Rota que cuida das próprias transações: leitura curta, "provedor", escrita curta. */
@@ -41,7 +33,7 @@ class ProbeController {
       clerkRole: principal.actor.clerkRole,
       projects: [...principal.actor.projectRoles.values()],
     }));
-    const openDuring = await openApiTransactions();
+    const openDuring = await openApiTransactions(pool);
     await provider.onCall();
     const write = await tenant.run(async (_tx, principal) => ({ projects: [...principal.actor.projectRoles.values()] }));
     return { read, openDuring, write };
@@ -86,7 +78,7 @@ describe("@OwnTransactions", () => {
   it("na rota declarada, não há transação aberta enquanto o provedor responde", async () => {
     let openInsideProvider = -1;
     provider.onCall = async () => {
-      openInsideProvider = await openApiTransactions();
+      openInsideProvider = await openApiTransactions(pool);
     };
     const res = await post("/api/probe/own", as("manager"));
     expect(res.status).toBe(201);

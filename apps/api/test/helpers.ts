@@ -156,6 +156,17 @@ export async function createTestApp(
   return { app, directory, verifier, conversation, judge, summarizer, affinity, namer, writer, answerer, github };
 }
 
+/**
+ * Transações da API (papel `treepm_app`) abertas e paradas NO BANCO DESTA CONEXÃO. `pg_stat_activity` é do servidor
+ * inteiro: sem o filtro por banco, outra suíte rodando em outro banco do mesmo contêiner faz o teste falhar sem motivo.
+ */
+export async function openApiTransactions(pool: pg.Pool): Promise<number> {
+  const r = await pool.query<{ n: number }>(
+    "select count(*)::int as n from pg_stat_activity where usename = 'treepm_app' and datname = current_database() and state like 'idle in transaction%'",
+  );
+  return r.rows[0]?.n ?? -1;
+}
+
 export function ownerPoolWithCleanup(): pg.Pool {
   return ownerPool();
 }

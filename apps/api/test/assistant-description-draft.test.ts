@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AI_CONFIG, TEST_CONFIG } from "./helpers.js";
+import { AI_CONFIG, TEST_CONFIG, openApiTransactions } from "./helpers.js";
 import { seedTree } from "./assistant-tree.js";
 import type { Tree } from "./assistant-tree.js";
 import { useHarness } from "./harness.js";
@@ -15,7 +15,7 @@ const WHO_EDIT: Who[] = ["admin", "manager", "contributor"];
 const draft = (id: string, body: unknown = { request: "Escreva os critérios", description: "Texto atual" }, who: Who | "outsider" = "contributor", org = "org_A") =>
   h.call("POST", `/api/tickets/${id}/description/draft`, as(who, org), body);
 const openTransactions = async () =>
-  (await rows("select count(*)::int as n from pg_stat_activity where usename = 'treepm_app' and state like 'idle in transaction%'"))[0].n as number;
+  openApiTransactions(h.pool);
 const counts = async () => ({
   tickets: await rows("select id, title, description, updated_at from tickets order by id"),
   events: (await rows("select count(*)::int as n from activity_events"))[0].n as number,

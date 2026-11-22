@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AI_CONFIG, TEST_CONFIG } from "./helpers.js";
+import { AI_CONFIG, TEST_CONFIG, openApiTransactions } from "./helpers.js";
 import { seedGroups, seedTree } from "./assistant-tree.js";
 import type { Tree } from "./assistant-tree.js";
 import { useHarness } from "./harness.js";
@@ -17,7 +17,7 @@ const placement = (id: string, who: Who | "outsider" = "contributor", org = "org
   h.call("POST", `/api/ticket-conversations/${id}/placement`, as(who, org));
 const summaryRows = async () => rows("select t.title, s.summary, s.model, s.content_mark from branch_summaries s join tickets t on t.id = s.ticket_id order by t.number");
 const openTransactions = async () =>
-  (await rows("select count(*)::int as n from pg_stat_activity where usename = 'treepm_app' and state like 'idle in transaction%'"))[0].n as number;
+  openApiTransactions(h.pool);
 
 /** Texto escrito por uma pessoa para o agrupador (a origem e o modelo nulo vêm da migration 0008). */
 const storePersonText = (ticketId: string, text: string) =>
