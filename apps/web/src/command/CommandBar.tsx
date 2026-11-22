@@ -31,14 +31,23 @@ export interface CommandBarProps {
   onResumeConversation: () => void;
   onReopenConversation: () => void;
   onCollapseConversation: () => void;
+  /** A pergunta sobre o projeto (ADR 0037) também mora na barra: sem folha, à vista ou recolhida ("Pergunta em andamento"). */
+  ask: "none" | "expanded" | "collapsed";
+  /** A IA está ligada e há projeto visível: a folha de busca oferece "Perguntar ao assistente", também a quem só lê. */
+  canAsk: boolean;
+  onAsk: (text: string) => void;
+  onReopenAsk: () => void;
+  onCollapseAsk: () => void;
+  /** Cresce quando algo de fora (a "Nova pergunta") pede o foco do campo da barra. */
+  focusRequest: number;
   /** A folha da conversa, que fica dentro da barra, embaixo do campo. */
   children?: ReactNode;
 }
 
-type Option = { kind: "ticket"; ticket: TicketSummary } | { kind: "create" };
+type Option = { kind: "ticket"; ticket: TicketSummary } | { kind: "create" } | { kind: "ask" };
 
 /** Barra de pedidos no topo do mapa (ADR 0036, fatia 1): busca de tickets e a ação "Criar ticket". */
-export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTicket, onCreate, returnFocus, conversation, assistantAvailable, loadResumable, onNewConversation, onResumeConversation, onReopenConversation, onCollapseConversation, children }: CommandBarProps) {
+export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTicket, onCreate, returnFocus, conversation, assistantAvailable, loadResumable, onNewConversation, onResumeConversation, onReopenConversation, onCollapseConversation, ask, canAsk, onAsk, onReopenAsk, onCollapseAsk, focusRequest, children }: CommandBarProps) {
   const { t } = useTranslation("command");
   const { t: tMap } = useTranslation("map");
   const id = useId();
@@ -56,8 +65,10 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
   const options = useMemo<Option[]>(() => {
     const list: Option[] = found.map((ticket) => ({ kind: "ticket", ticket }));
     if (canCreate && trimmed !== "") list.push({ kind: "create" });
+    if (canAsk && trimmed !== "") list.push({ kind: "ask" });
     return list;
-  }, [found, canCreate, trimmed]);
+  }, [found, canCreate, canAsk, trimmed]);
+  const askIndex = found.length + (canCreate ? 1 : 0);
   const sheetOpen = open && trimmed !== "";
   const emptyOpen = open && trimmed === "" && assistantAvailable && canCreate && conversation === "none";
   const emptyOptions = useMemo(() => (resumeTitle === null ? (["new"] as const) : (["resume", "new"] as const)), [resumeTitle]);
@@ -67,6 +78,13 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
 
   const conversationRef = useRef(conversation);
   conversationRef.current = conversation;
+  const askRef = useRef(ask);
+  askRef.current = ask;
+  const folded = conversation === "expanded" || ask === "expanded";
+  // "Nova pergunta" encerra a folha: o campo da barra volta e recebe o foco.
+  useEffect(() => {
+    if (focusRequest > 0) input.current?.focus();
+  }, [focusRequest]);
   // A rolagem da folha da conversa é dela: a roda não chega ao zoom do mapa.
   useEffect(() => {
     const element = zone.current;
@@ -98,8 +116,9 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== "k" || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
       event.preventDefault();
-      // Com a conversa à vista o campo da barra está recolhido: o foco vai ao campo de mensagem dela.
-      const message = conversationRef.current === "expanded" ? (zone.current?.querySelector<HTMLElement>("#assistant-message") ?? zone.current?.querySelector<HTMLElement>(".assistant-body")) : null;
+      // Com uma folha à vista (a conversa ou a pergunta) o campo da barra está recolhido: o foco vai ao campo de mensagem dela.
+      const sheet = conversationRef.current === "expanded" || askRef.current === "expanded" ? ".assistant-sheet:not([hidden])" : null;
+      const message = sheet ? (zone.current?.querySelector<HTMLElement>(`${sheet} :is(#assistant-message, #ask-message)`) ?? zone.current?.querySelector<HTMLElement>(`${sheet} .assistant-body`)) : null;
       if (message) {
         message.focus();
         return;
@@ -127,6 +146,10 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
       const ticketId = option.ticket.id;
       finish();
       onOpenTicket(ticketId);
+    } else if (option.kind === "ask") {
+      const question = trimmed;
+      finish();
+      onAsk(question);
     } else {
       const request = trimmed;
       finish();
@@ -149,6 +172,7 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
         setActive(0);
         // A folha da conversa se recolhe sem encerrar a conversa (ADR 0036).
         if (conversation === "expanded") onCollapseConversation();
+        if (ask === "expanded") onCollapseAsk();
         returnFocus();
         return;
       case "ArrowDown":
@@ -168,6 +192,12 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
       }
       case "Enter": {
         if (!fromField || event.repeat || event.nativeEvent.isComposing) return;
+        // Shift+Enter pergunta ao assistente, de qualquer linha; com o campo vazio não faz nada.
+        if (event.shiftKey && !event.ctrlKey && !event.metaKey) {
+          event.preventDefault();
+          if (canAsk && trimmed !== "") choose({ kind: "ask" });
+          return;
+        }
         if ((event.ctrlKey || event.metaKey) && canCreate && trimmed !== "") {
           event.preventDefault();
           choose({ kind: "create" });
@@ -201,8 +231,8 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
         if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
       }}
     >
-      <div className={`command-bar ${sheetOpen || emptyOpen || conversation === "expanded" ? "is-open" : ""}`}>
-        <div className="command-field" hidden={conversation === "expanded"}>
+      <div className={`command-bar ${sheetOpen || emptyOpen || folded ? "is-open" : ""}`}>
+        <div className="command-field" hidden={folded}>
           <span className="command-icon"><AiIcon /></span>
           <input
             ref={input}
@@ -226,6 +256,9 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
           />
           {conversation === "collapsed" && (
             <button type="button" className="command-progress" onClick={onReopenConversation}>{t("conversation.inProgress")}</button>
+          )}
+          {ask === "collapsed" && (
+            <button type="button" className="command-progress" onClick={onReopenAsk}>{t("ask.inProgress")}</button>
           )}
           <kbd>{sheetOpen ? t("bar.escape") : t("bar.shortcut")}</kbd>
         </div>
@@ -284,10 +317,10 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
                   ))}
                 </div>
               )}
-              {canCreate && (
+              {(canCreate || canAsk) && (
                 <div role="group" aria-labelledby={`${id}-actions`}>
                   <div id={`${id}-actions`} className="command-heading">{t("sheet.actions")}</div>
-                  <div
+                  {canCreate && <div
                     id={optionId(found.length)}
                     role="option"
                     aria-selected={activeIndex === found.length}
@@ -298,7 +331,21 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
                     <span className="command-action-icon"><PlusIcon /></span>
                     <span className="command-title">{t("action.create", { text: trimmed })}</span>
                     <span className="command-hint">{t("action.createShortcut")}</span>
-                  </div>
+                  </div>}
+                  {canAsk && (
+                    <div
+                      id={optionId(askIndex)}
+                      role="option"
+                      aria-selected={activeIndex === askIndex}
+                      className={`command-option ${activeIndex === askIndex ? "is-active" : ""}`}
+                      onMouseMove={() => setActive(askIndex)}
+                      onClick={() => choose({ kind: "ask" })}
+                    >
+                      <span className="command-action-icon"><AiIcon /></span>
+                      <span className="command-title">{t("action.ask", { text: trimmed })}</span>
+                      <span className="command-hint">{t("action.askShortcut")}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

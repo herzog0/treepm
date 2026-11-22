@@ -149,6 +149,7 @@ const codeLinkSchema = z.object({
 });
 const ticketCodeSchema = z.object({ repositories: z.number(), syncedAt: z.string().nullable(), links: z.array(codeLinkSchema) });
 const descriptionDraftSchema = z.object({ text: z.string(), model: z.string() });
+const askAnswerSchema = z.object({ text: z.string(), model: z.string() });
 const ticketSummaryTextSchema = z.object({
   summary: z.object({ text: z.string(), source: z.enum(["assistant", "person"]), updatedAt: z.string() }).nullable(),
 });
@@ -169,6 +170,11 @@ export type TicketStatus = z.output<typeof ticketStatus>;
 export type TicketSummary = z.output<typeof ticketSummarySchema>;
 export type TicketDetail = z.output<typeof ticketDetailSchema>;
 export type ConversationDraft = NonNullable<z.output<typeof draftSchema>>;
+export interface AskBody {
+  question: string;
+  history?: { author: "person" | "assistant"; body: string }[];
+}
+export type AskAnswer = z.output<typeof askAnswerSchema>;
 export type ConversationSummary = z.output<typeof conversationSummarySchema>;
 export type ConversationDetail = z.output<typeof conversationDetailSchema>;
 export type PlacementTarget = z.output<typeof placementTargetSchema>;
@@ -392,6 +398,9 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     /** Pede à IA um trecho em markdown para a descrição (ADR 0036). Não grava nada; `description` é o texto atual do editor. */
     draftTicketDescription: (id: string, body: { request: string; description: string }, options: { signal?: AbortSignal } = {}) =>
       request("POST", `${ticket(id)}/description/draft`, descriptionDraftSchema, body, options.signal),
+    /** Pergunta sobre o projeto (ADR 0037): `history` leva as mensagens anteriores da folha, que a API não guarda. Não grava nada. */
+    askProject: (projectId: string, body: AskBody, options: { signal?: AbortSignal } = {}) =>
+      request("POST", `${project(projectId)}/assistant/ask`, askAnswerSchema, body, options.signal),
   };
 }
 
