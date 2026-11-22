@@ -159,6 +159,30 @@ const askAnswerSchema = z.object({ text: z.string(), model: z.string() });
 const ticketSummaryTextSchema = z.object({
   summary: z.object({ text: z.string(), source: z.enum(["assistant", "person"]), updatedAt: z.string() }).nullable(),
 });
+const activityPersonSchema = z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() });
+/** Ticket citado numa entrada: `id` e `title` nulos quando ele não existe mais (a chave pode faltar também). */
+const activityTicketSchema = z.object({ id: z.string().nullable(), key: z.string().nullable(), title: z.string().nullable() });
+const activityBase = { id: z.string(), occurredAt: z.string(), actor: activityPersonSchema.nullable() };
+const activityEntrySchema = z.discriminatedUnion("type", [
+  z.object({ ...activityBase, type: z.literal("created") }),
+  z.object({ ...activityBase, type: z.literal("title_changed"), from: z.string(), to: z.string() }),
+  z.object({ ...activityBase, type: z.literal("description_changed") }),
+  z.object({ ...activityBase, type: z.literal("status_changed"), from: ticketStatus, to: ticketStatus, automatic: z.boolean(), causedBy: activityTicketSchema.nullable() }),
+  z.object({ ...activityBase, type: z.literal("parent_changed"), from: activityTicketSchema.nullable(), to: activityTicketSchema.nullable() }),
+  z.object({ ...activityBase, type: z.literal("assignee_added"), person: activityPersonSchema.nullable() }),
+  z.object({ ...activityBase, type: z.literal("assignee_removed"), person: activityPersonSchema.nullable() }),
+  z.object({ ...activityBase, type: z.literal("dependency_added"), ticket: activityTicketSchema }),
+  z.object({ ...activityBase, type: z.literal("dependency_removed"), ticket: activityTicketSchema }),
+  z.object({ ...activityBase, type: z.literal("summary_updated"), source: z.enum(["person", "assistant"]) }),
+]);
+/** Entrada de um tipo que esta versão da tela não conhece (a API pode ganhar tipos antes da tela, como `comment`) é descartada, sem erro. */
+const activityPageSchema = z.object({
+  entries: z.array(z.unknown()).transform((items) => items.flatMap((item) => {
+    const parsed = activityEntrySchema.safeParse(item);
+    return parsed.success ? [parsed.data] : [];
+  })),
+  before: z.string().nullable(),
+});
 const accessTokenSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -205,6 +229,9 @@ export type ProjectTeam = z.output<typeof projectTeamSchema>;
 export type TicketStatus = z.output<typeof ticketStatus>;
 export type TicketSummary = z.output<typeof ticketSummarySchema>;
 export type TicketDetail = z.output<typeof ticketDetailSchema>;
+export type ActivityEntry = z.output<typeof activityEntrySchema>;
+export type ActivityPage = z.output<typeof activityPageSchema>;
+export type ActivityTicketRef = z.output<typeof activityTicketSchema>;
 export type ConversationDraft = NonNullable<z.output<typeof draftSchema>>;
 export interface AskBody {
   question: string;
@@ -435,6 +462,15 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       request("DELETE", `${project(projectId)}/repositories/${repositoryId}`, null),
     refreshProjectCode: (projectId: string) => request("POST", `${project(projectId)}/code/refresh`, codeRefreshSchema),
     getTicketCode: (id: string) => request("GET", `${ticket(id)}/code`, ticketCodeSchema),
+
+    /** Atividade do ticket (ADR 0040), da mais recente para a mais antiga; `before` é o cursor que a página anterior devolveu. */
+    ticketActivity: (id: string, query: { before?: string; limit?: number } = {}, options: { signal?: AbortSignal } = {}) => {
+      const params = new URLSearchParams();
+      if (query.limit !== undefined) params.set("limit", String(query.limit));
+      if (query.before !== undefined) params.set("before", query.before);
+      const text = params.toString();
+      return request("GET", `${ticket(id)}/activity${text === "" ? "" : `?${text}`}`, activityPageSchema, undefined, options.signal);
+    },
 
     getTicketSummary: (id: string) => request("GET", `${ticket(id)}/summary`, ticketSummaryTextSchema),
     putTicketSummary: (id: string, body: { text: string }) => request("PUT", `${ticket(id)}/summary`, ticketSummaryTextSchema, body),

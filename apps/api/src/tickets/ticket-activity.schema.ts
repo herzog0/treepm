@@ -1,0 +1,46 @@
+import { z } from "zod";
+import { ticketStatusSchema } from "./tickets.schema.js";
+
+export const ACTIVITY_DEFAULT_LIMIT = 30;
+export const ACTIVITY_MAX_LIMIT = 100;
+
+export const activityQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(ACTIVITY_MAX_LIMIT).default(ACTIVITY_DEFAULT_LIMIT),
+  before: z.string().min(1).max(500).optional(),
+});
+
+const personSchema = z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() });
+/** Ticket citado numa entrada: dados de hoje quando existe; `id` e `title` nulos quando não existe mais. */
+const ticketRefSchema = z.object({ id: z.string().nullable(), key: z.string().nullable(), title: z.string().nullable() });
+
+const base = { id: z.string(), occurredAt: z.string(), actor: personSchema.nullable() };
+
+/**
+ * Entradas da atividade do ticket. Os dados do tipo ficam no mesmo nível de `id`, `occurredAt` e `actor`.
+ * Um tipo novo (por exemplo `comment`, ADR 0040 fatia 2) entra como mais um membro da união.
+ */
+export const activityEntrySchema = z.discriminatedUnion("type", [
+  z.object({ ...base, type: z.literal("created") }),
+  z.object({ ...base, type: z.literal("title_changed"), from: z.string(), to: z.string() }),
+  z.object({ ...base, type: z.literal("description_changed") }),
+  z.object({
+    ...base,
+    type: z.literal("status_changed"),
+    from: ticketStatusSchema,
+    to: ticketStatusSchema,
+    automatic: z.boolean(),
+    causedBy: ticketRefSchema.nullable(),
+  }),
+  z.object({ ...base, type: z.literal("parent_changed"), from: ticketRefSchema.nullable(), to: ticketRefSchema.nullable() }),
+  z.object({ ...base, type: z.literal("assignee_added"), person: personSchema.nullable() }),
+  z.object({ ...base, type: z.literal("assignee_removed"), person: personSchema.nullable() }),
+  z.object({ ...base, type: z.literal("dependency_added"), ticket: ticketRefSchema }),
+  z.object({ ...base, type: z.literal("dependency_removed"), ticket: ticketRefSchema }),
+  z.object({ ...base, type: z.literal("summary_updated"), source: z.enum(["person", "assistant"]) }),
+]);
+
+export const activityPageSchema = z.object({ entries: z.array(activityEntrySchema), before: z.string().nullable() });
+
+export type ActivityEntry = z.output<typeof activityEntrySchema>;
+export type ActivityPage = z.output<typeof activityPageSchema>;
+export type ActivityQuery = z.output<typeof activityQuerySchema>;

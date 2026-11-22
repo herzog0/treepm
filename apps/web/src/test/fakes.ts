@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { AccessToken, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, TicketSummary } from "../api/client.js";
+import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid" | "server_error", code?: string): ApiResult<never> => ({
@@ -471,6 +471,8 @@ export function makeClient(data: FakeData = {}): ApiClient {
     listTeams: vi.fn(async () => ok(data.teams ?? [])),
     listPeople: vi.fn(async () => ok(data.people ?? [])),
     listTickets: vi.fn(async (projectId: string) => ok(data.tickets?.[projectId] ?? [])),
+    // Atividade vazia por padrão: os testes que não falam dela não mudam (ADR 0040).
+    ticketActivity: vi.fn(async (): Promise<ApiResult<ActivityPage>> => ok({ entries: [], before: null })),
     ...(data.github ? githubMethods(data) : {}),
     ...(data.mcp ? mcpMethods(data) : {}),
     ...(data.aiConsent ? aiConsentMethods(data) : {}),

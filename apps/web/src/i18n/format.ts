@@ -21,3 +21,45 @@ export function formatNumber(language: Language, value: number, options?: Intl.N
 export function toUpper(language: Language, text: string): string {
   return text.toLocaleUpperCase(language);
 }
+
+const SECOND = 1000;
+const MINUTE = 60 * SECOND;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+const RELATIVE_FOR = 7 * DAY;
+
+const relativeFormats = new Map<Language, Intl.RelativeTimeFormat>();
+const shortDateFormats = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * Hora de uma entrada de atividade: relativa enquanto recente ("agora", "há 5 minutos", "ontem") e absoluta
+ * ("15 de nov.", com o ano só quando não é o corrente) a partir de sete dias. `now` vem de quem chama, para testar.
+ */
+export function formatActivityTime(language: Language, iso: string, now: Date): string {
+  const then = new Date(iso).getTime();
+  const elapsed = Math.max(0, now.getTime() - then);
+  if (elapsed < RELATIVE_FOR) {
+    let relative = relativeFormats.get(language);
+    if (!relative) {
+      relative = new Intl.RelativeTimeFormat(language, { numeric: "auto" });
+      relativeFormats.set(language, relative);
+    }
+    if (elapsed < MINUTE) return relative.format(0, "second");
+    if (elapsed < HOUR) return relative.format(-Math.floor(elapsed / MINUTE), "minute");
+    if (elapsed < DAY) return relative.format(-Math.floor(elapsed / HOUR), "hour");
+    return relative.format(-Math.floor(elapsed / DAY), "day");
+  }
+  const withYear = new Date(then).getFullYear() !== now.getFullYear();
+  const key = `${language}:${withYear}`;
+  let format = shortDateFormats.get(key);
+  if (!format) {
+    format = new Intl.DateTimeFormat(language, withYear ? { day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" });
+    shortDateFormats.set(key, format);
+  }
+  return format.format(new Date(then));
+}
+
+/** Data e hora completas, para o `title` da hora de uma entrada. `timeZone` só existe para os testes. */
+export function formatDateTime(language: Language, iso: string, timeZone?: string): string {
+  return new Intl.DateTimeFormat(language, { dateStyle: "long", timeStyle: "short", ...(timeZone ? { timeZone } : {}) }).format(new Date(iso));
+}
