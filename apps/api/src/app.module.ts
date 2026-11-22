@@ -11,6 +11,7 @@ import { ConfigModule } from "./config.module.js";
 import { DbModule } from "./db/db.module.js";
 import { GithubModule } from "./github/github.module.js";
 import { HealthController } from "./health.controller.js";
+import { McpModule } from "./mcp/mcp.module.js";
 import { MeController } from "./me/me.controller.js";
 import { MeService } from "./me/me.service.js";
 import { QueryModule } from "./query/query.module.js";
@@ -21,7 +22,7 @@ import { TicketsController } from "./tickets/tickets.controller.js";
 import { TeamsController } from "./teams/teams.controller.js";
 
 @Module({
-  imports: [ConfigModule, AuthModule, AccessModule, DbModule, TicketsModule, AssistantModule, GithubModule, QueryModule, AccessTokensModule],
+  imports: [ConfigModule, AuthModule, AccessModule, DbModule, TicketsModule, AssistantModule, GithubModule, QueryModule, AccessTokensModule, McpModule],
   controllers: [
     HealthController,
     MeController,

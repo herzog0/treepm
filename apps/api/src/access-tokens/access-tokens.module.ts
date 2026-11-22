@@ -13,6 +13,6 @@ import { ACCESS_TOKEN_CLOCK, systemClock } from "./clock.js";
   imports: [AccessModule, AuthModule, DbModule],
   controllers: [OrganizationController, AccessTokensController],
   providers: [ActivityService, AccessTokenManager, AccessTokenService, { provide: ACCESS_TOKEN_CLOCK, useValue: systemClock }],
-  exports: [AccessTokenService],
+  exports: [AccessTokenService, ACCESS_TOKEN_CLOCK],
 })
 export class AccessTokensModule {}

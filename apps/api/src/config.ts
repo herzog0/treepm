@@ -38,6 +38,11 @@ const schema = z.object({
     })
     .refine((value) => /^-----BEGIN RSA PRIVATE KEY-----\n[\s\S]+\n-----END RSA PRIVATE KEY-----\s*$/.test(value), "deve ser um PEM PKCS#1 (BEGIN RSA PRIVATE KEY)")
     .optional(),
+  /**
+   * Nome do cabeçalho que leva o IP do cliente (ex.: `Fly-Client-IP`), usado só pelo limite por IP do servidor MCP
+   * (ADR 0038). Opcional: sem ele vale o IP da conexão. Só deve ser definido atrás de um proxy que sobrescreve o cabeçalho.
+   */
+  CLIENT_IP_HEADER: z.string().regex(/^[A-Za-z0-9-]{1,64}$/, "deve ser um nome de cabeçalho HTTP").optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(4310),
 });
 
