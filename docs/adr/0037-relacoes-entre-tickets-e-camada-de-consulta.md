@@ -97,7 +97,7 @@ Substitui o envio descrito na ADR 0036, em que cada pergunta levaria todos os ti
 
 **O que não vai:** nome, e-mail ou qualquer dado de pessoa (responsáveis, autor); ids; a chave do projeto; histórico de atividade; branches e pull requests; conversas de novo ticket; tickets de outros projetos. Nada do conteúdo entra em log.
 
-Dois pontos vão além da lista que a ADR 0036 propôs (título, trecho, situação, pai e rótulo): a descrição inteira, em vez do trecho, quando a IA lê um ticket; e as ligações. Os dois são texto e estrutura de ticket, sem dado de pessoa. Teodoro pode vetar qualquer um antes de a fatia 5 começar.
+Dois pontos vão além da lista que a ADR 0036 propôs (título, trecho, situação, pai e rótulo): a descrição inteira, em vez do trecho, quando a IA lê um ticket; e as ligações. Os dois são texto e estrutura de ticket, sem dado de pessoa. A coordenação avisou Teodoro desses dois pontos em 2026-11-21 e disse que ele poderia vetá-los antes de a fatia 5 começar; ele não respondeu a esse aviso, e a fatia 5 foi implementada com os dois (PRs #109 e #114). **Os dois continuam podendo ser cortados:** a descrição inteira volta a ser o trecho mudando a saída de `read_ticket`, e as ligações saem da mesma saída, sem mudança de banco.
 
 ### Servidor MCP por projeto: autorizado, com ADR própria antes do código
 

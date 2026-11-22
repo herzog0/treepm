@@ -217,3 +217,7 @@ Web com 1.333 testes em `jsdom` e 46 em navegador.
 - **Não salva sozinho:** o foco no campo e nos botões conta como dentro da edição, e `Esc` neles não desfaz a edição nem fecha a página.
 - API com 1.217 testes; web com 1.336 e 81 na suíte de navegador.
 - Nenhuma chamada a provedor real foi feita; a conferência visual foi por cinco capturas sem janela, com dados falsos.
+
+## Editor carregado sob demanda (TREEPM-72, PR #120)
+
+Quando a descrição em blocos entrou, o pedaço da área autenticada foi de 157 para 323 kB comprimidos, porque o editor ia junto. Em 2026-11-22 o editor passou a ser baixado só quando algo precisa mostrar ou editar uma descrição: o pedaço que o mapa baixa ficou em 168 kB, e o editor é um pedaço à parte de 165 kB, pré-carregado quando o mapa fica ocioso. Enquanto ele não chega, a descrição aparece em texto simples e ainda não é clicável. O tempo até o primeiro ticket abrir não foi medido em navegador de verdade.
