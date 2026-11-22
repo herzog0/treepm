@@ -84,3 +84,23 @@ Um conjunto pequeno de pedidos longos, cada um com a quebra esperada e a lista d
 1. Quebra em mais de um nível (filhos com filhos) num rascunho só.
 2. Registrar o rascunho inteiro como ideia pela conversa.
 3. Se a conferência automática deve ser uma pergunta ao Jev em vez de mais uma instrução ao Claude.
+
+## Como ficou (PRs #149, #151, #154, #157 e #158, 2026-11-22)
+
+- **Rascunho com filhos:** `ticket_conversations.draft_children` (migration `0021`), até 20 filhos, um nível. A criação devolve `{ conversation, ticket, children }`, numa transação.
+- **Pedido citado:** `request-quote.ts` monta "Pedido original:" com as mensagens da pessoa em citação; quem monta é a API, não a IA. `GET /ticket-conversations/:id/preview` devolve título, descrição, citação, filhos, `unknownKeys` e `descriptionTooLong`.
+- **Web:** a prévia mostra a citação e a lista de partes (editar, reordenar, tirar) antes de criar, e o botão diz quantas partes nascem. A mensagem enviada aparece na hora, um esqueleto ocupa o lugar da resposta, e a resposta é revelada por palavras em até 1,5 s (de uma vez com movimento reduzido). A API continua respondendo de uma vez; o fluxo de verdade pelo servidor não foi feito.
+- **Quebra por padrão:** a primeira regra só propunha filhos quando a pessoa pedia ou quando o pedido tinha "partes independentes, que pessoas diferentes fariam em momentos diferentes". No primeiro uso real (o pedido do botão play, `TREEPM-235`) a IA não quebrou. A regra passou a ser: propor filhos por padrão quando o pedido descreve uma funcionalidade com três ou mais peças distinguíveis, dizendo numa frase que a pessoa pode pedir para juntar; ação única continua um ticket só (`TREEPM-241`).
+- **Medição** (`pnpm --filter @treepm/api measure:conversation`, provedor de verdade, 3 rodadas por caso, 2026-11-22): 7 de 7 casos passam em todas as rodadas; nenhum detalhe perdido; nenhuma chave de ticket inventada. Os casos incluem o pedido do chat por ticket (8 a 9 filhos, 24 de 24 detalhes), o do botão play (4 filhos, 8 de 8) e três que não podem ser quebrados (0 filhos). A conferência de frases "criei/dividi" deixou de contar "separei o pedido em partes", que fala do rascunho.
+- **Não foi exercitado** por Teodoro com sessão real depois da regra nova (`TREEPM-219`). A conferência automática depois da resposta (`TREEPM-218`) não foi feita.
+
+## Adendo de 2026-11-22: registrar o rascunho como ideia (`TREEPM-242`)
+
+Resolve o item 2 de "Em aberto". No mesmo primeiro uso real, Teodoro escreveu "Ideia de alta prioridade…" e o ticket nasceu como trabalho comum. Decisão da coordenação, pelos padrões que ele aceitou:
+
+- O rascunho ganha `idea` (falso por padrão), guardado com ele. A IA só o liga quando **a pessoa diz** que é uma ideia ("ideia:", "é só uma ideia", "registra como ideia"); nunca por julgar que o pedido é vago. Na mensagem, diz numa frase que vai registrar como ideia.
+- A prévia mostra "Registrar como ideia" como uma opção que a pessoa liga ou desliga antes de criar. A palavra final é dela.
+- Ao criar, o pai nasce como ideia no estágio "Nova" e os filhos nascem dentro dele, como parte da ideia ([ADR 0042](0042-ideias-na-arvore.md)). Nenhuma regra nova: é a mesma criação de ideia da tela.
+- A procura do lugar funciona como hoje e a pessoa confirma o lugar. Se o lugar escolhido já está dentro de uma ideia, a opção some: o que nasce ali já é parte dela.
+- Quem não pode registrar ideia no projeto não vê a opção, e a API recusa.
+- Nenhuma migration: o rascunho já é guardado como documento.
