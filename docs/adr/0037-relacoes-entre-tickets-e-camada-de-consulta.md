@@ -99,10 +99,12 @@ Substitui o envio descrito na ADR 0036, em que cada pergunta levaria todos os ti
 
 Dois pontos vão além da lista que a ADR 0036 propôs (título, trecho, situação, pai e rótulo): a descrição inteira, em vez do trecho, quando a IA lê um ticket; e as ligações. Os dois são texto e estrutura de ticket, sem dado de pessoa. Teodoro pode vetar qualquer um antes de a fatia 5 começar.
 
-### Servidor MCP por projeto: direção, sem fatia
+### Servidor MCP por projeto: autorizado, com ADR própria antes do código
+
+Em 2026-11-21, depois desta ADR, Teodoro respondeu "Mcp com token por pessoa tbm".
 
 - Seria uma porta MCP sobre a camada de consulta, com as mesmas permissões.
-- Exige um token por pessoa, que é a primeira entrada sem sessão de navegador. Isso pede uma ADR própria (emissão, revogação, alcance e registro de uso) e não começa por esta.
+- Exige um token por pessoa, que é a primeira entrada sem sessão de navegador. Isso pede uma ADR própria, a 0038 (emissão, revogação, validade, alcance e registro de uso), e o código vem depois da camada de consulta.
 
 ## Fatias
 
