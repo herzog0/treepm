@@ -17,6 +17,10 @@ export type ClerkDirectoryClient = {
       name: string;
       slug: string | null;
     }>;
+    /** `OrganizationApi.getOrganizationMembershipList` (`@clerk/backend`): `userId` filtra por pessoa, até 100. */
+    getOrganizationMembershipList(params: { organizationId: string; userId: string[]; limit: number }): Promise<{
+      data: { role: string; publicUserData?: { userId: string } | null }[];
+    }>;
   };
 };
 
@@ -39,5 +43,15 @@ export class ClerkDirectoryProvider implements DirectoryProvider {
   async getOrganization(orgId: string): Promise<DirectoryOrganization> {
     const organization = await this.client.organizations.getOrganization({ organizationId: orgId });
     return { name: organization.name, slug: organization.slug || orgId.toLowerCase() };
+  }
+
+  async getMembership(orgId: string, userId: string): Promise<string | null> {
+    const memberships = await this.client.organizations.getOrganizationMembershipList({
+      organizationId: orgId,
+      userId: [userId],
+      limit: 1,
+    });
+    // Não confia só no filtro: o item precisa ser da pessoa pedida (`publicUserData.userId`), senão não é membro.
+    return memberships.data.find((item) => item.publicUserData?.userId === userId)?.role ?? null;
   }
 }

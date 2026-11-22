@@ -101,6 +101,14 @@ const TABLES: TableSpec[] = [
     appCanUpdateAndDelete: true,
   },
   {
+    table: "access_tokens",
+    insert:
+      "insert into access_tokens (org_id, person_id, project_id, name, token_prefix, token_hash, expires_at) values ($1, gen_random_uuid(), gen_random_uuid(), 'x', 'abcd1234', md5(random()::text), now())",
+    update: "update access_tokens set name = 'hacked' where org_id = $1",
+    remove: "delete from access_tokens where org_id = $1",
+    appCanUpdateAndDelete: true,
+  },
+  {
     table: "ticket_assignees",
     insert:
       "insert into ticket_assignees (org_id, ticket_id, person_id) values ($1, gen_random_uuid(), gen_random_uuid())",
@@ -181,6 +189,11 @@ beforeAll(async () => {
     await owner.query(
       "insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ($1, $2, $3, $4, 'mentions')",
       [orgId, ids.project, second.rows[0]?.id, ids.ticket],
+    );
+    // Um token por organização, para a tabela access_tokens ter linhas a isolar.
+    await owner.query(
+      "insert into access_tokens (org_id, person_id, project_id, name, token_prefix, token_hash, expires_at) values ($1, $2, $3, 'T', 'abcd1234', $4, now() + interval '1 day')",
+      [orgId, ids.person, ids.project, `isolation-${orgId}`],
     );
   }
 });

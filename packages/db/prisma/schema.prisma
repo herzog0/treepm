@@ -39,11 +39,13 @@ enum ProjectRole {
 }
 
 model Organization {
-  orgId     String   @id @map("org_id")
-  name      String
-  slug      String
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  orgId      String   @id @map("org_id")
+  name       String
+  slug       String
+  /// "Permitir acesso por MCP" (ADR 0038): desligada por padrão; só um administrador liga.
+  mcpEnabled Boolean  @default(false) @map("mcp_enabled")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   people                     Person[]
   teams                      Team[]
@@ -63,6 +65,7 @@ model Organization {
   projectRepositories        ProjectRepository[]
   ticketCodeLinks            TicketCodeLink[]
   repositorySyncPages        RepositorySyncPage[]
+  accessTokens               AccessToken[]
 
   @@map("organizations")
 }
@@ -89,6 +92,7 @@ model Person {
   connectedInstallations GithubInstallation[]
   linkedRepositories     ProjectRepository[]
   editedBranchSummaries  BranchSummary[]
+  accessTokens           AccessToken[]
 
   @@id([orgId, id])
   @@unique([orgId, clerkUserId])
@@ -159,6 +163,7 @@ model Project {
   ticketConversations TicketConversation[]
   branchSummaries     BranchSummary[]
   repositories        ProjectRepository[]
+  accessTokens        AccessToken[]
 
   @@id([orgId, id])
   @@unique([orgId, key])
@@ -454,4 +459,32 @@ model RepositorySyncPage {
 
   @@id([orgId, projectRepositoryId, resource, page])
   @@map("repository_sync_pages")
+}
+
+/// Token de acesso de uma pessoa a um projeto (ADR 0038). Só o resumo SHA-256 do token é guardado.
+model AccessToken {
+  orgId       String    @map("org_id")
+  id          String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  personId    String    @map("person_id") @db.Uuid
+  projectId   String    @map("project_id") @db.Uuid
+  /// 1 a 80 caracteres (check no banco)
+  name        String
+  /// Os primeiros caracteres do segredo, para a pessoa reconhecer o token na lista.
+  tokenPrefix String    @map("token_prefix")
+  /// SHA-256 do token inteiro, em hexadecimal; único.
+  tokenHash   String    @unique @map("token_hash")
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(3)
+  lastUsedAt  DateTime? @map("last_used_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  person       Person       @relation(fields: [orgId, personId], references: [orgId, id], onDelete: Cascade)
+  project      Project      @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
+
+  @@id([orgId, id])
+  @@index([orgId, personId])
+  @@index([orgId, projectId])
+  @@map("access_tokens")
 }

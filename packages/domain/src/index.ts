@@ -91,6 +91,11 @@ export function canManageGithubConnection(actor: Actor): boolean {
   return actor.clerkRole === "admin";
 }
 
+/** Allows organization admins to switch MCP access on or off, list every access token and revoke any of them (ADR 0038). */
+export function canManageMcpAccess(actor: Actor): boolean {
+  return actor.clerkRole === "admin";
+}
+
 /** Allows organization admins and managers of any project to list the repositories the installation can reach. */
 export function canListInstallationRepositories(actor: Actor): boolean {
   if (actor.clerkRole === "admin") return true;

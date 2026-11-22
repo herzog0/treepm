@@ -10,6 +10,7 @@ import { IdentityService } from "../access/identity.service.js";
 import type { Identity } from "../access/identity.service.js";
 import { PRINCIPAL_KEY, REFRESH_IDENTITY } from "../access/principal.js";
 import type { Principal } from "../access/principal.js";
+import { PrincipalService } from "../access/principal.service.js";
 import { SESSION_KEY } from "../auth/auth.guard.js";
 import type { AuthenticatedSession, RequestWithSession } from "../auth/auth.guard.js";
 import { OWN_TRANSACTIONS, TENANT_RUNNER_KEY } from "./own-transactions.js";
@@ -36,6 +37,7 @@ export class TenantInterceptor implements NestInterceptor {
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(IdentityService) private readonly identities: IdentityService,
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
+    @Inject(PrincipalService) private readonly principals: PrincipalService,
   ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -68,21 +70,15 @@ export class TenantInterceptor implements NestInterceptor {
 
     if (own) {
       // Transação curta só para provisionar e montar o Principal; o handler abre as dele.
-      const principal = await withTenant(this.prisma, tenant, async (tx) => {
-        const { person, organization } = await this.identities.provision(tx, session, clerkRole, identity);
-        const actor = await this.authorization.loadActor(tx, person.id, clerkRole);
-        return { session, person, organization, actor } satisfies Principal;
-      });
+      const principal = await withTenant(this.prisma, tenant, (tx) => this.principals.load(tx, session, clerkRole, identity));
       request[PRINCIPAL_KEY] = principal;
       request[TENANT_RUNNER_KEY] = this.runner(tenant, principal);
       return lastValueFrom(next.handle(), { defaultValue: undefined });
     }
 
     return withTenant(this.prisma, tenant, async (tx) => {
-      const { person, organization } = await this.identities.provision(tx, session, clerkRole, identity);
-      const actor = await this.authorization.loadActor(tx, person.id, clerkRole);
       request[TX_KEY] = tx;
-      request[PRINCIPAL_KEY] = { session, person, organization, actor };
+      request[PRINCIPAL_KEY] = await this.principals.load(tx, session, clerkRole, identity);
       return lastValueFrom(next.handle(), { defaultValue: undefined });
     });
   }

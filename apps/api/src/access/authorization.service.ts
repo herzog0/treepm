@@ -10,6 +10,7 @@ import {
   canLinkRepository,
   canListInstallationRepositories,
   canManageGithubConnection,
+  canManageMcpAccess,
   canRemoveTicket,
   canCreateTeam,
   canGrantProjectRole,
@@ -83,6 +84,10 @@ export class AuthorizationService {
   /** Conectar e desconectar o GitHub da organização (ADR 0032). */
   manageGithubConnection(actor: Actor): void {
     this.require(canManageGithubConnection(actor));
+  }
+  /** Chave "Permitir acesso por MCP", lista de todos os tokens da organização e revogação de qualquer um (ADR 0038). */
+  manageMcpAccess(actor: Actor): void {
+    this.require(canManageMcpAccess(actor));
   }
   listInstallationRepositories(actor: Actor): void {
     this.require(canListInstallationRepositories(actor));

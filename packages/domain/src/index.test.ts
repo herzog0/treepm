@@ -6,6 +6,7 @@ import {
   canLinkRepository,
   canListInstallationRepositories,
   canManageGithubConnection,
+  canManageMcpAccess,
   canGrantProjectRole,
   canManageAreas,
   canManageProject,
@@ -49,6 +50,7 @@ describe.each([
   { action: "grant or revoke project role", check: (actor: Actor) => canGrantProjectRole(actor, privateProject.id), allowed: [true, false, true, false, false, false] },
   { action: "attach team to project", check: (actor: Actor) => canAttachTeamToProject(actor, privateProject.id), allowed: [true, false, true, false, false, false] },
   { action: "manage the GitHub connection", check: (actor: Actor) => canManageGithubConnection(actor), allowed: [true, false, false, false, false, false] },
+  { action: "manage MCP access (switch and all tokens)", check: (actor: Actor) => canManageMcpAccess(actor), allowed: [true, false, false, false, false, false] },
   { action: "list the installation's repositories", check: (actor: Actor) => canListInstallationRepositories(actor), allowed: [true, false, true, false, false, false] },
   { action: "link a repository to a project", check: (actor: Actor) => canLinkRepository(actor, privateProject.id), allowed: [true, false, true, false, false, false] },
 ])("$action", ({ check, allowed }) => {

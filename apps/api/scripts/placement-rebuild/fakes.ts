@@ -88,6 +88,9 @@ export class FakeDirectoryProvider implements DirectoryProvider {
   getOrganization(orgId: string) {
     return Promise.resolve({ name: `Organização ${orgId}`, slug: orgId.toLowerCase() });
   }
+  getMembership() {
+    return Promise.resolve("org:member");
+  }
 }
 
 /** Afinidade falsa do ensaio: 0,9 quando o ticket divide alguma palavra com o rascunho, senão 0,1. */
