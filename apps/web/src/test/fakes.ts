@@ -302,6 +302,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     ...GITHUB_NAMES,
     ...SUMMARY_NAMES,
     "draftTicketDescription",
+    "askProject",
   ] as const;
   const base = Object.fromEntries(names.map((name) => [name, unexpected(name)])) as unknown as ApiClient;
   return {

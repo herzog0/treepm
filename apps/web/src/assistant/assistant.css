@@ -79,3 +79,9 @@
 .org-map .spatial-node:has(.node-draft) .spatial-card-button { background: transparent; color: var(--tp-accent-soft); }
 .org-map .node-draft { display: contents; }
 .org-map.is-color-mode .spatial-node:has(.node-draft) .spatial-card-button { color: var(--tp-accent-soft); }
+
+/* Folha da pergunta sobre o projeto (ADR 0037): o mesmo desenho da conversa; a resposta é markdown de leitura. */
+.assistant-sheet .ask-chip { padding: 0 8px; }
+.ask-answer { max-width: 100%; white-space: normal; }
+.ask-answer .description { margin: 0; }
+.assistant-sheet .ask-form input { box-sizing: border-box; width: 100%; height: 44px; padding: 0 12px; border-radius: var(--tp-radius-panel); }

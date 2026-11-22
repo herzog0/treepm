@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { useApiResource } from "../api/useApiResource.js";
 import { CommandBar } from "../command/CommandBar.js";
 import { AssistantPanel } from "../assistant/AssistantPanel.js";
+import { AskPanel } from "../assistant/AskPanel.js";
 import type { MapPicker } from "../assistant/types.js";
 import type { ConversationSummary } from "../api/client.js";
 import { canCreateTickets } from "../import/permissions.js";
@@ -55,6 +56,21 @@ interface AssistantState {
   /** Muda a cada abertura: uma conversa nova a partir da barra recomeça a folha, mesmo com ela já aberta. */
   nonce: number;
 }
+
+/** A pergunta sobre o projeto (ADR 0037): não é guardada; vive enquanto a tela do mapa estiver aberta. */
+interface AskState {
+  /** Há folha de pergunta na barra (à vista ou recolhida). */
+  open: boolean;
+  expanded: boolean;
+  /** Projeto escolhido ao abrir; `null` faz a folha perguntar. */
+  projectId: string | null;
+  /** A pergunta da barra; `id` muda a cada uma. */
+  question: { id: number; text: string } | null;
+  /** Muda a cada folha nova; uma pergunta que continua a folha aberta não o muda. */
+  nonce: number;
+}
+
+const ASK_CLOSED: AskState = { open: false, expanded: false, projectId: null, question: null, nonce: 0 };
 
 const CLOSED: AssistantState = { open: false, expanded: false, resume: false, projectId: null, scopeId: null, message: null, nonce: 0 };
 
@@ -107,11 +123,20 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   }, []);
   const creatableProjects = useMemo(() => projects.filter((project) => canCreateTickets(me, project)), [me, projects]);
   const assistantAvailable = me.assistant?.enabled === true && creatableProjects.length > 0;
+  // Perguntar não exige poder criar: qualquer pessoa com um projeto visível pergunta (ADR 0037).
+  const visibleProjects = useMemo(() => projects.filter((project) => project.archivedAt === null), [projects]);
+  const canAsk = me.assistant?.enabled === true && visibleProjects.length > 0;
+  const [ask, setAsk] = useState<AskState>(ASK_CLOSED);
+  const askProgressRef = useRef(false);
+  const reportAskProgress = useCallback((active: boolean) => {
+    askProgressRef.current = active;
+  }, []);
+  const [barFocus, setBarFocus] = useState(0);
 
   const [creating, setCreating] = useState<CreateRequest | null>(null);
   const pageOpen = openTicketId !== null || creating !== null;
   // Valores que os ouvintes (seleção, teclado) leem sem precisar ser refeitos a cada render.
-  const live = useRef({ selectedId: null as string | null, selected: null as MapNode | null, pageOpen, openTicketId, creating, panelOpen: false, assistantExpanded: false });
+  const live = useRef({ selectedId: null as string | null, selected: null as MapNode | null, pageOpen, openTicketId, creating, panelOpen: false, assistantExpanded: false, askExpanded: false, ask: ASK_CLOSED });
 
   // Encerra a conversa na barra (criou o ticket, foi para a criação manual): a conversa guardada na API continua lá.
   const closeAssistant = useCallback(() => {
@@ -127,6 +152,17 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     if (!progressRef.current) closeAssistant();
     else setAssistant((current) => (current.expanded ? { ...current, expanded: false } : current));
   }, [closeAssistant]);
+
+  const closeAsk = useCallback(() => {
+    askProgressRef.current = false;
+    setAsk((current) => (current.open ? { ...ASK_CLOSED, nonce: current.nonce } : current));
+  }, []);
+  // Recolhe a folha da pergunta; sem nenhuma mensagem, ela se encerra.
+  const collapseAsk = useCallback(() => {
+    if (!live.current.askExpanded) return;
+    if (!askProgressRef.current) closeAsk();
+    else setAsk((current) => (current.expanded ? { ...current, expanded: false } : current));
+  }, [closeAsk]);
 
   const openTicket = useCallback((id: string) => {
     setCreating(null);
@@ -167,7 +203,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   useLayoutEffect(() => scaleStore.notify(), [scaleStore, canvas.camera.scale, layout]);
   const canvasRef = useRef(canvas);
   canvasRef.current = canvas;
-  live.current = { selectedId, selected, pageOpen, openTicketId, creating, panelOpen: panel.open, assistantExpanded: assistant.open && assistant.expanded };
+  live.current = { selectedId, selected, pageOpen, openTicketId, creating, panelOpen: panel.open, assistantExpanded: assistant.open && assistant.expanded, askExpanded: ask.open && ask.expanded, ask };
   const hasOpenNode = openTicketId !== null && index.itemById.has(openTicketId);
 
   // Abrir o painel de áreas e projetos fecha a página; abrir um ticket fecha o painel (também pela URL).
@@ -179,8 +215,11 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   }, [openTicketId]);
   // Abrir um ticket, a criação manual ou o painel de áreas recolhe a folha da conversa, e a conversa segue (ADR 0036). O contrário não fecha nada.
   useEffect(() => {
-    if (openTicketId !== null || creating !== null || panel.open) collapseAssistant();
-  }, [openTicketId, creating, panel.open, collapseAssistant]);
+    if (openTicketId !== null || creating !== null || panel.open) {
+      collapseAssistant();
+      collapseAsk();
+    }
+  }, [openTicketId, creating, panel.open, collapseAssistant, collapseAsk]);
 
   // O ticket aberto fica selecionado. Sem nó (projeto arquivado, ticket inexistente) não há o que selecionar.
   useEffect(() => {
@@ -263,6 +302,11 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
         canvasRef.current.stageRef.current?.focus();
         return;
       }
+      if (event.key === "Escape" && live.current.askExpanded) {
+        collapseAsk();
+        canvasRef.current.stageRef.current?.focus();
+        return;
+      }
       if (event.key === "Escape" && live.current.pageOpen) {
         if (live.current.creating) setCreating(null);
         else closePage();
@@ -279,7 +323,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closePage, collapseAssistant, openTicket]);
+  }, [closePage, collapseAssistant, collapseAsk, openTicket]);
 
   // Projeto da conversa: o do ticket ou do projeto selecionado; sem seleção, o único em que a pessoa pode criar.
   const chooseProject = () => {
@@ -288,6 +332,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     return creatableProjects.find((project) => project.id === selectedProjectId) ?? (creatableProjects.length === 1 ? creatableProjects[0] : undefined);
   };
   const openAssistant = (message: string | null = null, resume = false) => {
+    collapseAsk();
     const current = live.current.selected;
     const chosen = chooseProject();
     // A página do ticket e o painel de áreas ficam como estão (ADR 0036). Com a página aberta o ticket dela segue selecionado.
@@ -296,6 +341,36 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     const scopeId = current?.kind === "ticket" && chosen && current.ticket?.projectId === chosen.id ? current.ticket.id : null;
     progressRef.current = false;
     setAssistant((state) => ({ open: true, expanded: true, resume, projectId: chosen?.id ?? null, scopeId, message, nonce: state.nonce + 1 }));
+  };
+
+  // Projeto da pergunta: o do ticket aberto na página; senão o do nó selecionado; senão o único visível; senão a folha pergunta.
+  const chooseAskProject = (): Project | undefined => {
+    const live_ = live.current;
+    const byId = (id: string | null | undefined) => visibleProjects.find((project) => project.id === id);
+    if (live_.openTicketId !== null) {
+      const owner = Object.entries(ticketsByProject).find(([, list]) => list.some((entry) => entry.id === live_.openTicketId))?.[0];
+      const chosen = byId(owner);
+      if (chosen) return chosen;
+    }
+    if (live_.creating) {
+      const chosen = byId(live_.creating.projectId);
+      if (chosen) return chosen;
+    }
+    const current = live_.selected;
+    const selectedProjectId = current?.kind === "project" ? current.id : current?.kind === "ticket" ? current.ticket?.projectId ?? null : null;
+    return byId(selectedProjectId) ?? (visibleProjects.length === 1 ? visibleProjects[0] : undefined);
+  };
+  // "Perguntar ao assistente «texto»" da barra. Com uma folha de pergunta já aberta no mesmo projeto, a pergunta a continua.
+  const openAsk = (text: string) => {
+    collapseAssistant();
+    const chosen = chooseAskProject();
+    const existing = live.current.ask;
+    setAsk((state) => {
+      const id = (state.question?.id ?? 0) + 1;
+      if (state.open && state.projectId !== null && (chosen === undefined || chosen.id === state.projectId)) return { ...state, expanded: true, question: { id, text } };
+      return { open: true, expanded: true, projectId: chosen?.id ?? null, question: { id, text }, nonce: state.nonce + 1 };
+    });
+    if (!(existing.open && existing.projectId !== null && (chosen === undefined || chosen.id === existing.projectId))) askProgressRef.current = false;
   };
 
   // "Continuar conversa": o título da conversa anterior do projeto que valeria para a conversa nova (ADR 0036).
@@ -388,9 +463,45 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
             loadResumable={loadResumable}
             onNewConversation={() => openAssistant()}
             onResumeConversation={() => openAssistant(null, true)}
-            onReopenConversation={() => setAssistant((current) => (current.open ? { ...current, expanded: true } : current))}
+            onReopenConversation={() => {
+              collapseAsk();
+              setAssistant((current) => (current.open ? { ...current, expanded: true } : current));
+            }}
             onCollapseConversation={collapseAssistant}
+            ask={!ask.open ? "none" : ask.expanded ? "expanded" : "collapsed"}
+            canAsk={canAsk}
+            onAsk={openAsk}
+            onReopenAsk={() => {
+              collapseAssistant();
+              setAsk((current) => (current.open ? { ...current, expanded: true } : current));
+            }}
+            onCollapseAsk={collapseAsk}
+            focusRequest={barFocus}
           >
+            {ask.open && (
+              <AskPanel
+                key={ask.nonce}
+                client={client}
+                projects={visibleProjects}
+                initialProjectId={ask.projectId}
+                incoming={ask.question}
+                tickets={ticketsByProject}
+                expanded={ask.expanded}
+                onCollapse={() => {
+                  collapseAsk();
+                  canvasRef.current.stageRef.current?.focus();
+                }}
+                onNew={() => {
+                  closeAsk();
+                  setBarFocus((current) => current + 1);
+                }}
+                onProgress={reportAskProgress}
+                onOpenTicket={(ticketId) => {
+                  collapseAsk();
+                  openTicket(ticketId);
+                }}
+              />
+            )}
             {assistant.open && (
               <AssistantPanel
                 key={assistant.nonce}

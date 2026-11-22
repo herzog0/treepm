@@ -19,11 +19,35 @@
   },
   "action": {
     "create": "Create ticket «{{text}}»",
-    "createShortcut": "Ctrl Enter"
+    "createShortcut": "Ctrl Enter",
+    "ask": "Ask the assistant about «{{text}}»",
+    "askShortcut": "Shift Enter"
   },
   "conversation": {
     "inProgress": "Conversation in progress",
     "resume": "Continue conversation",
     "new": "New conversation"
+  },
+  "ask": {
+    "inProgress": "Question in progress",
+    "label": "Question about the project",
+    "title": "Question about the project",
+    "new": "New question",
+    "collapse": "Collapse",
+    "project": {
+      "question": "Which project?",
+      "option": "{{key}} · {{name}}"
+    },
+    "waiting": "Checking the project…",
+    "error": "The assistant did not answer. Try again.",
+    "retry": "Try again",
+    "reply": "Assistant's answer",
+    "message": {
+      "label": "Ask more about this project",
+      "placeholder": "Ask more about this project",
+      "send": "Send",
+      "over": "The question is over {{max}} characters ({{length}}). Shorten it to send.",
+      "within": "{{length}} of {{max}} characters"
+    }
   }
 }

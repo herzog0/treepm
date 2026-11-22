@@ -19,11 +19,35 @@
   },
   "action": {
     "create": "Criar ticket «{{text}}»",
-    "createShortcut": "Ctrl Enter"
+    "createShortcut": "Ctrl Enter",
+    "ask": "Perguntar ao assistente sobre «{{text}}»",
+    "askShortcut": "Shift Enter"
   },
   "conversation": {
     "inProgress": "Conversa em andamento",
     "resume": "Continuar conversa",
     "new": "Nova conversa"
+  },
+  "ask": {
+    "inProgress": "Pergunta em andamento",
+    "label": "Pergunta sobre o projeto",
+    "title": "Pergunta sobre o projeto",
+    "new": "Nova pergunta",
+    "collapse": "Recolher",
+    "project": {
+      "question": "Em qual projeto?",
+      "option": "{{key}} · {{name}}"
+    },
+    "waiting": "Consultando o projeto…",
+    "error": "O assistente não respondeu. Tente de novo.",
+    "retry": "Tentar de novo",
+    "reply": "Resposta do assistente",
+    "message": {
+      "label": "Pergunte mais sobre este projeto",
+      "placeholder": "Pergunte mais sobre este projeto",
+      "send": "Enviar",
+      "over": "A pergunta passou de {{max}} caracteres ({{length}}). Encurte para enviar.",
+      "within": "{{length}} de {{max}} caracteres"
+    }
   }
 }
