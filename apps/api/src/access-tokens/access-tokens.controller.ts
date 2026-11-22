@@ -6,7 +6,7 @@ import { idSchema } from "../common/schemas.js";
 import { ZodPipe } from "../common/zod.js";
 import { Tx } from "../db/tx.decorator.js";
 import { AccessTokenManager } from "./access-token-manager.js";
-import { createTokenSchema, mcpSwitchSchema } from "./access-token.schema.js";
+import { createTokenSchema, mcpSwitchSchema, mcpWriteSwitchSchema } from "./access-token.schema.js";
 import type { CreateTokenBody, CreatedTokenOutput, OrganizationTokenOutput, TokenOutput } from "./access-token.schema.js";
 import type { z } from "zod";
 
@@ -20,8 +20,18 @@ export class OrganizationController {
     @Tx() tx: TenantClient,
     @CurrentPrincipal() principal: Principal,
     @Body(new ZodPipe(mcpSwitchSchema)) body: z.output<typeof mcpSwitchSchema>,
-  ): Promise<{ mcp: { enabled: boolean } }> {
+  ): Promise<{ mcp: { enabled: boolean; writeEnabled: boolean } }> {
     return this.manager.setMcpEnabled(tx, principal, body.mcpEnabled);
+  }
+
+  /** A chave "Permitir escrita por MCP" (ADR 0043). Só administrador. */
+  @Patch("mcp-write")
+  updateWrite(
+    @Tx() tx: TenantClient,
+    @CurrentPrincipal() principal: Principal,
+    @Body(new ZodPipe(mcpWriteSwitchSchema)) body: z.output<typeof mcpWriteSwitchSchema>,
+  ): Promise<{ mcp: { enabled: boolean; writeEnabled: boolean } }> {
+    return this.manager.setMcpWriteEnabled(tx, principal, body.mcpWriteEnabled);
   }
 }
 

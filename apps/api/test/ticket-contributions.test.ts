@@ -329,7 +329,7 @@ describe("leitura: GET tickets/:id", () => {
     const t = await add();
     await made(t.id);
     const list = await h.call("GET", `/api/projects/${priv()}/tickets`, as("admin"));
-    expect(Object.keys((list.body as Body[])[0] as Body).sort()).toEqual(["assigneeIds", "descriptionExcerpt", "id", "idea", "key", "number", "parentId", "progress", "projectId", "status", "title"]);
+    expect(Object.keys((list.body as Body[])[0] as Body).sort()).toEqual(["agentWork", "assigneeIds", "descriptionExcerpt", "id", "idea", "key", "number", "parentId", "progress", "projectId", "status", "title"]);
     expect(JSON.stringify(list.body)).not.toMatch(/contribution/i);
   });
 
@@ -358,6 +358,7 @@ describe("leitura: GET tickets/:id", () => {
           }) as TenantClient;
           const { TicketsService } = await import("../src/tickets/tickets.service.js");
           const service = Object.create(TicketsService.prototype) as InstanceType<typeof TicketsService>;
+          Object.assign(service, { clock: { now: () => Date.now() } });
           const viewer = { personId: personId("manager"), actor: buildActor("member", [], [{ projectId: project.id, role: "manager" }]) };
           const page = await service.detailFor(counting, project, t.id, viewer);
           expect(page.contributions.length).toBeGreaterThanOrEqual(0);

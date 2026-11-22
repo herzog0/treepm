@@ -30,6 +30,8 @@ const READ_KINDS = [
   "ticket.idea_accepted",
   "ticket.idea_discarded",
   "ticket.idea_reopened",
+  "ticket.agent_work_started",
+  "ticket.agent_work_ended",
 ];
 
 /** Ordem fixa das entradas de um `ticket.updated`, da mais antiga para a mais nova. */
@@ -57,15 +59,18 @@ type Data =
   | { type: "contribution_removed"; areaId: string; areaName: string | null }
   | { type: "contribution_status_changed"; areaId: string; from: z.output<typeof contributionStatusSchema>; to: z.output<typeof contributionStatusSchema> }
   | { type: "contribution_person_added" | "contribution_person_removed"; areaId: string; personId: string }
+  | { type: "agent_work_started"; until: string }
+  | { type: "agent_work_ended"; reason: "agent" | "person" | "finished" | "idea" }
   | { type: "idea_registered" | "idea_accepted" | "idea_discarded" | "idea_reopened" }
   | { type: "idea_stage_changed"; from: z.output<typeof ideaStageSchema>; to: z.output<typeof ideaStageSchema> }
   | { type: "comment"; comment: CommentRow };
 /** Entrada ainda sem os ids resolvidos. `pos` é a posição na ordem total (instante, evento, campo). */
-type Draft = { id: string; type: Data["type"]; actorId: string | null; occurredAt: number; pos: Position; data: Data; contributionId?: string };
+type Draft = { id: string; type: Data["type"]; actorId: string | null; occurredAt: number; pos: Position; data: Data; contributionId?: string; via?: "mcp" };
 
 const idOrNull = z.uuid().nullable();
 const fromTo = <T extends z.ZodType>(schema: T) => z.object({ from: schema, to: schema });
 const issueKey = /^[A-Za-z][A-Za-z0-9]*-(\d+)$/;
+const isMcp = (payload: unknown): boolean => typeof payload === "object" && payload !== null && (payload as Record<string, unknown>)["via"] === "mcp";
 const refOf = (id: string | null): RefDraft | null => (id === null ? null : { id, key: null, number: null });
 
 function compare(a: Position, b: Position): number {
@@ -96,6 +101,7 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
     pos: { t, e: row.id, s: sub },
     data,
     ...(contributionId === undefined ? {} : { contributionId }),
+    ...(isMcp(row.payload) ? { via: "mcp" as const } : {}),
   });
   const payload = row.payload;
   if (row.kind === "ticket.created") return [make(0, row.id, { type: "created" })];
@@ -140,6 +146,14 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
       if (!v.success) return [];
       const type = row.kind === "ticket.dependency_added" ? "dependency_added" : "dependency_removed";
       return [make(0, row.id, { type, ticket: { id: v.data.dependsOnTicketId, key: v.data.dependsOnKey ?? null, number: null } })];
+    }
+    case "ticket.agent_work_started": {
+      const v = z.object({ until: z.string().datetime() }).safeParse(p);
+      return v.success ? [make(0, row.id, { type: "agent_work_started", until: v.data.until })] : [];
+    }
+    case "ticket.agent_work_ended": {
+      const v = z.object({ reason: z.enum(["agent", "person", "finished", "idea"]) }).safeParse(p);
+      return v.success ? [make(0, row.id, { type: "agent_work_ended", reason: v.data.reason })] : [];
     }
     case "ticket.idea_registered":
       return [make(0, row.id, { type: "idea_registered" })];
@@ -359,7 +373,7 @@ export class TicketActivityService {
     const person = (id: string | null) => (id ? (personById.get(id) ?? null) : null);
 
     return drafts.map((d): ActivityEntry => {
-      const common = { id: d.id, occurredAt: new Date(d.occurredAt).toISOString(), actor: person(d.actorId) };
+      const common = { id: d.id, occurredAt: new Date(d.occurredAt).toISOString(), actor: person(d.actorId), ...(d.via ? { via: d.via } : {}) };
       const data = d.data;
       switch (data.type) {
         case "created":
@@ -369,6 +383,10 @@ export class TicketActivityService {
         case "idea_discarded":
         case "idea_reopened":
           return { ...common, type: data.type };
+        case "agent_work_started":
+          return { ...common, type: data.type, until: data.until };
+        case "agent_work_ended":
+          return { ...common, type: data.type, reason: data.reason };
         case "idea_stage_changed":
           return { ...common, type: data.type, from: data.from, to: data.to };
         case "title_changed":

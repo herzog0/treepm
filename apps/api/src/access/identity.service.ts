@@ -17,7 +17,7 @@ export type PersonRecord = {
   clerkRole: ClerkRole;
 };
 
-export type OrganizationRecord = { orgId: string; name: string; slug: string; mcpEnabled: boolean };
+export type OrganizationRecord = { orgId: string; name: string; slug: string; mcpEnabled: boolean; mcpWriteEnabled: boolean };
 
 /** Provisionamento idempotente de organização e pessoa (ADR 0022). */
 @Injectable()

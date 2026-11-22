@@ -86,7 +86,7 @@ describe("GET /api/me", () => {
       roles: { clerk: "admin", teams: [], projects: [] },
       assistant: { configured: false, consent: false, enabled: false },
       github: { enabled: false },
-      mcp: { enabled: false },
+      mcp: { enabled: false, writeEnabled: false },
     });
     const people = await pool.query("select org_id, clerk_user_id, clerk_role, active from people");
     expect(people.rows).toEqual([{ org_id: "org_A", clerk_user_id: "user_1", clerk_role: "admin", active: true }]);

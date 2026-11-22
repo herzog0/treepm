@@ -21,7 +21,8 @@ export class ActivityService {
         kind: input.kind,
         subjectType: input.subjectType,
         subjectId: input.subjectId,
-        payload: input.payload ?? {},
+        // Quem agiu pelo MCP fica no próprio evento (ADR 0043): a origem e o id do token, nunca o segredo.
+        payload: principal.via ? { ...(input.payload ?? {}), via: principal.via.kind, tokenId: principal.via.tokenId } : (input.payload ?? {}),
       },
     });
   }

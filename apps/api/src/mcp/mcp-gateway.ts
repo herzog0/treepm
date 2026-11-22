@@ -13,9 +13,14 @@ import type { Principal } from "../access/principal.js";
 import { CONFIG } from "../config.js";
 import type { AppConfig } from "../config.js";
 import { TenantTransactions } from "../db/tenant-transactions.js";
+import { AuthorizationService } from "../access/authorization.service.js";
 import { ProjectQueryService } from "../query/project-query.service.js";
+import { AgentWorkService } from "../tickets/agent-work.service.js";
+import { TicketCommentsService } from "../tickets/ticket-comments.service.js";
+import { TicketsService } from "../tickets/tickets.service.js";
 import { createProjectServer } from "./mcp-server.js";
 import type { RunInTenant } from "./mcp-tools.js";
+import { WRITE_TOOL_NAMES } from "./mcp-write-tools.js";
 
 /** Teto do corpo de uma requisição (uma mensagem JSON-RPC). */
 export const MAX_BODY_BYTES = 64 * 1024;
@@ -24,6 +29,8 @@ export const MAX_BODY_BYTES = 64 * 1024;
  * a publicação prevê uma máquina só; com mais de uma, o limite efetivo passa a ser por máquina.
  */
 export const IP_LIMIT_PER_MINUTE = 120;
+/** Escritas por minuto por token (ADR 0043), contadas à parte das leituras. */
+export const WRITE_LIMIT_PER_MINUTE = 20;
 const IP_WINDOW_MS = 60_000;
 
 /** Prazo total de uma requisição ao servidor MCP (inclui o corpo da resposta). */
@@ -62,6 +69,7 @@ class HttpFailure {
 export class McpGateway {
   private readonly logger = new Logger("Mcp");
   private readonly ipLimiter: RateLimiter;
+  private readonly writeLimiter: RateLimiter;
   private readonly handler: McpHttpHandler;
   private readonly gate = new Gate(MAX_CONCURRENT_RESOLVES, MAX_QUEUED_RESOLVES);
   /** Prazo total por requisição; mutável só para os testes. */
@@ -73,13 +81,22 @@ export class McpGateway {
     @Inject(AccessTokenService) private readonly tokens: AccessTokenService,
     @Inject(TenantTransactions) private readonly tenants: TenantTransactions,
     @Inject(ProjectQueryService) private readonly query: ProjectQueryService,
+    @Inject(TicketsService) private readonly tickets: TicketsService,
+    @Inject(TicketCommentsService) private readonly comments: TicketCommentsService,
+    @Inject(AgentWorkService) private readonly agentWork: AgentWorkService,
+    @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
   ) {
     this.ipLimiter = new RateLimiter(clock, IP_LIMIT_PER_MINUTE, IP_WINDOW_MS);
+    this.writeLimiter = new RateLimiter(clock, WRITE_LIMIT_PER_MINUTE, IP_WINDOW_MS);
     const run: RunInTenant = (principal, fn) => this.tenants.run({ orgId: principal.session.orgId, userId: principal.session.userId }, fn);
     const factory: McpServerFactory = (ctx) => {
       const resolved = ctx.authInfo?.extra?.["resolved"] as Resolved | undefined;
       if (!resolved) throw new Error("Requisição MCP sem identidade resolvida.");
-      return createProjectServer(run, this.query, { principal: resolved.principal as Principal, project: { id: resolved.project.id, key: resolved.project.key } });
+      const base = { principal: resolved.principal as Principal, project: { id: resolved.project.id, key: resolved.project.key } };
+      // As ferramentas de escrita só existem para token de escrita com a chave da organização ligada (ADR 0043).
+      const canWrite = resolved.scope === "write" && resolved.writeEnabled;
+      const services = { tickets: this.tickets, comments: this.comments, agentWork: this.agentWork, authorization: this.authorization };
+      return createProjectServer(run, this.query, base, canWrite ? { services, context: { ...base, tokenId: resolved.tokenId, fresh: resolved.fresh } } : undefined);
     };
     this.handler = createMcpHandler(factory, {
       legacy: "stateless",
@@ -92,6 +109,7 @@ export class McpGateway {
   /** Esquece os limites guardados em memória (para testes: o relógio falso volta no tempo). */
   resetMemory(): void {
     this.ipLimiter.clear();
+    this.writeLimiter.clear();
   }
 
   /** `rest` é o que vem depois de `/api/mcp`: deve ser `/<chave do projeto>`, com ou sem barra no fim. */
@@ -147,6 +165,8 @@ export class McpGateway {
     // Sem canal de assinatura: `subscriptions/listen` abriria um fluxo SSE que não termina, fora do limite por token.
     if (labels.method === "subscriptions/listen") throw new HttpFailure(404, "not_found", "Subscriptions are not supported.");
 
+    const isWrite = labels.method === "tools/call" && (WRITE_TOOL_NAMES as readonly string[]).includes(labels.tool);
+
     // 4. Token: só no cabeçalho, nunca na URL. Malformado é recusado antes de entrar na fila.
     const token = bearerToken(req.headers.authorization);
     if (token === null || !parseToken(token)) throw new HttpFailure(401, "unauthenticated", "Authentication required.", { "WWW-Authenticate": "Bearer" });
@@ -156,7 +176,9 @@ export class McpGateway {
     if (release === null) throw new HttpFailure(503, "service_unavailable", "Try again shortly.", { "Retry-After": "2" });
     let resolved: ResolveResult;
     try {
-      resolved = await this.tokens.resolve(token, projectKey);
+      // Escrita: a participação no Clerk é conferida de novo, sem a memória de 5 minutos da leitura (ADR 0043).
+      // O pedido "fresco" só vale para token `write` com a chave ligada; o limite de escritas é contado antes de ir ao Clerk.
+      resolved = await this.tokens.resolve(token, projectKey, { fresh: isWrite, onWriteAttempt: (tokenId) => this.writeLimiter.hit(tokenId) });
     } catch (error) {
       this.logger.error(`resolve failed: ${errorClass(error)}`);
       throw new HttpFailure(503, "service_unavailable", "Try again shortly.", { "Retry-After": "5" });
@@ -176,7 +198,6 @@ export class McpGateway {
       }
     }
     meta.tokenId = resolved.tokenId;
-
     // 6. Entrega ao servidor MCP, com prazo total e cancelamento se o cliente desconectar.
     const abort = new AbortController();
     const onClose = (): void => {

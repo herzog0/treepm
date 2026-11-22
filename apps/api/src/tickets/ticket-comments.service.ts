@@ -4,6 +4,8 @@ import { canEditComment, canRemoveComment } from "@treepm/domain";
 import type { Actor } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
+import { ACCESS_TOKEN_CLOCK } from "../access-tokens/clock.js";
+import type { AccessTokenClock } from "../access-tokens/clock.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { parseOutput } from "../common/zod.js";
 import { activityEntrySchema } from "./ticket-activity.schema.js";
@@ -24,6 +26,8 @@ type CommentRow = {
   contribution: { id: string; area: { name: string } } | null;
   /** O nome da área que a contribuição removida tinha; nulo enquanto a contribuição existe. */
   areaName: string | null;
+  /** `mcp` quando o comentário veio de uma chamada MCP (ADR 0043). */
+  via: string | null;
 };
 
 /** `canEdit` e `canRemove` de um comentário para quem lê: comentário removido e projeto arquivado não têm ação. */
@@ -51,6 +55,7 @@ export function toCommentEntry(row: CommentRow, author: Author | null, rights: {
     actor: author,
     body: removed ? null : row.body,
     area: commentArea(row),
+    ...(row.via === "mcp" ? { via: "mcp" as const } : {}),
     editedAt: row.editedAt ? row.editedAt.toISOString() : null,
     removed,
     ...rights,
@@ -66,9 +71,12 @@ export const commentSelect = {
   editedAt: true,
   removedAt: true,
   areaName: true,
+  via: true,
   contribution: { select: { id: true, area: { select: { name: true } } } },
 } as const;
 const select = commentSelect;
+/** Janela em que o mesmo `requestId` do mesmo token vale como repetição (ADR 0043). */
+const REPEAT_WINDOW_MS = 10 * 60_000;
 
 /**
  * Comentar, editar e remover (ADR 0040, fatia 2). O corpo nunca vai para o evento de atividade nem para o log.
@@ -79,9 +87,14 @@ export class TicketCommentsService {
   constructor(
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(ActivityService) private readonly activity: ActivityService,
+    @Inject(ACCESS_TOKEN_CLOCK) private readonly clock: AccessTokenClock,
   ) {}
 
-  async add(tx: TenantClient, principal: Principal, ticketId: string, body: string, contributionId?: string): Promise<CommentEntry> {
+  /**
+   * `requestId` (só MCP, ADR 0043): uma segunda chamada do mesmo token, no mesmo ticket, com o mesmo `requestId`, em até 10
+   * minutos, devolve o comentário que já existe, sem criar outro e sem novo evento. Serializa por uma trava de aviso da transação.
+   */
+  async add(tx: TenantClient, principal: Principal, ticketId: string, body: string, contributionId?: string, requestId?: string): Promise<CommentEntry> {
     const { project, ticket } = await this.visibleTicket(tx, principal.actor, ticketId);
     this.authorization.commentTicket(principal.actor, project.id);
     this.requireActive(project);
@@ -90,8 +103,24 @@ export class TicketCommentsService {
     if (contributionId !== undefined && !(await tx.ticketContribution.findFirst({ where: { id: contributionId, ticketId }, select: { id: true } }))) {
       throw new NotFoundException("Contribuição não encontrada.");
     }
+    const tokenId = principal.via?.tokenId;
+    const request = requestId !== undefined && tokenId !== undefined ? { requestTokenId: tokenId, requestId } : null;
+    if (request) {
+      await tx.$executeRaw`select pg_advisory_xact_lock(hashtextextended(${`comment-request:${ticketId}:${request.requestTokenId}:${request.requestId}`}, 0))`;
+      const again = await tx.ticketComment.findFirst({
+        // Comentário removido nesse meio-tempo não vale como "o mesmo": a repetição cria um novo.
+        where: { ticketId, ...request, removedAt: null, createdAt: { gte: new Date(this.clock.now() - REPEAT_WINDOW_MS) } },
+        orderBy: { createdAt: "desc" },
+        select,
+      });
+      if (again) {
+        // O mesmo requestId com outro texto não é uma repetição: erro claro, nada devolvido nem gravado.
+        if (again.body !== body) throw new ConflictException({ code: "request_id_reused", message: "O requestId já foi usado com outro texto." });
+        return this.entry(principal, project, again);
+      }
+    }
     const row = await tx.ticketComment.create({
-      data: { orgId: project.orgId, projectId: project.id, ticketId, authorPersonId: principal.person.id, body, ...(contributionId === undefined ? {} : { contributionId }) },
+      data: { orgId: project.orgId, projectId: project.id, ticketId, authorPersonId: principal.person.id, body, ...(request ?? {}), ...(contributionId === undefined ? {} : { contributionId }), ...(principal.via ? { via: principal.via.kind } : {}) },
       select,
     });
     await this.activity.record(tx, principal, {

@@ -4,8 +4,11 @@ import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { ProjectQueryService } from "../query/project-query.service.js";
 import { ProjectTools, TOOL_DEFINITIONS, ToolInputError } from "./mcp-tools.js";
 import type { RunInTenant, ToolContext } from "./mcp-tools.js";
+import { WRITE_TOOL_DEFINITIONS, WriteTools, refusalMessage } from "./mcp-write-tools.js";
+import type { WriteContext, WriteServices } from "./mcp-write-tools.js";
 
 const ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
+const WRITE_ANNOTATIONS = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
 const GENERIC_ERROR = "Something went wrong while reading the project. Try again.";
 const MAX_MESSAGE = 200;
 
@@ -31,6 +34,8 @@ async function guarded(name: string, work: () => Promise<Record<string, unknown>
     return ok(await work());
   } catch (error) {
     if (error instanceof ToolInputError) return toolError(error.message);
+    const refusal = refusalMessage(error);
+    if (refusal !== null) return toolError(refusal);
     // Falha de verdade (banco, bug): fica no log só com a mensagem, sem argumentos nem resultados; o cliente recebe uma frase genérica.
     logger.error(`tool ${name} failed: ${error instanceof Error ? error.name : "UnknownError"}`);
     return toolError(GENERIC_ERROR);
@@ -41,11 +46,11 @@ async function guarded(name: string, work: () => Promise<Record<string, unknown>
  * Monta o servidor MCP de UMA requisição, para o projeto e a identidade já resolvidos pelo token. O código das
  * ferramentas não vê o token.
  */
-export function createProjectServer(run: RunInTenant, query: ProjectQueryService, context: ToolContext): McpServer {
+export function createProjectServer(run: RunInTenant, query: ProjectQueryService, context: ToolContext, write?: { services: WriteServices; context: WriteContext }): McpServer {
   const server = new McpServer(
     { name: "treepm", version: "0.1.0" },
     {
-      instructions: `Read-only access to the tickets of project ${context.project.key} in TreePM. Tickets form a tree; start with get_project_overview, then search_tickets, list_tickets and get_ticket.`,
+      instructions: `${write ? "Access to" : "Read-only access to"} the tickets of project ${context.project.key} in TreePM. Tickets form a tree; start with get_project_overview, then search_tickets, list_tickets and get_ticket.`,
     },
   );
   // Toda falha de uma ferramenta, inclusive a validação da entrada que o SDK faz antes do nosso código, vira resultado
@@ -60,5 +65,12 @@ export function createProjectServer(run: RunInTenant, query: ProjectQueryService
   server.registerTool("get_ticket", { ...register.get_ticket, annotations: ANNOTATIONS }, (input) => guarded("get_ticket", () => tools.getTicket(input)));
   server.registerTool("list_tickets", { ...register.list_tickets, annotations: ANNOTATIONS }, (input) => guarded("list_tickets", () => tools.listTickets(input)));
   server.registerTool("get_project_overview", { ...register.get_project_overview, annotations: ANNOTATIONS }, () => guarded("get_project_overview", () => tools.getProjectOverview()));
+  // Escrita (ADR 0043): só para token de escrita com a chave da organização ligada. Fora disso as ferramentas nem existem.
+  if (write) {
+    const writer = new WriteTools(run, write.services, tools, write.context);
+    server.registerTool("update_ticket_status", { ...WRITE_TOOL_DEFINITIONS.update_ticket_status, annotations: WRITE_ANNOTATIONS }, (input) => guarded("update_ticket_status", () => writer.updateTicketStatus(input)));
+    server.registerTool("add_comment", { ...WRITE_TOOL_DEFINITIONS.add_comment, annotations: WRITE_ANNOTATIONS }, (input) => guarded("add_comment", () => writer.addComment(input)));
+    server.registerTool("set_agent_work", { ...WRITE_TOOL_DEFINITIONS.set_agent_work, annotations: WRITE_ANNOTATIONS }, (input) => guarded("set_agent_work", () => writer.setAgentWork(input)));
+  }
   return server;
 }

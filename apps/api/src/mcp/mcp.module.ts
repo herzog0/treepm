@@ -1,12 +1,14 @@
 import { Module } from "@nestjs/common";
+import { AccessModule } from "../access/access.module.js";
 import { AccessTokensModule } from "../access-tokens/access-tokens.module.js";
 import { DbModule } from "../db/db.module.js";
 import { QueryModule } from "../query/query.module.js";
+import { TicketsModule } from "../tickets/tickets.module.js";
 import { McpGateway } from "./mcp-gateway.js";
 
 /** Servidor MCP por projeto (ADR 0038, fatia 2). A entrada HTTP é montada em `bootstrap.ts`. */
 @Module({
-  imports: [AccessTokensModule, DbModule, QueryModule],
+  imports: [AccessModule, AccessTokensModule, DbModule, QueryModule, TicketsModule],
   providers: [McpGateway],
   exports: [McpGateway],
 })

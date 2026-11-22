@@ -19,6 +19,11 @@ export const MEMBERSHIP_TTL_MS = 5 * 60 * 1000;
 export const LAST_USED_INTERVAL_MS = 5 * 60 * 1000;
 export const RATE_LIMIT_PER_WINDOW = 60;
 export const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+/**
+ * Prazo de cada ida ao Clerk para conferir a participação. Mesmo padrão das chamadas à IA (`callClaude`): um temporizador e
+ * `Promise.race` que rejeita; a chamada do SDK não é cancelável, mas deixa de segurar a vaga de resolução. Falha por prazo vira 503.
+ */
+export const MEMBERSHIP_TIMEOUT_MS = 5_000;
 
 /**
  * - `invalid`: token malformado, desconhecido, revogado ou vencido; pessoa inativa ou fora da organização (401, sem
@@ -36,8 +41,20 @@ export type ResolveResult =
       /** O mesmo `Principal` que uma sessão produz, com o papel ATUAL do Clerk e os papéis do banco. */
       principal: Principal;
       project: { id: string; key: string; name: string; archivedAt: Date | null };
+      /** Alcance do token e a chave de escrita da organização (ADR 0043). */
+      scope: "read" | "write";
+      writeEnabled: boolean;
+      /** `true` quando a participação no Clerk foi conferida de novo agora, sem a memória de 5 minutos (exigido para escrever). */
+      fresh: boolean;
     }
   | { ok: false; reason: ResolveFailure; retryAfterSeconds?: number };
+
+export type ResolveOptions = {
+  /** O pedido é de uma ferramenta de escrita (pelo nome). Só vira consulta fresca se o token e a organização permitirem escrever. */
+  fresh?: boolean;
+  /** Chamado uma vez por tentativa de escrita, antes de qualquer ida ao Clerk; `allowed: false` recusa com 429. */
+  onWriteAttempt?: (tokenId: string) => ReturnType<RateLimiter["hit"]>;
+};
 
 const invalid: ResolveResult = { ok: false, reason: "invalid" };
 
@@ -63,6 +80,8 @@ export class AccessTokenService {
   /** Consultas ao Clerk em andamento por organização/pessoa: requisições simultâneas esperam a mesma. */
   private readonly inflight = new Map<string, Promise<string | null>>();
   private readonly limiter: RateLimiter;
+  /** Prazo da consulta ao Clerk; mutável só para os testes. */
+  membershipTimeoutMs = MEMBERSHIP_TIMEOUT_MS;
 
   constructor(
     @Inject(TenantTransactions) private readonly tenants: TenantTransactions,
@@ -76,7 +95,11 @@ export class AccessTokenService {
   }
 
   /** Falha de operação (Clerk fora do ar, banco) sobe como erro: nunca vira "válido". */
-  async resolve(rawToken: string, projectKey: string): Promise<ResolveResult> {
+  async resolve(rawToken: string, projectKey: string, options: ResolveOptions = {}): Promise<ResolveResult> {
+    // `fresh` só vale depois de a primeira transação mostrar token `write` E a chave de escrita da organização ligada; antes disso
+    // é só o PEDIDO (o nome da ferramenta). Sem os dois, o caminho é o da leitura, com a memória (ADR 0043, revisão 2).
+    const wantsFresh = options.fresh === true;
+    let fresh = false;
     // 1. Desmonta.
     const parsed = parseToken(rawToken);
     if (!parsed) return invalid;
@@ -89,7 +112,7 @@ export class AccessTokenService {
     const checked = await this.tenants.run({ orgId, userId: "access-token" }, async (tx): Promise<ResolveResult | Found> => {
       const row = await tx.accessToken.findUnique({
         where: { tokenHash },
-        include: { person: true, organization: { select: { mcpEnabled: true } } },
+        include: { person: true, organization: { select: { mcpEnabled: true, mcpWriteEnabled: true } } },
       });
       if (!row) return invalid;
       if (row.revokedAt || row.expiresAt.getTime() <= this.clock.now()) return this.reject(row.id, "invalid");
@@ -100,12 +123,18 @@ export class AccessTokenService {
       }
       if (!row.organization.mcpEnabled) return this.reject(row.id, "disabled");
       if (!row.person.active) return this.reject(row.id, "invalid");
+      if (wantsFresh) {
+        // O limite de escritas conta a tentativa ANTES de qualquer ida ao Clerk (inclusive de token sem alcance de escrita).
+        const writes = options.onWriteAttempt?.(row.id);
+        if (writes && !writes.allowed) return { ok: false, reason: "rate_limited", retryAfterSeconds: Math.ceil(writes.retryAfterMs / 1000) };
+        fresh = row.scope === "write" && row.organization.mcpWriteEnabled;
+      }
       return { tokenId: row.id, projectId: row.projectId, personId: row.person.id, clerkUserId: row.person.clerkUserId, lastUsedAt: row.lastUsedAt };
     });
     if ("ok" in checked) return checked;
 
     // 5. Participação no Clerk: rede, fora de qualquer transação.
-    const orgRole = await this.membership(orgId, checked.clerkUserId);
+    const orgRole = await this.membership(orgId, checked.clerkUserId, fresh);
     const clerkRole = orgRole === null ? null : parseClerkRole(orgRole);
     if (orgRole === null) await this.personLeft(orgId, checked);
     if (!clerkRole || orgRole === null) return this.reject(checked.tokenId, "invalid");
@@ -116,7 +145,7 @@ export class AccessTokenService {
       // Revogação, validade e a chave podem ter mudado durante a chamada ao Clerk: relê antes de devolver sucesso.
       const again = await tx.accessToken.findUnique({
         where: { tokenHash },
-        include: { person: { select: { active: true } }, organization: { select: { mcpEnabled: true } } },
+        include: { person: { select: { active: true } }, organization: { select: { mcpEnabled: true, mcpWriteEnabled: true } } },
       });
       if (!again || again.revokedAt || again.expiresAt.getTime() <= this.clock.now()) return this.reject(checked.tokenId, "invalid");
       if (!again.organization.mcpEnabled) return this.reject(checked.tokenId, "disabled");
@@ -143,6 +172,9 @@ export class AccessTokenService {
         tokenId: checked.tokenId,
         principal,
         project: { id: project.id, key: project.key, name: project.name, archivedAt: project.archivedAt },
+        scope: again.scope === "write" ? "write" : "read",
+        writeEnabled: again.organization.mcpWriteEnabled,
+        fresh,
       };
     });
   }
@@ -193,23 +225,33 @@ export class AccessTokenService {
    * falha também não: só os resultados positivos entram na memória. Consultas simultâneas da mesma pessoa dividem
    * a mesma promessa (uma ida ao Clerk por vez).
    */
-  private membership(orgId: string, userId: string): Promise<string | null> {
+  private membership(orgId: string, userId: string, fresh = false): Promise<string | null> {
     const key = `${orgId}\u0000${userId}`;
     const now = this.clock.now();
     const cached = this.memberships.get(key);
-    if (cached && cached.until > now) return Promise.resolve(cached.role);
-    this.memberships.delete(key);
-    const running = this.inflight.get(key);
+    // Escrita (ADR 0043) nunca usa a memória de 5 minutos nem divide a consulta de outra requisição: vai ao Clerk.
+    if (!fresh && cached && cached.until > now) return Promise.resolve(cached.role);
+    const running = fresh ? undefined : this.inflight.get(key);
     if (running) return running;
-    const fetching = this.directory.getMembership(orgId, userId).then(
-      (role) => {
-        if (role !== null) this.memberships.set(key, { role, until: this.clock.now() + MEMBERSHIP_TTL_MS });
-        return role;
-      },
-    );
+    // A entrada boa só é trocada depois de a consulta voltar com sucesso: falha ou demora do Clerk numa escrita não derruba as leituras.
+    const fetching = this.withDeadline(this.directory.getMembership(orgId, userId)).then((role) => {
+      if (role !== null) this.memberships.set(key, { role, until: this.clock.now() + MEMBERSHIP_TTL_MS });
+      else this.memberships.delete(key);
+      return role;
+    });
+    if (fresh) return fetching;
     const done = (): void => void this.inflight.delete(key);
     this.inflight.set(key, fetching);
     fetching.then(done, done);
     return fetching;
+  }
+
+  private withDeadline<T>(call: Promise<T>): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    const expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Directory lookup timed out.")), this.membershipTimeoutMs);
+    });
+    call.catch(() => undefined);
+    return Promise.race([call, expired]).finally(() => clearTimeout(timer));
   }
 }

@@ -1,3 +1,5 @@
+import { ideaRootsOf } from "@treepm/domain";
+import type { IdeaStage, TicketStatus } from "@treepm/domain";
 import {
   Body,
   ConflictException,
@@ -191,14 +193,17 @@ export class TicketConversationsController {
     const seen = await tenant.run(async (tx, principal) => {
       const { conversation } = await this.requireWritable(tx, principal, id);
       if (conversation.draftTitle === null) throw this.draftRequired();
-      const [project, tickets, summaries] = await Promise.all([
+      const [project, allTickets, summaries] = await Promise.all([
         tx.project.findFirstOrThrow({ where: { id: conversation.projectId }, select: { name: true } }),
         tx.ticket.findMany({
           where: { projectId: conversation.projectId },
-          select: { id: true, parentId: true, number: true, title: true, description: true },
+          select: { id: true, parentId: true, number: true, title: true, description: true, status: true, ideaStage: true },
         }),
         tx.branchSummary.findMany({ where: { projectId: conversation.projectId }, select: { ticketId: true, summary: true } }),
       ]);
+      // Uma ideia (a raiz e o que está dentro) não é lugar para um ticket novo: não entra na procura (ADR 0043).
+      const inIdea = ideaRootsOf(allTickets.map((t) => ({ id: t.id, parentId: t.parentId, status: t.status as TicketStatus, ideaStage: (t.ideaStage ?? null) as IdeaStage | null })));
+      const tickets = allTickets.filter((t) => !inIdea.has(t.id)).map(({ id, parentId, number, title, description }) => ({ id, parentId, number, title, description }));
       if (body.scopeId) this.requireScope(tickets.find((ticket) => ticket.id === body.scopeId));
       return {
         draft: { title: conversation.draftTitle, description: conversation.draftDescription ?? "" },

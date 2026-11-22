@@ -29,8 +29,8 @@ describe("search_tickets", () => {
     expect(res.isError).toBe(false);
     expect(res.json).toEqual({
       tickets: [
-        { key: "PRIV-2", title: "Filho A", excerpt: "Primeiro filho", status: "done", parent: "PRIV-1" },
-        { key: "PRIV-3", title: "Filho B", excerpt: "Segundo filho sobre relatórios", status: "todo", parent: "PRIV-1" },
+        { key: "PRIV-2", title: "Filho A", excerpt: "Primeiro filho", status: "done", parent: "PRIV-1", idea: null, agentWork: null },
+        { key: "PRIV-3", title: "Filho B", excerpt: "Segundo filho sobre relatórios", status: "todo", parent: "PRIV-1", idea: null, agentWork: null },
       ],
       truncated: false,
     });
@@ -119,14 +119,16 @@ describe("get_ticket", () => {
       title: "Filho A",
       description: "Primeiro filho",
       status: "done",
+      idea: null,
+      agentWork: null,
       parent: "PRIV-1",
-      path: [{ key: "PRIV-1", title: "Raiz do projeto", excerpt: "Descrição inteira da raiz. Ver PRIV-4.", status: "in_progress", parent: null }],
+      path: [{ key: "PRIV-1", title: "Raiz do projeto", excerpt: "Descrição inteira da raiz. Ver PRIV-4.", status: "in_progress", parent: null, idea: null, agentWork: null }],
       children: { tickets: [], truncated: false },
       relations: {
         mentions: { outgoing: { tickets: [], truncated: false }, incoming: { tickets: [], truncated: false } },
         depends_on: {
           outgoing: { tickets: [], truncated: false },
-          incoming: { tickets: [{ key: "PRIV-4", title: "Solto", excerpt: "Depende de PRIV-2", status: "todo", parent: null }], truncated: false },
+          incoming: { tickets: [{ key: "PRIV-4", title: "Solto", excerpt: "Depende de PRIV-2", status: "todo", parent: null, idea: null, agentWork: null }], truncated: false },
         },
       },
     });
@@ -207,11 +209,12 @@ describe("get_project_overview", () => {
     expect(res.json).toEqual({
       project: "PRIV",
       total: 4,
+      ideas: { new: 0, refining: 0, ready: 0, discarded: 0 },
       by_status: { todo: 2, in_progress: 1, in_review: 0, done: 1, cancelled: 0 },
       top: {
         tickets: [
-          { key: "PRIV-1", title: "Raiz do projeto", excerpt: "Descrição inteira da raiz. Ver PRIV-4.", status: "in_progress", parent: null, progress: { done: 1, total: 2, excluded: 0, ideas: 0 } },
-          { key: "PRIV-4", title: "Solto", excerpt: "Depende de PRIV-2", status: "todo", parent: null, progress: null },
+          { key: "PRIV-1", title: "Raiz do projeto", excerpt: "Descrição inteira da raiz. Ver PRIV-4.", status: "in_progress", parent: null, idea: null, agentWork: null, progress: { done: 1, total: 2, excluded: 0, ideas: 0 } },
+          { key: "PRIV-4", title: "Solto", excerpt: "Depende de PRIV-2", status: "todo", parent: null, idea: null, agentWork: null, progress: null },
         ],
         truncated: false,
       },
@@ -235,7 +238,7 @@ describe("get_project_overview", () => {
     await h.enableMcp();
     const created = await h.create("admin", h.world().projects.org);
     const res = await h.tool(created.body.token, "OPEN", "get_project_overview");
-    expect(res.json).toEqual({ project: "OPEN", total: 0, by_status: { todo: 0, in_progress: 0, in_review: 0, done: 0, cancelled: 0 }, top: { tickets: [], truncated: false } });
+    expect(res.json).toEqual({ project: "OPEN", total: 0, ideas: { new: 0, refining: 0, ready: 0, discarded: 0 }, by_status: { todo: 0, in_progress: 0, in_review: 0, done: 0, cancelled: 0 }, top: { tickets: [], truncated: false } });
   });
 });
 

@@ -112,3 +112,4 @@ export function canLinkRepository(actor: Actor, projectId: string): boolean {
 }
 export * from "./code-links.js";
 export * from "./ai-consent.js";
+export * from "./agent-work.js";

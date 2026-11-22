@@ -39,13 +39,15 @@ enum ProjectRole {
 }
 
 model Organization {
-  orgId      String   @id @map("org_id")
-  name       String
-  slug       String
+  orgId           String   @id @map("org_id")
+  name            String
+  slug            String
   /// "Permitir acesso por MCP" (ADR 0038): desligada por padrão; só um administrador liga.
-  mcpEnabled Boolean  @default(false) @map("mcp_enabled")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  mcpEnabled      Boolean  @default(false) @map("mcp_enabled")
+  /// "Permitir escrita por MCP" (ADR 0043): desligada por padrão; só um administrador liga. Com ela desligada, nenhum token escreve.
+  mcpWriteEnabled Boolean  @default(false) @map("mcp_write_enabled")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   people                     Person[]
   teams                      Team[]
@@ -89,7 +91,8 @@ model Person {
   organization           Organization               @relation(fields: [orgId], references: [orgId])
   teamMemberships        TeamMembership[]
   projectMemberships     ProjectMembership[]
-  createdTickets         Ticket[]
+  createdTickets         Ticket[]                   @relation("TicketCreatedBy")
+  ticketsAgentWork       Ticket[]                   @relation("TicketAgentWorkPerson")
   ticketAssignees        TicketAssignee[]
   activityEvents         ActivityEvent[]
   ticketConversations    TicketConversation[]
@@ -213,26 +216,32 @@ model ProjectMembership {
 }
 
 model Ticket {
-  orgId             String   @map("org_id")
-  id                String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
-  projectId         String   @map("project_id") @db.Uuid
-  number            Int
-  parentId          String?  @map("parent_id") @db.Uuid
-  title             String
-  description       String   @default("")
+  orgId              String    @map("org_id")
+  id                 String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId          String    @map("project_id") @db.Uuid
+  number             Int
+  parentId           String?   @map("parent_id") @db.Uuid
+  title              String
+  description        String    @default("")
   /// todo | in_progress | in_review | done | cancelled (check no banco)
-  status            String   @default("todo")
+  status             String    @default("todo")
   /// Estágio de ideia (ADR 0042): new | refining | ready | discarded (check no banco); só a raiz da ideia tem. Com estágio, a situação é sempre todo.
-  ideaStage         String?  @map("idea_stage")
-  createdByPersonId String   @map("created_by_person_id") @db.Uuid
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  ideaStage          String?   @map("idea_stage")
+  /// Marcador de trabalho pela IA (ADR 0043): os quatro andam juntos (check). Vale enquanto `agentWorkUntil` é futuro; nota vazia = sem nota.
+  agentWorkStartedAt DateTime? @map("agent_work_started_at") @db.Timestamptz(3)
+  agentWorkUntil     DateTime? @map("agent_work_until") @db.Timestamptz(3)
+  agentWorkPersonId  String?   @map("agent_work_person_id") @db.Uuid
+  agentWorkNote      String?   @map("agent_work_note")
+  createdByPersonId  String    @map("created_by_person_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   organization         Organization         @relation(fields: [orgId], references: [orgId])
   project              Project              @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
   parent               Ticket?              @relation("TicketTree", fields: [orgId, projectId, parentId], references: [orgId, projectId, id], onDelete: Restrict, onUpdate: Restrict)
   children             Ticket[]             @relation("TicketTree")
-  createdBy            Person               @relation(fields: [orgId, createdByPersonId], references: [orgId, id])
+  createdBy            Person               @relation("TicketCreatedBy", fields: [orgId, createdByPersonId], references: [orgId, id])
+  agentWorkPerson      Person?              @relation("TicketAgentWorkPerson", fields: [orgId, agentWorkPersonId], references: [orgId, id])
   assignees            TicketAssignee[]
   conversationsCreated TicketConversation[]
   branchSummaries      BranchSummary[]
@@ -489,6 +498,8 @@ model AccessToken {
   tokenPrefix String    @map("token_prefix")
   /// SHA-256 do token inteiro, em hexadecimal; único.
   tokenHash   String    @unique @map("token_hash")
+  /// read | write (check no banco; ADR 0043). Não muda depois de criado.
+  scope       String    @default("read")
   expiresAt   DateTime  @map("expires_at") @db.Timestamptz(3)
   revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(3)
   lastUsedAt  DateTime? @map("last_used_at") @db.Timestamptz(3)
@@ -547,6 +558,11 @@ model TicketComment {
   contributionId    String?   @map("contribution_id") @db.Uuid
   /// Nome da área que a contribuição removida tinha, gravado por gatilho no banco; nulo enquanto a contribuição existe
   areaName          String?   @map("area_name")
+  /// `mcp` quando o comentário veio de uma chamada MCP (ADR 0043); nulo quando foi escrito na tela. Nunca muda depois.
+  via               String?
+  /// Repetição de `add_comment` (ADR 0043): id do registro do token e o `requestId` do cliente; os dois nulos fora do MCP.
+  requestTokenId    String?   @map("request_token_id") @db.Uuid
+  requestId         String?   @map("request_id")
 
   organization Organization        @relation(fields: [orgId], references: [orgId])
   ticket       Ticket              @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
