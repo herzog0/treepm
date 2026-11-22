@@ -1,6 +1,6 @@
 # ADR 0037 — Relações entre tickets e camada de consulta do projeto
 
-**Status:** Aceita por Teodoro em 2026-11-21 quanto à direção ("Segue a sua recomendação pras coisas em aberto"). A coordenação tinha recomendado a tabela de relações, a camada de consulta e gravar a ligação "menciona"; o restante desta ADR está marcado como escolha da coordenação e vale até ele dizer o contrário. A tabela, a ligação "menciona" e a camada de consulta foram implementadas em 2026-11-21 (PRs #100, #104 e #106); "depende de" e a pergunta sobre o projeto ainda não. Nada foi testado com sessão real. **Data:** 2026-11-21.
+**Status:** Aceita por Teodoro em 2026-11-21 quanto à direção ("Segue a sua recomendação pras coisas em aberto"). A coordenação tinha recomendado a tabela de relações, a camada de consulta e gravar a ligação "menciona"; o restante desta ADR está marcado como escolha da coordenação e vale até ele dizer o contrário. A tabela, a ligação "menciona" e a camada de consulta foram implementadas em 2026-11-21 (PRs #100, #104 e #106); "depende de" também (PR #111); da pergunta sobre o projeto, só a parte da API (PR #109), sem a tela. Nada foi testado com sessão real e nenhuma chamada a provedor real foi feita. **Data:** 2026-11-21.
 
 Muda, na [ADR 0036](0036-barra-de-pedidos-e-pagina-do-ticket-em-blocos.md), a regra de que a menção é guardada só como a chave no texto (a chave continua, e passa a existir também uma ligação gravada) e a forma de responder a pergunta sobre o projeto (a IA consulta, em vez de receber todos os tickets). Não muda a árvore, o significado de "filho" nem a procura do lugar do ticket novo ([ADR 0034](0034-um-so-tipo-de-ticket-das-folhas-para-o-topo.md)).
 
@@ -162,3 +162,27 @@ A migration da fatia 1 é aplicada no Neon de desenvolvimento pela coordenação
 - A regra de busca da barra passou para `packages/domain`; a web delega a ela.
 
 Suítes depois das três fatias: domain 237, db 186, api 1.272, web 1.341 e 81 na suíte de navegador.
+
+## Como ficou na implementação (fatia 3 e a API da fatia 5)
+
+**"Depende de" (PR #111)**
+
+- Rotas `POST /api/tickets/:id/dependencies` e `DELETE /api/tickets/:id/dependencies/:ticketId`. Repetir uma ligação que já existe é sucesso sem efeito e sem evento.
+- Recusas com código próprio: depender de si mesmo e fechar um ciclo.
+- **Corrida do ciclo:** as requisições de adicionar dependência no mesmo projeto são serializadas por uma trava da transação. Sem ela, os testes de corrida falham.
+- O detalhe do ticket devolve `dependsOn` e `blocks`.
+- Na página: a linha "Depende de" nas propriedades, com seletor com busca, e a lista "Bloqueia" abaixo da descrição, junto de "Mencionado em".
+- Um teste confere que concluir um ticket com dependência aberta continua permitido.
+
+**Pergunta sobre o projeto, API (PR #109)**
+
+- Rota `POST /api/projects/:projectId/assistant/ask`, com a pergunta e até 20 mensagens da conversa da tela. Quem enxerga o projeto pergunta.
+- Quatro ferramentas: `search_tickets`, `read_ticket`, `list_tickets` e `project_overview`. O laço é o manual descrito na documentação do SDK, com 8 rodadas, 16 execuções e 60 segundos; ao bater o limite, uma última chamada sem ferramentas.
+- **Rótulos:** `T` e o número. As chaves deste projeto nos textos viram rótulo na ida; na volta, só rótulo de ticket que existe vira chave. Chave de outro projeto fica como está no texto.
+- Entrada inválida do modelo volta como erro da ferramenta, e a conversa segue.
+- **Teto conferido por teste:** uma conversa com as quatro ferramentas é percorrida e tudo o que é entregue ao provedor é varrido atrás de id, chave do projeto, chave de ticket, nome e e-mail, com pessoas e responsáveis semeados para o teste ter o que achar.
+- **Limites conhecidos:** um texto que traga literalmente `T<número>` de um ticket que existe volta como chave; chave escrita com zero à esquerda volta sem ele.
+
+Suítes depois dessas duas: domain 237, db 186, api 1.362, web 1.360 e 84 na suíte de navegador.
+
+**Testes de "transação aberta" (PR #110).** Contavam transações ociosas no servidor de banco inteiro, e suítes rodando em outros bancos do mesmo contêiner as faziam falhar. Passaram a olhar só o próprio banco.
