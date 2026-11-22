@@ -82,12 +82,17 @@ export function findTicketKeys(text: string): string[] {
   return [...new Set(found)];
 }
 
+/**
+ * Alegação de que algo passou a existir na plataforma. "Separei/dividi/quebrei o pedido (o rascunho) em partes" fala do
+ * rascunho e não conta; conta quando o objeto é ticket ou tarefa, na mesma frase (sem pontuação no meio).
+ */
 const CLAIM_PATTERNS: readonly RegExp[] = [
-  /\b(?:criei|criamos|criou|dividi|dividimos|dividiu|separei|separamos|quebrei|quebramos)\b/,
+  /\b(?:criei|criamos|criou|abri|abrimos)\b/,
   /\bj[aá] (?:criei|dividi|separei|quebrei)\b/,
-  /\bforam (?:criad|dividid|separad|abert)[oa]s\b/,
-  /\bfo[i] (?:criad|dividid|separad|abert)[oa]\b/,
-  /\b(?:ticket|tickets|tarefa|tarefas|pedido|funcionalidade) (?:foi|foram) (?:criad|dividid|separad)[oa]s?\b/,
+  /\b(?:dividi|dividimos|dividiu|separei|separamos|quebrei|quebramos)\b[^.:;!?,\n]{0,40}\b(?:tickets?|tarefas?)\b/,
+  /\bforam (?:criad|abert)[oa]s\b/,
+  /\bfo[i] (?:criad|abert)[oa]\b/,
+  /\b(?:ticket|tickets|tarefa|tarefas) (?:foi|foram) (?:criad|dividid|separad|abert)[oa]s?\b/,
 ];
 
 /** Frases em que a IA diz que criou ou dividiu algo (ela só propõe). Devolve os trechos encontrados. */

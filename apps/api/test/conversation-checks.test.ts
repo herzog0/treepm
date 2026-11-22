@@ -60,11 +60,24 @@ describe("findTicketKeys", () => {
 describe("findClaims", () => {
   it.each([
     ["Criei os tickets para você.", true],
-    ["Eu dividi o pedido em quatro partes.", true],
+    ["Criamos o ticket e os filhos.", true],
+    ["Já criei o rascunho no projeto.", true],
+    ["Já dividi o trabalho.", true],
     ["Foram criados 4 tickets.", true],
+    ["Foram abertos três tickets.", true],
+    ["O ticket foi criado.", true],
     ["A tarefa foi dividida em partes.", true],
+    ["Dividi o ticket ABC-12 em dois.", true],
+    ["Separei em três tickets que já estão no projeto.", true],
+    ["Abri os tickets no projeto.", true],
     ["Posso propor uma quebra em quatro tickets?", false],
     ["Proponho dividir em duas partes. Confirma?", false],
+    ["Eu dividi o pedido em quatro partes.", false],
+    ["Quebrei o trabalho em filhos.", false],
+    ["Separei o pedido em partes: o botão com o drop-down, os templates de filtro, a navegação do modo play e o modo standup. Se preferir, posso juntar tudo num ticket só.", false],
+    ["Montei o rascunho e separei em partes: o campo de prioridade, o botão e a regra. Se preferir, posso juntar tudo num ticket só.", false],
+    ["Separei em duas partes, o campo de prioridade e o botão; se preferir, posso juntar tudo num ticket só.", false],
+    ["Separei o pedido em três partes: a exportação em CSV pelo menu do projeto e as duas opções, cada uma num filho.", false],
   ])("%s -> %s", (message, expected) => {
     expect(findClaims(message).length > 0).toBe(expected);
   });
