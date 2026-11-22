@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, TicketSummary } from "../api/client.js";
+import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, IdeaStage, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid" | "server_error", code?: string): ApiResult<never> => ({
@@ -78,6 +78,8 @@ interface FakeData {
   agentWorkBy?: { id: string; displayName: string; avatarUrl: string | null };
   /** Quem lê pode aceitar e descartar ideias (`canTriageIdea` do detalhe; padrão: sim). Só o cliente em árvore usa. */
   canTriageIdea?: boolean;
+  /** Quando cada ideia foi registrada (`createdAt` da lista de ideias), por ID do ticket; padrão: 2026-11-20. Só o cliente em árvore usa. */
+  ideaCreatedAt?: Record<string, string>;
   /** Conversas de criação com a IA, por ID, para `createTicketFromConversation` do cliente em árvore; sem entrada, o rascunho é o padrão. */
   conversations?: Record<string, ConversationDetail>;
 }
@@ -470,7 +472,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "createTeam", "renameTeam", "removeTeam", "putTeamMember", "removeTeamMember",
     "createArea", "renameArea", "removeArea", "getProject", "createProject", "updateProject",
     "putProjectMember", "removeProjectMember", "putProjectTeam", "removeProjectTeam",
-    "getTicket", "endAgentWork", "createTicket", "updateTicket", "removeTicket", "putIdeaStage", "acceptIdea", "discardIdea", "makeIdea", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency",
+    "getTicket", "endAgentWork", "createTicket", "updateTicket", "removeTicket", "listIdeas", "putIdeaStage", "acceptIdea", "discardIdea", "makeIdea", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency",
     "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement",
     "createTicketFromConversation", "listConversations", "getConversation", "removeConversation",
     ...GITHUB_NAMES,
@@ -608,6 +610,19 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
       if (body.status !== undefined) entry.status = body.status;
       if ((body.status !== undefined || body.parentId !== undefined) && open(entry)) reopenFrom(entry.parentId);
       return ok(detail(entry));
+    }),
+    /** A lista de ideias do projeto, calculada da árvore de agora: estágio, depois o mais antigo, como a API. */
+    listIdeas: vi.fn(async (projectId: string) => {
+      const order = { ready: 0, refining: 1, new: 2, discarded: 3 } as const;
+      const pathOf = (entry: TicketSummary): string[] => {
+        const path: string[] = [];
+        for (let at = entry.parentId === null ? undefined : find(entry.parentId); at; at = at.parentId === null ? undefined : find(at.parentId)) path.unshift(at.title);
+        return path;
+      };
+      const createdAt = (entry: TicketSummary) => data.ideaCreatedAt?.[entry.id] ?? "2026-11-20T10:00:00.000Z";
+      const roots = all.filter((entry) => entry.projectId === projectId && entry.idea?.root === true);
+      roots.sort((a, b) => order[(a.idea as { stage: keyof typeof order }).stage] - order[(b.idea as { stage: keyof typeof order }).stage] || createdAt(a).localeCompare(createdAt(b)) || a.number - b.number);
+      return ok(roots.map((entry) => ({ id: entry.id, number: entry.number, key: entry.key, title: entry.title, stage: (entry.idea as { stage: IdeaStage }).stage, path: pathOf(entry), createdAt: createdAt(entry) })));
     }),
     putIdeaStage: vi.fn(async (id: string, body) => {
       const entry = find(id);

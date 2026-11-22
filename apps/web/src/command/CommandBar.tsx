@@ -3,7 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TicketSummary } from "../api/client.js";
 import { TicketMark, ticketStateText } from "../map/ticketState.js";
-import { AiIcon, PlusIcon } from "./icons.js";
+import { AiIcon, IdeaIcon, PlusIcon } from "./icons.js";
 import { searchTickets } from "./search.js";
 import "./command.css";
 
@@ -19,6 +19,11 @@ export interface CommandBarProps {
   pickerActive: () => boolean;
   onOpenTicket: (ticketId: string) => void;
   onCreate: (text: string) => void;
+  /**
+   * "Registrar ideia «texto»" (ADR 0042): cria a ideia direto, sem conversa, e abre a página dela. Devolve o texto do erro, ou
+   * `null` quando deu certo; com erro a folha continua à vista, com o texto preservado.
+   */
+  onRegisterIdea: (text: string) => Promise<string | null>;
   /** Devolve o foco ao palco do mapa. */
   returnFocus: () => void;
   /** A conversa de novo ticket mora na barra (ADR 0036): sem conversa, à vista ou recolhida (em andamento). */
@@ -44,10 +49,10 @@ export interface CommandBarProps {
   children?: ReactNode;
 }
 
-type Option = { kind: "ticket"; ticket: TicketSummary } | { kind: "create" } | { kind: "ask" };
+type Option = { kind: "ticket"; ticket: TicketSummary } | { kind: "create" } | { kind: "idea" } | { kind: "ask" };
 
 /** Barra de pedidos no topo do mapa (ADR 0036, fatia 1): busca de tickets e a ação "Criar ticket". */
-export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTicket, onCreate, returnFocus, conversation, assistantAvailable, loadResumable, onNewConversation, onResumeConversation, onReopenConversation, onCollapseConversation, ask, canAsk, onAsk, onReopenAsk, onCollapseAsk, focusRequest, children }: CommandBarProps) {
+export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTicket, onCreate, onRegisterIdea, returnFocus, conversation, assistantAvailable, loadResumable, onNewConversation, onResumeConversation, onReopenConversation, onCollapseConversation, ask, canAsk, onAsk, onReopenAsk, onCollapseAsk, focusRequest, children }: CommandBarProps) {
   const { t } = useTranslation("command");
   const { t: tMap } = useTranslation("map");
   const id = useId();
@@ -59,16 +64,20 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
   // Com o campo vazio e a IA ligada, a folha oferece a conversa; nada vem destacado, para o Enter não começar uma sem querer.
   const [emptyActive, setEmptyActive] = useState(-1);
   const [resumeTitle, setResumeTitle] = useState<string | null>(null);
+  // "Registrar ideia" espera a API: enquanto isso a linha não dispara de novo, e um erro fica na folha.
+  const [registering, setRegistering] = useState(false);
+  const [registerError, setRegisterError] = useState<string | null>(null);
 
   const trimmed = text.trim();
   const found = useMemo(() => searchTickets(text, tickets), [text, tickets]);
   const options = useMemo<Option[]>(() => {
     const list: Option[] = found.map((ticket) => ({ kind: "ticket", ticket }));
-    if (canCreate && trimmed !== "") list.push({ kind: "create" });
+    if (canCreate && trimmed !== "") list.push({ kind: "create" }, { kind: "idea" });
     if (canAsk && trimmed !== "") list.push({ kind: "ask" });
     return list;
   }, [found, canCreate, canAsk, trimmed]);
-  const askIndex = found.length + (canCreate ? 1 : 0);
+  const ideaIndex = found.length + 1;
+  const askIndex = found.length + (canCreate ? 2 : 0);
   const sheetOpen = open && trimmed !== "";
   const emptyOpen = open && trimmed === "" && assistantAvailable && canCreate && conversation === "none";
   const emptyOptions = useMemo(() => (resumeTitle === null ? (["new"] as const) : (["resume", "new"] as const)), [resumeTitle]);
@@ -146,6 +155,19 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
       const ticketId = option.ticket.id;
       finish();
       onOpenTicket(ticketId);
+    } else if (option.kind === "idea") {
+      if (registering) return;
+      const idea = trimmed;
+      setRegisterError(null);
+      setRegistering(true);
+      void onRegisterIdea(idea).then(
+        (error) => {
+          setRegistering(false);
+          if (error === null) finish();
+          else setRegisterError(error);
+        },
+        () => setRegistering(false),
+      );
     } else if (option.kind === "ask") {
       const question = trimmed;
       finish();
@@ -249,6 +271,7 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
             value={text}
             onChange={(event) => {
               setText(event.target.value);
+              setRegisterError(null);
               setOpen(true);
               setActive(0);
             }}
@@ -332,6 +355,20 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
                     <span className="command-title">{t("action.create", { text: trimmed })}</span>
                     <span className="command-hint">{t("action.createShortcut")}</span>
                   </div>}
+                  {canCreate && (
+                    <div
+                      id={optionId(ideaIndex)}
+                      role="option"
+                      aria-selected={activeIndex === ideaIndex}
+                      aria-busy={registering || undefined}
+                      className={`command-option ${activeIndex === ideaIndex ? "is-active" : ""}`}
+                      onMouseMove={() => setActive(ideaIndex)}
+                      onClick={() => choose({ kind: "idea" })}
+                    >
+                      <span className="command-action-icon"><IdeaIcon /></span>
+                      <span className="command-title">{t("action.registerIdea", { text: trimmed })}</span>
+                    </div>
+                  )}
                   {canAsk && (
                     <div
                       id={optionId(askIndex)}
@@ -349,6 +386,7 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
                 </div>
               )}
             </div>
+            {registerError !== null && <p className="command-error" role="alert">{registerError}</p>}
             {found.length === 0 && <p className="command-empty" role="status">{t("sheet.noTickets")}</p>}
             <div className="command-footer">
               <span>{t("sheet.keys.navigate")}</span>

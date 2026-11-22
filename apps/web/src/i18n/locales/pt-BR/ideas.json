@@ -1,0 +1,27 @@
+{
+  "title": "Ideias",
+  "hint": "As ideias do projeto, por estágio. Ainda não fazem parte do processo: aqui a triagem decide o que entra.",
+  "project": {
+    "label": "Projeto",
+    "option": "{{key}} · {{name}}"
+  },
+  "loading": "Carregando as ideias…",
+  "noProjects": "Nenhum projeto à vista",
+  "retry": "Tentar de novo",
+  "empty": {
+    "title": "Nenhuma ideia neste projeto",
+    "hint": "Para registrar uma, escreva na barra de pedidos do mapa e escolha “Registrar ideia”."
+  },
+  "row": {
+    "root": "Raiz do projeto"
+  },
+  "actions": {
+    "open": "Abrir",
+    "showOnMap": "Ver no mapa",
+    "openFor": "Abrir {{key}}",
+    "showOnMapFor": "Ver no mapa {{key}}",
+    "acceptFor": "Aceitar {{key}}",
+    "discardFor": "Descartar {{key}}",
+    "reopenFor": "Reabrir {{key}}"
+  }
+}

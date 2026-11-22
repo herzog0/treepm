@@ -292,7 +292,10 @@ export type ProjectMember = z.output<typeof projectMemberSchema>;
 export type Project = z.output<typeof projectSchema>;
 export type ProjectTeam = z.output<typeof projectTeamSchema>;
 export type TicketStatus = z.output<typeof ticketStatus>;
+/** Uma ideia da lista do projeto (ADR 0042): `path` são os títulos dos ancestrais, da raiz para baixo. */
+const ideaListItemSchema = z.object({ id: z.string(), number: z.number(), key: z.string(), title: z.string(), stage: ideaStage, path: z.array(z.string()), createdAt: z.string() });
 export type IdeaStage = z.output<typeof ideaStage>;
+export type IdeaListItem = z.output<typeof ideaListItemSchema>;
 export type TicketIdea = NonNullable<z.output<typeof ideaSchema>>;
 export type TicketSummary = z.output<typeof ticketSummarySchema>;
 export type TicketDetail = z.output<typeof ticketDetailSchema>;
@@ -495,6 +498,8 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     updateTicket: (id: string, body: UpdateTicketBody) => request("PATCH", ticket(id), ticketDetailSchema, body),
     removeTicket: (id: string) => request("DELETE", ticket(id), null),
     /** Ideias (ADR 0042): todas devolvem o detalhe do ticket. Mudar o estágio é de quem edita; aceitar e descartar, do gestor. */
+    /** As ideias do projeto, por estágio (`ready`, `refining`, `new`, `discarded`) e, dentro dele, da mais antiga para a mais nova. */
+    listIdeas: (projectId: string) => request("GET", `${project(projectId)}/ideas`, z.array(ideaListItemSchema)),
     putIdeaStage: (id: string, body: { stage: Exclude<IdeaStage, "discarded"> }) => request("PUT", `${ticket(id)}/idea-stage`, ticketDetailSchema, body),
     acceptIdea: (id: string) => request("POST", `${ticket(id)}/idea/accept`, ticketDetailSchema),
     discardIdea: (id: string) => request("POST", `${ticket(id)}/idea/discard`, ticketDetailSchema),

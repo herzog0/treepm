@@ -4,9 +4,10 @@ import { createApiClient } from "./api/client.js";
 import { AdminProvider } from "./api/ConsentRequired.js";
 import { useApiResource } from "./api/useApiResource.js";
 import { LoadError } from "./LoadError.js";
+import { IdeasScreen } from "./ideas/IdeasScreen.js";
 import { ImportScreen } from "./import/ImportScreen.js";
 import { OrganizationMap } from "./map/OrganizationMap.js";
-import type { View } from "./nav/navigation.js";
+import type { NavigateFn, View } from "./nav/navigation.js";
 import { scheduleDescriptionEditorPreload } from "./ticket/description/RichDescription.js";
 import { SettingsScreen } from "./settings/SettingsScreen.js";
 import { TeamsScreen } from "./teams/TeamsScreen.js";
@@ -17,15 +18,18 @@ export interface WorkspaceProps {
   /** Projeto da tela de importação (`?view=import&project=<id>`). */
   projectId?: string | null;
   /** Troca de tela feita de dentro do espaço de trabalho; a URL e o histórico são de quem a fornece. */
-  onNavigate?: (view: View, projectId?: string | null) => void;
+  onNavigate?: NavigateFn;
   /** Ticket aberto na página do mapa (`?ticket=<id>`); a URL e o histórico são de quem o fornece. */
   ticketId?: string | null;
   onOpenTicket?: (ticketId: string | null) => void;
+  /** Ticket a que a câmera vai ao chegar no mapa ("Ver no mapa" da tela "Ideias"); `onFocusHandled` tira o pedido da URL. */
+  focusTicketId?: string | null;
+  onFocusHandled?: () => void;
   getToken: () => Promise<string | null>;
   fetch?: typeof fetch;
 }
 
-function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, onOpenTicket, getToken, fetch: fetchImpl }: Omit<WorkspaceProps, "orgId">) {
+function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, onOpenTicket, focusTicketId, onFocusHandled, getToken, fetch: fetchImpl }: Omit<WorkspaceProps, "orgId">) {
   const { t } = useTranslation();
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
@@ -49,6 +53,16 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
     );
   }
   if (view === "teams") return <TeamsScreen client={client} me={state.data} />;
+  if (view === "ideas") {
+    return (
+      <IdeasScreen
+        client={client}
+        me={state.data}
+        onOpenIdea={(id) => onNavigate?.("map", null, { ticketId: id })}
+        onShowOnMap={(id) => onNavigate?.("map", null, { focusId: id })}
+      />
+    );
+  }
   if (view === "import") {
     return <ImportScreen client={client} me={state.data} projectId={projectId} onExit={() => onNavigate?.("map")} />;
   }
@@ -60,6 +74,7 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
         me={state.data}
         {...(onNavigate ? { onImport: (id: string) => onNavigate("import", id) } : {})}
         {...(ticketId !== undefined && onOpenTicket ? { openTicketId: ticketId, onOpenTicketChange: onOpenTicket } : {})}
+        {...(focusTicketId && onFocusHandled ? { focusTicketId, onFocusHandled } : {})}
       />
     </main>
     </AdminProvider>

@@ -42,6 +42,10 @@
 .command-chip button:hover:not(:disabled) { background: var(--tp-selected); color: var(--tp-text); }
 .command-chip button:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* "Registrar ideia" (ADR 0042, fatia 3): ícone na cor de ideia e o erro de criação dentro da folha. */
+.command-option .command-idea-icon { color: var(--tp-idea); }
+.command-error { margin: 0; padding: 8px 16px; color: var(--tp-danger-text); font-size: 12px; }
+
 /*
  * Tela estreita ou de toque (TREEPM-231): a barra ocupa a largura toda com margens de 10 px; o campo e as opções têm 44 px de altura;
  * o atalho de teclado (Ctrl K) e o rodapé de teclas não fazem sentido sem teclado e somem. Margens seguras do aparelho nas bordas.

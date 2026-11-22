@@ -12,7 +12,7 @@ const RECORD = (import.meta.env as Record<string, string | undefined>)["VITE_TRE
 const TOLERANCE = 0.6;
 
 const COMMON = [".tenant-header", ".tenant-brand", ".app-nav", ".app-nav a", ".tenant-controls", ".cl-organizationSwitcherTrigger", ".tenant-api-status", ".cl-userButtonTrigger"];
-const SELECTORS: Record<LayoutScreen, readonly string[]> = {
+const SELECTORS: Record<Exclude<LayoutScreen, "ideas">, readonly string[]> = {
   map: [...COMMON, ".org-map", ".spatial-toolbar", ".spatial-toolbar button", ".spatial-help", ".spatial-context", ".command-zone", ".command-bar", ".command-field input"],
   ticket: [...COMMON, ".map-workspace", ".ticket-page", ".ticket-header", ".ticket-icon-button", ".ticket-title", ".ticket-row", ".ticket-row button", ".ticket-section", ".ticket-section h2", ".ticket-contribution", ".ticket-contribution-head", ".ticket-activity-item", ".ticket-comment-composer", ".ticket-comment-composer textarea", ".command-bar"],
   teams: [...COMMON, ".teams-screen", ".teams-layout", ".teams-screen h1", ".teams-screen h2", ".teams-screen button", ".teams-screen input", ".teams-screen li"],
@@ -27,7 +27,7 @@ beforeAll(async () => {
   if (!RECORD) stored = JSON.parse(await commands.readFile(BASELINE)) as typeof stored;
 });
 
-async function observe(screen: LayoutScreen, key: string, afterOpen?: () => Promise<void>) {
+async function observe(screen: Exclude<LayoutScreen, "ideas">, key: string, afterOpen?: () => Promise<void>) {
   await page.viewport(1440, 900);
   await renderScreen(screen);
   await document.fonts.ready;

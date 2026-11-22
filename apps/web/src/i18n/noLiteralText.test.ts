@@ -11,7 +11,7 @@ async function lint(code: string, area: string, file = "Fake.tsx") {
 }
 
 // Toda área de `apps/web/src`, mais a raiz (`""`): nenhuma fica de fora da regra.
-const AREAS = ["teams/", "settings/", "nav/", "preferences/", "panel/", "ticket/", "tickets/", "import/", "github/", "map/", "assistant/", "command/", "demo/", "api/", "i18n/", "layout/", ""];
+const AREAS = ["teams/", "settings/", "nav/", "preferences/", "panel/", "ticket/", "tickets/", "import/", "github/", "map/", "assistant/", "command/", "demo/", "api/", "i18n/", "layout/", "ideas/", ""];
 
 // Cada caso roda o ESLint de verdade sobre 16 áreas (cerca de 1 s com a máquina livre, e a primeira chamada carrega a
 // configuração inteira): com a máquina carregada passa dos 5 s padrão. Prazo próprio só para os testes que fazem esse trabalho.
@@ -53,6 +53,6 @@ describe("no-literal-ui-text", () => {
     const { readdirSync } = await import("node:fs");
     const directories = readdirSync(`${root}apps/web/src`, { withFileTypes: true }).filter((entry) => entry.isDirectory() && entry.name !== "test").map((entry) => `${entry.name}/`);
     for (const area of directories) expect(AREAS, `${area} is not covered by this test`).toContain(area);
-    for (const area of ["assistant/", "command/", "demo/", "map/", "ticket/"]) expect(await lint(component("<p>Olá</p>"), area)).toHaveLength(1);
+    for (const area of ["assistant/", "command/", "demo/", "map/", "ticket/", "ideas/"]) expect(await lint(component("<p>Olá</p>"), area)).toHaveLength(1);
   });
 });
