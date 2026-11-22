@@ -11,6 +11,7 @@ import { TicketMark, progressText, statusText, ticketStateText } from "../map/no
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
+import { Contributions } from "./Contributions.js";
 import { CreateTicket } from "./CreateTicket.js";
 import { ItemsSummary } from "./ItemsSummary.js";
 import { TicketActivity } from "./TicketActivity.js";
@@ -333,6 +334,8 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
             )}
           </dl>
           <DescriptionField client={client} detail={detail} canEdit={canEdit} assistant={assistantEnabled(me)} tickets={list} onOpenTicket={onOpenTicket} onSaved={refresh} />
+
+          <Contributions client={client} detail={detail} people={people} tickets={list} isAdmin={me.roles.clerk === "admin"} onOpenTicket={onOpenTicket} onSaved={refresh} />
 
           <LinkedTickets id="ticket-mentioned-by" heading={t("mentionedBy.heading")} links={detail.mentionedBy} onOpen={onOpenTicket} />
           <LinkedTickets id="ticket-blocking" heading={t("blocking.heading")} links={detail.blocks} onOpen={onOpenTicket} />

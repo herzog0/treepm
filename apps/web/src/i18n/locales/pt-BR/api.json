@@ -22,7 +22,9 @@
       "repository_not_found": "O app não tem acesso a este repositório.",
       "person_without_project_access": "A pessoa ainda não tem acesso ao projeto. Conceda um papel no projeto antes de atribuir.",
       "assistant_consent_required": "A IA está desligada nesta organização. Um administrador precisa ativá-la em Configurações. Crie o ticket manualmente.",
-      "comment_removed": "Este comentário já foi removido."
+      "comment_removed": "Este comentário já foi removido.",
+      "contribution_area_taken": "O ticket já tem uma contribuição dessa área.",
+      "area_in_use": "Há tickets com contribuição dessa área. Remova a contribuição neles antes de apagá-la."
     },
     "kind": {
       "unauthenticated": "Sua sessão expirou. Entre novamente.",

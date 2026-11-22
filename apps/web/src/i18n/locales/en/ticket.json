@@ -195,6 +195,38 @@
       "hint": "Ctrl+Enter to comment",
       "by": "Comment by {{name}}",
       "gone": "comment removed"
-    }
+    },
+    "contributionAdded": "<who>{{actor}}</who> added the area <name>{{area}}</name>",
+    "contributionAdded_noActor": "Area <name>{{area}}</name> added",
+    "contributionRemoved": "<who>{{actor}}</who> removed the area <name>{{area}}</name>",
+    "contributionRemoved_noActor": "Area <name>{{area}}</name> removed",
+    "contributionTextChanged": "<who>{{actor}}</who> edited the text of <name>{{area}}</name>",
+    "contributionTextChanged_noActor": "Text of <name>{{area}}</name> edited",
+    "contributionStatusChanged": "<who>{{actor}}</who> changed <name>{{area}}</name> from <name>{{from}}</name> to <name>{{to}}</name>",
+    "contributionStatusChanged_noActor": "<name>{{area}}</name> changed from <name>{{from}}</name> to <name>{{to}}</name>",
+    "contributionPersonAdded": "<who>{{actor}}</who> added <name>{{person}}</name> to <name>{{area}}</name>",
+    "contributionPersonAdded_noActor": "<name>{{person}}</name> added to <name>{{area}}</name>",
+    "contributionPersonRemoved": "<who>{{actor}}</who> removed <name>{{person}}</name> from <name>{{area}}</name>",
+    "contributionPersonRemoved_noActor": "<name>{{person}}</name> removed from <name>{{area}}</name>"
+  },
+  "contributions": {
+    "heading": "Areas",
+    "add": "Add area",
+    "statusGroup": "Status",
+    "status": {
+      "todo": "To do",
+      "in_progress": "In progress",
+      "done": "Done"
+    },
+    "placeholder": "Describe what this area needs to deliver",
+    "noAreas": "No areas registered in this organization",
+    "manageAreas": "Register areas",
+    "more": "More actions for area {{area}}",
+    "remove": "Remove area",
+    "removeWarning": "This area's text and people will be deleted.",
+    "addPersonLabel": "Add a person to area {{area}}",
+    "removePerson": "Remove {{name}} from area {{area}}",
+    "textLabel": "Text of area {{area}}",
+    "removedArea": "(deleted area)"
   }
 }

@@ -195,6 +195,38 @@
       "hint": "Ctrl+Enter para comentar",
       "by": "Comentario de {{name}}",
       "gone": "comentario eliminado"
-    }
+    },
+    "contributionAdded": "<who>{{actor}}</who> agregó el área <name>{{area}}</name>",
+    "contributionAdded_noActor": "Área <name>{{area}}</name> agregada",
+    "contributionRemoved": "<who>{{actor}}</who> quitó el área <name>{{area}}</name>",
+    "contributionRemoved_noActor": "Área <name>{{area}}</name> quitada",
+    "contributionTextChanged": "<who>{{actor}}</who> editó el texto de <name>{{area}}</name>",
+    "contributionTextChanged_noActor": "Texto de <name>{{area}}</name> editado",
+    "contributionStatusChanged": "<who>{{actor}}</who> cambió <name>{{area}}</name> de <name>{{from}}</name> a <name>{{to}}</name>",
+    "contributionStatusChanged_noActor": "<name>{{area}}</name> cambió de <name>{{from}}</name> a <name>{{to}}</name>",
+    "contributionPersonAdded": "<who>{{actor}}</who> agregó a <name>{{person}}</name> en <name>{{area}}</name>",
+    "contributionPersonAdded_noActor": "<name>{{person}}</name> agregada en <name>{{area}}</name>",
+    "contributionPersonRemoved": "<who>{{actor}}</who> quitó a <name>{{person}}</name> de <name>{{area}}</name>",
+    "contributionPersonRemoved_noActor": "<name>{{person}}</name> quitada de <name>{{area}}</name>"
+  },
+  "contributions": {
+    "heading": "Áreas",
+    "add": "Agregar área",
+    "statusGroup": "Estado",
+    "status": {
+      "todo": "Por hacer",
+      "in_progress": "En curso",
+      "done": "Lista"
+    },
+    "placeholder": "Describe qué debe entregar esta área",
+    "noAreas": "No hay áreas registradas en esta organización",
+    "manageAreas": "Registrar áreas",
+    "more": "Más acciones del área {{area}}",
+    "remove": "Quitar área",
+    "removeWarning": "Se borrarán el texto y las personas de esta área.",
+    "addPersonLabel": "Agregar una persona al área {{area}}",
+    "removePerson": "Quitar a {{name}} del área {{area}}",
+    "textLabel": "Texto del área {{area}}",
+    "removedArea": "(área eliminada)"
   }
 }

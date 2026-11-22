@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, NotFoundException, Param, Patch, Post } from "@nestjs/common";
+import { Body, ConflictException, Controller, Delete, Get, HttpCode, Inject, NotFoundException, Param, Patch, Post } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
@@ -77,6 +77,15 @@ export class AreasController {
   ): Promise<void> {
     const current = await this.find(tx, id);
     this.authorization.manageAreas(principal.actor);
+    // Uma área nunca leva texto embora ao ser apagada (ADR 0041): com contribuição, é recusada com a contagem de tickets.
+    const tickets = await tx.ticketContribution.count({ where: { areaId: id } });
+    if (tickets > 0) {
+      throw new ConflictException({
+        code: "area_in_use",
+        message: tickets === 1 ? "Um ticket usa esta área. Remova a contribuição dela antes de apagá-la." : `${tickets} tickets usam esta área. Remova a contribuição dela neles antes de apagá-la.`,
+        details: { ticketCount: tickets },
+      });
+    }
     await tx.area.delete({ where: { orgId_id: { orgId: current.orgId, id } } });
     await this.activity.record(tx, principal, {
       kind: "area.deleted",

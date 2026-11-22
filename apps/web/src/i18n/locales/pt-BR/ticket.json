@@ -195,6 +195,38 @@
       "hint": "Ctrl+Enter para comentar",
       "by": "Comentário de {{name}}",
       "gone": "comentário removido"
-    }
+    },
+    "contributionAdded": "<who>{{actor}}</who> adicionou a área <name>{{area}}</name>",
+    "contributionAdded_noActor": "Área <name>{{area}}</name> adicionada",
+    "contributionRemoved": "<who>{{actor}}</who> removeu a área <name>{{area}}</name>",
+    "contributionRemoved_noActor": "Área <name>{{area}}</name> removida",
+    "contributionTextChanged": "<who>{{actor}}</who> editou o texto de <name>{{area}}</name>",
+    "contributionTextChanged_noActor": "Texto de <name>{{area}}</name> editado",
+    "contributionStatusChanged": "<who>{{actor}}</who> mudou <name>{{area}}</name> de <name>{{from}}</name> para <name>{{to}}</name>",
+    "contributionStatusChanged_noActor": "<name>{{area}}</name> mudou de <name>{{from}}</name> para <name>{{to}}</name>",
+    "contributionPersonAdded": "<who>{{actor}}</who> adicionou <name>{{person}}</name> em <name>{{area}}</name>",
+    "contributionPersonAdded_noActor": "<name>{{person}}</name> adicionada em <name>{{area}}</name>",
+    "contributionPersonRemoved": "<who>{{actor}}</who> tirou <name>{{person}}</name> de <name>{{area}}</name>",
+    "contributionPersonRemoved_noActor": "<name>{{person}}</name> tirada de <name>{{area}}</name>"
+  },
+  "contributions": {
+    "heading": "Áreas",
+    "add": "Adicionar área",
+    "statusGroup": "Situação",
+    "status": {
+      "todo": "A fazer",
+      "in_progress": "Em andamento",
+      "done": "Pronta"
+    },
+    "placeholder": "Descreva o que esta área precisa entregar",
+    "noAreas": "Nenhuma área cadastrada nesta organização",
+    "manageAreas": "Cadastrar áreas",
+    "more": "Mais ações da área {{area}}",
+    "remove": "Remover área",
+    "removeWarning": "O texto desta área e as pessoas dela serão apagados.",
+    "addPersonLabel": "Adicionar pessoa à área {{area}}",
+    "removePerson": "Tirar {{name}} da área {{area}}",
+    "textLabel": "Texto da área {{area}}",
+    "removedArea": "(área apagada)"
   }
 }

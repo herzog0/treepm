@@ -67,7 +67,19 @@ const ticketSummarySchema = z.object({
   descriptionExcerpt: z.string(),
 });
 const ticketLinkSchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatus });
+const contributionStatus = z.enum(["todo", "in_progress", "done"]);
+const contributionSchema = z.object({
+  id: z.string(),
+  area: z.object({ id: z.string(), name: z.string() }),
+  text: z.string(),
+  status: contributionStatus,
+  people: z.array(z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() })),
+});
 const ticketDetailSchema = ticketSummarySchema.extend({
+  /** As contribuições por área, na ordem de criação (ADR 0041). Ausente (ticket devolvido pela conversa com a IA): nenhuma. */
+  contributions: z.array(contributionSchema).optional(),
+  /** Quem lê pode mexer nelas (falso em projeto arquivado). */
+  canEditContributions: z.boolean().optional(),
   description: z.string(),
   /** Os tickets do projeto que mencionam este na descrição, em ordem de número (ADR 0037). */
   mentionedBy: z.array(ticketLinkSchema),
@@ -162,6 +174,8 @@ const ticketSummaryTextSchema = z.object({
 const activityPersonSchema = z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() });
 /** Ticket citado numa entrada: `id` e `title` nulos quando ele não existe mais (a chave pode faltar também). */
 const activityTicketSchema = z.object({ id: z.string().nullable(), key: z.string().nullable(), title: z.string().nullable() });
+/** A área de uma entrada de contribuição: `null` quando já não existe nem o nome ficou guardado. */
+const contributionAreaRef = z.object({ id: z.string(), name: z.string() }).nullable();
 const activityBase = { id: z.string(), occurredAt: z.string(), actor: activityPersonSchema.nullable() };
 const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("created") }),
@@ -174,6 +188,12 @@ const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("dependency_added"), ticket: activityTicketSchema }),
   z.object({ ...activityBase, type: z.literal("dependency_removed"), ticket: activityTicketSchema }),
   z.object({ ...activityBase, type: z.literal("summary_updated"), source: z.enum(["person", "assistant"]) }),
+  z.object({ ...activityBase, type: z.literal("contribution_added"), area: contributionAreaRef }),
+  z.object({ ...activityBase, type: z.literal("contribution_removed"), area: contributionAreaRef }),
+  z.object({ ...activityBase, type: z.literal("contribution_text_changed"), area: contributionAreaRef }),
+  z.object({ ...activityBase, type: z.literal("contribution_status_changed"), area: contributionAreaRef, from: contributionStatus, to: contributionStatus }),
+  z.object({ ...activityBase, type: z.literal("contribution_person_added"), area: contributionAreaRef, person: activityPersonSchema.nullable() }),
+  z.object({ ...activityBase, type: z.literal("contribution_person_removed"), area: contributionAreaRef, person: activityPersonSchema.nullable() }),
   z.object({ ...activityBase, type: z.literal("comment"), body: z.string().nullable(), editedAt: z.string().nullable(), removed: z.boolean(), canEdit: z.boolean(), canRemove: z.boolean() }),
 ]);
 const commentEntrySchema = activityEntrySchema.refine((entry) => entry.type === "comment").transform((entry) => entry as Extract<z.output<typeof activityEntrySchema>, { type: "comment" }>);
@@ -233,6 +253,8 @@ export type ProjectTeam = z.output<typeof projectTeamSchema>;
 export type TicketStatus = z.output<typeof ticketStatus>;
 export type TicketSummary = z.output<typeof ticketSummarySchema>;
 export type TicketDetail = z.output<typeof ticketDetailSchema>;
+export type Contribution = z.output<typeof contributionSchema>;
+export type ContributionStatus = z.output<typeof contributionStatus>;
 export type ActivityEntry = z.output<typeof activityEntrySchema>;
 export type ActivityPage = z.output<typeof activityPageSchema>;
 export type ActivityComment = Extract<ActivityEntry, { type: "comment" }>;
@@ -428,6 +450,12 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       request("PUT", `${ticket(id)}/assignees/${personId}`, ticketDetailSchema),
     removeTicketAssignee: (id: string, personId: string) =>
       request("DELETE", `${ticket(id)}/assignees/${personId}`, null),
+    /** Contribuições por área (ADR 0041): a resposta é a contribuição inteira. */
+    createContribution: (ticketId: string, body: { areaId: string }) => request("POST", `${ticket(ticketId)}/contributions`, contributionSchema, body),
+    updateContribution: (id: string, body: { text?: string; status?: ContributionStatus }) => request("PATCH", `/api/contributions/${id}`, contributionSchema, body),
+    removeContribution: (id: string) => request("DELETE", `/api/contributions/${id}`, null),
+    putContributionPerson: (id: string, personId: string) => request("PUT", `/api/contributions/${id}/people/${personId}`, contributionSchema),
+    removeContributionPerson: (id: string, personId: string) => request("DELETE", `/api/contributions/${id}/people/${personId}`, null),
     /** "Este ticket depende de `ticketId`" (ADR 0037); repetir é sucesso. */
     addTicketDependency: (id: string, ticketId: string) =>
       request("POST", `${ticket(id)}/dependencies`, ticketDetailSchema, { ticketId }),

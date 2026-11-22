@@ -462,6 +462,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "draftTicketDescription",
     "askProject",
     "createTicketComment", "updateComment", "removeComment",
+    "createContribution", "updateContribution", "removeContribution", "putContributionPerson", "removeContributionPerson",
   ] as const;
   const base = Object.fromEntries(names.map((name) => [name, unexpected(name)])) as unknown as ApiClient;
   return {
@@ -505,6 +506,7 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
     ...withProgress(entry),
     description: descriptions.get(entry.id) ?? "",
     mentionedBy: [], dependsOn: [], blocks: [],
+    contributions: [], canEditContributions: true,
     createdByPersonId: "person-1",
     createdAt: "2026-11-20T10:00:00.000Z",
     updatedAt: "2026-11-20T10:00:00.000Z",
