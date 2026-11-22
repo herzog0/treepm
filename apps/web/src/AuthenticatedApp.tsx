@@ -20,7 +20,8 @@ import { LanguageSync } from "./i18n/LanguageSync.js";
 import type { Language } from "./i18n/languages.js";
 import { Loading } from "./Loading.js";
 import { ClerkPreferencesProvider } from "./preferences/ClerkPreferences.js";
-import { AppNav, useView } from "./nav/navigation.js";
+import { useView } from "./nav/navigation.js";
+import { TenantHeader } from "./nav/TenantHeader.js";
 import { Workspace } from "./Workspace.js";
 
 function meIndicatorKey(result: MeResult | null) {
@@ -108,17 +109,11 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
 
   return (
     <div className="tenant-shell">
-      <header className="tenant-header">
-        <div className="tenant-brand">
-          <strong>{t("brand")}</strong>
-          <AppNav view={view} onNavigate={navigate} />
-        </div>
-        <div className="tenant-controls">
-          <OrganizationSwitcher hidePersonal />
-          <MeIndicator key={orgId} getToken={getToken} />
-          <UserButton />
-        </div>
-      </header>
+      <TenantHeader view={view} onNavigate={navigate}>
+        <OrganizationSwitcher hidePersonal />
+        <MeIndicator key={orgId} getToken={getToken} />
+        <UserButton />
+      </TenantHeader>
       {onGithubCallback ? (
         <main className="tenant-settings">
           <GithubCallback

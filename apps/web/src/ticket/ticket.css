@@ -174,3 +174,47 @@ button.ticket-comment-area:hover { border-color: var(--tp-border-strong, var(--t
 .ticket-agent-work-by { font-weight: 500; }
 .ticket-agent-work-note { color: var(--tp-text-2); }
 .ticket-via { margin-left: 6px; padding: 0 6px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); color: var(--tp-text-2); font-size: 11px; font-weight: 400; line-height: 16px; white-space: nowrap; }
+
+/*
+ * Tela estreita (TREEPM-231). A página ocupa a tela inteira, por cima do mapa e do cabeçalho: o cabeçalho dela (com o fechar) fica
+ * parado e só o corpo rola. Margens seguras do aparelho e altura real (`dvh`). `.ticket-page.ticket-page` sobe a força das regras
+ * que só aumentam o piso de altura dos alvos de toque.
+ */
+@media (max-width: 720px) {
+  .ticket-page { position: fixed; z-index: 30; top: 0; left: 0; right: 0; bottom: 0; width: 100%; max-width: none; height: 100dvh; box-sizing: border-box; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); border-left: 0; box-shadow: none; }
+  .ticket-header { height: auto; min-height: 52px; padding: 0 4px 0 14px; gap: 4px; }
+  .ticket-crumbs { font-size: 12px; }
+  .ticket-page .ticket-icon-button { width: 44px; height: 44px; }
+  .ticket-scroll { padding: 16px 14px calc(28px + env(safe-area-inset-bottom)); }
+  .ticket-title { font-size: 22px; }
+  .ticket-page.ticket-page.ticket-page :is(button:not(.ticket-comment-area), .ticket-value, .ticket-chip, .ticket-person, .ticket-people, .ticket-parent) { min-height: 44px; }
+  /* A etiqueta da área num comentário segue com o desenho pequeno; o botão tem 44 px de altura (margens negativas devolvem o espaço) e o desenho vai num pseudo-elemento. */
+  .ticket-page button.ticket-comment-area { position: relative; isolation: isolate; min-height: 44px; margin: -13px 0; border: 0; background: transparent; }
+  .ticket-page button.ticket-comment-area::before { content: ""; position: absolute; z-index: -1; inset: 13px 0; border: 1px solid var(--tp-border); border-radius: 999px; background: var(--tp-card); }
+  /* O "×" tem 44×44 de verdade; as margens negativas devolvem o espaço ao desenho (a bolinha continua pequena). */
+  .ticket-page.ticket-page.ticket-page .ticket-person-remove { width: 44px; margin: 0 -10px; }
+  .ticket-page .ticket-person { padding: 0 0 0 8px; }
+  /* Linhas de propriedade: rótulo em cima, valor embaixo. */
+  .ticket-row { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 4px 0; }
+  .ticket-fields dt { padding-top: 4px; }
+  .ticket-fields dd > .ticket-error, .ticket-fields dd > .ticket-notice { margin-left: 0; }
+  .ticket-form label, .ticket-form-field { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .ticket-form label > :first-child, .ticket-form-field > span { padding-top: 0; }
+  .ticket-form .ticket-actions, .ticket-form > [role="alert"] { margin-left: 0; }
+  /* Menus: folha presa à base da tela, nunca saem pela borda. */
+  .ticket-menu, .ticket-menu.is-end { position: fixed; z-index: 40; top: auto; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); min-width: 0; max-height: min(70dvh, 460px); overflow: auto; }
+  .ticket-activity-item { grid-template-columns: 28px minmax(0, 1fr); }
+  .ticket-activity-item .ticket-activity-time { grid-column: 2; padding-top: 0; }
+  .ticket-activity-item.ticket-activity-comment { grid-template-columns: 28px minmax(0, 1fr); }
+  .ticket-avatar { width: 28px; height: 28px; font-size: 12px; }
+  .ticket-activity-time, .ticket-comment-area, .ticket-comment-edited, .ticket-comment-hint { font-size: 12px; }
+  .ticket-via { font-size: 12px; }
+  .ticket-chip-button .ticket-key, .ticket-picker-list .ticket-key, .ticket-child .ticket-key { font-size: 12px; }
+  .ticket-conversation-row button { min-height: 44px; }
+  .ticket-section-head { flex-wrap: wrap; }
+  .ticket-section-actions { justify-content: flex-start; }
+  .ticket-title-row .ticket-actions button, .ticket-title-row > button { white-space: nowrap; }
+  .ticket-contribution-head h3 { white-space: normal; }
+  .ticket-page .ticket-activity-text button.ticket-activity-ref { position: relative; display: inline; }
+  .ticket-page .ticket-activity-text button.ticket-activity-ref::after { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: 44px; transform: translate(-50%, -50%); }
+}

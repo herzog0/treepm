@@ -59,3 +59,10 @@
 
 /* Erros e avisos. */
 :is(.side-panel, .ticket-page, .assistant-sheet, .teams-screen, .settings-screen, .github-callback, .import-screen, .map-state) :is([role="alert"], .teams-error, .load-error p) { margin: 0; color: var(--tp-danger-text); font-size: 12px; }
+
+/* Tela estreita ou de toque (TREEPM-231): alvos de pelo menos 44 px e campos de 16 px (o iOS não amplia a página ao focar). */
+@media (max-width: 720px), (pointer: coarse) {
+  :is(.side-panel, .ticket-page, .assistant-sheet, .teams-screen, .settings-screen, .github-callback, .import-screen, .map-state) button { min-height: 44px; }
+  :is(.side-panel, .ticket-page, .assistant-sheet, .teams-screen, .settings-screen, .github-callback, .import-screen) :is(input:not([type="file"]):not([type="checkbox"]):not([type="radio"]), select, textarea) { min-height: 44px; font-size: 16px; }
+  :is(.side-panel, .ticket-page, .assistant-sheet, .teams-screen, .settings-screen, .github-callback, .import-screen) label { font-size: 12px; }
+}

@@ -24,3 +24,12 @@
 .ticket-code-warning { margin: 6px 0 0; color: var(--tp-review); font-size: 12px; }
 .panel-repositories .row { flex-wrap: wrap; }
 .panel-repositories .row > .confirm-action:has(.confirm-message) { flex: 1 0 100%; }
+
+/* Tela estreita (TREEPM-231). */
+@media (max-width: 720px) {
+  .github-callback { padding: 16px max(10px, env(safe-area-inset-right)) 24px max(10px, env(safe-area-inset-left)); }
+  .ticket-code-item { min-height: 44px; }
+  .ticket-code-item a { display: inline-flex; align-items: center; min-height: 44px; }
+  .ticket-code-item .ticket-key, .ticket-code-meta, .ticket-code-sync { font-size: 12px; }
+  .ticket-code-meta { max-width: none; }
+}

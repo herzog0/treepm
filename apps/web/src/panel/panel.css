@@ -32,3 +32,15 @@
 /* Confirmação com explicação: o texto ocupa a linha inteira acima dos botões. */
 .confirm-action:has(.confirm-message) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .confirm-message { flex: 1 0 100%; color: var(--tp-text-2); font-size: 12px; line-height: 1.5; }
+
+/* Tela estreita (TREEPM-231): o painel ocupa a largura e a altura reais da tela, com margens seguras; alvos de 44 px e texto de 12 px no mínimo. */
+@media (max-width: 720px) {
+  .side-panel { top: 52px; width: 100%; padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); padding-left: env(safe-area-inset-left); box-sizing: border-box; }
+  .side-panel-header { padding: 4px 12px; }
+  .side-panel [role="tab"], .side-panel button.panel-item { min-height: 44px; }
+  .panel-list li { min-height: 44px; }
+  .side-panel .row { min-height: 44px; }
+  .panel-list code { font-size: 12px; }
+  .side-panel .badge, .side-panel .panel-form, .confirm-message { font-size: 12px; }
+  .side-panel .panel-form.inline { grid-template-columns: minmax(0, 1fr); }
+}

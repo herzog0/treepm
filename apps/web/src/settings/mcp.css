@@ -41,3 +41,11 @@
 .mcp-snippet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .mcp-snippet pre { margin: 0; padding: 10px; overflow-x: auto; border-radius: var(--tp-radius-field); background: var(--tp-bg); font-family: var(--tp-font-mono); font-size: 12px; line-height: 1.5; }
 .mcp-snippet code { font-family: inherit; white-space: pre; }
+
+/* Tela estreita (TREEPM-231): texto de 12 px no mínimo, abas com alvo de 44 px e a lista larga rolando dentro do bloco. */
+@media (max-width: 720px) {
+  .mcp-tabs { overflow-x: auto; }
+  .mcp-tabs button[role="tab"] { flex: none; }
+  .mcp-secret, .mcp-snippet pre, .mcp-token-status, .mcp-token-person, .mcp-token-meta { font-size: 12px; }
+  .mcp-switch { min-height: 44px; }
+}

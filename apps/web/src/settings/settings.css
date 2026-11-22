@@ -24,3 +24,10 @@
 .settings-ai .ai-docs a { color: var(--tp-accent); }
 .settings-ai .ai-warning { padding: 8px 10px; border-radius: 6px; background: var(--tp-card); border: 1px solid var(--tp-divider); font-size: 13px; }
 .settings-ai .ai-state { display: flex; align-items: center; gap: 8px; }
+
+/* Tela estreita (TREEPM-231): a opção inteira (rótulo e botão de marcar) é o alvo de toque. */
+@media (max-width: 720px) {
+  .settings-screen { max-width: none; padding: 16px max(10px, env(safe-area-inset-right)) 24px max(10px, env(safe-area-inset-left)); }
+  .settings-option { min-height: 44px; }
+  .settings-option input { width: 20px; height: 20px; flex: none; }
+}
