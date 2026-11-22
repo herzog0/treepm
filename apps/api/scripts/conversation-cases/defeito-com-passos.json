@@ -1,0 +1,32 @@
+{
+  "id": "defeito-com-passos",
+  "messages": [
+    "quando eu abro um ticket e volto para o mapa, o ticket continua selecionado e o painel não fecha. passos para reproduzir:\n1) abrir um ticket pelo mapa;\n2) clicar em voltar para o mapa;\n3) o painel do ticket continua aberto, deveria fechar."
+  ],
+  "expectChildren": false,
+  "mustMention": [
+    {
+      "label": "voltar para o mapa",
+      "anyOf": [
+        "voltar",
+        "mapa"
+      ]
+    },
+    {
+      "label": "painel continua aberto",
+      "anyOf": [
+        "painel"
+      ]
+    },
+    {
+      "label": "deveria fechar",
+      "anyOf": [
+        "fechar"
+      ]
+    }
+  ],
+  "mustNotMention": [
+    "critérios de aceite",
+    "resultado esperado"
+  ]
+}

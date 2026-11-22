@@ -1,0 +1,72 @@
+{
+  "id": "botao-play",
+  "messages": [
+    "Ideia de alta prioridade: implementar uma função de botão \"play\", ao clicar abre drop-down com algumas opções de template, que são basicamente filtros de tasks e o modo play (ao selecionar) navega de task em task do filtro, com botão de avançar no topo (ou retroceder) caso a pessoa queria ir pra próxima task ou anterior. Modo standup é uma das sub opções do botão play."
+  ],
+  "expectChildren": true,
+  "minChildren": 3,
+  "maxChildren": 7,
+  "mustMention": [
+    {
+      "label": "botão play",
+      "anyOf": [
+        "botão play",
+        "botão \"play\"",
+        "play"
+      ]
+    },
+    {
+      "label": "drop-down",
+      "anyOf": [
+        "drop-down",
+        "dropdown",
+        "drop down"
+      ]
+    },
+    {
+      "label": "templates",
+      "anyOf": [
+        "template"
+      ]
+    },
+    {
+      "label": "filtros de tasks",
+      "anyOf": [
+        "filtro"
+      ]
+    },
+    {
+      "label": "navega de task em task",
+      "anyOf": [
+        "task em task",
+        "de task em task",
+        "próxima task"
+      ]
+    },
+    {
+      "label": "avançar",
+      "anyOf": [
+        "avançar"
+      ]
+    },
+    {
+      "label": "retroceder",
+      "anyOf": [
+        "retroceder",
+        "anterior"
+      ]
+    },
+    {
+      "label": "modo stand-up como sub-opção",
+      "anyOf": [
+        "standup",
+        "stand-up",
+        "stand up"
+      ]
+    }
+  ],
+  "mustNotMention": [
+    "critérios de aceite",
+    "resultado esperado"
+  ]
+}
