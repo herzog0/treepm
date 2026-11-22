@@ -35,7 +35,7 @@ const tickets: TicketSummary[] = [
   makeTicket("t3", "p1", 3, "Senha", { key: "ALFA-3", parentId: "t1" }),
   makeTicket("t4", "p1", 4, "Solto", { key: "ALFA-4" }),
 ];
-const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "Texto", createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" });
+const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "Texto", mentionedBy: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" });
 const people = [makePerson("person-1", "Ana")];
 
 function pageClient(): ApiClient {

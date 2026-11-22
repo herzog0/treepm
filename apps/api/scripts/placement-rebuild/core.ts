@@ -294,6 +294,7 @@ export const COMMANDS = [
   "ticket-list",
   "ticket-create",
   "ticket-update",
+  "relations-rebuild",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -379,15 +380,17 @@ const REQUIRED: Record<Command, readonly (keyof CliOptions)[]> = {
   "ticket-list": ["org", "user", "project"],
   "ticket-create": ["org", "user", "project", "title"],
   "ticket-update": ["org", "user", "project", "number"],
+  "relations-rebuild": ["org", "user", "project"],
 };
 
-export const TICKET_COMMANDS: readonly Command[] = ["ticket-list", "ticket-create", "ticket-update"];
+export const TICKET_COMMANDS: readonly Command[] = ["ticket-list", "ticket-create", "ticket-update", "relations-rebuild"];
 export const TICKET_STATUSES: readonly TicketStatus[] = ["todo", "in_progress", "in_review", "done", "cancelled"];
 /** Opções de cada comando de ticket, além de `--org`, `--user` e `--project`. */
 const TICKET_OPTIONS: Record<string, readonly string[]> = {
   "ticket-list": ["json"],
   "ticket-create": ["title", "descriptionFile", "parent", "status"],
   "ticket-update": ["number", "title", "descriptionFile", "parent", "status", "root"],
+  "relations-rebuild": [],
 };
 const TICKET_ONLY = ["json", "title", "descriptionFile", "parent", "status", "number", "root"] as const;
 
@@ -435,7 +438,8 @@ const usage = `Comandos: ${COMMANDS.join(", ")}.
   report --pairs --dir [--variant <nome>]
   ticket-list    --org --user --project [--json]
   ticket-create  --org --user --project --title <texto> [--description-file <caminho>] [--parent <número>] [--status <situação>]
-  ticket-update  --org --user --project --number <número> [--status <situação>] [--title <texto>] [--description-file <caminho>] [--parent <número> | --root]`;
+  ticket-update  --org --user --project --number <número> [--status <situação>] [--title <texto>] [--description-file <caminho>] [--parent <número> | --root]
+  relations-rebuild --org --user --project`;
 
 export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   const fail = (message: string): ParsedArgs => ({ ok: false, error: `${message}\n${usage}` });

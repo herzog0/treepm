@@ -155,8 +155,24 @@ export class TicketsController {
       subjectId: projectId,
       payload: { count: flat.length, firstNumber: first, lastNumber: first + flat.length - 1 },
     });
+    await this.tickets.reconcileMentions(tx, project, rows);
+    await this.tickets.backfillMentionsTo(tx, project, rows);
     const progress = ticketProgress(toNodes(rows));
     return rows.map((row) => parseOutput(ticketSummarySchema, toSummary(project, row, progress)));
+  }
+
+  /** Refaz as ligações "menciona" de todo o projeto a partir das descrições (ADR 0037); usada pela ferramenta local. */
+  @Post("projects/:projectId/tickets/mentions/rebuild")
+  @HttpCode(200)
+  async rebuildMentions(
+    @Tx() tx: TenantClient,
+    @CurrentPrincipal() { actor }: Principal,
+    @Param("projectId", new ZodPipe(idSchema)) projectId: string,
+  ): Promise<{ read: number; created: number; removed: number }> {
+    const project = await this.findVisibleProject(tx, actor, projectId);
+    this.authorization.editTicket(actor, projectId);
+    this.requireActive(project);
+    return this.tickets.rebuildMentions(tx, project);
   }
 
   @Get("tickets/:id")
@@ -231,6 +247,7 @@ export class TicketsController {
         payload: { key: `${project.key}-${ticket.number}`, fields, ...changes },
       });
     }
+    if (data.description !== undefined) await this.tickets.syncMentions(tx, project, ticket, data.description);
     return this.tickets.detail(tx, project, id);
   }
 

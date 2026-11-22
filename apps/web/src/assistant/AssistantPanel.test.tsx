@@ -31,7 +31,7 @@ function clientWith(extra: Partial<Record<keyof ApiClient, unknown>> = {}): ApiC
     sendConversationMessage: vi.fn(async (id: string) => ok(makeConversation(id, "p1"))),
     updateConversationDraft: vi.fn(async (id: string, body: { title: string; description: string }) => ok(makeConversation(id, "p1", { draft: body }))),
     findPlacement: vi.fn(async () => ok(makePlacement({ destination: target("t1", "t2") }))),
-    createTicketFromConversation: vi.fn(async (id: string) => ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("t9", "p1", 9, "Corrigir o login", { key: "ALFA-9" }), description: "", createdByPersonId: "x", createdAt: "x", updatedAt: "y" } })),
+    createTicketFromConversation: vi.fn(async (id: string) => ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("t9", "p1", 9, "Corrigir o login", { key: "ALFA-9" }), description: "", mentionedBy: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" } })),
     removeConversation: vi.fn(async () => ok(undefined)),
     ...extra,
   });

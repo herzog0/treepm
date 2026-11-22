@@ -62,6 +62,8 @@ const ticketSummarySchema = z.object({
 });
 const ticketDetailSchema = ticketSummarySchema.extend({
   description: z.string(),
+  /** Os tickets do projeto que mencionam este na descrição, em ordem de número (ADR 0037). */
+  mentionedBy: z.array(z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatus })),
   createdByPersonId: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),

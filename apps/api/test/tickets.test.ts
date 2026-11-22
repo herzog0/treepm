@@ -39,6 +39,7 @@ describe("criação e leitura", () => {
       progress: null,
       assigneeIds: [],
       description: "",
+      mentionedBy: [],
       descriptionExcerpt: "",
       createdByPersonId: h.world().people.admin,
       createdAt: expect.any(String),

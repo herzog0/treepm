@@ -89,6 +89,9 @@
     "newHere": "Novo ticket aqui dentro",
     "empty": "Nenhum ticket aqui dentro."
   },
+  "mentionedBy": {
+    "heading": "Mencionado em"
+  },
   "remove": {
     "label": "Remover ticket"
   },

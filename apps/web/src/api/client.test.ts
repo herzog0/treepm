@@ -40,6 +40,7 @@ const ticketSummary = {
 const ticketDetail = {
   ...ticketSummary,
   description: "Texto",
+  mentionedBy: [{ id: "m1", key: "ALFA-2", title: "Cita", status: "todo" }],
   createdByPersonId: OTHER,
   createdAt: "2026-11-19T10:00:00.000Z",
   updatedAt: "2026-11-19T10:00:00.000Z",

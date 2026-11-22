@@ -32,7 +32,7 @@ export function ticketStateText(t: TFunction<"map">, ticket: TicketSummary): str
 }
 
 /** Marcador do ticket: progresso quando há descendente aberto, situação própria nos demais casos. */
-export function TicketMark({ ticket }: { ticket: TicketSummary }) {
+export function TicketMark({ ticket }: { ticket: Pick<TicketSummary, "status" | "progress"> }) {
   if (hasOpenDescendants(ticket) && ticket.progress) return <StatusMark progress={ticket.progress} />;
   return <StatusMark status={ticket.status} />;
 }

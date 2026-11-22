@@ -81,7 +81,7 @@ const summaries: TicketSummary[] = [
   makeTicket("t4", "p1", 4, "Reports", { key: "ALFA-4", status: "done", progress: { done: 1, total: 1, excluded: 0 } }),
 ];
 const people = [makePanelPerson("person-1", "Ana"), makePanelPerson("person-2", "Bruno")];
-const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "Sample text", createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" });
+const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "Sample text", mentionedBy: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" });
 const byAi = { text: "Sample summary.", source: "assistant" as const, updatedAt: "2026-11-20T12:00:00.000Z" };
 const admin = (extra: Partial<Me> = {}): Me => ({ ...makePanelMe("admin"), assistant: { enabled: true }, github: { enabled: true }, ...extra });
 
