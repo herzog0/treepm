@@ -8,6 +8,7 @@ import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
 import { RichDescription } from "./description/RichDescription.js";
+import { ContributionConversation } from "./Conversation.js";
 import { initials } from "./fields.js";
 import { ActionsMenu, OptionMenu } from "./menu.js";
 
@@ -29,10 +30,15 @@ export interface ContributionsProps {
   onOpenTicket: (id: string) => void;
   /** Depois de qualquer alteração: a página recarrega o ticket e a atividade. */
   onSaved: () => void;
+  /** Conversa de área (ADR 0041, fatia 2): o que muda na seção "Atividade" e o pedido de abrir a conversa de uma área. */
+  activityChanges: number;
+  openRequest: { id: string; n: number } | null;
+  /** Comentário criado, editado ou removido numa conversa: a página atualiza a contagem e a seção "Atividade". */
+  onCommentsChanged: () => void;
 }
 
 /** Seção "Áreas" (ADR 0041): uma contribuição por área, com situação, pessoas e texto. Só lê quem não pode editar. */
-export function Contributions({ client, detail, people, tickets, isAdmin, onOpenTicket, onSaved }: ContributionsProps) {
+export function Contributions({ client, detail, people, tickets, isAdmin, onOpenTicket, onSaved, activityChanges, openRequest, onCommentsChanged }: ContributionsProps) {
   const { t } = useTranslation("ticket");
   const canEdit = detail.canEditContributions === true;
   const contributions = detail.contributions ?? [];
@@ -79,7 +85,7 @@ export function Contributions({ client, detail, people, tickets, isAdmin, onOpen
       <ActionError action={adding} />
       <div className="ticket-contributions">
         {contributions.map((contribution) => (
-          <ContributionBlock key={contribution.id} client={client} detail={detail} contribution={contribution} people={people} tickets={tickets} canEdit={canEdit} onOpenTicket={onOpenTicket} onSaved={onSaved} />
+          <ContributionBlock key={contribution.id} client={client} detail={detail} contribution={contribution} people={people} tickets={tickets} canEdit={canEdit} onOpenTicket={onOpenTicket} onSaved={onSaved} activityChanges={activityChanges} openRequest={openRequest?.id === contribution.id ? openRequest.n : 0} onCommentsChanged={onCommentsChanged} />
         ))}
       </div>
     </section>
@@ -95,12 +101,25 @@ interface BlockProps {
   canEdit: boolean;
   onOpenTicket: (id: string) => void;
   onSaved: () => void;
+  activityChanges: number;
+  /** Muda quando a seção "Atividade" pede para abrir a conversa desta área. */
+  openRequest: number;
+  onCommentsChanged: () => void;
 }
 
-function ContributionBlock({ client, detail, contribution, people, tickets, canEdit, onOpenTicket, onSaved }: BlockProps) {
+function ContributionBlock({ client, detail, contribution, people, tickets, canEdit, onOpenTicket, onSaved, activityChanges, openRequest, onCommentsChanged }: BlockProps) {
   const { t } = useTranslation("ticket");
   const action = useAction();
   const [addingPerson, setAddingPerson] = useState(false);
+  const [conversation, setConversation] = useState(false);
+  const block = useRef<HTMLDivElement>(null);
+  const requested = useRef(openRequest);
+  useEffect(() => {
+    if (openRequest === requested.current) return;
+    requested.current = openRequest;
+    setConversation(true);
+    block.current?.scrollIntoView?.({ block: "nearest" });
+  }, [openRequest]);
   const name = contribution.area.name;
   const statusLabel = (status: ContributionStatus) => t(`contributions.status.${status}`);
   const inContribution = new Set(contribution.people.map((person) => person.id));
@@ -127,7 +146,7 @@ function ContributionBlock({ client, detail, contribution, people, tickets, canE
   };
 
   return (
-    <div role="group" aria-label={name} className="ticket-contribution">
+    <div ref={block} role="group" aria-label={name} className="ticket-contribution">
       <div className="ticket-contribution-head">
         <h3>{name}</h3>
         {canEdit ? (
@@ -147,7 +166,7 @@ function ContributionBlock({ client, detail, contribution, people, tickets, canE
             {(close) => (
               <ConfirmAction
                 label={t("contributions.remove")}
-                message={t("contributions.removeWarning")}
+                message={t(contribution.commentCount > 0 ? "contributions.removeWarningWithComments" : "contributions.removeWarning")}
                 disabled={action.busy}
                 onConfirm={() => {
                   close();
@@ -177,7 +196,24 @@ function ContributionBlock({ client, detail, contribution, people, tickets, canE
           </select>
         )}
       </div>
-      <ContributionText client={client} detail={detail} contribution={contribution} tickets={tickets} canEdit={canEdit} onOpenTicket={onOpenTicket} onSaved={onSaved} />
+      <ContributionText client={client} detail={detail} contribution={contribution} tickets={tickets} canEdit={canEdit} onOpenTicket={onOpenTicket} onSaved={onSaved} activityChanges={activityChanges} openRequest={openRequest} onCommentsChanged={onCommentsChanged} />
+      <div className="ticket-conversation-row">
+        <button type="button" className="text" aria-expanded={conversation} onClick={() => setConversation((open) => !open)}>
+          {contribution.commentCount > 0 ? t("contributions.conversation.count", { count: contribution.commentCount }) : t("contributions.conversation.start")}
+        </button>
+      </div>
+      {conversation && (
+        <ContributionConversation
+          client={client}
+          ticketId={detail.id}
+          projectId={detail.projectId}
+          tickets={tickets}
+          contribution={{ id: contribution.id, name }}
+          activityChanges={activityChanges}
+          onOpenTicket={onOpenTicket}
+          onCommentsChanged={onCommentsChanged}
+        />
+      )}
       <ActionError action={action} />
     </div>
   );

@@ -540,14 +540,21 @@ model TicketComment {
   editedAt          DateTime? @map("edited_at") @db.Timestamptz(3)
   removedAt         DateTime? @map("removed_at") @db.Timestamptz(3)
   removedByPersonId String?   @map("removed_by_person_id") @db.Uuid
+  /// Contribuição (área) do mesmo ticket, ou nulo para comentário do ticket (ADR 0041). A chave estrangeira real é
+  /// `ON DELETE SET NULL (contribution_id)` (migration 0017); o Prisma não a expressa.
+  contributionId    String?   @map("contribution_id") @db.Uuid
+  /// Nome da área que a contribuição removida tinha, gravado por gatilho no banco; nulo enquanto a contribuição existe
+  areaName          String?   @map("area_name")
 
-  organization Organization @relation(fields: [orgId], references: [orgId])
-  ticket       Ticket       @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
-  author       Person       @relation("CommentAuthor", fields: [orgId, authorPersonId], references: [orgId, id])
-  removedBy    Person?      @relation("CommentRemovedBy", fields: [orgId, removedByPersonId], references: [orgId, id])
+  organization Organization        @relation(fields: [orgId], references: [orgId])
+  ticket       Ticket              @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+  author       Person              @relation("CommentAuthor", fields: [orgId, authorPersonId], references: [orgId, id])
+  removedBy    Person?             @relation("CommentRemovedBy", fields: [orgId, removedByPersonId], references: [orgId, id])
+  contribution TicketContribution? @relation(fields: [orgId, ticketId, contributionId], references: [orgId, ticketId, id], onDelete: NoAction)
 
   @@id([orgId, id])
   @@index([orgId, ticketId, createdAt, id])
+  @@index([orgId, contributionId, createdAt, id])
   @@map("ticket_comments")
 }
 
@@ -570,9 +577,11 @@ model TicketContribution {
   area         Area                       @relation(fields: [orgId, areaId], references: [orgId, id], onDelete: Restrict)
   createdBy    Person                     @relation("ContributionCreatedBy", fields: [orgId, createdByPersonId], references: [orgId, id], onDelete: Restrict)
   people       TicketContributionPerson[]
+  comments     TicketComment[]
 
   @@id([orgId, id])
   @@unique([orgId, ticketId, areaId])
+  @@unique([orgId, ticketId, id])
   @@index([orgId, ticketId, createdAt, id])
   @@index([orgId, areaId])
   @@map("ticket_contributions")

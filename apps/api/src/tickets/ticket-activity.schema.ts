@@ -7,6 +7,8 @@ export const ACTIVITY_MAX_LIMIT = 100;
 export const activityQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(ACTIVITY_MAX_LIMIT).default(ACTIVITY_DEFAULT_LIMIT),
   before: z.string().min(1).max(500).optional(),
+  /** Só os comentários desta contribuição (ADR 0041), sem as mudanças. */
+  contribution: z.uuid().optional(),
 });
 
 const personSchema = z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() });
@@ -15,6 +17,12 @@ const ticketRefSchema = z.object({ id: z.string().nullable(), key: z.string().nu
 
 /** Área de uma entrada de contribuição: o nome de hoje; o guardado no evento de remoção quando a área não existe mais; `null` sem nenhum dos dois. */
 const areaRefSchema = z.object({ id: z.string(), name: z.string() }).nullable();
+
+/**
+ * Área de um comentário (ADR 0041): `id` é o da contribuição e `name` o nome da área hoje; `id` nulo quando a contribuição
+ * foi removida e o nome ficou guardado no comentário. `null` no comentário do ticket.
+ */
+const commentAreaSchema = z.object({ id: z.string().nullable(), name: z.string() }).nullable();
 
 const base = { id: z.string(), occurredAt: z.string(), actor: personSchema.nullable() };
 
@@ -51,6 +59,7 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
     ...base,
     type: z.literal("comment"),
     body: z.string().nullable(),
+    area: commentAreaSchema,
     editedAt: z.string().nullable(),
     removed: z.boolean(),
     canEdit: z.boolean(),

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { parseOutput } from "../common/zod.js";
 import { activityPageSchema } from "./ticket-activity.schema.js";
 import type { ActivityEntry, ActivityPage } from "./ticket-activity.schema.js";
-import { commentRights, toCommentEntry } from "./ticket-comments.service.js";
+import { commentRights, commentSelect, toCommentEntry } from "./ticket-comments.service.js";
 import type { Viewer } from "./ticket-comments.service.js";
 import { contributionStatusSchema, ticketStatusSchema } from "./tickets.schema.js";
 import type { ProjectRow } from "./tickets.service.js";
@@ -37,7 +37,7 @@ const FIRST_BATCH_EXTRA = 5;
 const MAX_BATCH = 500;
 
 type Position = { t: number; e: string; s: number };
-type CommentRow = { id: string; authorPersonId: string; body: string; createdAt: Date; editedAt: Date | null; removedAt: Date | null };
+type CommentRow = Parameters<typeof toCommentEntry>[0];
 type RefDraft = { id: string | null; key: string | null; number: number | null };
 type Data =
   | { type: "created" }
@@ -185,7 +185,7 @@ type Stream = { exhausted: boolean; after: { t: number; e: string } | null; incl
  */
 @Injectable()
 export class TicketActivityService {
-  async read(tx: TenantClient, project: ProjectRow, ticket: TicketForFeed, query: { limit: number; before?: string | undefined }, viewer: Viewer): Promise<ActivityPage> {
+  async read(tx: TenantClient, project: ProjectRow, ticket: TicketForFeed, query: { limit: number; before?: string | undefined; contribution?: string | undefined }, viewer: Viewer): Promise<ActivityPage> {
     const cursor = query.before === undefined ? null : decodeCursor(query.before);
     const { limit } = query;
     const start = cursor === null ? null : { t: cursor.t, e: cursor.e };
@@ -195,7 +195,9 @@ export class TicketActivityService {
     // aberta pode ter algo entre ela e a anterior: tudo acima da última linha lida de cada fonte aberta está completo.
     // Assim a junção das edições dá o mesmo resultado qualquer que seja o limite, e o cursor (posição da entrada mais
     // antiga devolvida) cai sempre entre grupos.
-    const events: Stream = { exhausted: false, after: start, inclusive: true, edge: null };
+    // Com `contribution`, só os comentários daquela contribuição: nenhuma mudança e nenhuma entrada "created" sintética.
+    const only = query.contribution;
+    const events: Stream = { exhausted: only !== undefined, after: start, inclusive: true, edge: null };
     const comments: Stream = { exhausted: false, after: start, inclusive: true, edge: null };
     let drafts: Draft[] = [];
     let seenCreated = false;
@@ -205,7 +207,7 @@ export class TicketActivityService {
     while (!(events.exhausted && comments.exhausted) && merged.length <= limit) {
       const [eventRows, commentRows] = await Promise.all([
         events.exhausted ? [] : this.eventBatch(tx, ticket.id, events, take),
-        comments.exhausted ? [] : this.commentBatch(tx, ticket.id, comments, take),
+        comments.exhausted ? [] : this.commentBatch(tx, ticket.id, comments, take, only),
       ]);
       if (!events.exhausted) {
         events.exhausted = eventRows.length < take;
@@ -234,7 +236,7 @@ export class TicketActivityService {
         comments.inclusive = false;
       }
       take = Math.min(MAX_BATCH, take * 2);
-      if (events.exhausted && !synthesized && !seenCreated && !(await this.hasCreatedEvent(tx, ticket.id, cursor !== null))) {
+      if (only === undefined && events.exhausted && !synthesized && !seenCreated && !(await this.hasCreatedEvent(tx, ticket.id, cursor !== null))) {
         const t = ticket.createdAt.getTime();
         drafts = [...drafts, { id: `created:${ticket.id}`, type: "created", actorId: ticket.createdByPersonId, occurredAt: t, pos: { t: -1, e: SYNTHETIC_ID, s: -1 }, data: { type: "created" } }];
         synthesized = true;
@@ -268,16 +270,17 @@ export class TicketActivityService {
     });
   }
 
-  private commentBatch(tx: TenantClient, ticketId: string, stream: Stream, take: number) {
+  private commentBatch(tx: TenantClient, ticketId: string, stream: Stream, take: number, contributionId?: string) {
     const { after, inclusive } = stream;
     return tx.ticketComment.findMany({
       where: {
         ticketId,
+        ...(contributionId === undefined ? {} : { contributionId }),
         ...(after === null ? {} : { OR: [{ createdAt: { lt: new Date(after.t) } }, { createdAt: new Date(after.t), id: inclusive ? { lte: after.e } : { lt: after.e } }] }),
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take,
-      select: { id: true, authorPersonId: true, body: true, createdAt: true, editedAt: true, removedAt: true },
+      select: commentSelect,
     });
   }
 

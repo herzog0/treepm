@@ -74,6 +74,8 @@ const contributionSchema = z.object({
   text: z.string(),
   status: contributionStatus,
   people: z.array(z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() })),
+  /** Comentários vivos da área (ADR 0041, fatia 2). */
+  commentCount: z.number(),
 });
 const ticketDetailSchema = ticketSummarySchema.extend({
   /** As contribuições por área, na ordem de criação (ADR 0041). Ausente (ticket devolvido pela conversa com a IA): nenhuma. */
@@ -176,6 +178,8 @@ const activityPersonSchema = z.object({ id: z.string(), displayName: z.string(),
 const activityTicketSchema = z.object({ id: z.string().nullable(), key: z.string().nullable(), title: z.string().nullable() });
 /** A área de uma entrada de contribuição: `null` quando já não existe nem o nome ficou guardado. */
 const contributionAreaRef = z.object({ id: z.string(), name: z.string() }).nullable();
+/** A área de um comentário: `id` é o da contribuição, nulo quando ela foi removida (o nome ficou guardado); `null` no comentário do ticket. */
+const commentAreaRef = z.object({ id: z.string().nullable(), name: z.string() }).nullable();
 const activityBase = { id: z.string(), occurredAt: z.string(), actor: activityPersonSchema.nullable() };
 const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("created") }),
@@ -194,7 +198,7 @@ const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("contribution_status_changed"), area: contributionAreaRef, from: contributionStatus, to: contributionStatus }),
   z.object({ ...activityBase, type: z.literal("contribution_person_added"), area: contributionAreaRef, person: activityPersonSchema.nullable() }),
   z.object({ ...activityBase, type: z.literal("contribution_person_removed"), area: contributionAreaRef, person: activityPersonSchema.nullable() }),
-  z.object({ ...activityBase, type: z.literal("comment"), body: z.string().nullable(), editedAt: z.string().nullable(), removed: z.boolean(), canEdit: z.boolean(), canRemove: z.boolean() }),
+  z.object({ ...activityBase, type: z.literal("comment"), body: z.string().nullable(), area: commentAreaRef, editedAt: z.string().nullable(), removed: z.boolean(), canEdit: z.boolean(), canRemove: z.boolean() }),
 ]);
 const commentEntrySchema = activityEntrySchema.refine((entry) => entry.type === "comment").transform((entry) => entry as Extract<z.output<typeof activityEntrySchema>, { type: "comment" }>);
 /** Entrada de um tipo que esta versão da tela não conhece (a API pode ganhar tipos antes da tela) é descartada, sem erro. */
@@ -257,6 +261,7 @@ export type Contribution = z.output<typeof contributionSchema>;
 export type ContributionStatus = z.output<typeof contributionStatus>;
 export type ActivityEntry = z.output<typeof activityEntrySchema>;
 export type ActivityPage = z.output<typeof activityPageSchema>;
+export type CommentArea = z.output<typeof commentAreaRef>;
 export type ActivityComment = Extract<ActivityEntry, { type: "comment" }>;
 export type ActivityTicketRef = z.output<typeof activityTicketSchema>;
 export type ConversationDraft = NonNullable<z.output<typeof draftSchema>>;
@@ -497,8 +502,9 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     getTicketCode: (id: string) => request("GET", `${ticket(id)}/code`, ticketCodeSchema),
 
     /** Atividade do ticket (ADR 0040), da mais recente para a mais antiga; `before` é o cursor que a página anterior devolveu. */
-    ticketActivity: (id: string, query: { before?: string; limit?: number } = {}, options: { signal?: AbortSignal } = {}) => {
+    ticketActivity: (id: string, query: { before?: string; limit?: number; contribution?: string } = {}, options: { signal?: AbortSignal } = {}) => {
       const params = new URLSearchParams();
+      if (query.contribution !== undefined) params.set("contribution", query.contribution);
       if (query.limit !== undefined) params.set("limit", String(query.limit));
       if (query.before !== undefined) params.set("before", query.before);
       const text = params.toString();
@@ -506,7 +512,7 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     },
 
     /** Comentários do ticket (ADR 0040, fatia 2): a resposta é a entrada de atividade do comentário. */
-    createTicketComment: (id: string, body: { body: string }) => request("POST", `${ticket(id)}/comments`, commentEntrySchema, body),
+    createTicketComment: (id: string, body: { body: string; contributionId?: string }) => request("POST", `${ticket(id)}/comments`, commentEntrySchema, body),
     updateComment: (id: string, body: { body: string }) => request("PATCH", `/api/comments/${id}`, commentEntrySchema, body),
     removeComment: (id: string) => request("DELETE", `/api/comments/${id}`, null),
 

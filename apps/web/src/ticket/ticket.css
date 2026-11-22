@@ -138,6 +138,10 @@
 .ticket-comment-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 12.5px; }
 .ticket-comment-author { color: var(--tp-text); font-weight: 500; }
 .ticket-comment-head .ticket-activity-time { padding-top: 0; }
+.ticket-comment-area { padding: 0 6px; border: 1px solid var(--tp-border); border-radius: 999px; background: var(--tp-card); color: var(--tp-text-2); font: inherit; font-size: 11.5px; line-height: 1.6; }
+button.ticket-comment-area { cursor: pointer; }
+button.ticket-comment-area:hover { border-color: var(--tp-border-strong, var(--tp-text-3)); color: var(--tp-text); }
+.ticket-comment-area.is-gone { border-style: dashed; color: var(--tp-text-3); }
 .ticket-comment-edited { color: var(--tp-text-3); font-size: 11.5px; }
 .ticket-comment-gone { margin: 0; color: var(--tp-text-3); font-style: italic; }
 .ticket-comment-main .description { margin-top: 0; color: var(--tp-text); font-size: 13px; }
@@ -152,5 +156,11 @@
 .ticket-contribution { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-panel); background: var(--tp-card); }
 .ticket-contribution-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .ticket-contribution-head h3 { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; color: var(--tp-text); font-size: 13.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.ticket-conversation-row { display: flex; }
+.ticket-conversation-row button { padding: 2px 0; border: 0; background: transparent; color: var(--tp-text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.ticket-conversation-row button:hover { color: var(--tp-text); text-decoration: underline; }
+.ticket-conversation-row button[aria-expanded="true"] { color: var(--tp-text); }
+.ticket-conversation { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid var(--tp-border); }
+.ticket-conversation .ticket-activity-list { margin: 0; }
 .ticket-contribution-text { position: relative; }
 .ticket-contribution-text .description-head-state { position: absolute; top: -2px; right: 0; color: var(--tp-text-3); font-size: 11.5px; }

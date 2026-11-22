@@ -194,7 +194,9 @@
       "sending": "Sending…",
       "hint": "Ctrl+Enter to comment",
       "by": "Comment by {{name}}",
-      "gone": "comment removed"
+      "gone": "comment removed",
+      "openArea": "Open the conversation of area {{area}}",
+      "areaGone": "Area removed; the comment stays on the ticket"
     },
     "contributionAdded": "<who>{{actor}}</who> added the area <name>{{area}}</name>",
     "contributionAdded_noActor": "Area <name>{{area}}</name> added",
@@ -227,6 +229,17 @@
     "addPersonLabel": "Add a person to area {{area}}",
     "removePerson": "Remove {{name}} from area {{area}}",
     "textLabel": "Text of area {{area}}",
-    "removedArea": "(deleted area)"
+    "removedArea": "(deleted area)",
+    "removeWarningWithComments": "This area's text and people will be deleted. Its comments stay on the ticket.",
+    "conversation": {
+      "start": "Comment",
+      "count_one": "{{count}} comment",
+      "count_other": "{{count}} comments",
+      "region": "Conversation of area {{area}}",
+      "list": "Comments of area {{area}}",
+      "field": "New comment on area {{area}}",
+      "loading": "Loading comments…",
+      "empty": "No comments on this area."
+    }
   }
 }

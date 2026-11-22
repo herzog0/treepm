@@ -72,7 +72,7 @@ describe("comentar: POST tickets/:id/comments", () => {
         actor: { id: personId(who), displayName: `Nome ${who}` },
       });
       expect(typeof entry.occurredAt).toBe("string");
-      expect(Object.keys(entry).sort()).toEqual(["actor", "body", "canEdit", "canRemove", "editedAt", "id", "occurredAt", "removed", "type"]);
+      expect(Object.keys(entry).sort()).toEqual(["actor", "area", "body", "canEdit", "canRemove", "editedAt", "id", "occurredAt", "removed", "type"]);
       const saved = await row(entry.id);
       expect(saved).toMatchObject({ body: `Olá de ${who}`, author_person_id: personId(who), project_id: priv(), ticket_id: t.id, edited_at: null, removed_at: null, removed_by_person_id: null });
     }

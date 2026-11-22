@@ -13,7 +13,7 @@ const detail: TicketDetail = { ...summaries[0]!, description: "Texto", mentioned
 const ana = { id: "person-1", displayName: "Ana", avatarUrl: null };
 let counter = 0;
 const made = (data: Partial<ActivityComment> = {}): ActivityComment => ({
-  id: `c${++counter}`, type: "comment", occurredAt: new Date().toISOString(), actor: ana, body: "Texto", editedAt: null, removed: false, canEdit: true, canRemove: true, ...data,
+  id: `c${++counter}`, type: "comment", occurredAt: new Date().toISOString(), actor: ana, body: "Texto", editedAt: null, removed: false, canEdit: true, canRemove: true, area: null, ...data,
 });
 
 async function open(existing: ActivityEntry[] = [], overrides: Partial<Record<"createTicketComment" | "updateComment", unknown>> = {}) {

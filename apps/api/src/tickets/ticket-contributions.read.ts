@@ -11,6 +11,7 @@ const contributionsSchema = z.array(
     text: z.string(),
     status: contributionStatusSchema,
     people: z.array(z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() })),
+    commentCount: z.number(),
   }),
 );
 
@@ -23,7 +24,14 @@ export async function readContributions(tx: TenantClient, ticketId: string, ids?
   const rows = await tx.ticketContribution.findMany({
     where: { ticketId, ...(ids ? { id: { in: [...ids] } } : {}) },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { id: true, text: true, status: true, area: { select: { id: true, name: true } } },
+    select: {
+      id: true,
+      text: true,
+      status: true,
+      area: { select: { id: true, name: true } },
+      // Dentro da mesma consulta: a contagem não cresce em consultas com o número de contribuições.
+      _count: { select: { comments: { where: { removedAt: null } } } },
+    },
   });
   if (rows.length === 0) return [];
   const links = await tx.ticketContributionPerson.findMany({
@@ -36,6 +44,6 @@ export async function readContributions(tx: TenantClient, ticketId: string, ids?
     a.displayName.localeCompare(b.displayName) || (a.id < b.id ? -1 : 1);
   return parseOutput(
     contributionsSchema,
-    rows.map((row) => ({ ...row, people: [...(people.get(row.id) ?? [])].sort(byName) })),
+    rows.map(({ _count, ...row }) => ({ ...row, commentCount: _count.comments, people: [...(people.get(row.id) ?? [])].sort(byName) })),
   );
 }

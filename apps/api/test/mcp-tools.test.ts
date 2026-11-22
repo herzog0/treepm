@@ -85,12 +85,17 @@ describe("get_ticket", () => {
       [priv(), ticket.id, area.id, h.world().people.manager, `${word}-CONTRIBUICAO entrega da área`],
     )).rows[0];
     await h.pool.query("insert into ticket_contribution_people (org_id, contribution_id, person_id) values ('org_A', $1, $2)", [contribution.id, h.world().people.target]);
+    // ADR 0041, fatia 2: um comentário da área e outro de uma área já removida (nome guardado), com texto reconhecível.
+    await h.pool.query("insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body, contribution_id) values ('org_A', $1, $2, $3, $4, $5)", [priv(), ticket.id, h.world().people.manager, `${word}-COMENTARIO-DE-AREA conversa da área`, contribution.id]);
+    await h.pool.query("insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body, area_name) values ('org_A', $1, $2, $3, $4, $5)", [priv(), ticket.id, h.world().people.manager, `${word}-COMENTARIO-DE-AREA-REMOVIDA conversa antiga`, `${word}-AREA-REMOVIDA`]);
     const res = await h.tool(token, "PRIV", "get_ticket", { key: "PRIV-2" });
     expectConsistent(res);
     expect(res.isError).toBe(false);
     expect(res.text).not.toContain(word);
     expect(res.text).not.toContain("só da conversa");
     expect(res.text).not.toContain("entrega da área");
+    expect(res.text).not.toContain("conversa da área");
+    expect(res.text).not.toContain("conversa antiga");
     expect(Object.keys(res.json ?? {})).not.toContain("comments");
     expect(Object.keys(res.json ?? {})).not.toContain("contributions");
     for (const [name, args] of [["search_tickets", { query: word }], ["search_tickets", { query: "conversa" }], ["get_project_overview", {}], ["list_tickets", {}], ["get_ticket", { key: "PRIV-1" }]] as const) {
@@ -98,6 +103,8 @@ describe("get_ticket", () => {
       expect(out.text, name).not.toContain(word);
       expect(out.text, name).not.toContain("só da conversa");
       expect(out.text, name).not.toContain("entrega da área");
+      expect(out.text, name).not.toContain("conversa da área");
+      expect(out.text, name).not.toContain("conversa antiga");
     }
     expect((await h.tool(token, "PRIV", "search_tickets", { query: word })).json).toEqual({ tickets: [], truncated: false });
   });
