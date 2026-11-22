@@ -119,7 +119,18 @@ const ticketDetailSchema = ticketSummarySchema.extend({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
-const draftSchema = z.object({ title: z.string(), description: z.string() }).nullable();
+const draftChildSchema = z.object({ title: z.string(), description: z.string() });
+/** Rascunho da conversa (ADR 0044): `children` vazio é um ticket só; a API sempre o manda (e um servidor antigo vale como vazio). */
+const draftSchema = z.object({ title: z.string(), description: z.string(), children: z.array(draftChildSchema).default([]) }).nullable();
+/** O que a criação vai gravar, como a API monta (`GET …/preview`, ADR 0044): o pai com a citação, os filhos e o que ela recusaria. */
+const draftPreviewSchema = z.object({
+  title: z.string(),
+  description: z.string(),
+  quote: z.string(),
+  children: z.array(draftChildSchema),
+  unknownKeys: z.array(z.string()),
+  descriptionTooLong: z.boolean(),
+});
 const conversationSummarySchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -162,7 +173,7 @@ const placementOutcomeSchema = z.object({
     .nullable()
     .default(null),
 });
-const createdFromConversationSchema = z.object({ conversation: conversationDetailSchema, ticket: ticketDetailSchema });
+const createdFromConversationSchema = z.object({ conversation: conversationDetailSchema, ticket: ticketDetailSchema, children: z.array(ticketDetailSchema).default([]) });
 const githubInstallationSchema = z.object({
   accountLogin: z.string(),
   accountType: z.string(),
@@ -276,7 +287,7 @@ const aiConsentSchema = z.object({
   codeReading: consentSchema.extend({ githubConnected: z.boolean(), offerable: z.boolean() }),
 });
 const mcpStateSchema = z.object({ mcp: z.object({ enabled: z.boolean(), writeEnabled: z.boolean().optional() }) });
-const errorBodySchema = z.object({ error: z.object({ code: z.string() }) });
+const errorBodySchema = z.object({ error: z.object({ code: z.string(), details: z.unknown().optional() }) });
 
 export type Me = z.output<typeof meSchema>;
 export type AiConsent = z.output<typeof aiConsentSchema>;
@@ -307,6 +318,14 @@ export type CommentArea = z.output<typeof commentAreaRef>;
 export type ActivityComment = Extract<ActivityEntry, { type: "comment" }>;
 export type ActivityTicketRef = z.output<typeof activityTicketSchema>;
 export type ConversationDraft = NonNullable<z.output<typeof draftSchema>>;
+export type ConversationDraftChild = z.output<typeof draftChildSchema>;
+export type DraftPreview = z.output<typeof draftPreviewSchema>;
+/** Corpo de `PATCH …/draft`: `children` ausente mantém os filhos; a lista enviada (mesmo vazia) substitui a anterior. */
+export interface ConversationDraftBody {
+  title: string;
+  description: string;
+  children?: ConversationDraftChild[];
+}
 export interface AskBody {
   question: string;
   history?: { author: "person" | "assistant"; body: string }[];
@@ -387,6 +406,8 @@ export interface ApiError {
   kind: ApiErrorKind;
   /** Código do corpo `{ error: { code, message } }` da API, quando presente. */
   code?: string;
+  /** Chaves citadas que não existem, no erro `unknown_ticket_keys` (`details.keys`); nos outros erros, ausente. */
+  keys?: string[];
 }
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError };
 
@@ -415,10 +436,17 @@ const KIND_BY_STATUS: Record<number, ApiErrorKind> = {
   500: "server_error",
 };
 
-const fail = (kind: ApiErrorKind, code?: string): { ok: false; error: ApiError } => ({
+const fail = (kind: ApiErrorKind, code?: string, keys?: string[]): { ok: false; error: ApiError } => ({
   ok: false,
-  error: code === undefined ? { kind } : { kind, code },
+  error: { kind, ...(code === undefined ? {} : { code }), ...(keys === undefined ? {} : { keys }) },
 });
+
+/** `details.keys` do erro `unknown_ticket_keys`: só a lista de textos conta, o resto é ignorado. */
+function unknownKeysOf(code: string, details: unknown): string[] | undefined {
+  if (code !== "unknown_ticket_keys" || typeof details !== "object" || details === null) return undefined;
+  const keys = (details as { keys?: unknown }).keys;
+  return Array.isArray(keys) && keys.every((key) => typeof key === "string") ? (keys as string[]) : undefined;
+}
 
 export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions) {
   async function request<T>(
@@ -444,7 +472,11 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       const response = await (fetchImpl ?? globalThis.fetch)(path, init);
       if (!response.ok) {
         const parsed = errorBodySchema.safeParse(await response.json().catch(() => null));
-        return fail(KIND_BY_STATUS[response.status] ?? "unavailable", parsed.success ? parsed.data.error.code : undefined);
+        return fail(
+          KIND_BY_STATUS[response.status] ?? "unavailable",
+          parsed.success ? parsed.data.error.code : undefined,
+          parsed.success ? unknownKeysOf(parsed.data.error.code, parsed.data.error.details) : undefined,
+        );
       }
       if (schema === null) return { ok: true, data: undefined as T };
 
@@ -525,8 +557,9 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       request("POST", `${project(projectId)}/ticket-conversations`, conversationDetailSchema, body),
     sendConversationMessage: (id: string, body: { message: string; scopeId?: string | null }) =>
       request("POST", `${conversation(id)}/messages`, conversationDetailSchema, body),
-    updateConversationDraft: (id: string, body: ConversationDraft) =>
+    updateConversationDraft: (id: string, body: ConversationDraftBody) =>
       request("PATCH", `${conversation(id)}/draft`, conversationDetailSchema, body),
+    getConversationPreview: (id: string) => request("GET", `${conversation(id)}/preview`, draftPreviewSchema),
     /** `scopeId`: procura só dentro desse ticket (ADR 0031, ADR 0034); sem ele, no projeto inteiro. */
     findPlacement: (id: string, scopeId?: string) =>
       request("POST", `${conversation(id)}/placement`, placementOutcomeSchema, scopeId === undefined ? undefined : { scopeId }),

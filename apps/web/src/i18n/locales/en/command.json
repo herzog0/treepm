@@ -49,6 +49,7 @@
       "send": "Send",
       "over": "The question is over {{max}} characters ({{length}}). Shorten it to send.",
       "within": "{{length}} of {{max}} characters"
-    }
+    },
+    "unanswered": "Not answered"
   }
 }

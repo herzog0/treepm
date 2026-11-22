@@ -8,6 +8,8 @@ import { formatNumber } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { safe } from "../panel/safe.js";
 import { RichDescription } from "../ticket/description/RichDescription.js";
+import { Reveal } from "./Reveal.js";
+import { Skeleton } from "./Skeleton.js";
 import "./assistant.css";
 
 /** Limites da API (`ask.schema.ts`): a pergunta, e as mensagens anteriores que vão em `history`. */
@@ -136,6 +138,8 @@ function Thread({ client, project, tickets, incoming, expanded, onProgress, onOp
   // A pergunta que falhou, com as mensagens que a precediam: "Tentar de novo" a repete do mesmo ponto.
   const [failure, setFailure] = useState<{ question: string; history: Message[]; consentRequired?: boolean } | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  // A resposta que acabou de chegar e ainda está sendo revelada.
+  const [revealingId, setRevealingId] = useState<number | null>(null);
   const sendingRef = useRef(false);
   const controller = useRef<AbortController | null>(null);
   const nextId = useRef(0);
@@ -168,13 +172,16 @@ function Thread({ client, project, tickets, incoming, expanded, onProgress, onOp
     sendingRef.current = true;
     setSending(true);
     setFailure(null);
+    setRevealingId(null);
     const result = await safe(() => client.askProject(project.id, { question, history: history.slice(-ASK_HISTORY_MAX).map(({ author, body }) => ({ author, body })) }, { signal: abort.signal }));
     // Cancelada com `Esc`: a pergunta já voltou ao campo, e a resposta que ainda chegar não vale.
     if (abort.signal.aborted) return;
     sendingRef.current = false;
     setSending(false);
     if (result.ok) {
-      setMessages((current) => [...current, { id: nextId.current++, author: "assistant", body: result.data.text }]);
+      const id = nextId.current++;
+      setMessages((current) => [...current, { id, author: "assistant", body: result.data.text }]);
+      setRevealingId(id);
       setAnnouncement(result.data.text);
       return;
     }
@@ -229,6 +236,14 @@ function Thread({ client, project, tickets, incoming, expanded, onProgress, onOp
     void request(failure.question, failure.history);
   };
 
+  /** Leva a lista ao fim: a resposta que se revela cresce embaixo. */
+  function keepEnd() {
+    const element = scroller.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }
+  // A pergunta que falhou continua na conversa, marcada como não respondida (a que está na lista logo antes da falha).
+  const unansweredId = failure && !sending ? [...messages].reverse().find((message) => message.author === "person")?.id ?? null : null;
+
   const overLimit = text.length > ASK_QUESTION_MAX;
   const canSend = !sending && text.trim() !== "" && !overLimit;
 
@@ -237,23 +252,35 @@ function Thread({ client, project, tickets, incoming, expanded, onProgress, onOp
       <div ref={scroller} className="assistant-scroll" onScroll={(event) => { if (expanded) scrolled.current = event.currentTarget.scrollTop; }}>
         {messages.map((message) =>
           message.author === "person" ? (
-            <div key={message.id} className="assistant-person">{message.body}</div>
-          ) : (
-            <div key={message.id} className="assistant-reply ask-answer">
-              <RichDescription
-                className="is-answer"
-                value={message.body}
-                editing={false}
-                canEdit={false}
-                label={t("ask.reply")}
-                placeholder=""
-                mentions={{ projectId: project.id, tickets: tickets[project.id] ?? [] }}
-                onOpenMention={onOpenTicket}
-              />
+            <div key={message.id} className={`assistant-person ${unansweredId === message.id ? "is-unanswered" : ""}`}>
+              {message.body}
+              {unansweredId === message.id && <small className="assistant-unanswered">{t("ask.unanswered")}</small>}
             </div>
+          ) : (
+            <Reveal key={message.id} text={message.body} active={message.id === revealingId} onDone={() => setRevealingId((current) => (current === message.id ? null : current))} onStep={keepEnd}>
+              {(shown, revealing) => (
+                <div className="assistant-reply ask-answer" aria-hidden={revealing ? true : undefined}>
+                  <RichDescription
+                    className="is-answer"
+                    value={shown}
+                    editing={false}
+                    canEdit={false}
+                    label={t("ask.reply")}
+                    placeholder=""
+                    mentions={{ projectId: project.id, tickets: tickets[project.id] ?? [] }}
+                    onOpenMention={onOpenTicket}
+                  />
+                </div>
+              )}
+            </Reveal>
           ),
         )}
-        {sending && <p role="status" className="assistant-waiting">{t("ask.waiting")}</p>}
+        {sending && (
+          <>
+            <p role="status" className="assistant-waiting">{t("ask.waiting")}</p>
+            <Skeleton />
+          </>
+        )}
         {failure && !sending && (
           <div className="assistant-error">
             {failure.consentRequired ? <ConsentRequiredNotice /> : <p role="alert">{t("ask.error")}</p>}

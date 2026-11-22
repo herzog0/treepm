@@ -25,7 +25,10 @@
       "comment_removed": "Este comentário já foi removido.",
       "contribution_area_taken": "O ticket já tem uma contribuição dessa área.",
       "area_in_use": "Há tickets com contribuição dessa área. Remova a contribuição neles antes de apagá-la.",
-      "ticket_in_idea": "Este ticket faz parte de uma ideia: a situação só muda depois que a ideia for aceita."
+      "ticket_in_idea": "Este ticket faz parte de uma ideia: a situação só muda depois que a ideia for aceita.",
+      "unknown_ticket_keys": "O rascunho cita tickets que não existem: {{keys}}.",
+      "description_too_long": "A descrição passou do limite com o pedido original. Peça ao assistente para encurtar a descrição do ticket pai.",
+      "request_too_long": "O pedido original passou do limite de uma descrição. Divida o pedido em conversas menores."
     },
     "kind": {
       "unauthenticated": "Sua sessão expirou. Entre novamente.",

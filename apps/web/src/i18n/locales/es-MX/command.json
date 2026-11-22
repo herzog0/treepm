@@ -49,6 +49,7 @@
       "send": "Enviar",
       "over": "La pregunta pasó de {{max}} caracteres ({{length}}). Acórtala para enviar.",
       "within": "{{length}} de {{max}} caracteres"
-    }
+    },
+    "unanswered": "Sin respuesta"
   }
 }

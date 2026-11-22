@@ -199,7 +199,10 @@ describe("failures", () => {
     const props = setup(clientWith({ openConversation }));
     await userEvent.type(await screen.findByRole("textbox", { name: "Mensagem para o assistente" }), "Meu texto{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent("O assistente não respondeu");
-    expect(box()).toHaveValue("Meu texto");
+    // Brief N2 (TREEPM-194): a mensagem enviada fica na conversa, como não respondida, em vez de voltar ao campo.
+    expect(box()).toHaveValue("");
+    expect(thread().getByText("Meu texto")).toBeInTheDocument();
+    expect(thread().getByText("Não respondida")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
     await waitFor(() => expect(openConversation).toHaveBeenCalledTimes(2));
     expect(openConversation).toHaveBeenLastCalledWith("p1", { message: "Meu texto", scopeId: null });
@@ -228,7 +231,7 @@ describe("failures", () => {
     expect(props.onManualCreate).toHaveBeenCalledWith({ projectId: "p1", parentId: null, draft: { title: "Corrigir o login (Safari)", description: "O login falha no Safari." } });
   });
 
-  it("conversation_changed reloads the conversation and keeps the text", async () => {
+  it("conversation_changed reloads the conversation and keeps the message, unanswered, with Tentar de novo", async () => {
     const client = clientWith({
       listConversations: vi.fn(async () => ok([{ ...makeConversation("c1", "p1"), messages: undefined }])),
       sendConversationMessage: vi.fn(async () => failed("conflict", "conversation_changed")),
@@ -239,7 +242,9 @@ describe("failures", () => {
     await userEvent.type(box(), "Meu texto{Enter}");
     await waitFor(() => expect(client.getConversation).toHaveBeenCalledWith("c1"));
     expect(await screen.findByRole("alert")).toHaveTextContent("A conversa mudou");
-    expect(box()).toHaveValue("Meu texto");
+    expect(thread().getByText("Meu texto")).toBeInTheDocument();
+    expect(thread().getByText("Não respondida")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tentar de novo" })).toBeInTheDocument();
   });
 
   it("conversation_closed explains it and the new-conversation button starts over", async () => {

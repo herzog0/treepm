@@ -25,7 +25,10 @@
       "comment_removed": "This comment was already removed.",
       "contribution_area_taken": "The ticket already has a contribution from that area.",
       "area_in_use": "Tickets have a contribution from this area. Remove it from them before deleting the area.",
-      "ticket_in_idea": "This ticket is part of an idea: its status can only change after the idea is accepted."
+      "ticket_in_idea": "This ticket is part of an idea: its status can only change after the idea is accepted.",
+      "unknown_ticket_keys": "The draft mentions tickets that do not exist: {{keys}}.",
+      "description_too_long": "The description went over the limit together with the original request. Ask the assistant to shorten the parent ticket's description.",
+      "request_too_long": "The original request went over the limit of a description. Split the request into smaller conversations."
     },
     "kind": {
       "unauthenticated": "Your session has expired. Sign in again.",

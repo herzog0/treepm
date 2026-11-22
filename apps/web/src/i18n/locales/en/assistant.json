@@ -21,7 +21,8 @@
     "delete": "Delete conversation",
     "hint": "Describe the task. The assistant asks what is missing, writes the ticket and looks for its place in the tree.",
     "waiting": "The assistant is replying…",
-    "reply": "Assistant reply"
+    "reply": "Assistant reply",
+    "unanswered": "Not answered"
   },
   "error": {
     "retry": "Try again",
@@ -37,7 +38,30 @@
     "save": "Save draft",
     "search": "Find the place",
     "searchAnyway": "Search anyway",
-    "searchAgain": "Search again"
+    "searchAgain": "Search again",
+    "quote": {
+      "label": "Original request",
+      "hint": "It is saved at the start of the ticket. Read only."
+    },
+    "parts": {
+      "heading": "Ticket parts",
+      "count_one": "{{count}} part",
+      "count_other": "{{count}} parts"
+    },
+    "part": {
+      "title": "Title of part {{position}}",
+      "description": "Description of part {{position}}",
+      "editDescription": "Edit description",
+      "doneDescription": "Done with description",
+      "remove": "Remove “{{title}}”",
+      "moveUp": "Move “{{title}}” up",
+      "moveDown": "Move “{{title}}” down",
+      "noDescription": "No description."
+    },
+    "warning": {
+      "unknownKeys": "The draft mentions tickets that do not exist: {{keys}}. Fix the keys to create.",
+      "tooLong": "The parent ticket's description went over the limit together with the original request. Shorten the description to create."
+    }
   },
   "message": {
     "label": "Message to the assistant",
@@ -67,7 +91,11 @@
     "stopped": {
       "candidates_too_large": "The search stopped at “{{where}}” because there were too many tickets to compare at once. Check whether the place works or choose another.",
       "max_levels": "The search stopped at “{{where}}” on reaching the level limit. Check whether the place works or choose another."
-    }
+    },
+    "createWithParts_one": "Create ticket and {{count}} part",
+    "createWithParts_other": "Create ticket and {{count}} parts",
+    "partsNote_one": "{{count}} part is created inside the ticket.",
+    "partsNote_other": "The {{count}} parts are created inside the ticket, in the order of the draft."
   },
   "proposal": {
     "line": "This ticket seems to form a group with others here.",

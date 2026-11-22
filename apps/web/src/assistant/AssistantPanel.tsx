@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import type { ApiClient, ApiError, ApiResult, ConversationDetail, NewGroup, PlacementOutcome, Project, TicketSummary } from "../api/client.js";
+import type { ApiClient, ApiError, ApiResult, ConversationDetail, DraftPreview, NewGroup, PlacementOutcome, Project, TicketSummary } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { AiIcon } from "../command/icons.js";
 import { LoadError } from "../LoadError.js";
@@ -13,7 +13,11 @@ import { useTranslation } from "react-i18next";
 import { formatNumber } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { reopensOnReceiving } from "../ticket/reopen.js";
+import { DraftParts, OriginalRequest, samePartList, toPartEdits } from "./DraftPreview.js";
+import type { PartEdit } from "./DraftPreview.js";
 import { PathCard } from "./PathCard.js";
+import { Reveal } from "./Reveal.js";
+import { Skeleton } from "./Skeleton.js";
 import { destinationUnder, oneLevelUp } from "./placement.js";
 import type { Destination } from "./placement.js";
 import type { MapPicker } from "./types.js";
@@ -195,6 +199,16 @@ function ResumedConversation(props: ConversationProps) {
 interface Edit {
   title: string;
   description: string;
+  /** Os filhos do rascunho com as edições à mão; vazia quando o rascunho é de um ticket só. */
+  children: PartEdit[];
+}
+
+/** A mensagem que a pessoa acabou de enviar: aparece na conversa antes de a resposta chegar e, se falhar, fica como não respondida. */
+interface Outbox {
+  text: string;
+  /** Abre uma conversa nova (texto da barra) em vez de continuar a que está na folha. */
+  fresh: boolean;
+  failed: boolean;
 }
 
 function Chat(props: ConversationProps & { initial: ConversationDetail | null }) {
@@ -210,6 +224,11 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const [sendError, setSendError] = useState<ApiError | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [edit, setEdit] = useState<Edit | null>(null);
+  const [outbox, setOutbox] = useState<Outbox | null>(null);
+  // A resposta que acabou de chegar e ainda está sendo revelada.
+  const [revealingId, setRevealingId] = useState<string | null>(null);
+  // O que a criação vai gravar, como a API monta; fica o anterior enquanto a nova leitura não volta (a tela não pisca).
+  const [preview, setPreview] = useState<DraftPreview | null>(null);
   const [outcome, setOutcome] = useState<PlacementOutcome | null>(null);
   const [target, setTarget] = useState<Destination | null>(null);
   // A proposta de ticket pai novo (ADR 0031) vale só para o destino da procura: trocar o destino, procurar de novo ou o 409 a descartam.
@@ -225,9 +244,27 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const removal = useAction();
 
   const draft = conversation?.draft ?? null;
-  const fields: Edit | null = draft ? edit ?? { title: draft.title, description: draft.description } : null;
-  const dirty = draft !== null && fields !== null && (fields.title !== draft.title || fields.description !== draft.description);
+  const fields: Edit | null = draft ? edit ?? { title: draft.title, description: draft.description, children: toPartEdits(draft.children) } : null;
+  const dirty = draft !== null && fields !== null && (fields.title !== draft.title || fields.description !== draft.description || !samePartList(fields.children, draft.children));
+  const blankTitle = fields !== null && (fields.title.trim() === "" || fields.children.some((part) => part.title.trim() === ""));
   const busy = save.busy || search.busy || create.busy || removal.busy;
+  const partCount = draft?.children.length ?? 0;
+
+  // A prévia é lida de novo quando o rascunho muda (outra resposta da IA, rascunho salvo à mão).
+  const previewKey = conversation && draft ? `${conversation.id}|${conversation.updatedAt}|${JSON.stringify(draft)}` : null;
+  useEffect(() => {
+    if (previewKey === null || !conversation) {
+      setPreview(null);
+      return;
+    }
+    let active = true;
+    void safe(() => client.getConversationPreview(conversation.id)).then((result) => {
+      if (active) setPreview(result.ok ? result.data : null);
+    });
+    return () => {
+      active = false;
+    };
+  }, [previewKey]);
 
   // O card tracejado do mapa segue o destino e o título salvo do rascunho.
   const onDraftChange = useRef(props.onDraftChange);
@@ -242,7 +279,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   useEffect(() => {
     const element = scroller.current;
     if (element) element.scrollTop = element.scrollHeight;
-  }, [conversation?.messages.length, outcome, sendError]);
+  }, [conversation?.messages.length, outcome, sendError, outbox, sending, revealingId]);
 
   // Recolhida, a folha some do layout e a rolagem se perde: ao reabrir, ela volta onde estava.
   useLayoutEffect(() => {
@@ -250,7 +287,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   }, [expanded]);
 
   // Recolher uma conversa vazia a encerra; com mensagem, resposta a caminho ou texto digitado, ela fica em andamento.
-  const active = conversation !== null || sending || text.trim() !== "";
+  const active = conversation !== null || sending || outbox !== null || text.trim() !== "";
   useEffect(() => {
     onProgress(active);
   }, [active, onProgress]);
@@ -289,6 +326,8 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
 
   const reset = () => {
     setConversation(null);
+    setOutbox(null);
+    setRevealingId(null);
     setText("");
     setSendError(null);
     setEdit(null);
@@ -301,6 +340,10 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     const message = (override ?? text).trim();
     if (message === "" || message.length > MAX_MESSAGE || sendingRef.current) return;
     sendingRef.current = true;
+    // A mensagem entra na conversa e o campo esvazia antes de a requisição voltar (TREEPM-194).
+    setOutbox({ text: message, fresh, failed: false });
+    setRevealingId(null);
+    if (override === undefined) setText("");
     setSending(true);
     setSendError(null);
     // O escopo vai com a abertura e com cada mensagem (ADR 0033): a IA recebe os tickets com filhos do lugar da procura.
@@ -310,13 +353,16 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     setSending(false);
     if (result.ok) {
       setConversation(result.data);
-      setText("");
+      setOutbox(null);
       setEdit(null);
       clearPlacement();
       const last = result.data.messages.at(-1);
       setAnnouncement(last?.author === "assistant" ? last.body : "");
+      setRevealingId(last?.author === "assistant" ? last.id : null);
       return;
     }
+    // O erro não apaga o que a pessoa enviou: a mensagem fica na conversa, como não respondida, e "Tentar de novo" a reenvia.
+    setOutbox({ text: message, fresh, failed: true });
     setSendError(result.error);
     if (result.error.code === "conversation_changed" && conversation) {
       const fresh = await safe(() => client.getConversation(conversation.id));
@@ -340,7 +386,14 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   /** Grava a edição à mão do rascunho; devolve a conversa atualizada, ou `null` se falhou. */
   const saveDraft = async (): Promise<ConversationDetail | null> => {
     if (!conversation || !fields) return null;
-    const result = await save.run(() => client.updateConversationDraft(conversation.id, { title: fields.title.trim(), description: fields.description }));
+    // Os filhos vão por inteiro quando o rascunho os tem ou os tinha: a lista enviada substitui a anterior (ADR 0044).
+    const withParts = fields.children.length > 0 || conversation.draft!.children.length > 0;
+    const body = {
+      title: fields.title.trim(),
+      description: fields.description,
+      ...(withParts ? { children: fields.children.map((part) => ({ title: part.title.trim(), description: part.description })) } : {}),
+    };
+    const result = await save.run(() => client.updateConversationDraft(conversation.id, body));
     if (!result.ok) return null;
     // Editar à mão não muda o parecer da IA: vale o `ready` da última resposta (ADR 0033).
     const saved = { ...result.data, ready: conversation.ready };
@@ -409,11 +462,21 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     void send();
   };
 
+  /** Leva a lista ao fim: a resposta que se revela cresce embaixo. */
+  const keepEnd = () => {
+    const element = scroller.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  };
+
   const overLimit = text.length > MAX_MESSAGE;
   const canSend = !sending && text.trim() !== "" && !overLimit;
   const manualParent = target?.parentId ?? null;
   const retryable = sendError !== null && sendError.kind === "unavailable";
+  // Também "a conversa mudou": a mensagem não entrou, e a conversa já foi relida; reenviá-la é o próximo passo natural.
+  const canRetry = retryable || sendError?.code === "conversation_changed";
   const canCreateManually = retryable || sendError?.code === "assistant_not_configured" || isConsentRequired(sendError);
+  // A prévia recusa a criação (chave que não existe, descrição longa demais): o botão fica desabilitado até o rascunho mudar.
+  const createBlocked = preview !== null && (preview.unknownKeys.length > 0 || preview.descriptionTooLong);
   const up = target ? oneLevelUp(target) : null;
   const options = outcome ? [outcome.destination, ...outcome.alternatives] : [];
   const proposal = outcome && target && !proposalDropped && target.parentId === outcome.destination.parentId ? outcome.groupProposal : null;
@@ -444,17 +507,34 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
       )}
       <div ref={scroller} className="assistant-scroll" onScroll={(event) => { if (expanded) scrolled.current = event.currentTarget.scrollTop; }}>
         {removal.error && <p role="alert">{describeError(removal.error)}</p>}
-        {!conversation && <p className="assistant-hint">{t("conversation.hint")}</p>}
-        {conversation?.messages.map((message) => (
-          <div key={message.id} className={message.author === "person" ? "assistant-person" : "assistant-reply"}>{message.body}</div>
-        ))}
-        {sending && <p role="status" className="assistant-waiting">{t("conversation.waiting")}</p>}
+        {!conversation && !outbox && <p className="assistant-hint">{t("conversation.hint")}</p>}
+        {conversation?.messages.map((message) =>
+          message.author === "person" ? (
+            <div key={message.id} className="assistant-person">{message.body}</div>
+          ) : (
+            <Reveal key={message.id} text={message.body} active={message.id === revealingId} onDone={() => setRevealingId((current) => (current === message.id ? null : current))} onStep={() => keepEnd()}>
+              {(shown, revealing) => <div className="assistant-reply" aria-hidden={revealing ? true : undefined}>{shown}</div>}
+            </Reveal>
+          ),
+        )}
+        {outbox && (
+          <div className={`assistant-person ${outbox.failed ? "is-unanswered" : ""}`}>
+            {outbox.text}
+            {outbox.failed && <small className="assistant-unanswered">{t("conversation.unanswered")}</small>}
+          </div>
+        )}
+        {sending && (
+          <>
+            <p role="status" className="assistant-waiting">{t("conversation.waiting")}</p>
+            <Skeleton />
+          </>
+        )}
         {sendError && (
           <div className="assistant-error">
             {isConsentRequired(sendError) ? <ConsentRequiredNotice /> : <p role="alert">{describeError(sendError)}</p>}
-            {(retryable || canCreateManually) && (
+            {(canRetry || canCreateManually) && (
               <div>
-                {retryable && <button type="button" onClick={() => void send()} disabled={sending}>{t("error.retry")}</button>}
+                {canRetry && <button type="button" onClick={() => void (outbox ? send(outbox.text, outbox.fresh) : send())} disabled={sending}>{t("error.retry")}</button>}
                 <button type="button" onClick={() => onManualCreate({ projectId: project.id, parentId: manualParent, ...(fields ? { draft: { title: fields.title, description: fields.description } } : {}) })}>{t("error.manual")}</button>
               </div>
             )}
@@ -462,6 +542,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
         )}
         {draft && fields && (
           <div className="assistant-cards">
+            {preview && preview.quote !== "" && <OriginalRequest quote={preview.quote} mentions={{ projectId: project.id, tickets: list }} />}
             <section className="assistant-card" aria-label={t("draft.region")}>
               <h3>{t("draft.heading")}</h3>
               <label>
@@ -481,12 +562,17 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                   onChange={(text) => setEdit({ ...fields, description: text })}
                 />
               </div>
+              {fields.children.length > 0 || partCount > 0 ? (
+                <DraftParts parts={fields.children} mentions={{ projectId: project.id, tickets: list }} disabled={save.busy} onChange={(children) => setEdit({ ...fields, children })} />
+              ) : null}
+              {preview && preview.unknownKeys.length > 0 && <p role="alert" className="assistant-warning">{t("draft.warning.unknownKeys", { keys: preview.unknownKeys.join(", ") })}</p>}
+              {preview?.descriptionTooLong === true && <p role="alert" className="assistant-warning">{t("draft.warning.tooLong")}</p>}
               {(save.error || search.error) && <p role="alert">{describeError((save.error ?? search.error)!)}</p>}
               {search.busy && <p role="status" className="assistant-hint">{t("draft.searching")}</p>}
               {!conversation!.ready && !outcome && <p className="assistant-hint assistant-not-ready">{t("draft.notReady")}</p>}
               <div className="assistant-actions">
-                {dirty && <button type="button" disabled={save.busy || fields.title.trim() === ""} onClick={() => void saveDraft()}>{t("draft.save")}</button>}
-                <button type="button" className={outcome || !conversation!.ready ? undefined : "primary"} disabled={busy || fields.title.trim() === ""} onClick={() => void searchPlace()}>
+                {dirty && <button type="button" disabled={save.busy || blankTitle} onClick={() => void saveDraft()}>{t("draft.save")}</button>}
+                <button type="button" className={outcome || !conversation!.ready ? undefined : "primary"} disabled={busy || blankTitle} onClick={() => void searchPlace()}>
                   {outcome ? t("draft.searchAgain") : conversation!.ready ? t("draft.search") : t("draft.searchAnyway")}
                 </button>
               </div>
@@ -519,6 +605,8 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 }}
                 onChoose={() => setChoosing(true)}
                 onCreate={() => void createHere()}
+                parts={partCount}
+                createBlocked={createBlocked}
               />
             )}
           </div>

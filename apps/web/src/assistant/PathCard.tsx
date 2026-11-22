@@ -31,6 +31,10 @@ interface PathCardProps {
   unchecked: readonly string[];
   onToggle: (ticketId: string) => void;
   onCreateGroup: () => void;
+  /** Quantas partes (filhos) o rascunho tem; elas nascem dentro do ticket (ADR 0044). */
+  parts: number;
+  /** A prévia recusa a criação: os botões de criar ficam desabilitados. */
+  createBlocked: boolean;
 }
 
 /** O caminho do topo até a base, em palavras: sem probabilidades (ADR 0029). */
@@ -62,6 +66,7 @@ export function PathCard(props: PathCardProps) {
           </li>
         ))}
       </ol>
+      {props.parts > 0 && <p className="assistant-notice">{t("path.partsNote", { count: props.parts })}</p>}
       {props.reopensKey !== null && <p className="assistant-notice" role="status">{reopenWarningText(tTicket, props.reopensKey)}</p>}
       {proposal && (
         <div className="assistant-proposal">
@@ -82,7 +87,7 @@ export function PathCard(props: PathCardProps) {
             })}
           </ul>
           <div className="proposal-actions">
-            <button type="button" disabled={busy} onClick={props.onCreateGroup}>{t("proposal.create")}</button>
+            <button type="button" disabled={busy || props.createBlocked} onClick={props.onCreateGroup}>{t("proposal.create")}</button>
           </div>
         </div>
       )}
@@ -114,7 +119,7 @@ export function PathCard(props: PathCardProps) {
       )}
       {props.error && <p role="alert">{describeError(props.error)}</p>}
       <div className="assistant-actions">
-        <button type="button" className="primary" disabled={busy} onClick={props.onCreate}>{t("path.create")}</button>
+        <button type="button" className="primary" disabled={busy || props.createBlocked} onClick={props.onCreate}>{props.parts > 0 ? t("path.createWithParts", { count: props.parts }) : t("path.create")}</button>
         <button type="button" disabled={!props.canGoUp} onClick={props.onUp}>{t("path.up")}</button>
         <button type="button" className="text" onClick={props.onChoose}>{t("pick.choose")}</button>
       </div>
