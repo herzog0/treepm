@@ -8,3 +8,5 @@ export { DEFAULT_SPATIAL_SCENE_OPTIONS } from "./spatialSceneOptions.js";
 export type { SpatialSceneOptions } from "./spatialSceneOptions.js";
 export { cameraAtAnchor, advanceWheelCamera, DEFAULT_SPATIAL_CAMERA_OPTIONS } from "./spatialCameraMotion.js";
 export type { SpatialCamera, SpatialZoomAnchor, SpatialCameraOptions } from "./spatialCameraMotion.js";
+export { startPinch, pinchCamera } from "./spatialPinch.js";
+export type { PinchPoints, PinchLimits, PinchStart } from "./spatialPinch.js";

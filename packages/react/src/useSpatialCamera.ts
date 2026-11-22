@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent, RefObject } from "react";
-import { advanceWheelCamera, cameraAtAnchor } from "@treepm/engine";
-import type { SpatialCamera, SpatialZoomAnchor, SpatialBounds, SpatialLayout, SpatialLayoutNode, TreeNode, SpatialCameraOptions as EngineCameraOptions } from "@treepm/engine";
+import { advanceWheelCamera, cameraAtAnchor, pinchCamera, startPinch } from "@treepm/engine";
+import type { PinchPoints, PinchStart, SpatialCamera, SpatialZoomAnchor, SpatialBounds, SpatialLayout, SpatialLayoutNode, TreeNode, SpatialCameraOptions as EngineCameraOptions } from "@treepm/engine";
 
 interface DragState {
   pointerId: number;
@@ -10,6 +10,12 @@ interface DragState {
   lastX: number;
   lastY: number;
   active: boolean;
+}
+
+interface PinchState {
+  /** The two touch pointers driving the pinch, in the order they landed. */
+  ids: [number, number];
+  start: PinchStart;
 }
 
 interface FitAnimation {
@@ -70,6 +76,9 @@ export function useSpatialCamera<TNode extends TreeNode>(layout: SpatialLayout<T
   const sizeRef = useRef(size);
   const animationRef = useRef<CameraAnimation | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  // Touch pointers currently down (client coordinates), in landing order. Only the first two take part in a pinch.
+  const touchesRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<PinchState | null>(null);
   const suppressClickRef = useRef(false);
   const motionPreference = useMemo(() => typeof window === "undefined" ? null : window.matchMedia("(prefers-reduced-motion: reduce)"), []);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
@@ -214,6 +223,8 @@ export function useSpatialCamera<TNode extends TreeNode>(layout: SpatialLayout<T
     // Runtime layout/options take ownership before the next animation frame.
     cancelAnimation();
     dragRef.current = null;
+    pinchRef.current = null;
+    touchesRef.current.clear();
     setIsDragging(false);
     stageBoundsRef.current = null;
     if (!layout.nodeById.has(focusId)) {
@@ -276,11 +287,94 @@ export function useSpatialCamera<TNode extends TreeNode>(layout: SpatialLayout<T
     stage.addEventListener("wheel", listener, { passive: false });
     return () => stage.removeEventListener("wheel", listener);
   }, [layout, config]);
+  useEffect(() => {
+    // Safari (iOS) also zooms the page itself on a two-finger pinch unless its proprietary gesture events are cancelled.
+    // Pointer Events do the actual zoom of the canvas; this only stops the browser from zooming the page underneath.
+    const stage = stageRef.current;
+    if (!stage) return;
+    const cancel = (event: Event) => event.preventDefault();
+    const names = ["gesturestart", "gesturechange", "gestureend"] as const;
+    for (const name of names) stage.addEventListener(name, cancel, { passive: false });
+    return () => { for (const name of names) stage.removeEventListener(name, cancel); };
+  }, [layout]);
   useEffect(() => () => {
     cancelAnimation();
   }, []);
 
+  const pinchPoints = (ids: readonly [number, number]): PinchPoints | null => {
+    const rect = stageBounds();
+    const first = touchesRef.current.get(ids[0]);
+    const second = touchesRef.current.get(ids[1]);
+    if (!rect || !first || !second) return null;
+    return [{ x: first.x - rect.left, y: first.y - rect.top }, { x: second.x - rect.left, y: second.y - rect.top }];
+  };
+  /** (Re)start the pinch from the camera now on screen, so adding/removing a finger never makes the camera jump. */
+  const beginPinch = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const [first, second] = [...touchesRef.current.keys()];
+    if (first === undefined || second === undefined) return;
+    const points = pinchPoints([first, second]);
+    if (!points) return;
+    cancelAnimation();
+    dragRef.current = null;
+    pinchRef.current = { ids: [first, second], start: startPinch(cameraRef.current, points) };
+    // A pinch is never a click, not even when the last finger lifts over a card.
+    suppressClickRef.current = true;
+    for (const id of [first, second]) if (!event.currentTarget.hasPointerCapture(id)) event.currentTarget.setPointerCapture(id);
+    setIsDragging(true);
+  };
+  const onTouchPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    stageBoundsRef.current = null;
+    cancelAnimation();
+    if (touchesRef.current.size === 0) suppressClickRef.current = false;
+    // The two fingers of a pinch are all that is tracked; further fingers are ignored.
+    if (touchesRef.current.size >= 2) return;
+    touchesRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    lastPointerRef.current = { x: event.clientX, y: event.clientY };
+    if (touchesRef.current.size === 2) {
+      beginPinch(event);
+    } else {
+      dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, lastX: event.clientX, lastY: event.clientY, active: false };
+    }
+  };
+  const onTouchPointerMove = (event: ReactPointerEvent<HTMLDivElement>): boolean => {
+    const finger = touchesRef.current.get(event.pointerId);
+    if (!finger) return false;
+    finger.x = event.clientX;
+    finger.y = event.clientY;
+    const pinch = pinchRef.current;
+    if (!pinch) return false;
+    if (!pinch.ids.includes(event.pointerId)) return true;
+    const points = pinchPoints(pinch.ids);
+    if (!points) return true;
+    event.preventDefault();
+    commitCamera(pinchCamera(pinch.start, points, { minScale: config.minScale, maxScale }));
+    return true;
+  };
+  /** A finger left: from two fingers the remaining one keeps dragging (no jump); from one the gesture ends. */
+  const onTouchPointerEnd = (event: ReactPointerEvent<HTMLDivElement>): boolean => {
+    if (!touchesRef.current.delete(event.pointerId)) return false;
+    const pinch = pinchRef.current;
+    if (pinch && pinch.ids.includes(event.pointerId)) {
+      pinchRef.current = null;
+      const [remainingId, remaining] = [...touchesRef.current.entries()][0] ?? [];
+      if (remainingId !== undefined && remaining) {
+        // Already past the pan threshold (a pinch happened), so the remaining finger pans right away from where it is.
+        dragRef.current = { pointerId: remainingId, startX: remaining.x, startY: remaining.y, lastX: remaining.x, lastY: remaining.y, active: true };
+        suppressClickRef.current = true;
+      } else {
+        dragRef.current = null;
+        setIsDragging(false);
+      }
+      return true;
+    }
+    return false;
+  };
+
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch") {
+      onTouchPointerDown(event);
+      return;
+    }
     if (!event.isPrimary || (event.button !== 0 && event.button !== 1)) return;
     stageBoundsRef.current = null;
     // A new grab owns the displayed camera immediately; never finish an old zoom first.
@@ -292,6 +386,7 @@ export function useSpatialCamera<TNode extends TreeNode>(layout: SpatialLayout<T
   };
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     lastPointerRef.current = { x: event.clientX, y: event.clientY };
+    if (event.pointerType === "touch" && onTouchPointerMove(event)) return;
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (event.buttons === 0) {
@@ -327,6 +422,7 @@ export function useSpatialCamera<TNode extends TreeNode>(layout: SpatialLayout<T
     commitCamera({ ...current, x: current.x + deltaX, y: current.y + deltaY });
   };
   const finishPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch" && onTouchPointerEnd(event)) return;
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (drag.active) suppressClickRef.current = true;
@@ -334,6 +430,8 @@ export function useSpatialCamera<TNode extends TreeNode>(layout: SpatialLayout<T
     setIsDragging(false);
   };
   const onLostPointerCapture = (event: ReactPointerEvent<HTMLDivElement>) => {
+    // A touch is finished by its own pointerup/pointercancel; capture hand-over between the card and the stage is not the end.
+    if (event.pointerType === "touch" && touchesRef.current.has(event.pointerId)) return;
     if (dragRef.current && event.buttons !== 0) return;
     finishPointer(event);
   };
