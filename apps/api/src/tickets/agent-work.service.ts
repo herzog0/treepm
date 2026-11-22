@@ -11,7 +11,7 @@ import type { AgentWork } from "./tickets.schema.js";
 import { ticketStatusSchema } from "./tickets.schema.js";
 
 /** Por que o marcador acabou (ADR 0043): o agente, uma pessoa na tela, o ticket foi concluído ou cancelado, virou ideia (ou entrou numa). */
-export type AgentWorkEndReason = "agent" | "person" | "finished" | "idea";
+export type AgentWorkEndReason = "agent" | "person" | "finished" | "idea" | "archived";
 
 export type AgentWorkInput = { working: boolean; minutes?: number | undefined; note?: string | undefined };
 
@@ -129,6 +129,37 @@ export class AgentWorkService {
   /** O ticket concluído ou cancelado já não tem o que sinalizar. */
   async clearTicket(tx: TenantClient, principal: Principal, projectKey: string, ticketId: string, reason: AgentWorkEndReason): Promise<void> {
     await this.clearMarkers(tx, principal, projectKey, [ticketId], reason);
+  }
+
+  /**
+   * Arquivar o projeto encerra os marcadores dos tickets dele (TREEPM-198), na transação de quem arquivou. Uma atualização em lote
+   * (que já trava as linhas) e uma inserção de eventos, qualquer que seja o número de tickets. Só os marcadores que ainda valiam
+   * gravam `ticket.agent_work_ended` (motivo `archived`); os vencidos só têm as colunas limpas.
+   */
+  async endForArchivedProject(tx: TenantClient, principal: Principal, projectId: string): Promise<void> {
+    const rows = await tx.$queryRaw<{ id: string; number: number; key: string; until: Date }[]>`
+      with marked as (
+        select id, number, agent_work_until as until from tickets
+        where project_id = ${projectId}::uuid and agent_work_until is not null order by id for update
+      ), cleared as (
+        update tickets set agent_work_started_at = null, agent_work_until = null, agent_work_person_id = null, agent_work_note = null
+        from marked where tickets.id = marked.id returning tickets.id
+      )
+      select marked.id, marked.number, projects.key, marked.until
+      from marked join cleared on cleared.id = marked.id join projects on projects.id = ${projectId}::uuid`;
+    const now = this.clock.now();
+    await this.activity.recordMany(
+      tx,
+      principal,
+      rows
+        .filter((row) => agentWorkIsValid(row.until, now))
+        .map((row) => ({
+          kind: "ticket.agent_work_ended",
+          subjectType: "ticket" as const,
+          subjectId: row.id,
+          payload: { key: `${row.key}-${row.number}`, reason: "archived" satisfies AgentWorkEndReason },
+        })),
+    );
   }
 
   private async clearMarkers(tx: TenantClient, principal: Principal, projectKey: string, ids: readonly string[], reason: AgentWorkEndReason): Promise<void> {

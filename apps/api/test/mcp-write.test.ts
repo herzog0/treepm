@@ -134,6 +134,29 @@ describe("chamadas recusadas sem efeito", () => {
     h.clock.advance(61_000);
     expect((await h.tool(token, "PRIV", "set_agent_work", { key: "PRIV-3", working: false })).status).toBe(200);
   });
+
+  // TREEPM-197: além do limite por token, 40 escritas por minuto por pessoa (organização + pessoa), somando todos os tokens dela.
+  it("limite de 40 escritas por minuto por pessoa, somando os tokens; pessoas diferentes não se afetam; a leitura não é afetada", async () => {
+    const first = await setup();
+    const second = await h.create("contributor", priv(), { scope: "write" });
+    const third = await h.create("contributor", priv(), { scope: "write" });
+    const other = await h.create("manager", priv(), { scope: "write" });
+    for (const r of [second, third, other]) expect(r.status, JSON.stringify(r.body)).toBe(201);
+    const write = (token: string) => h.tool(token, "PRIV", "set_agent_work", { key: "PRIV-3", working: true });
+    for (let i = 0; i < 20; i += 1) expect((await write(first.token)).status, `a#${i}`).toBe(200);
+    for (let i = 0; i < 20; i += 1) expect((await write(second.body.token as string)).status, `b#${i}`).toBe(200);
+    // O terceiro token da mesma pessoa está com a própria cota vazia, mas a pessoa já escreveu 40 vezes.
+    const call = { name: "set_agent_work", arguments: { key: "PRIV-3", working: true } };
+    const refusedByPerson = await h.post(third.body.token as string, "PRIV", rpcBody("tools/call", call), rpcHeaders("tools/call", { name: "set_agent_work" }));
+    expect(refusedByPerson.status).toBe(429);
+    expect(Number(refusedByPerson.headers["retry-after"])).toBeGreaterThanOrEqual(1);
+    // Outra pessoa não é afetada; a leitura da pessoa que estourou também não.
+    expect((await write(other.body.token as string)).status).toBe(200);
+    expect((await h.tool(third.body.token as string, "PRIV", "get_ticket", { key: "PRIV-3" })).status).toBe(200);
+    // A janela passa e a pessoa volta a escrever.
+    h.clock.advance(61_000);
+    expect((await write(third.body.token as string)).status).toBe(200);
+  });
 });
 
 describe("a mesma tabela de recusas pelas duas portas (HTTP e MCP)", () => {

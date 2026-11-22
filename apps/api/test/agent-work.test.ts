@@ -1,3 +1,4 @@
+import type { TenantClient } from "@treepm/db";
 import { describe, expect, it } from "vitest";
 import { AgentWorkService } from "../src/tickets/agent-work.service.js";
 import { MINUTE, useTokenHarness } from "./access-token-support.js";
@@ -250,5 +251,101 @@ describe("isolamento entre organizações", () => {
     await mark("contributor", t.id, { working: true });
     expect((await h.call("GET", `/api/tickets/${t.id}`, as("outsider", OTHER_ORG))).status).toBe(404);
     expect((await detail(t.id)).agentWork).not.toBeNull();
+  });
+});
+
+// TREEPM-198: arquivar o projeto encerra os marcadores que valem nos tickets dele (motivo archived), na mesma transação.
+describe("arquivar o projeto encerra os marcadores", () => {
+  const archive = (who: Who = "admin") => h.call("PATCH", `/api/projects/${P()}`, as(who), { archived: true });
+  const markerColumns = async (id: string) => (await h.pool.query("select agent_work_started_at s, agent_work_until u, agent_work_person_id p, agent_work_note n from tickets where id = $1", [id])).rows[0];
+
+  it("com marcadores valendo: limpa todos, grava um evento archived por ticket e o ticket continua com a mesma situação", async () => {
+    const a = await make();
+    const b = await make();
+    await mark("contributor", a.id, { working: true, note: "um" });
+    await mark("contributor", b.id, { working: true, note: "dois" });
+    expect((await archive()).status).toBe(200);
+    for (const t of [a, b]) expect(Object.values(await markerColumns(t.id))).toEqual([null, null, null, null]);
+    const ended = await events("ticket.agent_work_ended");
+    expect(ended.map((e) => e.payload.reason)).toEqual(["archived", "archived"]);
+    expect(ended.map((e) => e.subject_id).sort()).toEqual([a.id, b.id].sort());
+    expect(ended.every((e) => e.actor_person_id === h.world().people.admin)).toBe(true);
+    expect((await h.pool.query("select status from tickets where id = $1", [a.id])).rows[0].status).toBe("todo");
+  });
+
+  it("a atividade do ticket devolve o motivo archived", async () => {
+    const t = await make();
+    await mark("contributor", t.id, { working: true });
+    await archive();
+    const entry = (await feed(t.id)).find((e) => e.type === "agent_work_ended");
+    expect(entry).toMatchObject({ type: "agent_work_ended", reason: "archived" });
+  });
+
+  it("marcador vencido: só limpa as colunas, sem evento; ticket sem marcador não é tocado", async () => {
+    const expired = await make();
+    const plain = await make();
+    await mark("contributor", expired.id, { working: true, minutes: 5 });
+    h.clock.advance(6 * MINUTE);
+    expect((await archive()).status).toBe(200);
+    expect(Object.values(await markerColumns(expired.id))).toEqual([null, null, null, null]);
+    expect(Object.values(await markerColumns(plain.id))).toEqual([null, null, null, null]);
+    expect(await events("ticket.agent_work_ended")).toHaveLength(0);
+  });
+
+  it("projeto sem nenhum marcador: arquivar não grava evento de marcador", async () => {
+    await make();
+    expect((await archive()).status).toBe(200);
+    expect(await events("ticket.agent_work_ended")).toHaveLength(0);
+  });
+
+  it("só o projeto arquivado é afetado; arquivar de novo e desarquivar não gravam nada a mais", async () => {
+    const t = await make();
+    await mark("contributor", t.id, { working: true });
+    expect((await archive()).status).toBe(200);
+    expect((await archive()).status).toBe(200);
+    expect(await events("ticket.agent_work_ended")).toHaveLength(1);
+    expect((await h.call("PATCH", `/api/projects/${P()}`, as("admin"), { archived: false })).status).toBe(200);
+    expect(await events("ticket.agent_work_ended")).toHaveLength(1);
+  });
+
+  it("depois de arquivado, ligar o marcador e encerrar continuam recusados (409)", async () => {
+    const t = await make();
+    await mark("contributor", t.id, { working: true });
+    await archive();
+    expect(await mark("contributor", t.id, { working: true }).catch((e: unknown) => refusalOf(e))).toMatchObject({ status: 409, code: "project_archived" });
+    expect(refusalOfResponse(await h.call("DELETE", `/api/tickets/${t.id}/agent-work`, as("admin")))).toMatchObject({ status: 409 });
+  });
+
+  it("a limpeza é em lote: o número de consultas não cresce com o número de tickets (2 no total)", async () => {
+    const queriesFor = async (tickets: number): Promise<number> => {
+      const made = [];
+      for (let i = 0; i < tickets; i += 1) made.push(await make());
+      for (const t of made) await mark("contributor", t.id, { working: true });
+      return asService(h.app(), "admin", "org_A", async (tx, principal) => {
+        let queries = 0;
+        const counting = new Proxy(tx, {
+          get(target, prop, receiver) {
+            const value = Reflect.get(target, prop, receiver) as unknown;
+            if (prop === "$queryRaw" || prop === "$executeRaw") return (...args: unknown[]) => { queries += 1; return (value as (...a: unknown[]) => unknown).apply(target, args); };
+            if (typeof prop === "string" && !prop.startsWith("$") && typeof value === "object" && value !== null) {
+              return new Proxy(value, {
+                get(model, method) {
+                  const fn = Reflect.get(model, method) as unknown;
+                  return typeof fn === "function" ? (...args: unknown[]) => { queries += 1; return (fn as (...a: unknown[]) => unknown).apply(model, args); } : fn;
+                },
+              });
+            }
+            return value;
+          },
+        }) as TenantClient;
+        await h.app().get(AgentWorkService).endForArchivedProject(counting, principal, P());
+        return queries;
+      });
+    };
+    const few = await queriesFor(2);
+    const many = await queriesFor(12);
+    expect(few).toBeLessThanOrEqual(2);
+    expect(many).toBe(few);
+    expect(await events("ticket.agent_work_ended")).toHaveLength(14);
   });
 });

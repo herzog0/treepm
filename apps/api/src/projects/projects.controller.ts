@@ -22,6 +22,7 @@ import { orConflict } from "../common/conflict.js";
 import { PROJECT_KEY_PATTERN, idSchema, nameSchema, projectRoleSchema, visibilitySchema } from "../common/schemas.js";
 import { ZodPipe, parseOutput } from "../common/zod.js";
 import { Tx } from "../db/tx.decorator.js";
+import { AgentWorkService } from "../tickets/agent-work.service.js";
 
 const projectSchema = z.object({
   id: z.string(),
@@ -81,6 +82,7 @@ export class ProjectsController {
   constructor(
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(ActivityService) private readonly activity: ActivityService,
+    @Inject(AgentWorkService) private readonly agentWork: AgentWorkService,
   ) {}
 
   /** A visibilidade é aplicada ANTES de montar qualquer dado ou contagem do projeto. */
@@ -142,6 +144,8 @@ export class ProjectsController {
       },
       include: withRelations,
     });
+    // Arquivar (só na passagem de ativo para arquivado) encerra os marcadores de trabalho pela IA dos tickets, na mesma transação.
+    if (archivedAt && !current.archivedAt) await this.agentWork.endForArchivedProject(tx, principal, id);
     await this.activity.record(tx, principal, {
       kind: "project.updated",
       subjectType: "project",

@@ -60,7 +60,7 @@ type Data =
   | { type: "contribution_status_changed"; areaId: string; from: z.output<typeof contributionStatusSchema>; to: z.output<typeof contributionStatusSchema> }
   | { type: "contribution_person_added" | "contribution_person_removed"; areaId: string; personId: string }
   | { type: "agent_work_started"; until: string }
-  | { type: "agent_work_ended"; reason: "agent" | "person" | "finished" | "idea" }
+  | { type: "agent_work_ended"; reason: "agent" | "person" | "finished" | "idea" | "archived" }
   | { type: "idea_registered" | "idea_accepted" | "idea_discarded" | "idea_reopened" }
   | { type: "idea_stage_changed"; from: z.output<typeof ideaStageSchema>; to: z.output<typeof ideaStageSchema> }
   | { type: "comment"; comment: CommentRow };
@@ -152,7 +152,7 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
       return v.success ? [make(0, row.id, { type: "agent_work_started", until: v.data.until })] : [];
     }
     case "ticket.agent_work_ended": {
-      const v = z.object({ reason: z.enum(["agent", "person", "finished", "idea"]) }).safeParse(p);
+      const v = z.object({ reason: z.enum(["agent", "person", "finished", "idea", "archived"]) }).safeParse(p);
       return v.success ? [make(0, row.id, { type: "agent_work_ended", reason: v.data.reason })] : [];
     }
     case "ticket.idea_registered":

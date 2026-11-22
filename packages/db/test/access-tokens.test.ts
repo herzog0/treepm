@@ -95,7 +95,7 @@ describe("access_tokens: isolamento entre organizações", () => {
     const [row] = await insert(ORG_T1, t1);
     const id = row?.id ?? "";
     expect(await asTenant(prisma, ORG_T2, (tx) => tx.accessToken.findMany({ where: { id } }))).toHaveLength(0);
-    const updated = await asTenant(prisma, ORG_T2, (tx) => tx.accessToken.updateMany({ where: { id }, data: { name: "x" } }));
+    const updated = await asTenant(prisma, ORG_T2, (tx) => tx.accessToken.updateMany({ where: { id }, data: { revokedAt: new Date() } }));
     expect(updated.count).toBe(0);
     const deleted = await asTenant(prisma, ORG_T2, (tx) => tx.accessToken.deleteMany({ where: { id } }));
     expect(deleted.count).toBe(0);

@@ -53,7 +53,7 @@ export type ResolveOptions = {
   /** O pedido é de uma ferramenta de escrita (pelo nome). Só vira consulta fresca se o token e a organização permitirem escrever. */
   fresh?: boolean;
   /** Chamado uma vez por tentativa de escrita, antes de qualquer ida ao Clerk; `allowed: false` recusa com 429. */
-  onWriteAttempt?: (tokenId: string) => ReturnType<RateLimiter["hit"]>;
+  onWriteAttempt?: (tokenId: string, personKey: string) => ReturnType<RateLimiter["hit"]>;
 };
 
 const invalid: ResolveResult = { ok: false, reason: "invalid" };
@@ -125,7 +125,7 @@ export class AccessTokenService {
       if (!row.person.active) return this.reject(row.id, "invalid");
       if (wantsFresh) {
         // O limite de escritas conta a tentativa ANTES de qualquer ida ao Clerk (inclusive de token sem alcance de escrita).
-        const writes = options.onWriteAttempt?.(row.id);
+        const writes = options.onWriteAttempt?.(row.id, `${orgId}:${row.person.id}`);
         if (writes && !writes.allowed) return { ok: false, reason: "rate_limited", retryAfterSeconds: Math.ceil(writes.retryAfterMs / 1000) };
         fresh = row.scope === "write" && row.organization.mcpWriteEnabled;
       }

@@ -128,7 +128,7 @@ const TABLES: TableSpec[] = [
     table: "access_tokens",
     insert:
       "insert into access_tokens (org_id, person_id, project_id, name, token_prefix, token_hash, expires_at) values ($1, gen_random_uuid(), gen_random_uuid(), 'x', 'abcd1234', md5(random()::text), now())",
-    update: "update access_tokens set name = 'hacked' where org_id = $1",
+    update: "update access_tokens set revoked_at = now() where org_id = $1",
     remove: "delete from access_tokens where org_id = $1",
     appCanUpdateAndDelete: true,
   },

@@ -58,7 +58,7 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("contribution_person_added"), area: areaRefSchema, person: personSchema.nullable() }),
   z.object({ ...base, type: z.literal("contribution_person_removed"), area: areaRefSchema, person: personSchema.nullable() }),
   z.object({ ...base, type: z.literal("agent_work_started"), until: z.string() }),
-  z.object({ ...base, type: z.literal("agent_work_ended"), reason: z.enum(["agent", "person", "finished", "idea"]) }),
+  z.object({ ...base, type: z.literal("agent_work_ended"), reason: z.enum(["agent", "person", "finished", "idea", "archived"]) }),
   z.object({ ...base, type: z.literal("idea_registered") }),
   z.object({ ...base, type: z.literal("idea_stage_changed"), from: ideaStageSchema, to: ideaStageSchema }),
   z.object({ ...base, type: z.literal("idea_accepted") }),
