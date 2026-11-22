@@ -296,7 +296,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "createTeam", "renameTeam", "removeTeam", "putTeamMember", "removeTeamMember",
     "createArea", "renameArea", "removeArea", "getProject", "createProject", "updateProject",
     "putProjectMember", "removeProjectMember", "putProjectTeam", "removeProjectTeam",
-    "getTicket", "createTicket", "updateTicket", "removeTicket", "putTicketAssignee", "removeTicketAssignee",
+    "getTicket", "createTicket", "updateTicket", "removeTicket", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency",
     "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement",
     "createTicketFromConversation", "listConversations", "getConversation", "removeConversation",
     ...GITHUB_NAMES,
@@ -340,7 +340,7 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
   const detail = (entry: TicketSummary): TicketDetail => ({
     ...withProgress(entry),
     description: descriptions.get(entry.id) ?? "",
-    mentionedBy: [],
+    mentionedBy: [], dependsOn: [], blocks: [],
     createdByPersonId: "person-1",
     createdAt: "2026-11-20T10:00:00.000Z",
     updatedAt: "2026-11-20T10:00:00.000Z",

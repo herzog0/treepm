@@ -60,10 +60,14 @@ const ticketSummarySchema = z.object({
   /** Primeiros caracteres da descrição, para o card em "detalhe" do mapa (ADR 0027). */
   descriptionExcerpt: z.string(),
 });
+const ticketLinkSchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatus });
 const ticketDetailSchema = ticketSummarySchema.extend({
   description: z.string(),
   /** Os tickets do projeto que mencionam este na descrição, em ordem de número (ADR 0037). */
-  mentionedBy: z.array(z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatus })),
+  mentionedBy: z.array(ticketLinkSchema),
+  /** Os tickets de que este depende e os que dependem deste, em ordem de número (ADR 0037). */
+  dependsOn: z.array(ticketLinkSchema),
+  blocks: z.array(ticketLinkSchema),
   createdByPersonId: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -342,6 +346,11 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       request("PUT", `${ticket(id)}/assignees/${personId}`, ticketDetailSchema),
     removeTicketAssignee: (id: string, personId: string) =>
       request("DELETE", `${ticket(id)}/assignees/${personId}`, null),
+    /** "Este ticket depende de `ticketId`" (ADR 0037); repetir é sucesso. */
+    addTicketDependency: (id: string, ticketId: string) =>
+      request("POST", `${ticket(id)}/dependencies`, ticketDetailSchema, { ticketId }),
+    removeTicketDependency: (id: string, ticketId: string) =>
+      request("DELETE", `${ticket(id)}/dependencies/${ticketId}`, null),
     /** `scopeId`: o ticket em que a procura vai começar (ADR 0033, ADR 0034), ou `null` para o projeto inteiro; a IA recebe os títulos dos tickets com filhos dali. */
     openConversation: (projectId: string, body: { message: string; scopeId?: string | null }) =>
       request("POST", `${project(projectId)}/ticket-conversations`, conversationDetailSchema, body),

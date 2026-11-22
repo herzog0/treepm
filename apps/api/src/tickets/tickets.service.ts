@@ -68,11 +68,18 @@ export function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, prog
 
 export type MentionedByRow = { number: number; id: string; title: string; status: string };
 
-export function toDetail(project: Pick<ProjectRow, "key">, row: TicketDetailRow, progress: Progress, mentionedBy: readonly MentionedByRow[] = []): TicketDetail {
+export function toDetail(project: Pick<ProjectRow, "key">, row: TicketDetailRow, progress: Progress,
+  mentionedBy: readonly MentionedByRow[] = [],
+  dependsOn: readonly MentionedByRow[] = [],
+  blocks: readonly MentionedByRow[] = [],
+): TicketDetail {
+  const link = (from: MentionedByRow) => ({ id: from.id, key: `${project.key}-${from.number}`, title: from.title, status: from.status });
   return parseOutput(ticketDetailSchema, {
     ...toSummary(project, row, progress),
     description: row.description,
-    mentionedBy: mentionedBy.map((from) => ({ id: from.id, key: `${project.key}-${from.number}`, title: from.title, status: from.status })),
+    mentionedBy: mentionedBy.map(link),
+    dependsOn: dependsOn.map(link),
+    blocks: blocks.map(link),
     createdByPersonId: row.createdByPersonId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -162,17 +169,28 @@ export class TicketsService {
   }
 
   async detail(tx: TenantClient, project: ProjectRow, id: string): Promise<TicketDetail> {
-    const [row, nodes, mentions] = await Promise.all([
+    const [row, nodes, mentions, dependencies] = await Promise.all([
       tx.ticket.findFirstOrThrow({ where: { id }, include: { assignees: { select: { personId: true } } } }),
       tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, parentId: true, status: true } }),
       tx.ticketRelation.findMany({
         where: { toTicketId: id, kind: "mentions" },
         select: { from: { select: { id: true, number: true, title: true, status: true } } },
       }),
+      tx.ticketRelation.findMany({
+        where: { kind: "depends_on", OR: [{ fromTicketId: id }, { toTicketId: id }] },
+        select: {
+          fromTicketId: true,
+          from: { select: { id: true, number: true, title: true, status: true } },
+          to: { select: { id: true, number: true, title: true, status: true } },
+        },
+      }),
     ]);
     const progress = ticketProgress(toNodes(nodes));
     const mentionedBy = mentions.map((relation) => relation.from).sort((a, b) => a.number - b.number);
-    return toDetail(project, row, progress, mentionedBy);
+    const byNumber = (a: MentionedByRow, b: MentionedByRow) => a.number - b.number;
+    const dependsOn = dependencies.filter((relation) => relation.fromTicketId === id).map((relation) => relation.to).sort(byNumber);
+    const blocks = dependencies.filter((relation) => relation.fromTicketId !== id).map((relation) => relation.from).sort(byNumber);
+    return toDetail(project, row, progress, mentionedBy, dependsOn, blocks);
   }
 
   /**

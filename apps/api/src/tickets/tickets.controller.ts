@@ -13,7 +13,7 @@ import {
   Put,
 } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { isFinished, parentWouldCreateCycle, ticketProgress } from "@treepm/domain";
+import { createsDependencyCycle, isFinished, parentWouldCreateCycle, ticketProgress } from "@treepm/domain";
 import type { TicketStatus } from "@treepm/domain";
 import type { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
@@ -24,6 +24,7 @@ import { idSchema } from "../common/schemas.js";
 import { ZodPipe, parseOutput } from "../common/zod.js";
 import { Tx } from "../db/tx.decorator.js";
 import {
+  addDependencySchema,
   createTicketSchema,
   importTicketsSchema,
   ticketSummarySchema,
@@ -319,6 +320,73 @@ export class TicketsController {
       subjectId: id,
       payload: { key: `${project.key}-${ticket.number}`, personId },
     });
+  }
+
+  /**
+   * "Este ticket depende de `body.ticketId`" (ADR 0037). Idempotente: ligação que já existe responde 200 sem novo evento.
+   * O ciclo é decidido por `createsDependencyCycle` sobre as dependências do projeto, lidas depois de travar o projeto
+   * (trava de aviso `pg_advisory_xact_lock`, só entre quem altera dependências): duas requisições simultâneas não
+   * enxergam o mesmo estado antigo, então não fecham um ciclo juntas. Nada além da ligação e do evento é alterado.
+   */
+  @Post("tickets/:id/dependencies")
+  @HttpCode(200)
+  async addDependency(
+    @Tx() tx: TenantClient,
+    @CurrentPrincipal() principal: Principal,
+    @Param("id", new ZodPipe(idSchema)) id: string,
+    @Body(new ZodPipe(addDependencySchema)) body: z.output<typeof addDependencySchema>,
+  ): Promise<TicketDetail> {
+    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
+    this.authorization.editTicket(principal.actor, project.id);
+    this.requireActive(project);
+    const other = await this.requireSameProjectTicket(tx, project.id, body.ticketId);
+    if (other.id === id) {
+      throw new ConflictException({ code: "dependency_self", message: "Um ticket não pode depender de si mesmo." });
+    }
+    await tx.$executeRaw`select pg_advisory_xact_lock(hashtextextended(${`ticket-dependencies:${project.id}`}, 0))`;
+    const edges = await tx.ticketRelation.findMany({ where: { projectId: project.id, kind: "depends_on" }, select: { fromTicketId: true, toTicketId: true } });
+    if (!edges.some((edge) => edge.fromTicketId === id && edge.toTicketId === other.id)) {
+      if (createsDependencyCycle(edges.map((edge) => [edge.fromTicketId, edge.toTicketId] as const), id, other.id)) {
+        throw new ConflictException({ code: "dependency_cycle", message: "Isso fecharia um ciclo de dependências.", details: { key: `${project.key}-${other.number}` } });
+      }
+      await tx.ticketRelation.create({ data: { orgId: project.orgId, projectId: project.id, fromTicketId: id, toTicketId: other.id, kind: "depends_on" } });
+      await this.activity.record(tx, principal, {
+        kind: "ticket.dependency_added",
+        subjectType: "ticket",
+        subjectId: id,
+        payload: { key: `${project.key}-${ticket.number}`, dependsOnKey: `${project.key}-${other.number}`, dependsOnTicketId: other.id },
+      });
+    }
+    return this.tickets.detail(tx, project, id);
+  }
+
+  @Delete("tickets/:id/dependencies/:ticketId")
+  @HttpCode(204)
+  async removeDependency(
+    @Tx() tx: TenantClient,
+    @CurrentPrincipal() principal: Principal,
+    @Param("id", new ZodPipe(idSchema)) id: string,
+    @Param("ticketId", new ZodPipe(idSchema)) otherId: string,
+  ): Promise<void> {
+    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
+    this.authorization.editTicket(principal.actor, project.id);
+    this.requireActive(project);
+    const other = await this.requireSameProjectTicket(tx, project.id, otherId);
+    const removed = await tx.ticketRelation.deleteMany({ where: { fromTicketId: id, toTicketId: other.id, kind: "depends_on" } });
+    if (removed.count === 0) throw new NotFoundException("Dependência não encontrada.");
+    await this.activity.record(tx, principal, {
+      kind: "ticket.dependency_removed",
+      subjectType: "ticket",
+      subjectId: id,
+      payload: { key: `${project.key}-${ticket.number}`, dependsOnKey: `${project.key}-${other.number}`, dependsOnTicketId: other.id },
+    });
+  }
+
+  /** Inexistente, de outra organização (RLS) ou de outro projeto: o mesmo 404 de "ticket não encontrado". */
+  private async requireSameProjectTicket(tx: TenantClient, projectId: string, ticketId: string): Promise<{ id: string; number: number }> {
+    const other = await tx.ticket.findFirst({ where: { id: ticketId, projectId }, select: { id: true, number: true } });
+    if (!other) throw new NotFoundException("Ticket não encontrado.");
+    return other;
   }
 
   /** Inexistente, de outra organização (RLS) ou privado sem papel: todos viram o mesmo 404. */

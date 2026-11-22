@@ -12,6 +12,7 @@ import { isOpenStatus, reopenedNoticeText, reopensOnReceiving } from "./reopen.j
 import { RichDescription } from "./description/RichDescription.js";
 import type { DraftRequest } from "./description/WriterRequest.js";
 import { descendantIds } from "./tree.js";
+import { fold, searchTickets } from "../command/search.js";
 
 const STATUSES: readonly TicketStatus[] = ["todo", "in_progress", "in_review", "done", "cancelled"];
 
@@ -368,6 +369,104 @@ export function ParentField({ client, detail, parent, tickets, canEdit, onOpen, 
         </div>
       )}
       <ActionError action={action} />
+    </>
+  );
+}
+
+interface DependsOnProps extends FieldBase {
+  tickets: readonly TicketSummary[];
+  canEdit: boolean;
+  onOpen: (id: string) => void;
+}
+
+/**
+ * "Depende de" (ADR 0037): os tickets de que este precisa, com remover e "Adicionar". O seletor só oferece tickets do mesmo
+ * projeto, sem o próprio e sem os que já estão na lista. Esc fecha só o seletor; as setas percorrem busca e lista.
+ */
+export function DependsOnField({ client, detail, tickets, canEdit, onOpen, onSaved }: DependsOnProps) {
+  const { t } = useTranslation("ticket");
+  const [picking, setPicking] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [tried, setTried] = useState("");
+  const action = useAction();
+  const describeError = useDescribeApiError();
+  const addButton = useRef<HTMLButtonElement>(null);
+  const picker = useRef<HTMLDivElement>(null);
+  const listed = new Set(detail.dependsOn.map((entry) => entry.id));
+  const pool = tickets.filter((entry) => entry.projectId === detail.projectId && entry.id !== detail.id && !listed.has(entry.id));
+  const candidates = fold(filter).trim() === "" ? pool : searchTickets(filter, { [detail.projectId]: pool });
+
+  const close = () => {
+    setPicking(false);
+    setFilter("");
+    addButton.current?.focus();
+  };
+  const choose = async (entry: TicketSummary) => {
+    setTried(entry.key);
+    const result = await action.run(() => client.addTicketDependency(detail.id, entry.id));
+    if (!result.ok) return;
+    setPicking(false);
+    setFilter("");
+    onSaved();
+  };
+  const remove = async (id: string) => {
+    const result = await action.run(() => client.removeTicketDependency(detail.id, id));
+    if (result.ok) onSaved();
+  };
+  const onPickerKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const stops = [...(picker.current?.querySelectorAll<HTMLElement>("input, button") ?? [])];
+    const at = stops.indexOf(document.activeElement as HTMLElement);
+    event.preventDefault();
+    stops[Math.min(Math.max(at + (event.key === "ArrowDown" ? 1 : -1), 0), stops.length - 1)]?.focus();
+  };
+
+  return (
+    <>
+      <div className="ticket-deps">
+        {detail.dependsOn.map((entry) => (
+          <span key={entry.id} className="ticket-dep">
+            <button type="button" className="ticket-chip ticket-chip-button" onClick={() => onOpen(entry.id)}>
+              <StatusMark status={entry.status} />
+              <span className="ticket-key">{entry.key}</span>
+              <span className="ticket-child-title">{entry.title}</span>
+            </button>
+            {canEdit && (
+              <button type="button" className="ticket-person-remove" aria-label={t("dependsOn.remove", { key: entry.key })} disabled={action.busy} onClick={() => void remove(entry.id)}>×</button>
+            )}
+          </span>
+        ))}
+        {canEdit && (
+          <button
+            ref={addButton}
+            type="button"
+            className="ticket-dashed"
+            aria-label={t("dependsOn.addLabel")}
+            aria-expanded={picking}
+            onClick={() => { action.clear(); setPicking((open) => !open); }}
+          >
+            {t("dependsOn.add")}
+          </button>
+        )}
+      </div>
+      {canEdit && picking && (
+        <div ref={picker} className="ticket-picker" role="group" aria-label={t("dependsOn.pickerLabel")} onKeyDown={onPickerKeyDown}>
+          <input aria-label={t("dependsOn.filter")} autoFocus value={filter} onChange={(event) => setFilter(event.target.value)} />
+          <div className="ticket-picker-list">
+            {candidates.map((entry) => (
+              <button key={entry.id} type="button" disabled={action.busy} onClick={() => void choose(entry)}><TicketLabel ticket={entry} /></button>
+            ))}
+            {candidates.length === 0 && <p className="ticket-muted">{t("dependsOn.none")}</p>}
+          </div>
+        </div>
+      )}
+      {action.error?.code === "dependency_cycle" ? <p role="alert" className="ticket-error">{t("dependsOn.cycle", { key: tried })}</p> : action.error && <p role="alert" className="ticket-error">{describeError(action.error)}</p>}
     </>
   );
 }
