@@ -5,6 +5,7 @@ import type { ApiClient, TicketDetail, TicketSummary } from "../api/client.js";
 import { makePanelMe, makePerson } from "../panel/testing.js";
 import { failed, makeClient, makeProject, makeTicket, ok } from "../test/fakes.js";
 import { TicketPage } from "./TicketPage.js";
+import { descriptionEditorMounted, editableFocused } from "../test/stable.js";
 import type { TicketPageProps } from "./TicketPage.js";
 
 // Digitação de verdade, em navegador real (ADR 0036): a descrição em blocos, as menções e o salvamento ao sair do campo.
@@ -34,6 +35,8 @@ async function open(description: string, extra: { updateTicket?: ApiClient["upda
     <TicketPage client={client} me={makePanelMe("admin")} projects={[project]} ticketId={extra.ticketId === undefined ? "t2" : extra.ticketId} creating={extra.creating ?? null} {...handlers} />,
   );
   await expect.element(screen.getByRole("heading", { level: 1 })).toBeVisible();
+  // Antes de o editor montar, o texto é simples e o clique não edita (de propósito, RichDescription.tsx): esperar por ele, não clicar cedo.
+  if (extra.creating == null && extra.ticketId !== null) await descriptionEditorMounted();
   return { screen, client, ...handlers, update: client.updateTicket as ReturnType<typeof vi.fn> };
 }
 
@@ -71,6 +74,7 @@ describe("description editing in place", () => {
   it("Ctrl+Enter saves and leaves the edition", async () => {
     const { screen, update } = await open("Texto antigo");
     await screen.getByText("Texto antigo").click();
+    await editableFocused();
     await userEvent.keyboard("{Control>}{End}{/Control}!{Control>}{Enter}{/Control}");
     await expect.poll(() => update.mock.calls.length).toBe(1);
     expect(lastDescription(update)).toBe("Texto antigo!");
@@ -87,6 +91,7 @@ describe("description editing in place", () => {
   it("Esc undoes what was not saved without closing the page; a second Esc closes it", async () => {
     const { screen, update, onClose } = await open("Texto antigo");
     await screen.getByText("Texto antigo").click();
+    await editableFocused();
     await userEvent.keyboard("{Control>}{End}{/Control} lixo{Escape}");
     await expect.element(screen.getByRole("textbox", { name: "Descrição" })).not.toBeInTheDocument();
     await expect.element(screen.getByText("Texto antigo")).toBeVisible();
@@ -99,6 +104,7 @@ describe("description editing in place", () => {
   it("keeps the text and shows the API error when saving fails, and nothing is lost", async () => {
     const { screen, update } = await open("Texto antigo", { updateTicket: vi.fn(async () => failed("not_found")) });
     await screen.getByText("Texto antigo").click();
+    await editableFocused();
     await userEvent.keyboard("{Control>}{End}{/Control} novo{Control>}{Enter}{/Control}");
     await expect.poll(() => document.querySelector("[role=alert]")?.textContent).toContain("Não encontramos esse item");
     await expect.poll(() => document.querySelector("[role=textbox]")?.textContent).toBe("Texto antigo novo");
@@ -119,6 +125,7 @@ describe("blocks menu (/)", () => {
   it("opens with '/', filters by typing, inserts the block with Enter and Esc closes only the menu", async () => {
     const { screen, update, onClose } = await open("Texto");
     await screen.getByText("Texto").click();
+    await editableFocused();
     await userEvent.keyboard("{Control>}{End}{/Control}{Enter}/");
     const menu = screen.getByRole("menu", { name: "Blocos" });
     await expect.element(menu).toBeVisible();
@@ -145,6 +152,7 @@ describe("blocks menu (/)", () => {
   ])("the markdown shortcut %j works while typing", async (typed, saved) => {
     const { screen, update } = await open("");
     await screen.getByRole("button", { name: "Clique para escrever a descrição." }).click();
+    await editableFocused();
     await userEvent.keyboard(typed.replace(/\n/g, "{Enter}") + "{Control>}{Enter}{/Control}");
     await expect.poll(() => update.mock.calls.length).toBe(1);
     expect(lastDescription(update)).toBe(saved);
@@ -155,6 +163,7 @@ describe("mentions (@)", () => {
   it("lists the tickets of the project without the open one, filters, inserts the key as text and shows it as a mention", async () => {
     const { screen, update } = await open("Ver");
     await screen.getByText("Ver").click();
+    await editableFocused();
     await userEvent.keyboard("{Control>}{End}{/Control} @");
     const list = screen.getByRole("listbox", { name: "Mencionar ticket" });
     await expect.element(list).toBeVisible();
@@ -191,6 +200,7 @@ describe("manual creation", () => {
     const { screen, client } = await open("", { ticketId: null, creating: { projectId: "p1", parentId: "t1" } });
     await screen.getByRole("textbox", { name: "Título" }).fill("Escrever o rascunho");
     await screen.getByRole("textbox", { name: "Descrição" }).click();
+    await editableFocused();
     await userEvent.keyboard("Primeira versão");
     await screen.getByRole("button", { name: "Criar" }).click();
     await expect.poll(() => (client.createTicket as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);

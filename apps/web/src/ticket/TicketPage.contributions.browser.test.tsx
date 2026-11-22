@@ -7,6 +7,7 @@ import type { ActivityEntry, ApiClient, Contribution, TicketDetail, TicketSummar
 import { makePanelMe, makePerson } from "../panel/testing.js";
 import { failed, makeClient, makeProject, makeTicket, ok } from "../test/fakes.js";
 import { TicketPage } from "./TicketPage.js";
+import { editableFocused } from "../test/stable.js";
 
 // ADR 0041, fatia 1, em navegador real: o texto da área no editor de verdade, e (com TREEPM_CAPTURES) as capturas da conferência visual.
 const project = makeProject("p1", "ALFA", "Projeto Alfa");
@@ -57,6 +58,7 @@ describe("o texto da área no editor de verdade", () => {
   it("clicar no convite, digitar e sair do campo salva o markdown escrito", async () => {
     const { screen, update } = await open();
     await screen.getByRole("button", { name: "Descreva o que esta área precisa entregar" }).click();
+    await editableFocused();
     await userEvent.keyboard("Entregar **tudo** até ALFA-2");
     await screen.getByRole("heading", { name: "Áreas" }).click();
     await expect.poll(() => update.mock.calls.length).toBe(1);
@@ -66,6 +68,7 @@ describe("o texto da área no editor de verdade", () => {
   it("uma falha de salvar mostra o erro no bloco e o texto digitado continua no campo", async () => {
     const { screen, update } = await open({ updateFails: true });
     await screen.getByRole("button", { name: "Descreva o que esta área precisa entregar" }).click();
+    await editableFocused();
     await userEvent.keyboard("texto que não pode se perder");
     await screen.getByRole("heading", { name: "Áreas" }).click();
     await expect.poll(() => update.mock.calls.length).toBe(1);

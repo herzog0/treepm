@@ -8,7 +8,8 @@ import { failed, makeClient, makeConversation, makeProject, makeTicket, ok } fro
 import { OrganizationMap } from "./OrganizationMap.js";
 
 /** "Perguntar ao assistente sobre o projeto": a folha da pergunta dentro da barra de pedidos (ADR 0037, fatia 5). */
-const SLOW = 8000;
+// Prazo dos testes que montam o mapa inteiro: 2-4 s com a máquina em uso normal, e mais de 8 s com ela saturada (TREEPM-101).
+const SLOW = 20_000;
 const projects = [makeProject("p1", "ALFA", "Projeto Alfa"), makeProject("p2", "BETA", "Projeto Beta")];
 const tickets: Record<string, TicketSummary[]> = {
   p1: [

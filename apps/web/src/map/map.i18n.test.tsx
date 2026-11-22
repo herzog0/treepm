@@ -14,7 +14,8 @@ import { initialsOf } from "./DetailCard.js";
 import { OrganizationMap } from "./OrganizationMap.js";
 import { renderNodeContent } from "./nodeContent.js";
 
-const SLOW = 8000;
+// Prazo dos testes que montam o mapa inteiro: 2-4 s com a máquina em uso normal, e mais de 8 s com ela saturada (TREEPM-101).
+const SLOW = 20_000;
 
 /** Textos em português do catálogo `map` que o idioma testado traduziu de outro jeito (e que não são variáveis nem marcação). */
 function portugueseNotShared(language: Language): string[] {

@@ -113,7 +113,7 @@ describe("seção Atividade: frases", () => {
     await setTestLanguage("en");
     setup({ "": page(items) });
     const view = within(await screen.findByRole("region", { name: "Activity" }));
-    const en = view.getAllByRole("listitem").map(textOf);
+    const en = (await view.findAllByRole("listitem")).map(textOf);
     expect(en[0]).toMatch(/Ana moved it inside ALFA-12 Título/);
     expect(en[1]).toMatch(/Ana changed the status from To do to In progress/);
   });
@@ -122,7 +122,7 @@ describe("seção Atividade: frases", () => {
     await setTestLanguage("es-MX");
     setup({ "": page([entry<"assignee_added">({ type: "assignee_added", person: bruno })]) });
     const view = within(await screen.findByRole("region", { name: "Actividad" }));
-    expect(textOf(view.getByRole("listitem"))).toMatch(/Ana agregó a Bruno como responsable/);
+    expect(textOf(await view.findByRole("listitem"))).toMatch(/Ana agregó a Bruno como responsable/);
   });
 });
 
@@ -192,7 +192,7 @@ describe("seção Atividade: tickets citados", () => {
       entry<"dependency_added">({ type: "dependency_added", ticket: ref(7, "Banco") }),
     ]) });
     const region = await section();
-    await userEvent.click(within(region).getByRole("button", { name: /ALFA-7 Banco/ }));
+    await userEvent.click(await within(region).findByRole("button", { name: /ALFA-7 Banco/ }));
     expect(onOpenTicket).toHaveBeenCalledWith("r7");
     expect(within(region).queryByRole("button", { name: /ALFA-9/ })).not.toBeInTheDocument();
     expect(within(region).getByText("ALFA-9 (ticket removido)")).toBeInTheDocument();

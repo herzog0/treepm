@@ -17,3 +17,11 @@ export function measure(selectors: readonly string[]): Record<string, Box> {
 }
 
 export const settle = (ms = 400) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Espera a geometria dos seletores parar de mudar (carga do editor, fontes, listas) antes de medir; sob carga isso demora mais que um tempo fixo. */
+export async function measureStable(selectors: readonly string[]): Promise<Record<string, Box>> {
+  const { untilStable } = await import("../test/stable.js");
+  await document.fonts.ready;
+  await untilStable(() => JSON.stringify(measure(selectors)));
+  return measure(selectors);
+}

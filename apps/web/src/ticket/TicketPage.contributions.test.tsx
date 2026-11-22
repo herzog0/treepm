@@ -116,8 +116,8 @@ describe("adicionar área", () => {
     const user = userEvent.setup();
     const { createContribution, client } = setup({ contributions: [design] });
     const section = await region();
-    await user.click(within(section).getByRole("button", { name: "Adicionar área" }));
-    const menu = screen.getByRole("menu", { name: "Áreas" });
+    await user.click(await within(section).findByRole("button", { name: "Adicionar área" }));
+    const menu = await screen.findByRole("menu", { name: "Áreas" });
     expect(within(menu).getAllByRole("menuitemradio").map((i) => i.textContent)).toEqual(["Dados", "Jurídico"]);
     await user.click(within(menu).getByRole("menuitemradio", { name: "Jurídico" }));
     await waitFor(() => expect(createContribution).toHaveBeenCalledWith("t1", { areaId: "a3" }));
@@ -129,7 +129,9 @@ describe("adicionar área", () => {
     const user = userEvent.setup();
     const { createContribution } = setup({ contributions: [] });
     const section = await region();
-    await user.click(within(section).getByRole("button", { name: "Adicionar área" }));
+    await user.click(await within(section).findByRole("button", { name: "Adicionar área" }));
+    // O foco chega ao menu depois da abertura: as teclas só valem a partir daí.
+    await waitFor(() => expect(within(screen.getByRole("menu", { name: "Áreas" })).getAllByRole("menuitemradio")[0]).toHaveFocus());
     await user.keyboard("{ArrowDown}{Enter}");
     await waitFor(() => expect(createContribution).toHaveBeenCalledWith("t1", { areaId: "a2" }));
   });
@@ -157,7 +159,7 @@ describe("adicionar área", () => {
     const { client } = setup({ contributions: [] });
     client.createContribution.mockResolvedValueOnce(failed("conflict", "contribution_area_taken"));
     const section = await region();
-    await user.click(within(section).getByRole("button", { name: "Adicionar área" }));
+    await user.click(await within(section).findByRole("button", { name: "Adicionar área" }));
     await user.click(screen.getByRole("menuitemradio", { name: "Design" }));
     expect(await within(await region()).findByRole("alert")).toHaveTextContent(/já tem/i);
     expect(screen.getByRole("heading", { name: "Este ticket" })).toBeInTheDocument();

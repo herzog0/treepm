@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 import { renderScreen } from "./layoutScreens.js";
 import type { LayoutScreen } from "./layoutScreens.js";
-import { measure, settle } from "./layoutMeasure.js";
+import { measure, measureStable, settle } from "./layoutMeasure.js";
 import type { Box } from "./layoutMeasure.js";
 
 // TREEPM-231, regra de ouro: acima de 720 px nada muda. Esta suíte grava em 1440×900 o retângulo dos elementos principais de cada tela
@@ -31,7 +31,7 @@ async function observe(screen: Exclude<LayoutScreen, "ideas">, key: string, afte
   await page.viewport(1440, 900);
   await renderScreen(screen);
   await document.fonts.ready;
-  const result = measure(SELECTORS[screen]);
+  const result = await measureStable(SELECTORS[screen]);
   if (afterOpen) {
     await afterOpen();
     await settle();

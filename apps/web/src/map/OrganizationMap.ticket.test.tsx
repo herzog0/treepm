@@ -8,7 +8,8 @@ import { makePanelMe, makePerson } from "../panel/testing.js";
 import { failed, makeClient, makeProject, makeTicket, ok } from "../test/fakes.js";
 import { OrganizationMap } from "./OrganizationMap.js";
 
-const SLOW = 8000;
+// Prazo dos testes que montam o mapa inteiro: 2-4 s com a máquina em uso normal, e mais de 8 s com ela saturada (TREEPM-101).
+const SLOW = 20_000;
 const projects = [makeProject("p1", "ALFA", "Projeto Alfa"), makeProject("p2", "BETA", "Projeto Beta")];
 const archived = makeProject("p3", "OLD", "Antigo", { archivedAt: "2026-01-01T00:00:00.000Z" });
 const tickets: Record<string, TicketSummary[]> = {
