@@ -9,6 +9,7 @@ Contrato em `docs/adr/0022-api-nestjs-e-hospedagem-na-fly.md`. Um app serve `tre
 | `VITE_CLERK_PUBLISHABLE_KEY` | argumento de build (`--build-arg`) | Chave pública, embutida no bundle do web. Não é secret de runtime. |
 | `CLIENT_IP_HEADER` | `[env]` do `fly.toml` | Opcional. Nome do cabeçalho com o IP do cliente (`Fly-Client-IP`), usado só pelo limite por IP do servidor MCP; sem ele vale o IP da conexão. Ver o passo 7 do primeiro deploy. |
 | `NODE_ENV`, `PORT`, `WEB_DIST_DIR`, `APP_ORIGIN` | `[env]` do `fly.toml` | Não secretas. `WEB_DIST_DIR` é opcional; sem ela a API não serve estáticos (desenvolvimento). |
+| `APP_EXTRA_ORIGINS` | — | Só desenvolvimento (origens extras da web, ex.: o endereço da rede privada). Em produção **não** é definida: só `APP_ORIGIN` vale. |
 | `CLERK_SECRET_KEY` | secret da Fly | Obrigatório. |
 | `CLERK_PUBLISHABLE_KEY` | secret da Fly | Obrigatório; mesma chave pública do build. |
 | `DATABASE_URL` | secret da Fly | Papel `treepm_app`, conexão com pool. Única conexão da API. |

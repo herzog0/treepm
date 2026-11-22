@@ -43,6 +43,7 @@ function toAuthenticator(client: ReturnType<typeof createClerkClient>): ClerkAut
       useFactory: (client: ReturnType<typeof createClerkClient>, config: AppConfig) =>
         new ClerkSessionVerifier(toAuthenticator(client), {
           appOrigin: config.APP_ORIGIN,
+          extraOrigins: config.APP_EXTRA_ORIGINS,
           jwtKey: config.CLERK_JWT_KEY,
         }),
     },

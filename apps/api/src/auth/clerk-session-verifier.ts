@@ -18,12 +18,14 @@ export type ClerkAuthenticator = {
 
 export type ClerkVerifierOptions = {
   appOrigin: string;
+  /** Origens extras (APP_EXTRA_ORIGINS) aceitas como parte autorizada, além de `appOrigin`. */
+  extraOrigins?: readonly string[] | undefined;
   jwtKey?: string | undefined;
 };
 
 /**
  * Verificação de sessão com o SDK de servidor do Clerk (ADR 0019 e 0022).
- * `authorizedParties` é sempre `[APP_ORIGIN]`. Sessão pendente é devolvida como
+ * `authorizedParties` é `[APP_ORIGIN, ...APP_EXTRA_ORIGINS]`; a URL da requisição montada usa só `APP_ORIGIN`. Sessão pendente é devolvida como
  * pendente (e não como deslogada) para o guard responder 403.
  */
 export class ClerkSessionVerifier implements SessionVerifier {
@@ -36,7 +38,7 @@ export class ClerkSessionVerifier implements SessionVerifier {
     try {
       const state = await this.client.authenticateRequest(this.toWebRequest(request), {
         acceptsToken: "session_token",
-        authorizedParties: [this.options.appOrigin],
+        authorizedParties: [this.options.appOrigin, ...(this.options.extraOrigins ?? [])],
         ...(this.options.jwtKey ? { jwtKey: this.options.jwtKey } : {}),
       });
       if (!state.isAuthenticated) return null;

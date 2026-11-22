@@ -2,6 +2,7 @@
 import type pg from "pg";
 import request from "supertest";
 import { beforeEach } from "vitest";
+import type { AppConfig } from "../src/config.js";
 import { McpGateway } from "../src/mcp/mcp-gateway.js";
 import { useTokenHarness } from "./access-token-support.js";
 import type { TokenHarness } from "./access-token-support.js";
@@ -59,8 +60,8 @@ export function rpcHeaders(method: string, params: Record<string, unknown> = {})
   };
 }
 
-export function useMcpHarness(): McpHarness {
-  const h = useTokenHarness();
+export function useMcpHarness(config?: AppConfig): McpHarness {
+  const h = useTokenHarness(config);
   beforeEach(() => {
     h.app().get(McpGateway).resetMemory();
   });
