@@ -1,6 +1,6 @@
 # ADR 0038 — Servidor MCP por projeto, com token por pessoa
 
-**Status:** Aceita por Teodoro em 2026-11-21 quanto ao objetivo ("Mcp com token por pessoa tbm"). O desenho abaixo é escolha da coordenação e vale até ele dizer o contrário. Nada foi implementado; o código depende da camada de consulta da [ADR 0037](0037-relacoes-entre-tickets-e-camada-de-consulta.md) (`TREEPM-77`). **Data:** 2026-11-21.
+**Status:** Aceita por Teodoro em 2026-11-21 quanto ao objetivo ("Mcp com token por pessoa tbm"). O desenho abaixo é escolha da coordenação e vale até ele dizer o contrário. A fatia dos tokens foi implementada em 2026-11-21 (PR #113, migration `0012_access_tokens`); o endereço MCP e as telas ainda não. O código depende da camada de consulta da [ADR 0037](0037-relacoes-entre-tickets-e-camada-de-consulta.md) (`TREEPM-77`). **Data:** 2026-11-21.
 
 ## Contexto
 
@@ -98,3 +98,16 @@ As duas ficam no `TREEPM-78`, com um filho por fatia quando começarem.
 3. Ferramentas de escrita (criar ticket, mudar situação).
 4. Branches e pull requests ligados ao ticket.
 5. Se o limite de requisições precisa valer entre várias máquinas (hoje a publicação prevê uma).
+
+## Como ficou na implementação (fatia 1, tokens)
+
+- **Formato:** `tpm_`, a organização em base64url e 32 bytes aleatórios. O token inteiro tem no máximo 256 caracteres, e a organização precisa ter o formato dos identificadores do Clerk; fora disso é recusado antes de qualquer consulta ao banco.
+- **Rotas, com sessão normal:** `PATCH /api/organization` (a chave, só administrador), `POST`, `GET` e `DELETE` em `/api/access-tokens`, e `GET /api/access-tokens/organization` (só administrador). O `GET /api/me` informa `mcp.enabled`.
+- **Limite de 10 ativos** por pessoa, serializado no banco: 14 criações simultâneas dão exatamente 10.
+- **Resolver** (`AccessTokenService.resolve`), ainda sem rota: devolve a mesma identidade de uma sessão ou uma de quatro falhas (`invalid`, `disabled`, `not_found`, `rate_limited`). Erro do Clerk ou do banco sobe como erro, nunca vira "válido".
+- **Participação no Clerk:** uma consulta por pessoa por vez, guardada por 5 minutos só quando positiva, e conferida contra a pessoa pedida.
+- **Depois do Clerk,** o token, a chave da organização e a pessoa são relidos antes do sucesso.
+- **Saiu da organização:** a pessoa fica inativa e os tokens ativos dela são revogados, com evento automático.
+- A montagem da identidade virou um serviço comum à sessão e ao token; o caminho da sessão passou a ler `mcp_enabled`, e por isso a migration precisa estar aplicada antes do código.
+- Uma revisão de segurança independente não achou falha grave; o que ela apontou entrou antes do merge, menos o limite por IP antes da autenticação, que é da fatia do endereço.
+- Suítes: domain 243, db 200, api 1.442. O Clerk não foi chamado de verdade.
