@@ -1,0 +1,42 @@
+{
+  "id": "ticket-simples",
+  "messages": [
+    "o botão de salvar da tela de configurações fica desabilitado depois de trocar o idioma; tem que continuar habilitado"
+  ],
+  "expectChildren": false,
+  "mustMention": [
+    {
+      "label": "botão de salvar",
+      "anyOf": [
+        "botão de salvar",
+        "botão salvar",
+        "botão \"salvar\""
+      ]
+    },
+    {
+      "label": "configurações",
+      "anyOf": [
+        "configurações",
+        "configuração"
+      ]
+    },
+    {
+      "label": "idioma",
+      "anyOf": [
+        "idioma"
+      ]
+    },
+    {
+      "label": "desabilitado",
+      "anyOf": [
+        "desabilitad",
+        "inativo",
+        "bloqueado"
+      ]
+    }
+  ],
+  "mustNotMention": [
+    "critérios de aceite",
+    "resultado esperado"
+  ]
+}
