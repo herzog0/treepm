@@ -54,3 +54,7 @@ Isso substitui o trecho provisório da ADR 0026 e resolve a dúvida 12 do bluepr
 - As preferências dependem do Clerk estar acessível para gravar; a leitura vem junto com o usuário já carregado.
 - A API não conhece as preferências. Um comportamento do servidor que dependa de preferência vai exigir outra decisão.
 - A página de configurações nasce com uma opção só; cresce conforme as decisões.
+
+## Alteração de 2026-11-22: a câmera fica onde está
+
+Teodoro pediu em 2026-11-22: "remova a feature de voltar pro lugar original onde se iniciou um clique ao fechar a aba do ticket aberto no momento. faz a camera continuar exatamente onde esta". Fechar um ticket deixa de mover a câmera, e a preferência "Ao fechar um ticket" sai de Configurações junto com a seção "Câmera", que só tinha essa opção. O foco da câmera ao abrir um ticket continua. O mecanismo de preferências por pessoa desta ADR permanece. Em implementação no `TREEPM-181`.
