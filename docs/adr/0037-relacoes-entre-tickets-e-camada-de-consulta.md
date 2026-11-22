@@ -1,6 +1,6 @@
 # ADR 0037 — Relações entre tickets e camada de consulta do projeto
 
-**Status:** Aceita por Teodoro em 2026-11-21 quanto à direção ("Segue a sua recomendação pras coisas em aberto"). A coordenação tinha recomendado a tabela de relações, a camada de consulta e gravar a ligação "menciona"; o restante desta ADR está marcado como escolha da coordenação e vale até ele dizer o contrário. A tabela, a ligação "menciona" e a camada de consulta foram implementadas em 2026-11-21 (PRs #100, #104 e #106); "depende de" também (PR #111); da pergunta sobre o projeto, só a parte da API (PR #109), sem a tela. Nada foi testado com sessão real e nenhuma chamada a provedor real foi feita. **Data:** 2026-11-21.
+**Status:** Aceita por Teodoro em 2026-11-21 quanto à direção ("Segue a sua recomendação pras coisas em aberto"). A coordenação tinha recomendado a tabela de relações, a camada de consulta e gravar a ligação "menciona"; o restante desta ADR está marcado como escolha da coordenação e vale até ele dizer o contrário. A tabela, a ligação "menciona" e a camada de consulta foram implementadas em 2026-11-21 (PRs #100, #104 e #106); "depende de" também (PR #111); a pergunta sobre o projeto também, com a API (PR #109) e a barra (PR #114). As cinco fatias estão no `main`. Nada foi testado com sessão real e nenhuma chamada a provedor real foi feita. **Data:** 2026-11-21.
 
 Muda, na [ADR 0036](0036-barra-de-pedidos-e-pagina-do-ticket-em-blocos.md), a regra de que a menção é guardada só como a chave no texto (a chave continua, e passa a existir também uma ligação gravada) e a forma de responder a pergunta sobre o projeto (a IA consulta, em vez de receber todos os tickets). Não muda a árvore, o significado de "filho" nem a procura do lugar do ticket novo ([ADR 0034](0034-um-so-tipo-de-ticket-das-folhas-para-o-topo.md)).
 
@@ -186,3 +186,15 @@ Suítes depois das três fatias: domain 237, db 186, api 1.272, web 1.341 e 81 n
 Suítes depois dessas duas: domain 237, db 186, api 1.362, web 1.360 e 84 na suíte de navegador.
 
 **Testes de "transação aberta" (PR #110).** Contavam transações ociosas no servidor de banco inteiro, e suítes rodando em outros bancos do mesmo contêiner as faziam falhar. Passaram a olhar só o próprio banco.
+
+## Como ficou na implementação (a barra da fatia 5, PR #114)
+
+- A linha "Perguntar ao assistente sobre «texto»" fica no grupo de ações da folha, depois de "Criar ticket". Dispara por `Enter` na linha, clique ou `Shift+Enter` no campo *(o atalho é escolha da coordenação; o desenho aprovado mostrava `Tab`, que a ADR 0036 reservou para mover o foco)*.
+- **Leitor pergunta:** a linha depende do assistente ligado e de haver projeto visível, não de poder criar tickets.
+- **Projeto:** o do ticket aberto (ou da criação em curso), senão o do nó selecionado, senão o único visível; com mais de um, a folha pergunta "Em qual projeto?" e envia a pergunta quando a pessoa escolhe.
+- A resposta é desenhada pelo mesmo componente que mostra a descrição, só para leitura; clicar em uma menção abre o ticket e recolhe a folha.
+- **Estado só na tela:** nada vai para o banco nem para o armazenamento do navegador; recarregar a página apaga a conversa de perguntas.
+- **Convivência:** uma folha aberta por vez. Com as duas recolhidas, a barra mostra "Conversa em andamento" e "Pergunta em andamento" lado a lado; em barra estreita o texto do campo é cortado.
+- "Nova pergunta" encerra a folha e leva o foco ao campo da barra. Pergunta nova vinda da barra, com uma folha recolhida no mesmo projeto, continua a mesma conversa.
+- Erro com texto próprio ("O assistente não respondeu. Tente de novo."), porque o texto comum manda criar o ticket manualmente.
+- Web com 1.395 testes e 85 na suíte de navegador. Nenhuma chamada a provedor real foi feita.
