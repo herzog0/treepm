@@ -1,0 +1,46 @@
+{
+  "id": "prioridade",
+  "messages": [
+    "a gente poder selecionar prioridade do ticket e aí um botão de \"next ticket to work on\" pega o próximo ticket dada prioridade dele. pode ser um número inteiro (incluso negativos)."
+  ],
+  "expectChildren": "either",
+  "mustMention": [
+    {
+      "label": "prioridade",
+      "anyOf": [
+        "prioridade"
+      ]
+    },
+    {
+      "label": "número inteiro",
+      "anyOf": [
+        "número inteiro",
+        "inteiro",
+        "inteiros"
+      ]
+    },
+    {
+      "label": "negativos",
+      "anyOf": [
+        "negativo"
+      ]
+    },
+    {
+      "label": "botão",
+      "anyOf": [
+        "botão"
+      ]
+    },
+    {
+      "label": "próximo ticket",
+      "anyOf": [
+        "próximo ticket",
+        "next ticket to work on",
+        "next ticket"
+      ]
+    }
+  ],
+  "mustNotMention": [
+    "critérios de aceite"
+  ]
+}

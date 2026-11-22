@@ -1,0 +1,249 @@
+{
+  "id": "chat-por-ticket",
+  "messages": [
+    "quero que a gente tenha uma interface tipo chat do slack no painel lateral esquerdo. quando uma pessoa tme um ticket um chat fica disponível pra ela trabalhar nele. a conversa é plugada num repositório do ticket e cria uma branch (se for uma tarefa que envolva código, claro) e o chat age essencialmente como uma harness. a pessoa pode requisitar o trabalho em modelos de template de divisão de trabalho customizadas ou pré-prontas, tipo 1 coordenador em tal modelo, 2 devs em outro modelo, um revisor em outro modelo etc, (permite conectar outros provedores de IA também). Pode consumir tokens em modo stream-json pela interação via CLI ou via API. vamos supor que tenha engnheria, design e front trabalhando no mesmo ticket. cada pessoa tem seu próprio chat com seu próprio contexto. porém, se na conversa com o ticket a pessoa de engenharia escrever uma mensagem fazendo menção a outra pessoa, essa outra pessoa ganha também um chat pra esse ticket e apenas e tão somente essa mensagem disponível pras pessoas conversarem em uma thread daquela mensagem em específico, pra resolverem uma dúvida por exemplo. pode marcar mais de uma pessoa até. se a pessoa taggeada for uma das que tão trabalhando no mesmo ticket, a mensagem aparece no fluxo normal de mensagens dela com a origem bem explícita e numa aba dedicada tbm. quebre a tarefa que eu vou pedir o design dela."
+  ],
+  "expectChildren": true,
+  "minChildren": 6,
+  "maxChildren": 12,
+  "mustMention": [
+    {
+      "label": "painel lateral esquerdo",
+      "anyOf": [
+        "painel lateral esquerdo",
+        "lateral esquerd"
+      ]
+    },
+    {
+      "label": "estilo Slack",
+      "anyOf": [
+        "slack"
+      ]
+    },
+    {
+      "label": "chat disponível para quem tem o ticket",
+      "anyOf": [
+        "chat disponível",
+        "chat fica disponível",
+        "chat para quem",
+        "chat por ticket",
+        "chat do ticket",
+        "tem um ticket",
+        "recebe um ticket",
+        "tem o ticket",
+        "tem um chat"
+      ]
+    },
+    {
+      "label": "repositório",
+      "anyOf": [
+        "repositório"
+      ]
+    },
+    {
+      "label": "branch",
+      "anyOf": [
+        "branch",
+        "ramo"
+      ]
+    },
+    {
+      "label": "só quando envolve código",
+      "anyOf": [
+        "envolva código",
+        "envolve código",
+        "envolver código",
+        "tarefa de código",
+        "tarefa que envolva",
+        "quando houver código",
+        "tarefas de código",
+        "quando for código"
+      ]
+    },
+    {
+      "label": "harness",
+      "anyOf": [
+        "harness"
+      ]
+    },
+    {
+      "label": "modelos de divisão de trabalho",
+      "anyOf": [
+        "divisão de trabalho",
+        "divisao do trabalho",
+        "template de divisão",
+        "modelos de divisão",
+        "modelo de divisão",
+        "times de agentes",
+        "composição de agentes"
+      ]
+    },
+    {
+      "label": "prontos ou personalizados",
+      "anyOf": [
+        "personalizad",
+        "customizad",
+        "pré-pront",
+        "pre-pront",
+        "prontos"
+      ]
+    },
+    {
+      "label": "coordenador",
+      "anyOf": [
+        "coordenador"
+      ]
+    },
+    {
+      "label": "dois desenvolvedores",
+      "anyOf": [
+        "2 devs",
+        "dois devs",
+        "dois desenvolvedores",
+        "2 desenvolvedores",
+        "devs",
+        "desenvolvedores"
+      ]
+    },
+    {
+      "label": "revisor",
+      "anyOf": [
+        "revisor"
+      ]
+    },
+    {
+      "label": "outros provedores de IA",
+      "anyOf": [
+        "outros provedores",
+        "provedores de ia",
+        "outros provedores de inteligência",
+        "provedor de ia",
+        "provedores de inteligência"
+      ]
+    },
+    {
+      "label": "stream-json",
+      "anyOf": [
+        "stream-json"
+      ]
+    },
+    {
+      "label": "CLI ou API",
+      "anyOf": [
+        "via cli",
+        "pela cli",
+        "cli ou api",
+        "cli e api",
+        "cli/api",
+        "cli,",
+        "a cli",
+        "linha de comando",
+        "interface de linha"
+      ]
+    },
+    {
+      "label": "um chat por pessoa com contexto próprio",
+      "anyOf": [
+        "próprio chat",
+        "chat próprio",
+        "chat por pessoa",
+        "cada pessoa tem",
+        "contexto próprio",
+        "seu próprio contexto",
+        "contexto separado",
+        "contexto individual",
+        "chat individual"
+      ]
+    },
+    {
+      "label": "engenharia, design e front",
+      "anyOf": [
+        "engenharia",
+        "engnheria"
+      ]
+    },
+    {
+      "label": "menção a outra pessoa",
+      "anyOf": [
+        "menção",
+        "mencion",
+        "marcar",
+        "marcada",
+        "taggead",
+        "taguead"
+      ]
+    },
+    {
+      "label": "só aquela mensagem",
+      "anyOf": [
+        "apenas aquela mensagem",
+        "somente aquela mensagem",
+        "apenas e tão somente",
+        "só aquela mensagem",
+        "apenas essa mensagem",
+        "somente essa mensagem",
+        "só essa mensagem",
+        "apenas a mensagem",
+        "somente a mensagem",
+        "só a mensagem",
+        "aquela mensagem",
+        "essa mensagem",
+        "a mensagem específica",
+        "mensagem em específico"
+      ]
+    },
+    {
+      "label": "thread",
+      "anyOf": [
+        "thread"
+      ]
+    },
+    {
+      "label": "mais de uma pessoa",
+      "anyOf": [
+        "mais de uma pessoa",
+        "várias pessoas",
+        "múltiplas pessoas",
+        "uma ou mais pessoas",
+        "mais pessoas",
+        "mais de uma"
+      ]
+    },
+    {
+      "label": "fluxo normal de mensagens",
+      "anyOf": [
+        "fluxo normal",
+        "fluxo de mensagens",
+        "fluxo regular"
+      ]
+    },
+    {
+      "label": "origem explícita",
+      "anyOf": [
+        "origem",
+        "de onde veio",
+        "procedência"
+      ]
+    },
+    {
+      "label": "aba dedicada",
+      "anyOf": [
+        "aba dedicada",
+        "aba própria",
+        "aba específica",
+        "aba separada",
+        "aba de menções",
+        "aba de mensagens",
+        "uma aba",
+        "numa aba"
+      ]
+    }
+  ],
+  "mustNotMention": [
+    "critérios de aceite",
+    "resultado esperado",
+    "fase",
+    "prazo",
+    "sprint"
+  ]
+}

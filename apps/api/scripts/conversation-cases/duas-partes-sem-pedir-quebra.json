@@ -1,0 +1,60 @@
+{
+  "id": "duas-partes-sem-pedir-quebra",
+  "messages": [
+    "preciso poder exportar os tickets de um projeto em CSV, pelo menu do projeto.\nhoje a pessoa só consegue olhar na tela, e quem faz relatório fora do sistema copia na mão.\nquero duas opções na exportação, e uma não depende da outra:\n1) poder baixar o arquivo sem a linha de cabeçalho, porque eu importo o CSV direto numa planilha que já tem os títulos das colunas;\n2) poder escolher quais colunas vão no arquivo (título, status, responsável etc), em vez de sempre exportar todas."
+  ],
+  "expectChildren": "either",
+  "mustMention": [
+    {
+      "label": "exportar em CSV",
+      "anyOf": [
+        "csv"
+      ]
+    },
+    {
+      "label": "tickets de um projeto",
+      "anyOf": [
+        "projeto"
+      ]
+    },
+    {
+      "label": "menu do projeto",
+      "anyOf": [
+        "menu"
+      ]
+    },
+    {
+      "label": "sem a linha de cabeçalho",
+      "anyOf": [
+        "cabeçalho"
+      ]
+    },
+    {
+      "label": "importar numa planilha",
+      "anyOf": [
+        "planilha"
+      ]
+    },
+    {
+      "label": "escolher as colunas",
+      "anyOf": [
+        "colunas",
+        "coluna"
+      ]
+    },
+    {
+      "label": "exemplos de colunas",
+      "anyOf": [
+        "status",
+        "responsável"
+      ]
+    }
+  ],
+  "mustNotMention": [
+    "critérios de aceite",
+    "resultado esperado",
+    "fase",
+    "prazo",
+    "sprint"
+  ]
+}

@@ -1,0 +1,194 @@
+/**
+ * Medição da conversa de novo ticket com o Claude de verdade (ADR 0044, TREEPM-211). Quem roda é a coordenação:
+ *
+ *   pnpm --filter @treepm/api measure:conversation [--case <id>] [--runs N] [--turns 1|2] [--json <arquivo>]
+ *
+ * Lê só `ANTHROPIC_API_KEY` (do ambiente ou de `apps/api/.env.local`). Não usa banco nem a API no ar: monta o mesmo
+ * adaptador da API (`ClaudeConversationProvider`, com o mesmo texto do sistema) e manda cada caso sem rascunho e sem
+ * agrupadores. Custo: uma chamada ao Claude Opus 5.5 por caso, por repetição e por turno.
+ *
+ * Casos: `scripts/conversation-cases/*.json`, um por arquivo:
+ *   {
+ *     "id": "chat-por-ticket",
+ *     "messages": ["mensagem da pessoa", "..."],       // na ordem; normalmente uma
+ *     "expectChildren": true | false | "either",       // a IA deve propor filhos, não deve, ou tanto faz
+ *     "minChildren": 6, "maxChildren": 12,             // opcionais
+ *     "mustMention": [{ "label": "branch", "anyOf": ["branch", "ramo"] }],  // detalhes que não podem se perder: pelo menos um
+ *                                                      // trecho de `anyOf` (sem diferenciar caixa nem acento) no título + descrição do pai e dos filhos
+ *     "mustNotMention": ["critérios de aceite", "fase"] // trechos que a pessoa não disse; começam numa palavra ("fase" não acusa "ênfase")
+ *   }
+ *
+ * Um turno por caso, por padrão. Se a resposta vier sem rascunho ou com `ready: false`, a pergunta é registrada e não
+ * respondida; com `--turns 2` ela é respondida uma vez com "Pode seguir com o que eu já disse, sem inventar nada." e o
+ * segundo turno é o que se mede. `--runs N` repete cada caso N vezes e mostra a variação. `--json` grava tudo
+ * (inclusive o rascunho inteiro) para comparar rodadas. Sai com 0 mesmo quando um caso falha na medição; sai com 1 só
+ * se o provedor não estiver configurado ou falhar.
+ */
+import Anthropic from "@anthropic-ai/sdk";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
+import { z } from "zod";
+import { sdkStreamer } from "../src/assistant/claude-call.js";
+import { ClaudeConversationProvider } from "../src/assistant/claude-conversation-provider.js";
+import type { ConversationMessage, ConversationTurn } from "../src/assistant/ports.js";
+import { checkDraft } from "./conversation-checks.js";
+import type { ConversationCase, DraftCheck } from "./conversation-checks.js";
+
+const FOLLOW_UP = "Pode seguir com o que eu já disse, sem inventar nada.";
+
+const caseSchema = z.object({
+  id: z.string().min(1),
+  messages: z.array(z.string().min(1)).min(1),
+  expectChildren: z.union([z.boolean(), z.literal("either")]),
+  minChildren: z.number().int().min(0).optional(),
+  maxChildren: z.number().int().min(0).optional(),
+  mustMention: z.array(z.object({ label: z.string().min(1), anyOf: z.array(z.string().min(1)).min(1) })),
+  mustNotMention: z.array(z.string().min(1)),
+});
+
+type RunResult = {
+  caseId: string;
+  run: number;
+  /** Quantos turnos foram feitos (1, ou 2 com `--turns 2` quando o primeiro só perguntou). */
+  turns: number;
+  /** Perguntas da IA que ficaram sem rascunho (registradas, não respondidas). */
+  questions: string[];
+  /** Mensagem da IA no turno medido. */
+  message: string;
+  draft: ConversationTurn["draft"];
+  check: DraftCheck;
+  model: string;
+  ms: number;
+};
+
+const { values } = parseArgs({
+  options: {
+    case: { type: "string" },
+    runs: { type: "string", default: "1" },
+    turns: { type: "string", default: "1" },
+    json: { type: "string" },
+  },
+});
+const runs = Number(values.runs);
+const maxTurns = Number(values.turns);
+if (!Number.isInteger(runs) || runs < 1 || ![1, 2].includes(maxTurns)) {
+  console.error("Uso: measure:conversation [--case <id>] [--runs N (inteiro ≥ 1)] [--turns 1|2] [--json <arquivo>]");
+  process.exit(2);
+}
+
+const casesDir = join(dirname(fileURLToPath(import.meta.url)), "conversation-cases");
+const allCases: ConversationCase[] = readdirSync(casesDir)
+  .filter((name) => name.endsWith(".json"))
+  .sort()
+  .map((name) => caseSchema.parse(JSON.parse(readFileSync(join(casesDir, name), "utf8"))));
+const cases = values.case ? allCases.filter((c) => c.id === values.case) : allCases;
+if (cases.length === 0) {
+  console.error(`Nenhum caso${values.case ? ` com id "${values.case}"` : ""} em ${casesDir}. Disponíveis: ${allCases.map((c) => c.id).join(", ")}`);
+  process.exit(2);
+}
+
+const anthropicKey = process.env["ANTHROPIC_API_KEY"];
+if (!anthropicKey) {
+  console.error("Falta ANTHROPIC_API_KEY (ambiente ou apps/api/.env.local). Nada foi enviado.");
+  process.exit(1);
+}
+const provider = new ClaudeConversationProvider(sdkStreamer(new Anthropic({ apiKey: anthropicKey, maxRetries: 0 })));
+
+async function runCase(testCase: ConversationCase, run: number): Promise<RunResult> {
+  const started = Date.now();
+  const history: ConversationMessage[] = testCase.messages.map((body) => ({ author: "person", body }));
+  const questions: string[] = [];
+  let turn = await provider.turn({ history, draft: null, groups: [] });
+  let turns = 1;
+  if ((turn.draft === null || !turn.ready) && maxTurns >= 2) {
+    questions.push(turn.message);
+    history.push({ author: "assistant", body: turn.message }, { author: "person", body: FOLLOW_UP });
+    turn = await provider.turn({ history, draft: turn.draft, groups: [] });
+    turns = 2;
+  } else if (turn.draft === null || !turn.ready) {
+    questions.push(turn.message);
+  }
+  return {
+    caseId: testCase.id,
+    run,
+    turns,
+    questions,
+    message: turn.message,
+    draft: turn.draft,
+    check: checkDraft(testCase, turn),
+    model: turn.model,
+    ms: Date.now() - started,
+  };
+}
+
+const flag = (ok: boolean): string => (ok ? "ok" : "FALHOU");
+const clip = (text: string, size = 90): string => (text.length > size ? `${text.slice(0, size - 1)}…` : text);
+
+function printRun(result: RunResult, testCase: ConversationCase): void {
+  const c = result.check;
+  console.log(`\n--- ${result.caseId} (rodada ${result.run}) ---`);
+  console.log(`modelo: ${result.model} | tempo: ${result.ms} ms | turnos: ${result.turns}`);
+  for (const question of result.questions) console.log(`pergunta da IA (sem resposta no turno medido): ${clip(question, 300)}`);
+  console.log(`rascunho: ${c.hasDraft ? "sim" : "NÃO"} | pronto: ${c.ready ? "sim" : "não"} | filhos: ${c.childCount} (${flag(c.childrenOk)}; esperado ${JSON.stringify(testCase.expectChildren)}${testCase.minChildren !== undefined || testCase.maxChildren !== undefined ? ` de ${testCase.minChildren ?? 0} a ${testCase.maxChildren ?? "∞"}` : ""})`);
+  if (c.parentTitle !== null) {
+    console.log(`pai: ${c.parentTitle}`);
+    c.childTitles.forEach((title, index) => console.log(`  filho ${index + 1}: ${title}`));
+  }
+  console.log(`descrição do pai: ${c.parentDescriptionLength} caracteres | soma das dos filhos: ${c.childrenDescriptionLength}`);
+  const covered = c.mentions.filter((m) => m.covered).length;
+  console.log(`detalhes cobertos: ${covered}/${c.mentions.length}`);
+  for (const mention of c.mentions) if (!mention.covered) console.log(`  PERDIDO: ${mention.label}`);
+  for (const hit of c.invented) console.log(`  INVENTADO "${hit.phrase}": …${hit.context}…`);
+  if (c.ticketKeys.length > 0) console.log(`  CHAVE DE TICKET no texto da IA: ${c.ticketKeys.join(", ")}`);
+  if (c.claims.length > 0) console.log(`  A IA DIZ QUE FEZ ALGO: ${c.claims.map((claim) => `"${claim}"`).join(", ")}`);
+  console.log(`resultado: ${c.passes ? "PASSA em tudo" : "NÃO passa"}`);
+}
+
+const results: RunResult[] = [];
+let failed = false;
+console.log(`Medição da conversa: ${cases.length} caso(s) × ${runs} rodada(s), até ${maxTurns} turno(s) por rodada.`);
+for (const testCase of cases) {
+  for (let run = 1; run <= runs; run += 1) {
+    try {
+      const result = await runCase(testCase, run);
+      results.push(result);
+      printRun(result, testCase);
+    } catch (error) {
+      failed = true;
+      const reason = error && typeof error === "object" && "reason" in error ? String((error as { reason: unknown }).reason) : "";
+      console.log(`\n--- ${testCase.id} (rodada ${run}) ---\nFALHOU no provedor: ${error instanceof Error ? error.constructor.name : typeof error}${reason ? ` (${reason})` : ""}`);
+    }
+  }
+}
+
+console.log("\n=== Resumo ===");
+let missedTotal = 0;
+let inventedTotal = 0;
+let keysTotal = 0;
+let claimsTotal = 0;
+let passingCases = 0;
+for (const testCase of cases) {
+  const own = results.filter((r) => r.caseId === testCase.id);
+  if (own.length === 0) continue;
+  const passes = own.filter((r) => r.check.passes).length;
+  if (passes === own.length) passingCases += 1;
+  missedTotal += own.reduce((sum, r) => sum + r.check.missed.length, 0);
+  inventedTotal += own.reduce((sum, r) => sum + r.check.invented.length, 0);
+  keysTotal += own.reduce((sum, r) => sum + r.check.ticketKeys.length, 0);
+  claimsTotal += own.reduce((sum, r) => sum + r.check.claims.length, 0);
+  const counts = own.map((r) => r.check.childCount);
+  const covered = own.map((r) => `${r.check.mentions.filter((m) => m.covered).length}/${r.check.mentions.length}`);
+  const variation = own.length > 1 ? ` | filhos ${Math.min(...counts)}–${Math.max(...counts)} | cobertos ${covered.join(", ")} | tempo ${Math.min(...own.map((r) => r.ms))}–${Math.max(...own.map((r) => r.ms))} ms` : "";
+  console.log(`${testCase.id}: passa ${passes}/${own.length}${variation}`);
+}
+console.log(`Casos que passam em tudo (todas as rodadas): ${passingCases}/${cases.length}`);
+console.log(`Detalhes perdidos no total: ${missedTotal}`);
+console.log(`Trechos inventados no total: ${inventedTotal} (chaves de ticket: ${keysTotal}; "criei/dividi": ${claimsTotal})`);
+
+if (values.json) {
+  writeFileSync(values.json, `${JSON.stringify({ at: new Date().toISOString(), runs, maxTurns, results }, null, 2)}\n`);
+  console.log(`Resultado completo gravado em ${values.json}`);
+}
+if (failed) process.exitCode = 1;

@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist",
+    "measure:conversation": "tsx --env-file-if-exists=.env.local --tsconfig tsconfig.json scripts/measure-conversation.ts",
     "verify:providers": "tsx --env-file-if-exists=.env.local --tsconfig tsconfig.json scripts/verify-providers.ts",
     "github:check": "tsx --env-file-if-exists=.env.local --tsconfig tsconfig.json scripts/github-check.ts",
     "placement:rebuild": "tsx --env-file-if-exists=.env.local --tsconfig tsconfig.json scripts/placement-rebuild.ts"
