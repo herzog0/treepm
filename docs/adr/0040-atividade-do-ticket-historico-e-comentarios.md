@@ -130,3 +130,15 @@ Uma depois da outra, porque mexem na mesma rota e na mesma seção da página. A
 - **Banco:** índice por assunto em `activity_events` (migration `0014`).
 - **Ordem do TDD:** no domínio e no banco o teste foi visto falhar antes do código; na API e na web os testes foram escritos junto, sem a rodada em vermelho. O brief da fatia 2 pede a rodada em vermelho em todas as camadas.
 - **Não foi exercitado** com sessão real no navegador.
+
+## Como ficou a fatia 2, comentários (PR #128, 2026-11-22)
+
+- **Banco:** `ticket_comments` (migration `0015`). O banco garante que comentário removido tem corpo vazio e que comentário vivo tem de 1 a 10.000 caracteres. O papel da aplicação só lê, insere e atualiza corpo, data de edição e os dois campos da remoção: não apaga linha nem troca autor, ticket ou data de criação. Excluir o ticket leva os comentários pela cascata.
+- **Rotas:** `POST /api/tickets/:id/comments`, `PATCH /api/comments/:id` e `DELETE /api/comments/:id`. Leitor recebe 403; projeto arquivado, 409 `project_archived`; editar comentário já removido, 409 `comment_removed`. Editar com o mesmo texto não grava nada. Remover é idempotente.
+- **Quem remove comentário alheio:** gestor do projeto e também administrador da organização, que já gere todo projeto no resto do domínio. Editar texto alheio ninguém pode.
+- **Leitura:** a rota de atividade devolve `{ entries, before, canComment }` e a entrada `comment` traz `body` (nulo quando removido), `editedAt`, `removed`, `canEdit` e `canRemove`, calculados para quem lê. Em projeto arquivado os três "pode" são falsos.
+- **Intercalação:** eventos e comentários são lidos em duas consultas e fechados na mesma ordem de tempo; um comentário entre duas edições da descrição impede a junção delas. Quatro consultas no serviço, que não crescem com o número de entradas.
+- **Eventos:** `ticket.comment_added`, `ticket.comment_edited` e `ticket.comment_removed`, com a chave do ticket e o id do comentário, sem o corpo.
+- **Web:** comentário desenhado como bloco, com o mesmo componente de leitura da descrição; o campo de escrever usa o mesmo editor, sem o item de IA, envia pelo botão "Comentar" ou por `Ctrl+Enter` e não salva sozinho. O editor continua em um pedaço baixado sob demanda; o pedaço que o mapa baixa não mudou.
+- **Fronteira:** nenhum arquivo da camada de consulta, do MCP ou do assistente foi alterado, e há um teste em cada um que semeia um comentário reconhecível e confere que ele não sai. Esses dois testes passaram desde o início, e ninguém provou por mutação que falhariam num vazamento.
+- **Não foi exercitado** com sessão real no navegador. Cada comentário na tela cria uma instância do leitor de markdown; com listas muito longas isso pode pesar e não foi medido.
