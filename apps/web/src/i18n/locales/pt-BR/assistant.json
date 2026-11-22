@@ -21,7 +21,8 @@
     "delete": "Apagar conversa",
     "hint": "Descreva a tarefa. O assistente pergunta o que faltar, escreve o ticket e procura o lugar dele na árvore.",
     "waiting": "O assistente está respondendo…",
-    "reply": "Resposta do assistente"
+    "reply": "Resposta do assistente",
+    "unanswered": "Não respondida"
   },
   "error": {
     "retry": "Tentar de novo",
@@ -37,7 +38,31 @@
     "save": "Salvar rascunho",
     "search": "Procurar o lugar",
     "searchAnyway": "Procurar assim mesmo",
-    "searchAgain": "Procurar de novo"
+    "searchAgain": "Procurar de novo",
+    "quote": {
+      "label": "Pedido original",
+      "hint": "Fica registrado no início do ticket. Só leitura."
+    },
+    "parts": {
+      "heading": "Partes do ticket",
+      "count_one": "{{count}} parte",
+      "count_many": "{{count}} partes",
+      "count_other": "{{count}} partes"
+    },
+    "part": {
+      "title": "Título da parte {{position}}",
+      "description": "Descrição da parte {{position}}",
+      "editDescription": "Editar descrição",
+      "doneDescription": "Concluir descrição",
+      "remove": "Tirar «{{title}}»",
+      "moveUp": "Subir «{{title}}»",
+      "moveDown": "Descer «{{title}}»",
+      "noDescription": "Sem descrição."
+    },
+    "warning": {
+      "unknownKeys": "O rascunho cita tickets que não existem: {{keys}}. Corrija as chaves para criar.",
+      "tooLong": "A descrição do ticket pai passou do limite junto com o pedido original. Encurte a descrição para criar."
+    }
   },
   "message": {
     "label": "Mensagem para o assistente",
@@ -67,7 +92,13 @@
     "stopped": {
       "candidates_too_large": "A procura parou em «{{where}}» porque havia tickets demais para comparar de uma vez. Confira se o lugar serve ou escolha outro.",
       "max_levels": "A procura parou em «{{where}}» ao atingir o limite de níveis. Confira se o lugar serve ou escolha outro."
-    }
+    },
+    "createWithParts_one": "Criar ticket e {{count}} parte",
+    "createWithParts_many": "Criar ticket e {{count}} partes",
+    "createWithParts_other": "Criar ticket e {{count}} partes",
+    "partsNote_one": "{{count}} parte nasce dentro do ticket.",
+    "partsNote_many": "As {{count}} partes nascem dentro do ticket, na ordem do rascunho.",
+    "partsNote_other": "As {{count}} partes nascem dentro do ticket, na ordem do rascunho."
   },
   "proposal": {
     "line": "Este ticket parece formar um grupo com outros daqui.",

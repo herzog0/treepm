@@ -10,7 +10,7 @@ const detail = {
   id: ID,
   projectId: OTHER,
   status: "open",
-  draft: { title: "Corrigir o login", description: "Texto" },
+  draft: { title: "Corrigir o login", description: "Texto", children: [] },
   ready: true,
   createdTicketId: null,
   createdAt: "2026-11-20T10:00:00.000Z",
@@ -156,6 +156,46 @@ describe("ticket conversation calls", () => {
   it("keeps the API error code of a closed conversation", async () => {
     const { client } = setup({ error: { code: "conversation_closed" } }, 409);
     expect(await client.sendConversationMessage(ID, { message: "x" })).toEqual({ ok: false, error: { kind: "conflict", code: "conversation_closed" } });
+  });
+});
+
+describe("conversa que quebra o pedido em pai e filhos (ADR 0044)", () => {
+  it("lê o rascunho com filhos e trata a falta de filhos como um ticket só", async () => {
+    const children = [{ title: "Chat", description: "Parte um." }];
+    const withChildren = await setup({ ...detail, draft: { title: "Pai", description: "D", children } }).client.getConversation(ID);
+    expect(withChildren.ok && withChildren.data.draft?.children).toEqual(children);
+    const old = await setup({ ...detail, draft: { title: "Corrigir o login", description: "Texto" } }).client.getConversation(ID);
+    expect(old.ok && old.data.draft?.children).toEqual([]);
+  });
+  it("lê a prévia em GET …/preview", async () => {
+    const preview = { title: "Pai", description: "Pedido original:\n\n> x\n\nD", quote: "Pedido original:\n\n> x", children: [{ title: "Chat", description: "" }], unknownKeys: ["ALFA-9"], descriptionTooLong: false };
+    const { client, fetchImpl } = setup(preview);
+    expect(await client.getConversationPreview(ID)).toEqual({ ok: true, data: preview });
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/preview`, method: "GET", body: undefined });
+  });
+  it("manda a lista inteira de filhos no PATCH, e nada quando ela não vai", async () => {
+    const { client, fetchImpl } = setup(detail);
+    await client.updateConversationDraft(ID, { title: "T", description: "D", children: [{ title: "A", description: "" }] });
+    expect(lastCall(fetchImpl).body).toEqual({ title: "T", description: "D", children: [{ title: "A", description: "" }] });
+    await client.updateConversationDraft(ID, { title: "T", description: "D" });
+    expect(lastCall(fetchImpl).body).toEqual({ title: "T", description: "D" });
+  });
+  it("lê os filhos criados, e a falta deles como lista vazia", async () => {
+    const created = await setup({ conversation: detail, ticket: ticketDetail, children: [ticketDetail] }).client.createTicketFromConversation(ID, { parentId: null });
+    expect(created.ok && created.data.children).toHaveLength(1);
+    const old = await setup({ conversation: detail, ticket: ticketDetail }).client.createTicketFromConversation(ID, { parentId: null });
+    expect(old.ok && old.data.children).toEqual([]);
+  });
+  it("guarda as chaves de unknown_ticket_keys e ignora details nos outros erros", async () => {
+    const unknown = setup({ error: { code: "unknown_ticket_keys", message: "x", details: { keys: ["PRIV-77", "PRIV-78"] } } }, 409);
+    expect(await unknown.client.createTicketFromConversation(ID, { parentId: null })).toEqual({ ok: false, error: { kind: "conflict", code: "unknown_ticket_keys", keys: ["PRIV-77", "PRIV-78"] } });
+    const long = setup({ error: { code: "description_too_long", message: "x", details: { max: 20000, length: 20001, quoteLength: 10 } } }, 409);
+    expect(await long.client.createTicketFromConversation(ID, { parentId: null })).toEqual({ ok: false, error: { kind: "conflict", code: "description_too_long" } });
+  });
+  it("explica os três erros novos em palavras", () => {
+    expect(describeApiError(i18n.t, { kind: "conflict", code: "unknown_ticket_keys", keys: ["ALFA-9", "ALFA-8"] })).toBe("O rascunho cita tickets que não existem: ALFA-9, ALFA-8.");
+    expect(describeApiError(i18n.t, { kind: "conflict", code: "description_too_long" })).toContain("encurtar a descrição do ticket pai");
+    expect(describeApiError(i18n.t, { kind: "conflict", code: "request_too_long" })).toContain("conversas menores");
   });
 });
 

@@ -223,7 +223,8 @@ describe("the question sheet", () => {
     expect(within(top).getByRole("button", { name: "Recolher" })).toBeInTheDocument();
     expect(await thread().findByText("o que falta?")).toBeInTheDocument();
     await waitFor(() => expect(region.querySelector(".assistant-scroll strong")).toHaveTextContent("dois"));
-    expect(region.querySelectorAll(".assistant-scroll li")).toHaveLength(2);
+    // A resposta é revelada aos poucos (TREEPM-194): os itens da lista chegam com o resto do texto.
+    await waitFor(() => expect(region.querySelectorAll(".assistant-scroll li")).toHaveLength(2));
     expect(await field()).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Peça qualquer coisa" })).not.toBeInTheDocument();
   }, SLOW);

@@ -74,6 +74,35 @@
 .assistant-sheet .assistant-send:disabled { background: var(--tp-selected); color: var(--tp-text-3); opacity: 1; }
 .assistant-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 
+/* Resposta em espera, pergunta sem resposta (TREEPM-194) e prévia da quebra em pai e filhos (ADR 0044). */
+.assistant-skeleton { display: grid; gap: 8px; align-self: flex-start; width: min(90%, 420px); padding: 4px 0; }
+.assistant-skeleton span { display: block; height: 10px; border-radius: 5px; background: linear-gradient(90deg, var(--tp-selected) 0%, var(--tp-border-strong) 50%, var(--tp-selected) 100%); background-size: 200% 100%; animation: assistant-shimmer 1.4s linear infinite; }
+@keyframes assistant-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.assistant-person.is-unanswered { border: 1px dashed var(--tp-border-strong); background: transparent; }
+.assistant-unanswered { display: block; margin-top: 4px; color: var(--tp-danger-text); font-size: 11.5px; }
+.assistant-quote summary { cursor: pointer; list-style: none; }
+.assistant-quote summary::-webkit-details-marker { display: none; }
+.assistant-quote summary h3::before { content: "▾"; display: inline-block; width: 14px; }
+.assistant-quote details:not([open]) summary h3::before { content: "▸"; }
+.assistant-quote .assistant-sub { margin: 4px 0 0; }
+.assistant-quote .description { max-height: 220px; overflow: auto; margin-top: 8px; }
+.assistant-warning { margin: 10px 0 0; color: var(--tp-danger-text); font-size: 12px; overflow-wrap: anywhere; }
+.assistant-parts { margin-top: 14px; }
+.assistant-parts-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.assistant-card .assistant-parts-head h4 { margin: 0; color: var(--tp-text-3); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.assistant-parts-count { color: var(--tp-text-2); font-size: 12px; font-weight: 600; }
+.assistant-part-list { display: grid; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; }
+.assistant-part { padding: 8px 10px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-field); background: var(--tp-raised); }
+.assistant-part-head { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.assistant-part-head .step-n { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--tp-border); color: var(--tp-accent-soft); font-size: 10px; font-weight: 600; }
+.assistant-part-tools { display: flex; gap: 2px; }
+.assistant-part-tools button { display: grid; place-items: center; width: 28px; height: 28px; min-height: 0; padding: 0; border-color: transparent; background: transparent; color: var(--tp-text-2); }
+.assistant-part-body { display: grid; gap: 4px; margin-top: 6px; padding-left: 26px; }
+.assistant-part-body .description { margin: 0; font-size: 12.5px; }
+.assistant-part-body .description :is(h1, h2, h3) { margin: 8px 0 2px; color: var(--tp-text-3); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.assistant-part-body .text { justify-self: start; min-height: 24px; padding: 0 4px; border-color: transparent; background: transparent; font-size: 12px; text-decoration: underline; }
+.assistant-part-body textarea { padding: 8px 10px; font: 12.5px/1.5 var(--tp-font-mono); resize: vertical; }
+
 /* Card tracejado do rascunho no mapa: não é um ticket. */
 .org-map .spatial-node:has(.node-draft) .spatial-card-visual { border: 1px dashed var(--tp-accent); background: color-mix(in srgb, var(--tp-accent) 12%, transparent); box-shadow: none; outline: 3px solid var(--tp-accent); outline-offset: 3px; }
 .org-map .spatial-node:has(.node-draft) .spatial-card-button { background: transparent; color: var(--tp-accent-soft); }
@@ -85,6 +114,10 @@
 .ask-answer { max-width: 100%; white-space: normal; }
 .ask-answer .description { margin: 0; }
 .assistant-sheet .ask-form input { box-sizing: border-box; width: 100%; height: 44px; padding: 0 12px; border-radius: var(--tp-radius-panel); }
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-skeleton span { animation: none; background: var(--tp-selected); }
+}
 
 /* Tela estreita (TREEPM-231): folhas na largura da tela, rolando por dentro, com alvos de 44 px; altura em `dvh`, acima do teclado virtual. */
 @media (max-width: 720px) {
@@ -98,5 +131,10 @@
   .assistant-hint, .assistant-waiting, .assistant-count, .assistant-card .assistant-sub, .assistant-steps .step-n { font-size: 12px; }
   .assistant-card h3 { font-size: 12px; }
   .assistant-person { max-width: 90%; }
+  .assistant-part-tools button { width: 44px; height: 44px; }
+  .assistant-part-head { grid-template-columns: 18px minmax(0, 1fr); }
+  .assistant-part-tools { grid-column: 1 / -1; justify-content: flex-end; }
+  .assistant-part-body { padding-left: 0; }
+  .assistant-part-body .text { min-height: 44px; }
   .assistant-projects button, .assistant-alternatives button { min-height: 44px; }
 }

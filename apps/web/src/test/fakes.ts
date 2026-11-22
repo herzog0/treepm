@@ -1,10 +1,10 @@
 import { vi } from "vitest";
-import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, IdeaStage, TicketSummary } from "../api/client.js";
+import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, ConversationDraftChild, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, IdeaStage, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
-export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid" | "server_error", code?: string): ApiResult<never> => ({
+export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid" | "server_error", code?: string, keys?: string[]): ApiResult<never> => ({
   ok: false,
-  error: code === undefined ? { kind } : { kind, code },
+  error: { kind, ...(code === undefined ? {} : { code }), ...(keys === undefined ? {} : { keys }) },
 });
 
 /** `assistant`: o servidor tem a IA configurada; `consent` (padrão: aceito): a organização aceitou o uso (ADR 0039). */
@@ -34,12 +34,14 @@ export function makeTicket(id: string, projectId: string, number: number, title:
 }
 
 /** Conversa de criação com a IA (ADR 0029): uma troca de mensagens e, por padrão, um rascunho. */
-export function makeConversation(id: string, projectId: string, extra: Partial<ConversationDetail> = {}): ConversationDetail {
+type DraftExtra = { title: string; description: string; children?: ConversationDraftChild[] };
+export function makeConversation(id: string, projectId: string, extra: Omit<Partial<ConversationDetail>, "draft"> & { draft?: DraftExtra | null } = {}): ConversationDetail {
+  const { draft = { title: "Corrigir o login", description: "O login falha no Safari." }, ...rest } = extra;
   return {
     id,
     projectId,
     status: "open",
-    draft: { title: "Corrigir o login", description: "O login falha no Safari." },
+    draft: draft === null ? null : { ...draft, children: draft.children ?? [] },
     ready: true,
     createdTicketId: null,
     createdAt: "2026-11-20T10:00:00.000Z",
@@ -48,7 +50,7 @@ export function makeConversation(id: string, projectId: string, extra: Partial<C
       { id: `${id}-m1`, author: "person", body: "O login quebra no Safari", model: null, createdAt: "2026-11-20T10:00:00.000Z" },
       { id: `${id}-m2`, author: "assistant", body: "Entendi. Isso acontece em todas as versões?", model: "claude-opus-5-5", createdAt: "2026-11-20T10:00:05.000Z" },
     ],
-    ...extra,
+    ...rest,
   };
 }
 
@@ -474,7 +476,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "putProjectMember", "removeProjectMember", "putProjectTeam", "removeProjectTeam",
     "getTicket", "endAgentWork", "createTicket", "updateTicket", "removeTicket", "listIdeas", "putIdeaStage", "acceptIdea", "discardIdea", "makeIdea", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency",
     "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement",
-    "createTicketFromConversation", "listConversations", "getConversation", "removeConversation",
+    "createTicketFromConversation", "listConversations", "getConversation", "removeConversation", "getConversationPreview",
     ...GITHUB_NAMES,
     ...MCP_NAMES,
     "getAiConsent", "acceptAiConsent", "withdrawAiConsent",
@@ -594,7 +596,7 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
       all.push(entry);
       if (conversation.draft?.description) descriptions.set(entry.id, conversation.draft.description);
       reopenFrom(body.parentId);
-      return ok({ conversation: { ...conversation, status: "ticket_created" as const, createdTicketId: entry.id }, ticket: detail(entry) });
+      return ok({ conversation: { ...conversation, status: "ticket_created" as const, createdTicketId: entry.id }, ticket: detail(entry), children: [] });
     }),
     updateTicket: vi.fn(async (id, body) => {
       const entry = find(id);
