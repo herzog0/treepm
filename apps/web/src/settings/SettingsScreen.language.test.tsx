@@ -20,7 +20,7 @@ function setup(props: { initial?: Preferences; failSave?: boolean } = {}) {
   return { onSave };
 }
 
-const preferences = (language: Preferences["language"]): Preferences => ({ camera: { onTicketClose: "restore" }, language });
+const preferences = (language: Preferences["language"]): Preferences => ({ language });
 
 describe("language preference in Settings", () => {
   it("offers the four options, with the three language names in their own language", () => {
@@ -29,8 +29,6 @@ describe("language preference in Settings", () => {
     const group = screen.getByRole("radiogroup", { name: "Idioma da interface" });
     expect(group).toBeInTheDocument();
     expect(screen.getAllByRole("radio").map((radio) => radio.closest("label")?.textContent)).toEqual([
-      "Voltar ao lugar de antes",
-      "Ficar onde está",
       "Automático",
       "Português (Brasil)",
       "English",
@@ -60,9 +58,9 @@ describe("language preference in Settings", () => {
     const { onSave } = setup();
     expect(screen.getByRole("heading", { level: 1, name: "Configurações" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("radio", { name: "English" }));
-    expect(onSave).toHaveBeenCalledWith({ camera: { onTicketClose: "restore" }, language: "en" });
+    expect(onSave).toHaveBeenCalledWith({ language: "en" });
     expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Camera" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Camera" })).not.toBeInTheDocument();
     expect(screen.getByRole("radiogroup", { name: "Interface language" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "English" })).toBeChecked();
     expect(document.documentElement.lang).toBe("en");
@@ -74,15 +72,6 @@ describe("language preference in Settings", () => {
     await userEvent.click(screen.getByRole("radio", { name: "Português (Brasil)" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Configurações" })).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("pt-BR");
-  });
-
-  it("keeps the camera choice when the language changes, and the language when the camera changes", async () => {
-    navigatorLanguages(["pt-BR"]);
-    const { onSave } = setup({ initial: preferences("en") });
-    await userEvent.click(await screen.findByRole("radio", { name: "Stay where it is" }));
-    expect(onSave).toHaveBeenLastCalledWith({ camera: { onTicketClose: "stay" }, language: "en" });
-    await userEvent.click(screen.getByRole("radio", { name: "Español (México)" }));
-    expect(onSave).toHaveBeenLastCalledWith({ camera: { onTicketClose: "stay" }, language: "es-MX" });
   });
 
   it("goes back to the browser language when Automático is chosen again", async () => {

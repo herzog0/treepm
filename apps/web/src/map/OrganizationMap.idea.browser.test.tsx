@@ -11,9 +11,10 @@ import { makeProject, makeTicket, makeTreeClient } from "../test/fakes.js";
 import { OrganizationMap } from "./OrganizationMap.js";
 
 // ADR 0042, fatia 2, em navegador real: o mapa de verdade, com o tema do app, com dois ramos comuns e ramos de ideia.
-// As capturas de conferência visual saem em `__screenshots__` ao lado deste arquivo; quem confere as move e apaga a pasta.
+// As capturas de conferência visual só saem com VITE_TREEPM_CAPTURES definida (a pasta de destino).
+const dir = (import.meta.env["VITE_TREEPM_CAPTURES"] as string | undefined);
 const shot = async (name: string) => {
-  await page.screenshot({ path: `${name}.png` });
+  if (dir) await page.screenshot({ path: `${dir}/${name}.png` });
 };
 
 const project = makeProject("p1", "ALFA", "Projeto Alfa");

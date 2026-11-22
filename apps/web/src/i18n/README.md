@@ -45,9 +45,9 @@ Fora de componente (funções puras, hooks), receba o `t` por parâmetro (`impor
 
 ## Nomes de chave
 
-Pelo sentido, em inglês, aninhados por tela e elemento: `settings.camera.onTicketClose.label`, `teams.detail.remove.confirm`.
+Pelo sentido, em inglês, aninhados por tela e elemento: `settings.language.label`, `teams.detail.remove.confirm`.
 Nunca pelo texto. A chave é tipada a partir do catálogo `pt-BR`: chave inexistente não compila.
-Chave dinâmica só com união de literais (`` t(`camera.onTicketClose.${option}`) ``), e todas as chaves da união têm de existir.
+Chave dinâmica só com união de literais (`` t(`language.${option}`) ``), e todas as chaves da união têm de existir.
 
 ## Variáveis
 

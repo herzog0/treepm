@@ -48,7 +48,7 @@ describe("Workspace", () => {
     const fetchImpl = vi.fn<typeof fetch>();
     render(<Workspace orgId="org-1" view="settings" getToken={async () => "t"} fetch={fetchImpl} />);
     expect(screen.getByRole("heading", { name: "Configurações", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("radiogroup", { name: "Ao fechar um ticket" })).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Idioma da interface" })).toBeInTheDocument();
     expect(screen.getAllByRole("main")).toHaveLength(1);
   });
 
@@ -84,7 +84,7 @@ describe("Workspace", () => {
       );
       const { unmount } = render(<Workspace orgId="org-1" view="settings" getToken={async () => "t"} fetch={fetchImpl} />);
       await waitFor(() => expect(fetchImpl).toHaveBeenCalledWith("/api/me", expect.anything()));
-      expect(await screen.findByRole("heading", { name: "Câmera" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "Idioma" })).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "GitHub" })).not.toBeInTheDocument();
       expect(fetchImpl.mock.calls.filter(([url]) => String(url).includes("github"))).toEqual([]);
       unmount();

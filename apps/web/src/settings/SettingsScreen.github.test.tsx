@@ -31,7 +31,7 @@ describe("Configurações › GitHub", () => {
   it("shows nothing and calls nothing when GitHub is disabled", async () => {
     const { client } = setup({ me: makeMe({ github: false }), github: { enabled: false } });
     expect(screen.queryByRole("heading", { name: "GitHub" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Câmera" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Idioma" })).toBeInTheDocument();
     expect(client.getGithubInstallation).not.toHaveBeenCalled();
   });
 
