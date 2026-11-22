@@ -25,11 +25,14 @@ export class ClaudeProjectAnswerer implements ProjectAnswerer {
   private readonly logger = new Logger("ClaudeProjectAnswerer");
   private readonly callTimeoutMs: number;
   private readonly totalTimeoutMs: number;
+  private readonly maxToolRounds: number;
 
   constructor(
     private readonly stream: ClaudeStreamer,
-    options: { timeoutMs?: number; totalTimeoutMs?: number } = {},
+    /** `maxToolRounds` só existe para a verificação com o provedor exercitar a última chamada, sem ferramentas; o padrão é `MAX_TOOL_ROUNDS`. */
+    options: { timeoutMs?: number; totalTimeoutMs?: number; maxToolRounds?: number } = {},
   ) {
+    this.maxToolRounds = options.maxToolRounds ?? MAX_TOOL_ROUNDS;
     this.callTimeoutMs = options.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
     this.totalTimeoutMs = options.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS;
   }
@@ -43,7 +46,7 @@ export class ClaudeProjectAnswerer implements ProjectAnswerer {
     let executions = 0;
 
     for (;;) {
-      const closing = rounds >= MAX_TOOL_ROUNDS || executions >= MAX_TOOL_EXECUTIONS;
+      const closing = rounds >= this.maxToolRounds || executions >= MAX_TOOL_EXECUTIONS;
       const remaining = deadline - Date.now();
       if (remaining <= 0) throw new AssistantUnavailableError("timeout");
       const final = await callClaude(this.stream, this.params(messages, closing), Math.min(this.callTimeoutMs, remaining), this.logger);
@@ -80,7 +83,7 @@ export class ClaudeProjectAnswerer implements ProjectAnswerer {
       }
       // O conteúdo da resposta volta como veio (inclui o raciocínio, que a API exige inalterado).
       messages.push({ role: "assistant", content: content as never });
-      const willClose = rounds >= MAX_TOOL_ROUNDS || executions >= MAX_TOOL_EXECUTIONS;
+      const willClose = rounds >= this.maxToolRounds || executions >= MAX_TOOL_EXECUTIONS;
       messages.push({ role: "user", content: willClose ? [...results, { type: "text", text: ASK_LIMIT_NOTICE }] : results });
     }
   }
