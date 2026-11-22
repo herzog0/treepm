@@ -108,3 +108,16 @@ Teodoro cria um token de escrita para o projeto `TREEPM` e o liga à sessão da 
 2. Leitura de comentários e de áreas pelo MCP (`TREEPM-93`).
 3. Se a busca periódica do mapa aguenta projetos grandes (`TREEPM-191`, `TREEPM-192`).
 4. OAuth no MCP, que a ADR 0038 já deixou em aberto.
+
+## Como ficou (PRs #142, #143, #148 e #152, 2026-11-22)
+
+- **Banco (migration `0019`):** `tickets.agent_work_*` (desde, até, nota e quem ligou), `access_tokens.scope` (padrão `read`), `organizations.mcp_write_enabled` (padrão desligado) e, em `ticket_comments`, `via`, `request_token_id` e `request_id`. A migration `0020` trocou as permissões de `UPDATE` em `access_tokens` e `organizations` por permissões por coluna.
+- **Uma regra só:** as regras de mudança de ticket saíram do controlador para `TicketsService.updateTicket`, e a tela e o MCP passam por ela. O MCP não tem caminho próprio de escrita.
+- **Ferramentas de escrita do MCP:** `update_ticket_status`, `add_comment` (com `requestId` opcional, para repetir sem duplicar) e `set_agent_work`. Só respondem com token de alcance de escrita **e** com a chave da organização ligada; sem um dos dois, a ferramenta recusa.
+- **Rotas da tela:** `PATCH /api/organization/mcp-write` com `{ mcpWriteEnabled }` (administrador) e `DELETE /api/tickets/:id/agent-work` (uma pessoa encerra o marcador).
+- **Leitura:** as ferramentas de leitura devolvem só `agentWork: { until } | null`; a nota do marcador não sai pelo MCP nem vai à IA.
+- **Histórico:** `agent_work_started` e `agent_work_ended`, este com o motivo `agent`, `person`, `finished`, `idea` ou `archived` (arquivar o projeto encerra os marcadores dele).
+- **Limite:** 40 escritas por minuto por pessoa, somando os tokens dela.
+- **Web:** o contorno é um `<svg>` com um retângulo de cantos arredondados e `stroke-dashoffset` animado por CSS (`map/agent-work.css`), que acompanha o raio do card em todos os níveis de detalhe; no nível de ponto é um halo que pulsa; parado com `prefers-reduced-motion`. A primeira versão, de quatro faixas de degradê, tinha cantos retos (`TREEPM-199`). O mapa se atualiza a cada 30 s (`map/useAutoRefresh.ts`). Em Configurações, o alcance do token e a chave "Permitir escrita por MCP".
+- **Revisão de segurança independente**, feita antes do merge da escrita: todos os achados foram corrigidos antes de entrar no `main`, e o endurecimento que restou entrou no PR #148 (permissões por coluna, limite por pessoa, marcadores encerrados ao arquivar).
+- **Não foi exercitado** com um cliente MCP de verdade escrevendo (`TREEPM-189`, `TREEPM-227`): depende de Teodoro ligar a chave e criar um token de escrita. Só ele cria esse token.
