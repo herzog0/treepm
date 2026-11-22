@@ -46,11 +46,13 @@ Aqui o limite da ADR 0037 para a Anthropic não se aplica por si: o cliente é d
 ### Como a requisição é autorizada
 
 - O token resolve para a mesma identidade que uma sessão: pessoa, organização e papéis lidos do banco a cada requisição. A permissão sobre o projeto passa pela mesma conferência das rotas de hoje.
-- Falha na requisição seguinte: token revogado ou vencido, chave da organização desligada, pessoa inativa, pessoa sem acesso ao projeto, projeto arquivado ou removido.
-- **Saída da organização.** Quem sai da organização no Clerk precisa perder o token em até 5 minutos. Como a API hoje só percebe isso pela sessão, a entrada por token confirma a participação no Clerk, com memória de no máximo 5 minutos, até a sincronização por webhook (`TREEPM-4`) existir. Sem uma das duas, o servidor MCP não vai para produção.
+- Falha na requisição seguinte: token revogado ou vencido, chave da organização desligada, pessoa inativa, pessoa sem acesso ao projeto, projeto removido.
+- **Projeto arquivado continua podendo ser lido,** como na web, e pode receber token novo. *(Corrigido em 2026-11-21: a primeira redação desta ADR o punha entre as falhas.)*
+- **Papéis:** os de projeto e de time são lidos do banco a cada requisição. O papel da pessoa na organização vem do Clerk e pode ter até 5 minutos de atraso, pela mesma memória da saída da organização.
+- **Saída da organização.** Quem sai da organização no Clerk precisa perder o token em até 5 minutos, e os tokens dela são revogados nesse momento: voltar à organização não os faz valer de novo. Como a API hoje só percebe isso pela sessão, a entrada por token confirma a participação no Clerk, com memória de no máximo 5 minutos, até a sincronização por webhook (`TREEPM-4`) existir. Sem uma das duas, o servidor MCP não vai para produção.
 - **Respostas:** 401 para token ausente, inválido, vencido ou revogado, sem dizer qual; 404 para projeto que a pessoa não enxerga, como nas outras rotas; 403 com a chave da organização desligada; 400 para requisição malformada.
 - Requisição com cabeçalho `Origin` de outro site é recusada (403), como a especificação exige; os clientes de terminal e editor não enviam esse cabeçalho.
-- **Limite de requisições** por token, 60 por minuto.
+- **Limite de requisições** por token, 60 por minuto. Antes da autenticação, o endereço tem também um limite por endereço IP, para que tokens inventados não ocupem o banco.
 
 ### Higiene
 
