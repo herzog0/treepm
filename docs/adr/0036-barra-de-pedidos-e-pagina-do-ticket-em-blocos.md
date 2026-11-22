@@ -132,7 +132,7 @@ Estão no canvas aprovado e enviam à Anthropic mais do que estava autorizado at
 
 **Pergunta sobre o projeto** (prancha "Barra 3"). A proposta original enviava, por ticket do projeto, título, trecho da descrição, **situação**, **de qual ticket é filho** e um rótulo neutro, a cada pergunta. A [ADR 0037](0037-relacoes-entre-tickets-e-camada-de-consulta.md) troca isso por ferramentas de consulta: a IA pede só os tickets de que precisa. A lista do que vai e do que não vai à Anthropic está lá.
 
-**"Pedir ao assistente para escrever"** (item do menu de blocos): envia o título, a descrição atual, os títulos do caminho até a raiz e o pedido. Nada sobre pessoas, nenhum id e nenhuma chave. O texto volta como proposta, que a pessoa aceita ou descarta; nada é salvo sem ela.
+**"Pedir ao assistente para escrever"** (item do menu de blocos): envia o título, a descrição atual, os títulos do caminho até a raiz e o pedido. Nada sobre pessoas, nenhum id e nenhuma chave além das que a pessoa escreveu no próprio texto. O texto volta como proposta, que a pessoa aceita ou descarta; nada é salvo sem ela.
 
 ### Fatias
 
