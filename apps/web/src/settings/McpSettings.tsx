@@ -54,22 +54,42 @@ export function McpSettings({ client, me }: { client: ApiClient; me: Me }) {
   const { t } = useTranslation("settings");
   const isAdmin = me.roles.clerk === "admin";
   const [enabled, setEnabled] = useState(me.mcp?.enabled === true);
+  // A chave "Permitir escrita por MCP" (ADR 0043); uma API que não a informa conta como desligada.
+  const [writeEnabled, setWriteEnabled] = useState(me.mcp?.writeEnabled === true);
+  const [writePending, setWritePending] = useState<boolean | null>(null);
   // O que o interruptor mostra enquanto a gravação está em andamento; a seção só abre depois de gravada.
   const [pending, setPending] = useState<boolean | null>(null);
-  const [notice, setNotice] = useState<"switchFailed" | "disabledMeanwhile" | null>(null);
+  const [notice, setNotice] = useState<"switchFailed" | "writeSwitchFailed" | "disabledMeanwhile" | null>(null);
 
   const change = async (next: boolean) => {
     setNotice(null);
     setPending(next);
-    let result: ApiResult<{ mcp: { enabled: boolean } }>;
+    let result: ApiResult<{ mcp: { enabled: boolean; writeEnabled?: boolean | undefined } }>;
     try {
       result = await client.setMcpEnabled(next);
     } catch {
       result = { ok: false, error: { kind: "unavailable" } };
     }
     setPending(null);
-    if (result.ok) setEnabled(result.data.mcp.enabled);
-    else setNotice("switchFailed");
+    if (result.ok) {
+      setEnabled(result.data.mcp.enabled);
+      if (result.data.mcp.writeEnabled !== undefined) setWriteEnabled(result.data.mcp.writeEnabled);
+    } else setNotice("switchFailed");
+  };
+  const changeWrite = async (next: boolean) => {
+    setNotice(null);
+    setWritePending(next);
+    let result: ApiResult<{ mcp: { enabled: boolean; writeEnabled?: boolean | undefined } }>;
+    try {
+      result = await client.setMcpWriteEnabled(next);
+    } catch {
+      result = { ok: false, error: { kind: "unavailable" } };
+    }
+    setWritePending(null);
+    if (result.ok) {
+      setEnabled(result.data.mcp.enabled);
+      setWriteEnabled(result.data.mcp.writeEnabled ?? next);
+    } else setNotice("writeSwitchFailed");
   };
   const disabledMeanwhile = useCallback(() => {
     setEnabled(false);
@@ -88,14 +108,23 @@ export function McpSettings({ client, me }: { client: ApiClient; me: Me }) {
           <p className="settings-hint">{t("mcp.switch.hint")}</p>
         </div>
       )}
+      {isAdmin && (
+        <div className="mcp-switch">
+          <label className="settings-option">
+            <input type="checkbox" role="switch" checked={writePending ?? writeEnabled} disabled={!enabled || pending !== null || writePending !== null} onChange={(event) => void changeWrite(event.target.checked)} />
+            {t("mcp.writeSwitch.label")}
+          </label>
+          <p className="settings-hint">{t("mcp.writeSwitch.hint")}</p>
+        </div>
+      )}
       {!isAdmin && !enabled && <p>{t("mcp.askAdmin")}</p>}
       {notice !== null && <p role="alert" className="settings-error">{t(`mcp.notice.${notice}`)}</p>}
-      {enabled && <McpTokens client={client} isAdmin={isAdmin} onDisabled={disabledMeanwhile} />}
+      {enabled && <McpTokens client={client} isAdmin={isAdmin} writeEnabled={writeEnabled} onDisabled={disabledMeanwhile} />}
     </section>
   );
 }
 
-function McpTokens({ client, isAdmin, onDisabled }: { client: ApiClient; isAdmin: boolean; onDisabled: () => void }) {
+function McpTokens({ client, isAdmin, writeEnabled, onDisabled }: { client: ApiClient; isAdmin: boolean; writeEnabled: boolean; onDisabled: () => void }) {
   const { t } = useTranslation("settings");
   const describeError = useDescribeApiError();
   const [revision, setRevision] = useState(0);
@@ -131,6 +160,7 @@ function McpTokens({ client, isAdmin, onDisabled }: { client: ApiClient; isAdmin
         projects={projects.state.status === "ready" ? projects.state.data : null}
         projectsFailed={projects.state.status === "error"}
         retryProjects={projects.retry}
+        writeEnabled={writeEnabled}
         created={created}
         onCreated={(token) => {
           setCreated(token);
@@ -182,6 +212,7 @@ function TokenList({ labelledBy, tokens, empty, onRevoke, busy }: { labelledBy: 
             </div>
             <dl className="mcp-token-meta">
               <div><dt>{t("mcp.field.project")}</dt><dd>{token.project.key}</dd></div>
+              <div><dt>{t("mcp.field.scope")}</dt><dd>{t(token.scope === "write" ? "mcp.scope.write" : "mcp.scope.read")}</dd></div>
               <div><dt>{t("mcp.field.token")}</dt><dd><code>…{token.tokenPrefix}…</code></dd></div>
               <div><dt>{t("mcp.field.createdAt")}</dt><dd>{formatDate(language, token.createdAt)}</dd></div>
               <div><dt>{t("mcp.field.lastUsedAt")}</dt><dd>{token.lastUsedAt === null ? t("mcp.never") : formatDate(language, token.lastUsedAt)}</dd></div>
@@ -203,11 +234,12 @@ function TokenList({ labelledBy, tokens, empty, onRevoke, busy }: { labelledBy: 
   );
 }
 
-function CreateToken({ client, projects, projectsFailed, retryProjects, created, onCreated, onClose, onDisabled }: {
+function CreateToken({ client, projects, projectsFailed, retryProjects, writeEnabled, created, onCreated, onClose, onDisabled }: {
   client: ApiClient;
   projects: Project[] | null;
   projectsFailed: boolean;
   retryProjects: () => void;
+  writeEnabled: boolean;
   created: CreatedAccessToken | null;
   onCreated: (token: CreatedAccessToken) => void;
   onClose: () => void;
@@ -219,6 +251,7 @@ function CreateToken({ client, projects, projectsFailed, retryProjects, created,
   const [projectId, setProjectId] = useState("");
   const [name, setName] = useState("");
   const [days, setDays] = useState<Validity>(90);
+  const [scope, setScope] = useState<"read" | "write">("read");
 
   const ordered = projects === null ? [] : [...projects.filter((entry) => entry.archivedAt === null), ...projects.filter((entry) => entry.archivedAt !== null)];
   const chosen = ordered.find((entry) => entry.id === projectId) ?? ordered[0];
@@ -226,7 +259,7 @@ function CreateToken({ client, projects, projectsFailed, retryProjects, created,
 
   const submit = async () => {
     if (!chosen || trimmed === "") return;
-    const result = await create.run(() => client.createAccessToken({ projectId: chosen.id, name: trimmed, expiresInDays: days }));
+    const result = await create.run(() => client.createAccessToken({ projectId: chosen.id, name: trimmed, expiresInDays: days, ...(scope === "write" ? { scope } : {}) }));
     if (result.ok) {
       setName("");
       onCreated(result.data);
@@ -282,6 +315,19 @@ function CreateToken({ client, projects, projectsFailed, retryProjects, created,
                 </label>
               ))}
             </div>
+          </div>
+          <div role="radiogroup" aria-labelledby="mcp-scope" className="mcp-field">
+            <span id="mcp-scope" className="settings-label">{t("mcp.scope.label")}</span>
+            <div className="mcp-validity">
+              {(["read", "write"] as const).map((option) => (
+                <label key={option} className="settings-option">
+                  <input type="radio" name="mcp-scope" checked={scope === option} onChange={() => setScope(option)} />
+                  {t(`mcp.scope.${option}`)}
+                </label>
+              ))}
+            </div>
+            <p className="settings-hint">{t(scope === "write" ? "mcp.scope.writeHint" : "mcp.scope.readHint")}</p>
+            {scope === "write" && !writeEnabled && <p className="settings-hint mcp-write-off">{t("mcp.scope.writeOff")}</p>}
           </div>
           <div>
             <button type="submit" className="primary" disabled={create.busy || trimmed === ""}>{t("mcp.create.submit")}</button>

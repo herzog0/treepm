@@ -13,12 +13,13 @@
     "title": "Clientes de IA (MCP)",
     "switch": {
       "label": "Permitir acesso por MCP",
-      "hint": "As pessoas da organização poderão conectar clientes de IA próprios aos projetos que enxergam, só para leitura."
+      "hint": "As pessoas da organização poderão conectar clientes de IA próprios aos projetos que enxergam. Por padrão o acesso é só de leitura; escrever depende de um token de leitura e escrita e da chave abaixo."
     },
     "askAdmin": "Um administrador da organização precisa permitir o acesso por MCP.",
     "notice": {
       "switchFailed": "Não foi possível mudar o acesso por MCP. Tente de novo.",
-      "disabledMeanwhile": "O acesso por MCP foi desligado."
+      "disabledMeanwhile": "O acesso por MCP foi desligado.",
+      "writeSwitchFailed": "Não foi possível mudar a escrita por MCP. Tente de novo."
     },
     "loading": "Carregando…",
     "retry": "Tentar novamente",
@@ -41,7 +42,8 @@
       "token": "Trecho do token",
       "createdAt": "Criado em",
       "lastUsedAt": "Último uso",
-      "expiresAt": "Validade"
+      "expiresAt": "Validade",
+      "scope": "Alcance"
     },
     "revoke": "Revogar",
     "revokeNamed": "Revogar {{name}}",
@@ -101,6 +103,18 @@
       "limit": "Você já tem 10 tokens ativos. Revogue algum antes de criar outro.",
       "projectGone": "O projeto não existe mais ou você não o enxerga.",
       "projects": "Não foi possível carregar os projetos."
+    },
+    "writeSwitch": {
+      "label": "Permitir escrita por MCP",
+      "hint": "Com a chave ligada, os tokens de leitura e escrita poderão mudar a situação dos tickets, comentar e marcar trabalho em andamento, com as permissões da pessoa de cada token. Com ela desligada, nenhum token escreve, qualquer que seja o alcance."
+    },
+    "scope": {
+      "label": "Alcance",
+      "read": "Só leitura",
+      "write": "Leitura e escrita",
+      "readHint": "O cliente de IA só consulta os tickets do projeto.",
+      "writeHint": "O cliente de IA poderá, além de consultar, mudar a situação dos tickets, comentar e marcar trabalho em andamento, com as permissões da sua própria conta.",
+      "writeOff": "A escrita por MCP está desligada na organização: este token só vai escrever quando um administrador ligar a chave."
     }
   },
   "ai": {

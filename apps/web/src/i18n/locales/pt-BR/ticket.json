@@ -222,7 +222,16 @@
     "ideaDiscarded": "<who>{{actor}}</who> descartou a ideia",
     "ideaDiscarded_noActor": "Ideia descartada",
     "ideaReopened": "<who>{{actor}}</who> reabriu a ideia",
-    "ideaReopened_noActor": "Ideia reaberta"
+    "ideaReopened_noActor": "Ideia reaberta",
+    "agentWorkStarted": "<who>{{actor}}</who> iniciou o trabalho pela IA",
+    "agentWorkStarted_noActor": "Trabalho pela IA iniciado",
+    "agentWorkEnded_agent": "O trabalho pela IA foi encerrado pelo agente",
+    "agentWorkEnded_person": "O trabalho pela IA foi encerrado por <who>{{actor}}</who>",
+    "agentWorkEnded_personNoActor": "O trabalho pela IA foi encerrado por uma pessoa",
+    "agentWorkEnded_finished": "O trabalho pela IA foi encerrado ao concluir o ticket",
+    "agentWorkEnded_idea": "O trabalho pela IA foi encerrado porque o ticket virou ideia",
+    "via": "pelo MCP",
+    "viaTitle": "Feito por uma chamada MCP, com o token da pessoa"
   },
   "contributions": {
     "heading": "Áreas",
@@ -266,5 +275,10 @@
     "discardMessage": "A subárvore inteira continua fora do processo, desenhada mais apagada. Dá para reabrir depois.",
     "make": "Transformar em ideia",
     "makeRefused": "Não dá para transformar em ideia um ticket com trabalho em andamento ou concluído, nele ou abaixo dele."
+  },
+  "agentWork": {
+    "label": "Em trabalho pela IA",
+    "until": "até {{time}}",
+    "end": "Encerrar"
   }
 }

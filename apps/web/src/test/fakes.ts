@@ -8,10 +8,10 @@ export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "
 });
 
 /** `assistant`: o servidor tem a IA configurada; `consent` (padrão: aceito): a organização aceitou o uso (ADR 0039). */
-export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean; consent?: boolean; github?: boolean; mcp?: boolean } = {}): Me {
+export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean; consent?: boolean; github?: boolean; mcp?: boolean; mcpWrite?: boolean } = {}): Me {
   const consent = overrides.consent ?? true;
   return {
-    ...(overrides.mcp === undefined ? {} : { mcp: { enabled: overrides.mcp } }),
+    ...(overrides.mcp === undefined ? {} : { mcp: { enabled: overrides.mcp, ...(overrides.mcpWrite === undefined ? {} : { writeEnabled: overrides.mcpWrite }) } }),
     ...(overrides.assistant === undefined ? {} : { assistant: { enabled: overrides.assistant && consent, configured: overrides.assistant, consent } }),
     ...(overrides.github === undefined ? {} : { github: { enabled: overrides.github } }),
     person: { id: "person-1", displayName: "Ana", email: "ana@example.com", avatarUrl: null },
@@ -72,6 +72,10 @@ interface FakeData {
   mcp?: FakeMcp;
   /** Liga as rotas do aceite da organização para a IA (ADR 0039) com as regras do contrato; sem isso elas lançam, como o resto. */
   aiConsent?: FakeAiConsent;
+  /** Quem lê pode encerrar o marcador de trabalho pela IA (`canEndAgentWork` do detalhe; padrão: sim). Só o cliente em árvore usa. */
+  canEndAgentWork?: boolean;
+  /** A pessoa do token que ligou o marcador, no detalhe; padrão: Ana. */
+  agentWorkBy?: { id: string; displayName: string; avatarUrl: string | null };
   /** Quem lê pode aceitar e descartar ideias (`canTriageIdea` do detalhe; padrão: sim). Só o cliente em árvore usa. */
   canTriageIdea?: boolean;
   /** Conversas de criação com a IA, por ID, para `createTicketFromConversation` do cliente em árvore; sem entrada, o rascunho é o padrão. */
@@ -296,11 +300,15 @@ function githubMethods(data: FakeData): Partial<ApiClient> {
   };
 }
 
-const MCP_NAMES = ["setMcpEnabled", "createAccessToken", "listAccessTokens", "listOrganizationAccessTokens", "revokeAccessToken"] as const;
+const MCP_NAMES = ["setMcpEnabled", "setMcpWriteEnabled", "createAccessToken", "listAccessTokens", "listOrganizationAccessTokens", "revokeAccessToken"] as const;
 
 export interface FakeMcp {
   /** A chave da organização; padrão: o que `me.mcp` diz. */
   enabled?: boolean;
+  /** A chave de escrita da organização (ADR 0043); padrão: o que `me.mcp` diz, ou desligada. */
+  writeEnabled?: boolean;
+  /** Faz `setMcpWriteEnabled` falhar com este tipo de erro. */
+  writeSwitchError?: Parameters<typeof failed>[0];
   /** Tokens da organização, de qualquer pessoa; os da pessoa de `me` saem em `listAccessTokens`. */
   tokens?: OrganizationAccessToken[];
   /** Token inteiro que a criação devolve. */
@@ -340,6 +348,7 @@ function mcpMethods(data: FakeData): Partial<ApiClient> {
   const me = data.me ?? makeMe();
   const isAdmin = me.roles.clerk === "admin";
   let enabled = config.enabled ?? me.mcp?.enabled ?? false;
+  let writeEnabled = config.writeEnabled ?? me.mcp?.writeEnabled ?? false;
   const tokens = (config.tokens ?? []).map((entry) => ({ ...entry }));
   const strip = (entry: OrganizationAccessToken): AccessToken => {
     const copy: Partial<OrganizationAccessToken> = { ...entry };
@@ -354,9 +363,15 @@ function mcpMethods(data: FakeData): Partial<ApiClient> {
       if (!isAdmin) return failed("forbidden");
       if (config.switchError) return failed(config.switchError);
       enabled = value;
-      return ok({ mcp: { enabled } });
+      return ok({ mcp: { enabled, writeEnabled } });
     }),
-    createAccessToken: vi.fn(async (body: { projectId: string; name: string; expiresInDays: 30 | 90 | 365 }) => {
+    setMcpWriteEnabled: vi.fn(async (value: boolean) => {
+      if (!isAdmin) return failed("forbidden");
+      if (config.writeSwitchError) return failed(config.writeSwitchError);
+      writeEnabled = value;
+      return ok({ mcp: { enabled, writeEnabled } });
+    }),
+    createAccessToken: vi.fn(async (body: { projectId: string; name: string; expiresInDays: 30 | 90 | 365; scope?: "read" | "write" }) => {
       if (!enabled) return failed("forbidden", "mcp_disabled");
       if (config.createError) return failed(...config.createError);
       const project = data.projects?.find((entry) => entry.id === body.projectId);
@@ -365,6 +380,7 @@ function mcpMethods(data: FakeData): Partial<ApiClient> {
       sequence += 1;
       const entry = makeToken(`new${sequence}`, body.name.trim(), {
         project: { id: project.id, key: project.key },
+        scope: body.scope ?? "read",
         person: { id: me.person.id, displayName: me.person.displayName },
         createdAt: "2026-11-21T12:00:00.000Z",
         expiresAt: new Date(Date.parse("2026-11-21T12:00:00.000Z") + body.expiresInDays * 86_400_000).toISOString(),
@@ -454,7 +470,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "createTeam", "renameTeam", "removeTeam", "putTeamMember", "removeTeamMember",
     "createArea", "renameArea", "removeArea", "getProject", "createProject", "updateProject",
     "putProjectMember", "removeProjectMember", "putProjectTeam", "removeProjectTeam",
-    "getTicket", "createTicket", "updateTicket", "removeTicket", "putIdeaStage", "acceptIdea", "discardIdea", "makeIdea", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency",
+    "getTicket", "endAgentWork", "createTicket", "updateTicket", "removeTicket", "putIdeaStage", "acceptIdea", "discardIdea", "makeIdea", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency",
     "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement",
     "createTicketFromConversation", "listConversations", "getConversation", "removeConversation",
     ...GITHUB_NAMES,
@@ -516,6 +532,7 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
   const detail = (entry: TicketSummary): TicketDetail => ({
     ...withProgress(entry),
     canTriageIdea: data.canTriageIdea ?? true,
+    ...(entry.agentWork ? { agentWork: { by: data.agentWorkBy ?? { id: "person-1", displayName: "Ana", avatarUrl: null }, ...entry.agentWork }, canEndAgentWork: data.canEndAgentWork ?? true } : {}),
     description: descriptions.get(entry.id) ?? "",
     mentionedBy: [], dependsOn: [], blocks: [],
     contributions: [], canEditContributions: true,
@@ -538,6 +555,12 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
     getTicket: vi.fn(async (id: string) => {
       const entry = find(id);
       return entry ? ok(detail(entry)) : failed("not_found");
+    }),
+    endAgentWork: vi.fn(async (id: string) => {
+      const entry = find(id);
+      if (!entry) return failed("not_found");
+      delete entry.agentWork;
+      return ok(detail(entry));
     }),
     createTicket: vi.fn(async (projectId, body) => {
       const number = Math.max(0, ...all.filter((entry) => entry.projectId === projectId).map((entry) => entry.number)) + 1;

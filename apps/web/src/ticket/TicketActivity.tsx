@@ -8,7 +8,7 @@ import { loadErrorText } from "../LoadError.js";
 import { useStatusText } from "../map/nodeContent.js";
 import { safe } from "../panel/safe.js";
 import type { MentionContext } from "./description/decorations.js";
-import { Avatar, CommentComposer, CommentItem } from "./Comments.js";
+import { Avatar, CommentComposer, CommentItem, ViaMcp } from "./Comments.js";
 
 /** Quantas entradas cada página pede (a API aceita até 100; o padrão dela também é 30). */
 export const ACTIVITY_PAGE_SIZE = 30;
@@ -143,7 +143,7 @@ export function TicketActivity({ client, ticketId, projectId, tickets, version, 
               ) : (
                 <li key={entry.id} className="ticket-activity-item">
                   <Avatar person={entry.actor} />
-                  <span className="ticket-activity-text"><Sentence entry={entry} onOpenTicket={onOpenTicket} /></span>
+                  <span className="ticket-activity-text"><Sentence entry={entry} onOpenTicket={onOpenTicket} /><ViaMcp via={entry.via} /></span>
                   <time className="ticket-activity-time" dateTime={entry.occurredAt} title={formatDateTime(language, entry.occurredAt)}>
                     {formatActivityTime(language, entry.occurredAt, now)}
                   </time>
@@ -229,6 +229,10 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
         components: { ...(from === null ? {} : { from: ref(from) }), ...(to === null ? {} : { to: ref(to) }) },
       });
     }
+    case "agent_work_started":
+      return render("agentWorkStarted");
+    case "agent_work_ended":
+      return render("agentWorkEnded", { context: entry.reason === "person" && entry.actor === null ? "personNoActor" : entry.reason });
     case "idea_registered":
       return render("ideaRegistered");
     case "idea_stage_changed":

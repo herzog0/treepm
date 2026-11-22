@@ -63,3 +63,8 @@ export function formatActivityTime(language: Language, iso: string, now: Date): 
 export function formatDateTime(language: Language, iso: string, timeZone?: string): string {
   return new Intl.DateTimeFormat(language, { dateStyle: "long", timeStyle: "short", ...(timeZone ? { timeZone } : {}) }).format(new Date(iso));
 }
+
+/** A hora do dia (sem data), na hora local: "até 14:32" do marcador de trabalho pela IA (ADR 0043). */
+export function formatClock(language: Language, iso: string, timeZone?: string): string {
+  return new Intl.DateTimeFormat(language, { timeStyle: "short", ...(timeZone ? { timeZone } : {}) }).format(new Date(iso));
+}

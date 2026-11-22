@@ -222,7 +222,16 @@
     "ideaDiscarded": "<who>{{actor}}</who> discarded the idea",
     "ideaDiscarded_noActor": "Idea discarded",
     "ideaReopened": "<who>{{actor}}</who> reopened the idea",
-    "ideaReopened_noActor": "Idea reopened"
+    "ideaReopened_noActor": "Idea reopened",
+    "agentWorkStarted": "<who>{{actor}}</who> started the AI work",
+    "agentWorkStarted_noActor": "AI work started",
+    "agentWorkEnded_agent": "The AI work was ended by the agent",
+    "agentWorkEnded_person": "The AI work was ended by <who>{{actor}}</who>",
+    "agentWorkEnded_personNoActor": "The AI work was ended by a person",
+    "agentWorkEnded_finished": "The AI work was ended when the ticket was completed",
+    "agentWorkEnded_idea": "The AI work was ended because the ticket became an idea",
+    "via": "via MCP",
+    "viaTitle": "Done by an MCP call, with the person's token"
   },
   "contributions": {
     "heading": "Areas",
@@ -265,5 +274,10 @@
     "discardMessage": "The whole subtree stays out of the process, drawn more muted. You can reopen it later.",
     "make": "Turn into an idea",
     "makeRefused": "A ticket with work in progress or done, in it or below it, cannot be turned into an idea."
+  },
+  "agentWork": {
+    "label": "Being worked on by AI",
+    "until": "until {{time}}",
+    "end": "End"
   }
 }
