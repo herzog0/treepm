@@ -46,7 +46,9 @@
     "hint": "Click the text to edit. Type / for blocks and @ to mention a ticket.",
     "saving": "Saving…",
     "saved": "Saved",
-    "task": "Task: {{text}}"
+    "task": "Task: {{text}}",
+    "loadFailed": "Couldn't load the editor.",
+    "retry": "Try again"
   },
   "status": {
     "group": "Status",

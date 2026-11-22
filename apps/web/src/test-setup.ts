@@ -1,7 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach, beforeEach, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, vi } from "vitest";
 import i18n from "./i18n/index.js";
+import { loadDescriptionEditor } from "./ticket/description/RichDescription.js";
+
+// O editor da descrição é baixado sob demanda; os testes não medem essa espera (quem mede é RichDescription.lazy.test.tsx).
+// Com o módulo já carregado, o componente renderiza o editor de imediato, como renderizava antes do carregamento sob demanda.
+beforeAll(async () => {
+  await loadDescriptionEditor();
+}, 60_000);
 
 // jsdom não faz layout: o mapa precisa de um palco com tamanho para montar a cena.
 class FakeResizeObserver {

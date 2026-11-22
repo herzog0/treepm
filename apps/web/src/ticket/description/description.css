@@ -75,3 +75,10 @@
 .description-writer-text { min-height: 0; overflow: auto; }
 .description-writer-text .description { margin-top: 0; }
 .description-writer-actions { display: flex; gap: 8px; }
+
+/* Antes de o editor chegar (ou se o download falhar): o texto cru, com as quebras de linha, no mesmo lugar e na mesma fonte. */
+.description-plain { white-space: pre-wrap; overflow-wrap: anywhere; min-height: 1.65em; line-height: 1.65; }
+.description-plain[data-empty="true"] { color: var(--tp-text-3); }
+.description-load-failed { margin: 6px 0 0; color: var(--tp-text-2); font-size: 12px; }
+.description-retry { all: unset; cursor: pointer; color: var(--tp-accent); text-decoration: underline; }
+.description-retry:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 2px; }

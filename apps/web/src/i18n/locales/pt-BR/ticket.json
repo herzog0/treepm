@@ -46,7 +46,9 @@
     "hint": "Clique no texto para editar. Digite / para blocos e @ para mencionar um ticket.",
     "saving": "Salvando…",
     "saved": "Salvo",
-    "task": "Tarefa: {{text}}"
+    "task": "Tarefa: {{text}}",
+    "loadFailed": "Não foi possível carregar o editor.",
+    "retry": "Tentar de novo"
   },
   "status": {
     "group": "Situação",
