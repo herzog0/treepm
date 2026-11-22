@@ -90,3 +90,15 @@ Critérios de aceite e regra de conclusão (`TREEPM-38`) esperam a resposta de T
 2. Se o texto das contribuições pode ir à IA e ao MCP.
 3. Se as áreas aparecem no card do mapa (o blueprint as prevê nos níveis "compacto" e "completo").
 4. Impedimentos por contribuição.
+
+## Como ficou a fatia 1, contribuições (PR #131, 2026-11-22)
+
+- **Banco:** `ticket_contributions` e `ticket_contribution_people` (migration `0016`). O papel da aplicação lê, insere e apaga nas duas, e só atualiza texto e situação da contribuição: não troca área, ticket, autoria nem data. A referência à área impede apagá-la.
+- **Rotas:** `POST /api/tickets/:id/contributions`, `PATCH` e `DELETE /api/contributions/:id`, `PUT` e `DELETE /api/contributions/:id/people/:personId`. Área repetida no ticket: 409 `contribution_area_taken`. Quem pode ser pessoa de uma contribuição segue a mesma conferência dos responsáveis do ticket. `DELETE /api/areas/:id` com contribuição: 409 `area_in_use`, com a contagem de tickets.
+- **Remover de novo** uma contribuição já removida responde 404, igual a uma que nunca existiu; só a corrida entre duas remoções responde 204 sem evento. O brief pedia idempotência; ficou assim porque a linha deixa de existir.
+- **Leitura:** toda resposta de ticket do controlador traz `contributions` e `canEditContributions`. A lista, o resumo de ticket e o mapa não ganharam campo (há teste que compara as chaves). O detalhe faz no máximo duas consultas a mais, qualquer que seja o número de contribuições.
+- **Eventos:** `ticket.contribution_added`, `_removed` (guarda o nome da área naquele momento), `_updated`, `_person_added` e `_person_removed`, nunca com o texto. A atividade ganhou seis tipos de entrada, e a junção de edições seguidas vale por contribuição.
+- **O que não mudou, com teste:** concluir um ticket com contribuição `a fazer` continua permitido; mudar a situação de uma contribuição não muda a do ticket; o progresso do pai é o mesmo.
+- **Fronteira:** nada da camada de consulta, do MCP ou do assistente foi alterado. As duas guardas foram provadas com um vazamento simulado, pela coordenação (para comentários) e pelo executor (para contribuições).
+- **Web:** seção "Áreas" entre a Descrição e os Itens. O pedaço que o mapa baixa não cresceu; o da área autenticada cresceu cerca de 13 kB. Organização sem áreas: o administrador recebe um link para Configurações, que recarrega a página.
+- **Não foi exercitado** com sessão real no navegador. Nenhum teste de navegador cobre marcar uma tarefa dentro do texto de uma área.
