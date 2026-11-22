@@ -300,3 +300,13 @@ describe("describeApiError for tickets", () => {
     expect(message).not.toMatch(/Recarregue e tente/);
   });
 });
+
+describe("ticket activity: work ended by the project being archived (TREEPM-233)", () => {
+  it("keeps the agent_work_ended entry with reason archived instead of dropping it", async () => {
+    const entry = { id: "e1", type: "agent_work_ended", occurredAt: "2026-11-22T10:00:00.000Z", actor: null, reason: "archived" };
+    const { client } = setup(() => Response.json({ entries: [entry], before: null, canComment: false }));
+    const result = await client.ticketActivity(ID);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.entries).toEqual([entry]);
+  });
+});

@@ -66,19 +66,21 @@ describe("contorno do ticket em trabalho pela IA, em navegador real", () => {
     await page.viewport(1440, 900);
     const screen = await render(<Harness />);
     await explore(screen);
-    const ring = getComputedStyle(visual("t1")!, "::after");
-    expect(ring.content).toBe('""');
+    const path = visual("t1")!.querySelector<SVGRectElement>(".agent-work-ring rect")!;
+    const ring = getComputedStyle(path);
+    expect(getComputedStyle(visual("t1")!, "::after").animationName).toBe("none");
     expect(ring.animationName).toBe("agent-work-march");
     expect(ring.animationDuration).toBe("0.6s");
     expect(ring.animationIterationCount).toBe("infinite");
     expect(ring.animationTimingFunction).toBe("linear");
-    expect(ring.backgroundSize).toBe("100% 2px, 100% 2px, 2px 100%, 2px 100%");
-    expect(ring.pointerEvents).toBe("none");
+    expect(ring.strokeWidth).toBe("2px");
+    expect(ring.strokeDasharray.replace(/\s/g, "")).toBe("6px,4px");
+    expect(getComputedStyle(path.ownerSVGElement!).pointerEvents).toBe("none");
     expect(getComputedStyle(visual("t1")!).getPropertyValue("--aw-dash").trim()).toBe("6px");
-    // O traço anda de verdade: a posição do fundo muda com o tempo.
-    const before = getComputedStyle(visual("t1")!, "::after").backgroundPosition;
+    // O traço anda de verdade: o deslocamento do tracejado muda com o tempo.
+    const before = getComputedStyle(path).strokeDashoffset;
     await settle(150);
-    expect(getComputedStyle(visual("t1")!, "::after").backgroundPosition).not.toBe(before);
+    expect(getComputedStyle(path).strokeDashoffset).not.toBe(before);
     await shot("mapa-completo-em-trabalho");
   });
 
@@ -89,6 +91,8 @@ describe("contorno do ticket em trabalho pela IA, em navegador real", () => {
     expect(getComputedStyle(visual("t2")!, "::after").animationName).toBe("none");
     expect(getComputedStyle(visual("t3")!, "::after").animationName).toBe("none");
     expect(getComputedStyle(visual("p1")!, "::after").animationName).toBe("none");
+    expect(document.querySelectorAll(".agent-work-ring")).toHaveLength(1);
+    expect(visual("t1")!.querySelector(".agent-work-ring")).not.toBeNull();
   });
 
   it("não muda o tamanho nem desloca nada em volta", async () => {
@@ -111,10 +115,11 @@ describe("contorno do ticket em trabalho pela IA, em navegador real", () => {
     await reducedMotion("reduce");
     const screen = await render(<Harness />);
     await explore(screen);
-    expect(getComputedStyle(visual("t1")!, "::after").animationName).toBe("none");
-    const before = getComputedStyle(visual("t1")!, "::after").backgroundPosition;
+    const path = visual("t1")!.querySelector<SVGRectElement>(".agent-work-ring rect")!;
+    expect(getComputedStyle(path).animationName).toBe("none");
+    const before = getComputedStyle(path).strokeDashoffset;
     await settle(200);
-    expect(getComputedStyle(visual("t1")!, "::after").backgroundPosition).toBe(before);
+    expect(getComputedStyle(path).strokeDashoffset).toBe(before);
   });
 
   it("aparece em todo nível de detalhe: o ponto pulsa, os cards andam", async () => {
@@ -124,7 +129,11 @@ describe("contorno do ticket em trabalho pela IA, em navegador real", () => {
     const seen = new Map<string, { name: string; duration: string }>();
     const note = () => {
       const lod = article("t1")?.getAttribute("data-lod");
-      if (lod) seen.set(lod, { name: getComputedStyle(visual("t1")!, "::after").animationName, duration: getComputedStyle(visual("t1")!, "::after").animationDuration });
+      if (lod) {
+        // No ponto o halo é o ::after; nos outros níveis o contorno é o retângulo do <svg>.
+        const style = lod === "dot" ? getComputedStyle(visual("t1")!, "::after") : getComputedStyle(visual("t1")!.querySelector(".agent-work-ring rect")!);
+        seen.set(lod, { name: style.animationName, duration: style.animationDuration });
+      }
     };
     note();
     for (let step = 0; step < 14; step += 1) {
@@ -148,7 +157,7 @@ describe("contorno do ticket em trabalho pela IA, em navegador real", () => {
     const rule = [...document.styleSheets].flatMap((sheet) => [...sheet.cssRules]).find((entry) => entry.cssText.includes(".node-draft") && entry.cssText.includes("dashed"));
     expect(rule?.cssText).toContain("1px dashed");
     expect(rule?.cssText).not.toContain("animation");
-    expect(getComputedStyle(visual("t1")!, "::after").animationName).toBe("agent-work-march");
+    expect(getComputedStyle(visual("t1")!.querySelector(".agent-work-ring rect")!).animationName).toBe("agent-work-march");
   });
 });
 
@@ -162,6 +171,7 @@ function Card({ id, lod, width, height, left, top, color, working = false, draft
       style={{ left, top, width, height, ["--spatial-color" as string]: color, ["--spatial-reveal" as string]: 1 } as React.CSSProperties}
     >
       <div className="spatial-card-visual" style={{ ["--spatial-reveal" as string]: 1 } as React.CSSProperties}>
+        {working && <svg className="agent-work-ring" aria-hidden="true" focusable="false"><rect /></svg>}
         <button type="button" className="spatial-card-button" style={{ ["--spatial-reveal" as string]: 1 } as React.CSSProperties}>
           <span className="spatial-lod-content">
             {working && <span className="node-agent-work">Em trabalho pela IA</span>}
@@ -199,9 +209,10 @@ describe("o contorno em cada nível de detalhe, com a estrutura do pacote", () =
     await render(<Gallery />);
     await settle(100);
     const ring = (id: string) => getComputedStyle(visual(id)!, "::after");
+    const march = (id: string) => getComputedStyle(visual(id)!.querySelector(".agent-work-ring rect")!);
     for (const id of ["full-w", "full-s", "compact-w", "chip-w"]) {
-      expect(ring(id).animationName, id).toBe("agent-work-march");
-      expect(ring(id).animationDuration, id).toBe("0.6s");
+      expect(march(id).animationName, id).toBe("agent-work-march");
+      expect(march(id).animationDuration, id).toBe("0.6s");
     }
     expect(ring("dot-w").animationName).toBe("agent-work-pulse");
     expect(ring("dot-w").animationDuration).toBe("2.4s");
@@ -221,7 +232,75 @@ describe("o contorno em cada nível de detalhe, com a estrutura do pacote", () =
     await reducedMotion("reduce");
     await settle(100);
     expect(getComputedStyle(visual("dot-w")!, "::after").animationName).toBe("none");
-    expect(getComputedStyle(visual("chip-w")!, "::after").animationName).toBe("none");
+    expect(getComputedStyle(visual("chip-w")!.querySelector(".agent-work-ring rect")!).animationName).toBe("none");
+  });
+});
+
+describe("o contorno acompanha os cantos arredondados do card (TREEPM-199)", () => {
+  const ringPath = (id: string) => visual(id)!.querySelector<SVGRectElement>(".agent-work-ring rect");
+  const radius = (el: Element) => parseFloat(getComputedStyle(el).borderTopLeftRadius);
+
+  it("em cada nível de detalhe com card, o raio do contorno é o do card mais o afastamento (4 px até o meio do traço, 5 px até a borda de fora)", async () => {
+    await page.viewport(1000, 340);
+    await render(<Gallery />);
+    await settle(100);
+    for (const id of ["full-w", "full-s", "compact-w", "chip-w"]) {
+      const path = ringPath(id);
+      expect(path, id).not.toBeNull();
+      const cardRadius = radius(visual(id)!);
+      expect(cardRadius, id).toBeGreaterThan(1);
+      const rx = parseFloat(getComputedStyle(path!).rx);
+      expect(rx, id).toBeCloseTo(cardRadius + 4, 1);
+      expect(getComputedStyle(path!).strokeWidth, id).toBe("2px");
+      // O traço fica do lado de fora do card: o retângulo do contorno é maior que o do card em 5 px de cada lado (4 px do meio do traço + 1 px de meia espessura).
+      const outer = ringPath(id)!.ownerSVGElement!.getBoundingClientRect();
+      const card = visual(id)!.getBoundingClientRect();
+      expect(card.left - outer.left, id).toBeCloseTo(5, 0);
+      expect(outer.right - card.right, id).toBeCloseTo(5, 0);
+      expect(card.top - outer.top, id).toBeCloseTo(5, 0);
+      expect(outer.bottom - card.bottom, id).toBeCloseTo(5, 0);
+    }
+    expect(ringPath("full-n")).toBeNull();
+    expect(ringPath("dot-w") === null || getComputedStyle(ringPath("dot-w")!.ownerSVGElement!).display === "none").toBe(true);
+  });
+
+  it("os cantos são redondos de verdade: o comprimento do caminho é o de um retângulo com cantos de quarto de círculo", async () => {
+    await page.viewport(1000, 340);
+    await render(<Gallery />);
+    await settle(100);
+    for (const id of ["full-w", "compact-w", "chip-w"]) {
+      const path = ringPath(id)!;
+      const rx = parseFloat(getComputedStyle(path).rx);
+      const { width, height } = path.getBBox();
+      expect(rx, id).toBeGreaterThan(3);
+      // Retângulo reto: 2(w+h). Com cantos de raio r: 2(w+h) - 8r + 2πr.
+      const rounded = 2 * (width + height) - 8 * rx + 2 * Math.PI * rx;
+      expect(path.getTotalLength(), id).toBeCloseTo(rounded, -1);
+      expect(path.getTotalLength(), id).toBeLessThan(2 * (width + height) - 1);
+    }
+  });
+
+  it("segue na mesma cor do nó, o mesmo sentido (horário) e o mesmo passo: 6 px de traço, 4 px de vão, 10 px a cada 0,6 s", async () => {
+    await page.viewport(1000, 340);
+    await render(<Gallery />);
+    await settle(100);
+    const path = ringPath("full-w")!;
+    const style = getComputedStyle(path);
+    expect(style.stroke).toBe("rgb(110, 168, 255)");
+    expect(style.strokeDasharray.replace(/\s/g, "")).toBe("6px,4px");
+    expect(style.animationName).toBe("agent-work-march");
+    expect(style.animationDuration).toBe("0.6s");
+    expect(style.animationTimingFunction).toBe("linear");
+    expect(style.animationIterationCount).toBe("infinite");
+    // Horário: o deslocamento do tracejado diminui (o desenho do retângulo parte do canto de cima e segue para a direita).
+    const first = parseFloat(getComputedStyle(path).strokeDashoffset);
+    await settle(150);
+    const second = parseFloat(getComputedStyle(path).strokeDashoffset);
+    expect(second).not.toBe(first);
+    expect(second < first || second > first + 5).toBe(true);
+    await reducedMotion("reduce");
+    await settle(100);
+    expect(getComputedStyle(path).animationName).toBe("none");
   });
 });
 

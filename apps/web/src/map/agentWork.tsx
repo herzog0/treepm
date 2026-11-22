@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { TicketSummary } from "../api/client.js";
 
@@ -32,14 +33,23 @@ export function useAgentWorkActive(agentWork: AgentWork): boolean {
 }
 
 /**
- * A marca do contorno animado: um elemento sem tamanho dentro do card, que o CSS (`agent-work.css`) usa para desenhar o
- * contorno em volta dele, em todos os níveis (inclusive o ponto, em que o conteúdo é escondido mas continua no DOM). O
- * texto é para leitor de tela.
+ * A marca do contorno animado (ADR 0043): um elemento sem tamanho dentro do card, para o leitor de tela e para o CSS
+ * (`agent-work.css`) saber que o card está em trabalho, em todos os níveis (inclusive o ponto, em que o conteúdo é
+ * escondido mas continua no DOM). O contorno em si é um `<svg>` com um retângulo de cantos arredondados, que entra como
+ * filho do `.spatial-card-visual` (por portal): o botão do card corta o que passa dele, e o contorno fica fora do card.
  */
 export function AgentWorkMark({ agentWork }: { agentWork: AgentWork }) {
   const { t } = useTranslation("map");
   const active = useAgentWorkActive(agentWork);
-  return active ? <span className="node-agent-work">{t("agentWork.label")}</span> : null;
+  const [surface, setSurface] = useState<Element | null>(null);
+  const markRef = useCallback((mark: HTMLElement | null) => setSurface(mark?.closest(".spatial-card-visual") ?? null), []);
+  if (!active) return null;
+  return (
+    <>
+      <span ref={markRef} className="node-agent-work">{t("agentWork.label")}</span>
+      {surface && createPortal(<svg className="agent-work-ring" aria-hidden="true" focusable="false"><rect /></svg>, surface)}
+    </>
+  );
 }
 
 /**

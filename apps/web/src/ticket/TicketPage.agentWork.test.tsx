@@ -111,6 +111,16 @@ describe("ticket page: activity", () => {
     expect(found.some((text) => text?.startsWith("O trabalho pela IA foi encerrado ao concluir o ticket"))).toBe(true);
   });
 
+  it.each([
+    ["pt-BR", "O trabalho pela IA foi encerrado porque o projeto foi arquivado"],
+    ["en", "The AI work was ended because the project was archived"],
+    ["es-MX", "El trabajo de la IA terminó porque el proyecto fue archivado"],
+  ])("shows the work that ended because the project was archived (%s)", async (language, sentence) => {
+    await setTestLanguage(language as "pt-BR" | "en" | "es-MX");
+    setup({ tickets: base(), entries: [entry({ type: "agent_work_ended", reason: "archived", actor: null })] });
+    await waitFor(() => expect([...document.querySelectorAll(".ticket-activity-text")].map((el) => el.textContent?.replace(/\s+/g, " ").trim())).toEqual([sentence]));
+  });
+
   it("marks entries and comments that came through MCP, and only those", async () => {
     setup({
       tickets: base(),

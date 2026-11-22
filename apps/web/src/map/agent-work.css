@@ -1,57 +1,65 @@
 /*
  * Contorno do ticket em trabalho pela IA (ADR 0043). `.node-agent-work` é uma marca sem tamanho, colocada dentro do card
- * (veja `agentWork.tsx`); o contorno é o ::after do `.spatial-card-visual` que a contém, então não muda o tamanho nem o
- * conteúdo do card e não desloca nada em volta.
+ * (veja `agentWork.tsx`); o contorno é o `<svg class="agent-work-ring">` que a marca põe como filho do
+ * `.spatial-card-visual`, então não muda o tamanho nem o conteúdo do card e não desloca nada em volta.
  *
- * Técnica: quatro faixas (cima, baixo, esquerda, direita) de um degradê repetido, com 2 px de espessura, na cor do nó;
- * o tracejado anda porque a posição de cada faixa é animada, por CSS puro, sem JavaScript por quadro. As faixas andam
- * em sentidos que fecham um circuito no sentido horário: em cima para a direita, à direita para baixo, embaixo para a
- * esquerda e à esquerda para cima. Cada traço tem 6 px e cada vão 4 px (período de 10 px); o período se cumpre em 0,6 s,
- * então o tracejado anda a cerca de 17 px por segundo.
+ * Técnica (TREEPM-199): um `<rect>` de cantos arredondados, com `stroke-dasharray` e `stroke-dashoffset` animado por CSS
+ * puro, sem JavaScript por quadro. O retângulo é um caminho fechado só, então o tracejado dá a volta inteira nos cantos
+ * sem emenda; o desenho parte do canto de cima e segue para a direita, e o deslocamento negativo faz o tracejado andar
+ * no sentido horário. Antes eram quatro faixas de degradê, que só fazem cantos retos. Cada traço tem 6 px e cada vão
+ * 4 px (período de 10 px); o período se cumpre em 0,6 s, então o tracejado anda a cerca de 17 px por segundo.
  *
  * O contorno fica fora do card, a 5 px da borda (3 px de vão e 2 px de traço): no modo "Cores" o card é da cor do nó
- * inteira, e um traço da mesma cor sobre ele não apareceria. O card tracejado do rascunho da conversa com a IA é outra
- * coisa: traço fino de 1 px, parado, na borda do próprio card.
+ * inteira, e um traço da mesma cor sobre ele não apareceria. O raio acompanha o do card (`1px + 11px * --spatial-reveal`,
+ * que o pacote do mapa muda com o nível de detalhe) mais 4 px, a distância até o meio do traço; assim a borda de fora do
+ * traço fica a 5 px do card em todo o contorno, também nas curvas. O card tracejado do rascunho da conversa com a IA é
+ * outra coisa: traço fino de 1 px, parado, na borda do próprio card.
  */
 .org-map {
   --aw-stroke: 2px;
   --aw-dash: 6px;
   --aw-gap: 4px;
   --aw-period: calc(var(--aw-dash) + var(--aw-gap));
-  --aw-reach: -5px;
+  --aw-reach: 5px;
 }
 .org-map .node-agent-work { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
-.org-map .spatial-card-visual:has(.node-agent-work)::after {
+.org-map .agent-work-ring {
   --aw-color: var(--spatial-color, var(--tp-accent));
-  content: "";
   position: absolute;
-  inset: var(--aw-reach);
+  z-index: 3;
+  /* Ancorado na borda de fora do card (a borda do card tem 1 px, e 1 px + 2 px * --spatial-reveal em cima), e não na de dentro. */
+  left: calc(-1 * (var(--aw-reach) + 1px));
+  top: calc(-1 * (var(--aw-reach) + 1px + 2px * var(--spatial-reveal, 1)));
+  width: calc(100% + 2 * (var(--aw-reach) + 1px));
+  height: calc(100% + 2 * var(--aw-reach) + 2px + 2px * var(--spatial-reveal, 1));
+  overflow: visible;
   pointer-events: none;
-  background-image:
-    repeating-linear-gradient(90deg, var(--aw-color) 0 var(--aw-dash), transparent var(--aw-dash) var(--aw-period)),
-    repeating-linear-gradient(90deg, var(--aw-color) 0 var(--aw-dash), transparent var(--aw-dash) var(--aw-period)),
-    repeating-linear-gradient(180deg, var(--aw-color) 0 var(--aw-dash), transparent var(--aw-dash) var(--aw-period)),
-    repeating-linear-gradient(180deg, var(--aw-color) 0 var(--aw-dash), transparent var(--aw-dash) var(--aw-period));
-  background-size: 100% var(--aw-stroke), 100% var(--aw-stroke), var(--aw-stroke) 100%, var(--aw-stroke) 100%;
-  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
-  background-position: 0 0, 0 100%, 0 0, 100% 0;
+}
+.org-map .agent-work-ring rect {
+  x: calc(var(--aw-stroke) / 2);
+  y: calc(var(--aw-stroke) / 2);
+  width: calc(100% - var(--aw-stroke));
+  height: calc(100% - var(--aw-stroke));
+  rx: calc(1px + 11px * var(--spatial-reveal, 1) + var(--aw-reach) - var(--aw-stroke) / 2);
+  fill: none;
+  stroke: var(--aw-color);
+  stroke-width: var(--aw-stroke);
+  stroke-dasharray: var(--aw-dash) var(--aw-gap);
   animation: agent-work-march 0.6s linear infinite;
 }
 @keyframes agent-work-march {
-  to {
-    background-position:
-      var(--aw-period) 0,
-      calc(-1 * var(--aw-period)) 100%,
-      0 calc(-1 * var(--aw-period)),
-      100% var(--aw-period);
-  }
+  to { stroke-dashoffset: calc(-1 * var(--aw-period)); }
 }
 
 /* No nível de ponto não há card para contornar: o quadrado ganha um halo da cor do nó que pulsa devagar (2,4 s). */
+.org-map .spatial-lod-dot .agent-work-ring { display: none; }
 .org-map .spatial-lod-dot .spatial-card-visual:has(.node-agent-work)::after {
+  --aw-color: var(--spatial-color, var(--tp-accent));
+  content: "";
+  position: absolute;
+  pointer-events: none;
   inset: -3px;
-  background: none;
   border: var(--aw-stroke) solid var(--aw-color);
   border-radius: 3px;
   animation: agent-work-pulse 2.4s ease-in-out infinite;
@@ -63,6 +71,6 @@
 
 /* Movimento reduzido: o tracejado fica parado e o ponto não pulsa. */
 @media (prefers-reduced-motion: reduce) {
-  .org-map .spatial-card-visual:has(.node-agent-work)::after,
+  .org-map .agent-work-ring rect,
   .org-map .spatial-lod-dot .spatial-card-visual:has(.node-agent-work)::after { animation: none; }
 }
