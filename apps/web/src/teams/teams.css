@@ -17,3 +17,11 @@
 .teams-danger { margin-top: 12px; }
 .teams-screen input { flex: 1; min-width: 0; }
 @media (max-width: 700px) { .teams-layout { grid-template-columns: 1fr; } }
+
+/* Tela estreita (TREEPM-231): uma coluna só, lista de pessoas legível e com alvos de 44 px. */
+@media (max-width: 720px) {
+  .teams-layout { grid-template-columns: minmax(0, 1fr); }
+  .teams-list li button { min-height: 44px; }
+  .teams-members li { min-height: 52px; }
+  .teams-row { flex-wrap: wrap; }
+}

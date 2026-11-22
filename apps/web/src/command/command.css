@@ -41,3 +41,22 @@
 .command-chip button { display: grid; place-items: center; width: 18px; height: 18px; min-height: 0; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--tp-text-2); font-size: 13px; line-height: 1; cursor: pointer; }
 .command-chip button:hover:not(:disabled) { background: var(--tp-selected); color: var(--tp-text); }
 .command-chip button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/*
+ * Tela estreita ou de toque (TREEPM-231): a barra ocupa a largura toda com margens de 10 px; o campo e as opções têm 44 px de altura;
+ * o atalho de teclado (Ctrl K) e o rodapé de teclas não fazem sentido sem teclado e somem. Margens seguras do aparelho nas bordas.
+ */
+@media (max-width: 720px), (pointer: coarse) {
+  .command-field kbd, .command-footer { display: none; }
+  .command-field input { height: 44px; font-size: 16px; }
+  .command-option { min-height: 44px; }
+  .command-heading, .command-hint, .command-key, .command-empty, .command-meta { font-size: 12px; }
+  .command-progress, .command-chip { min-height: 44px; font-size: 12px; }
+  .command-chip button { position: relative; z-index: 1; }
+  .command-chip button::after { content: ""; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
+  .command-sheet { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+}
+@media (max-width: 720px) {
+  .command-zone { top: 10px; bottom: max(10px, env(safe-area-inset-bottom)); padding: 0 max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left)); }
+  .command-bar { width: 100%; }
+}

@@ -34,3 +34,14 @@
 .import-unavailable { display: grid; justify-items: start; gap: 12px; }
 .import-unavailable p { margin: 0; color: var(--tp-text-2); }
 @media (max-width: 800px) { .import-columns { grid-template-columns: 1fr; } #import-list { min-height: 240px; height: 40vh; } }
+
+/* Tela estreita (TREEPM-231): uma coluna, altura real da tela (`dvh`), margens seguras no rodapé fixo; o texto da lista tem 16 px para o iOS não ampliar. */
+@media (max-width: 720px) {
+  .import-screen { padding: 16px max(10px, env(safe-area-inset-right)) calc(96px + env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+  .import-columns { grid-template-columns: minmax(0, 1fr); }
+  #import-list { min-height: 240px; height: 40dvh; font-size: 16px; }
+  .import-footer { padding: 10px max(10px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); flex-wrap: wrap; }
+  .import-file { min-height: 44px; }
+  .import-path code, .import-legend code, .import-tree-row small { font-size: 12px; }
+  .import-tree-row { min-height: 44px; }
+}

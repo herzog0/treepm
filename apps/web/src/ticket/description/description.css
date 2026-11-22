@@ -82,3 +82,15 @@
 .description-load-failed { margin: 6px 0 0; color: var(--tp-text-2); font-size: 12px; }
 .description-retry { all: unset; cursor: pointer; color: var(--tp-accent); text-decoration: underline; }
 .description-retry:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 2px; }
+
+/* Tela estreita (TREEPM-231): o editor tem 16 px (o iOS não amplia a página ao focar) e os menus de "/" e "@" cabem na tela com alvos de 44 px. */
+@media (max-width: 720px) {
+  .description.is-editing .tiptap, .description .tiptap[contenteditable="true"] { font-size: 16px; }
+  .description.is-field { font-size: 16px; }
+  .description-menu, .description-writer { left: 10px; right: 10px; width: auto; max-width: none; }
+  .ticket-page .description-menu .description-menu-item, .assistant-sheet .description-menu .description-menu-item { min-height: 44px; }
+  .description-menu-title, .description-menu-foot, .description-menu-key, .description-menu-hint, .description-menu-glyph, .description-writer-hint { font-size: 12px; }
+  .description-writer-input { min-height: 44px; font-size: 16px; }
+  .description-mention { font-size: 12px; }
+  .ticket-page .description-invite { min-height: 44px; }
+}

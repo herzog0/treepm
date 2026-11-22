@@ -112,3 +112,26 @@
 .org-map .node-detail-people { display: flex; align-items: center; gap: 4px; }
 .org-map .node-detail-person { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: color-mix(in srgb, currentColor 18%, transparent); font-size: 9px; font-weight: 600; letter-spacing: 0; }
 .org-map .node-detail-more { font-size: 11px; }
+
+/*
+ * Tela estreita (TREEPM-231): o mapa e o palco não mudam; em volta deles, a barra de caminho e os controles têm alvos de 44 px,
+ * a dica de atalhos some (é de teclado) e o cartão de seleção desce para a base da tela, longe da barra de pedidos e dos controles.
+ */
+@media (max-width: 720px), (pointer: coarse) {
+  .org-map .spatial-help { display: none; }
+}
+@media (max-width: 720px) {
+  .org-map .spatial-context { min-height: 52px; padding: 4px max(10px, env(safe-area-inset-right)) 4px max(10px, env(safe-area-inset-left)); }
+  .org-map .spatial-breadcrumb { overflow-x: auto; scrollbar-width: none; }
+  .org-map .spatial-breadcrumb button { min-height: 44px; padding: 0 10px; font-size: 13px; }
+  .org-map .map-panel-toggle { min-height: 44px; font-size: 13px; }
+  .org-map .spatial-toolbar { top: 10px; right: max(10px, env(safe-area-inset-right)); }
+  .org-map .spatial-toolbar button { width: 44px; height: 44px; font-size: 20px; }
+  .org-map .spatial-toolbar .spatial-color-toggle { width: auto; font-size: 13px; }
+  .org-map:has(.side-panel) .spatial-toolbar { right: max(10px, env(safe-area-inset-right)); }
+  .org-map .spatial-selection, .org-map .spatial-selection.is-beside-panel { top: auto; right: max(10px, env(safe-area-inset-right)); bottom: max(10px, env(safe-area-inset-bottom)); left: max(10px, env(safe-area-inset-left)); width: auto; max-width: none; }
+  .org-map .spatial-selection code, .org-map .spatial-selection p { font-size: 12px; }
+  .org-map .spatial-selection button { min-width: 44px; min-height: 44px; }
+  .map-create-first { min-height: 44px; bottom: max(64px, calc(54px + env(safe-area-inset-bottom))); }
+  .map-state { padding: 0 16px; text-align: center; }
+}
