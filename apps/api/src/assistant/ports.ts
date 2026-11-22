@@ -134,3 +134,26 @@ export interface DescriptionWriter {
 }
 
 export const DESCRIPTION_WRITER = Symbol("DESCRIPTION_WRITER");
+
+// ---- Pergunta sobre o projeto (ADR 0037, fatia 5) --------------------------------------------------------------
+
+/** Resultado de uma ferramenta: texto (JSON) para o modelo; `isError` marca entrada inválida do modelo, que não derruba a pergunta. */
+export type ToolOutcome = { content: string; isError: boolean };
+
+/**
+ * Quem executa as ferramentas de consulta. O adaptador do Claude só conhece esta interface, nunca o banco. Entrada
+ * inválida vira `ToolOutcome` com `isError`; falha de verdade (banco, permissão que mudou) sobe como exceção.
+ */
+export interface ToolExecutor {
+  execute(name: string, input: unknown): Promise<ToolOutcome>;
+}
+
+/** Tudo em rótulos neutros (`T47`): a conversão de chaves é de quem chama. A conversa não é guardada em lugar nenhum. */
+export type ProjectAnswerInput = { question: string; history: readonly ConversationMessage[]; tools: ToolExecutor };
+
+/** Claude: responde uma pergunta sobre o projeto consultando-o pelas ferramentas. Só leitura. */
+export interface ProjectAnswerer {
+  answer(input: ProjectAnswerInput): Promise<{ text: string; model: string }>;
+}
+
+export const PROJECT_ANSWERER = Symbol("PROJECT_ANSWERER");

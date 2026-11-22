@@ -13,6 +13,8 @@ import type {
   DescriptionWriter,
   GroupNameInput,
   GroupNamer,
+  ProjectAnswerInput,
+  ProjectAnswerer,
 } from "../src/assistant/ports.js";
 
 /** Conversa falsa e determinística: registra as chamadas e responde sem rede. */
@@ -133,5 +135,25 @@ export class FakeDescriptionWriter implements DescriptionWriter {
     await this.onCall?.();
     if (this.fail) throw new AssistantUnavailableError("fake");
     return { text: this.reply ? this.reply(input) : `Texto para: ${input.request}`, model: "fake-model" };
+  }
+}
+
+/**
+ * Respondedor falso: devolve `Resposta: <pergunta>` a menos que `script` mande outra coisa. O `script` recebe a entrada
+ * (em rótulos neutros) e pode chamar `input.tools.execute`, como o adaptador do Claude faria. `delegate` entrega a
+ * chamada a outro respondedor (o real, com um provedor roteirizado).
+ */
+export class FakeProjectAnswerer implements ProjectAnswerer {
+  readonly calls: { question: string; history: { author: "person" | "assistant"; body: string }[] }[] = [];
+  onCall: (() => Promise<void>) | null = null;
+  script: ((input: ProjectAnswerInput) => Promise<string>) | null = null;
+  delegate: ProjectAnswerer | null = null;
+  fail = false;
+  async answer(input: ProjectAnswerInput): Promise<{ text: string; model: string }> {
+    this.calls.push({ question: input.question, history: structuredClone([...input.history]) });
+    await this.onCall?.();
+    if (this.fail) throw new AssistantUnavailableError("fake");
+    if (this.delegate) return this.delegate.answer(input);
+    return { text: this.script ? await this.script(input) : `Resposta: ${input.question}`, model: "fake-model" };
   }
 }

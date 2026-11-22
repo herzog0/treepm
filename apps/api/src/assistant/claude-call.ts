@@ -9,8 +9,12 @@ export const MAX_TOKENS = 16000;
 export const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
 export type StreamParams = Parameters<Anthropic["beta"]["messages"]["stream"]>[0];
+/** Bloco de conteúdo de uma resposta: só o que o laço de ferramentas lê; os demais (raciocínio etc.) voltam como vieram. */
+export type ClaudeContentBlock = { type: string; text?: string; id?: string; name?: string; input?: unknown };
 export type FinalMessage = {
   stop_reason: string | null;
+  /** Conteúdo da resposta; só o laço de ferramentas o lê (as saídas estruturadas usam `parsed_output`). */
+  content?: readonly ClaudeContentBlock[];
   parsed_output: unknown;
   model: string;
   /** Consumo que a API devolve; só a ferramenta de medição o lê. */

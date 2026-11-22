@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach } from "vitest";
 import { createTestApp, ownerPoolWithCleanup, truncateAll } from "./helpers.js";
 import type { FakeSessionVerifier } from "./helpers.js";
 import type { AppConfig } from "../src/config.js";
-import type { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer } from "./assistant-fakes.js";
+import type { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer, FakeProjectAnswerer } from "./assistant-fakes.js";
 import type { PlacementTimeouts } from "../src/assistant/ports.js";
 import type { FakeRepositoryProvider } from "./github-fakes.js";
 import { seedWorld } from "./world.js";
@@ -22,6 +22,7 @@ export type Harness = {
   affinity: () => FakeAffinityJudge;
   namer: () => FakeGroupNamer;
   writer: () => FakeDescriptionWriter;
+  answerer: () => FakeProjectAnswerer;
   github: () => FakeRepositoryProvider;
   call: (method: string, path: string, session: string, body?: unknown) => Promise<request.Response>;
 };
@@ -38,10 +39,11 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
   let affinity: FakeAffinityJudge;
   let namer: FakeGroupNamer;
   let writer: FakeDescriptionWriter;
+  let answerer: FakeProjectAnswerer;
   let github: FakeRepositoryProvider;
 
   beforeAll(async () => {
-    ({ app, verifier, conversation, judge, summarizer, affinity, namer, writer, github } = await createTestApp([], config, options.timeouts ? { timeouts: options.timeouts } : {}));
+    ({ app, verifier, conversation, judge, summarizer, affinity, namer, writer, answerer, github } = await createTestApp([], config, options.timeouts ? { timeouts: options.timeouts } : {}));
   });
   afterAll(async () => {
     await app.close();
@@ -72,6 +74,11 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     writer.onCall = null;
     writer.reply = null;
     writer.fail = false;
+    answerer.calls.length = 0;
+    answerer.onCall = null;
+    answerer.script = null;
+    answerer.delegate = null;
+    answerer.fail = false;
     namer.calls.length = 0;
     namer.onCall = null;
     namer.reply = null;
@@ -92,6 +99,7 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     affinity: () => affinity,
     namer: () => namer,
     writer: () => writer,
+    answerer: () => answerer,
     github: () => github,
     call: (method, path, session, body) => {
       const agent = request(app.getHttpServer());
