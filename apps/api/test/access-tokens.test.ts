@@ -15,16 +15,16 @@ describe("PATCH /api/organization (chave do MCP)", () => {
   it("nasce desligada e o /api/me informa mcp.enabled", async () => {
     const me = await h.call("GET", "/api/me", as("plain"));
     expect(me.status).toBe(200);
-    expect(me.body.mcp).toEqual({ enabled: false });
+    expect(me.body.mcp).toEqual({ enabled: false, writeEnabled: false });
   });
 
   it("só o administrador da organização liga e desliga; devolve o estado", async () => {
     const on = await h.call("PATCH", "/api/organization", as("admin"), { mcpEnabled: true });
     expect(on.status).toBe(200);
-    expect(on.body).toEqual({ mcp: { enabled: true } });
-    expect((await h.call("GET", "/api/me", as("plain"))).body.mcp).toEqual({ enabled: true });
+    expect(on.body).toEqual({ mcp: { enabled: true, writeEnabled: false } });
+    expect((await h.call("GET", "/api/me", as("plain"))).body.mcp).toEqual({ enabled: true, writeEnabled: false });
     const off = await h.call("PATCH", "/api/organization", as("admin"), { mcpEnabled: false });
-    expect(off.body).toEqual({ mcp: { enabled: false } });
+    expect(off.body).toEqual({ mcp: { enabled: false, writeEnabled: false } });
   });
 
   it.each(["teamAdmin", "manager", "contributor", "reader", "plain"] as const)("%s recebe 403", async (who) => {
@@ -62,7 +62,7 @@ describe("POST /api/access-tokens", () => {
     expect(res.status).toBe(201);
     const { token, ...data } = res.body as { token: string } & Row;
     expect(Object.keys(data).sort()).toEqual(
-      ["createdAt", "expiresAt", "id", "lastUsedAt", "name", "project", "revokedAt", "tokenPrefix"].sort(),
+      ["createdAt", "expiresAt", "id", "lastUsedAt", "name", "project", "revokedAt", "scope", "tokenPrefix"].sort(),
     );
     expect(data).toMatchObject({ name: "Notebook", project: { id: h.world().projects.priv, key: "PRIV" }, lastUsedAt: null, revokedAt: null });
     const parsed = parseToken(token);
@@ -150,7 +150,7 @@ describe("POST /api/access-tokens", () => {
     const events = await dbRows("select kind, subject_type, subject_id, payload from activity_events where kind like 'access_token.%'");
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ kind: "access_token.created", subject_type: "project", subject_id: h.world().projects.priv });
-    expect(events[0]?.["payload"]).toEqual({ tokenId: res.body.id, name: "Notebook", projectKey: "PRIV", tokenPrefix: res.body.tokenPrefix });
+    expect(events[0]?.["payload"]).toEqual({ tokenId: res.body.id, name: "Notebook", projectKey: "PRIV", tokenPrefix: res.body.tokenPrefix, scope: "read" });
     expect(JSON.stringify(events)).not.toContain(res.body.token);
     expect(JSON.stringify(events)).not.toContain(hashToken(res.body.token));
   });
@@ -165,6 +165,7 @@ describe("listagens", () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
     expect(res.body[0]).toEqual({
+      scope: "read",
       id: mine.body.id,
       name: "meu",
       project: { id: h.world().projects.priv, key: "PRIV" },

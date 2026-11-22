@@ -14,8 +14,7 @@ import {
   Query,
 } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { createsDependencyCycle, isFinished, parentWouldCreateCycle, statusChangeAllowed, canMoveIntoIdea, ticketProgress } from "@treepm/domain";
-import type { TicketStatus } from "@treepm/domain";
+import { createsDependencyCycle, isFinished, ticketProgress } from "@treepm/domain";
 import type { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { CurrentPrincipal } from "../access/principal.js";
@@ -35,6 +34,7 @@ import type { ImportItem, TicketPage, TicketSummary } from "./tickets.schema.js"
 import { activityQuerySchema } from "./ticket-activity.schema.js";
 import type { ActivityPage } from "./ticket-activity.schema.js";
 import { TicketActivityService } from "./ticket-activity.service.js";
+import { AgentWorkService } from "./agent-work.service.js";
 import { TicketsService, ideaViews, toNodes, toSummary } from "./tickets.service.js";
 import type { ProjectRow, TicketRow } from "./tickets.service.js";
 
@@ -47,6 +47,9 @@ const summarySelect = {
   description: true,
   status: true,
   ideaStage: true,
+  agentWorkStartedAt: true,
+  agentWorkUntil: true,
+  agentWorkNote: true,
   assignees: { select: { personId: true } },
 } as const;
 
@@ -57,6 +60,7 @@ export class TicketsController {
     @Inject(ActivityService) private readonly activity: ActivityService,
     @Inject(TicketsService) private readonly tickets: TicketsService,
     @Inject(TicketActivityService) private readonly ticketActivity: TicketActivityService,
+    @Inject(AgentWorkService) private readonly agentWork: AgentWorkService,
   ) {}
 
   @Get("projects/:projectId/tickets")
@@ -73,7 +77,8 @@ export class TicketsController {
     });
     const progress = ticketProgress(toNodes(rows));
     const ideas = ideaViews(project, rows);
-    return rows.map((row) => parseOutput(ticketSummarySchema, toSummary(project, row, progress, ideas.get(row.id) ?? null)));
+    const now = this.tickets.now();
+    return rows.map((row) => parseOutput(ticketSummarySchema, toSummary(project, row, progress, ideas.get(row.id) ?? null, now)));
   }
 
   @Post("projects/:projectId/tickets")
@@ -100,6 +105,7 @@ export class TicketsController {
       contributions: [],
       canEditContributions: this.tickets.canEditContributionsOf(principal.actor, project),
       canTriageIdea: this.tickets.canTriageIdeaOf(principal.actor, project, created.idea),
+      canEndAgentWork: false,
     };
   }
 
@@ -184,7 +190,7 @@ export class TicketsController {
     if (parentIdea && body.parentId) nodes.push({ id: body.parentId, parentId: null, status: "todo", ideaStage: "new" });
     const progress = ticketProgress(nodes);
     const rootIdea = parentIdea ? { root: false as const, rootId: parentIdea.id, rootKey: `${project.key}-${parentIdea.number}` } : null;
-    return rows.map((row) => parseOutput(ticketSummarySchema, toSummary(project, row, progress, rootIdea)));
+    return rows.map((row) => parseOutput(ticketSummarySchema, toSummary(project, row, progress, rootIdea, this.tickets.now())));
   }
 
   /** Refaz as ligações "menciona" de todo o projeto a partir das descrições (ADR 0037); usada pela ferramenta local. */
@@ -227,87 +233,24 @@ export class TicketsController {
   }
 
   @Patch("tickets/:id")
-  async update(
+  update(
     @Tx() tx: TenantClient,
     @CurrentPrincipal() principal: Principal,
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(updateTicketSchema)) body: z.output<typeof updateTicketSchema>,
   ): Promise<TicketPage> {
-    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
-    this.authorization.editTicket(principal.actor, project.id);
-    this.requireActive(project);
+    return this.tickets.updateTicket(tx, principal, id, body);
+  }
 
-    if (body.parentId !== undefined && body.parentId !== null) {
-      await this.tickets.requireParent(tx, project.id, body.parentId);
-    }
-    if (body.parentId !== undefined && body.parentId !== ticket.parentId) {
-      const all = await tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, parentId: true } });
-      const parents = new Map(all.map((row) => [row.id, row.parentId]));
-      if (parentWouldCreateCycle(parents, id, body.parentId)) {
-        throw new ConflictException({ code: "ticket_cycle", message: "O pai escolhido é o próprio ticket ou um descendente." });
-      }
-    }
-
-    const changes: Record<string, { from: unknown; to: unknown }> = {};
-    const data: {
-      title?: string;
-      description?: string;
-      status?: string;
-      parentId?: string | null;
-    } = {};
-    if (body.title !== undefined && body.title !== ticket.title) {
-      data.title = body.title;
-      changes["title"] = { from: ticket.title, to: body.title };
-    }
-    if (body.description !== undefined && body.description !== ticket.description) {
-      data.description = body.description;
-    }
-    if (body.status !== undefined && body.status !== ticket.status) {
-      data.status = body.status;
-      changes["status"] = { from: ticket.status, to: body.status };
-    }
-    if (body.parentId !== undefined && body.parentId !== ticket.parentId) {
-      data.parentId = body.parentId;
-      changes["parentId"] = { from: ticket.parentId, to: body.parentId };
-    }
-    const fields = Object.keys(data);
-    const finalStatus = (data.status ?? ticket.status) as TicketStatus;
-    const finalParent = body.parentId !== undefined ? body.parentId : ticket.parentId;
-    // Ideias (ADR 0042): a raiz, ou um ticket dentro de uma, está fora do processo. A posição que vale é a final: quem sai da
-    // ideia no mesmo pedido já muda de situação como ticket comum, e quem entra não muda.
-    const parentIdea = data.parentId !== undefined || data.status !== undefined ? await this.tickets.ideaRootFor(tx, finalParent) : null;
-    const outside = ticket.ideaStage !== null || parentIdea !== null;
-    if (data.parentId !== undefined && parentIdea !== null) {
-      // Trabalho em andamento não vira ideia por arrasto: o ticket e os descendentes `todo` ou `cancelled`.
-      if (!canMoveIntoIdea(ticket.status as TicketStatus, await this.tickets.descendantStatuses(tx, id))) {
-        throw new ConflictException({
-          code: "move_into_idea_blocked",
-          message: "Trabalho em andamento, em revisão ou concluído não entra numa ideia; mova só o que ainda está a fazer.",
-        });
-      }
-    }
-    // Reabertura (ADR 0034): ticket aberto que entra num pai (mudou de pai ou voltou a ficar aberto) reabre o pai `done`.
-    // Antes de qualquer outro bloqueio da transação, de baixo para cima. Fora do processo, nada reabre (ADR 0042).
-    if (finalParent && !outside && !isFinished(finalStatus) && (data.parentId !== undefined || data.status !== undefined)) {
-      await this.tickets.reopenAncestors(tx, principal, project, finalParent, `${project.key}-${ticket.number}`);
-    }
-    if (data.status !== undefined) {
-      // Regra 5 (ADR 0042). Trava a linha e confere de novo: uma transformação em ideia que acabou de confirmar vale a partir daqui.
-      const locked = await tx.$queryRaw<{ idea_stage: string | null }[]>`select idea_stage from tickets where id = ${id}::uuid for update`;
-      const inside = locked[0]?.idea_stage != null || (await this.tickets.ideaRootFor(tx, finalParent)) !== null;
-      if (!statusChangeAllowed(inside, ticket.status as TicketStatus, data.status as TicketStatus)) this.throwInIdea();
-    }
-    if (data.status === "done") await this.requireNoOpenChildren(tx, id);
-    if (fields.length > 0) {
-      await tx.ticket.update({ where: { orgId_id: { orgId: project.orgId, id } }, data });
-      await this.activity.record(tx, principal, {
-        kind: "ticket.updated",
-        subjectType: "ticket",
-        subjectId: id,
-        payload: { key: `${project.key}-${ticket.number}`, fields, ...changes },
-      });
-    }
-    if (data.description !== undefined) await this.tickets.syncMentions(tx, project, ticket, data.description);
+  /** Encerra o marcador de trabalho pela IA (ADR 0043): quem pode editar o ticket; idempotente; devolve o detalhe. */
+  @Delete("tickets/:id/agent-work")
+  async endAgentWork(
+    @Tx() tx: TenantClient,
+    @CurrentPrincipal() principal: Principal,
+    @Param("id", new ZodPipe(idSchema)) id: string,
+  ): Promise<TicketPage> {
+    await this.agentWork.endByPerson(tx, principal, id);
+    const { project } = await this.findVisibleTicket(tx, principal.actor, id);
     return this.tickets.detailFor(tx, project, id, principal);
   }
 
@@ -474,32 +417,6 @@ export class TicketsController {
   }
 
 
-
-  /**
-   * Concluir exige todos os filhos diretos finalizados (ADR 0034): 409 `ticket_has_open_children` com a contagem em
-   * `details.openChildCount`. A conferência e a escrita acontecem na mesma transação, depois de travar a linha do
-   * ticket (`for update`), o mesmo bloqueio de que a chave estrangeira do pai precisa para gravar um filho: um filho
-   * novo ainda não confirmado faz a conclusão esperar e, ao confirmar, ser vista e recusada.
-   */
-  private async requireNoOpenChildren(tx: TenantClient, id: string): Promise<void> {
-    await tx.$queryRaw`select id from tickets where id = ${id}::uuid for update`;
-    // A ideia (a raiz de ideia filha) não conta como filho aberto (ADR 0042).
-    const open = await tx.ticket.count({ where: { parentId: id, status: { notIn: ["done", "cancelled"] }, ideaStage: null } });
-    if (open > 0) {
-      throw new ConflictException({
-        code: "ticket_has_open_children",
-        message:
-          open === 1
-            ? "Conclua ou cancele o item aberto antes de concluir este ticket."
-            : `Conclua ou cancele os ${open} itens abertos antes de concluir este ticket.`,
-        details: { openChildCount: open },
-      });
-    }
-  }
-
-  private throwInIdea(): never {
-    throw new ConflictException({ code: "ticket_in_idea", message: "Dentro de uma ideia a situação fica em a fazer; aceite a ideia antes." });
-  }
 
   private async hasChildren(tx: TenantClient, id: string): Promise<boolean> {
     return (await this.childCount(tx, id)) > 0;

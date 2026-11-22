@@ -24,7 +24,9 @@ const areaRefSchema = z.object({ id: z.string(), name: z.string() }).nullable();
  */
 const commentAreaSchema = z.object({ id: z.string().nullable(), name: z.string() }).nullable();
 
-const base = { id: z.string(), occurredAt: z.string(), actor: personSchema.nullable() };
+/** `via: "mcp"` quando a entrada veio de uma chamada MCP (ADR 0043); ausente quando foi feita à mão. */
+const viaSchema = z.literal("mcp").optional();
+const base = { id: z.string(), occurredAt: z.string(), actor: personSchema.nullable(), via: viaSchema };
 
 /**
  * Entradas da atividade do ticket. Os dados do tipo ficam no mesmo nível de `id`, `occurredAt` e `actor`.
@@ -55,6 +57,8 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("contribution_status_changed"), area: areaRefSchema, from: contributionStatusSchema, to: contributionStatusSchema }),
   z.object({ ...base, type: z.literal("contribution_person_added"), area: areaRefSchema, person: personSchema.nullable() }),
   z.object({ ...base, type: z.literal("contribution_person_removed"), area: areaRefSchema, person: personSchema.nullable() }),
+  z.object({ ...base, type: z.literal("agent_work_started"), until: z.string() }),
+  z.object({ ...base, type: z.literal("agent_work_ended"), reason: z.enum(["agent", "person", "finished", "idea"]) }),
   z.object({ ...base, type: z.literal("idea_registered") }),
   z.object({ ...base, type: z.literal("idea_stage_changed"), from: ideaStageSchema, to: ideaStageSchema }),
   z.object({ ...base, type: z.literal("idea_accepted") }),

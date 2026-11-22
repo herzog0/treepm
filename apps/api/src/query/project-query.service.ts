@@ -1,13 +1,15 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { descriptionExcerpt, searchTickets, ticketProgress } from "@treepm/domain";
+import { agentWorkIsValid, descriptionExcerpt, ideaRootsOf, searchTickets, ticketProgress } from "@treepm/domain";
 import type { TicketStatus } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
+import { ACCESS_TOKEN_CLOCK } from "../access-tokens/clock.js";
+import type { AccessTokenClock } from "../access-tokens/clock.js";
 import type { Principal } from "../access/principal.js";
 import { parseOutput } from "../common/zod.js";
 import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
 import { queryOverviewSchema, queryTicketPageSchema, queryTicketSchema, queryListSchema } from "./query.schema.js";
-import type { QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "./query.schema.js";
+import type { QueryIdea, QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "./query.schema.js";
 
 export const SEARCH_DEFAULT_LIMIT = 8;
 export const SEARCH_MAX_LIMIT = 50;
@@ -27,8 +29,10 @@ export type ListOptions = {
   after?: number;
 };
 
-type Row = { id: string; number: number; title: string; description: string; status: string; parentId: string | null };
-const SUMMARY_SELECT = { id: true, number: true, title: true, description: true, status: true, parentId: true } as const;
+type Row = { id: string; number: number; title: string; description: string; status: string; parentId: string | null; agentWorkUntil?: Date | null };
+const SUMMARY_SELECT = { id: true, number: true, title: true, description: true, status: true, parentId: true, agentWorkUntil: true } as const;
+/** Como cada ticket do projeto aparece em relação às ideias, por id (uma consulta para o projeto todo, nunca uma por ticket). */
+type IdeaMap = ReadonlyMap<string, QueryIdea>;
 const RELATED_ORDER = { number: "asc" } as const;
 
 function clamp(value: number | undefined, fallback: number, max: number): number {
@@ -48,14 +52,36 @@ function cut<T>(rows: readonly T[], limit: number): { rows: T[]; truncated: bool
  */
 @Injectable()
 export class ProjectQueryService {
-  constructor(@Inject(AuthorizationService) private readonly authorization: AuthorizationService) {}
+  constructor(
+    @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
+    @Inject(ACCESS_TOKEN_CLOCK) private readonly clock: AccessTokenClock,
+  ) {}
+
+  /** `idea` de todos os tickets do projeto: a raiz (com o estágio) e o que está dentro (com o número da raiz). Ticket comum não entra. */
+  private async ideas(tx: TenantClient, projectId: string): Promise<IdeaMap> {
+    const rows = await tx.ticket.findMany({ where: { projectId }, select: { id: true, number: true, parentId: true, status: true, ideaStage: true } });
+    return this.ideaMap(rows);
+  }
+
+  private ideaMap(rows: readonly { id: string; number: number; parentId: string | null; status: string; ideaStage: string | null }[]): IdeaMap {
+    const nodes = rows.map((row) => ({ id: row.id, parentId: row.parentId, status: ticketStatusSchema.parse(row.status), ideaStage: ideaStageSchema.nullable().parse(row.ideaStage) }));
+    const numberOf = new Map(rows.map((row) => [row.id, row.number] as const));
+    const stageOf = new Map(nodes.map((node) => [node.id, node.ideaStage] as const));
+    const out = new Map<string, QueryIdea>();
+    for (const [id, rootId] of ideaRootsOf(nodes)) {
+      const stage = stageOf.get(id);
+      out.set(id, id === rootId && stage ? { kind: "root", stage } : { kind: "inside", rootNumber: numberOf.get(rootId) ?? 0 });
+    }
+    return out;
+  }
 
   /** Busca da barra (ADR 0036) sobre os tickets do projeto. Padrão 8, máximo 50. 2 consultas. */
   async search(tx: TenantClient, principal: Principal, projectId: string, text: string, options: SearchOptions = {}): Promise<QueryTicketList> {
     const project = await this.requireProject(tx, principal, projectId);
     const limit = clamp(options.limit, SEARCH_DEFAULT_LIMIT, SEARCH_MAX_LIMIT);
     const rows = await tx.ticket.findMany({ where: { projectId }, select: SUMMARY_SELECT, orderBy: { number: "asc" } });
-    const found = cut(searchTickets(text, rows.map((row) => this.summary(project.key, row)), limit + 1), limit);
+    const ideas = await this.ideas(tx, projectId);
+    const found = cut(searchTickets(text, rows.map((row) => this.summary(project.key, row, ideas)), limit + 1), limit);
     return parseOutput(queryListSchema, { tickets: found.rows, truncated: found.truncated });
   }
 
@@ -67,7 +93,8 @@ export class ProjectQueryService {
     const project = await this.requireProject(tx, principal, projectId);
     const row = await tx.ticket.findFirst({ where: { projectId, number }, select: SUMMARY_SELECT });
     if (!row) throw new NotFoundException("Ticket não encontrado.");
-    const summary = (entry: Row): QueryTicketSummary => this.summary(project.key, entry);
+    const ideas = await this.ideas(tx, projectId);
+    const summary = (entry: Row): QueryTicketSummary => this.summary(project.key, entry, ideas);
     const list = (rows: readonly Row[]): QueryTicketList => {
       const part = cut(rows, RELATED_MAX);
       return { tickets: part.rows.map(summary), truncated: part.truncated };
@@ -146,8 +173,9 @@ export class ProjectQueryService {
       take: limit + 1,
     });
     const page = cut(rows, limit);
+    const ideas = await this.ideas(tx, projectId);
     return parseOutput(queryTicketPageSchema, {
-      tickets: page.rows.map((row) => this.summary(project.key, row)),
+      tickets: page.rows.map((row) => this.summary(project.key, row, ideas)),
       truncated: page.truncated,
       after: page.truncated ? (page.rows.at(-1)?.number ?? null) : null,
     });
@@ -156,23 +184,34 @@ export class ProjectQueryService {
   /** Total por situação e os tickets do topo com situação e progresso (`ticketProgress`). 3 consultas. */
   async overview(tx: TenantClient, principal: Principal, projectId: string): Promise<QueryOverview> {
     const project = await this.requireProject(tx, principal, projectId);
-    const nodes = (await tx.ticket.findMany({ where: { projectId }, select: { id: true, parentId: true, status: true, ideaStage: true } })).map((row) => ({
+    const nodes = (await tx.ticket.findMany({ where: { projectId }, select: { id: true, number: true, parentId: true, status: true, ideaStage: true } })).map((row) => ({
       id: row.id,
+      number: row.number,
       parentId: row.parentId,
       status: ticketStatusSchema.parse(row.status),
       ideaStage: ideaStageSchema.nullable().parse(row.ideaStage),
     }));
+    const ideas = this.ideaMap(nodes);
     const top = await tx.ticket.findMany({ where: { projectId, parentId: null }, select: SUMMARY_SELECT, orderBy: RELATED_ORDER, take: RELATED_MAX + 1 });
     const byStatus: Record<TicketStatus, number> = { todo: 0, in_progress: 0, in_review: 0, done: 0, cancelled: 0 };
-    for (const node of nodes) byStatus[node.status] += 1;
+    const ideaCounts = { new: 0, refining: 0, ready: 0, discarded: 0 };
+    let work = 0;
+    for (const node of nodes) {
+      const idea = ideas.get(node.id);
+      if (idea?.kind === "root" && node.ideaStage) ideaCounts[node.ideaStage] += 1;
+      if (idea) continue; // ideia não é trabalho aceito: fica fora do total e da contagem por situação
+      work += 1;
+      byStatus[node.status] += 1;
+    }
     const progress = ticketProgress(nodes);
     const part = cut(top, RELATED_MAX);
     return parseOutput(queryOverviewSchema, {
       projectKey: project.key,
-      total: nodes.length,
+      total: work,
       byStatus,
+      ideas: ideaCounts,
       top: {
-        tickets: part.rows.map((row) => ({ ...this.summary(project.key, row), progress: progress.get(row.id) ?? null })),
+        tickets: part.rows.map((row) => ({ ...this.summary(project.key, row, ideas), progress: progress.get(row.id) ?? null })),
         truncated: part.truncated,
       },
     });
@@ -198,8 +237,12 @@ export class ProjectQueryService {
       select id, number, title, description, status, parent_id as "parentId" from up order by depth desc`;
   }
 
-  private summary(projectKey: string, row: Row): QueryTicketSummary {
+  private summary(projectKey: string, row: Row, ideas: IdeaMap): QueryTicketSummary {
+    const now = this.clock.now();
+    const marker = row.agentWorkUntil && agentWorkIsValid(row.agentWorkUntil, now) ? { until: row.agentWorkUntil.toISOString() } : null;
     return {
+      idea: ideas.get(row.id) ?? null,
+      agentWork: marker,
       id: row.id,
       key: `${projectKey}-${row.number}`,
       number: row.number,

@@ -12,6 +12,8 @@ export type Principal = {
   person: PersonRecord;
   organization: OrganizationRecord;
   actor: Actor;
+  /** Quando a ação vem de uma chamada MCP (ADR 0043): a origem e o id do REGISTRO do token (nunca o segredo). */
+  via?: { kind: "mcp"; tokenId: string };
 };
 
 /** Entrega ao handler o `Principal` montado pelo interceptor do tenant. */

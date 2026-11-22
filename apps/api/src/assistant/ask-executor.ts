@@ -12,7 +12,8 @@ import type { ToolExecutor, ToolOutcome } from "./ports.js";
 class ToolInputError extends Error {}
 
 /** O que o modelo vê de um ticket nas listas: o rótulo no lugar de id, chave, número e parentId. */
-type Brief = { label: string; title: string; excerpt: string; status: TicketStatus; parent: string | null };
+type AskIdea = { kind: "root"; stage: string } | { kind: "inside"; root: string } | null;
+type Brief = { label: string; title: string; excerpt: string; status: TicketStatus; parent: string | null; idea: AskIdea };
 type BriefList = { tickets: Brief[]; truncated: boolean };
 
 const everyLabel = { has: () => true };
@@ -123,6 +124,8 @@ export class ProjectToolExecutor implements ToolExecutor {
       excerpt: this.excerpt(summary.descriptionExcerpt),
       status: summary.status,
       parent: parent === undefined ? null : labelOf(parent),
+      // A marca de ideia (rótulo neutro, nunca chave nem id); o marcador de trabalho pela IA NÃO sai (ADR 0043).
+      idea: summary.idea === null ? null : summary.idea.kind === "root" ? { kind: "root", stage: summary.idea.stage } : { kind: "inside", root: labelOf(summary.idea.rootNumber) },
     };
   }
 
@@ -142,6 +145,7 @@ export class ProjectToolExecutor implements ToolExecutor {
       label: self.label,
       title: self.title,
       status: self.status,
+      idea: self.idea,
       description: this.neutral(ticket.description),
       parent: self.parent,
       path: ticket.path.map((summary) => this.brief(summary, numbers)),
@@ -155,6 +159,7 @@ export class ProjectToolExecutor implements ToolExecutor {
     return {
       total: overview.total,
       by_status: overview.byStatus,
+      ideas: overview.ideas,
       top: {
         tickets: overview.top.tickets.map((summary) => ({ ...this.brief(summary, numbers), progress: summary.progress })),
         truncated: overview.top.truncated,

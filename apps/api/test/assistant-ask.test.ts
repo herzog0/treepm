@@ -267,6 +267,56 @@ describe("as ferramentas", () => {
     expect(overview.top.tickets[0]).toMatchObject({ title: "Auth", progress: { done: 0, total: 3, excluded: 0, ideas: 1 } });
   });
 
+  describe("a marca de ideia em cada ferramenta (ADR 0043)", () => {
+    /** Uma ideia (T90, dentro de T1) com um ticket dentro (T91); T4 menciona T91. */
+    async function seedIdea(): Promise<void> {
+      await seed();
+      const parent = (await rows("select id from tickets where project_id = $1 and number = 1", [priv()]))[0].id as string;
+      const root = (await rows(
+        "insert into tickets (org_id, project_id, number, title, parent_id, idea_stage, created_by_person_id) values ('org_A', $1, 90, 'Ideia nova', $2, 'new', $3) returning id",
+        [priv(), parent, h.world().people.admin],
+      ))[0].id as string;
+      const inside = (await rows(
+        "insert into tickets (org_id, project_id, number, title, parent_id, created_by_person_id) values ('org_A', $1, 91, 'Dentro da ideia', $2, $3) returning id",
+        [priv(), root, h.world().people.admin],
+      ))[0].id as string;
+      const t4 = (await rows("select id from tickets where project_id = $1 and number = 4", [priv()]))[0].id as string;
+      await h.pool.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ('org_A',$1,$2,$3,'mentions')", [priv(), t4, inside]);
+    }
+    const ROOT = { kind: "root", stage: "new" };
+    const INSIDE = { kind: "inside", root: "T90" };
+    const marks = (tickets: any[]) => Object.fromEntries(tickets.map((x) => [x.label, x.idea]));
+
+    it("read_ticket: a própria marca, a do caminho, a dos filhos e a das ligações", async () => {
+      await seedIdea();
+      expect((await json("read_ticket", { ticket: "T90" })).idea).toEqual(ROOT);
+      const inside = await json("read_ticket", { ticket: "T91" });
+      expect(inside.idea).toEqual(INSIDE);
+      expect(marks(inside.path)).toEqual({ T1: null, T90: ROOT });
+      expect(marks(inside.relations.mentions.incoming.tickets)).toEqual({ T4: null });
+      expect(marks((await json("read_ticket", { ticket: "T1" })).children.tickets)).toMatchObject({ T90: ROOT });
+      expect(marks((await json("read_ticket", { ticket: "T4" })).relations.mentions.outgoing.tickets)).toMatchObject({ T91: INSIDE });
+      expect((await json("read_ticket", { ticket: "T2" })).idea).toBeNull();
+    });
+
+    it("search_tickets e list_tickets: a marca em cada resumo, nula nos demais", async () => {
+      await seedIdea();
+      expect(marks((await json("search_tickets", { query: "ideia" })).tickets)).toEqual({ T90: ROOT, T91: INSIDE });
+      const list = await json("list_tickets", { under: "T1" });
+      expect(marks(list.tickets)).toMatchObject({ T90: ROOT, T91: INSIDE, T2: null, T3: null, T4: null });
+      for (const t of list.tickets) expect(Object.keys(t), t.label).toContain("idea");
+    });
+
+    it("project_overview: ideas conta as raízes e cada resumo do topo traz a chave idea", async () => {
+      await seedIdea();
+      const overview = await json("project_overview", {});
+      expect(overview.ideas).toMatchObject({ new: 1 });
+      expect(Object.values(overview.ideas as Record<string, number>).reduce((a, b) => a + b, 0)).toBe(1);
+      for (const t of overview.top.tickets) expect(Object.keys(t), t.label).toContain("idea");
+      expect(marks(overview.top.tickets)).toMatchObject({ T1: null });
+    });
+  });
+
   it("list_tickets pagina por rótulo: truncated e after", async () => {
     await seed();
     const first = await json("list_tickets", { limit: 3 });
@@ -420,6 +470,50 @@ describe("o teto do que sai para a Anthropic", () => {
     expect(sent).not.toContain("conversa da área");
     expect(sent).not.toContain("conversa antiga");
     expect(sent).not.toContain(`${word}-AREA-REMOVIDA`);
+  });
+
+  it("ideia na semente (raiz e um ticket dentro): sai a marca com rótulo neutro e nada de pessoa, id ou chave; o marcador de trabalho pela IA não sai", async () => {
+    await seed();
+    const word = "MARCADOR-RECONHECIVEL-5K1";
+    const parent = (await rows("select id from tickets where project_id = $1 and number = 1", [priv()]))[0].id as string;
+    const root = (await rows(
+      "insert into tickets (org_id, project_id, number, title, parent_id, idea_stage, created_by_person_id) values ('org_A', $1, 90, 'Ideia nova', $2, 'new', $3) returning id",
+      [priv(), parent, h.world().people.admin],
+    ))[0].id as string;
+    await h.pool.query("insert into tickets (org_id, project_id, number, title, parent_id, created_by_person_id) values ('org_A', $1, 91, 'Dentro da ideia', $2, $3)", [priv(), root, h.world().people.admin]);
+    await h.pool.query("update people set display_name = $1 where id = $2", [`${word}-PESSOA`, h.world().people.manager]);
+    await h.pool.query(
+      "update tickets set agent_work_started_at = now(), agent_work_until = now() + interval '1 hour', agent_work_person_id = $2, agent_work_note = $3 where project_id = $1 and number = 4",
+      [priv(), h.world().people.manager, `${word}-NOTA`],
+    );
+    const captured: string[] = [];
+    h.answerer().delegate = new ClaudeProjectAnswerer(
+      scripted(
+        [
+          turn([use("a", "search_tickets", { query: "ideia" }), use("b", "project_overview", {})], "tool_use"),
+          turn([use("c", "read_ticket", { ticket: "T90" }), use("d", "read_ticket", { ticket: "T91" }), use("e", "read_ticket", { ticket: "T4" }), use("f", "list_tickets", { under: "T1" })], "tool_use"),
+          turn([{ type: "text", text: "Há uma ideia." }]),
+        ],
+        captured,
+      ),
+    );
+    expect((await ask(priv(), { question: "Há ideias?", history: [] })).status).toBe(200);
+    expect(captured).toHaveLength(3);
+    const sent = captured.join("\n");
+    // controle positivo: a marca saiu, com o rótulo neutro da raiz
+    expect(sent).toMatch(/idea\\":\{\\"kind\\":\\"root\\",\\"stage\\":\\"new/);
+    expect(sent).toMatch(/idea\\":\{\\"kind\\":\\"inside\\",\\"root\\":\\"T90/);
+    expect(sent).toContain("Dentro da ideia");
+    for (const [what, pattern] of [
+      ["uuid", UUID],
+      ["chave do projeto", /PRIV/],
+      ["nome de pessoa", /Nome (admin|manager|contributor|reader|plain|target|teamAdmin)/],
+      ["e-mail", /@/],
+      ["usuário de login", /u_(admin|manager)/],
+      ["organização", /org_[AB]/],
+    ] as const) expect(pattern.test(sent), what).toBe(false);
+    // o marcador de trabalho pela IA: nem a chave, nem a nota, nem a pessoa que ligou
+    for (const absent of ["agentWork", "agent_work", word, "since", "until"]) expect(sent, absent).not.toContain(absent);
   });
 
   it("o detector acha o que procura (controle negativo)", async () => {

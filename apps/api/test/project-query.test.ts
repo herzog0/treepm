@@ -13,7 +13,7 @@ import type { Who, World } from "./world.js";
 
 const pool: pg.Pool = ownerPoolWithCleanup();
 const authorization = new AuthorizationService();
-const service = new ProjectQueryService(authorization);
+const service = new ProjectQueryService(authorization, { now: () => Date.now() });
 let prisma: PrismaClient;
 let world: World;
 
@@ -89,6 +89,8 @@ describe("search", () => {
       descriptionExcerpt: "",
       status: "todo",
       parentId: null,
+      idea: null,
+      agentWork: null,
     });
   });
 
@@ -470,7 +472,7 @@ describe("cost", () => {
     await grow(80);
     const large = await measure();
     expect(large).toEqual(small);
-    expect(small).toEqual([2, 8, 3, 3]);
+    expect(small).toEqual([3, 9, 4, 3]);
   });
 });
 

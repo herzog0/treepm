@@ -16,6 +16,7 @@ type TokenRow = {
   id: string;
   name: string;
   tokenPrefix: string;
+  scope: string;
   createdAt: Date;
   lastUsedAt: Date | null;
   expiresAt: Date;
@@ -32,6 +33,7 @@ function view(row: TokenRow): Omit<TokenOutput, never> {
     name: row.name,
     project: { id: row.project.id, key: row.project.key },
     tokenPrefix: row.tokenPrefix,
+    scope: row.scope === "write" ? ("write" as const) : ("read" as const),
     createdAt: row.createdAt.toISOString(),
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
     expiresAt: row.expiresAt.toISOString(),
@@ -49,10 +51,10 @@ export class AccessTokenManager {
   ) {}
 
   /** Liga ou desliga a chave da organização. Só administrador; o evento só sai quando o estado muda. */
-  async setMcpEnabled(tx: TenantClient, principal: Principal, enabled: boolean): Promise<{ mcp: { enabled: boolean } }> {
+  async setMcpEnabled(tx: TenantClient, principal: Principal, enabled: boolean): Promise<{ mcp: { enabled: boolean; writeEnabled: boolean } }> {
     this.authorization.manageMcpAccess(principal.actor);
     const orgId = principal.organization.orgId;
-    const current = await tx.organization.findUnique({ where: { orgId }, select: { mcpEnabled: true } });
+    const current = await tx.organization.findUnique({ where: { orgId }, select: { mcpEnabled: true, mcpWriteEnabled: true } });
     if (current?.mcpEnabled !== enabled) {
       await tx.organization.update({ where: { orgId }, data: { mcpEnabled: enabled } });
       await this.activity.record(tx, principal, {
@@ -62,7 +64,19 @@ export class AccessTokenManager {
         payload: { enabled },
       });
     }
-    return { mcp: { enabled } };
+    return { mcp: { enabled, writeEnabled: current?.mcpWriteEnabled ?? false } };
+  }
+
+  /** Liga ou desliga "Permitir escrita por MCP" (ADR 0043). Só administrador; o evento só sai quando o estado muda. */
+  async setMcpWriteEnabled(tx: TenantClient, principal: Principal, enabled: boolean): Promise<{ mcp: { enabled: boolean; writeEnabled: boolean } }> {
+    this.authorization.manageMcpAccess(principal.actor);
+    const orgId = principal.organization.orgId;
+    const current = await tx.organization.findUnique({ where: { orgId }, select: { mcpEnabled: true, mcpWriteEnabled: true } });
+    if (current?.mcpWriteEnabled !== enabled) {
+      await tx.organization.update({ where: { orgId }, data: { mcpWriteEnabled: enabled } });
+      await this.activity.record(tx, principal, { kind: "organization.mcp_write_changed", subjectType: "organization", subjectId: orgId, payload: { enabled } });
+    }
+    return { mcp: { enabled: current?.mcpEnabled ?? false, writeEnabled: enabled } };
   }
 
   /** O token inteiro sai desta resposta e de mais nenhum lugar. */
@@ -97,6 +111,7 @@ export class AccessTokenManager {
         name: body.name,
         tokenPrefix: built.prefix,
         tokenHash: built.hash,
+        scope: body.scope,
         expiresAt: new Date(now + body.expiresInDays * DAY_MS),
       },
       include: withProject,
@@ -105,7 +120,7 @@ export class AccessTokenManager {
       kind: "access_token.created",
       subjectType: "project",
       subjectId: project.id,
-      payload: { tokenId: row.id, name: row.name, projectKey: project.key, tokenPrefix: row.tokenPrefix },
+      payload: { tokenId: row.id, name: row.name, projectKey: project.key, tokenPrefix: row.tokenPrefix, scope: row.scope },
     });
     return parseOutput(createdTokenSchema, { ...view(row), token: built.token });
   }

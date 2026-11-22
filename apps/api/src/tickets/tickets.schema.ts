@@ -88,6 +88,14 @@ export const ticketIdeaSchema = z
   ])
   .nullable();
 
+/** Marcador de trabalho pela IA (ADR 0043): `null` quando não vale (nunca existiu, foi encerrado ou venceu). */
+export const agentWorkSchema = z.object({ since: z.string(), until: z.string(), note: z.string() }).nullable();
+/** No detalhe, o marcador diz também quem o ligou (a pessoa do token). */
+export const agentWorkDetailSchema = z
+  .object({ since: z.string(), until: z.string(), note: z.string(), by: z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() }) })
+  .nullable();
+export type AgentWork = NonNullable<z.output<typeof agentWorkSchema>>;
+
 export const ticketSummarySchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -100,6 +108,7 @@ export const ticketSummarySchema = z.object({
   progress: progressSchema.nullable(),
   assigneeIds: z.array(z.string()),
   idea: ticketIdeaSchema,
+  agentWork: agentWorkSchema,
 });
 
 /** Uma ideia da lista de ideias do projeto (ADR 0042): a raiz, o caminho (títulos dos ancestrais, do topo para baixo) e a criação. */
@@ -124,6 +133,7 @@ export const dependencyLinkSchema = mentionedBySchema;
 export const addDependencySchema = z.object({ ticketId: idSchema });
 
 export const ticketDetailSchema = ticketSummarySchema.extend({
+  agentWork: agentWorkDetailSchema,
   description: z.string(),
   mentionedBy: z.array(mentionedBySchema),
   /** Tickets de que este depende, em ordem de número. */
@@ -169,6 +179,8 @@ export const ticketPageSchema = ticketDetailSchema.extend({
   canEditContributions: z.boolean(),
   /** Para quem lê: pode aceitar e descartar esta ideia (gestor, em raiz de ideia, projeto não arquivado; ADR 0042). */
   canTriageIdea: z.boolean(),
+  /** Para quem lê: pode encerrar o marcador de trabalho pela IA (pode editar o ticket, projeto não arquivado, marcador vale; ADR 0043). */
+  canEndAgentWork: z.boolean(),
 });
 
 export type Contribution = z.output<typeof contributionSchema>;

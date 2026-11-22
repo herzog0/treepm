@@ -45,6 +45,8 @@ describe("criação e leitura", () => {
       contributions: [],
       canEditContributions: true,
       canTriageIdea: false,
+      canEndAgentWork: false,
+      agentWork: null,
       idea: null,
       descriptionExcerpt: "",
       createdByPersonId: h.world().people.admin,

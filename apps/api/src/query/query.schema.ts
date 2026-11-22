@@ -1,10 +1,21 @@
 import { z } from "zod";
-import { ticketStatusSchema } from "../tickets/tickets.schema.js";
+import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
 
 /**
  * Saídas da camada de consulta do projeto (ADR 0037). Nenhum esquema tem responsável, autor, nome, e-mail ou data:
  * a camada não devolve dado de pessoa, e `strictObject` faz um campo a mais falhar em vez de passar.
  */
+
+/** `null`: ticket comum; `root`: raiz de uma ideia, com o estágio; `inside`: parte de uma ideia, com o número da raiz (ADR 0042, 0043). */
+export const queryIdeaSchema = z
+  .union([z.strictObject({ kind: z.literal("root"), stage: ideaStageSchema }), z.strictObject({ kind: z.literal("inside"), rootNumber: z.number().int() })])
+  .nullable();
+export type QueryIdea = z.infer<typeof queryIdeaSchema>;
+/**
+ * Marcador de trabalho pela IA que vale agora (ADR 0043): só o fim. Sem a nota (texto livre escrito pelo agente de outra pessoa:
+ * canal de injeção para quem lê), sem o início e sem a pessoa. A nota fica na tela e na resposta de quem a escreveu.
+ */
+export const queryAgentWorkSchema = z.strictObject({ until: z.string() }).nullable();
 
 export const querySummarySchema = z.strictObject({
   id: z.string(),
@@ -14,6 +25,8 @@ export const querySummarySchema = z.strictObject({
   descriptionExcerpt: z.string(),
   status: ticketStatusSchema,
   parentId: z.string().nullable(),
+  idea: queryIdeaSchema,
+  agentWork: queryAgentWorkSchema,
 });
 export type QueryTicketSummary = z.infer<typeof querySummarySchema>;
 
@@ -49,6 +62,7 @@ export type QueryTicketPage = z.infer<typeof queryTicketPageSchema>;
 
 export const queryOverviewSchema = z.strictObject({
   projectKey: z.string(),
+  /** Só o que é trabalho: as ideias (raízes e o que está dentro) ficam fora (ADR 0043). */
   total: z.number().int(),
   byStatus: z.strictObject({
     todo: z.number().int(),
@@ -57,6 +71,8 @@ export const queryOverviewSchema = z.strictObject({
     done: z.number().int(),
     cancelled: z.number().int(),
   }),
+  /** Quantas raízes de ideia há em cada estágio. */
+  ideas: z.strictObject({ new: z.number().int(), refining: z.number().int(), ready: z.number().int(), discarded: z.number().int() }),
   top: z.strictObject({
     tickets: z.array(querySummarySchema.extend({ progress: queryProgressSchema.nullable() })),
     truncated: z.boolean(),

@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { Principal } from "../access/principal.js";
 import type { ProjectQueryService } from "../query/project-query.service.js";
 import type { QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "../query/query.schema.js";
-import { ticketStatusSchema } from "../tickets/tickets.schema.js";
+import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
 
 /**
  * As quatro ferramentas do servidor MCP (ADR 0038), só de leitura, sobre a camada de consulta (ADR 0037). Tudo o que o
@@ -43,12 +43,20 @@ export const listTicketsInput = z.strictObject({
 });
 export const projectOverviewInput = z.strictObject({});
 
+const ideaSchema = z
+  .union([z.strictObject({ kind: z.literal("root"), stage: ideaStageSchema }), z.strictObject({ kind: z.literal("inside"), root: z.string() })])
+  .nullable()
+  .describe("null for ordinary work. An idea is not accepted work yet: `root` is the idea itself (with its stage), `inside` is a ticket that is part of an idea (`root` is the key of the idea).");
+const agentWorkSchema = z.strictObject({ until: z.string() }).nullable().describe("Set while an agent is marked as working on this ticket right now (`until` is when the mark expires); null otherwise.");
+
 const summarySchema = z.strictObject({
   key: z.string().describe("Ticket key, for example PROJ-47."),
   title: z.string(),
   excerpt: z.string().describe("Start of the description."),
   status: ticketStatusSchema,
   parent: z.string().nullable().describe("Key of the parent ticket, or null for a top-level ticket."),
+  idea: ideaSchema,
+  agentWork: agentWorkSchema,
 });
 const listSchema = z.strictObject({
   tickets: z.array(summarySchema),
@@ -62,6 +70,8 @@ export const getTicketOutput = z.strictObject({
   key: z.string(),
   title: z.string(),
   status: ticketStatusSchema,
+  idea: ideaSchema,
+  agentWork: agentWorkSchema,
   description: z.string().describe("Full description, never cut."),
   parent: z.string().nullable().describe("Key of the parent ticket (the ticket this one is part of), or null."),
   path: z.array(summarySchema).describe("From the top-level ancestor down to the parent; empty for a top-level ticket."),
@@ -74,7 +84,8 @@ export const getTicketOutput = z.strictObject({
 export const listTicketsOutput = listSchema.extend({ after: z.string().nullable().describe("Pass as `after` to get the next page; null when there is no more.") });
 export const projectOverviewOutput = z.strictObject({
   project: z.string().describe("Project key."),
-  total: z.number().int(),
+  total: z.number().int().describe("Number of tickets that are work (ideas are not counted)."),
+  ideas: z.strictObject({ new: z.number().int(), refining: z.number().int(), ready: z.number().int(), discarded: z.number().int() }).describe("Idea roots per stage. An idea is not accepted work yet."),
   by_status: z.strictObject({ todo: z.number().int(), in_progress: z.number().int(), in_review: z.number().int(), done: z.number().int(), cancelled: z.number().int() }),
   top: z.strictObject({
     tickets: z.array(summarySchema.extend({ progress: progressSchema.nullable().describe("Leaf tickets done / total below this ticket; null when it has no children.") })),
@@ -87,6 +98,7 @@ type TicketList = z.infer<typeof listSchema>;
 
 const MEANING =
   "Tickets form a tree: the parent is the ticket a ticket is part of. " +
+  "An idea is not accepted work yet: `idea` says whether a ticket is the root of an idea or inside one. " +
   "Relations: `mentions` means one ticket cites the other in its text; `depends_on` means the first ticket needs the other to be finished before it. " +
   `Statuses: ${STATUSES}.`;
 
@@ -150,22 +162,23 @@ export class ProjectTools {
   }
 
   async getTicket(input: z.infer<typeof getTicketInput>): Promise<z.infer<typeof getTicketOutput>> {
-    const number = this.number(input.key);
-    const ticket = await this.read(
-      async (tx, principal) => {
-        return this.query.ticket(tx, principal, this.context.project.id, number).catch((error: unknown) => {
-          if (error instanceof NotFoundException && error.message === "Ticket não encontrado.") throw new ToolInputError(`Ticket ${this.projectKey}-${number} does not exist in this project.`);
-          throw error;
-        });
-      },
-      async (tx, found) => this.reduceTicket(tx, found),
-    );
+    const number = this.ticketNumber(input.key);
+    return this.run(this.context.principal, (tx) => this.ticketIn(tx, this.context.principal, number));
+  }
+
+  /** O ticket como `get_ticket` o devolve, lido na transação que já está aberta (a escrita responde com isto, sem uma segunda transação). */
+  async ticketIn(tx: TenantClient, principal: Principal, number: number): Promise<z.infer<typeof getTicketOutput>> {
+    const found = await this.query.ticket(tx, principal, this.context.project.id, number).catch((error: unknown) => {
+      if (error instanceof NotFoundException && error.message === "Ticket não encontrado.") throw new ToolInputError(`Ticket ${this.projectKey}-${number} does not exist in this project.`);
+      throw error;
+    });
+    const ticket = await this.reduceTicket(tx, found);
     return fit(ticket, (result) => [result.children, result.relations.mentions.outgoing, result.relations.mentions.incoming, result.relations.depends_on.outgoing, result.relations.depends_on.incoming]);
   }
 
   async listTickets(input: z.infer<typeof listTicketsInput>): Promise<z.infer<typeof listTicketsOutput>> {
-    const under = input.under === undefined ? undefined : this.number(input.under);
-    const after = input.after === undefined ? undefined : this.number(input.after);
+    const under = input.under === undefined ? undefined : this.ticketNumber(input.under);
+    const after = input.after === undefined ? undefined : this.ticketNumber(input.after);
     const page = await this.read(
       (tx, principal) =>
         this.query
@@ -196,6 +209,7 @@ export class ProjectTools {
           project: value.projectKey,
           total: value.total,
           by_status: value.byStatus,
+          ideas: value.ideas,
           top: {
             tickets: value.top.tickets.map((ticket) => ({ ...this.summary(ticket, numbers), progress: ticket.progress })),
             truncated: value.top.truncated,
@@ -211,8 +225,8 @@ export class ProjectTools {
     return this.run(this.context.principal, async (tx) => convert(tx, await load(tx, this.context.principal)));
   }
 
-  /** `PROJ-12` → 12, só se for deste projeto. */
-  private number(key: string): number {
+  /** `PROJ-12` → 12, só se for deste projeto. O único analisador de chave, da leitura e da escrita (estrito: sem zeros à esquerda). */
+  ticketNumber(key: string): number {
     const match = KEY_SHAPE.exec(key.trim().toUpperCase());
     if (!match) throw new ToolInputError("Ticket key must look like PROJ-123.");
     if (match[1] !== this.projectKey) throw new ToolInputError(`This server only serves project ${this.projectKey}; use keys like ${this.projectKey}-123.`);
@@ -235,6 +249,8 @@ export class ProjectTools {
       key: self.key,
       title: self.title,
       status: self.status,
+      idea: self.idea,
+      agentWork: self.agentWork,
       description: ticket.description,
       parent: self.parent,
       path: ticket.path.map((entry) => this.summary(entry, keys)),
@@ -262,6 +278,8 @@ export class ProjectTools {
       excerpt: entry.descriptionExcerpt,
       status: entry.status,
       parent: entry.parentId === null ? null : (keys.get(entry.parentId) ?? null),
+      idea: entry.idea === null ? null : entry.idea.kind === "root" ? { kind: "root", stage: entry.idea.stage } : { kind: "inside", root: `${this.projectKey}-${entry.idea.rootNumber}` },
+      agentWork: entry.agentWork,
     };
   }
 }

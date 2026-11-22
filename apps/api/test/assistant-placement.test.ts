@@ -142,6 +142,74 @@ describe("POST /ticket-conversations/:id/placement — o resultado", () => {
   });
 });
 
+describe("placement — ideias não são lugar para um ticket novo (ADR 0043)", () => {
+  /** Uma ideia na raiz e outra dentro de Auth, cada uma com um ticket e um grupo (com filho) dentro, todas com título e texto que seriam o melhor destino. */
+  async function seedIdeas(): Promise<string[]> {
+    const manager = h.world().people.manager;
+    const add = async (number: number, title: string, parentId: string | null, stage: string | null): Promise<string> =>
+      (await rows(
+        "insert into tickets (org_id, project_id, number, parent_id, title, description, idea_stage, created_by_person_id) values ('org_A',$1,$2,$3,$4,'Quero corrigir o login',$5,$6) returning id",
+        [priv(), number, parentId, title, stage, manager],
+      ))[0].id as string;
+    const rootIdea = await add(20, "Ideia Corrigir o login", null, "new");
+    const groupInRoot = await add(21, "Ideia dentro: grupo do login", rootIdea, null);
+    await add(22, "Ideia dentro: filho do grupo", groupInRoot, null);
+    const nestedIdea = await add(23, "Ideia Corrigir o login em Auth", tree.auth, "refining");
+    const groupInNested = await add(24, "Ideia dentro: grupo em Auth", nestedIdea, null);
+    await add(25, "Ideia dentro: filho em Auth", groupInNested, null);
+    await h.pool.query("update projects set next_ticket_number = 30 where id = $1", [priv()]);
+    return [rootIdea, groupInRoot, nestedIdea, groupInNested];
+  }
+  /** O juiz prefere qualquer candidato com "Ideia" no título; se nenhum for oferecido, prefere Auth. */
+  const preferIdeas = () => {
+    h.judge().verdict = (input) => {
+      const raw = input.candidates.map((c) => (/Ideia/.test(c.title) ? 0.9 : c.title === "Auth" ? 0.5 : 0.05));
+      const sum = raw.reduce((a, b) => a + b, 0);
+      return { belongs: 0.95, choice: Object.fromEntries(input.candidates.map((c, i) => [c.id, (raw[i] ?? 0) / sum])) };
+    };
+  };
+
+  it("uma ideia cujo título e descrição seriam o melhor destino não é candidata, nem os tickets de dentro dela", async () => {
+    const id = await start();
+    await seedIdeas();
+    preferIdeas();
+    const res = await placement(id);
+    expect(res.status).toBe(201);
+    const offered = h.judge().calls.flatMap((c) => c.candidates.map((x) => x.title));
+    expect(offered.filter((t) => /Ideia/.test(t))).toEqual([]);
+    expect(offered).toContain("Auth");
+    expect(h.summarizer().calls.map((c) => c.title).filter((t) => /Ideia/.test(t))).toEqual([]);
+    expect((await summaryRows()).map((r) => r.title).filter((t) => /Ideia/.test(t))).toEqual([]);
+    // as ideias não aparecem em nenhum lugar do resultado
+    expect(JSON.stringify(res.body)).not.toMatch(/Ideia/);
+  });
+
+  it("o ticket novo vai para o melhor destino que é trabalho, e nunca para dentro de uma ideia", async () => {
+    const id = await start();
+    await seedIdeas();
+    preferIdeas();
+    const res = await placement(id);
+    expect(res.body.destination).toEqual({
+      parentId: tree.sso,
+      path: [{ id: tree.auth, title: "Auth" }, { id: tree.sso, title: "SSO" }],
+    });
+    const created = await h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), { parentId: res.body.destination.parentId });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const [row] = await rows("select parent_id from tickets where id = $1", [created.body.ticket.id]);
+    expect(row.parent_id).toBe(tree.sso);
+  });
+
+  it("escopo dentro de uma ideia (ou de um ticket de dentro) não existe para a procura", async () => {
+    const id = await start();
+    const [rootIdea, groupInRoot] = await seedIdeas();
+    for (const scopeId of [rootIdea, groupInRoot]) {
+      const res = await h.call("POST", `/api/ticket-conversations/${id}/placement`, as("contributor"), { scopeId });
+      expect(res.status, String(scopeId)).toBeGreaterThanOrEqual(400);
+    }
+    expect(h.judge().calls).toHaveLength(0);
+  });
+});
+
 describe("placement — resumos de ramo", () => {
   it("escreve os que faltam nos ramos visitados e os guarda com modelo e marca", async () => {
     const id = await start();

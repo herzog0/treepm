@@ -3,7 +3,7 @@ import { z } from "zod";
 import { idSchema } from "../common/schemas.js";
 
 /** Corpo do comentário: aparado, de 1 a 10.000 caracteres (ADR 0040). */
-const commentBodySchema = z.string().transform((raw, ctx) => {
+export const commentBodySchema = z.string().transform((raw, ctx) => {
   const body = commentBodyOf(raw);
   if (body === null) {
     ctx.addIssue({ code: "custom", message: "O comentário precisa ter de 1 a 10.000 caracteres." });

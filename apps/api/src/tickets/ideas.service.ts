@@ -7,6 +7,7 @@ import type { Principal } from "../access/principal.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { ideaStageSchema, ticketStatusSchema } from "./tickets.schema.js";
 import type { IdeaListItem, TicketPage } from "./tickets.schema.js";
+import { AgentWorkService } from "./agent-work.service.js";
 import { TicketsService } from "./tickets.service.js";
 import type { ProjectRow } from "./tickets.service.js";
 
@@ -22,6 +23,7 @@ export class IdeasService {
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(ActivityService) private readonly activity: ActivityService,
     @Inject(TicketsService) private readonly tickets: TicketsService,
+    @Inject(AgentWorkService) private readonly agentWork: AgentWorkService,
   ) {}
 
   /** Inexistente, de outra organização (RLS) ou privado sem papel: o mesmo 404. */
@@ -147,6 +149,8 @@ export class IdeasService {
       });
     }
     await this.setStage(tx, project, id, "new");
+    // Uma ideia não é trabalhada antes do aceite: o marcador do ticket e dos descendentes acaba (ADR 0043).
+    await this.agentWork.clearSubtree(tx, principal, project.key, id, "idea");
     await this.activity.record(tx, principal, {
       kind: "ticket.idea_registered",
       subjectType: "ticket",
