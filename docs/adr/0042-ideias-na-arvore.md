@@ -1,6 +1,6 @@
 # ADR 0042 — Ideias na árvore: ticket que ainda não entrou no processo
 
-**Status:** Proposta de design da coordenação, a pedido de Teodoro em 2026-11-22 ("ideias entrem na árvore como qualquer outro ticket, só que a cor diferente da sua subárvore toda vai deixar claro que ainda não é parte integral do processo de desenvolvimento. faça um design disso"). **Nada é implementado antes de ele aprovar.** Os quadros do mapa com a cor proposta estão no artefato citado em "Como fica no mapa". **Data:** 2026-11-22.
+**Status:** Aprovada por Teodoro em 2026-11-22 ("tá aprovado, se é só a cor dos cards"), depois de a coordenação esclarecer que o mapa não muda em nada além da cor dos nós de ideia. Ele não escolheu entre as duas cores nem respondeu às perguntas de "Em aberto": vale a proposta da coordenação em cada uma (rosa `#e879c6` e os padrões descritos abaixo), até ele dizer o contrário. Os quadros esquemáticos do artefato não representam o mapa e não são referência de desenho. **Data:** 2026-11-22.
 
 ## Contexto
 
@@ -21,7 +21,7 @@ O que existe hoje, conferido no código em 2026-11-22:
 
 A pergunta que decide o desenho: uma ideia colocada dentro de um ticket concluído reabre o pai? Impede concluir? Entra no progresso? Mancha a cor do ramo? Se a resposta de todas for "não", e é o que "ainda não é parte do processo" pede, a ideia **não pode ser mais uma situação**: situação é exatamente o que essas regras leem.
 
-## Decisão proposta
+## Decisão
 
 ### Ideia é um estágio do ticket, separado da situação
 
@@ -78,7 +78,7 @@ A [ADR 0025](0025-base-visual-constelacao-e-tema-do-mapa.md) diz "cor do nó = s
 - O card tracejado do rascunho da conversa com a IA continua como é: a ideia tem borda cheia.
 - A cor precisa se distinguir das cinco que existem. Proposta: **rosa `#e879c6`**; a alternativa nos quadros é **turquesa `#3fd0c9`**. O cinza não serve (já quer dizer "a fazer" e "cancelado"), o lilás é a organização e o projeto, e laranja e vermelho leem como alerta.
 
-Os quadros com as duas opções, nos quatro níveis de detalhe, ao lado de ramos comuns: **[TreePM — ideias no mapa](https://claude.ai/artifact/BZnrDWhxWRQjZaGEDnnvjd)** (privado). Teodoro escolhe olhando, como fez com o mapa.
+**O mapa não muda em mais nada:** layout, cards, níveis de detalhe, zoom e interação ficam como estão (aprovados em 2026-11-19). Um esquema com as duas cores, que não reproduz o mapa: **[TreePM — ideias no mapa](https://claude.ai/artifact/BZnrDWhxWRQjZaGEDnnvjd)** (privado).
 
 ### Na página do ticket
 
@@ -115,7 +115,7 @@ Depois que as ideias existirem no produto, as 15 propostas do arquivo viram idei
 
 Uma coluna opcional em `tickets` para o estágio, com as quatro opções. Nenhuma tabela nova. Migration própria, numerada quando a implementação começar.
 
-## Fatias, se aprovado
+## Fatias
 
 1. **Regras:** o campo, as rotas de registrar, mudar estágio, aceitar e descartar, e as cinco regras da tabela "Fora do processo", cada uma com teste. Histórico.
 2. **Mapa e página do ticket:** a cor, o marcador, a linha "Ideia".
