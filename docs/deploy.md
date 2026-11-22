@@ -7,6 +7,7 @@ Contrato em `docs/adr/0022-api-nestjs-e-hospedagem-na-fly.md`. Um app serve `tre
 | Nome | Onde | Observação |
 | --- | --- | --- |
 | `VITE_CLERK_PUBLISHABLE_KEY` | argumento de build (`--build-arg`) | Chave pública, embutida no bundle do web. Não é secret de runtime. |
+| `CLIENT_IP_HEADER` | `[env]` do `fly.toml` | Opcional. Nome do cabeçalho com o IP do cliente (`Fly-Client-IP`), usado só pelo limite por IP do servidor MCP; sem ele vale o IP da conexão. Ver o passo 7 do primeiro deploy. |
 | `NODE_ENV`, `PORT`, `WEB_DIST_DIR`, `APP_ORIGIN` | `[env]` do `fly.toml` | Não secretas. `WEB_DIST_DIR` é opcional; sem ela a API não serve estáticos (desenvolvimento). |
 | `CLERK_SECRET_KEY` | secret da Fly | Obrigatório. |
 | `CLERK_PUBLISHABLE_KEY` | secret da Fly | Obrigatório; mesma chave pública do build. |
@@ -34,7 +35,7 @@ docker build --build-arg VITE_CLERK_PUBLISHABLE_KEY=pk_test_exemplo -t treepm-lo
 
 A imagem roda como o usuário `node` (uid 1000), só com dependências de produção, `dist` da API/`@treepm/db`/`@treepm/domain` (inclui o Prisma Client gerado) e o web em `/app/web`. Sem CLI do prisma, sem migrações e sem os scripts de desenvolvimento de `apps/api/scripts` (`github-check`, `verify-providers`, `placement-rebuild`; precisam do `tsx`). Tamanho: cerca de 619 MB (base `node:22.23.1-slim` com 329 MB), medido em 2026-11-21.
 
-**Memória da VM.** `fly.toml` usa `shared-cpu-1x` com 256 MB, o menor preset. Medido localmente em 2026-11-21, com a imagem do `main` de então: o contêiner limitado a 256 MB (sem swap) ficou em 93 MiB depois de 600 requisições a `/` e `/api/me`, sem OOM (na medição anterior, antes do editor, da IA e do GitHub, eram cerca de 55 MiB). Não é teste de carga e não exercita as chamadas à IA; se a produção estourar, subir para 512 MB.
+**Memória da VM.** `fly.toml` usa `shared-cpu-1x` com 512 MB. Medido em 2026-11-22 na imagem construída a partir do branch do servidor MCP, em contêiner limitado a 256 MB: ocioso logo depois de subir, 89 a 137 MiB; depois de 600 requisições que não tocam o banco (`/` e `/api/me` sem sessão), 98 MiB; depois de 120 requisições que abrem transação no banco (o endereço MCP com token bem formado e inexistente), 188 MiB, estabilizando em 198 MiB depois de 1.800 requisições (as demais barradas pelo limite por IP), sem OOM. A medição anterior (93 MiB) não passava pelo banco. Com o banco em uso o processo fica perto de 200 MiB e em 256 MB sobra pouco para as chamadas à IA; por isso a máquina passa a 512 MB. Não é teste de carga e não exercita as chamadas à IA.
 
 ## Rodar a imagem contra o PostgreSQL de teste
 
@@ -63,3 +64,4 @@ O banco de produção é separado do Neon de desenvolvimento.
 4. Criar a instância de produção do Clerk para `treepm.ai`, com os registros DNS que ela exigir.
 5. Apontar o DNS de `treepm.ai` para o app e emitir o certificado na Fly.
 6. `fly deploy --build-arg VITE_CLERK_PUBLISHABLE_KEY=<chave pública de produção>`.
+7. Conferir o cabeçalho de IP: de uma máquina só, mandar 130 requisições sem token a `/api/mcp/X` em menos de um minuto, cada uma com um `Fly-Client-IP` diferente e inventado. Se a 121ª em diante responder 429, o proxy sobrescreve o cabeçalho e está certo. Se nenhuma responder 429, o cliente consegue forjar o cabeçalho: tirar `CLIENT_IP_HEADER` do `fly.toml` e avisar a coordenação.

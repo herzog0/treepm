@@ -20,6 +20,9 @@ primary_region = "gru" # São Paulo, junto do Neon (ADR 0022)
   PORT = "4310"
   WEB_DIST_DIR = "/app/web"
   APP_ORIGIN = "https://treepm.ai"
+  # A documentação da Fly diz que o proxy define este cabeçalho, mas não diz que sobrescreve o que o cliente mandar;
+  # a conferência é feita depois da publicação (docs/deploy.md, "Primeiro deploy", passo 7).
+  CLIENT_IP_HEADER = "Fly-Client-IP"
 
 # Sem [deploy] release_command, de propósito (ADR 0021): as migrações rodam FORA da Fly,
 # antes de cada deploy, com DATABASE_MIGRATION_URL só no ambiente do mantenedor ou do CI.
@@ -45,7 +48,7 @@ primary_region = "gru" # São Paulo, junto do Neon (ADR 0022)
     grace_period = "10s"
 
 [[vm]]
-  # shared-cpu-1x com 256 MB é o menor preset (memória mínima 256 MB por CPU
-  # compartilhada, múltiplos de 256). Medido localmente: ver docs/deploy.md.
+  # shared-cpu-1x com 512 MB. Medido em 2026-11-22: cerca de 200 MiB com o banco em uso;
+  # 256 MB (o menor preset) deixava pouca folga. Ver docs/deploy.md.
   size = "shared-cpu-1x"
-  memory = "256mb"
+  memory = "512mb"

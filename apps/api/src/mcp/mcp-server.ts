@@ -1,0 +1,64 @@
+import { Logger } from "@nestjs/common";
+import { McpServer } from "@modelcontextprotocol/server";
+import type { CallToolResult } from "@modelcontextprotocol/server";
+import type { ProjectQueryService } from "../query/project-query.service.js";
+import { ProjectTools, TOOL_DEFINITIONS, ToolInputError } from "./mcp-tools.js";
+import type { RunInTenant, ToolContext } from "./mcp-tools.js";
+
+const ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
+const GENERIC_ERROR = "Something went wrong while reading the project. Try again.";
+const MAX_MESSAGE = 200;
+
+/**
+ * Erro de ferramenta de uma frase só: sem quebras de linha, curto e só ASCII (caracteres fora de ASCII viram `?`; nenhum
+ * detalhe interno sai pelo protocolo). Entrada inválida continua sendo uma frase de entrada inválida.
+ */
+function toolError(message: string): CallToolResult {
+  const oneLine = message.replace(/\s+/g, " ").trim().replace(/[^\x20-\x7e]/g, "?");
+  const short = oneLine.length > MAX_MESSAGE ? `${oneLine.slice(0, MAX_MESSAGE - 3)}...` : oneLine;
+  return { content: [{ type: "text", text: short.length > 0 ? short : GENERIC_ERROR }], isError: true };
+}
+
+const logger = new Logger("McpTools");
+
+/** Resultado de sucesso: o objeto estruturado e o mesmo JSON como texto, como a especificação recomenda. */
+function ok(data: Record<string, unknown>): CallToolResult {
+  return { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: data };
+}
+
+async function guarded(name: string, work: () => Promise<Record<string, unknown>>): Promise<CallToolResult> {
+  try {
+    return ok(await work());
+  } catch (error) {
+    if (error instanceof ToolInputError) return toolError(error.message);
+    // Falha de verdade (banco, bug): fica no log só com a mensagem, sem argumentos nem resultados; o cliente recebe uma frase genérica.
+    logger.error(`tool ${name} failed: ${error instanceof Error ? error.name : "UnknownError"}`);
+    return toolError(GENERIC_ERROR);
+  }
+}
+
+/**
+ * Monta o servidor MCP de UMA requisição, para o projeto e a identidade já resolvidos pelo token. O código das
+ * ferramentas não vê o token.
+ */
+export function createProjectServer(run: RunInTenant, query: ProjectQueryService, context: ToolContext): McpServer {
+  const server = new McpServer(
+    { name: "treepm", version: "0.1.0" },
+    {
+      instructions: `Read-only access to the tickets of project ${context.project.key} in TreePM. Tickets form a tree; start with get_project_overview, then search_tickets, list_tickets and get_ticket.`,
+    },
+  );
+  // Toda falha de uma ferramenta, inclusive a validação da entrada que o SDK faz antes do nosso código, vira resultado
+  // com `isError`; o SDK 2.4.0 monta esse resultado em `createToolError` (privado no tipo, método comum em execução).
+  // Trocá-lo encurta a mensagem do SDK para uma frase e impede que detalhe interno saia pelo protocolo. O teste das
+  // entradas inválidas cobre a troca, e a versão do SDK é exata no package.json.
+  if (typeof (server as unknown as Record<string, unknown>)["createToolError"] !== "function") throw new Error("SDK sem createToolError: revisar a troca em mcp-server.ts.");
+  Object.defineProperty(server, "createToolError", { value: toolError });
+  const tools = new ProjectTools(run, query, context);
+  const register = TOOL_DEFINITIONS;
+  server.registerTool("search_tickets", { ...register.search_tickets, annotations: ANNOTATIONS }, (input) => guarded("search_tickets", () => tools.searchTickets(input)));
+  server.registerTool("get_ticket", { ...register.get_ticket, annotations: ANNOTATIONS }, (input) => guarded("get_ticket", () => tools.getTicket(input)));
+  server.registerTool("list_tickets", { ...register.list_tickets, annotations: ANNOTATIONS }, (input) => guarded("list_tickets", () => tools.listTickets(input)));
+  server.registerTool("get_project_overview", { ...register.get_project_overview, annotations: ANNOTATIONS }, () => guarded("get_project_overview", () => tools.getProjectOverview()));
+  return server;
+}
