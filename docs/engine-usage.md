@@ -116,6 +116,12 @@ Tokens padrão incluem `--spatial-background`, `--spatial-foreground`, `--spatia
 
 Manter referências estáveis para arrays de entrada, opções com callbacks e adaptadores quando possível. Mudança de dados reconstrói snapshots; pan preserva geometria local e reaproveita os componentes existentes. Os parâmetros da cena são normalizados por valor para o preparo da engine, inclusive quando o consumidor fornece um objeto equivalente novo.
 
+## Gestos de toque
+
+`useSpatialCamera` trata Pointer Events de `pointerType === "touch"` no palco (`touch-action: none` vem do CSS opcional; o navegador não rola nem amplia a página por cima do palco). Um dedo arrasta como o mouse. Dois dedos fazem pinça: a escala segue a razão das distâncias entre os dedos, dentro de `minScale`/`maxScale` (os mesmos limites do wheel), e o ponto do mundo que estava entre os dedos fica sob o ponto médio atual, então mover os dois dedos juntos também desloca o mapa. Ao entrar ou sair um dedo a linha de base é refeita a partir da câmera exibida (sem salto); soltar um dedo da pinça segue como arraste com o outro. Pinça e arraste nunca viram clique; um toque curto continua sendo o clique. Os eventos `gesture*` do Safari são cancelados no palco para o iOS não ampliar a página por baixo.
+
+A matemática é pura e exportada pela engine: `startPinch(camera, [p1, p2])` devolve a linha de base e `pinchCamera(base, [p1, p2], { minScale, maxScale })` devolve a câmera, com os pontos em pixels relativos ao palco. Nenhuma opção nova de câmera; wheel, Ctrl/Meta+wheel (pinça de trackpad), botão do meio e teclado não mudaram.
+
 ## Limites atuais
 
 Estes pacotes têm fronteiras e declarações para reutilização no workspace; publicação, versionamento público e compatibilidade formal de uma distribuição externa ainda não foram definidos. A engine calcula uma hierarquia canônica, não o grafo de dependências de um produto. Persistência, políticas de acesso, pesquisa e relações de negócio pertencem ao consumidor.
