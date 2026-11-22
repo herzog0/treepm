@@ -95,3 +95,14 @@ Teodoro mandou seguir com o mecanismo em 2026-11-22 ("Pode seguir assim"). O tex
 - **Ninguém aceita em nome de um administrador.** Não há semente, comando nem inserção direta no banco que grave aceite em dados reais. Quando o mecanismo entrar no `main`, o assistente fica desligado em toda organização, inclusive as de desenvolvimento, até um administrador aceitar em Configurações.
 - **O acesso por MCP** (ADR 0038) não depende destes aceites: tem a chave própria da organização e não envia nada a provedor de IA.
 - **Banco:** migration `0013`.
+
+## Como ficou o mecanismo (PR #126, 2026-11-22)
+
+- **Banco:** `organization_consents` (migration `0013`). Cada aceitar cria uma linha; retirar preenche quem e quando na linha em vigor; um índice único parcial garante no máximo uma linha em vigor por organização e tipo. O papel da aplicação lê, insere e só atualiza as duas colunas da retirada: não apaga nem reescreve o que foi aceito.
+- **Rotas:** `GET /api/organization/ai-consent` (qualquer membro), `PUT` e `DELETE /api/organization/ai-consent/:kind` (administrador). O `PUT` leva a versão que a pessoa viu; se não for a atual, 409 `consent_version_changed`. `code_reading` sem `assistant` em vigor ou sem GitHub ligado é recusado com 409. Retirar `assistant` retira `code_reading` na mesma transação.
+- **A conferência:** `AssistantGate` (`apps/api/src/assistant/assistant-gate.ts`) é o único lugar que injeta as sete portas de provedor. Uma rota só recebe um provedor depois de, nesta ordem, o assistente estar configurado no servidor (503 `assistant_not_configured`) e a organização ter o aceite em vigor (403 `assistant_consent_required`). Um teste enumera as portas e falha se algo as injetar ou usar por fora. Não há tarefa de IA em segundo plano na API: todo caminho passa por uma requisição.
+- **Também passam pela conferência** as rotas que leem e escrevem à mão o texto "O que entra aqui" do ticket: já respondiam como as demais rotas do assistente quando ele estava desligado, e continuam assim sem o aceite.
+- **Web:** `/api/me` passou a devolver `assistant: { configured, consent, enabled }`. A seção "IA e privacidade" fica em Configurações e só aparece com o assistente configurado no servidor. Onde havia mensagem de assistente desligado, o texto agora diz que um administrador precisa ativá-lo.
+- **Linha de comando:** a medição da procura confere o aceite da organização e recusa sem ele; o verificador de provedores, com dados fictícios, não.
+- **Leitura de código:** a função `requireCodeReadingConsent` existe e está testada, sem consumidor ainda (`TREEPM-82`).
+- **Não foi exercitado** com sessão real no navegador. As páginas `/termos` e `/privacidade` continuam só no PR #116.

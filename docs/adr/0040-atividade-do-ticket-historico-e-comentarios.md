@@ -118,3 +118,15 @@ Uma depois da outra, porque mexem na mesma rota e na mesma seção da página. A
 2. Comentários e histórico podem ser lidos pela IA e pelo MCP?
 3. Guardar versões da descrição.
 4. Retenção: por quanto tempo eventos e comentários removidos deixam rastro.
+
+## Como ficou a fatia 1, histórico (PR #125, 2026-11-22)
+
+- **Rota:** `GET /api/tickets/:id/activity?limit=&before=` devolve `{ entries, before }`, da mais recente para a mais antiga; `limit` de 1 a 100 (padrão 30); fora disso, 400.
+- **Entradas:** união discriminada por `type` (`created`, `title_changed`, `description_changed`, `status_changed`, `parent_changed`, `assignee_added`, `assignee_removed`, `dependency_added`, `dependency_removed`, `summary_updated`), com os dados do tipo no mesmo nível. A web descarta tipo que não conhece.
+- **Cursor:** posição da entrada mais antiga devolvida (instante, id do evento e índice do campo), estável com instantes iguais.
+- **Junção das edições da descrição:** função pura no domínio (`mergeDescriptionEdits`, janela de 10 minutos). A API só corta a página depois de existir uma entrada além do limite já fechada, então o resultado é o mesmo para qualquer `limit`; os testes comparam a leitura paginada com a leitura inteira.
+- **Consultas:** três no serviço (eventos, tickets citados, pessoas), que não crescem com o número de entradas, além das duas que acham o ticket e o projeto.
+- **Web:** a atividade é buscada de novo a cada alteração feita na página, inclusive quando a descrição salva sozinha. Datas relativas por 7 dias e absolutas depois, com `Intl`, sem biblioteca nova.
+- **Banco:** índice por assunto em `activity_events` (migration `0014`).
+- **Ordem do TDD:** no domínio e no banco o teste foi visto falhar antes do código; na API e na web os testes foram escritos junto, sem a rodada em vermelho. O brief da fatia 2 pede a rodada em vermelho em todas as camadas.
+- **Não foi exercitado** com sessão real no navegador.
