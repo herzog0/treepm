@@ -412,7 +412,7 @@ Próximos artefatos depois da revisão de produto: jornadas e wireflows de ticke
 
 | Origem | Incorporação no plano |
 | --- | --- |
-| [IDEA-001](ideas.yaml) | Espaço diário privado, referências oficiais e captura assistida por integrações |
+| IDEA-001 | Espaço diário privado, referências oficiais e captura assistida por integrações |
 | IDEA-002 | Compressão contínua, conteúdo por LOD e representantes mesclados |
 | IDEA-003 | Presets, ordenação e roteiro de stand-up por pessoa/ticket, com navegação e decisões |
 | IDEA-004 | Gestos imediatos, pan com zoom e foco explícito, inclusive em busca e roteiro |

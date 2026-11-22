@@ -24,4 +24,4 @@ Uma nova interação assume a câmera exibida imediatamente. Durante drag, o pan
 
 `pnpm dev` acompanha engine, biblioteca React e demo. `pnpm build` produz as bibliotecas ESM com declarações e o site estático. `pnpm typecheck`, `pnpm lint` e `git diff --check` são as verificações de conclusão.
 
-Detalhes em [architecture.md](architecture.md). Ideias futuras em [ideas.yaml](ideas.yaml).
+Detalhes em [architecture.md](architecture.md). Ideias futuras ficam na árvore do projeto, como tickets marcados como ideia ([ADR 0042](adr/0042-ideias-na-arvore.md)).

@@ -1,6 +1,6 @@
 # TreePM · engine espacial
 
-Árvore genérica, engine espacial headless, componentes React estilizáveis e uma demonstração local com dados fictícios. A direção do projeto continua em [docs/vision.md](docs/vision.md), e as ideias ficam em [docs/ideas.yaml](docs/ideas.yaml). A plataforma futura está planejada em [product-blueprint.md](docs/product-blueprint.md); ainda não foi implementada.
+Árvore genérica, engine espacial headless, componentes React estilizáveis e uma demonstração local com dados fictícios. A direção do projeto continua em [docs/vision.md](docs/vision.md), e as ideias ficam na própria árvore do projeto, como tickets marcados como ideia ([ADR 0042](docs/adr/0042-ideias-na-arvore.md)). A plataforma futura está planejada em [product-blueprint.md](docs/product-blueprint.md); ainda não foi implementada.
 
 ## Rodar
 

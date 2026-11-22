@@ -18,4 +18,4 @@ O produto será reconstruído a partir dessa base. O [business blueprint](produc
 
 O blueprint é um plano, não uma implementação da plataforma. A demo continua local e genérica. A pesquisa de [Clerk e Jev](research/platform-services.md) distingue capacidades confirmadas dos fornecedores e propostas de uso futuro.
 
-O registro de ideias em [ideas.yaml](ideas.yaml) preserva as intenções discutidas para essa reconstrução. Uma ideia proposta não significa uma funcionalidade já implementada.
+As intenções discutidas para essa reconstrução ficam registradas como ideias na árvore do projeto ([ADR 0042](adr/0042-ideias-na-arvore.md)). Uma ideia proposta não significa uma funcionalidade já implementada.

@@ -156,3 +156,12 @@ Uma coluna opcional em `tickets` para o estágio, com as quatro opções. Nenhum
 - **Linha de comando:** `ticket-create --idea` e `ticket-update --idea-stage`; `ticket-list` marca a raiz e os tickets de dentro. Aceitar e descartar ficaram fora, de propósito.
 - **As ideias de `docs/ideas.yaml`** foram levadas ao projeto `TREEPM` em 2026-11-22 (`TREEPM-110` a `TREEPM-176`): dez ideias com 57 subitens. Dez entradas do arquivo já estavam implementadas e duas já eram tickets; ficaram de fora. O arquivo não foi alterado (`TREEPM-177`).
 - **Não foi exercitado** com sessão real no navegador (`TREEPM-179`).
+
+## Como ficaram as fatias 3, 4 e 6 (PR #150 e PRs de documentação, 2026-11-22)
+
+- **Barra de pedidos:** a linha "Registrar ideia «texto»" cria a ideia no ticket selecionado, ou na raiz do projeto quando nada está selecionado. A ideia nova é colocada por quem a registra; a procura da IA não é chamada.
+- **Tela "Ideias"** (`?view=ideas`, item "Ideias" na navegação): lista as raízes de ideia do projeto por estágio, com o caminho de cada uma e as ações de triagem para o gestor.
+- **Skill `/ideia`** (`.claude/skills/ideia/SKILL.md`, com cópia em `.kimi-code/skills/ideia/`): registra a ideia como ticket marcado como ideia no projeto `TREEPM`, no lugar da árvore onde ela viraria trabalho, com os subitens como filhos. Substitui a skill antiga, que escrevia em `docs/ideas.yaml` e no blueprint.
+- **`docs/ideas.yaml` foi removido** (`TREEPM-177`). Teodoro aceitou os padrões propostos em 2026-11-22, e o padrão desta ADR era remover depois da migração. O conteúdo continua no histórico do Git. Os identificadores `IDEA-NNN` da tabela de rastreabilidade do blueprint ficam como referência histórica, sem link.
+- **Tela "Ideias", em detalhe:** grupos na ordem Pronta para triagem, Em refinamento, Nova e Descartada (esta recolhida); cada linha traz chave, título, caminho na árvore e há quanto tempo foi registrada, com "Abrir" e "Ver no mapa"; o gestor aceita, descarta e reabre com a mesma confirmação da página do ticket.
+- **Não foi exercitado** com sessão real no navegador (`TREEPM-179`).
