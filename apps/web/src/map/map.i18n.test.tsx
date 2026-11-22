@@ -51,11 +51,10 @@ const TEXT = {
     reset: "Reset view",
     zoomIn: "Zoom in",
     colors: "Colors",
-    help: "Wheel to zoom · drag to pan · combine both · click to select · Explore branch to focus · C colors · Esc clear",
+    help: "Wheel to zoom · drag to pan · combine both · click opens the ticket · C colors · Esc clear",
     selected: "Selected node",
     close: "Close selection",
     explore: "Explore branch",
-    open: "Open",
     createFirst: "Create first project",
     barInput: "Ask for anything",
     newConversation: "New conversation",
@@ -86,11 +85,10 @@ const TEXT = {
     reset: "Restablecer encuadre",
     zoomIn: "Acercar",
     colors: "Colores",
-    help: "Rueda para acercar · arrastra para desplazar · combina ambos · clic para seleccionar · Explorar rama para enfocar · C colores · Esc limpiar",
+    help: "Rueda para acercar · arrastra para desplazar · combina ambos · clic abre el ticket · C colores · Esc limpiar",
     selected: "Nodo seleccionado",
     close: "Cerrar selección",
     explore: "Explorar rama",
-    open: "Abrir",
     createFirst: "Crear primer proyecto",
     barInput: "Pide lo que quieras",
     newConversation: "Nueva conversación",
@@ -153,12 +151,10 @@ describe.each(["en", "es-MX"] as const)("map in %s", (language) => {
     await exploreAlfa(text);
     const ticket = await screen.findByRole("button", { name: text.ticket }, { timeout: SLOW });
     await waitFor(() => expect(ticket).toHaveAttribute("tabindex", "0"), { timeout: SLOW });
-    await userEvent.click(ticket);
+    // O clique no ticket abre a página; o cartão de seleção é o do projeto, que segue selecionado.
     const card = screen.getByRole("complementary", { name: text.selected });
     expect(within(card).getByRole("button", { name: text.close })).toBeInTheDocument();
     expect(within(card).getByRole("button", { name: text.explore })).toBeInTheDocument();
-    expect(within(card).getByRole("button", { name: text.open })).toBeInTheDocument();
-    expect(card).toHaveTextContent(text.states.in_review);
     // O botão flutuante "Novo ticket" saiu (ADR 0036): a conversa começa pela barra, com o campo vazio em foco.
     await userEvent.click(screen.getByRole("combobox", { name: text.barInput }));
     expect(await screen.findByRole("option", { name: text.newConversation })).toBeInTheDocument();

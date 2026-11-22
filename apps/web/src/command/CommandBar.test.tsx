@@ -172,14 +172,10 @@ describe("keyboard", () => {
     });
   }, SLOW);
 
-  it("with the focus in the bar, Enter does not open the ticket selected on the map, Esc does not clear the selection and c is just a letter", async () => {
+  it("with the focus in the bar, an empty Enter opens nothing, Esc does not clear the selection on the map and c is just a letter", async () => {
     const onChange = vi.fn();
     render(<Host client={makeFullClient()} me={adminMe()} onChange={onChange} />);
     await userEvent.click(await screen.findByRole("button", { name: /ALFA · Projeto Alfa/ }));
-    await userEvent.click(within(screen.getByRole("complementary", { name: "Nó selecionado" })).getByRole("button", { name: "Explorar ramo" }));
-    const found = await screen.findByRole("button", { name: /ALFA-3 · Publicar/ }, { timeout: SLOW });
-    await waitFor(() => expect(found).toHaveAttribute("tabindex", "0"), { timeout: SLOW });
-    await userEvent.click(found);
     expect(screen.getByRole("complementary", { name: "Nó selecionado" })).toBeInTheDocument();
     const field = await bar();
     await userEvent.click(field);

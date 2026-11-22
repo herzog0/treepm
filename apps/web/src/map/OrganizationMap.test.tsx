@@ -190,13 +190,6 @@ describe("OrganizationMap", () => {
       return client;
     }
 
-    /** O nó só aceita clique depois de a câmera terminar de revelá-lo (tabindex 0). */
-    async function selectTicket(name: RegExp) {
-      const node = await screen.findByRole("button", { name }, { timeout: SLOW });
-      await waitFor(() => expect(node).toHaveAttribute("tabindex", "0"), { timeout: SLOW });
-      await userEvent.click(node);
-    }
-
     it("renders ticket nodes with key and title once the project branch is explored", async () => {
       await openAlfa();
       expect(await screen.findByRole("button", { name: /ALFA-3 · Publicar/ }, { timeout: SLOW })).toBeInTheDocument();
@@ -214,70 +207,6 @@ describe("OrganizationMap", () => {
       render(<OrganizationMap client={makeClient({ projects, tickets: { p1: [makeTicket("t2", "p1", 2, "Solto", { key: "ALFA-2" })] } })} me={makeMe()} />);
       await userEvent.click(await screen.findByRole("button", { name: /ALFA · Projeto Alfa/ }));
       expect(within(screen.getByRole("complementary", { name: "Nó selecionado" })).getByText("1 item")).toBeInTheDocument();
-    });
-
-    it("selecting a leaf ticket shows key, title and the status in words, leaving the panel on the project", async () => {
-      await openAlfa();
-      await selectTicket(/ALFA-3 · Publicar/);
-      const card = screen.getByRole("complementary", { name: "Nó selecionado" });
-      expect(within(card).getByText("ALFA-3")).toBeInTheDocument();
-      expect(within(card).getByText("Publicar")).toBeInTheDocument();
-      expect(within(card).getByText("Cancelado")).toBeInTheDocument();
-      // O clique no ticket não troca o que o painel (aberto pelo clique no projeto) mostra.
-      const panel = screen.getByRole("complementary", { name: "Áreas e projetos" });
-      expect(within(panel).getByRole("heading", { name: "Projeto Alfa" })).toBeInTheDocument();
-      expect(within(panel).queryByText("Publicar")).not.toBeInTheDocument();
-    });
-
-    it("selecting a ticket with children shows the progress with its base and the cancelled count", async () => {
-      await openAlfa();
-      await selectTicket(/ALFA-1 · Fechar a fase/);
-      const card = screen.getByRole("complementary", { name: "Nó selecionado" });
-      expect(within(card).getByText("3 de 8 concluídos · 2 cancelados")).toBeInTheDocument();
-      expect(within(card).queryByText("Cancelado")).not.toBeInTheDocument();
-    });
-
-    it("selecting a ticket without children shows its own status, never 'vazio'", async () => {
-      await openAlfa(makeClient({ projects, tickets: { p1: [makeTicket("g1", "p1", 1, "Fase 2", { key: "ALFA-1" })] } }));
-      await selectTicket(/ALFA-1 · Fase 2/);
-      const card = screen.getByRole("complementary", { name: "Nó selecionado" });
-      expect(within(card).getByText("A fazer")).toBeInTheDocument();
-      expect(within(card).queryByText("vazio")).not.toBeInTheDocument();
-      expect(within(card).queryByText(/0 de 0/)).not.toBeInTheDocument();
-      expect(card.querySelector("[data-state='todo']")).not.toBeNull();
-    });
-
-    it("selecting a parent whose children are all finalized shows the parent's own status", async () => {
-      const tickets = [
-        makeTicket("g1", "p1", 1, "Fase 2", { key: "ALFA-1", status: "in_review", progress: { done: 1, total: 1, excluded: 1 } }),
-        makeTicket("g2", "p1", 2, "Feito", { key: "ALFA-2", parentId: "g1", status: "done" }),
-        makeTicket("g3", "p1", 3, "Cancelado", { key: "ALFA-3", parentId: "g1", status: "cancelled" }),
-      ];
-      await openAlfa(makeClient({ projects, tickets: { p1: tickets } }));
-      await selectTicket(/ALFA-1 · Fase 2/);
-      const card = screen.getByRole("complementary", { name: "Nó selecionado" });
-      expect(within(card).getByText("Em revisão")).toBeInTheDocument();
-      expect(within(card).queryByText(/concluídos/)).not.toBeInTheDocument();
-      expect(card.querySelector("[data-state='in_review']")).not.toBeNull();
-    });
-
-    it("omits the cancelled count when there is none", async () => {
-      const tickets = [makeTicket("t1", "p1", 1, "Pai", { key: "ALFA-1", progress: { done: 0, total: 1, excluded: 0 } }), makeTicket("t2", "p1", 2, "Filho", { key: "ALFA-2", parentId: "t1" })];
-      await openAlfa(makeClient({ projects, tickets: { p1: tickets } }));
-      await selectTicket(/ALFA-1 · Pai/);
-      expect(within(screen.getByRole("complementary", { name: "Nó selecionado" })).getByText("0 de 1 concluídos")).toBeInTheDocument();
-    });
-
-    it.each([
-      ["todo", "A fazer"],
-      ["in_progress", "Em andamento"],
-      ["in_review", "Em revisão"],
-      ["done", "Concluído"],
-      ["cancelled", "Cancelado"],
-    ] as const)("writes the status %s as %s", async (status, text) => {
-      await openAlfa(makeClient({ projects, tickets: { p1: [makeTicket("t1", "p1", 1, "Único", { key: "ALFA-1", status })] } }));
-      await selectTicket(/ALFA-1 · Único/);
-      expect(within(screen.getByRole("complementary", { name: "Nó selecionado" })).getByText(text)).toBeInTheDocument();
     });
 
     it("still opens the project detail in the panel when a project node is clicked", async () => {
@@ -301,22 +230,6 @@ describe("OrganizationMap", () => {
       render(<OrganizationMap client={makeClient({ projects })} me={makeMe()} />);
       await screen.findByRole("button", { name: /ALFA/ });
       expect(document.querySelector(".spatial-shell")).toHaveClass("org-map");
-    });
-
-    it("shows the status mark in the selection card, next to the status in words", async () => {
-      const tickets = [
-        makeTicket("t1", "p1", 1, "Fechar a fase", { key: "ALFA-1", progress: { done: 3, total: 8, excluded: 0 } }),
-        makeTicket("t2", "p1", 2, "Escrever", { key: "ALFA-2", parentId: "t1", status: "in_review" }),
-      ];
-      render(<OrganizationMap client={makeClient({ projects, tickets: { p1: tickets } })} me={makeMe()} />);
-      await userEvent.click(await screen.findByRole("button", { name: /ALFA · Projeto Alfa/ }));
-      await userEvent.click(within(screen.getByRole("complementary", { name: "Nó selecionado" })).getByRole("button", { name: "Explorar ramo" }));
-      const node = await screen.findByRole("button", { name: /ALFA-1 · Fechar a fase/ }, { timeout: SLOW });
-      await waitFor(() => expect(node).toHaveAttribute("tabindex", "0"), { timeout: SLOW });
-      await userEvent.click(node);
-      const card = screen.getByRole("complementary", { name: "Nó selecionado" });
-      expect(within(card).getByText("3 de 8 concluídos")).toBeInTheDocument();
-      expect(card.querySelector("[data-state='progress']")).toHaveAttribute("aria-hidden", "true");
     });
 
     it("hands the project to onImport from 'Importar lista' in the side panel", async () => {

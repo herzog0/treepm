@@ -11,13 +11,12 @@
   "breadcrumb": "Focus path",
   "panelToggle": "Areas and projects",
   "organizationKey": "Organization",
-  "help": "Wheel to zoom · drag to pan · combine both · click to select · Explore branch to focus · C colors · Esc clear",
+  "help": "Wheel to zoom · drag to pan · combine both · click opens the ticket · C colors · Esc clear",
   "createFirst": "Create first project",
   "selection": {
     "region": "Selected node",
     "close": "Close selection",
     "explore": "Explore branch",
-    "open": "Open",
     "projects_one": "{{count}} project",
     "projects_other": "{{count}} projects"
   },

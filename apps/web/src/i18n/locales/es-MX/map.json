@@ -11,13 +11,12 @@
   "breadcrumb": "Ruta del enfoque",
   "panelToggle": "Áreas y proyectos",
   "organizationKey": "Organización",
-  "help": "Rueda para acercar · arrastra para desplazar · combina ambos · clic para seleccionar · Explorar rama para enfocar · C colores · Esc limpiar",
+  "help": "Rueda para acercar · arrastra para desplazar · combina ambos · clic abre el ticket · C colores · Esc limpiar",
   "createFirst": "Crear primer proyecto",
   "selection": {
     "region": "Nodo seleccionado",
     "close": "Cerrar selección",
     "explore": "Explorar rama",
-    "open": "Abrir",
     "projects_one": "{{count}} proyecto",
     "projects_many": "{{count}} proyectos",
     "projects_other": "{{count}} proyectos"

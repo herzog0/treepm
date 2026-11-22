@@ -24,13 +24,9 @@ function Host({ client, initial }: { client: ApiClient; initial: string }) {
   const [open, setOpen] = useState<string | null>(initial);
   return <OrganizationMap client={client} me={makePanelMe("admin")} openTicketId={open} onOpenTicketChange={setOpen} />;
 }
-async function select(name: RegExp) {
-  const node = await screen.findByRole("button", { name }, { timeout: SLOW });
-  await waitFor(() => expect(node).toHaveAttribute("tabindex", "0"), { timeout: SLOW });
-  await userEvent.click(node);
-}
 const page = () => screen.getByRole("complementary", { name: "Página do ticket" });
-const card = () => screen.getByRole("complementary", { name: "Nó selecionado" });
+// O card do avô no mapa (o clique nele abriria o ticket, então o teste só o lê).
+const card = () => screen.getByRole("button", { name: /ALFA-1 · Avô concluído/ });
 const heading = async (name: string) => screen.findByRole("heading", { level: 1, name }, { timeout: SLOW });
 // A situação é a linha "Situação": o botão que abre o menu mostra a atual.
 const statusRow = () => within(page()).getByText("Situação").closest("div")!;
@@ -55,7 +51,7 @@ describe("reopening of a concluded parent, on the screen", () => {
   it("moving an open ticket inside a concluded one turns the parent card on the map into the progress card", async () => {
     render(<Host client={client()} initial="s1" />);
     await heading("Solto aberto");
-    await select(/ALFA-1 · Avô concluído/);
+    await screen.findByRole("button", { name: /ALFA-1 · Avô concluído/ }, { timeout: SLOW });
     expect(within(card()).getByText("Concluído")).toBeInTheDocument();
     await userEvent.click(within(page()).getByRole("button", { name: "Mudar" }));
     await userEvent.click(within(screen.getByRole("group", { name: "Escolher o ticket pai" })).getByRole("button", { name: /ALFA-1Avô concluído/ }));
