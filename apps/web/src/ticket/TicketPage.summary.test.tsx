@@ -340,3 +340,10 @@ describe("Página do ticket com itens › O que entra aqui", { timeout: 15000 },
     });
   });
 });
+
+describe("sem o aceite da organização (ADR 0039)", () => {
+  it("servidor configurado mas sem aceite: a página não mostra o texto do agrupador, como com a IA desligada", async () => {
+    setup({ me: { ...makePanelMe("admin"), assistant: { enabled: false, configured: true, consent: false } } });
+    await noSection();
+  });
+});

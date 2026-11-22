@@ -110,5 +110,36 @@
       "projectGone": "O projeto não existe mais ou você não o enxerga.",
       "projects": "Não foi possível carregar os projetos."
     }
+  },
+  "ai": {
+    "title": "IA e privacidade",
+    "loading": "Carregando…",
+    "retry": "Tentar novamente",
+    "terms": "Termos de uso",
+    "privacy": "Política de privacidade",
+    "newTab": "abre em outra aba",
+    "outdated": "Os documentos mudaram (versão {{current}}) e o aceite dado antes não vale mais. É preciso aceitar de novo.",
+    "askAdmin": "Um administrador da organização precisa aceitar.",
+    "failed": "Não foi possível mudar o aceite. Tente de novo.",
+    "versionChanged": "Os documentos mudaram enquanto você lia. Leia a versão atual e aceite de novo.",
+    "given": "Aceito por {{name}} em {{date}} (versão {{version}}).",
+    "withdraw": "Retirar o aceite",
+    "assistant": {
+      "heading": "Assistente de IA",
+      "explain": "Ao aceitar, o texto dos tickets e das conversas com o assistente é enviado à Anthropic e à TypeSafe para as funções de IA. Nomes, e-mails e identificadores de pessoas não são enviados.",
+      "on": "O assistente está ligado.",
+      "off": "O assistente está desligado.",
+      "accept": "Aceitar e ligar o assistente",
+      "withdrawWarning": "O assistente deixa de funcionar na organização: conversa para criar ticket, procura do lugar, texto dos grupos, escrita na descrição e perguntas sobre o projeto. A leitura de código pela IA também é retirada."
+    },
+    "codeReading": {
+      "heading": "Leitura de código pela IA",
+      "explain": "Ao aceitar, trechos de código dos repositórios ligados serão enviados à Anthropic, e só a ela. Esta função ainda não está disponível; o aceite já pode ser dado.",
+      "needsAssistant": "Aceite antes o assistente de IA.",
+      "on": "A leitura de código está aceita.",
+      "off": "A leitura de código não está aceita.",
+      "accept": "Aceitar a leitura de código",
+      "withdrawWarning": "A IA deixa de poder ler código dos repositórios ligados."
+    }
   }
 }

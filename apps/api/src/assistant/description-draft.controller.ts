@@ -1,18 +1,16 @@
-import { Body, ConflictException, Controller, HttpCode, Inject, Logger, NotFoundException, Optional, Param, Post, ServiceUnavailableException } from "@nestjs/common";
+import { Body, ConflictException, Controller, HttpCode, Inject, Logger, NotFoundException, Param, Post, ServiceUnavailableException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import type { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
 import { idSchema } from "../common/schemas.js";
 import { ZodPipe } from "../common/zod.js";
-import { CONFIG, assistantEnabled } from "../config.js";
-import type { AppConfig } from "../config.js";
 import { OwnTransactions, Tenant } from "../db/own-transactions.js";
 import type { TenantRunner } from "../db/own-transactions.js";
 import { descriptionDraftBodySchema, descriptionDraftResponseSchema } from "./description-draft.schema.js";
 import type { DescriptionDraftResponse } from "./description-draft.schema.js";
-import { AssistantUnavailableError, DESCRIPTION_WRITER } from "./ports.js";
-import type { DescriptionWriter } from "./ports.js";
+import { AssistantGate } from "./assistant-gate.js";
+import { AssistantUnavailableError } from "./ports.js";
 
 /**
  * Pedir à IA um trecho para a descrição (ADR 0036). Não grava nada e não cria evento: o texto volta para a pessoa, que
@@ -25,8 +23,7 @@ export class DescriptionDraftController {
 
   constructor(
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
-    @Inject(CONFIG) private readonly config: AppConfig,
-    @Optional() @Inject(DESCRIPTION_WRITER) private readonly writer: DescriptionWriter | null,
+    @Inject(AssistantGate) private readonly gate: AssistantGate,
   ) {}
 
   /** Leitura curta → chamada SEM transação aberta (a IA demora). */
@@ -38,7 +35,7 @@ export class DescriptionDraftController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(descriptionDraftBodySchema)) body: z.output<typeof descriptionDraftBodySchema>,
   ): Promise<DescriptionDraftResponse> {
-    const writer = this.requireEnabled();
+    const { writer } = await this.gate.open(tenant);
     const context = await tenant.run(async (tx, principal) => {
       const { ticket } = await this.requireEditable(tx, principal, id);
       return { title: ticket.title, ancestors: await this.ancestorTitles(tx, ticket.parentId) };
@@ -57,16 +54,6 @@ export class DescriptionDraftController {
       }
       throw error;
     }
-  }
-
-  private requireEnabled(): DescriptionWriter {
-    if (!assistantEnabled(this.config) || !this.writer) {
-      throw new ServiceUnavailableException({
-        code: "assistant_not_configured",
-        message: "O assistente não está configurado neste ambiente.",
-      });
-    }
-    return this.writer;
   }
 
   /** Visível (404), pode editar o ticket (403) e projeto não arquivado (409). Inexistente, de outra organização (RLS) ou invisível: o mesmo 404. */

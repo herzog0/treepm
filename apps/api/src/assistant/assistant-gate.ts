@@ -1,0 +1,82 @@
+import { Inject, Injectable, Optional, ServiceUnavailableException } from "@nestjs/common";
+import type { TenantClient } from "@treepm/db";
+import type { Principal } from "../access/principal.js";
+import { requireAssistantConsent } from "../ai-consent/consent-check.js";
+import { CONFIG, assistantEnabled } from "../config.js";
+import type { AppConfig } from "../config.js";
+import type { TenantRunner } from "../db/own-transactions.js";
+import {
+  AFFINITY_JUDGE,
+  BRANCH_JUDGE,
+  BRANCH_SUMMARIZER,
+  CONVERSATION_PROVIDER,
+  DESCRIPTION_WRITER,
+  GROUP_NAMER,
+  PROJECT_ANSWERER,
+} from "./ports.js";
+import type {
+  AffinityJudge,
+  BranchJudge,
+  BranchSummarizer,
+  ConversationProvider,
+  DescriptionWriter,
+  GroupNamer,
+  ProjectAnswerer,
+} from "./ports.js";
+
+/** Os provedores de IA, entregues só depois de a conferência passar. */
+export type AssistantProviders = {
+  conversation: ConversationProvider;
+  judge: BranchJudge;
+  summarizer: BranchSummarizer;
+  affinity: AffinityJudge;
+  namer: GroupNamer;
+  writer: DescriptionWriter;
+  answerer: ProjectAnswerer;
+};
+
+/**
+ * A porta de entrada dos provedores de IA (ADR 0039): é o ÚNICO lugar da API que injeta as portas de `ports.ts`. Quem
+ * precisa de um provedor pede aqui e só o recebe depois de, nesta ordem, (1) o assistente estar configurado no servidor
+ * (503 `assistant_not_configured`) e (2) a organização da requisição ter o aceite `assistant` em vigor (403
+ * `assistant_consent_required`). Nada é lido, montado nem enviado antes disso. Uma função de IA nova nasce pedindo os
+ * provedores aqui; um teste falha se alguém injetar uma porta por fora.
+ */
+@Injectable()
+export class AssistantGate {
+  constructor(
+    @Inject(CONFIG) private readonly config: AppConfig,
+    @Optional() @Inject(CONVERSATION_PROVIDER) private readonly conversation: ConversationProvider | null,
+    @Optional() @Inject(BRANCH_JUDGE) private readonly judge: BranchJudge | null,
+    @Optional() @Inject(BRANCH_SUMMARIZER) private readonly summarizer: BranchSummarizer | null,
+    @Optional() @Inject(AFFINITY_JUDGE) private readonly affinity: AffinityJudge | null,
+    @Optional() @Inject(GROUP_NAMER) private readonly namer: GroupNamer | null,
+    @Optional() @Inject(DESCRIPTION_WRITER) private readonly writer: DescriptionWriter | null,
+    @Optional() @Inject(PROJECT_ANSWERER) private readonly answerer: ProjectAnswerer | null,
+  ) {}
+
+  /** Para rota com transação própria (`@OwnTransactions`): o aceite é conferido numa transação curta, antes de tudo. */
+  async open(tenant: TenantRunner): Promise<AssistantProviders> {
+    const providers = this.configured();
+    await tenant.run((tx, principal) => requireAssistantConsent(tx, principal.organization.orgId));
+    return providers;
+  }
+
+  /** Para rota que já tem a transação da requisição. */
+  async openIn(tx: TenantClient, principal: Principal): Promise<AssistantProviders> {
+    const providers = this.configured();
+    await requireAssistantConsent(tx, principal.organization.orgId);
+    return providers;
+  }
+
+  private configured(): AssistantProviders {
+    const { conversation, judge, summarizer, affinity, namer, writer, answerer } = this;
+    if (!assistantEnabled(this.config) || !conversation || !judge || !summarizer || !affinity || !namer || !writer || !answerer) {
+      throw new ServiceUnavailableException({
+        code: "assistant_not_configured",
+        message: "O assistente não está configurado neste ambiente.",
+      });
+    }
+    return { conversation, judge, summarizer, affinity, namer, writer, answerer };
+  }
+}

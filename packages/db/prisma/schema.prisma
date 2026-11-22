@@ -66,6 +66,7 @@ model Organization {
   ticketCodeLinks            TicketCodeLink[]
   repositorySyncPages        RepositorySyncPage[]
   accessTokens               AccessToken[]
+  organizationConsents       OrganizationConsent[]
 
   @@map("organizations")
 }
@@ -82,7 +83,7 @@ model Person {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization           Organization         @relation(fields: [orgId], references: [orgId])
+  organization           Organization          @relation(fields: [orgId], references: [orgId])
   teamMemberships        TeamMembership[]
   projectMemberships     ProjectMembership[]
   createdTickets         Ticket[]
@@ -93,6 +94,8 @@ model Person {
   linkedRepositories     ProjectRepository[]
   editedBranchSummaries  BranchSummary[]
   accessTokens           AccessToken[]
+  consentsAccepted       OrganizationConsent[] @relation("ConsentAcceptedBy")
+  consentsWithdrawn      OrganizationConsent[] @relation("ConsentWithdrawnBy")
 
   @@id([orgId, id])
   @@unique([orgId, clerkUserId])
@@ -487,4 +490,28 @@ model AccessToken {
   @@index([orgId, personId])
   @@index([orgId, projectId])
   @@map("access_tokens")
+}
+
+/// Aceite da organização para a IA (ADR 0039). Cada aceitar cria uma linha; retirar preenche `withdrawnAt` da linha em
+/// vigor; as antigas ficam como registro. No máximo uma linha em vigor por organização e tipo (índice único parcial
+/// `organization_consents_in_force_key`, que o Prisma não modela: ver a migration 0013).
+model OrganizationConsent {
+  orgId               String    @map("org_id")
+  id                  String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  /// assistant | code_reading (check no banco)
+  kind                String
+  /// Versão dos documentos aceita (constante `AI_CONSENT_VERSION` do domínio no momento do aceite).
+  documentVersion     String    @map("document_version")
+  acceptedByPersonId  String    @map("accepted_by_person_id") @db.Uuid
+  acceptedAt          DateTime  @default(now()) @map("accepted_at") @db.Timestamptz(3)
+  withdrawnByPersonId String?   @map("withdrawn_by_person_id") @db.Uuid
+  withdrawnAt         DateTime? @map("withdrawn_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  acceptedBy   Person       @relation("ConsentAcceptedBy", fields: [orgId, acceptedByPersonId], references: [orgId, id], onDelete: Restrict)
+  withdrawnBy  Person?      @relation("ConsentWithdrawnBy", fields: [orgId, withdrawnByPersonId], references: [orgId, id], onDelete: Restrict)
+
+  @@id([orgId, id])
+  @@index([orgId, kind])
+  @@map("organization_consents")
 }

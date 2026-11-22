@@ -1,19 +1,20 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ApiClient, Me } from "../api/client.js";
-import { githubEnabled, mcpAvailable } from "../api/client.js";
+import { aiPrivacyAvailable, githubEnabled, mcpAvailable } from "../api/client.js";
 import { GithubSettings } from "../github/GithubSettings.js";
 import { LANGUAGE_PREFERENCES } from "../i18n/languages.js";
 import type { LanguagePreference } from "../i18n/languages.js";
 import { usePreferences } from "../preferences/context.js";
 import type { Preferences, TicketCloseCamera } from "../preferences/model.js";
+import { AiPrivacySettings } from "./AiPrivacySettings.js";
 import { McpSettings } from "./McpSettings.js";
 import "./settings.css";
 
 const CAMERA_OPTIONS: readonly TicketCloseCamera[] = ["restore", "stay"];
 
 /** Página de configurações (ADR 0028): seções por assunto; cada preferência aplica na hora, sem botão de salvar. */
-export function SettingsScreen({ client, me }: { client?: ApiClient | undefined; me?: Me | null | undefined } = {}) {
+export function SettingsScreen({ client, me, onConsentChange }: { client?: ApiClient | undefined; me?: Me | null | undefined; onConsentChange?: (() => void) | undefined } = {}) {
   const { t } = useTranslation("settings");
   const { preferences, save } = usePreferences();
   // A mensagem aparece na seção da preferência que não foi gravada.
@@ -73,6 +74,7 @@ export function SettingsScreen({ client, me }: { client?: ApiClient | undefined;
         {failed === "language" && <p role="alert" className="settings-error">{t("saveFailed")}</p>}
       </section>
       {client && me && githubEnabled(me) && <GithubSettings client={client} me={me} />}
+      {client && me && aiPrivacyAvailable(me) && <AiPrivacySettings client={client} me={me} onChange={onConsentChange} />}
       {client && me && mcpAvailable(me) && <McpSettings client={client} me={me} />}
     </div>
   );

@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_FILTER } from "@nestjs/core";
 import { AccessModule } from "./access/access.module.js";
+import { AiConsentModule } from "./ai-consent/ai-consent.module.js";
 import { AccessTokensModule } from "./access-tokens/access-tokens.module.js";
 import { ActivityService } from "./activity/activity.service.js";
 import { AreasController } from "./areas/areas.controller.js";
@@ -22,7 +23,7 @@ import { TicketsController } from "./tickets/tickets.controller.js";
 import { TeamsController } from "./teams/teams.controller.js";
 
 @Module({
-  imports: [ConfigModule, AuthModule, AccessModule, DbModule, TicketsModule, AssistantModule, GithubModule, QueryModule, AccessTokensModule, McpModule],
+  imports: [ConfigModule, AuthModule, AccessModule, DbModule, TicketsModule, AssistantModule, GithubModule, QueryModule, AccessTokensModule, McpModule, AiConsentModule],
   controllers: [
     HealthController,
     MeController,

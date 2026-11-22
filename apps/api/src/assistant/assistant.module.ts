@@ -3,6 +3,7 @@ import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { Module } from "@nestjs/common";
 import { AccessModule } from "../access/access.module.js";
 import { ActivityService } from "../activity/activity.service.js";
+import { AssistantGate } from "./assistant-gate.js";
 import { CONFIG, assistantEnabled } from "../config.js";
 import type { AppConfig } from "../config.js";
 import { ClaudeConversationProvider, sdkStreamer } from "./claude-conversation-provider.js";
@@ -27,6 +28,7 @@ import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER,
   providers: [
     ActivityService,
     PlacementService,
+    AssistantGate,
     {
       provide: CONVERSATION_PROVIDER,
       inject: [CONFIG],

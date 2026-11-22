@@ -17,8 +17,12 @@ const meSchema = z.object({
     teams: z.array(z.object({ teamId: z.string(), role: teamRole })),
     projects: z.array(z.object({ projectId: z.string(), role: projectRole })),
   }),
-  /** Ausente em uma API antiga: a IA conta como desligada (ADR 0029). */
-  assistant: z.object({ enabled: z.boolean() }).optional(),
+  /**
+   * Ausente em uma API antiga: a IA conta como desligada (ADR 0029). `configured`: o servidor tem as chaves dos provedores;
+   * `consent`: a organização aceitou (ADR 0039); `enabled` só vale com os dois e é o que mostra ou esconde as funções de IA.
+   * Uma API anterior ao aceite manda só `enabled`.
+   */
+  assistant: z.object({ enabled: z.boolean(), configured: z.boolean().optional(), consent: z.boolean().optional() }).optional(),
   /** Ausente em uma API antiga: o GitHub conta como desligado (ADR 0032). */
   github: z.object({ enabled: z.boolean() }).optional(),
   /** A chave "Permitir acesso por MCP" da organização (ADR 0038). Ausente em uma API antiga: a seção não aparece. */
@@ -168,10 +172,26 @@ const accessTokenSchema = z.object({
 /** O token inteiro só existe nesta resposta (ADR 0038). */
 const createdAccessTokenSchema = accessTokenSchema.extend({ token: z.string() });
 const organizationAccessTokenSchema = accessTokenSchema.extend({ person: z.object({ id: z.string(), displayName: z.string() }) });
+const consentSchema = z.object({
+  inForce: z.boolean(),
+  version: z.string().nullable(),
+  acceptedBy: z.string().nullable(),
+  acceptedAt: z.string().nullable(),
+  /** Há aceite aberto, mas de uma versão antiga dos documentos: precisa aceitar de novo. */
+  outdated: z.boolean(),
+});
+/** O aceite da organização para a IA (ADR 0039): o estado inteiro, devolvido também por aceitar e retirar. */
+const aiConsentSchema = z.object({
+  currentVersion: z.string(),
+  assistant: consentSchema,
+  codeReading: consentSchema.extend({ githubConnected: z.boolean(), offerable: z.boolean() }),
+});
 const mcpStateSchema = z.object({ mcp: z.object({ enabled: z.boolean() }) });
 const errorBodySchema = z.object({ error: z.object({ code: z.string() }) });
 
 export type Me = z.output<typeof meSchema>;
+export type AiConsent = z.output<typeof aiConsentSchema>;
+export type AiConsentKind = "assistant" | "code_reading";
 export type Person = z.output<typeof personSchema>;
 export type TeamRole = z.output<typeof teamRole>;
 export type TeamMember = z.output<typeof teamMemberSchema>;
@@ -426,6 +446,11 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     askProject: (projectId: string, body: AskBody, options: { signal?: AbortSignal } = {}) =>
       request("POST", `${project(projectId)}/assistant/ask`, askAnswerSchema, body, options.signal),
 
+    /** O aceite da organização para a IA (ADR 0039): qualquer membro lê; só administrador aceita e retira. */
+    getAiConsent: () => request("GET", "/api/organization/ai-consent", aiConsentSchema),
+    acceptAiConsent: (kind: AiConsentKind, version: string) => request("PUT", `/api/organization/ai-consent/${kind}`, aiConsentSchema, { version }),
+    withdrawAiConsent: (kind: AiConsentKind) => request("DELETE", `/api/organization/ai-consent/${kind}`, aiConsentSchema),
+
     /** A chave "Permitir acesso por MCP" (ADR 0038); só administrador. */
     setMcpEnabled: (mcpEnabled: boolean) => request("PATCH", "/api/organization", mcpStateSchema, { mcpEnabled }),
     /** Cria um token de acesso por MCP para um projeto (ADR 0038); a resposta é a única vez em que o token inteiro aparece. */
@@ -444,6 +469,12 @@ export const githubEnabled = (me: Me): boolean => me.github?.enabled === true;
 
 /** A IA está ligada nesta API? Uma API antiga não manda o campo: conta como desligada. */
 export const assistantEnabled = (me: Me): boolean => me.assistant?.enabled === true;
+
+/** O servidor tem a IA configurada mas a organização ainda não aceitou (ADR 0039): as funções de IA ficam desligadas. */
+export const assistantNeedsConsent = (me: Me): boolean => me.assistant?.configured === true && me.assistant.consent === false;
+
+/** A seção "IA e privacidade" aparece: a IA está configurada neste servidor. Uma API antiga não manda o campo: não aparece. */
+export const aiPrivacyAvailable = (me: Me): boolean => me.assistant?.configured === true;
 
 /** A seção de MCP aparece nesta API? Uma API antiga não manda o campo: conta como ausente. */
 export const mcpAvailable = (me: Me): boolean => me.mcp !== undefined;

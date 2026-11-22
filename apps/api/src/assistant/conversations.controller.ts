@@ -22,8 +22,6 @@ import { CurrentPrincipal } from "../access/principal.js";
 import type { Principal } from "../access/principal.js";
 import { idSchema } from "../common/schemas.js";
 import { ZodPipe, parseOutput } from "../common/zod.js";
-import { CONFIG, assistantEnabled } from "../config.js";
-import type { AppConfig } from "../config.js";
 import { OwnTransactions, Tenant } from "../db/own-transactions.js";
 import type { TenantRunner } from "../db/own-transactions.js";
 import { Tx } from "../db/tx.decorator.js";
@@ -39,24 +37,9 @@ import {
 } from "./conversations.schema.js";
 import type { ConversationDetail, ConversationSummary } from "./conversations.schema.js";
 import { PlacementService } from "./placement.service.js";
-import {
-  AFFINITY_JUDGE,
-  AssistantUnavailableError,
-  BRANCH_JUDGE,
-  BRANCH_SUMMARIZER,
-  CONVERSATION_PROVIDER,
-  GROUP_NAMER,
-  PLACEMENT_TIMEOUTS,
-} from "./ports.js";
-import type {
-  AffinityJudge,
-  BranchJudge,
-  BranchSummarizer,
-  ConversationProvider,
-  ConversationTurn,
-  GroupNamer,
-  PlacementTimeouts,
-} from "./ports.js";
+import { AssistantGate } from "./assistant-gate.js";
+import { AssistantUnavailableError, PLACEMENT_TIMEOUTS } from "./ports.js";
+import type { ConversationProvider, ConversationTurn, PlacementTimeouts } from "./ports.js";
 import { TicketsService } from "../tickets/tickets.service.js";
 import type { TicketDetail } from "../tickets/tickets.schema.js";
 import type { ProjectRow } from "../tickets/tickets.service.js";
@@ -104,12 +87,7 @@ export class TicketConversationsController {
 
   constructor(
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
-    @Inject(CONFIG) private readonly config: AppConfig,
-    @Optional() @Inject(CONVERSATION_PROVIDER) private readonly provider: ConversationProvider | null,
-    @Optional() @Inject(BRANCH_JUDGE) private readonly judge: BranchJudge | null,
-    @Optional() @Inject(BRANCH_SUMMARIZER) private readonly summarizer: BranchSummarizer | null,
-    @Optional() @Inject(AFFINITY_JUDGE) private readonly affinity: AffinityJudge | null,
-    @Optional() @Inject(GROUP_NAMER) private readonly namer: GroupNamer | null,
+    @Inject(AssistantGate) private readonly gate: AssistantGate,
     @Optional() @Inject(PLACEMENT_TIMEOUTS) private readonly timeouts: PlacementTimeouts | null,
     @Inject(PlacementService) private readonly placementService: PlacementService,
     @Inject(TicketsService) private readonly tickets: TicketsService,
@@ -122,7 +100,7 @@ export class TicketConversationsController {
     @Param("projectId", new ZodPipe(idSchema)) projectId: string,
     @Body(new ZodPipe(conversationMessageBodySchema)) body: z.output<typeof conversationMessageBodySchema>,
   ): Promise<ConversationDetail> {
-    const provider = this.requireProvider();
+    const { conversation: provider } = await this.gate.open(tenant);
     const groups = await tenant.run(async (tx, principal) => {
       await this.requireWritableProject(tx, principal, projectId);
       return this.scopeGroupTitles(tx, projectId, body.scopeId);
@@ -152,7 +130,7 @@ export class TicketConversationsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(conversationMessageBodySchema)) body: z.output<typeof conversationMessageBodySchema>,
   ): Promise<ConversationDetail> {
-    const provider = this.requireProvider();
+    const { conversation: provider } = await this.gate.open(tenant);
     const seen = await tenant.run(async (tx, principal) => {
       const { conversation } = await this.requireWritable(tx, principal, id);
       const messages = await tx.ticketConversationMessage.findMany({
@@ -209,7 +187,7 @@ export class TicketConversationsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(placementBodySchema.default({}))) body: z.output<typeof placementBodySchema>,
   ): Promise<z.output<typeof placementOutcomeSchema>> {
-    const { judge, summarizer, affinity, namer } = this.requirePlacementProviders();
+    const { judge, summarizer, affinity, namer } = await this.gate.open(tenant);
     const seen = await tenant.run(async (tx, principal) => {
       const { conversation } = await this.requireWritable(tx, principal, id);
       if (conversation.draftTitle === null) throw this.draftRequired();
@@ -347,26 +325,6 @@ export class TicketConversationsController {
   }
 
   // ---- regras ---------------------------------------------------------------------------------------------
-
-  private requireProvider(): ConversationProvider {
-    if (!assistantEnabled(this.config) || !this.provider) {
-      throw new ServiceUnavailableException({
-        code: "assistant_not_configured",
-        message: "O assistente não está configurado neste ambiente.",
-      });
-    }
-    return this.provider;
-  }
-
-  private requirePlacementProviders(): { judge: BranchJudge; summarizer: BranchSummarizer; affinity: AffinityJudge; namer: GroupNamer } {
-    if (!assistantEnabled(this.config) || !this.judge || !this.summarizer || !this.affinity || !this.namer) {
-      throw new ServiceUnavailableException({
-        code: "assistant_not_configured",
-        message: "O assistente não está configurado neste ambiente.",
-      });
-    }
-    return { judge: this.judge, summarizer: this.summarizer, affinity: this.affinity, namer: this.namer };
-  }
 
   /** Qualquer ticket do projeto da conversa serve de escopo (ADR 0034); de outro projeto ou organização (pela RLS): o mesmo 404. */
   private requireScope(scope: unknown): void {

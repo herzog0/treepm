@@ -1,9 +1,7 @@
-import { Body, Controller, HttpCode, Inject, Logger, Optional, Param, Post, ServiceUnavailableException } from "@nestjs/common";
+import { Body, Controller, HttpCode, Inject, Logger, Param, Post, ServiceUnavailableException } from "@nestjs/common";
 import type { z } from "zod";
 import { idSchema } from "../common/schemas.js";
 import { ZodPipe } from "../common/zod.js";
-import { CONFIG, assistantEnabled } from "../config.js";
-import type { AppConfig } from "../config.js";
 import { OwnTransactions, Tenant } from "../db/own-transactions.js";
 import type { TenantRunner } from "../db/own-transactions.js";
 import { ProjectQueryService } from "../query/project-query.service.js";
@@ -11,8 +9,8 @@ import { ProjectToolExecutor } from "./ask-executor.js";
 import { fromNeutralLabels, labelNumbers, toNeutralLabels } from "./ask-labels.js";
 import { askBodySchema, askResponseSchema } from "./ask.schema.js";
 import type { AskResponse } from "./ask.schema.js";
-import { AssistantUnavailableError, PROJECT_ANSWERER } from "./ports.js";
-import type { ProjectAnswerer } from "./ports.js";
+import { AssistantGate } from "./assistant-gate.js";
+import { AssistantUnavailableError } from "./ports.js";
 
 /**
  * Pergunta sobre o projeto (ADR 0037, fatia 5). Não grava nada e não cria evento; a conversa vem da tela e não é
@@ -25,8 +23,7 @@ export class AskController {
 
   constructor(
     @Inject(ProjectQueryService) private readonly query: ProjectQueryService,
-    @Inject(CONFIG) private readonly config: AppConfig,
-    @Optional() @Inject(PROJECT_ANSWERER) private readonly answerer: ProjectAnswerer | null,
+    @Inject(AssistantGate) private readonly gate: AssistantGate,
   ) {}
 
   @Post("projects/:projectId/assistant/ask")
@@ -37,7 +34,7 @@ export class AskController {
     @Param("projectId", new ZodPipe(idSchema)) projectId: string,
     @Body(new ZodPipe(askBodySchema)) body: z.output<typeof askBodySchema>,
   ): Promise<AskResponse> {
-    const answerer = this.requireEnabled();
+    const { answerer } = await this.gate.open(tenant);
     // Leitura curta (a pessoa precisa enxergar o projeto; arquivado pode ser consultado) → chamada SEM transação aberta.
     const { key } = await tenant.run(async (tx, principal) => this.query.requireProject(tx, principal, projectId));
 
@@ -67,15 +64,5 @@ export class AskController {
     if (numbers.length === 0) return text;
     const existing = await tenant.run(async (tx) => tx.ticket.findMany({ where: { projectId, number: { in: numbers } }, select: { number: true } }));
     return fromNeutralLabels(text, key, new Set(existing.map((row) => row.number)));
-  }
-
-  private requireEnabled(): ProjectAnswerer {
-    if (!assistantEnabled(this.config) || !this.answerer) {
-      throw new ServiceUnavailableException({
-        code: "assistant_not_configured",
-        message: "O assistente não está configurado neste ambiente.",
-      });
-    }
-    return this.answerer;
   }
 }

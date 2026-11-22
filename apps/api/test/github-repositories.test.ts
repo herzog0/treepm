@@ -308,7 +308,7 @@ describe("GET /api/me", () => {
     const res = await h.call("GET", "/api/me", as("admin"));
     expect(res.status).toBe(200);
     expect(res.body.github).toEqual({ enabled: true });
-    expect(res.body.assistant).toEqual({ enabled: false });
+    expect(res.body.assistant).toEqual({ configured: false, consent: true, enabled: false });
   });
 });
 

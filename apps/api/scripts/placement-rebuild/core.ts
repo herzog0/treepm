@@ -434,7 +434,7 @@ const FLAGS: Record<string, keyof CliOptions> = {
 };
 
 const usage = `Comandos: ${COMMANDS.join(", ")}.
-  pairs          --dir [--variant <nome>] [--limit N] [--repeats N] [--resume] [--fake-providers]
+  pairs          --dir [--org <organização, obrigatório sem --fake-providers>] [--variant <nome>] [--limit N] [--repeats N] [--resume] [--fake-providers]
   report --pairs --dir [--variant <nome>]
   ticket-list    --org --user --project [--json]
   ticket-create  --org --user --project --title <texto> [--description-file <caminho>] [--parent <número>] [--status <situação>]

@@ -2,6 +2,7 @@ import type { TFunction } from "i18next";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ApiClient, ApiError, GroupSummary as SummaryData } from "../api/client.js";
+import { ConsentRequiredNotice, isConsentRequired } from "../api/ConsentRequired.js";
 import { useDescribeApiError } from "../api/errorText.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { formatDate, formatNumber } from "../i18n/format.js";
@@ -111,7 +112,7 @@ export function ItemsSummary({ client, ticketId, canEdit }: ItemsSummaryProps) {
         <p className="ticket-muted">{t("summary.empty")}</p>
       )}
       {regenerate.busy && <p role="status" className="ticket-muted">{t("summary.writing")}</p>}
-      {error && <p role="alert" className="ticket-error">{describeSummaryError(error, describeError, t, language)}</p>}
+      {error && (isConsentRequired(error) ? <ConsentRequiredNotice className="ticket-error" /> : <p role="alert" className="ticket-error">{describeSummaryError(error, describeError, t, language)}</p>)}
     </section>
   );
 }

@@ -14,6 +14,11 @@ export type World = {
   other: { person: string; team: string; project: string };
 };
 
+/** Grava, pelo papel dono, um aceite em vigor (a API só grava pelas rotas; isto é só semente de teste). */
+export async function giveConsent(pool: pg.Pool, orgId: string, personId: string, kind: "assistant" | "code_reading" = "assistant", version = "rascunho-1"): Promise<void> {
+  await pool.query("insert into organization_consents (org_id, kind, document_version, accepted_by_person_id) values ($1,$2,$3,$4)", [orgId, kind, version, personId]);
+}
+
 /** Cabeçalho de sessão de uma pessoa do mundo semeado (papel Clerk coerente com as linhas). */
 export function as(who: Who | "target" | "outsider", orgId: string = ORG): string {
   return sessionHeader({
@@ -25,9 +30,10 @@ export function as(who: Who | "target" | "outsider", orgId: string = ORG): strin
 
 /**
  * Semeia, com o papel dono, uma organização com uma pessoa por papel da matriz
- * e uma organização B. Não passa pela API de propósito.
+ * e uma organização B. Por padrão as duas já têm o aceite `assistant` em vigor (ADR 0039), para os testes das funções de
+ * IA não mudarem; `consent: false` semeia sem aceite nenhum. Não passa pela API de propósito.
  */
-export async function seedWorld(pool: pg.Pool): Promise<World> {
+export async function seedWorld(pool: pg.Pool, options: { consent?: boolean } = {}): Promise<World> {
   const one = async (sql: string, params: unknown[] = []): Promise<string> => {
     const r = await pool.query<{ id: string }>(sql, params);
     return r.rows[0]?.id ?? "";
@@ -87,6 +93,9 @@ export async function seedWorld(pool: pg.Pool): Promise<World> {
   await pool.query("insert into project_teams (org_id, project_id, team_id) values ($1,$2,$3)", [ORG, priv, t1]);
 
   const otherPerson = await person(OTHER_ORG, "outsider", "admin");
+  if (options.consent !== false) {
+    for (const [org, accepted] of [[ORG, people.admin], [OTHER_ORG, otherPerson]] as const) await giveConsent(pool, org, accepted);
+  }
   const otherTeam = await team(OTHER_ORG, "TB");
   const otherProject = await project(OTHER_ORG, "Privado de B", "PRIV", "private");
   return {

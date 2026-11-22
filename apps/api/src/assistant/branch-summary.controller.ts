@@ -7,7 +7,6 @@ import {
   Inject,
   Logger,
   NotFoundException,
-  Optional,
   Param,
   Post,
   Put,
@@ -22,23 +21,22 @@ import type { Principal } from "../access/principal.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { idSchema } from "../common/schemas.js";
 import { ZodPipe, parseOutput } from "../common/zod.js";
-import { CONFIG, assistantEnabled } from "../config.js";
-import type { AppConfig } from "../config.js";
 import { OwnTransactions, Tenant } from "../db/own-transactions.js";
 import type { TenantRunner } from "../db/own-transactions.js";
 import { Tx } from "../db/tx.decorator.js";
 import { branchContentMark } from "./branch-mark.js";
 import { groupTextBodySchema, groupTextResponseSchema } from "./branch-summary.schema.js";
 import type { GroupTextResponse } from "./branch-summary.schema.js";
-import { AssistantUnavailableError, BRANCH_SUMMARIZER } from "./ports.js";
-import type { BranchSummarizer, BranchSummaryInput } from "./ports.js";
+import { AssistantGate } from "./assistant-gate.js";
+import { AssistantUnavailableError } from "./ports.js";
+import type { BranchSummaryInput } from "./ports.js";
 
 type Source = "assistant" | "person";
 
 /**
  * O texto fixo do agrupador ("O que entra aqui", ADR 0033): ler, escrever à mão e pedir à IA que reescreva. O texto
- * guardado é o que a procura usa e só muda por estas rotas. Com a IA desligada as três respondem como as demais rotas
- * do assistente (503 `assistant_not_configured`).
+ * guardado é o que a procura usa e só muda por estas rotas. Com a IA desligada (503 `assistant_not_configured`) ou sem o aceite da
+ * organização (403 `assistant_consent_required`) as três respondem como as demais rotas do assistente.
  */
 @Controller()
 export class BranchSummaryController {
@@ -47,18 +45,17 @@ export class BranchSummaryController {
   constructor(
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(ActivityService) private readonly activity: ActivityService,
-    @Inject(CONFIG) private readonly config: AppConfig,
-    @Optional() @Inject(BRANCH_SUMMARIZER) private readonly summarizer: BranchSummarizer | null,
+    @Inject(AssistantGate) private readonly gate: AssistantGate,
   ) {}
 
   @Get("tickets/:id/summary")
   async read(
     @Tx() tx: TenantClient,
-    @CurrentPrincipal() { actor }: Principal,
+    @CurrentPrincipal() principal: Principal,
     @Param("id", new ZodPipe(idSchema)) id: string,
   ): Promise<GroupTextResponse> {
-    this.requireEnabled();
-    await this.findVisibleTicket(tx, actor, id);
+    await this.gate.openIn(tx, principal);
+    await this.findVisibleTicket(tx, principal.actor, id);
     return this.view(tx, id);
   }
 
@@ -69,7 +66,7 @@ export class BranchSummaryController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(groupTextBodySchema)) body: z.output<typeof groupTextBodySchema>,
   ): Promise<GroupTextResponse> {
-    this.requireEnabled();
+    await this.gate.openIn(tx, principal);
     const { project, ticket } = await this.requireEditableParent(tx, principal, id);
     await this.store(tx, principal, { projectId: project.id, ticketId: id, key: `${project.key}-${ticket.number}`, text: body.text, source: "person" });
     return this.view(tx, id);
@@ -83,7 +80,7 @@ export class BranchSummaryController {
     @Tenant() tenant: TenantRunner,
     @Param("id", new ZodPipe(idSchema)) id: string,
   ): Promise<GroupTextResponse> {
-    const summarizer = this.requireEnabled().summarizer;
+    const { summarizer } = await this.gate.open(tenant);
     const input = await tenant.run(async (tx, principal) => {
       const { ticket } = await this.requireEditableParent(tx, principal, id);
       const children = await tx.ticket.findMany({
@@ -131,16 +128,6 @@ export class BranchSummaryController {
   }
 
   // ---- regras ---------------------------------------------------------------------------------------------
-
-  private requireEnabled(): { summarizer: BranchSummarizer } {
-    if (!assistantEnabled(this.config) || !this.summarizer) {
-      throw new ServiceUnavailableException({
-        code: "assistant_not_configured",
-        message: "O assistente não está configurado neste ambiente.",
-      });
-    }
-    return { summarizer: this.summarizer };
-  }
 
   /** Inexistente, de outra organização (RLS) ou de projeto que a pessoa não vê: o mesmo 404. */
   private async findVisibleTicket(tx: TenantClient, actor: Principal["actor"], id: string) {

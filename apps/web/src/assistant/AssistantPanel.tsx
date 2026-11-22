@@ -19,6 +19,7 @@ import type { Destination } from "./placement.js";
 import type { MapPicker } from "./types.js";
 import { RichDescription } from "../ticket/description/RichDescription.js";
 import "./assistant.css";
+import { ConsentRequiredNotice, isConsentRequired } from "../api/ConsentRequired.js";
 import { useDescribeApiError } from "../api/errorText.js";
 
 /** Limite da API para uma mensagem da pessoa (`MAX_PERSON_MESSAGE`). */
@@ -412,7 +413,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const canSend = !sending && text.trim() !== "" && !overLimit;
   const manualParent = target?.parentId ?? null;
   const retryable = sendError !== null && sendError.kind === "unavailable";
-  const canCreateManually = retryable || sendError?.code === "assistant_not_configured";
+  const canCreateManually = retryable || sendError?.code === "assistant_not_configured" || isConsentRequired(sendError);
   const up = target ? oneLevelUp(target) : null;
   const options = outcome ? [outcome.destination, ...outcome.alternatives] : [];
   const proposal = outcome && target && !proposalDropped && target.parentId === outcome.destination.parentId ? outcome.groupProposal : null;
@@ -450,7 +451,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
         {sending && <p role="status" className="assistant-waiting">{t("conversation.waiting")}</p>}
         {sendError && (
           <div className="assistant-error">
-            <p role="alert">{describeError(sendError)}</p>
+            {isConsentRequired(sendError) ? <ConsentRequiredNotice /> : <p role="alert">{describeError(sendError)}</p>}
             {(retryable || canCreateManually) && (
               <div>
                 {retryable && <button type="button" onClick={() => void send()} disabled={sending}>{t("error.retry")}</button>}

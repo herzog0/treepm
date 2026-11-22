@@ -110,5 +110,36 @@
       "projectGone": "The project no longer exists or you can't see it.",
       "projects": "Couldn't load the projects."
     }
+  },
+  "ai": {
+    "title": "AI and privacy",
+    "loading": "Loading…",
+    "retry": "Try again",
+    "terms": "Terms of use",
+    "privacy": "Privacy policy",
+    "newTab": "opens in a new tab",
+    "outdated": "The documents changed (version {{current}}) and the earlier acceptance no longer applies. It must be accepted again.",
+    "askAdmin": "An organization administrator must accept.",
+    "failed": "The acceptance could not be changed. Try again.",
+    "versionChanged": "The documents changed while you were reading. Read the current version and accept again.",
+    "given": "Accepted by {{name}} on {{date}} (version {{version}}).",
+    "withdraw": "Withdraw acceptance",
+    "assistant": {
+      "heading": "AI assistant",
+      "explain": "By accepting, the text of tickets and of conversations with the assistant is sent to Anthropic and TypeSafe for the AI features. Names, emails and identifiers of people are not sent.",
+      "on": "The assistant is on.",
+      "off": "The assistant is off.",
+      "accept": "Accept and turn on the assistant",
+      "withdrawWarning": "The assistant stops working in the organization: the new-ticket conversation, finding the place, group texts, writing in the description and questions about the project. AI code reading is withdrawn too."
+    },
+    "codeReading": {
+      "heading": "AI code reading",
+      "explain": "By accepting, snippets of code from the linked repositories will be sent to Anthropic, and only to it. This feature is not available yet; the acceptance can already be given.",
+      "needsAssistant": "Accept the AI assistant first.",
+      "on": "Code reading is accepted.",
+      "off": "Code reading is not accepted.",
+      "accept": "Accept code reading",
+      "withdrawWarning": "The AI can no longer read code from the linked repositories."
+    }
   }
 }

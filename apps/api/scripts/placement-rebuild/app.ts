@@ -19,6 +19,7 @@ import type { AppConfig } from "../../src/config.js";
 import { DIRECTORY_PROVIDER } from "../../src/auth/directory-provider.js";
 import { SESSION_VERIFIER } from "../../src/auth/session-verifier.js";
 import type { SessionVerifier, VerifiedSession } from "../../src/auth/session-verifier.js";
+import { requireAssistantConsentOfOrg } from "./consent.js";
 import { FakeAffinity, FakeConversation, FakeDirectoryProvider, FakeJudge, FakeNamer, FakeSummarizer } from "./fakes.js";
 import { NoTurnConversation, RootCapture, RootCaptureJudge, ZeroAffinity, fakeClaude, fakeSystemOne } from "./collect-providers.js";
 import { resolveCurrentId } from "./core.js";
@@ -151,6 +152,8 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
   if (!options.fakeProviders && options.needsAi && !assistantEnabled(baseConfig)) {
     throw new Error("A IA está desligada (faltam ANTHROPIC_API_KEY e/ou TYPESAFE_API_KEY). Este comando precisa dela; use --fake-providers só para ensaio.");
   }
+  // Antes de subir a API e de qualquer chamada: sem o aceite da organização, nada é lido nem enviado (ADR 0039).
+  if (options.needsAi) await requireAssistantConsentOfOrg(baseConfig, options.org);
   const token = randomBytes(24).toString("hex");
   const session: VerifiedSession = { userId: options.user, orgId: options.org, orgRole: options.role, sessionStatus: "active" };
   const verifier: SessionVerifier = {

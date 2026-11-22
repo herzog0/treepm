@@ -28,7 +28,7 @@ export type Harness = {
 };
 
 /** Registra os hooks de ciclo de vida e devolve acessores para a app, o mundo semeado e o `call`. */
-export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTimeouts } = {}): Harness {
+export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTimeouts; consent?: boolean } = {}): Harness {
   const pool = ownerPoolWithCleanup();
   let app: INestApplication;
   let verifier: FakeSessionVerifier;
@@ -85,7 +85,7 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     namer.fail = false;
     namer.hang = false;
     github.reset();
-    world = await seedWorld(pool);
+    world = await seedWorld(pool, options.consent === false ? { consent: false } : {});
   });
 
   return {

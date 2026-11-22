@@ -21,7 +21,7 @@ describe("GET /api/me — assistant.enabled", () => {
   it("com as duas chaves, informa enabled: true", async () => {
     const res = await request(on.getHttpServer()).get("/api/me").set("x-test-session", session);
     expect(res.status).toBe(200);
-    expect(res.body.assistant).toEqual({ enabled: true });
+    expect(res.body.assistant).toEqual({ configured: true, consent: false, enabled: false });
   });
 });
 
@@ -65,6 +65,6 @@ describe("GET /api/me — sem chaves", () => {
   it("com só uma das chaves, a API sobe e informa enabled: false", async () => {
     const res = await request(off.getHttpServer()).get("/api/me").set("x-test-session", session);
     expect(res.status).toBe(200);
-    expect(res.body.assistant).toEqual({ enabled: false });
+    expect(res.body.assistant).toEqual({ configured: false, consent: false, enabled: false });
   });
 });

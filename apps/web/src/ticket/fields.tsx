@@ -169,7 +169,7 @@ export function DescriptionField({ client, detail, canEdit, assistant, tickets, 
   // Pedir texto à IA não grava nada: o texto atual do editor vai junto (pode não estar salvo) e a resposta só entra por "Inserir".
   const askWriter: DraftRequest = async (request, description, signal) => {
     const result = await client.draftTicketDescription(detail.id, { request, description }, { signal });
-    return result.ok ? { ok: true, text: result.data.text } : { ok: false };
+    return result.ok ? { ok: true, text: result.data.text } : { ok: false, ...(result.error.code === "assistant_consent_required" ? { consentRequired: true } : {}) };
   };
   const toggleTask = async (text: string) => {
     if (!(await commit(text))) setRevision((current) => current + 1);
