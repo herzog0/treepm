@@ -9,7 +9,9 @@ export const ticketStatusSchema = z.enum(["todo", "in_progress", "in_review", "d
 /** Estágio de ideia (ADR 0042). */
 export const ideaStageSchema = z.enum(IDEA_STAGES);
 export const ticketTitleSchema = z.string().trim().min(1).max(200);
-export const ticketDescriptionSchema = z.string().max(20_000);
+/** Tamanho máximo da descrição de um ticket, em caracteres (ADR 0024). */
+export const MAX_TICKET_DESCRIPTION = 20_000;
+export const ticketDescriptionSchema = z.string().max(MAX_TICKET_DESCRIPTION);
 const titleSchema = ticketTitleSchema;
 const descriptionSchema = ticketDescriptionSchema;
 

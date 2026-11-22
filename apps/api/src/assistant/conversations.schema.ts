@@ -2,6 +2,7 @@ import { z } from "zod";
 import { idSchema } from "../common/schemas.js";
 import { ticketDetailSchema } from "../tickets/tickets.schema.js";
 import { ticketDescriptionSchema, ticketTitleSchema } from "../tickets/tickets.schema.js";
+import { MAX_DRAFT_CHILDREN } from "./ports.js";
 
 export const MAX_PERSON_MESSAGE = 4000;
 
@@ -13,8 +14,19 @@ export const conversationMessageBodySchema = z
   .object({ message: z.string().trim().min(1).max(MAX_PERSON_MESSAGE), scopeId: idSchema.nullable().optional() })
   .strict();
 
+/** Um filho do rascunho (ADR 0044): título e descrição, e nada mais — só um nível. */
+export const draftChildSchema = z.object({ title: ticketTitleSchema, description: ticketDescriptionSchema.default("") }).strict();
+
+/**
+ * O rascunho editado à mão. Título e descrição do pai sempre vêm; `children` é a lista inteira de filhos, na ordem
+ * (tirar e reordenar é mandar a lista nova): ausente mantém os filhos como estão, `[]` tira todos.
+ */
 export const draftBodySchema = z
-  .object({ title: ticketTitleSchema, description: ticketDescriptionSchema.default("") })
+  .object({
+    title: ticketTitleSchema,
+    description: ticketDescriptionSchema.default(""),
+    children: z.array(draftChildSchema).max(MAX_DRAFT_CHILDREN).optional(),
+  })
   .strict();
 
 /** O agrupador novo a criar em `parentId`, com os tickets soltos que vão para ele (ADR 0031). */
@@ -38,7 +50,14 @@ export const createTicketBodySchema = z.object({ parentId: idSchema.nullable(), 
 /** Corpo opcional da procura: o agrupador de escopo (ou `null`: o projeto inteiro). */
 export const placementBodySchema = z.object({ scopeId: idSchema.nullable().optional() }).strict();
 
-const draftSchema = z.object({ title: z.string(), description: z.string() }).nullable();
+const draftSchema = z
+  .object({
+    title: z.string(),
+    description: z.string(),
+    /** Os filhos do rascunho, na ordem; vazio quando o rascunho é um ticket só. */
+    children: z.array(z.object({ title: z.string(), description: z.string() })),
+  })
+  .nullable();
 const statusSchema = z.enum(["open", "ticket_created", "discarded"]);
 
 export const conversationSummarySchema = z.object({
@@ -96,4 +115,22 @@ export const placementOutcomeSchema = z.object({
     .nullable(),
 });
 
-export const createdTicketSchema = z.object({ conversation: conversationDetailSchema, ticket: ticketDetailSchema });
+/** O que será gravado, como a pessoa o vê antes de confirmar (ADR 0044). `description` já traz a citação do pedido. */
+export const previewSchema = z.object({
+  title: z.string(),
+  description: z.string(),
+  /** Só a citação (linha fixa e mensagens da pessoa), a parte do começo de `description`; vazia se não houver mensagens. */
+  quote: z.string(),
+  children: z.array(z.object({ title: z.string(), description: z.string() })),
+  /** Chaves de ticket da parte escrita pela IA que não existem no projeto: a criação seria recusada. */
+  unknownKeys: z.array(z.string()),
+  /** `description` passa do máximo: a criação seria recusada. */
+  descriptionTooLong: z.boolean(),
+});
+
+/** `children` são os filhos criados junto com `ticket` (o pai), na ordem do rascunho; vazio para um ticket só. */
+export const createdTicketSchema = z.object({
+  conversation: conversationDetailSchema,
+  ticket: ticketDetailSchema,
+  children: z.array(ticketDetailSchema),
+});

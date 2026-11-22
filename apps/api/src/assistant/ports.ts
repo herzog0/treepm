@@ -6,18 +6,30 @@
 
 export type TicketDraft = { title: string; description: string };
 
+/** Um filho do rascunho (ADR 0044): título e descrição; só um nível. */
+export type DraftChild = { title: string; description: string };
+
+/** Máximo de filhos de um rascunho (ADR 0044). */
+export const MAX_DRAFT_CHILDREN = 20;
+
+/**
+ * O rascunho da conversa: um ticket (sem `children`, ou lista vazia) ou um pai com filhos (ADR 0044). A citação do pedido
+ * não faz parte dele: a API a monta na hora de criar.
+ */
+export type ConversationDraft = TicketDraft & { children?: readonly DraftChild[] };
+
 export type ConversationMessage = { author: "person" | "assistant"; body: string };
 
 /**
  * O histórico termina na mensagem nova da pessoa; `draft` é o rascunho atual (ou ainda não há). `groups` são os títulos
  * dos agrupadores do lugar da procura (ADR 0033): no máximo 30, na ordem do número; só títulos.
  */
-export type ConversationTurnInput = { history: readonly ConversationMessage[]; draft: TicketDraft | null; groups: readonly string[] };
+export type ConversationTurnInput = { history: readonly ConversationMessage[]; draft: ConversationDraft | null; groups: readonly string[] };
 
 export type ConversationTurn = {
   message: string;
   /** `null` enquanto a IA ainda não tem o que propor; o chamador mantém o rascunho anterior. */
-  draft: TicketDraft | null;
+  draft: ConversationDraft | null;
   /** A IA considera o rascunho pronto para procurar o lugar na árvore. */
   ready: boolean;
   /** Modelo que produziu esta resposta (pode ser o da alternativa em caso de recusa). */
