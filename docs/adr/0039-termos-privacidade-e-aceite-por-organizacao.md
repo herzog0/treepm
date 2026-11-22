@@ -83,3 +83,15 @@ Tudo no `TREEPM-81`, com um filho por fatia quando começar.
 2. Pedidos de titulares de dados (acesso, correção, exclusão): por onde chegam e quem responde.
 3. Se a telemetria que a TypeSafe guarda sem prazo é aceitável para clientes, ou se vale pedir a ela o contrato sem retenção que ela oferece.
 4. Usuários cadastrados no Clerk antes de o aceite ser ligado.
+
+## Detalhes fixados antes de implementar o mecanismo (2026-11-22, `TREEPM-90`)
+
+Teodoro mandou seguir com o mecanismo em 2026-11-22 ("Pode seguir assim"). O texto dos documentos continua esperando a aprovação dele. O que faltava decidir para a implementação começar, tudo escolha da coordenação:
+
+- **Versão aceita enquanto o texto é rascunho.** A versão do que a organização aceita é uma constante do domínio. Enquanto o texto não for aprovado ela vale `rascunho-1`. Quando o texto aprovado for publicado a constante muda, e pela regra já decidida todo aceite dado ao rascunho deixa de valer: o administrador aceita de novo, agora o texto de verdade.
+- **O que a tela mostra.** A seção de aceite diz ela mesma, em texto do catálogo, o que sai, para quem e o que não sai, e traz os links `/termos` e `/privacidade`. Essas duas páginas só existem no PR #116, que continua travado pelo teste até o texto ser aprovado; até lá os links não levam a lugar nenhum fora desse PR. O mecanismo não mexe nesse teste.
+- **Onde a conferência fica.** Em um ponto só da API, antes de qualquer uso de uma porta de provedor de IA, com um teste que enumera todas as portas e todos os lugares que as usam, para uma função nova não nascer sem a conferência.
+- **Ferramentas de linha de comando.** O verificador de provedores usa dados fictícios e não passa pela conferência. A ferramenta de medição da procura lê tickets de uma organização de verdade e passa: sem o aceite do assistente, ela recusa.
+- **Ninguém aceita em nome de um administrador.** Não há semente, comando nem inserção direta no banco que grave aceite em dados reais. Quando o mecanismo entrar no `main`, o assistente fica desligado em toda organização, inclusive as de desenvolvimento, até um administrador aceitar em Configurações.
+- **O acesso por MCP** (ADR 0038) não depende destes aceites: tem a chave própria da organização e não envia nada a provedor de IA.
+- **Banco:** migration `0013`.
