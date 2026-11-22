@@ -3,6 +3,7 @@ import { Logger } from "@nestjs/common";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MINUTE } from "./access-token-support.js";
+import { TEST_CONFIG } from "./helpers.js";
 import { BAD_ORIGIN, MODERN, SITE_ORIGIN, rpcBody, rpcHeaders, seedProject, useMcpHarness } from "./mcp-support.js";
 import { OTHER_ORG, as } from "./world.js";
 
@@ -297,5 +298,20 @@ describe("log", () => {
     expect(log).not.toContain("authorization");
     expect(log).not.toContain("ARGUMENTO-QUE-NAO-PODE-NO-LOG");
     expect(log).not.toContain("TITULO-QUE-NAO-PODE-NO-LOG");
+  });
+});
+
+describe("Origin com APP_EXTRA_ORIGINS", () => {
+  const EXTRA_ORIGIN = "https://dev.tailnet.ts.net";
+  const x = useMcpHarness({ ...TEST_CONFIG, APP_EXTRA_ORIGINS: [EXTRA_ORIGIN] });
+
+  it("aceita a principal e a extra; recusa a não listada (403, antes do token)", async () => {
+    const h = x;
+    const { token } = await h.issue("contributor");
+    for (const origin of [SITE_ORIGIN, EXTRA_ORIGIN]) {
+      expect((await h.post(token, "PRIV", rpcBody("tools/list"), { ...rpcHeaders("tools/list"), origin })).status).toBe(200);
+    }
+    const bad = await h.post(null, "PRIV", rpcBody("tools/list"), { ...rpcHeaders("tools/list"), origin: BAD_ORIGIN });
+    expect(bad.status).toBe(403);
   });
 });

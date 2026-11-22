@@ -17,6 +17,11 @@ const schema = z.object({
       return z.NEVER;
     }
   }),
+  /**
+   * Origens extras da web aceitas além de `APP_ORIGIN` (lista separada por vírgula). Só desenvolvimento: em produção não
+   * se define. Lida como texto aqui; `loadConfig` valida item a item e entrega `string[]` (ver `parseExtraOrigins`).
+   */
+  APP_EXTRA_ORIGINS: z.string().optional(),
   CLERK_JWT_KEY: z.string().min(1).optional(),
   WEB_DIST_DIR: z.string().min(1).optional(),
   /** Chave da Anthropic (conversa e resumos). Opcional: sem as duas chaves, a IA fica desligada (ADR 0029). */
@@ -46,7 +51,54 @@ const schema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(4310),
 });
 
-export type AppConfig = z.output<typeof schema>;
+export type AppConfig = Omit<z.output<typeof schema>, "APP_EXTRA_ORIGINS"> & {
+  /** Origens extras já validadas, sem repetidos e sem `APP_ORIGIN`; ausente quando a variável não foi definida. */
+  APP_EXTRA_ORIGINS?: string[];
+};
+
+/** No máximo este tanto de origens extras. */
+export const MAX_EXTRA_ORIGINS = 5;
+
+/** Uma origem extra (já reduzida à origem) ou o motivo, sem repetir o valor (pode ter credenciais). */
+function parseExtraOrigin(raw: string): { origin: string } | { reason: string } {
+  if (raw.includes("*")) return { reason: "não pode ter curinga (*)" };
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return { reason: "não é uma URL válida" };
+  }
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1"))) {
+    return { reason: "deve usar https (http só em localhost ou 127.0.0.1)" };
+  }
+  if (url.username !== "" || url.password !== "") return { reason: "não pode ter usuário nem senha" };
+  if ((url.pathname !== "/" && url.pathname !== "") || raw.includes("?") || raw.includes("#")) {
+    return { reason: "deve ser só a origem, sem caminho, consulta nem fragmento" };
+  }
+  return { origin: url.origin };
+}
+
+/** Valida a lista de `APP_EXTRA_ORIGINS`. Repetidos e a origem principal são ignorados sem erro. Devolve problemas sem valores. */
+function parseExtraOrigins(raw: string, primary: string): { origins: string[] } | { problems: string[] } {
+  const items = raw.split(",").map((item) => item.trim()).filter((item) => item !== "");
+  const problems: string[] = [];
+  const origins: string[] = [];
+  items.forEach((item, index) => {
+    const parsed = parseExtraOrigin(item);
+    if ("reason" in parsed) {
+      problems.push(`APP_EXTRA_ORIGINS: item ${index + 1} ${parsed.reason}`);
+    } else if (parsed.origin !== primary && !origins.includes(parsed.origin)) {
+      origins.push(parsed.origin);
+    }
+  });
+  if (problems.length === 0 && origins.length > MAX_EXTRA_ORIGINS) problems.push(`APP_EXTRA_ORIGINS: no máximo ${MAX_EXTRA_ORIGINS} itens`);
+  return problems.length > 0 ? { problems } : { origins };
+}
+
+/** Todas as origens da web que a API aceita (sessão do Clerk e `Origin` do MCP): a principal primeiro, depois as extras. */
+export function allowedOrigins(config: Pick<AppConfig, "APP_ORIGIN" | "APP_EXTRA_ORIGINS">): string[] {
+  return [config.APP_ORIGIN, ...(config.APP_EXTRA_ORIGINS ?? [])];
+}
 
 /** A IA está ligada só com as duas chaves. */
 export function assistantEnabled(config: Pick<AppConfig, "ANTHROPIC_API_KEY" | "TYPESAFE_API_KEY">): boolean {
@@ -89,10 +141,17 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     const problems = result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`);
     throw new ConfigError(`Configuração inválida — ${problems.join("; ")}`);
   }
-  const presentGithub = GITHUB_VARIABLES.filter((name) => result.data[name] !== undefined);
+  const { APP_EXTRA_ORIGINS: rawExtras, ...rest } = result.data;
+  const config: AppConfig = rest;
+  if (rawExtras !== undefined) {
+    const extras = parseExtraOrigins(rawExtras, config.APP_ORIGIN);
+    if ("problems" in extras) throw new ConfigError(`Configuração inválida — ${extras.problems.join("; ")}`);
+    config.APP_EXTRA_ORIGINS = extras.origins;
+  }
+  const presentGithub = GITHUB_VARIABLES.filter((name) => config[name] !== undefined);
   if (presentGithub.length > 0 && presentGithub.length < GITHUB_VARIABLES.length) {
-    const missing = GITHUB_VARIABLES.filter((name) => result.data[name] === undefined);
+    const missing = GITHUB_VARIABLES.filter((name) => config[name] === undefined);
     throw new ConfigError(`Configuração inválida — a ligação com o GitHub exige as cinco variáveis do app; faltam: ${missing.join(", ")}`);
   }
-  return result.data;
+  return config;
 }

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ConfigError, assistantEnabled, githubEnabled, loadConfig } from "../src/config.js";
+import { ConfigError, allowedOrigins, assistantEnabled, githubEnabled, loadConfig } from "../src/config.js";
 
 const valid = {
   DATABASE_URL: "postgresql://treepm_app:x@localhost:5432/db",
@@ -167,5 +167,62 @@ describe("loadConfig — GitHub (ADR 0032)", () => {
   it(".env.example lista as cinco variáveis sem valor", () => {
     const text = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
     for (const name of NAMES) expect(text).toMatch(new RegExp(`^${name}=$`, "m"));
+  });
+});
+
+describe("APP_EXTRA_ORIGINS", () => {
+  it("sem a variável, vale só APP_ORIGIN (como antes)", () => {
+    const config = loadConfig(valid);
+    expect(config.APP_EXTRA_ORIGINS).toBeUndefined();
+    expect(allowedOrigins(config)).toEqual(["https://treepm.ai"]);
+    expect(allowedOrigins(loadConfig({ ...valid, APP_EXTRA_ORIGINS: "" }))).toEqual(["https://treepm.ai"]);
+  });
+
+  it("aceita extras separados por vírgula, na ordem, depois da principal", () => {
+    const config = loadConfig({ ...valid, APP_EXTRA_ORIGINS: "http://localhost:5173, https://dev.tailnet.ts.net:8443 ,http://127.0.0.1:4310" });
+    expect(config.APP_ORIGIN).toBe("https://treepm.ai");
+    expect(allowedOrigins(config)).toEqual(["https://treepm.ai", "http://localhost:5173", "https://dev.tailnet.ts.net:8443", "http://127.0.0.1:4310"]);
+  });
+
+  it("normaliza a barra final e ignora repetidos e a própria APP_ORIGIN, sem erro", () => {
+    const config = loadConfig({ ...valid, APP_EXTRA_ORIGINS: "https://a.example/,https://a.example,https://treepm.ai,https://treepm.ai/,,https://b.example" });
+    expect(config.APP_EXTRA_ORIGINS).toEqual(["https://a.example", "https://b.example"]);
+  });
+
+  it.each([
+    ["http fora de localhost", "http://dev.example", /APP_EXTRA_ORIGINS.*item 1.*https/],
+    ["http em 192.168.0.5", "http://192.168.0.5:3000", /APP_EXTRA_ORIGINS.*item 1.*https/],
+    ["com caminho", "https://a.example/app", /APP_EXTRA_ORIGINS.*item 1.*caminho/],
+    ["com consulta", "https://a.example?x=1", /APP_EXTRA_ORIGINS.*item 1.*caminho/],
+    ["com fragmento", "https://a.example#x", /APP_EXTRA_ORIGINS.*item 1.*caminho/],
+    ["com credenciais", "https://u:SENHA-SECRETA@a.example", /APP_EXTRA_ORIGINS.*item 1/],
+    ["curinga", "https://*.example.com", /APP_EXTRA_ORIGINS.*item 1.*curinga/],
+    ["curinga solto", "*", /APP_EXTRA_ORIGINS.*item 1.*curinga/],
+    ["texto que não é URL", "não é url", /APP_EXTRA_ORIGINS.*item 1.*URL/],
+    ["outro esquema", "ftp://a.example", /APP_EXTRA_ORIGINS.*item 1.*https/],
+  ])("derruba a partida: %s", (_name, value, pattern) => {
+    expect(() => loadConfig({ ...valid, APP_EXTRA_ORIGINS: value })).toThrow(ConfigError);
+    expect(() => loadConfig({ ...valid, APP_EXTRA_ORIGINS: value })).toThrow(pattern);
+  });
+
+  it("diz qual item está errado e não repete o valor", () => {
+    try {
+      loadConfig({ ...valid, APP_EXTRA_ORIGINS: "https://ok.example,https://u:SENHA-SECRETA@a.example/x" });
+      expect.unreachable();
+    } catch (error) {
+      expect(String(error)).toMatch(/item 2/);
+      expect(String(error)).not.toContain("SENHA-SECRETA");
+    }
+  });
+
+  it("aceita até 5 itens e recusa 6", () => {
+    const five = ["a", "b", "c", "d", "e"].map((x) => `https://${x}.example`).join(",");
+    expect(loadConfig({ ...valid, APP_EXTRA_ORIGINS: five }).APP_EXTRA_ORIGINS).toHaveLength(5);
+    expect(() => loadConfig({ ...valid, APP_EXTRA_ORIGINS: `${five},https://f.example` })).toThrow(/APP_EXTRA_ORIGINS.*no máximo 5/);
+  });
+
+  it("repetidos e a principal não contam para o limite de 5", () => {
+    const five = ["a", "b", "c", "d", "e"].map((x) => `https://${x}.example`).join(",");
+    expect(loadConfig({ ...valid, APP_EXTRA_ORIGINS: `${five},https://a.example,https://treepm.ai` }).APP_EXTRA_ORIGINS).toHaveLength(5);
   });
 });

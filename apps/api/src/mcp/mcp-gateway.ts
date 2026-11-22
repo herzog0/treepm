@@ -10,7 +10,7 @@ import { parseToken } from "../access-tokens/token.js";
 import { AccessTokenService } from "../access-tokens/access-token.service.js";
 import type { ResolveResult } from "../access-tokens/access-token.service.js";
 import type { Principal } from "../access/principal.js";
-import { CONFIG } from "../config.js";
+import { CONFIG, allowedOrigins } from "../config.js";
 import type { AppConfig } from "../config.js";
 import { TenantTransactions } from "../db/tenant-transactions.js";
 import { AuthorizationService } from "../access/authorization.service.js";
@@ -150,9 +150,9 @@ export class McpGateway {
     // Só POST. Sem sessão e sem canal GET (a especificação permite 405).
     if (req.method !== "POST") throw new HttpFailure(405, "method_not_allowed", "Use POST.", { Allow: "POST" });
 
-    // 2. Origin: se vier, tem que ser o do próprio site.
+    // 2. Origin: se vier, tem que ser o do próprio site (APP_ORIGIN ou uma das extras).
     const origin = req.headers.origin;
-    if (origin !== undefined && origin !== this.config.APP_ORIGIN) throw new HttpFailure(403, "forbidden", "Origin not allowed.");
+    if (origin !== undefined && !allowedOrigins(this.config).includes(origin)) throw new HttpFailure(403, "forbidden", "Origin not allowed.");
 
     // 3. Corpo, no máximo 64 KB, decodificado e interpretado UMA vez: o SDK recebe o valor já interpretado, então
     //    o gateway e o SDK nunca veem coisas diferentes. O BOM é tirado (vale para os dois). Só um objeto JSON vira

@@ -4,6 +4,7 @@ import type pg from "pg";
 import { afterAll, beforeAll, beforeEach } from "vitest";
 import { AccessTokenService } from "../src/access-tokens/access-token.service.js";
 import type { AccessTokenClock } from "../src/access-tokens/clock.js";
+import type { AppConfig } from "../src/config.js";
 import { createTestApp, ownerPoolWithCleanup, truncateAll } from "./helpers.js";
 import type { FakeDirectory } from "./helpers.js";
 import { ORG, as, seedWorld } from "./world.js";
@@ -39,7 +40,7 @@ export type TokenHarness = {
   create: (who: Who, projectId: string, body?: Record<string, unknown>) => Promise<request.Response>;
 };
 
-export function useTokenHarness(): TokenHarness {
+export function useTokenHarness(config?: AppConfig): TokenHarness {
   const pool = ownerPoolWithCleanup();
   const clock = new FakeClock();
   let app: INestApplication;
@@ -47,7 +48,7 @@ export function useTokenHarness(): TokenHarness {
   let world: World;
 
   beforeAll(async () => {
-    ({ app, directory } = await createTestApp([], undefined, { clock }));
+    ({ app, directory } = await createTestApp([], config, { clock }));
   });
   afterAll(async () => {
     await app.close();
