@@ -5,6 +5,7 @@ import { userEvent } from "vitest/browser";
 import "../../theme.css";
 import "../../map/status-mark.css";
 import { makeTicket } from "../../test/fakes.js";
+import { untilStable } from "../../test/stable.js";
 import { RichDescription } from "./RichDescription.js";
 
 const tickets = [makeTicket("t47", "p1", 47, "Adicionar opção para exportar sem cabeçalho", { key: "TREEPM-47", status: "in_progress" })];
@@ -15,7 +16,13 @@ const show = async (value: string, editing: boolean, onChange = vi.fn()) => {
       <RichDescription value={value} editing={editing} canEdit label="Descrição" placeholder="" mentions={{ projectId: "p1", tickets }} onChange={onChange} onOpenMention={vi.fn()} />
     </div>,
   );
-  await new Promise((resolve) => setTimeout(resolve, 900));
+  // O editor carrega sob demanda e as menções são desenhadas depois dele: espera o desenho parar, não um tempo fixo.
+  await document.fonts.ready;
+  await vi.waitFor(() => {
+    expect(document.querySelector(".tiptap")).not.toBeNull();
+    if (/[A-Z]+-\d+/.test(value)) expect(document.querySelector(".description-mention")).not.toBeNull();
+  }, { timeout: 20_000 });
+  await untilStable(() => `${document.querySelector(".tiptap") ? document.body.innerHTML.length : "sem editor"}|${JSON.stringify([...document.querySelectorAll(".description-mention")].map((el) => [...el.getClientRects()].map((r) => [r.x, r.y, r.width, r.height])))}`);
   return screen;
 };
 
@@ -107,7 +114,7 @@ describe("agreement with the domain (ADR 0037)", () => {
           <RichDescription value={c.markdown} editing={editing} canEdit label="Descrição" placeholder="" mentions={{ projectId: "p1", tickets: all }} onChange={vi.fn()} onOpenMention={vi.fn()} />
         </div>,
       );
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await untilStable(() => document.body.innerHTML);
       const drawn = Array.from(document.querySelectorAll(".description-mention")).map((el) => (el.textContent ?? "").trim());
       expect([...new Set(drawn)]).toEqual([...c.keys]);
       await screen.unmount();

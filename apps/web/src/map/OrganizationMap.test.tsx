@@ -7,7 +7,8 @@ import { failed, makeClient, makeMe, makeProject, makeTicket } from "../test/fak
 const projects = [makeProject("p1", "ALFA", "Projeto Alfa"), makeProject("p2", "BETA", "Projeto Beta")];
 
 // A câmera anima por requestAnimationFrame; com a suíte inteira em paralelo a revelação dos nós passa de 1 s.
-const SLOW = 8000;
+// Prazo dos testes que montam o mapa inteiro: 2-4 s com a máquina em uso normal, e mais de 8 s com ela saturada (TREEPM-101).
+const SLOW = 20_000;
 
 describe("OrganizationMap", () => {
   it("shows a loading state, then the organization root and its projects", async () => {
@@ -193,7 +194,7 @@ describe("OrganizationMap", () => {
     it("renders ticket nodes with key and title once the project branch is explored", async () => {
       await openAlfa();
       expect(await screen.findByRole("button", { name: /ALFA-3 · Publicar/ }, { timeout: SLOW })).toBeInTheDocument();
-    });
+    }, SLOW);
 
     it("selecting a project counts its root children as 'itens'", async () => {
       render(<OrganizationMap client={makeClient({ projects, tickets: { p1: [makeTicket("g1", "p1", 1, "Fase", { key: "ALFA-1", progress: { done: 0, total: 1, excluded: 0 } }), makeTicket("t2", "p1", 2, "Solto", { key: "ALFA-2" })] } })} me={makeMe()} />);

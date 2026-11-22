@@ -5,6 +5,7 @@ import type { ApiClient, ApiResult, TicketDetail, TicketSummary } from "../api/c
 import { makePanelMe, makePerson } from "../panel/testing.js";
 import { failed, makeClient, makeProject, makeTicket, ok } from "../test/fakes.js";
 import { TicketPage } from "./TicketPage.js";
+import { descriptionEditorMounted, editableFocused } from "../test/stable.js";
 
 // "Pedir ao assistente para escrever" (ADR 0036, fatia 5), em navegador real: o menu "/", o campo do pedido, a espera, a proposta,
 // o erro, e o que NÃO pode acontecer (salvar por causa do campo, ou desfazer a edição com o Esc).
@@ -33,6 +34,8 @@ async function open(description: string, { assistant = true, draft, role = "admi
   const handlers = { onOpenTicket: vi.fn(), onClose: vi.fn(), onChanged: vi.fn(), onRemoved: vi.fn(), onStartCreate: vi.fn(), onCancelCreate: vi.fn(), onCreated: vi.fn() };
   const screen = await render(<TicketPage client={client} me={me} projects={[project]} ticketId="t2" creating={null} {...handlers} />);
   await expect.element(screen.getByRole("heading", { level: 1 })).toBeVisible();
+  // Antes de o editor montar o clique não edita (RichDescription.tsx): espera por ele em vez de clicar cedo.
+  await descriptionEditorMounted();
   const update = client.updateTicket as ReturnType<typeof vi.fn>;
   return { screen, client, draft: draftTicketDescription, update, ...handlers };
 }
@@ -40,6 +43,7 @@ async function open(description: string, { assistant = true, draft, role = "admi
 /** Clica no texto, vai ao fim e abre o menu "/" numa linha nova. */
 async function openMenu(screen: Awaited<ReturnType<typeof open>>["screen"], text: string) {
   await screen.getByText(text).click();
+  await editableFocused();
   await userEvent.keyboard("{Control>}{End}{/Control}{Enter}/");
   return screen.getByRole("menu", { name: "Blocos" });
 }
@@ -58,7 +62,7 @@ describe("the menu item", () => {
     const { screen } = await open("Texto");
     const menu = await openMenu(screen, "Texto");
     const item = menu.getByRole("menuitem", { name: /Pedir ao assistente para escrever/ });
-    await expect.element(item).toBeVisible();
+    await expect.element(item, { timeout: 10_000 }).toBeVisible();
     const items = Array.from(document.querySelectorAll("[role=menuitem]"));
     expect(items.at(-1)).toBe(item.element());
     expect(item.element().previousElementSibling?.getAttribute("role")).toBe("separator");

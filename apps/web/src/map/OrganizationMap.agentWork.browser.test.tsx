@@ -148,7 +148,8 @@ describe("contorno do ticket em trabalho pela IA, em navegador real", () => {
       if (lod === "dot") expect(value).toEqual({ name: "agent-work-pulse", duration: "2.4s" });
       else expect(value).toEqual({ name: "agent-work-march", duration: "0.6s" });
     }
-  });
+    // 14 passos de zoom, cada um com clique e 0,5 s de animação: legitimamente longo, e sob carga o clique também demora. Prazo próprio.
+  }, 60_000);
 
   it("é diferente do card tracejado do rascunho: aquele é fino, parado e sólido por fora", async () => {
     await page.viewport(1440, 900);

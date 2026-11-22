@@ -188,18 +188,36 @@ describe("status as a menu", () => {
     setup({ client });
     await loaded();
     trigger().focus();
+    // O foco acompanha o teclado de forma assíncrona (abertura do menu, efeito de foco): cada passo espera o foco chegar.
     await userEvent.keyboard("{Enter}");
-    expect(screen.getByRole("menuitemradio", { name: "Em andamento" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("menuitemradio", { name: "Em andamento" })).toHaveFocus());
     await userEvent.keyboard("{ArrowDown}");
-    expect(screen.getByRole("menuitemradio", { name: "Em revisão" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("menuitemradio", { name: "Em revisão" })).toHaveFocus());
     await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
-    expect(screen.getByRole("menuitemradio", { name: "A fazer" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("menuitemradio", { name: "A fazer" })).toHaveFocus());
     await userEvent.keyboard("{ArrowUp}");
-    expect(screen.getByRole("menuitemradio", { name: "Cancelado" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("menuitemradio", { name: "Cancelado" })).toHaveFocus());
     await userEvent.keyboard("{ArrowUp}{Enter}");
-    expect(client.updateTicket).toHaveBeenCalledWith("t2", { status: "done" });
+    await waitFor(() => expect(client.updateTicket).toHaveBeenCalledWith("t2", { status: "done" }));
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
-    await waitFor(() => expect(within(page()).getByRole("button", { name: /Em andamento|Concluído/ })).toHaveFocus());
+    // O foco volta ao botão depois da atualização do ticket; sob carga isso passa de 1 s.
+    await waitFor(() => expect(within(page()).getByRole("button", { name: /Em andamento|Concluído/ })).toHaveFocus(), { timeout: 5000 });
+    // Doze teclas e seis esperas de foco: legitimamente mais longo que os 5 s padrão quando a máquina está ocupada.
+  }, 20_000);
+
+  it("o botão fica desabilitado enquanto salva e o foco volta a ele quando termina (a ordem não depende da velocidade)", async () => {
+    let finish: (value: ReturnType<typeof ok>) => void = () => {};
+    const client = clientWith({ updateTicket: vi.fn(() => new Promise((resolve) => { finish = resolve; })) });
+    setup({ client });
+    await loaded();
+    trigger().focus();
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(screen.getByRole("menuitemradio", { name: "Em andamento" })).toHaveFocus());
+    await userEvent.keyboard("{ArrowDown}{Enter}");
+    await waitFor(() => expect(client.updateTicket).toHaveBeenCalledWith("t2", { status: "in_review" }));
+    await waitFor(() => expect(within(page()).getByRole("button", { name: /Em andamento/ })).toBeDisabled());
+    finish(ok(detailOf(summaries.find((entry) => entry.id === "t2")!)));
+    await waitFor(() => expect(within(page()).getByRole("button", { name: /Em andamento|Em revisão/ })).toHaveFocus());
   });
 
   it("opens with Space too", async () => {

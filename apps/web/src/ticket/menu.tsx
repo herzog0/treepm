@@ -50,6 +50,15 @@ export function OptionMenu<T extends string>({ label, trigger, options, value, o
     if (open) items.current[currentIndex.current]?.focus();
   }, [open]);
 
+  // Escolher um valor desabilita o botão enquanto salva, e um botão desabilitado perde o foco: quem usa o teclado ficava sem foco
+  // (no `body`) depois de escolher. O foco volta ao botão quando ele reabilita, se nada mais o tomou nesse meio-tempo.
+  const refocusAfterSave = useRef(false);
+  useEffect(() => {
+    if (disabled || !refocusAfterSave.current) return;
+    refocusAfterSave.current = false;
+    if (document.activeElement === document.body || document.activeElement === null) button.current?.focus();
+  }, [disabled]);
+
   const move = (to: number) => items.current[(to + options.length) % options.length]?.focus();
   const onMenuKeyDown = (event: KeyboardEvent) => {
     const at = items.current.findIndex((item) => item === document.activeElement);
@@ -73,7 +82,9 @@ export function OptionMenu<T extends string>({ label, trigger, options, value, o
   const choose = (next: T) => {
     setOpen(false);
     button.current?.focus();
-    if (next !== value) onChoose(next);
+    if (next === value) return;
+    refocusAfterSave.current = true;
+    onChoose(next);
   };
 
   return (

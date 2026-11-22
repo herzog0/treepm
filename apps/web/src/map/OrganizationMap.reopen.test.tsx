@@ -8,7 +8,8 @@ import { makeProject, makeTicket, makeTreeClient } from "../test/fakes.js";
 import { OrganizationMap } from "./OrganizationMap.js";
 
 // Reabertura (ADR 0034): a API reabre o ticket concluído que ganha filho aberto, e sobe; a tela mostra sem recarregar a página.
-const SLOW = 8000;
+// Prazo dos testes que montam o mapa inteiro: 2-4 s com a máquina em uso normal, e mais de 8 s com ela saturada (TREEPM-101).
+const SLOW = 20_000;
 const projects = [makeProject("p1", "ALFA", "Projeto Alfa")];
 const tickets = () => ({
   p1: [
@@ -52,7 +53,7 @@ describe("reopening of a concluded parent, on the screen", () => {
     render(<Host client={client()} initial="s1" />);
     await heading("Solto aberto");
     await screen.findByRole("button", { name: /ALFA-1 · Avô concluído/ }, { timeout: SLOW });
-    expect(within(card()).getByText("Concluído")).toBeInTheDocument();
+    await waitFor(() => expect(within(card()).getByText("Concluído")).toBeInTheDocument(), { timeout: SLOW });
     await userEvent.click(within(page()).getByRole("button", { name: "Mudar" }));
     await userEvent.click(within(screen.getByRole("group", { name: "Escolher o ticket pai" })).getByRole("button", { name: /ALFA-1Avô concluído/ }));
     await waitFor(() => expect(within(card()).getByText(/\d de \d concluídos/)).toBeInTheDocument(), { timeout: SLOW });

@@ -226,9 +226,9 @@ describe("TeamsScreen — renomear", () => {
     await user.clear(input);
     await user.type(input, "Alfa 2");
     await user.click(within(region).getByRole("button", { name: "Renomear" }));
-    expect(client.renameTeam).toHaveBeenCalledWith("t-alfa", { name: "Alfa 2" });
+    await waitFor(() => expect(client.renameTeam).toHaveBeenCalledWith("t-alfa", { name: "Alfa 2" }));
     expect(await screen.findByRole("button", { name: /^Alfa 2\b/ })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Time Alfa 2" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Time Alfa 2" })).toBeInTheDocument();
   });
 
   it("erro aparece junto do campo e preserva o texto", async () => {
