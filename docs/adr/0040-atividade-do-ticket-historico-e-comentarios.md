@@ -75,7 +75,7 @@ Regras:
 - **Chave de ticket no comentário** vira a mesma etiqueta clicável da descrição, mas **não grava ligação** em `ticket_relations`: a ligação "menciona" é derivada só da descrição (ADR 0037), e a reconciliação dela apagaria qualquer ligação vinda de outro lugar. "Mencionado em" continua falando só de descrições.
 - **Quem comenta:** quem pode editar o ticket (gestor e colaborador do projeto). Leitor lê. Projeto arquivado não recebe comentário novo. *(Escolha da coordenação: hoje o leitor não escreve nada no projeto, e comentar é escrever.)*
 - **Editar:** só o autor. O comentário editado mostra "editado"; a versão anterior não é guardada.
-- **Remover:** o autor, ou um gestor do projeto. O corpo é apagado do banco na hora e a entrada fica na lista como "comentário removido", com quem escreveu e quando, para a conversa em volta não perder o sentido.
+- **Remover:** o autor, ou um gestor do projeto (como foi construído, também o administrador da organização; ver "Como ficou a fatia 2"). O corpo é apagado do banco na hora e a entrada fica na lista como "comentário removido", com quem escreveu e quando, para a conversa em volta não perder o sentido.
 - **Autoria sobrevive:** a referência ao autor impede apagar a pessoa (como nos eventos), e pessoa inativa continua aparecendo pelo nome. Excluir o ticket exclui os comentários dele.
 - **Eventos:** comentar, editar e remover gravam evento de atividade com o id do comentário e **sem o corpo**. Um comentário removido não pode sobreviver dentro do histórico. Esses eventos não viram entradas próprias na lista: o comentário já é a entrada.
 
