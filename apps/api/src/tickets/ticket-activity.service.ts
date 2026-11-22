@@ -1,0 +1,254 @@
+import { BadRequestException, Injectable } from "@nestjs/common";
+import type { TenantClient } from "@treepm/db";
+import { mergeDescriptionEdits } from "@treepm/domain";
+import type { MergedEntry } from "@treepm/domain";
+import { z } from "zod";
+import { parseOutput } from "../common/zod.js";
+import { activityPageSchema } from "./ticket-activity.schema.js";
+import type { ActivityEntry, ActivityPage } from "./ticket-activity.schema.js";
+import { ticketStatusSchema } from "./tickets.schema.js";
+import type { ProjectRow } from "./tickets.service.js";
+
+/** Tipos de evento que viram entradas; o resto (inclusive `ticket.comment_*`) nem é lido do banco. */
+const READ_KINDS = [
+  "ticket.created",
+  "ticket.updated",
+  "ticket.assignee_added",
+  "ticket.assignee_removed",
+  "ticket.dependency_added",
+  "ticket.dependency_removed",
+  "ticket.summary_updated",
+];
+
+/** Ordem fixa das entradas de um `ticket.updated`, da mais antiga para a mais nova. */
+const FIELD_ORDER = ["title", "description", "status", "parentId"] as const;
+const SYNTHETIC_ID = "";
+const FIRST_BATCH_EXTRA = 5;
+const MAX_BATCH = 500;
+
+type Position = { t: number; e: string; s: number };
+type RefDraft = { id: string | null; key: string | null; number: number | null };
+type Data =
+  | { type: "created" }
+  | { type: "title_changed"; from: string; to: string }
+  | { type: "description_changed" }
+  | { type: "status_changed"; from: z.output<typeof ticketStatusSchema>; to: z.output<typeof ticketStatusSchema>; automatic: boolean; causedBy: RefDraft | null }
+  | { type: "parent_changed"; from: RefDraft | null; to: RefDraft | null }
+  | { type: "assignee_added" | "assignee_removed"; personId: string }
+  | { type: "dependency_added" | "dependency_removed"; ticket: RefDraft }
+  | { type: "summary_updated"; source: "person" | "assistant" };
+/** Entrada ainda sem os ids resolvidos. `pos` é a posição na ordem total (instante, evento, campo). */
+type Draft = { id: string; type: Data["type"]; actorId: string | null; occurredAt: number; pos: Position; data: Data };
+
+const idOrNull = z.uuid().nullable();
+const fromTo = <T extends z.ZodType>(schema: T) => z.object({ from: schema, to: schema });
+const issueKey = /^[A-Za-z][A-Za-z0-9]*-(\d+)$/;
+const refOf = (id: string | null): RefDraft | null => (id === null ? null : { id, key: null, number: null });
+
+function compare(a: Position, b: Position): number {
+  return a.t - b.t || (a.e < b.e ? -1 : a.e > b.e ? 1 : 0) || a.s - b.s;
+}
+
+export function encodeCursor(pos: Position): string {
+  return Buffer.from(JSON.stringify(pos), "utf8").toString("base64url");
+}
+
+const cursorSchema = z.object({ t: z.number().int(), e: z.string().min(1), s: z.number().int() }).strict();
+function decodeCursor(raw: string): Position {
+  try {
+    return cursorSchema.parse(JSON.parse(Buffer.from(raw, "base64url").toString("utf8")));
+  } catch {
+    throw new BadRequestException({ code: "validation_error", message: "Entrada inválida: before." });
+  }
+}
+
+/** Entradas de um evento, da mais nova para a mais antiga; payload fora do esperado só descarta a entrada. */
+function draftsOf(row: { id: string; kind: string; actorPersonId: string | null; occurredAt: Date; payload: unknown }): Draft[] {
+  const t = row.occurredAt.getTime();
+  const make = (sub: number, id: string, data: Data): Draft => ({ id, type: data.type, actorId: row.actorPersonId, occurredAt: t, pos: { t, e: row.id, s: sub }, data });
+  const payload = row.payload;
+  if (row.kind === "ticket.created") return [make(0, row.id, { type: "created" })];
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return [];
+  const p = payload as Record<string, unknown>;
+  switch (row.kind) {
+    case "ticket.updated": {
+      const fields = z.array(z.string()).safeParse(p["fields"]);
+      if (!fields.success) return [];
+      const out: Draft[] = [];
+      FIELD_ORDER.forEach((field, index) => {
+        if (!fields.data.includes(field)) return;
+        const id = `${row.id}:${field === "parentId" ? "parent" : field}`;
+        if (field === "description") return void out.push(make(index, id, { type: "description_changed" }));
+        if (field === "title") {
+          const v = fromTo(z.string()).safeParse(p["title"]);
+          if (v.success) out.push(make(index, id, { type: "title_changed", from: v.data.from, to: v.data.to }));
+        } else if (field === "status") {
+          const v = fromTo(ticketStatusSchema).safeParse(p["status"]);
+          const automatic = z.boolean().optional().safeParse(p["automatic"]);
+          const caused = z.string().min(1).max(100).nullish().safeParse(p["causedBy"]);
+          if (!v.success || !automatic.success || !caused.success) return;
+          const key = caused.data ?? null;
+          const number = key === null ? null : Number(issueKey.exec(key)?.[1] ?? NaN);
+          const causedBy = key === null ? null : { id: null, key, number: Number.isSafeInteger(number) ? number : null };
+          out.push(make(index, id, { type: "status_changed", from: v.data.from, to: v.data.to, automatic: automatic.data ?? false, causedBy }));
+        } else {
+          const v = fromTo(idOrNull).safeParse(p["parentId"]);
+          if (v.success) out.push(make(index, id, { type: "parent_changed", from: refOf(v.data.from), to: refOf(v.data.to) }));
+        }
+      });
+      return out.reverse();
+    }
+    case "ticket.assignee_added":
+    case "ticket.assignee_removed": {
+      const v = z.uuid().safeParse(p["personId"]);
+      return v.success ? [make(0, row.id, { type: row.kind === "ticket.assignee_added" ? "assignee_added" : "assignee_removed", personId: v.data })] : [];
+    }
+    case "ticket.dependency_added":
+    case "ticket.dependency_removed": {
+      const v = z.object({ dependsOnTicketId: z.uuid(), dependsOnKey: z.string().max(100).optional() }).safeParse(p);
+      if (!v.success) return [];
+      const type = row.kind === "ticket.dependency_added" ? "dependency_added" : "dependency_removed";
+      return [make(0, row.id, { type, ticket: { id: v.data.dependsOnTicketId, key: v.data.dependsOnKey ?? null, number: null } })];
+    }
+    case "ticket.summary_updated": {
+      const v = z.enum(["person", "assistant"]).safeParse(p["source"]);
+      return v.success ? [make(0, row.id, { type: "summary_updated", source: v.data })] : [];
+    }
+    default:
+      return [];
+  }
+}
+
+type TicketForFeed = { id: string; createdByPersonId: string; createdAt: Date };
+
+/**
+ * Atividade de um ticket (ADR 0040, fatia 1). Só lê. Consultas: as de quem chama para achar o ticket e o projeto,
+ * mais, aqui, uma de eventos (outras só se edições da descrição ou eventos ignorados exigirem mais lotes),
+ * uma de tickets citados e uma de pessoas (estas duas só quando há o que resolver); uma conferência de
+ * "tem evento de criação" só em páginas seguintes de ticket sem evento de criação visto.
+ */
+@Injectable()
+export class TicketActivityService {
+  async read(tx: TenantClient, project: ProjectRow, ticket: TicketForFeed, query: { limit: number; before?: string | undefined }): Promise<ActivityPage> {
+    const cursor = query.before === undefined ? null : decodeCursor(query.before);
+    const { limit } = query;
+
+    // O corte é sempre entre entradas já fechadas: busca eventos até haver uma entrada além do limite (ela prova que
+    // a anterior não cresce mais) ou até acabarem os eventos. Assim a junção das edições dá o mesmo resultado
+    // qualquer que seja o limite, e o cursor (posição da entrada mais antiga devolvida) cai sempre entre grupos.
+    let drafts: Draft[] = [];
+    let seenCreated = false;
+    let exhausted = false;
+    let merged: MergedEntry<Draft>[] = [];
+    let take = limit + FIRST_BATCH_EXTRA;
+    let after: { t: number; e: string } | null = cursor === null ? null : { t: cursor.t, e: cursor.e };
+    let inclusive = true;
+    while (!exhausted && merged.length <= limit) {
+      const rows = await tx.activityEvent.findMany({
+        where: {
+          subjectType: "ticket",
+          subjectId: ticket.id,
+          kind: { in: READ_KINDS },
+          ...(after === null
+            ? {}
+            : { OR: [{ occurredAt: { lt: new Date(after.t) } }, { occurredAt: new Date(after.t), id: inclusive ? { lte: after.e } : { lt: after.e } }] }),
+        },
+        orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+        take,
+        select: { id: true, kind: true, actorPersonId: true, occurredAt: true, payload: true },
+      });
+      exhausted = rows.length < take;
+      for (const row of rows) {
+        if (row.kind === "ticket.created") seenCreated = true;
+        for (const draft of draftsOf(row)) if (cursor === null || compare(draft.pos, cursor) < 0) drafts.push(draft);
+      }
+      const last = rows[rows.length - 1];
+      if (last) after = { t: last.occurredAt.getTime(), e: last.id };
+      inclusive = false;
+      take = Math.min(MAX_BATCH, take * 2);
+      if (exhausted && !seenCreated && !(await this.hasCreatedEvent(tx, ticket.id, cursor !== null))) {
+        const t = ticket.createdAt.getTime();
+        drafts = [...drafts, { id: `created:${ticket.id}`, type: "created", actorId: ticket.createdByPersonId, occurredAt: t, pos: { t: -1, e: SYNTHETIC_ID, s: -1 }, data: { type: "created" } }];
+      }
+      merged = mergeDescriptionEdits(drafts);
+    }
+
+    const shown = merged.slice(0, limit);
+    const more = merged.length > limit;
+    const entries = shown.map(({ entry, oldest }) => ({ ...entry, id: oldest.id }));
+    const lastShown = shown[shown.length - 1];
+    const before = more && lastShown ? encodeCursor(lastShown.oldest.pos) : null;
+    return parseOutput(activityPageSchema, { entries: await this.resolve(tx, project, entries), before });
+  }
+
+  /** Só vale perguntar quando há cursor: na primeira página, "não visto" já significa "não existe". */
+  private async hasCreatedEvent(tx: TenantClient, ticketId: string, ask: boolean): Promise<boolean> {
+    if (!ask) return false;
+    return (await tx.activityEvent.count({ where: { subjectType: "ticket", subjectId: ticketId, kind: "ticket.created" }, take: 1 })) > 0;
+  }
+
+  private async resolve(tx: TenantClient, project: ProjectRow, drafts: Draft[]): Promise<ActivityEntry[]> {
+    const personIds = new Set<string>();
+    const ticketIds = new Set<string>();
+    const numbers = new Set<number>();
+    const refs = (d: Draft): (RefDraft | null)[] => {
+      const data = d.data;
+      if (data.type === "status_changed") return [data.causedBy];
+      if (data.type === "parent_changed") return [data.from, data.to];
+      if (data.type === "dependency_added" || data.type === "dependency_removed") return [data.ticket];
+      return [];
+    };
+    for (const d of drafts) {
+      if (d.actorId) personIds.add(d.actorId);
+      if (d.data.type === "assignee_added" || d.data.type === "assignee_removed") personIds.add(d.data.personId);
+      for (const ref of refs(d)) {
+        if (ref?.id) ticketIds.add(ref.id);
+        if (ref?.number != null) numbers.add(ref.number);
+      }
+    }
+    const [people, tickets] = await Promise.all([
+      personIds.size === 0 ? [] : tx.person.findMany({ where: { id: { in: [...personIds] } }, select: { id: true, displayName: true, avatarUrl: true } }),
+      ticketIds.size === 0 && numbers.size === 0
+        ? []
+        : tx.ticket.findMany({
+            where: {
+              projectId: project.id,
+              OR: [...(ticketIds.size > 0 ? [{ id: { in: [...ticketIds] } }] : []), ...(numbers.size > 0 ? [{ number: { in: [...numbers] } }] : [])],
+            },
+            select: { id: true, number: true, title: true },
+          }),
+    ]);
+    const personById = new Map(people.map((p) => [p.id, { id: p.id, displayName: p.displayName, avatarUrl: p.avatarUrl }]));
+    const byId = new Map(tickets.map((x) => [x.id, x]));
+    const byNumber = new Map(tickets.map((x) => [x.number, x]));
+    const ticketRef = (ref: RefDraft) => {
+      const found = ref.id ? byId.get(ref.id) : ref.number != null ? byNumber.get(ref.number) : undefined;
+      return found ? { id: found.id, key: `${project.key}-${found.number}`, title: found.title } : { id: null, key: ref.key, title: null };
+    };
+    const person = (id: string | null) => (id ? (personById.get(id) ?? null) : null);
+
+    return drafts.map((d): ActivityEntry => {
+      const common = { id: d.id, occurredAt: new Date(d.occurredAt).toISOString(), actor: person(d.actorId) };
+      const data = d.data;
+      switch (data.type) {
+        case "created":
+        case "description_changed":
+          return { ...common, type: data.type };
+        case "title_changed":
+          return { ...common, type: data.type, from: data.from, to: data.to };
+        case "status_changed":
+          return { ...common, type: data.type, from: data.from, to: data.to, automatic: data.automatic, causedBy: data.causedBy ? ticketRef(data.causedBy) : null };
+        case "parent_changed":
+          return { ...common, type: data.type, from: data.from ? ticketRef(data.from) : null, to: data.to ? ticketRef(data.to) : null };
+        case "assignee_added":
+        case "assignee_removed":
+          return { ...common, type: data.type, person: person(data.personId) };
+        case "dependency_added":
+        case "dependency_removed":
+          return { ...common, type: data.type, ticket: ticketRef(data.ticket) };
+        case "summary_updated":
+          return { ...common, type: data.type, source: data.source };
+      }
+    });
+  }
+}

@@ -13,6 +13,7 @@ import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
 import { CreateTicket } from "./CreateTicket.js";
 import { ItemsSummary } from "./ItemsSummary.js";
+import { TicketActivity } from "./TicketActivity.js";
 import { DependsOnField, DescriptionField, ParentField, PeopleField, StatusField, StatusValue, TitleField } from "./fields.js";
 import { ActionsMenu } from "./menu.js";
 import { ancestorsOf } from "./tree.js";
@@ -228,6 +229,8 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
   const describeError = useDescribeApiError();
   const title = useRef<HTMLHeadingElement>(null);
   const removal = useAction();
+  // Cada alteração feita nesta página pede a atividade de novo (ADR 0040).
+  const [activityVersion, setActivityVersion] = useState(0);
 
   useEffect(() => {
     title.current?.focus();
@@ -239,6 +242,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
   const archived = project !== null && project.archivedAt !== null;
 
   const refresh = () => {
+    setActivityVersion((version) => version + 1);
     reloadDetail();
     reloadList();
     onChanged();
@@ -367,6 +371,8 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
           </section>
 
           {githubEnabled(me) && <TicketCode client={client} detail={detail} project={project} />}
+
+          <TicketActivity client={client} ticketId={detail.id} version={activityVersion} onOpenTicket={onOpenTicket} />
         </div>
       </div>
     </>

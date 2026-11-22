@@ -11,6 +11,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
 } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import { createsDependencyCycle, isFinished, parentWouldCreateCycle, ticketProgress } from "@treepm/domain";
@@ -31,6 +32,9 @@ import {
   updateTicketSchema,
 } from "./tickets.schema.js";
 import type { ImportItem, TicketDetail, TicketSummary } from "./tickets.schema.js";
+import { activityQuerySchema } from "./ticket-activity.schema.js";
+import type { ActivityPage } from "./ticket-activity.schema.js";
+import { TicketActivityService } from "./ticket-activity.service.js";
 import { TicketsService, toNodes, toSummary } from "./tickets.service.js";
 import type { ProjectRow, TicketRow } from "./tickets.service.js";
 
@@ -51,6 +55,7 @@ export class TicketsController {
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(ActivityService) private readonly activity: ActivityService,
     @Inject(TicketsService) private readonly tickets: TicketsService,
+    @Inject(TicketActivityService) private readonly ticketActivity: TicketActivityService,
   ) {}
 
   @Get("projects/:projectId/tickets")
@@ -184,6 +189,18 @@ export class TicketsController {
   ): Promise<TicketDetail> {
     const { project } = await this.findVisibleTicket(tx, actor, id);
     return this.tickets.detail(tx, project, id);
+  }
+
+  /** Histórico do ticket (ADR 0040): entradas da mais recente para a mais antiga; só lê. */
+  @Get("tickets/:id/activity")
+  async activityOf(
+    @Tx() tx: TenantClient,
+    @CurrentPrincipal() { actor }: Principal,
+    @Param("id", new ZodPipe(idSchema)) id: string,
+    @Query(new ZodPipe(activityQuerySchema)) query: z.output<typeof activityQuerySchema>,
+  ): Promise<ActivityPage> {
+    const { project, ticket } = await this.findVisibleTicket(tx, actor, id);
+    return this.ticketActivity.read(tx, project, ticket, query);
   }
 
   @Patch("tickets/:id")

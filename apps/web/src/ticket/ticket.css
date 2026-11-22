@@ -113,3 +113,19 @@
 .ticket-summary-head { flex-wrap: wrap; }
 .ticket-summary-head > .ticket-section-actions:has(.confirm-message) { flex: 1 0 100%; justify-content: flex-start; }
 .ticket-summary-head .confirm-action { flex-wrap: wrap; }
+
+/* Seção "Atividade" (ADR 0040): uma linha por mudança, do mais antigo para o mais novo. */
+.ticket-activity-older { display: grid; gap: 4px; justify-items: start; margin-top: 4px; }
+.ticket-activity-older .load-error { margin: 0; }
+.ticket-activity-list { margin: 6px 0 0; padding: 0; list-style: none; }
+.ticket-activity-item { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 6px 0; border-top: 1px solid var(--tp-divider); color: var(--tp-text-2); font-size: 12.5px; line-height: 1.5; }
+.ticket-activity-item:first-child { border-top: 0; }
+.ticket-activity-item .ticket-avatar { margin-top: 1px; overflow: hidden; }
+.ticket-activity-item .ticket-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.ticket-activity-item .ticket-avatar.is-system { background: var(--tp-border); }
+.ticket-activity-text { min-width: 0; overflow-wrap: anywhere; }
+.ticket-activity-text strong { color: var(--tp-text); font-weight: 500; }
+.ticket-page .ticket-activity-text button.ticket-activity-ref { display: inline; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--tp-accent-soft); font: inherit; font-weight: 400; text-align: left; }
+.ticket-page .ticket-activity-text button.ticket-activity-ref:hover:not(:disabled) { border: 0; background: transparent; text-decoration: underline; }
+.ticket-activity-gone { color: var(--tp-text-3); }
+.ticket-activity-time { flex: none; padding-top: 1px; color: var(--tp-text-3); font-size: 11.5px; white-space: nowrap; }

@@ -1,0 +1,225 @@
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { ReactElement, ReactNode } from "react";
+import { Trans, useTranslation } from "react-i18next";
+import type { ActivityEntry, ActivityTicketRef, ApiClient, ApiError } from "../api/client.js";
+import { formatActivityTime, formatDateTime } from "../i18n/format.js";
+import type { Language } from "../i18n/languages.js";
+import { loadErrorText } from "../LoadError.js";
+import { useStatusText } from "../map/nodeContent.js";
+import { safe } from "../panel/safe.js";
+import { initials } from "./fields.js";
+
+/** Quantas entradas cada página pede (a API aceita até 100; o padrão dela também é 30). */
+export const ACTIVITY_PAGE_SIZE = 30;
+/** A hora relativa envelhece: a lista se redesenha a cada minuto. */
+const CLOCK_TICK_MS = 60_000;
+
+type Load =
+  | { status: "loading" }
+  | { status: "error"; error: ApiError }
+  | { status: "ready"; entries: ActivityEntry[]; before: string | null };
+
+export interface TicketActivityProps {
+  client: ApiClient;
+  ticketId: string;
+  /** Muda a cada alteração feita na página: a atividade é buscada de novo (ADR 0040). */
+  version: number;
+  onOpenTicket: (id: string) => void;
+}
+
+/**
+ * Seção "Atividade" (ADR 0040, fatia 1): as mudanças do ticket, do mais antigo para o mais novo. A API entrega da mais
+ * recente para a mais antiga em páginas; "Mostrar anteriores" busca a seguinte e a põe acima da lista, mantendo na tela
+ * o que a pessoa estava lendo. Erro aqui nunca derruba o resto da página.
+ */
+export function TicketActivity({ client, ticketId, version, onOpenTicket }: TicketActivityProps) {
+  const { t, i18n } = useTranslation("ticket");
+  const language = i18n.language as Language;
+  const [load, setLoad] = useState<Load>({ status: "loading" });
+  const [older, setOlder] = useState<"idle" | "loading" | { error: ApiError }>("idle");
+  const [retries, setRetries] = useState(0);
+  const [, setClock] = useState(0);
+  const generation = useRef(0);
+  const section = useRef<HTMLElement>(null);
+  const anchor = useRef<{ body: HTMLElement; item: HTMLElement; offset: number } | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const mine = ++generation.current;
+    setOlder("idle");
+    void safe(() => client.ticketActivity(ticketId, { limit: ACTIVITY_PAGE_SIZE }, { signal: controller.signal })).then((result) => {
+      if (generation.current !== mine) return;
+      // Uma recarga que falha mantém o que já está na tela; só a primeira carga mostra o erro.
+      if (result.ok) setLoad({ status: "ready", entries: result.data.entries, before: result.data.before });
+      else setLoad((current) => (current.status === "ready" ? current : { status: "error", error: result.error }));
+    });
+    return () => controller.abort();
+  }, [client, ticketId, version, retries]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setClock((tick) => tick + 1), CLOCK_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Entradas novas entram acima: devolve a rolagem para que o texto lido continue no mesmo lugar da tela. A conferência
+  // se repete no quadro seguinte, porque o navegador ainda pode medir a altura das linhas novas depois da primeira passada.
+  useLayoutEffect(() => {
+    const saved = anchor.current;
+    if (!saved) return;
+    const restore = () => {
+      saved.body.scrollTop += offsetOf(saved.body, saved.item) - saved.offset;
+    };
+    restore();
+    anchor.current = null;
+    const frame = requestAnimationFrame(() => requestAnimationFrame(restore));
+    return () => cancelAnimationFrame(frame);
+  }, [load]);
+
+  const showOlder = async () => {
+    if (load.status !== "ready" || load.before === null || older === "loading") return;
+    const before = load.before;
+    const mine = generation.current;
+    const body = section.current?.closest<HTMLElement>(".ticket-body") ?? null;
+    setOlder("loading");
+    const result = await safe(() => client.ticketActivity(ticketId, { before, limit: ACTIVITY_PAGE_SIZE }, {}));
+    if (generation.current !== mine) return;
+    if (!result.ok) {
+      setOlder({ error: result.error });
+      return;
+    }
+    const item = section.current?.querySelector<HTMLElement>(".ticket-activity-item") ?? null;
+    if (body && item) anchor.current = { body, item, offset: offsetOf(body, item) };
+    setOlder("idle");
+    setLoad((current) => {
+      if (current.status !== "ready") return current;
+      const known = new Set(current.entries.map((entry) => entry.id));
+      return { status: "ready", entries: [...current.entries, ...result.data.entries.filter((entry) => !known.has(entry.id))], before: result.data.before };
+    });
+  };
+
+  const now = new Date();
+  return (
+    <section ref={section} className="ticket-section ticket-activity" aria-labelledby="ticket-activity-heading">
+      <div className="ticket-section-head">
+        <h2 id="ticket-activity-heading">{t("activity.heading")}</h2>
+      </div>
+      {load.status === "loading" && <p role="status" className="ticket-muted">{t("activity.loading")}</p>}
+      {load.status === "error" && <ActivityError error={load.error} onRetry={() => { setLoad({ status: "loading" }); setRetries((n) => n + 1); }} />}
+      {load.status === "ready" && load.entries.length === 0 && <p className="ticket-muted">{t("activity.empty")}</p>}
+      {load.status === "ready" && load.entries.length > 0 && (
+        <>
+          {load.before !== null && (
+            <div className="ticket-activity-older">
+              <button type="button" className="text" disabled={older === "loading"} onClick={() => void showOlder()}>
+                {older === "loading" ? t("activity.olderLoading") : t("activity.older")}
+              </button>
+              {typeof older === "object" && <ActivityError error={older.error} onRetry={() => void showOlder()} />}
+            </div>
+          )}
+          <ol className="ticket-activity-list" aria-label={t("activity.list")}>
+            {[...load.entries].reverse().map((entry) => (
+              <li key={entry.id} className="ticket-activity-item">
+                <Avatar person={entry.actor} />
+                <span className="ticket-activity-text"><Sentence entry={entry} onOpenTicket={onOpenTicket} /></span>
+                <time className="ticket-activity-time" dateTime={entry.occurredAt} title={formatDateTime(language, entry.occurredAt)}>
+                  {formatActivityTime(language, entry.occurredAt, now)}
+                </time>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Erro só desta seção: o resto da página continua como está. */
+function ActivityError({ error, onRetry }: { error: ApiError; onRetry: () => void }) {
+  const { t } = useTranslation();
+  const { t: tTicket } = useTranslation("ticket");
+  return (
+    <div className="load-error" role="alert">
+      <p>{loadErrorText(error, t)}</p>
+      <button type="button" onClick={onRetry}>{tTicket("activity.retry")}</button>
+    </div>
+  );
+}
+
+/** Onde a linha está dentro da área rolável, em pixels a partir do topo dela. */
+const offsetOf = (body: HTMLElement, item: HTMLElement): number => item.getBoundingClientRect().top - body.getBoundingClientRect().top;
+
+function Avatar({ person }: { person: { displayName: string; avatarUrl: string | null } | null }) {
+  const [broken, setBroken] = useState(false);
+  if (person === null) return <span aria-hidden="true" className="ticket-avatar is-system" />;
+  return (
+    <span aria-hidden="true" className="ticket-avatar">
+      {person.avatarUrl !== null && !broken ? <img src={person.avatarUrl} alt="" onError={() => setBroken(true)} /> : initials(person.displayName)}
+    </span>
+  );
+}
+
+/** Ticket citado: clicável quando existe, texto simples quando foi removido. */
+function TicketRef({ target, onOpen, children }: { target: ActivityTicketRef; onOpen: (id: string) => void; children?: ReactNode }): ReactElement {
+  const id = target.id;
+  if (id === null) return <span className="ticket-activity-gone">{children}</span>;
+  return <button type="button" className="ticket-activity-ref" onClick={() => onOpen(id)}>{children}</button>;
+}
+
+function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket: (id: string) => void }) {
+  const { t } = useTranslation("ticket");
+  const statusText = useStatusText();
+  const ticketText = (target: ActivityTicketRef): string => {
+    if (target.id !== null) return `${target.key ?? ""} ${target.title ?? ""}`.trim();
+    return target.key === null ? t("activity.removedTicket") : t("activity.removedTicketKey", { key: target.key });
+  };
+  const ref = (target: ActivityTicketRef) => <TicketRef target={target} onOpen={onOpenTicket} />;
+  const who = <strong />;
+  const noActor = entry.actor === null ? "noActor" : undefined;
+  const values: Record<string, string> = { actor: entry.actor?.displayName ?? "" };
+  const render = (key: string, extra: { context?: string | undefined; values?: Record<string, string>; components?: Record<string, ReactElement> } = {}) => (
+    <Trans
+      t={t}
+      i18nKey={`activity.${key}` as never}
+      context={extra.context ?? noActor}
+      values={{ ...values, ...extra.values }}
+      components={{ who, name: <strong />, ...extra.components }}
+    />
+  );
+
+  switch (entry.type) {
+    case "created":
+      return render("created");
+    case "title_changed":
+      return render("titleChanged", { values: { from: entry.from, to: entry.to } });
+    case "description_changed":
+      return render("descriptionChanged");
+    case "status_changed": {
+      const status = { from: statusText(entry.from), to: statusText(entry.to) };
+      if (!entry.automatic) return render("statusChanged", { values: status });
+      const cause = entry.causedBy;
+      const reopened = entry.from === "done" && entry.to === "todo";
+      const key = reopened ? "reopened" : "statusAutomatic";
+      return render(key, {
+        context: cause === null ? "noCause" : undefined,
+        values: { ...status, ticket: cause === null ? "" : ticketText(cause) },
+        components: cause === null ? {} : { ticket: ref(cause) },
+      });
+    }
+    case "parent_changed": {
+      const { from, to } = entry;
+      const key = from !== null && to !== null ? "parentChanged" : to !== null ? "parentMoved" : "parentRemoved";
+      return render(key, {
+        values: { from: from === null ? "" : ticketText(from), to: to === null ? "" : ticketText(to) },
+        components: { ...(from === null ? {} : { from: ref(from) }), ...(to === null ? {} : { to: ref(to) }) },
+      });
+    }
+    case "assignee_added":
+    case "assignee_removed":
+      return render(entry.type === "assignee_added" ? "assigneeAdded" : "assigneeRemoved", { values: { person: entry.person?.displayName ?? t("people.removed") } });
+    case "dependency_added":
+    case "dependency_removed":
+      return render(entry.type === "dependency_added" ? "dependencyAdded" : "dependencyRemoved", { values: { ticket: ticketText(entry.ticket) }, components: { ticket: ref(entry.ticket) } });
+    case "summary_updated":
+      return render(entry.source === "person" ? "summaryByPerson" : "summaryByAssistant", { values: { section: t("summary.heading") } });
+  }
+}
