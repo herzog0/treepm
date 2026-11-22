@@ -37,17 +37,20 @@ function setup(options: { me?: Me; project?: Project; ticketId?: string; summari
   render(<TicketPage client={client} me={me} projects={[theProject]} ticketId={options.ticketId ?? "t1"} creating={null} {...handlers} />);
   return { client: client as ApiClient };
 }
-const section = async () => within(await screen.findByRole("region", { name: "O que entra aqui" }));
+// A primeira renderização da página (módulos, catálogo de traduções, três requisições falsas encadeadas) é o trabalho pesado
+// do arquivo: com a máquina carregada passa de 1 s, o prazo padrão do `findBy`. Prazo próprio para esperar a página, só aqui.
+const LOAD = { timeout: 8000 };
+const section = async () => within(await screen.findByRole("region", { name: "O que entra aqui" }, LOAD));
 const pageLoaded = async () => {
-  await screen.findByRole("heading", { level: 1 });
-  await screen.findByText("Ticket pai");
+  await screen.findByRole("heading", { level: 1 }, LOAD);
+  await screen.findByText("Ticket pai", undefined, LOAD);
 };
 const noSection = async () => {
   await pageLoaded();
   expect(screen.queryByRole("region", { name: "O que entra aqui" })).not.toBeInTheDocument();
 };
 
-describe("Página do ticket com itens › O que entra aqui", () => {
+describe("Página do ticket com itens › O que entra aqui", { timeout: 15000 }, () => {
   it("shows the title, the help line, the text and who wrote it (the AI)", async () => {
     setup();
     const entra = await section();
@@ -75,7 +78,7 @@ describe("Página do ticket com itens › O que entra aqui", () => {
 
   it("sits after the description and before the list of items", async () => {
     setup();
-    const entra = await screen.findByRole("region", { name: "O que entra aqui" });
+    const entra = await screen.findByRole("region", { name: "O que entra aqui" }, LOAD);
     const description = screen.getByRole("region", { name: "Descrição" });
     const items = screen.getByRole("region", { name: "Itens" });
     expect(description.compareDocumentPosition(entra) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

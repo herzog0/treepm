@@ -148,10 +148,14 @@ describe("keyboard", () => {
     const field = await bar();
     for (const init of [{ ctrlKey: true }, { metaKey: true }]) {
       (document.activeElement as HTMLElement).blur();
-      const event = new KeyboardEvent("keydown", { key: "k", bubbles: true, cancelable: true, ...init });
-      act(() => { document.body.dispatchEvent(event); });
-      expect(event.defaultPrevented).toBe(true);
-      expect(field).toHaveFocus();
+      // O ouvinte de teclado é registrado por um efeito, que pode rodar depois de a barra aparecer na tela: repete a tecla até
+      // ele existir, em vez de afirmar na hora (um evento já despachado sem ouvinte não volta).
+      await waitFor(() => {
+        const event = new KeyboardEvent("keydown", { key: "k", bubbles: true, cancelable: true, ...init });
+        act(() => { document.body.dispatchEvent(event); });
+        expect(event.defaultPrevented).toBe(true);
+      });
+      await waitFor(() => expect(field).toHaveFocus());
     }
   });
 
@@ -162,8 +166,10 @@ describe("keyboard", () => {
     await userEvent.keyboard("{Enter}");
     await waitFor(() => expect(document.querySelector(".has-ticket-page")).not.toBeNull());
     (document.activeElement as HTMLElement).blur();
-    act(() => { document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true })); });
-    expect(field).toHaveFocus();
+    await waitFor(() => {
+      act(() => { document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true })); });
+      expect(field).toHaveFocus();
+    });
   }, SLOW);
 
   it("with the focus in the bar, Enter does not open the ticket selected on the map, Esc does not clear the selection and c is just a letter", async () => {
@@ -234,8 +240,11 @@ describe("keyboard", () => {
     await userEvent.keyboard("{Enter}");
     await waitFor(() => expect(onChange).toHaveBeenCalledWith("t3"));
     await waitFor(() => expect(document.querySelector(".has-ticket-page")).not.toBeNull());
-    fireEvent.keyDown(document.body, { key: "Escape" });
-    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(null));
+    // O ouvinte do Esc é registrado por um efeito da página do ticket: repete a tecla até ele responder.
+    await waitFor(() => {
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(onChange).toHaveBeenLastCalledWith(null);
+    });
   }, SLOW);
 });
 

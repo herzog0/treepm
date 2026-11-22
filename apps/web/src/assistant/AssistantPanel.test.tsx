@@ -170,10 +170,10 @@ describe("sending messages", () => {
     expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
     await userEvent.type(field, "Segunda{Enter}");
     expect(openConversation).toHaveBeenCalledTimes(1);
-    expect(field).toHaveFocus();
+    await waitFor(() => expect(field).toHaveFocus());
     await act(async () => finish(ok(makeConversation("c-new", "p1"))));
     await waitFor(() => expect(thread().getByText("Entendi. Isso acontece em todas as versões?")).toBeInTheDocument());
-    expect(field).toHaveFocus();
+    await waitFor(() => expect(field).toHaveFocus());
   });
 
   it("announces the new assistant reply politely, and not the resumed history", async () => {
@@ -348,21 +348,21 @@ describe("path found", () => {
     await screen.findByRole("region", { name: "Caminho encontrado" });
     expect(steps().map((step) => step.textContent)).toEqual([expect.stringContaining("Projeto Alfa"), expect.stringContaining("Acesso"), expect.stringContaining("Login"), expect.stringContaining("Ticket novo")]);
     expect(path().textContent).not.toMatch(/%|\d,\d|probabilidade/i);
-    expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t2", title: "Corrigir o login" });
+    await waitFor(() => expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t2", title: "Corrigir o login" }));
   });
 
   it("a placement at the project root says so and puts the ghost under the project", async () => {
     const props = setup(resumed(makePlacement({ destination: { parentId: null, path: [] } })));
     await search();
     expect(await screen.findByRole("region", { name: "Caminho encontrado" })).toHaveTextContent("Raiz do projeto");
-    expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: null, title: "Corrigir o login" });
+    await waitFor(() => expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: null, title: "Corrigir o login" }));
   });
 
   it("choosing an alternative moves the destination and the ghost", async () => {
     const props = setup(resumed(makePlacement({ destination: target("t1", "t2"), alternatives: [target("t4")] })));
     await search();
     await userEvent.click(await screen.findByRole("button", { name: /Usar: Relatórios/ }));
-    expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t4", title: "Corrigir o login" });
+    await waitFor(() => expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t4", title: "Corrigir o login" }));
     expect(steps().map((item) => item.textContent)).toEqual([expect.stringContaining("Projeto Alfa"), expect.stringContaining("Relatórios"), expect.stringContaining("Ticket novo")]);
     // A antiga escolha vira alternativa.
     expect(screen.getByRole("button", { name: /Usar: Acesso › Login/ })).toBeInTheDocument();
@@ -408,9 +408,9 @@ describe("path found", () => {
     await search();
     const up = await screen.findByRole("button", { name: "Um nível acima" });
     await userEvent.click(up);
-    expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t1", title: "Corrigir o login" });
+    await waitFor(() => expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t1", title: "Corrigir o login" }));
     await userEvent.click(up);
-    expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: null, title: "Corrigir o login" });
+    await waitFor(() => expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: null, title: "Corrigir o login" }));
     expect(up).toBeDisabled();
   });
 
@@ -443,7 +443,7 @@ describe("path found", () => {
     await screen.findByRole("region", { name: "Caminho encontrado" });
     await userEvent.type(box(), "Mais um detalhe{Enter}");
     await waitFor(() => expect(screen.queryByRole("region", { name: "Caminho encontrado" })).not.toBeInTheDocument());
-    expect(props.onDraftChange).toHaveBeenLastCalledWith(null);
+    await waitFor(() => expect(props.onDraftChange).toHaveBeenLastCalledWith(null));
   });
 
   describe("Escolher no mapa", () => {
@@ -559,11 +559,12 @@ describe("collapsing", () => {
   it("tells the map whether there is a conversation under way", async () => {
     const props = setup(clientWith());
     await screen.findByRole("textbox", { name: "Mensagem para o assistente" });
-    expect(props.onProgress).toHaveBeenLastCalledWith(false);
+    // `onProgress` é chamado por um efeito, depois da renderização: esperar o último valor, não afirmar na hora.
+    await waitFor(() => expect(props.onProgress).toHaveBeenLastCalledWith(false));
     await userEvent.type(box(), "O login");
-    expect(props.onProgress).toHaveBeenLastCalledWith(true);
+    await waitFor(() => expect(props.onProgress).toHaveBeenLastCalledWith(true));
     await userEvent.clear(box());
-    expect(props.onProgress).toHaveBeenLastCalledWith(false);
+    await waitFor(() => expect(props.onProgress).toHaveBeenLastCalledWith(false));
   });
 
   it("starts empty, without looking for an earlier conversation, when it does not resume", async () => {
@@ -594,7 +595,9 @@ describe("collapsing", () => {
 
   it("puts the focus in the text field when the panel opens", async () => {
     setup(clientWith());
-    expect(await screen.findByRole("textbox", { name: "Mensagem para o assistente" })).toHaveFocus();
+    const field = await screen.findByRole("textbox", { name: "Mensagem para o assistente" });
+    // O foco é dado por um efeito, depois de o campo aparecer.
+    await waitFor(() => expect(field).toHaveFocus());
   });
 });
 
@@ -697,10 +700,10 @@ describe("scope from the selection (ADR 0031)", () => {
     await search();
     await screen.findByRole("region", { name: "Caminho encontrado" });
     await userEvent.click(screen.getByRole("button", { name: "Um nível acima" }));
-    expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: null, title: "Corrigir o login" });
+    await waitFor(() => expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: null, title: "Corrigir o login" }));
     await userEvent.click(screen.getByRole("button", { name: "Escolher no mapa" }));
     act(() => lastPicker(props).pick(ticketNode("t4")));
-    expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t4", title: "Corrigir o login" });
+    await waitFor(() => expect(props.onDraftChange).toHaveBeenLastCalledWith({ projectId: "p1", parentId: "t4", title: "Corrigir o login" }));
   });
 });
 
