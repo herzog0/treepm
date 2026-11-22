@@ -46,7 +46,9 @@
     "hint": "Haz clic en el texto para editar. Escribe / para bloques y @ para mencionar un ticket.",
     "saving": "Guardando…",
     "saved": "Guardado",
-    "task": "Tarea: {{text}}"
+    "task": "Tarea: {{text}}",
+    "loadFailed": "No se pudo cargar el editor.",
+    "retry": "Intentar de nuevo"
   },
   "status": {
     "group": "Estado",

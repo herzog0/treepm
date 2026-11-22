@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { createApiClient } from "./api/client.js";
 import { useApiResource } from "./api/useApiResource.js";
@@ -6,6 +6,7 @@ import { LoadError } from "./LoadError.js";
 import { ImportScreen } from "./import/ImportScreen.js";
 import { OrganizationMap } from "./map/OrganizationMap.js";
 import type { View } from "./nav/navigation.js";
+import { scheduleDescriptionEditorPreload } from "./ticket/description/RichDescription.js";
 import { SettingsScreen } from "./settings/SettingsScreen.js";
 import { TeamsScreen } from "./teams/TeamsScreen.js";
 
@@ -32,6 +33,9 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
     [fetchImpl],
   );
   const { state, retry } = useApiResource(() => client.getMe());
+
+  // Com o mapa ocioso, o editor da descrição começa a baixar em segundo plano: o primeiro ticket abre sem espera (e o mapa não o espera).
+  useEffect(() => (view === "map" ? scheduleDescriptionEditorPreload() : undefined), [view]);
 
   // As configurações são da pessoa, não da organização: não esperam a API.
   if (view === "settings") return <main className="tenant-settings"><SettingsScreen client={client} me={state.status === "ready" ? state.data : null} /></main>;
