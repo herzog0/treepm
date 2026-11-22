@@ -1,13 +1,5 @@
 {
   "title": "Configuración",
-  "camera": {
-    "title": "Cámara",
-    "onTicketClose": {
-      "label": "Al cerrar un ticket",
-      "restore": "Volver a donde estaba",
-      "stay": "Quedarse donde está"
-    }
-  },
   "language": {
     "title": "Idioma",
     "label": "Idioma de la interfaz",

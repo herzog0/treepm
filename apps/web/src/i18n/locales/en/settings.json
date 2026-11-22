@@ -1,13 +1,5 @@
 {
   "title": "Settings",
-  "camera": {
-    "title": "Camera",
-    "onTicketClose": {
-      "label": "When closing a ticket",
-      "restore": "Return to where it was",
-      "stay": "Stay where it is"
-    }
-  },
   "language": {
     "title": "Language",
     "label": "Interface language",

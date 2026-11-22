@@ -12,34 +12,29 @@ function setup(props: { initial?: Preferences; failSave?: boolean } = {}) {
 }
 
 describe("SettingsScreen", () => {
-  it("shows the page title, the Câmera section and the radio group with the default selected", () => {
+  it("shows the page title and the language section, with no Câmera section", () => {
     setup();
     expect(screen.getByRole("heading", { level: 1, name: "Configurações" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Câmera" })).toBeInTheDocument();
-    const group = screen.getByRole("radiogroup", { name: "Ao fechar um ticket" });
-    expect(group).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "Voltar ao lugar de antes" })).toBeChecked();
-    expect(screen.getByRole("radio", { name: "Ficar onde está" })).not.toBeChecked();
-  });
-
-  it("reflects a stored preference", () => {
-    setup({ initial: { camera: { onTicketClose: "stay" }, language: "auto" } });
-    expect(screen.getByRole("radio", { name: "Ficar onde está" })).toBeChecked();
+    expect(screen.getByRole("heading", { level: 2, name: "Idioma" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Câmera" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "Ao fechar um ticket" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Voltar ao lugar de antes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Ficar onde está" })).not.toBeInTheDocument();
   });
 
   it("applies immediately, with no save button", async () => {
     const { onSave } = setup();
     expect(screen.queryByRole("button", { name: /salvar/i })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("radio", { name: "Ficar onde está" }));
-    expect(onSave).toHaveBeenCalledWith({ camera: { onTicketClose: "stay" }, language: "auto" });
-    await waitFor(() => expect(screen.getByRole("radio", { name: "Ficar onde está" })).toBeChecked());
+    await userEvent.click(screen.getByRole("radio", { name: "English" }));
+    expect(onSave).toHaveBeenCalledWith({ language: "en" });
+    await waitFor(() => expect(screen.getByRole("radio", { name: "English" })).toBeChecked());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("keeps the previous value and shows a message when saving fails", async () => {
     setup({ failSave: true });
-    await userEvent.click(screen.getByRole("radio", { name: "Ficar onde está" }));
+    await userEvent.click(screen.getByRole("radio", { name: "English" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível salvar");
-    expect(screen.getByRole("radio", { name: "Voltar ao lugar de antes" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Automático" })).toBeChecked();
   });
 });
