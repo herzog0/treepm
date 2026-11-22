@@ -81,6 +81,7 @@ export function visibleProjects<Project extends ProjectAccess>(
   return projects.filter((project) => canViewProject(actor, project));
 }
 export * from "./tickets.js";
+export * from "./search.js";
 export * from "./mentions.js";
 export * from "./mention-cases.js";
 export * from "./dependencies.js";
