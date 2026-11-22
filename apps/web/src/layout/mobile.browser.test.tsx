@@ -7,7 +7,7 @@ import indexHtml from "../../index.html?raw";
 
 // TREEPM-231: layout para tela estreita, em navegador real com emulação de toque (pointer: coarse), em 360×740 e 430×932.
 const VIEWPORTS = [[360, 740], [430, 932]] as const;
-const SCREENS: readonly LayoutScreen[] = ["map", "ticket", "teams", "settings", "import"];
+const SCREENS: readonly LayoutScreen[] = ["map", "ticket", "teams", "settings", "import", "ideas"];
 const TOUCH = 44;
 
 beforeAll(async () => {
@@ -110,7 +110,7 @@ for (const [width, height] of VIEWPORTS) {
           await page.viewport(width, height);
           await renderScreen(name);
           const parts = [...all(".app-nav a"), q(".cl-organizationSwitcherTrigger")!, q(".cl-userButtonTrigger")!];
-          expect(parts).toHaveLength(5);
+          expect(parts).toHaveLength(6);
           for (const el of parts) {
             const r = rectOf(el);
             expect(within(r), label(el)).toBe(true);
@@ -225,6 +225,32 @@ for (const [width, height] of VIEWPORTS) {
         await userEvent.keyboard("{Escape}");
         await settle(150);
       }
+    });
+
+    it("Ideias: uma coluna, ações de 44 px, confirmação e seletor dentro da tela", async () => {
+      await page.viewport(width, height);
+      await renderScreen("ideas");
+      const select = q<HTMLSelectElement>(".ideas-project select")!;
+      expect(within(rectOf(select))).toBe(true);
+      for (const row of all(".ideas-row")) {
+        expect(within(rectOf(row)), label(row)).toBe(true);
+        expect(rectOf(row.querySelector(".ideas-actions")!).top, label(row)).toBeGreaterThanOrEqual(rectOf(row.querySelector(".ideas-main")!).bottom - 0.5);
+      }
+      for (const asked of ["Aceitar ALFA-3", "Descartar ALFA-4"]) {
+        const button = all<HTMLElement>("button").find((b) => b.getAttribute("aria-label") === asked)!;
+        button.scrollIntoView({ block: "center" });
+        button.click();
+        await settle(250);
+        const confirm = all(".ideas-row .confirm-action").filter(visible).at(-1);
+        expect(confirm, asked).toBeDefined();
+        expect(within(rectOf(confirm!)), asked).toBe(true);
+        expect(stickingOut(), asked).toEqual([]);
+        expect(smallTargets(), asked).toEqual([]);
+        expect(smallFields(), asked).toEqual([]);
+        all<HTMLElement>(".ideas-row .confirm-action button").at(-1)!.click();
+        await settle(150);
+      }
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
     });
 
     it("Times, Configurações e importação: uma coluna só, e a lista larga rola dentro dela", async () => {

@@ -60,10 +60,10 @@ describe("useView", () => {
 });
 
 describe("AppNav", () => {
-  it("offers Configurações after Times", () => {
+  it("offers Ideias after Mapa and Configurações after Times", () => {
     render(<AppNav view="settings" onNavigate={() => undefined} />);
     const links = screen.getAllByRole("link").map((link) => link.textContent);
-    expect(links).toEqual(["Mapa", "Times", "Configurações"]);
+    expect(links).toEqual(["Mapa", "Ideias", "Times", "Configurações"]);
     expect(screen.getByRole("link", { name: "Configurações" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Configurações" })).toHaveAttribute("href", "/?view=settings");
   });
@@ -190,5 +190,54 @@ describe("ticket route", () => {
     act(() => result.current[1]("teams"));
     expect(result.current[3]).toBeNull();
     expect(window.location.search).toBe("?view=teams");
+  });
+});
+
+describe("ideas route", () => {
+  it("builds and reads ?view=ideas", () => {
+    expect(viewHref("ideas", "https://x.test/app?foo=1&ticket=t1#h")).toBe("/app?foo=1&view=ideas#h");
+    setUrl("/?view=ideas");
+    expect(renderHook(() => useView()).result.current[0]).toBe("ideas");
+    render(<AppNav view="ideas" onNavigate={() => undefined} />);
+    expect(screen.getByRole("link", { name: "Ideias" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Ideias" })).toHaveAttribute("href", "/?view=ideas");
+  });
+
+  it("navigates from the ideas screen to the map with the ticket open (“Abrir”)", () => {
+    setUrl("/?view=ideas");
+    const { result } = renderHook(() => useView());
+    act(() => result.current[1]("map", null, { ticketId: "i1" }));
+    expect(result.current[0]).toBe("map");
+    expect(result.current[3]).toBe("i1");
+    expect(window.location.search).toBe("?ticket=i1");
+  });
+
+  it("navigates to the map with the camera on a ticket (“Ver no mapa”), and clears the request once handled", () => {
+    setUrl("/?view=ideas");
+    const { result } = renderHook(() => useView());
+    act(() => result.current[1]("map", null, { focusId: "i1" }));
+    expect(result.current[0]).toBe("map");
+    expect(result.current[3]).toBeNull();
+    expect(result.current[5]).toBe("i1");
+    expect(window.location.search).toBe("?focus=i1");
+    const before = window.history.length;
+    act(() => result.current[6]());
+    expect(result.current[5]).toBeNull();
+    expect(window.location.search).toBe("");
+    expect(window.history.length).toBe(before);
+  });
+
+  it("ignores the ticket and focus targets for other views, and leaving the map drops ?focus", () => {
+    expect(viewHref("teams", "https://x.test/app?focus=i1")).toBe("/app?view=teams");
+    expect(viewHref("map", "https://x.test/app?view=ideas", null, { focusId: "i1" })).toBe("/app?focus=i1");
+    expect(viewHref("map", "https://x.test/app?view=ideas", null, { ticketId: "i1" })).toBe("/app?ticket=i1");
+    expect(viewHref("ideas", "https://x.test/app", null, { ticketId: "i1" })).toBe("/app?view=ideas");
+  });
+
+  it("reads ?focus on the map", () => {
+    setUrl("/?focus=i1");
+    expect(renderHook(() => useView()).result.current[5]).toBe("i1");
+    setUrl("/?view=teams&focus=i1");
+    expect(renderHook(() => useView()).result.current[5]).toBeNull();
   });
 });

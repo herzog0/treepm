@@ -52,7 +52,7 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
   const { t } = useTranslation();
   const { isLoaded, isSignedIn, orgId, getToken } = useAuth();
   const { session } = useSession();
-  const [view, navigate, projectId, ticketId, openTicket] = useView();
+  const [view, navigate, projectId, ticketId, openTicket, focusId, clearFocus] = useView();
   // O GitHub devolve o navegador para /github/callback (ADR 0032); a tela de retorno ocupa o lugar do mapa até a pessoa sair dela.
   const [onGithubCallback, setOnGithubCallback] = useState(() => window.location.pathname === GITHUB_CALLBACK_PATH);
   const getTokenRef = useRef(getToken);
@@ -125,7 +125,7 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
           />
         </main>
       ) : (
-        <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} ticketId={ticketId} onOpenTicket={openTicket} getToken={getToken} />
+        <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} ticketId={ticketId} onOpenTicket={openTicket} focusTicketId={focusId} onFocusHandled={clearFocus} getToken={getToken} />
       )}
     </div>
   );

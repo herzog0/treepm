@@ -5,6 +5,7 @@ import type { ApiClient, Me, PlacementOutcome, Project, TicketDetail, TicketSumm
 import { AssistantPanel } from "../assistant/AssistantPanel.js";
 import { Demo } from "../demo/Demo.js";
 import { GithubCallback } from "../github/GithubCallback.js";
+import { IdeasScreen } from "../ideas/IdeasScreen.js";
 import { ImportScreen } from "../import/ImportScreen.js";
 import { OrganizationMap } from "../map/OrganizationMap.js";
 import { makePanelMe, makePerson as makePanelPerson } from "../panel/testing.js";
@@ -13,7 +14,7 @@ import { TeamsScreen } from "../teams/TeamsScreen.js";
 import { TicketPage } from "../ticket/TicketPage.js";
 import { MemoryPreferencesProvider } from "../preferences/context.js";
 import {
-  makeClient, makeCodeLink, makeConversation, makeGithubRepository, makeInstallation, makePlacement, makeProject, makeTicket, ok,
+  makeClient, makeCodeLink, makeConversation, makeGithubRepository, makeInstallation, makePlacement, makeProject, makeTicket, makeTreeClient, ok,
 } from "../test/fakes.js";
 import { setTestLanguage } from "../test/i18n.js";
 import type { Language } from "./languages.js";
@@ -194,6 +195,27 @@ describe.each(["en", "es-MX"] as const)("full screens in %s", (language) => {
     await userEvent.click(await screen.findByRole("button", { name: /Alfa/ }));
     await screen.findAllByRole("region");
     expectNoPortuguese("teams", container);
+  });
+
+  it("ideas, with every stage and the triage confirmation", async () => {
+    await setTestLanguage(language);
+    const stage = (value: "new" | "refining" | "ready" | "discarded") => ({ idea: { root: true as const, stage: value } });
+    const client = makeTreeClient({
+      me: admin(),
+      projects: [alpha, project2],
+      tickets: { p1: [
+        makeTicket("t1", "p1", 1, "Login flow", { key: "ALFA-1" }),
+        makeTicket("i1", "p1", 2, "Form", { key: "ALFA-2", parentId: "t1", ...stage("ready") }),
+        makeTicket("i2", "p1", 3, "Reports", { key: "ALFA-3", ...stage("refining") }),
+        makeTicket("i3", "p1", 4, "Tests", { key: "ALFA-4", ...stage("new") }),
+        makeTicket("i4", "p1", 5, "Sample", { key: "ALFA-5", ...stage("discarded") }),
+      ], p2: [] },
+    });
+    const { container } = render(<IdeasScreen client={client} me={admin()} onOpenIdea={() => undefined} onShowOnMap={() => undefined} />);
+    await screen.findByText("ALFA-2");
+    await userEvent.click(screen.getByRole("button", { name: new RegExp(resources[language].map.idea.stage.discarded) }));
+    await userEvent.click(screen.getByRole("button", { name: resources[language].ideas.actions.acceptFor.replace("{{key}}", "ALFA-2") }));
+    expectNoPortuguese("ideas", container);
   });
 
   it("settings with the GitHub section", async () => {

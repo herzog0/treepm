@@ -1,0 +1,27 @@
+{
+  "title": "Ideas",
+  "hint": "Las ideas del proyecto, por etapa. Todavía no son parte del proceso: aquí se decide qué entra.",
+  "project": {
+    "label": "Proyecto",
+    "option": "{{key}} · {{name}}"
+  },
+  "loading": "Cargando las ideas…",
+  "noProjects": "Ningún proyecto a la vista",
+  "retry": "Intentar de nuevo",
+  "empty": {
+    "title": "Ninguna idea en este proyecto",
+    "hint": "Para registrar una, escribe en la barra de peticiones del mapa y elige “Registrar idea”."
+  },
+  "row": {
+    "root": "Raíz del proyecto"
+  },
+  "actions": {
+    "open": "Abrir",
+    "showOnMap": "Ver en el mapa",
+    "openFor": "Abrir {{key}}",
+    "showOnMapFor": "Ver {{key}} en el mapa",
+    "acceptFor": "Aceptar {{key}}",
+    "discardFor": "Descartar {{key}}",
+    "reopenFor": "Reabrir {{key}}"
+  }
+}

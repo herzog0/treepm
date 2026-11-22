@@ -7,6 +7,8 @@ import "../theme.css";
 import "../styles.css";
 import "../controls.css";
 import type { ActivityEntry, ApiClient, Contribution, TicketDetail } from "../api/client.js";
+import { IdeasScreen } from "../ideas/IdeasScreen.js";
+import { resetIdeasSession } from "../ideas/session.js";
 import { ImportScreen } from "../import/ImportScreen.js";
 import { OrganizationMap } from "../map/OrganizationMap.js";
 import { TenantHeader } from "../nav/TenantHeader.js";
@@ -22,7 +24,7 @@ import { fakeToken, makeClient, makeMe, makeProject, makeTicket, makeToken, make
  * com o seletor da organização e o avatar do Clerk trocados por botões de mesmo tamanho e mesmas classes `cl-*`.
  * Usado pelas suítes de navegador do layout (TREEPM-231): a estreita e a de desktop inalterado.
  */
-export type LayoutScreen = "map" | "ticket" | "teams" | "settings" | "import";
+export type LayoutScreen = "map" | "ticket" | "teams" | "settings" | "import" | "ideas";
 
 // Textos do Clerk trocados por botões: não são da interface do TreePM.
 const STUB = { org: "Organização de Teste Ltda", status: "Administrador", account: "Conta" };
@@ -76,6 +78,24 @@ function mapClient(): ApiClient {
   return client;
 }
 
+function ideasClient(): ApiClient {
+  const stage = (value: "new" | "refining" | "ready" | "discarded") => ({ idea: { root: true as const, stage: value } });
+  return makeTreeClient({
+    projects: [project, makeProject("p2", "BETA", "Projeto Beta com um nome comprido")],
+    tickets: {
+      p1: [
+        makeTicket("t1", "p1", 1, "Acesso e conta", { key: "ALFA-1" }),
+        makeTicket("t2", "p1", 2, "Login com Google e outras formas de entrar", { key: "ALFA-2", parentId: "t1" }),
+        makeTicket("i1", "p1", 3, "Exportar relatórios em CSV com os filtros da tela e o período escolhido pela pessoa", { key: "ALFA-3", parentId: "t2", ...stage("ready") }),
+        makeTicket("i2", "p1", 4, "Modo escuro", { key: "ALFA-4", ...stage("refining") }),
+        makeTicket("i3", "p1", 5, "Notificações por e-mail", { key: "ALFA-5", ...stage("new") }),
+        makeTicket("i4", "p1", 6, "Painel antigo de métricas", { key: "ALFA-6", ...stage("discarded") }),
+      ],
+      p2: [],
+    },
+  });
+}
+
 function Shell({ view, children }: { view: View; children: ReactNode }) {
   const [current, setCurrent] = useState(view);
   return (
@@ -124,7 +144,10 @@ export async function renderScreen(name: LayoutScreen, options: { assistant?: bo
   if (name === "map") ui = <MapScreen client={mapClient()} openTicket={null} assistant={options.assistant === true} />;
   else if (name === "ticket") ui = <MapScreen client={ticketClient()} openTicket="t1" assistant={options.assistant === true} />;
   else if (name === "teams") ui = <Shell view="teams"><TeamsScreen client={client} me={makePanelMe("admin")} /></Shell>;
-  else if (name === "settings") ui = <Shell view="settings"><main className="tenant-settings"><MemoryPreferencesProvider onSave={vi.fn()}><SettingsScreen client={client} me={me} /></MemoryPreferencesProvider></main></Shell>;
+  else if (name === "ideas") {
+    resetIdeasSession();
+    ui = <Shell view="ideas"><IdeasScreen client={ideasClient()} me={makePanelMe("admin")} onOpenIdea={vi.fn()} onShowOnMap={vi.fn()} /></Shell>;
+  } else if (name === "settings") ui = <Shell view="settings"><main className="tenant-settings"><MemoryPreferencesProvider onSave={vi.fn()}><SettingsScreen client={client} me={me} /></MemoryPreferencesProvider></main></Shell>;
   else ui = <Shell view="map"><ImportScreen client={client} me={makePanelMe("admin")} projectId="p1" onExit={vi.fn()} /></Shell>;
   const screen = await render(ui, { container: root, baseElement: document.body });
   if (name === "map") {
@@ -136,6 +159,7 @@ export async function renderScreen(name: LayoutScreen, options: { assistant?: bo
   }
   if (name === "ticket") await screen.getByRole("region", { name: "Áreas" }).element();
   if (name === "teams") await screen.getByRole("heading", { level: 1 }).element();
+  if (name === "ideas") await screen.getByRole("button", { name: "Aceitar ALFA-3" }).element();
   if (name === "settings") await screen.getByRole("heading", { level: 1 }).element();
   if (name === "import") await screen.getByRole("heading", { level: 1, name: "Importar lista" }).element();
   await settle();

@@ -20,6 +20,7 @@
   "action": {
     "create": "Create ticket «{{text}}»",
     "createShortcut": "Ctrl Enter",
+    "registerIdea": "Register idea «{{text}}»",
     "ask": "Ask the assistant about «{{text}}»",
     "askShortcut": "Shift Enter"
   },

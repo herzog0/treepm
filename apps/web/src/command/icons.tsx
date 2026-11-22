@@ -10,3 +10,10 @@ export const PlusIcon = () => (
     <path d="M7 2.5v9M2.5 7h9" />
   </svg>
 );
+/** A lâmpada da linha "Registrar ideia" (ADR 0042), na cor de ideia do mapa. */
+export const IdeaIcon = () => (
+  <svg className="command-idea-icon" aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5.5 11.5c0-1.2-1.5-1.8-1.5-3.7a4 4 0 0 1 8 0c0 1.9-1.5 2.5-1.5 3.7Z" />
+    <path d="M6 14h4" />
+  </svg>
+);

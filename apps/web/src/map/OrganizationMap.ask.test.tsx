@@ -85,11 +85,12 @@ describe("the 'Perguntar ao assistente' line", () => {
     render(<Host client={makeFullClient()} me={manager()} />);
     await typed("login");
     const names = optionNames();
-    expect(names).toHaveLength(3);
+    expect(names).toHaveLength(4);
     expect(names[0]).toContain("ALFA-2");
     expect(names[1]).toContain("Criar ticket «login»");
-    expect(names[2]).toContain("Perguntar ao assistente sobre «login»");
-    expect(names[2]).toContain("Shift Enter");
+    expect(names[2]).toContain("Registrar ideia «login»");
+    expect(names[3]).toContain("Perguntar ao assistente sobre «login»");
+    expect(names[3]).toContain("Shift Enter");
   }, SLOW);
 
   it("does not exist without the assistant", async () => {
@@ -122,7 +123,7 @@ describe("how the question is fired", () => {
     const client = makeFullClient({ only: "p1" });
     render(<Host client={client} me={manager()} />);
     await typed("login");
-    await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
     expect(screen.getByRole("option", { name: /Perguntar ao assistente/ })).toHaveAttribute("aria-selected", "true");
     await userEvent.keyboard("{Enter}");
     await waitFor(() => expect(client.askProject).toHaveBeenCalledWith("p1", { question: "login", history: [] }, expect.anything()));

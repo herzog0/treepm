@@ -53,14 +53,14 @@ describe.each([
   {
     language: "en" as const,
     settings: { h1: "Settings", cameraGroup: "When closing a ticket", languageGroup: "Interface language", auto: "Automatic" },
-    nav: { label: "Sections", links: ["Map", "Teams", "Settings"] },
+    nav: { label: "Sections", links: ["Map", "Ideas", "Teams", "Settings"] },
     teams: { h1: "Teams", list: "Organization teams", counts: ["2 members", "1 member", "0 members"], create: "New team name", createButton: "Create team", pick: "Choose a team to see its members.", region: "Team Alfa", members: "Members", admin: "Team administrator", member: "Member", rename: "Team name", renameButton: "Rename", remove: "Remove team", add: "Add", person: "Person to add", pickPerson: "Choose a person", removeAna: "Remove Ana" },
     app: { loading: "Loading TreePM…", loadingOrg: "Loading organization…", retry: "Try again", unavailable: "API unavailable.", noAccess: "Session has no access to the API.", config: "TreePM setup", demo: "Open the demo" },
   },
   {
     language: "es-MX" as const,
     settings: { h1: "Configuración", cameraGroup: "Al cerrar un ticket", languageGroup: "Idioma de la interfaz", auto: "Automático" },
-    nav: { label: "Secciones", links: ["Mapa", "Equipos", "Configuración"] },
+    nav: { label: "Secciones", links: ["Mapa", "Ideas", "Equipos", "Configuración"] },
     teams: { h1: "Equipos", list: "Equipos de la organización", counts: ["2 miembros", "1 miembro", "0 miembros"], create: "Nombre del nuevo equipo", createButton: "Crear equipo", pick: "Elige un equipo para ver sus miembros.", region: "Equipo Alfa", members: "Miembros", admin: "Administrador del equipo", member: "Miembro", rename: "Nombre del equipo", renameButton: "Renombrar", remove: "Eliminar equipo", add: "Agregar", person: "Persona por agregar", pickPerson: "Elige una persona", removeAna: "Quitar a Ana" },
     app: { loading: "Cargando TreePM…", loadingOrg: "Cargando organización…", retry: "Intentar de nuevo", unavailable: "API no disponible.", noAccess: "La sesión no tiene acceso a la API.", config: "Configuración de TreePM", demo: "Abrir la demostración" },
   },

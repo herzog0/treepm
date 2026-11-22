@@ -1,0 +1,27 @@
+{
+  "title": "Ideas",
+  "hint": "The project's ideas, by stage. They are not part of the process yet: triage decides here what comes in.",
+  "project": {
+    "label": "Project",
+    "option": "{{key}} · {{name}}"
+  },
+  "loading": "Loading ideas…",
+  "noProjects": "No projects to show",
+  "retry": "Try again",
+  "empty": {
+    "title": "No ideas in this project",
+    "hint": "To register one, write in the request bar on the map and choose “Register idea”."
+  },
+  "row": {
+    "root": "Project root"
+  },
+  "actions": {
+    "open": "Open",
+    "showOnMap": "Show on map",
+    "openFor": "Open {{key}}",
+    "showOnMapFor": "Show {{key}} on map",
+    "acceptFor": "Accept {{key}}",
+    "discardFor": "Discard {{key}}",
+    "reopenFor": "Reopen {{key}}"
+  }
+}

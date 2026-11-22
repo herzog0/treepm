@@ -5,6 +5,8 @@ import type { ApiClient, Me, Person, Project, TicketSummary } from "../api/clien
 import { useTranslation } from "react-i18next";
 import { useApiResource } from "../api/useApiResource.js";
 import { CommandBar } from "../command/CommandBar.js";
+import { splitIdeaText } from "../command/ideaText.js";
+import { useDescribeApiError } from "../api/errorText.js";
 import { AssistantPanel } from "../assistant/AssistantPanel.js";
 import { AskPanel } from "../assistant/AskPanel.js";
 import type { MapPicker } from "../assistant/types.js";
@@ -86,9 +88,11 @@ interface MapViewProps {
   onImport: ((projectId: string) => void) | undefined;
   openTicketId: string | null;
   onOpenTicketChange: (ticketId: string | null) => void;
+  focusTicketId: string | null;
+  onFocusHandled: (() => void) | undefined;
 }
 
-function MapView({ client, me, projects, people, ticketsByProject, onChanged, onImport, openTicketId, onOpenTicketChange }: MapViewProps) {
+function MapView({ client, me, projects, people, ticketsByProject, onChanged, onImport, openTicketId, onOpenTicketChange, focusTicketId, onFocusHandled }: MapViewProps) {
   const { t } = useTranslation("map");
   const labels = useMemo<SpatialCanvasLabels>(
     () => ({ canvas: t("canvas.label"), toolbar: t("canvas.toolbar"), zoomOut: t("canvas.zoomOut"), reset: t("canvas.reset"), zoomIn: t("canvas.zoomIn"), colors: t("canvas.colors") }),
@@ -277,6 +281,29 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     current.fitBounds(bounds, false, undefined, requiredScale);
   };
 
+  // "Ver no mapa" da tela "Ideias" (ADR 0042): a câmera vai ao ticket pedido, sem abrir a página, e o pedido vale uma vez. Dois
+  // quadros, como no enquadramento do ticket aberto: o palco e o observador de tamanho do pacote se acertam antes.
+  const focusHandled = useRef(onFocusHandled);
+  focusHandled.current = onFocusHandled;
+  useEffect(() => {
+    if (focusTicketId === null) return;
+    if (!layout.nodeById.has(focusTicketId)) {
+      focusHandled.current?.();
+      return;
+    }
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        showOnMap(focusTicketId);
+        focusHandled.current?.();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [focusTicketId, layout]);
+
   // Fechar a página devolve o foco ao mapa (a menos que o painel tenha tomado o lugar dela).
   const wasOpen = useRef(false);
   useEffect(() => {
@@ -395,6 +422,24 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     setCreating({ projectId: chosen.id, parentId: null, draft: { title: text, description: "" } });
   };
 
+  // "Registrar ideia «texto»" da barra (ADR 0042): cria direto, sem conversa, no estágio "Nova" e abre a página. O projeto segue a
+  // regra da criação manual; o pai é o ticket aberto ou selecionado, se for desse projeto, senão a raiz dele.
+  const describeError = useDescribeApiError();
+  const registerIdea = async (text: string): Promise<string | null> => {
+    const current = live.current.selected;
+    const anchorId = live.current.openTicketId ?? (current?.kind === "ticket" ? current.id : null);
+    const anchor = anchorId === null ? undefined : Object.values(ticketsByProject).flat().find((ticket) => ticket.id === anchorId);
+    const selectedProjectId = anchor?.projectId ?? (current?.kind === "project" ? current.id : null);
+    const chosen = creatableProjects.find((project) => project.id === selectedProjectId) ?? creatableProjects[0];
+    if (!chosen) return null;
+    const parentId = anchor?.projectId === chosen.id ? anchor.id : null;
+    const result = await client.createTicket(chosen.id, { ...splitIdeaText(text), ...(parentId === null ? {} : { parentId }), idea: true });
+    if (!result.ok) return describeError(result.error);
+    onChanged();
+    openTicket(result.data.id);
+    return null;
+  };
+
   const canCreateProject = me.roles.clerk === "admin";
   const showCreateFirst = items.length === 1 && canCreateProject;
 
@@ -444,6 +489,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
             pickerActive={() => pickerRef.current !== null}
             onOpenTicket={openTicket}
             onCreate={startCreateFromBar}
+            onRegisterIdea={registerIdea}
             returnFocus={() => canvasRef.current.stageRef.current?.focus()}
             conversation={!assistant.open ? "none" : assistant.expanded ? "expanded" : "collapsed"}
             assistantAvailable={assistantAvailable}
@@ -606,9 +652,12 @@ export interface OrganizationMapProps {
   /** Ticket aberto na página (`?ticket=` da URL). Sem esta prop, o mapa guarda o estado sozinho. */
   openTicketId?: string | null;
   onOpenTicketChange?: (ticketId: string | null) => void;
+  /** Ticket a que a câmera vai uma vez, sem abrir a página ("Ver no mapa" da tela "Ideias"); `onFocusHandled` avisa que foi tratado. */
+  focusTicketId?: string | null;
+  onFocusHandled?: () => void;
 }
 
-export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTicketChange }: OrganizationMapProps) {
+export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTicketChange, focusTicketId = null, onFocusHandled }: OrganizationMapProps) {
   const { t } = useTranslation("map");
   const { state, reload, retry, update, version } = useApiResource(() => loadMapData(client));
   // O mapa se atualiza sozinho (ADR 0043): só troca os dados se a resposta difere do que está na tela.
@@ -635,5 +684,5 @@ export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTick
       </div>
     );
   }
-  return <MapView client={client} me={me} projects={state.data.projects} people={state.data.people} ticketsByProject={state.data.ticketsByProject} onChanged={reload} onImport={onImport} openTicketId={controlled ? openTicketId : ownTicketId} onOpenTicketChange={changeTicket} />;
+  return <MapView client={client} me={me} projects={state.data.projects} people={state.data.people} ticketsByProject={state.data.ticketsByProject} onChanged={reload} onImport={onImport} openTicketId={controlled ? openTicketId : ownTicketId} onOpenTicketChange={changeTicket} focusTicketId={focusTicketId} onFocusHandled={onFocusHandled} />;
 }

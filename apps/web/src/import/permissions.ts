@@ -13,3 +13,8 @@ export function canRemoveTickets(me: Me, project: Pick<Project, "id" | "archived
   if (me.roles.clerk === "admin") return true;
   return me.roles.projects.some((entry) => entry.projectId === project.id && entry.role === "manager");
 }
+
+/** Aceitar e descartar ideias: administrador da organização ou gestor do projeto, em projeto não arquivado (ADR 0042). */
+export function canTriageIdeas(me: Me, project: Pick<Project, "id" | "archivedAt">): boolean {
+  return canRemoveTickets(me, project);
+}
