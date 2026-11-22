@@ -4,7 +4,7 @@ import i18n from "../i18n/index.js";
 import { mixIndicatorColors } from "@treepm/react";
 import type { MixColors } from "@treepm/react";
 import type { Me, Project, TicketStatus, TicketSummary } from "../api/client.js";
-import { hasOpenDescendants } from "./ticketState.js";
+import { hasOpenDescendants, isInDiscardedIdea } from "./ticketState.js";
 
 export interface MapNode extends TreeNode {
   readonly kind: "organization" | "project" | "ticket" | "draft";
@@ -16,6 +16,8 @@ export interface MapNode extends TreeNode {
   readonly ticket: TicketSummary | null;
   /** Folhas sob o nó (ele próprio, se for folha); peso do nó na mistura de cores. */
   readonly leafCount: number;
+  /** O ticket está numa ideia descartada (a raiz ou algo dentro dela): o nó usa a cor de ideia apagada (ADR 0042). */
+  readonly ideaDiscarded?: boolean;
 }
 
 /**
@@ -30,6 +32,22 @@ export const STATUS_COLORS: Record<TicketStatus, string> = {
   done: "#4fc48c",
   cancelled: "#8b92a3",
 };
+
+/** Cópia hexadecimal de `--tp-idea` (ADR 0042): a cor de todo nó dentro de uma ideia, qualquer que seja a situação. */
+export const IDEA_COLOR = "#e879c6";
+const BACKGROUND_COLOR = "#08090d";
+
+/** Mistura em sRGB, canal a canal, o mesmo cálculo do `color-mix(in srgb, …)` da folha de estilo. */
+function blendHex(from: string, into: string, share: number): string {
+  const channel = (hex: string, at: number) => Number.parseInt(hex.slice(at, at + 2), 16);
+  const part = (at: number) => Math.round(channel(from, at) * share + channel(into, at) * (1 - share));
+  return `#${[1, 3, 5].map((at) => part(at).toString(16).padStart(2, "0")).join("")}`;
+}
+/** A mesma cor de ideia, 50% misturada com o fundo: a ideia descartada, a raiz e tudo dentro dela. */
+export const IDEA_DISCARDED_COLOR = blendHex(IDEA_COLOR, BACKGROUND_COLOR, 0.5);
+
+/** O ticket é a raiz de uma ideia ou está dentro de uma (ADR 0042). */
+export const isInIdea = (ticket: Pick<TicketSummary, "idea">): boolean => ticket.idea !== null && ticket.idea !== undefined;
 
 /** Nó temporário do rascunho da conversa com a IA (ADR 0029): card tracejado que não é ticket. */
 export const DRAFT_NODE_ID = "assistant-draft";
@@ -90,18 +108,25 @@ export function buildMapItems(
     ticket: null,
     leafCount: 1,
   }));
-  const tickets = visible.flatMap((project) =>
-    (ticketsByProject[project.id] ?? []).map<MapNode>((ticket) => ({
-      id: ticket.id,
-      parentId: ticket.parentId ?? project.id,
-      kind: "ticket",
-      label: ticket.title,
-      color: STATUS_COLORS[ticket.status],
-      key: ticket.key,
-      ticket,
-      leafCount: 1,
-    })),
-  );
+  const tickets = visible.flatMap((project) => {
+    const listed = ticketsByProject[project.id] ?? [];
+    const byId = new Map(listed.map((ticket) => [ticket.id, ticket]));
+    return listed.map<MapNode>((ticket) => {
+      const idea = isInIdea(ticket);
+      const muted = idea && isInDiscardedIdea(ticket, byId);
+      return {
+        id: ticket.id,
+        parentId: ticket.parentId ?? project.id,
+        kind: "ticket",
+        label: ticket.title,
+        color: !idea ? STATUS_COLORS[ticket.status] : muted ? IDEA_DISCARDED_COLOR : IDEA_COLOR,
+        key: ticket.key,
+        ticket,
+        leafCount: 1,
+        ...(muted ? { ideaDiscarded: true } : {}),
+      };
+    });
+  });
   const painted = paintBranches([root, ...children, ...tickets]);
   if (!draft) return painted;
   // O card do rascunho entra depois da mistura de cores: ele não é folha de ninguém e não pinta o ramo.
@@ -135,8 +160,9 @@ function paintBranches(nodes: readonly MapNode[]): readonly MapNode[] {
   }
   const descendants = (node: MapNode): MapNode[] => (childrenOf.get(node.id) ?? []).flatMap((child) => [child, ...descendants(child)]);
   return nodes.map((node) => {
-    if (!node.ticket || !hasOpenDescendants(node.ticket)) return node;
-    const found = descendants(node).filter((entry) => entry.ticket !== null);
+    // Os nós de ideia têm cor própria e não entram na mistura de quem está fora da ideia (ADR 0042).
+    if (!node.ticket || isInIdea(node.ticket) || !hasOpenDescendants(node.ticket)) return node;
+    const found = descendants(node).filter((entry) => entry.ticket !== null && !isInIdea(entry.ticket));
     if (found.length === 0) return node;
     return { ...node, leafCount: found.length, color: mixWeightedColors(found.map((entry) => ({ color: entry.color, weight: 1 }))) };
   });

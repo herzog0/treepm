@@ -40,6 +40,7 @@ export function CreateTicket({ client, project, request, onChanged, onCreated, o
     const body: CreateTicketBody = { title: trimmed };
     if (description.trim() !== "") body.description = description;
     if (request.parentId !== null) body.parentId = request.parentId;
+    if (request.idea) body.idea = true;
     const result = await action.run(() => client.createTicket(request.projectId, body));
     if (!result.ok) return;
     onChanged();
@@ -49,7 +50,7 @@ export function CreateTicket({ client, project, request, onChanged, onCreated, o
   return (
     <div className="ticket-body">
       <div className="ticket-scroll">
-        <h1 ref={heading} className="ticket-title">{t("create.heading")}</h1>
+        <h1 ref={heading} className="ticket-title">{t(request.idea ? "create.headingIdea" : "create.heading")}</h1>
         <p className="ticket-muted">{project ? t(isChild ? "create.inside" : "create.atRoot", { project: project.name }) : ""}</p>
         {request.parent && reopensOnReceiving(request.parent) && <p className="ticket-notice" role="status">{reopenWarningText(t, request.parent.key)}</p>}
         <form className="ticket-form" onSubmit={(event) => void submit(event)}>

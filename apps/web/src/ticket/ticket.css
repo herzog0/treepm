@@ -164,3 +164,7 @@ button.ticket-comment-area:hover { border-color: var(--tp-border-strong, var(--t
 .ticket-conversation .ticket-activity-list { margin: 0; }
 .ticket-contribution-text { position: relative; }
 .ticket-contribution-text .description-head-state { position: absolute; top: -2px; right: 0; color: var(--tp-text-3); font-size: 11.5px; }
+
+/* Linha "Ideia" da raiz de uma ideia (ADR 0042): o menu do estágio e os botões de triagem, lado a lado. */
+.ticket-idea-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.ticket-page .ticket-idea-row .confirm-action { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }

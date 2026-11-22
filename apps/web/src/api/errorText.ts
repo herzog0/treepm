@@ -8,7 +8,7 @@ const KNOWN_CODES = new Set([
   "team_name_taken", "area_name_taken", "project_key_taken", "person_inactive", "ticket_has_open_children", "ticket_cycle",
   "project_archived", "comment_removed", "assistant_not_configured", "assistant_unavailable", "conversation_closed", "conversation_changed",
   "grouping_changed", "draft_required", "ticket_has_no_items", "github_unavailable", "not_connected",
-  "installation_unavailable", "repository_already_linked", "repository_not_found", "person_without_project_access", "assistant_consent_required", "contribution_area_taken", "area_in_use",
+  "installation_unavailable", "repository_already_linked", "repository_not_found", "person_without_project_access", "assistant_consent_required", "contribution_area_taken", "area_in_use", "ticket_in_idea",
 ] as const);
 type KnownCode = typeof KNOWN_CODES extends Set<infer C> ? C : never;
 

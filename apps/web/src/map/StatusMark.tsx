@@ -16,14 +16,24 @@ export function progressFraction({ done, total }: Progress): number {
   return Math.min(1, Math.max(0, done / total));
 }
 
-export type StatusMarkProps = { readonly status: TicketStatus } | { readonly progress: Progress };
+/** Marcador de ideia (ADR 0042): cheio, na cor de ideia; `discarded` usa a cor apagada. */
+export interface IdeaMark {
+  readonly discarded: boolean;
+}
+
+export type StatusMarkProps = { readonly status: TicketStatus } | { readonly progress: Progress } | { readonly idea: IdeaMark };
 
 /**
  * Quadrado com borda que se enche de baixo para cima (ADR 0025). Decorativo: o texto da situação
  * ou do progresso sempre o acompanha onde há espaço, e o nome acessível do nó o descreve.
  */
 export function StatusMark(props: StatusMarkProps) {
-  const [state, fill] = "status" in props ? [props.status, FILL[props.status]] : (["progress", progressFraction(props.progress)] as const);
+  const [state, fill] =
+    "status" in props
+      ? [props.status, FILL[props.status]]
+      : "idea" in props
+        ? ([props.idea.discarded ? "idea-discarded" : "idea", 1] as const)
+        : (["progress", progressFraction(props.progress)] as const);
   const style = { "--fill": String(fill) } as CSSProperties;
   return <span className="status-mark" aria-hidden="true" data-state={state} data-fill={String(fill)} style={style} />;
 }

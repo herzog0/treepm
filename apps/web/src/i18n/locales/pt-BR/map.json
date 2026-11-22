@@ -82,5 +82,19 @@
   },
   "person": {
     "unknown": "Pessoa desconhecida"
+  },
+  "idea": {
+    "inside": "Ideia",
+    "root": "Ideia · {{stage}}",
+    "stage": {
+      "new": "Nova",
+      "refining": "Em refinamento",
+      "ready": "Pronta para triagem",
+      "discarded": "Descartada"
+    },
+    "count_zero": "{{count}} ideias",
+    "count_one": "{{count}} ideia",
+    "count_many": "{{count}} ideias",
+    "count_other": "{{count}} ideias"
   }
 }

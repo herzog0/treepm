@@ -24,7 +24,8 @@
       "assistant_consent_required": "AI is off for this organization. An administrator needs to turn it on in Settings. Create the ticket manually.",
       "comment_removed": "This comment was already removed.",
       "contribution_area_taken": "The ticket already has a contribution from that area.",
-      "area_in_use": "Tickets have a contribution from this area. Remove it from them before deleting the area."
+      "area_in_use": "Tickets have a contribution from this area. Remove it from them before deleting the area.",
+      "ticket_in_idea": "This ticket is part of an idea: its status can only change after the idea is accepted."
     },
     "kind": {
       "unauthenticated": "Your session has expired. Sign in again.",

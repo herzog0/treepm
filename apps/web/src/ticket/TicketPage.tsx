@@ -8,6 +8,7 @@ import { useApiResource } from "../api/useApiResource.js";
 import { canCreateTickets, canRemoveTickets } from "../import/permissions.js";
 import { LoadError } from "../LoadError.js";
 import { TicketMark, progressText, statusText, ticketStateText } from "../map/nodeContent.js";
+import { isInDiscardedIdea } from "../map/ticketState.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
@@ -15,7 +16,7 @@ import { Contributions } from "./Contributions.js";
 import { CreateTicket } from "./CreateTicket.js";
 import { ItemsSummary } from "./ItemsSummary.js";
 import { TicketActivity } from "./TicketActivity.js";
-import { DependsOnField, DescriptionField, ParentField, PeopleField, StatusField, StatusValue, TitleField } from "./fields.js";
+import { DependsOnField, DescriptionField, IdeaField, InsideIdeaValue, ParentField, PeopleField, StatusField, StatusValue, TitleField } from "./fields.js";
 import { ActionsMenu } from "./menu.js";
 import { ancestorsOf } from "./tree.js";
 import { ticketHref } from "../nav/navigation.js";
@@ -27,6 +28,8 @@ export interface CreateRequest {
   parentId: string | null;
   /** O ticket pai, quando já se sabe: a criação avisa se ele é concluído e vai ser reaberto (ADR 0034). */
   parent?: { key: string; status: TicketStatus };
+  /** Cria uma ideia no estágio "Nova" em vez de um ticket comum (ADR 0042). */
+  idea?: boolean;
   /** Valores iniciais, por exemplo o rascunho da conversa com a IA (ADR 0029). */
   draft?: { title: string; description: string };
 }
@@ -60,8 +63,10 @@ const Icon = ({ children, fill = false }: { children: ReactNode; fill?: boolean 
 interface HeaderActions {
   ticketId: string;
   onShowOnMap?: (ticketId: string) => void;
-  /** Só para quem pode excluir; sem isso não há "Mais ações". */
+  /** Só para quem pode excluir. */
   remove?: { busy: boolean; onConfirm: () => void };
+  /** Só para quem edita um ticket comum (ADR 0042); `error` é a recusa da API, mostrada junto do menu. */
+  makeIdea?: { busy: boolean; error: string | null; onClick: () => void };
 }
 
 type CopyState = "idle" | "copied" | "failed";
@@ -96,6 +101,7 @@ function Header({ projectKey, keyText, path, onClose, actions }: { projectKey: s
       <div className="ticket-header-actions">
         {copy === "copied" && <span role="status" className="ticket-toast">{t("header.linkCopied")}</span>}
         {copy === "failed" && <span role="alert" className="ticket-toast is-error">{t("header.copyFailed")}</span>}
+        {actions?.makeIdea?.error && <span role="alert" className="ticket-toast is-error">{actions.makeIdea.error}</span>}
         {actions && (
           <>
             {actions.onShowOnMap && (
@@ -106,17 +112,33 @@ function Header({ projectKey, keyText, path, onClose, actions }: { projectKey: s
             <button type="button" className="ticket-icon-button" aria-label={t("header.copyLink")} onClick={() => void copyLink(actions.ticketId)}>
               <Icon><path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.8.8" /><path d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0L3.3 9a2.6 2.6 0 0 0 3.7 3.7l.8-.8" /></Icon>
             </button>
-            {actions.remove && (
+            {(actions.remove || actions.makeIdea) && (
               <ActionsMenu label={t("header.more")} trigger={<Icon fill><circle cx="3.5" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="12.5" cy="8" r="1.3" /></Icon>}>
                 {(close) => (
-                  <ConfirmAction
-                    label={t("remove.label")}
-                    disabled={actions.remove!.busy}
-                    onConfirm={() => {
-                      close();
-                      actions.remove!.onConfirm();
-                    }}
-                  />
+                  <>
+                    {actions.makeIdea && (
+                      <button
+                        type="button"
+                        disabled={actions.makeIdea.busy}
+                        onClick={() => {
+                          close();
+                          actions.makeIdea!.onClick();
+                        }}
+                      >
+                        {t("idea.make")}
+                      </button>
+                    )}
+                    {actions.remove && (
+                      <ConfirmAction
+                        label={t("remove.label")}
+                        disabled={actions.remove.busy}
+                        onConfirm={() => {
+                          close();
+                          actions.remove!.onConfirm();
+                        }}
+                      />
+                    )}
+                  </>
                 )}
               </ActionsMenu>
             )}
@@ -230,6 +252,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
   const describeError = useDescribeApiError();
   const title = useRef<HTMLHeadingElement>(null);
   const removal = useAction();
+  const ideaMaking = useAction();
   // Cada alteração feita nesta página pede a atividade de novo (ADR 0040).
   const [activityVersion, setActivityVersion] = useState(0);
   // Comentários (ADR 0041, fatia 2): o que muda numa conversa de área e o que muda na seção "Atividade" avisa o outro lado,
@@ -268,6 +291,14 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
   const parent = detail.parentId === null ? null : list.find((entry) => entry.id === detail.parentId) ?? null;
   const path = [project?.name ?? "", ...ancestorsOf(list, detail).map((entry) => entry.title)].filter((part) => part !== "").join(" › ");
 
+  const idea = detail.idea ?? null;
+  const byId = new Map(list.map((entry) => [entry.id, entry]));
+  const makeIdea = async () => {
+    const result = await ideaMaking.run(() => client.makeIdea(detail.id));
+    if (result.ok) refresh();
+  };
+  const makeIdeaError = ideaMaking.error === null ? null : ideaMaking.error.kind === "conflict" ? t("idea.makeRefused") : describeError(ideaMaking.error);
+
   const remove = async () => {
     const result = await removal.run(() => client.removeTicket(detail.id));
     if (!result.ok) return;
@@ -288,7 +319,12 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
         keyText={detail.key}
         path={path}
         onClose={onClose}
-        actions={{ ticketId: detail.id, onShowOnMap, remove: canRemove ? { busy: removal.busy, onConfirm: () => void remove() } : undefined }}
+        actions={{
+          ticketId: detail.id,
+          onShowOnMap,
+          remove: canRemove ? { busy: removal.busy, onConfirm: () => void remove() } : undefined,
+          makeIdea: canEdit && idea === null ? { busy: ideaMaking.busy, error: makeIdeaError, onClick: () => void makeIdea() } : undefined,
+        }}
       />
       <div className="ticket-body">
         <div className="ticket-scroll">
@@ -301,9 +337,17 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
           <TitleField ref={title} client={client} detail={detail} canEdit={canEdit} onSaved={refresh} />
           <dl className="ticket-fields">
             <div className="ticket-row">
-              <dt>{t("fields.status")}</dt>
+              <dt>{t(idea?.root === true ? "fields.idea" : "fields.status")}</dt>
               <dd>
-                {canEdit ? <StatusField client={client} detail={detail} openItems={openItems} onSaved={refresh} /> : readOnlyStatus}
+                {idea?.root === true ? (
+                  <IdeaField client={client} detail={detail} stage={idea.stage} canEdit={canEdit} canTriage={detail.canTriageIdea === true} onSaved={refresh} />
+                ) : idea !== null ? (
+                  <InsideIdeaValue rootId={idea.rootId} rootKey={idea.rootKey} discarded={isInDiscardedIdea({ ...detail, idea }, byId)} onOpen={onOpenTicket} />
+                ) : canEdit ? (
+                  <StatusField client={client} detail={detail} openItems={openItems} onSaved={refresh} />
+                ) : (
+                  readOnlyStatus
+                )}
               </dd>
             </div>
             {detail.progress && (
@@ -311,6 +355,11 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
                 <dt>{t("fields.progress")}</dt>
                 <dd>
                   <span className="ticket-value">
+                    {detail.progress.total === 0 && detail.progress.excluded === 0 ? (
+                      // Só ideias abaixo (ADR 0042): não há trabalho para medir, só a contagem à parte.
+                      tMap("idea.count", { count: detail.progress.ideas ?? 0 })
+                    ) : (
+                    <>
                     <span
                       className="ticket-progress"
                       role="progressbar"
@@ -322,6 +371,8 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
                       <span style={{ width: `${detail.progress.total === 0 ? 0 : Math.round((detail.progress.done / detail.progress.total) * 100)}%` }} />
                     </span>
                     {progressText(tMap, detail.progress)}
+                    </>
+                    )}
                   </span>
                 </dd>
               </div>
@@ -361,9 +412,14 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
               <h2 id="ticket-children-heading">{t("items.heading")}</h2>
               {canEdit && (
                 <span className="ticket-section-actions">
-                  <button type="button" className="text" onClick={() => onStartCreate({ projectId: detail.projectId, parentId: detail.id, parent: { key: detail.key, status: detail.status } })}>
+                  <button type="button" className="text" onClick={() => onStartCreate({ projectId: detail.projectId, parentId: detail.id, ...(idea === null ? { parent: { key: detail.key, status: detail.status } } : {}) })}>
                     {t("items.newHere")}
                   </button>
+                  {idea === null && (
+                    <button type="button" className="text" onClick={() => onStartCreate({ projectId: detail.projectId, parentId: detail.id, idea: true })}>
+                      {t("items.newIdeaHere")}
+                    </button>
+                  )}
                 </span>
               )}
             </div>
@@ -375,7 +431,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
                   <li key={child.id}>
                     <button type="button" className="ticket-child" onClick={() => onOpenTicket(child.id)}>
                       <span className="ticket-child-main">
-                        <TicketMark ticket={child} />
+                        <TicketMark ticket={child} discarded={isInDiscardedIdea(child, byId)} />
                         <span className="ticket-key">{child.key}</span>
                         <span className="ticket-child-title">{child.title}</span>
                       </span>

@@ -10,17 +10,19 @@ interface ConfirmActionProps {
   disabled?: boolean;
   /** Explica o efeito da ação enquanto a confirmação está aberta. */
   message?: string;
+  /** `neutral` para uma ação que não destrói nada (por exemplo, aceitar uma ideia): sem o vermelho de "Remover". */
+  tone?: "danger" | "neutral";
 }
 
 /** Confirmação em linha: o primeiro clique pede "Confirmar", o segundo executa. */
-export function ConfirmAction({ label, accessibleLabel, onConfirm, disabled = false, message }: ConfirmActionProps) {
+export function ConfirmAction({ label, accessibleLabel, onConfirm, disabled = false, message, tone = "danger" }: ConfirmActionProps) {
   const { t } = useTranslation("panel");
   const [asking, setAsking] = useState(false);
   const subject = accessibleLabel ?? label;
 
   if (!asking) {
     return (
-      <button type="button" className="destructive" aria-label={accessibleLabel} disabled={disabled} onClick={() => setAsking(true)}>
+      <button type="button" className={tone === "danger" ? "destructive" : undefined} aria-label={accessibleLabel} disabled={disabled} onClick={() => setAsking(true)}>
         {label}
       </button>
     );
@@ -30,7 +32,7 @@ export function ConfirmAction({ label, accessibleLabel, onConfirm, disabled = fa
       {message && <span className="confirm-message">{message}</span>}
       <button
         type="button"
-        className="danger"
+        className={tone === "danger" ? "danger" : "primary"}
         aria-label={t("confirm.label", { subject })}
         disabled={disabled}
         onClick={() => {

@@ -131,8 +131,17 @@ describe("ticket page header", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Este ticket tem itens. Mova ou remova os itens antes de removê-lo.");
   });
 
-  it("offers 'Mais ações' only to those who can remove", async () => {
+  it("offers 'Mais ações' only to those who can remove or edit; a contributor gets it without 'Remover ticket' (ADR 0042: 'Transformar em ideia')", async () => {
     setup({ me: contributor() });
+    await loaded();
+    await userEvent.click(within(page()).getByRole("button", { name: "Mais ações" }));
+    expect(within(page()).getByRole("button", { name: "Transformar em ideia" })).toBeInTheDocument();
+    expect(within(page()).queryByRole("button", { name: "Remover ticket" })).not.toBeInTheDocument();
+    expect(within(page()).getByRole("button", { name: "Ver no mapa" })).toBeInTheDocument();
+  });
+
+  it("a reader has no 'Mais ações'", async () => {
+    setup({ me: reader() });
     await loaded();
     expect(within(page()).queryByRole("button", { name: "Mais ações" })).not.toBeInTheDocument();
     expect(within(page()).getByRole("button", { name: "Ver no mapa" })).toBeInTheDocument();
