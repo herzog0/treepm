@@ -230,6 +230,7 @@
     "agentWorkEnded_personNoActor": "El trabajo por la IA fue terminado por una persona",
     "agentWorkEnded_finished": "El trabajo por la IA fue terminado al completar el ticket",
     "agentWorkEnded_idea": "El trabajo por la IA fue terminado porque el ticket se volvió idea",
+    "agentWorkEnded_archived": "El trabajo de la IA terminó porque el proyecto fue archivado",
     "via": "por MCP",
     "viaTitle": "Hecho por una llamada MCP, con el token de la persona"
   },

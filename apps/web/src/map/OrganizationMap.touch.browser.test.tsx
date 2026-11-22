@@ -7,6 +7,7 @@ import "../theme.css";
 import "../styles.css";
 import "../controls.css";
 import { makePanelMe, makePerson } from "../panel/testing.js";
+import { dispatch, gesture, toPage, wheel } from "../test/touch.js";
 import { makeProject, makeTicket, makeTreeClient } from "../test/fakes.js";
 import { OrganizationMap } from "./OrganizationMap.js";
 
@@ -28,40 +29,6 @@ function Harness() {
   );
 }
 const settle = (ms = 700) => new Promise((resolve) => setTimeout(resolve, ms));
-// Dois quadros: o primeiro aplica o estado do React que o evento agendou, o segundo deixa a geometria dos cartões chegar ao DOM.
-const frame = async () => {
-  for (let count = 0; count < 2; count += 1) await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
-};
-
-interface Finger { id: number; x: number; y: number }
-
-/** Coordenadas do CDP são as da página de cima; o teste roda num iframe, então soma o deslocamento e a escala dele. */
-function toPage(x: number, y: number) {
-  const iframe = window.frameElement?.getBoundingClientRect();
-  const scale = iframe && window.frameElement ? iframe.width / window.innerWidth : 1;
-  return { x: (iframe?.left ?? 0) + x * scale, y: (iframe?.top ?? 0) + y * scale };
-}
-const asPoints = (fingers: Finger[]) => fingers.map(({ id, x, y }) => ({ id, ...toPage(x, y) }));
-async function dispatch(type: "touchStart" | "touchMove" | "touchEnd", fingers: Finger[]) {
-  await cdp().send("Input.dispatchTouchEvent", { type, touchPoints: asPoints(fingers) });
-  await frame();
-}
-/** Dedos que descem, andam em passos e sobem (touchEnd sem pontos solta todos). */
-async function gesture(start: Finger[], end: Finger[], steps = 8, release = true) {
-  await dispatch("touchStart", start);
-  for (let step = 1; step <= steps; step += 1) {
-    const t = step / steps;
-    await dispatch("touchMove", start.map((f, index) => ({ id: f.id, x: f.x + (end[index]!.x - f.x) * t, y: f.y + (end[index]!.y - f.y) * t })));
-  }
-  if (release) await dispatch("touchEnd", []);
-}
-
-/** Wheel de mouse no ponto dado (coordenadas do iframe): o caminho de zoom que a pinça tem de reproduzir. */
-async function wheel(at: { x: number; y: number }, deltaY: number) {
-  const point = toPage(at.x, at.y);
-  await cdp().send("Input.dispatchMouseEvent", { type: "mouseWheel", x: point.x, y: point.y, deltaX: 0, deltaY });
-}
-
 const card = (label: RegExp) => [...document.querySelectorAll("button")].find((b) => label.test(b.getAttribute("aria-label") ?? b.textContent ?? ""))!.getBoundingClientRect();
 const center = (rect: DOMRect) => ({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
 // Canto superior esquerdo dos dois cartões: a posição de um cartão é linear na escala e na câmera (o tamanho dele não é: muda com o nível de detalhe).
@@ -154,18 +121,59 @@ describe("mapa no toque, em navegador real (390×844)", () => {
     expect(after.a.y - before.a.y).toBeGreaterThan(80);
   });
 
-  it("um dedo arrasta o mapa", async () => {
-    await openMap();
-    const before = spread();
-    const stage = stageRect();
-    const from = { id: 1, x: stage.left + stage.width / 2, y: stage.top + stage.height - 120 };
-    await gesture([from], [{ id: 1, x: from.x + 70, y: from.y - 60 }]);
-    await settle(200);
-    const after = spread();
-    expect(after.a.x - before.a.x).toBeGreaterThan(55);
-    expect(before.a.y - after.a.y).toBeGreaterThan(45);
-    expect(after.distance / before.distance).toBeCloseTo(1, 2);
-  });
+  // O ponto de partida do arraste tem de ser de fato o fundo do palco: o cartão de seleção, a barra de pedidos e os controles
+  // ficam por cima dele (no celular, o cartão ocupa a base da tela), e um toque sobre eles não é do mapa.
+  const overlays = ".spatial-node, .spatial-selection, .command-bar, .spatial-toolbar, .spatial-breadcrumb, .spatial-help, .command-sheet, .assistant-sheet";
+  const freePoint = () => {
+    const stage = document.querySelector("[aria-label='Mapa da organização']")!;
+    const rect = stage.getBoundingClientRect();
+    for (let y = rect.bottom - 8; y > rect.top; y -= 12) {
+      for (let x = rect.left + 12; x < rect.right - 12; x += 12) {
+        const hit = document.elementFromPoint(x, y);
+        if (hit && stage.contains(hit) && hit.closest(overlays) === null) return { x, y };
+      }
+    }
+    throw new Error("nenhum ponto livre no fundo do palco");
+  };
+  /** Um toque curto no fundo limpa a seleção (o cartão de seleção do projeto some). */
+  const deselect = async () => {
+    const free = freePoint();
+    await dispatch("touchStart", [{ id: 1, ...free }]);
+    await dispatch("touchEnd", []);
+    await settle(300);
+  };
+
+  for (const selected of [true, false]) {
+    const state = selected ? "com o projeto selecionado" : "sem seleção";
+    it(`um dedo sobre o fundo arrasta o mapa, ${state}`, async () => {
+      await openMap();
+      if (!selected) await deselect();
+      expect(document.querySelector(".spatial-selection") !== null, state).toBe(selected);
+      const before = spread();
+      const from = { id: 1, ...freePoint() };
+      await gesture([from], [{ id: 1, x: from.x + 70, y: from.y - 60 }]);
+      await settle(200);
+      const after = spread();
+      expect(after.a.x - before.a.x).toBeGreaterThan(55);
+      expect(before.a.y - after.a.y).toBeGreaterThan(45);
+      expect(after.distance / before.distance).toBeCloseTo(1, 2);
+      expect(ticketPageOpen()).toBe(false);
+    });
+
+    it(`um dedo começando sobre um card arrasta o mapa e não abre o ticket, ${state}`, async () => {
+      await openMap();
+      if (!selected) await deselect();
+      const before = spread();
+      const from = center(card(/ALFA-2 · Publicação/));
+      await gesture([{ id: 1, ...from }], [{ id: 1, x: from.x + 70, y: from.y - 60 }]);
+      await settle(200);
+      const after = spread();
+      expect(after.a.x - before.a.x).toBeGreaterThan(55);
+      expect(before.a.y - after.a.y).toBeGreaterThan(45);
+      expect(after.distance / before.distance).toBeCloseTo(1, 2);
+      expect(ticketPageOpen()).toBe(false);
+    });
+  }
 
   it("um tap curto sobre um card abre o ticket", async () => {
     await openMap();

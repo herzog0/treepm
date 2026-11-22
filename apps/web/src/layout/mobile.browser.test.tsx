@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { cdp, page, userEvent } from "vitest/browser";
+import { dispatch, gesture, toPage, wheel } from "../test/touch.js";
 import { renderScreen } from "./layoutScreens.js";
 import type { LayoutScreen } from "./layoutScreens.js";
 import { settle } from "./layoutMeasure.js";
@@ -7,6 +8,7 @@ import indexHtml from "../../index.html?raw";
 
 // TREEPM-231: layout para tela estreita, em navegador real com emulação de toque (pointer: coarse), em 360×740 e 430×932.
 const VIEWPORTS = [[360, 740], [430, 932]] as const;
+const TOUCH_VIEWPORTS = [[360, 740], [390, 844], [430, 932]] as const;
 const SCREENS: readonly LayoutScreen[] = ["map", "ticket", "teams", "settings", "import", "ideas"];
 const TOUCH = 44;
 
@@ -279,4 +281,118 @@ describe("margens seguras e altura da tela", () => {
   it("o título da aba é TreePM", () => {
     expect(indexHtml).toMatch(/<title>TreePM<\/title>/);
   });
+});
+
+// TREEPM-234: gestos de um e de dois dedos no mapa, com o app inteiro montado (cabeçalho, barra de pedidos, cartão de seleção).
+const cardEl = (key: string) => all<HTMLElement>("button.spatial-card-button").find((b) => (b.getAttribute("aria-label") ?? "").includes(key))!;
+const corner = (el: Element) => ({ x: rectOf(el).left, y: rectOf(el).top });
+const stageEl = () => q("[aria-label='Mapa da organização']")!;
+/** Um ponto do palco onde o toque chega ao mapa: sem cartão de seleção, barra, controles nem cartão por cima. */
+function freeStagePoint(): { x: number; y: number } {
+  const stage = rectOf(stageEl());
+  for (let y = stage.bottom - 8; y > stage.top; y -= 12) {
+    for (let x = 12; x < window.innerWidth - 12; x += 12) {
+      const hit = document.elementFromPoint(x, y);
+      if (hit && stageEl().contains(hit) && hit.closest(".spatial-node, .spatial-selection, .command-bar, .spatial-toolbar, .spatial-breadcrumb, .spatial-help, .command-sheet, .assistant-sheet") === null) return { x, y };
+    }
+  }
+  throw new Error("nenhum ponto livre no palco");
+}
+
+for (const [width, height] of TOUCH_VIEWPORTS) {
+  describe(`gestos no mapa, app inteiro ${width}×${height}`, () => {
+    async function prepare(selection: boolean) {
+      await page.viewport(width, height);
+      await renderScreen("map");
+      // O wheel (mouse) aproxima o ponto entre os dois cartões até ficarem legíveis; o toque só entra depois.
+      for (let step = 0; step < 30 && rectOf(cardEl("ALFA-2")).width < 90; step += 1) {
+        const a = rectOf(cardEl("ALFA-1"));
+        const b = rectOf(cardEl("ALFA-2"));
+        await wheel({ x: (a.left + b.left) / 2 + a.width / 2, y: (a.top + b.top) / 2 + a.height / 2 }, -300);
+        await settle(150);
+      }
+      await settle(300);
+      if (!selection) {
+        const free = freeStagePoint();
+        await dispatch("touchStart", [{ id: 1, ...free }]);
+        await dispatch("touchEnd", []);
+        await settle(300);
+        expect(q(".spatial-selection"), "o cartão de seleção some quando nada está selecionado").toBeNull();
+      } else {
+        expect(q(".spatial-selection"), "com projeto selecionado").not.toBeNull();
+      }
+    }
+    const moved = (before: { x: number; y: number }, after: { x: number; y: number }) => ({ dx: after.x - before.x, dy: after.y - before.y });
+
+    for (const selection of [true, false]) {
+      const state = selection ? "com projeto selecionado" : "sem seleção";
+      it(`um dedo sobre o fundo arrasta o mapa, ${state}`, async () => {
+        await prepare(selection);
+        const before = corner(cardEl("ALFA-1"));
+        const from = freeStagePoint();
+        await gesture([{ id: 1, ...from }], [{ id: 1, x: from.x + 50, y: from.y - 40 }]);
+        await settle(200);
+        const { dx, dy } = moved(before, corner(cardEl("ALFA-1")));
+        expect(dx).toBeGreaterThan(35);
+        expect(dy).toBeLessThan(-25);
+        expect(q(".ticket-page")).toBeNull();
+      });
+      it(`um dedo começando sobre um card arrasta o mapa e não abre o ticket, ${state}`, async () => {
+        await prepare(selection);
+        const el = cardEl("ALFA-1");
+        const before = corner(el);
+        const r = rectOf(el);
+        const from = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        await gesture([{ id: 1, ...from }], [{ id: 1, x: from.x + 50, y: from.y - 40 }]);
+        await settle(200);
+        const { dx, dy } = moved(before, corner(cardEl("ALFA-1")));
+        expect(dx).toBeGreaterThan(35);
+        expect(dy).toBeLessThan(-25);
+        expect(q(".ticket-page")).toBeNull();
+      });
+    }
+
+    it("a pinça dá zoom ancorado entre os dedos", async () => {
+      await prepare(true);
+      const a = rectOf(cardEl("ALFA-1"));
+      const b = rectOf(cardEl("ALFA-2"));
+      const distance = () => Math.hypot(rectOf(cardEl("ALFA-1")).left - rectOf(cardEl("ALFA-2")).left, rectOf(cardEl("ALFA-1")).top - rectOf(cardEl("ALFA-2")).top);
+      const before = distance();
+      const mid = { x: (a.left + b.left) / 2 + a.width / 2, y: (a.top + b.top) / 2 + a.height / 2 };
+      await gesture([{ id: 1, x: mid.x - 30, y: mid.y }, { id: 2, x: mid.x + 30, y: mid.y }], [{ id: 1, x: mid.x - 60, y: mid.y }, { id: 2, x: mid.x + 60, y: mid.y }]);
+      await settle(300);
+      expect(distance() / before).toBeGreaterThan(1.7);
+      expect(distance() / before).toBeLessThan(2.3);
+      expect(q(".ticket-page")).toBeNull();
+      void toPage;
+    });
+  });
+}
+
+describe("o palco do mapa não rola por dentro", () => {
+  // TREEPM-234: o palco é `overflow: hidden` e a cena (cartões fora da tela) o faz transbordar; o navegador rola um contêiner assim
+  // para mostrar o que ganha foco (Tab, `focus()`), e o cartão de seleção e a barra de pedidos, que são do palco, saem pela esquerda.
+  for (const [width, height] of TOUCH_VIEWPORTS) {
+    it(`dar foco a um cartão fora da tela não desloca o palco nem os controles (${width}×${height})`, async () => {
+      await page.viewport(width, height);
+      await renderScreen("map");
+      const stage = stageEl();
+      // Aproxima o ramo até um dos cartões passar da borda e dá foco a ele, como num Tab.
+      for (let step = 0; step < 6; step += 1) {
+        const a = rectOf(cardEl("ALFA-1"));
+        await wheel({ x: a.left + a.width / 2, y: a.top + a.height / 2 }, -300);
+        await settle(100);
+      }
+      for (const key of ["ALFA-2", "ALFA-1"]) cardEl(key)?.focus();
+      await settle(100);
+      expect(stage.scrollLeft).toBe(0);
+      expect(stage.scrollTop).toBe(0);
+      stage.scrollTo(60, 0);
+      expect(stage.scrollLeft, "o palco não aceita rolagem, nem por programa").toBe(0);
+      const bar = rectOf(q(".command-bar")!);
+      expect(bar.left).toBeGreaterThanOrEqual(8);
+      const sel = q(".spatial-selection");
+      if (sel) expect(rectOf(sel).left).toBeGreaterThanOrEqual(8);
+    });
+  }
 });
