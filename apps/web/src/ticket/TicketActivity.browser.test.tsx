@@ -22,7 +22,7 @@ describe("Mostrar anteriores no navegador", () => {
     Object.assign(client, {
       getTicket: vi.fn(async () => ok(detail)),
       ticketActivity: vi.fn(async (_id: string, query: { before?: string } = {}) =>
-        ok(query.before === undefined ? { entries: slice(60, 41), before: "c1" } : { entries: slice(40, 21), before: null })),
+        ok(query.before === undefined ? { entries: slice(60, 41), before: "c1", canComment: false } : { entries: slice(40, 21), before: null, canComment: false })),
     });
     const handlers = { onOpenTicket: vi.fn(), onClose: vi.fn(), onChanged: vi.fn(), onRemoved: vi.fn(), onStartCreate: vi.fn(), onCancelCreate: vi.fn(), onCreated: vi.fn() };
     const screen = await render(

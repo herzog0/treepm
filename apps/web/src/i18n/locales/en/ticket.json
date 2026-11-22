@@ -178,6 +178,23 @@
     "summaryByPerson_noActor": "“{{section}}” edited",
     "summaryByAssistant_noActor": "“{{section}}” was updated by the AI",
     "summaryByAssistant": "<who>{{actor}}</who> asked the AI to update “{{section}}”",
-    "retry": "Try again"
+    "retry": "Try again",
+    "comment": {
+      "edited": "edited",
+      "removed": "Comment removed",
+      "edit": "Edit",
+      "remove": "Remove",
+      "removeWarning": "The comment text will be erased and this cannot be undone.",
+      "editField": "Edit comment",
+      "save": "Save",
+      "cancel": "Cancel",
+      "field": "New comment",
+      "placeholder": "Write a comment",
+      "send": "Comment",
+      "sending": "Sending…",
+      "hint": "Ctrl+Enter to comment",
+      "by": "Comment by {{name}}",
+      "gone": "comment removed"
+    }
   }
 }

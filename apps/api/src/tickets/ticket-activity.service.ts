@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { mergeDescriptionEdits } from "@treepm/domain";
+import { canCommentTicket, mergeDescriptionEdits } from "@treepm/domain";
 import type { MergedEntry } from "@treepm/domain";
 import { z } from "zod";
 import { parseOutput } from "../common/zod.js";
 import { activityPageSchema } from "./ticket-activity.schema.js";
 import type { ActivityEntry, ActivityPage } from "./ticket-activity.schema.js";
+import { commentRights, toCommentEntry } from "./ticket-comments.service.js";
+import type { Viewer } from "./ticket-comments.service.js";
 import { ticketStatusSchema } from "./tickets.schema.js";
 import type { ProjectRow } from "./tickets.service.js";
 
@@ -27,6 +29,7 @@ const FIRST_BATCH_EXTRA = 5;
 const MAX_BATCH = 500;
 
 type Position = { t: number; e: string; s: number };
+type CommentRow = { id: string; authorPersonId: string; body: string; createdAt: Date; editedAt: Date | null; removedAt: Date | null };
 type RefDraft = { id: string | null; key: string | null; number: number | null };
 type Data =
   | { type: "created" }
@@ -36,7 +39,8 @@ type Data =
   | { type: "parent_changed"; from: RefDraft | null; to: RefDraft | null }
   | { type: "assignee_added" | "assignee_removed"; personId: string }
   | { type: "dependency_added" | "dependency_removed"; ticket: RefDraft }
-  | { type: "summary_updated"; source: "person" | "assistant" };
+  | { type: "summary_updated"; source: "person" | "assistant" }
+  | { type: "comment"; comment: CommentRow };
 /** Entrada ainda sem os ids resolvidos. `pos` é a posição na ordem total (instante, evento, campo). */
 type Draft = { id: string; type: Data["type"]; actorId: string | null; occurredAt: number; pos: Position; data: Data };
 
@@ -121,56 +125,75 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
 
 type TicketForFeed = { id: string; createdByPersonId: string; createdAt: Date };
 
+/** Uma das duas fontes de entradas. `after` é de onde buscar a seguir (mais antigo); `edge` é a última linha lida. */
+type Stream = { exhausted: boolean; after: { t: number; e: string } | null; inclusive: boolean; edge: Position | null };
+
 /**
- * Atividade de um ticket (ADR 0040, fatia 1). Só lê. Consultas: as de quem chama para achar o ticket e o projeto,
- * mais, aqui, uma de eventos (outras só se edições da descrição ou eventos ignorados exigirem mais lotes),
- * uma de tickets citados e uma de pessoas (estas duas só quando há o que resolver); uma conferência de
- * "tem evento de criação" só em páginas seguintes de ticket sem evento de criação visto.
+ * Atividade de um ticket (ADR 0040): mudanças (fatia 1) e comentários (fatia 2), intercalados. Só lê.
+ * Consultas, em número constante: as de quem chama para achar o ticket e o projeto, mais, aqui, uma de eventos, uma de
+ * comentários, uma de tickets citados e uma de pessoas (estas duas só quando há o que resolver, e em paralelo).
+ * Só crescem se a página exigir mais lotes (muitas edições da descrição ou eventos ignorados no caminho) ou, em páginas
+ * seguintes de ticket sem evento de criação visto, por uma conferência de "tem evento de criação".
  */
 @Injectable()
 export class TicketActivityService {
-  async read(tx: TenantClient, project: ProjectRow, ticket: TicketForFeed, query: { limit: number; before?: string | undefined }): Promise<ActivityPage> {
+  async read(tx: TenantClient, project: ProjectRow, ticket: TicketForFeed, query: { limit: number; before?: string | undefined }, viewer: Viewer): Promise<ActivityPage> {
     const cursor = query.before === undefined ? null : decodeCursor(query.before);
     const { limit } = query;
+    const start = cursor === null ? null : { t: cursor.t, e: cursor.e };
 
-    // O corte é sempre entre entradas já fechadas: busca eventos até haver uma entrada além do limite (ela prova que
-    // a anterior não cresce mais) ou até acabarem os eventos. Assim a junção das edições dá o mesmo resultado
-    // qualquer que seja o limite, e o cursor (posição da entrada mais antiga devolvida) cai sempre entre grupos.
+    // O corte é sempre entre entradas já fechadas: busca lotes das duas fontes até haver uma entrada além do limite (ela
+    // prova que a anterior não cresce mais) ou até acabarem as duas. Uma entrada só vale quando nenhuma fonte ainda
+    // aberta pode ter algo entre ela e a anterior: tudo acima da última linha lida de cada fonte aberta está completo.
+    // Assim a junção das edições dá o mesmo resultado qualquer que seja o limite, e o cursor (posição da entrada mais
+    // antiga devolvida) cai sempre entre grupos.
+    const events: Stream = { exhausted: false, after: start, inclusive: true, edge: null };
+    const comments: Stream = { exhausted: false, after: start, inclusive: true, edge: null };
     let drafts: Draft[] = [];
     let seenCreated = false;
-    let exhausted = false;
+    let synthesized = false;
     let merged: MergedEntry<Draft>[] = [];
     let take = limit + FIRST_BATCH_EXTRA;
-    let after: { t: number; e: string } | null = cursor === null ? null : { t: cursor.t, e: cursor.e };
-    let inclusive = true;
-    while (!exhausted && merged.length <= limit) {
-      const rows = await tx.activityEvent.findMany({
-        where: {
-          subjectType: "ticket",
-          subjectId: ticket.id,
-          kind: { in: READ_KINDS },
-          ...(after === null
-            ? {}
-            : { OR: [{ occurredAt: { lt: new Date(after.t) } }, { occurredAt: new Date(after.t), id: inclusive ? { lte: after.e } : { lt: after.e } }] }),
-        },
-        orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
-        take,
-        select: { id: true, kind: true, actorPersonId: true, occurredAt: true, payload: true },
-      });
-      exhausted = rows.length < take;
-      for (const row of rows) {
-        if (row.kind === "ticket.created") seenCreated = true;
-        for (const draft of draftsOf(row)) if (cursor === null || compare(draft.pos, cursor) < 0) drafts.push(draft);
+    while (!(events.exhausted && comments.exhausted) && merged.length <= limit) {
+      const [eventRows, commentRows] = await Promise.all([
+        events.exhausted ? [] : this.eventBatch(tx, ticket.id, events, take),
+        comments.exhausted ? [] : this.commentBatch(tx, ticket.id, comments, take),
+      ]);
+      if (!events.exhausted) {
+        events.exhausted = eventRows.length < take;
+        for (const row of eventRows) {
+          if (row.kind === "ticket.created") seenCreated = true;
+          for (const draft of draftsOf(row)) if (cursor === null || compare(draft.pos, cursor) < 0) drafts.push(draft);
+        }
+        const last = eventRows[eventRows.length - 1];
+        if (last) {
+          events.after = { t: last.occurredAt.getTime(), e: last.id };
+          events.edge = { t: last.occurredAt.getTime(), e: last.id, s: -1 };
+        }
+        events.inclusive = false;
       }
-      const last = rows[rows.length - 1];
-      if (last) after = { t: last.occurredAt.getTime(), e: last.id };
-      inclusive = false;
+      if (!comments.exhausted) {
+        comments.exhausted = commentRows.length < take;
+        for (const row of commentRows) {
+          const pos = { t: row.createdAt.getTime(), e: row.id, s: 0 };
+          if (cursor === null || compare(pos, cursor) < 0) drafts.push({ id: row.id, type: "comment", actorId: row.authorPersonId, occurredAt: pos.t, pos, data: { type: "comment", comment: row } });
+        }
+        const last = commentRows[commentRows.length - 1];
+        if (last) {
+          comments.after = { t: last.createdAt.getTime(), e: last.id };
+          comments.edge = { t: last.createdAt.getTime(), e: last.id, s: -1 };
+        }
+        comments.inclusive = false;
+      }
       take = Math.min(MAX_BATCH, take * 2);
-      if (exhausted && !seenCreated && !(await this.hasCreatedEvent(tx, ticket.id, cursor !== null))) {
+      if (events.exhausted && !synthesized && !seenCreated && !(await this.hasCreatedEvent(tx, ticket.id, cursor !== null))) {
         const t = ticket.createdAt.getTime();
         drafts = [...drafts, { id: `created:${ticket.id}`, type: "created", actorId: ticket.createdByPersonId, occurredAt: t, pos: { t: -1, e: SYNTHETIC_ID, s: -1 }, data: { type: "created" } }];
+        synthesized = true;
       }
-      merged = mergeDescriptionEdits(drafts);
+      const floor = [events, comments].filter((stream) => !stream.exhausted).reduce<Position | null>((top, stream) => (stream.edge && (top === null || compare(stream.edge, top) > 0) ? stream.edge : top), null);
+      const closed = floor === null ? drafts : drafts.filter((draft) => compare(draft.pos, floor) >= 0);
+      merged = mergeDescriptionEdits(closed.sort((a, b) => compare(b.pos, a.pos)));
     }
 
     const shown = merged.slice(0, limit);
@@ -178,7 +201,36 @@ export class TicketActivityService {
     const entries = shown.map(({ entry, oldest }) => ({ ...entry, id: oldest.id }));
     const lastShown = shown[shown.length - 1];
     const before = more && lastShown ? encodeCursor(lastShown.oldest.pos) : null;
-    return parseOutput(activityPageSchema, { entries: await this.resolve(tx, project, entries), before });
+    const canComment = project.archivedAt === null && canCommentTicket(viewer.actor, project.id);
+    return parseOutput(activityPageSchema, { entries: await this.resolve(tx, project, entries, viewer), before, canComment });
+  }
+
+  private eventBatch(tx: TenantClient, ticketId: string, stream: Stream, take: number) {
+    const { after, inclusive } = stream;
+    return tx.activityEvent.findMany({
+      where: {
+        subjectType: "ticket",
+        subjectId: ticketId,
+        kind: { in: READ_KINDS },
+        ...(after === null ? {} : { OR: [{ occurredAt: { lt: new Date(after.t) } }, { occurredAt: new Date(after.t), id: inclusive ? { lte: after.e } : { lt: after.e } }] }),
+      },
+      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+      take,
+      select: { id: true, kind: true, actorPersonId: true, occurredAt: true, payload: true },
+    });
+  }
+
+  private commentBatch(tx: TenantClient, ticketId: string, stream: Stream, take: number) {
+    const { after, inclusive } = stream;
+    return tx.ticketComment.findMany({
+      where: {
+        ticketId,
+        ...(after === null ? {} : { OR: [{ createdAt: { lt: new Date(after.t) } }, { createdAt: new Date(after.t), id: inclusive ? { lte: after.e } : { lt: after.e } }] }),
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take,
+      select: { id: true, authorPersonId: true, body: true, createdAt: true, editedAt: true, removedAt: true },
+    });
   }
 
   /** Só vale perguntar quando há cursor: na primeira página, "não visto" já significa "não existe". */
@@ -187,7 +239,7 @@ export class TicketActivityService {
     return (await tx.activityEvent.count({ where: { subjectType: "ticket", subjectId: ticketId, kind: "ticket.created" }, take: 1 })) > 0;
   }
 
-  private async resolve(tx: TenantClient, project: ProjectRow, drafts: Draft[]): Promise<ActivityEntry[]> {
+  private async resolve(tx: TenantClient, project: ProjectRow, drafts: Draft[], viewer: Viewer): Promise<ActivityEntry[]> {
     const personIds = new Set<string>();
     const ticketIds = new Set<string>();
     const numbers = new Set<number>();
@@ -248,6 +300,8 @@ export class TicketActivityService {
           return { ...common, type: data.type, ticket: ticketRef(data.ticket) };
         case "summary_updated":
           return { ...common, type: data.type, source: data.source };
+        case "comment":
+          return toCommentEntry(data.comment, common.actor, commentRights(viewer, project, data.comment));
       }
     });
   }

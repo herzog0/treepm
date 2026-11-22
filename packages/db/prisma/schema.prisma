@@ -66,6 +66,7 @@ model Organization {
   ticketCodeLinks            TicketCodeLink[]
   repositorySyncPages        RepositorySyncPage[]
   accessTokens               AccessToken[]
+  ticketComments             TicketComment[]
   organizationConsents       OrganizationConsent[]
 
   @@map("organizations")
@@ -94,6 +95,8 @@ model Person {
   linkedRepositories     ProjectRepository[]
   editedBranchSummaries  BranchSummary[]
   accessTokens           AccessToken[]
+  commentsWritten        TicketComment[]       @relation("CommentAuthor")
+  commentsRemoved        TicketComment[]       @relation("CommentRemovedBy")
   consentsAccepted       OrganizationConsent[] @relation("ConsentAcceptedBy")
   consentsWithdrawn      OrganizationConsent[] @relation("ConsentWithdrawnBy")
 
@@ -229,6 +232,7 @@ model Ticket {
   codeLinks            TicketCodeLink[]
   relationsFrom        TicketRelation[]     @relation("RelationFrom")
   relationsTo          TicketRelation[]     @relation("RelationTo")
+  comments             TicketComment[]
 
   @@id([orgId, id])
   @@unique([orgId, projectId, id])
@@ -515,4 +519,28 @@ model OrganizationConsent {
   @@id([orgId, id])
   @@index([orgId, kind])
   @@map("organization_consents")
+}
+
+/// Comentário do ticket (ADR 0040). Removido: `removedAt` preenchido e `body` vazio (checks no banco).
+model TicketComment {
+  orgId             String    @map("org_id")
+  id                String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId         String    @map("project_id") @db.Uuid
+  ticketId          String    @map("ticket_id") @db.Uuid
+  authorPersonId    String    @map("author_person_id") @db.Uuid
+  /// 1 a 10.000 caracteres enquanto existe; vazio depois de removido (check no banco)
+  body              String
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  editedAt          DateTime? @map("edited_at") @db.Timestamptz(3)
+  removedAt         DateTime? @map("removed_at") @db.Timestamptz(3)
+  removedByPersonId String?   @map("removed_by_person_id") @db.Uuid
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  ticket       Ticket       @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+  author       Person       @relation("CommentAuthor", fields: [orgId, authorPersonId], references: [orgId, id])
+  removedBy    Person?      @relation("CommentRemovedBy", fields: [orgId, removedByPersonId], references: [orgId, id])
+
+  @@id([orgId, id])
+  @@index([orgId, ticketId, createdAt, id])
+  @@map("ticket_comments")
 }

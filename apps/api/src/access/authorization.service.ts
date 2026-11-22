@@ -4,7 +4,9 @@ import {
   canAssignTicket,
   canAttachTeamToProject,
   canCreateProject,
+  canCommentTicket,
   canCreateTicket,
+  canEditComment,
   canEditTicket,
   canImportTickets,
   canManageAiConsent,
@@ -12,6 +14,7 @@ import {
   canListInstallationRepositories,
   canManageGithubConnection,
   canManageMcpAccess,
+  canRemoveComment,
   canRemoveTicket,
   canCreateTeam,
   canGrantProjectRole,
@@ -106,6 +109,15 @@ export class AuthorizationService {
   }
   editTicket(actor: Actor, projectId: string): void {
     this.require(canEditTicket(actor, projectId));
+  }
+  commentTicket(actor: Actor, projectId: string): void {
+    this.require(canCommentTicket(actor, projectId));
+  }
+  editComment(actor: Actor, projectId: string, authorPersonId: string, personId: string): void {
+    this.require(canEditComment(actor, projectId, authorPersonId, personId));
+  }
+  removeComment(actor: Actor, projectId: string, authorPersonId: string, personId: string): void {
+    this.require(canRemoveComment(actor, projectId, authorPersonId, personId));
   }
   assignTicket(actor: Actor, projectId: string): void {
     this.require(canAssignTicket(actor, projectId));

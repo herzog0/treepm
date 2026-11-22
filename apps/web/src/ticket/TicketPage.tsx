@@ -372,7 +372,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
 
           {githubEnabled(me) && <TicketCode client={client} detail={detail} project={project} />}
 
-          <TicketActivity client={client} ticketId={detail.id} version={activityVersion} onOpenTicket={onOpenTicket} />
+          <TicketActivity client={client} ticketId={detail.id} projectId={detail.projectId} tickets={list} version={activityVersion} onOpenTicket={onOpenTicket} />
         </div>
       </div>
     </>

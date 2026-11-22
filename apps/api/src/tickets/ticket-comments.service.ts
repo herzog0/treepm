@@ -1,0 +1,153 @@
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import type { TenantClient } from "@treepm/db";
+import { canEditComment, canRemoveComment } from "@treepm/domain";
+import type { Actor } from "@treepm/domain";
+import { AuthorizationService } from "../access/authorization.service.js";
+import type { Principal } from "../access/principal.js";
+import { ActivityService } from "../activity/activity.service.js";
+import { parseOutput } from "../common/zod.js";
+import { activityEntrySchema } from "./ticket-activity.schema.js";
+import type { CommentEntry } from "./ticket-activity.schema.js";
+import type { ProjectRow } from "./tickets.service.js";
+
+/** Quem está lendo: a pessoa e os papéis dela na transação atual. */
+export type Viewer = { personId: string; actor: Actor };
+type Author = { id: string; displayName: string; avatarUrl: string | null };
+type CommentRow = {
+  id: string;
+  authorPersonId: string;
+  body: string;
+  createdAt: Date;
+  editedAt: Date | null;
+  removedAt: Date | null;
+};
+
+/** `canEdit` e `canRemove` de um comentário para quem lê: comentário removido e projeto arquivado não têm ação. */
+export function commentRights(viewer: Viewer, project: Pick<ProjectRow, "id" | "archivedAt">, comment: Pick<CommentRow, "authorPersonId" | "removedAt">): { canEdit: boolean; canRemove: boolean } {
+  const open = comment.removedAt === null && project.archivedAt === null;
+  return {
+    canEdit: open && canEditComment(viewer.actor, project.id, comment.authorPersonId, viewer.personId),
+    canRemove: open && canRemoveComment(viewer.actor, project.id, comment.authorPersonId, viewer.personId),
+  };
+}
+
+/** A entrada de atividade de um comentário; o corpo de um removido nunca sai. */
+export function toCommentEntry(row: CommentRow, author: Author | null, rights: { canEdit: boolean; canRemove: boolean }): CommentEntry {
+  const removed = row.removedAt !== null;
+  return {
+    id: row.id,
+    type: "comment",
+    occurredAt: row.createdAt.toISOString(),
+    actor: author,
+    body: removed ? null : row.body,
+    editedAt: row.editedAt ? row.editedAt.toISOString() : null,
+    removed,
+    ...rights,
+  };
+}
+
+const select = { id: true, authorPersonId: true, body: true, createdAt: true, editedAt: true, removedAt: true } as const;
+
+/**
+ * Comentar, editar e remover (ADR 0040, fatia 2). O corpo nunca vai para o evento de atividade nem para o log.
+ * Nada aqui grava em `ticket_relations`: a ligação "menciona" é derivada só da descrição (ADR 0037).
+ */
+@Injectable()
+export class TicketCommentsService {
+  constructor(
+    @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
+    @Inject(ActivityService) private readonly activity: ActivityService,
+  ) {}
+
+  async add(tx: TenantClient, principal: Principal, ticketId: string, body: string): Promise<CommentEntry> {
+    const { project, ticket } = await this.visibleTicket(tx, principal.actor, ticketId);
+    this.authorization.commentTicket(principal.actor, project.id);
+    this.requireActive(project);
+    const row = await tx.ticketComment.create({
+      data: { orgId: project.orgId, projectId: project.id, ticketId, authorPersonId: principal.person.id, body },
+      select,
+    });
+    await this.activity.record(tx, principal, {
+      kind: "ticket.comment_added",
+      subjectType: "ticket",
+      subjectId: ticketId,
+      payload: { key: `${project.key}-${ticket.number}`, commentId: row.id },
+    });
+    return this.entry(principal, project, row);
+  }
+
+  async edit(tx: TenantClient, principal: Principal, commentId: string, body: string): Promise<CommentEntry> {
+    const { project, ticket, comment } = await this.visibleComment(tx, principal.actor, commentId);
+    this.authorization.editComment(principal.actor, project.id, comment.authorPersonId, principal.person.id);
+    this.requireActive(project);
+    if (comment.removedAt !== null) throw this.removed();
+    if (comment.body === body) return this.entry(principal, project, comment);
+    // A guarda `removedAt: null` fecha a corrida com uma remoção concorrente: se perdeu, nada é gravado.
+    const editedAt = new Date();
+    const changed = await tx.ticketComment.updateMany({ where: { id: commentId, removedAt: null }, data: { body, editedAt } });
+    if (changed.count === 0) throw this.removed();
+    await this.activity.record(tx, principal, {
+      kind: "ticket.comment_edited",
+      subjectType: "ticket",
+      subjectId: ticket.id,
+      payload: { key: `${project.key}-${ticket.number}`, commentId },
+    });
+    return this.entry(principal, project, { ...comment, body, editedAt });
+  }
+
+  async remove(tx: TenantClient, principal: Principal, commentId: string): Promise<void> {
+    const { project, ticket, comment } = await this.visibleComment(tx, principal.actor, commentId);
+    this.authorization.removeComment(principal.actor, project.id, comment.authorPersonId, principal.person.id);
+    this.requireActive(project);
+    if (comment.removedAt !== null) return;
+    // O corpo some na mesma gravação (o banco exige: removido implica corpo vazio). Repetir é inócuo: só quem
+    // ganha a corrida (`removedAt: null`) grava o evento.
+    const gone = await tx.ticketComment.updateMany({
+      where: { id: commentId, removedAt: null },
+      data: { body: "", removedAt: new Date(), removedByPersonId: principal.person.id },
+    });
+    if (gone.count === 0) return;
+    await this.activity.record(tx, principal, {
+      kind: "ticket.comment_removed",
+      subjectType: "ticket",
+      subjectId: ticket.id,
+      payload: { key: `${project.key}-${ticket.number}`, commentId },
+    });
+  }
+
+  private entry(principal: Principal, project: ProjectRow, row: CommentRow): CommentEntry {
+    const author = { id: principal.person.id, displayName: principal.person.displayName, avatarUrl: principal.person.avatarUrl };
+    const viewer = { personId: principal.person.id, actor: principal.actor };
+    return parseOutput(activityEntrySchema, toCommentEntry(row, author, commentRights(viewer, project, row))) as CommentEntry;
+  }
+
+  /** Inexistente, de outra organização (RLS) ou de projeto privado sem papel: todos viram o mesmo 404. */
+  private async visibleTicket(tx: TenantClient, actor: Actor, id: string) {
+    const ticket = await tx.ticket.findFirst({ where: { id }, select: { id: true, projectId: true, number: true } });
+    if (!ticket) throw new NotFoundException("Ticket não encontrado.");
+    const project = await tx.project.findFirst({ where: { id: ticket.projectId } });
+    if (!project || !this.authorization.canView(actor, project)) throw new NotFoundException("Ticket não encontrado.");
+    return { project, ticket };
+  }
+
+  private async visibleComment(tx: TenantClient, actor: Actor, id: string) {
+    const comment = await tx.ticketComment.findFirst({ where: { id }, select: { ...select, ticketId: true } });
+    if (!comment) throw new NotFoundException("Comentário não encontrado.");
+    try {
+      const { project, ticket } = await this.visibleTicket(tx, actor, comment.ticketId);
+      return { project, ticket, comment };
+    } catch {
+      throw new NotFoundException("Comentário não encontrado.");
+    }
+  }
+
+  private requireActive(project: ProjectRow): void {
+    if (project.archivedAt) {
+      throw new ConflictException({ code: "project_archived", message: "Projeto arquivado é somente leitura." });
+    }
+  }
+
+  private removed(): ConflictException {
+    return new ConflictException({ code: "comment_removed", message: "O comentário foi removido." });
+  }
+}

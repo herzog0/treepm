@@ -178,6 +178,23 @@
     "summaryByPerson_noActor": "«{{section}}» editado",
     "summaryByAssistant_noActor": "«{{section}}» fue actualizado por la IA",
     "summaryByAssistant": "<who>{{actor}}</who> pidió a la IA actualizar «{{section}}»",
-    "retry": "Intentar de nuevo"
+    "retry": "Intentar de nuevo",
+    "comment": {
+      "edited": "editado",
+      "removed": "Comentario eliminado",
+      "edit": "Editar",
+      "remove": "Eliminar",
+      "removeWarning": "El texto del comentario se borrará y esto no se puede deshacer.",
+      "editField": "Editar comentario",
+      "save": "Guardar",
+      "cancel": "Cancelar",
+      "field": "Nuevo comentario",
+      "placeholder": "Escribe un comentario",
+      "send": "Comentar",
+      "sending": "Enviando…",
+      "hint": "Ctrl+Enter para comentar",
+      "by": "Comentario de {{name}}",
+      "gone": "comentario eliminado"
+    }
   }
 }

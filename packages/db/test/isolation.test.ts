@@ -101,6 +101,14 @@ const TABLES: TableSpec[] = [
     appCanUpdateAndDelete: true,
   },
   {
+    table: "ticket_comments",
+    insert:
+      "insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body) values ($1, gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'x')",
+    update: "update ticket_comments set body = 'hacked' where org_id = $1",
+    remove: "delete from ticket_comments where org_id = $1",
+    appCanUpdateAndDelete: false,
+  },
+  {
     table: "access_tokens",
     insert:
       "insert into access_tokens (org_id, person_id, project_id, name, token_prefix, token_hash, expires_at) values ($1, gen_random_uuid(), gen_random_uuid(), 'x', 'abcd1234', md5(random()::text), now())",
@@ -202,6 +210,11 @@ beforeAll(async () => {
     await owner.query(
       "insert into organization_consents (org_id, kind, document_version, accepted_by_person_id) values ($1, 'assistant', 'rascunho-1', $2)",
       [orgId, ids.person],
+    );
+    // Um comentário por organização, para a tabela ticket_comments ter linhas a isolar.
+    await owner.query(
+      "insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body) values ($1, $2, $3, $4, 'Comentário')",
+      [orgId, ids.project, ids.ticket, ids.person],
     );
     // Um token por organização, para a tabela access_tokens ter linhas a isolar.
     await owner.query(

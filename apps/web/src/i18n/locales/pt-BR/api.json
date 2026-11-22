@@ -21,7 +21,8 @@
       "repository_already_linked": "Este repositório já está ligado.",
       "repository_not_found": "O app não tem acesso a este repositório.",
       "person_without_project_access": "A pessoa ainda não tem acesso ao projeto. Conceda um papel no projeto antes de atribuir.",
-      "assistant_consent_required": "A IA está desligada nesta organização. Um administrador precisa ativá-la em Configurações. Crie o ticket manualmente."
+      "assistant_consent_required": "A IA está desligada nesta organização. Um administrador precisa ativá-la em Configurações. Crie o ticket manualmente.",
+      "comment_removed": "Este comentário já foi removido."
     },
     "kind": {
       "unauthenticated": "Sua sessão expirou. Entre novamente.",
