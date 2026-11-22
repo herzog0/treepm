@@ -21,7 +21,7 @@ const target = { parentId: ID, path: [{ id: ID, title: "Ramo" }] };
 const outcome = { destination: target, alternatives: [], discarded: [], uncertain: false, stoppedEarly: null, scope: null, groupProposal: null, groupProposalSkipped: null };
 const ticketDetail = {
   id: ID, projectId: OTHER, number: 1, key: "K-1", parentId: null, title: "T", status: "todo", progress: null,
-  assigneeIds: [], descriptionExcerpt: "", description: "", mentionedBy: [], createdByPersonId: OTHER, createdAt: "x", updatedAt: "y",
+  assigneeIds: [], descriptionExcerpt: "", description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: OTHER, createdAt: "x", updatedAt: "y",
 };
 
 function setup(body: unknown = {}, status = 200) {

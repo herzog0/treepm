@@ -13,7 +13,7 @@ import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
 import { CreateTicket } from "./CreateTicket.js";
 import { ItemsSummary } from "./ItemsSummary.js";
-import { DescriptionField, ParentField, PeopleField, StatusField, StatusValue, TitleField } from "./fields.js";
+import { DependsOnField, DescriptionField, ParentField, PeopleField, StatusField, StatusValue, TitleField } from "./fields.js";
 import { ActionsMenu } from "./menu.js";
 import { ancestorsOf } from "./tree.js";
 import { ticketHref } from "../nav/navigation.js";
@@ -319,30 +319,19 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
                 <ParentField client={client} detail={detail} parent={parent} tickets={list} canEdit={canEdit} onOpen={onOpenTicket} onSaved={refresh} />
               </dd>
             </div>
+            {(canEdit || detail.dependsOn.length > 0) && (
+              <div className="ticket-row">
+                <dt>{t("fields.dependsOn")}</dt>
+                <dd>
+                  <DependsOnField client={client} detail={detail} tickets={list} canEdit={canEdit} onOpen={onOpenTicket} onSaved={refresh} />
+                </dd>
+              </div>
+            )}
           </dl>
           <DescriptionField client={client} detail={detail} canEdit={canEdit} assistant={assistantEnabled(me)} tickets={list} onOpenTicket={onOpenTicket} onSaved={refresh} />
 
-          {detail.mentionedBy.length > 0 && (
-            <section className="ticket-section" aria-labelledby="ticket-mentioned-by-heading">
-              <div className="ticket-section-head">
-                <h2 id="ticket-mentioned-by-heading">{t("mentionedBy.heading")}</h2>
-              </div>
-              <ul className="ticket-children" aria-labelledby="ticket-mentioned-by-heading">
-                {detail.mentionedBy.map((from) => (
-                  <li key={from.id}>
-                    <button type="button" className="ticket-child" onClick={() => onOpenTicket(from.id)}>
-                      <span className="ticket-child-main">
-                        <TicketMark ticket={{ status: from.status, progress: null }} />
-                        <span className="ticket-key">{from.key}</span>
-                        <span className="ticket-child-title">{from.title}</span>
-                      </span>
-                      <span className="ticket-child-state">{statusText(tMap, from.status)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+          <LinkedTickets id="ticket-mentioned-by" heading={t("mentionedBy.heading")} links={detail.mentionedBy} onOpen={onOpenTicket} />
+          <LinkedTickets id="ticket-blocking" heading={t("blocking.heading")} links={detail.blocks} onOpen={onOpenTicket} />
 
           {children.length > 0 && assistantEnabled(me) && <ItemsSummary client={client} ticketId={detail.id} canEdit={canEdit} />}
 
@@ -381,6 +370,33 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
         </div>
       </div>
     </>
+  );
+}
+
+/** Lista de tickets ligados a este (“Mencionado em”, “Bloqueia”): some quando vazia. */
+function LinkedTickets({ id, heading, links, onOpen }: { id: string; heading: string; links: TicketDetail["mentionedBy"]; onOpen: (id: string) => void }) {
+  const { t: tMap } = useTranslation("map");
+  if (links.length === 0) return null;
+  return (
+    <section className="ticket-section" aria-labelledby={`${id}-heading`}>
+      <div className="ticket-section-head">
+        <h2 id={`${id}-heading`}>{heading}</h2>
+      </div>
+      <ul className="ticket-children" aria-labelledby={`${id}-heading`}>
+        {links.map((from) => (
+          <li key={from.id}>
+            <button type="button" className="ticket-child" onClick={() => onOpen(from.id)}>
+              <span className="ticket-child-main">
+                <TicketMark ticket={{ status: from.status, progress: null }} />
+                <span className="ticket-key">{from.key}</span>
+                <span className="ticket-child-title">{from.title}</span>
+              </span>
+              <span className="ticket-child-state">{statusText(tMap, from.status)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

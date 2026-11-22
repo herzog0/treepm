@@ -87,9 +87,18 @@ export const ticketSummarySchema = z.object({
 /** Ticket que menciona outro na descrição (ADR 0037), para a seção "Mencionado em". */
 export const mentionedBySchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatusSchema });
 
+/** Ticket do outro lado de uma ligação "depende de" (ADR 0037); mesmo formato de `mentionedBy`. */
+export const dependencyLinkSchema = mentionedBySchema;
+
+export const addDependencySchema = z.object({ ticketId: idSchema });
+
 export const ticketDetailSchema = ticketSummarySchema.extend({
   description: z.string(),
   mentionedBy: z.array(mentionedBySchema),
+  /** Tickets de que este depende, em ordem de número. */
+  dependsOn: z.array(dependencyLinkSchema),
+  /** Tickets que dependem deste, em ordem de número. */
+  blocks: z.array(dependencyLinkSchema),
   createdByPersonId: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),

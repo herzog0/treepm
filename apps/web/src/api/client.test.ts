@@ -41,6 +41,8 @@ const ticketDetail = {
   ...ticketSummary,
   description: "Texto",
   mentionedBy: [{ id: "m1", key: "ALFA-2", title: "Cita", status: "todo" }],
+  dependsOn: [{ id: "d1", key: "ALFA-3", title: "Antes", status: "done" }],
+  blocks: [{ id: "b1", key: "ALFA-4", title: "Depois", status: "todo" }],
   createdByPersonId: OTHER,
   createdAt: "2026-11-19T10:00:00.000Z",
   updatedAt: "2026-11-19T10:00:00.000Z",
@@ -93,6 +95,8 @@ const cases: Case[] = [
   { name: "removeTicket", call: (c) => c.removeTicket(ID), method: "DELETE", path: `/api/tickets/${ID}`, status: 204 },
   { name: "putTicketAssignee", call: (c) => c.putTicketAssignee(ID, OTHER), method: "PUT", path: `/api/tickets/${ID}/assignees/${OTHER}`, response: ticketDetail },
   { name: "removeTicketAssignee", call: (c) => c.removeTicketAssignee(ID, OTHER), method: "DELETE", path: `/api/tickets/${ID}/assignees/${OTHER}`, status: 204 },
+  { name: "addTicketDependency", call: (c) => c.addTicketDependency(ID, OTHER), method: "POST", path: `/api/tickets/${ID}/dependencies`, body: { ticketId: OTHER }, response: ticketDetail },
+  { name: "removeTicketDependency", call: (c) => c.removeTicketDependency(ID, OTHER), method: "DELETE", path: `/api/tickets/${ID}/dependencies/${OTHER}`, status: 204 },
   { name: "importTickets", call: (c) => c.importTickets(ID, { items: [{ title: "A", children: [{ title: "B", status: "done" }] }] }), method: "POST", path: `/api/projects/${ID}/tickets/import`, body: { items: [{ title: "A", children: [{ title: "B", status: "done" }] }] }, status: 201, response: [ticketSummary] },
 ];
 

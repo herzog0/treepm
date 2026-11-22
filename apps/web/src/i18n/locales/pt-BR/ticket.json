@@ -23,7 +23,8 @@
     "status": "Situação",
     "progress": "Progresso",
     "people": "Pessoas",
-    "parent": "Ticket pai"
+    "parent": "Ticket pai",
+    "dependsOn": "Depende de"
   },
   "create": {
     "heading": "Novo ticket",
@@ -123,5 +124,17 @@
     "discard": "Descartar",
     "error": "O assistente não está disponível agora.",
     "retry": "Tentar de novo"
+  },
+  "dependsOn": {
+    "add": "Adicionar",
+    "addLabel": "Adicionar dependência",
+    "remove": "Remover dependência {{key}}",
+    "pickerLabel": "Escolha o ticket de que este depende",
+    "filter": "Buscar ticket",
+    "none": "Nenhum ticket encontrado",
+    "cycle": "Isso fecharia um ciclo: “{{key}}” já depende deste ticket"
+  },
+  "blocking": {
+    "heading": "Bloqueia"
   }
 }

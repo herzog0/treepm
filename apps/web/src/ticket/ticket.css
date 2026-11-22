@@ -69,6 +69,10 @@
 .ticket-page .ticket-dashed { color: var(--tp-text-3); }
 .ticket-parent { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-height: 30px; }
 .ticket-parent > span:not([class]) { padding: 0 8px; }
+.ticket-deps { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 30px; }
+.ticket-dep { display: inline-flex; align-items: center; max-width: 100%; }
+.ticket-dep .ticket-chip-button { min-width: 0; }
+.ticket-page .ticket-dep .ticket-person-remove { flex: none; }
 .ticket-chip-button .ticket-key { color: var(--tp-text-3); font-size: 11px; }
 .ticket-child-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ticket-picker { display: grid; gap: 6px; margin-top: 8px; padding: 8px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-field); background: var(--tp-card); }

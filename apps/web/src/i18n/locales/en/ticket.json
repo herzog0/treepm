@@ -23,7 +23,8 @@
     "status": "Status",
     "progress": "Progress",
     "people": "People",
-    "parent": "Parent ticket"
+    "parent": "Parent ticket",
+    "dependsOn": "Depends on"
   },
   "create": {
     "heading": "New ticket",
@@ -123,5 +124,17 @@
     "discard": "Discard",
     "error": "The assistant isn't available right now.",
     "retry": "Try again"
+  },
+  "dependsOn": {
+    "add": "Add",
+    "addLabel": "Add dependency",
+    "remove": "Remove dependency {{key}}",
+    "pickerLabel": "Choose the ticket this one depends on",
+    "filter": "Search tickets",
+    "none": "No tickets found",
+    "cycle": "This would close a cycle: “{{key}}” already depends on this ticket"
+  },
+  "blocking": {
+    "heading": "Blocks"
   }
 }

@@ -40,6 +40,8 @@ describe("criação e leitura", () => {
       assigneeIds: [],
       description: "",
       mentionedBy: [],
+      dependsOn: [],
+      blocks: [],
       descriptionExcerpt: "",
       createdByPersonId: h.world().people.admin,
       createdAt: expect.any(String),
