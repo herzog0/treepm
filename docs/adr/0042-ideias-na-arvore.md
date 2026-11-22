@@ -140,3 +140,19 @@ Uma coluna opcional em `tickets` para o estágio, com as quatro opções. Nenhum
 5. **A situação congelada** dentro de uma ideia: está certo, ou filhos de uma ideia podem andar antes do aceite?
 6. **IA:** as ideias aparecem na pergunta sobre o projeto e no MCP marcadas como ideias, como proposto?
 7. **`docs/ideas.yaml`:** migrar e remover o arquivo?
+
+## Como ficaram as fatias 1 e 2 (PRs #136 e #137, 2026-11-22)
+
+- **Banco:** `tickets.idea_stage` (migration `0018`), com check das quatro opções, check de que estágio preenchido exige situação `a fazer`, e índice parcial para listar as ideias de um projeto.
+- **Domínio:** `ideaRootOf` e as cinco regras de "Fora do processo" como funções puras. O "ticket da vez" só existe no domínio; a API não o calcula.
+- **Rotas:** criar ticket com `idea: true`; `PUT /api/tickets/:id/idea-stage`; `POST /api/tickets/:id/idea/accept` e `/discard` (gestor); `POST /api/tickets/:id/idea` (transformar em ideia); `GET /api/projects/:projectId/ideas`. Códigos de recusa: `ticket_in_idea`, `ticket_not_idea_root`, `idea_stage_transition`, `idea_discarded`, `ticket_already_idea`, `idea_has_work` e `move_into_idea_blocked`.
+- **Leitura:** resumo e detalhe trazem `idea` (`null`, `{ root: true, stage }` ou `{ root: false, rootId, rootKey }`); `progress` ganhou `ideas`, que conta todas as raízes de ideia abaixo do ticket, em qualquer nível; o detalhe traz `canTriageIdea`.
+- **Cancelado:** um descendente cancelado continua cancelado ao virar parte de uma ideia e depois do aceite. Diferente do que a seção "Triagem" dizia ("todos a fazer"): o aceite não mexe em situação nenhuma.
+- **Mover para dentro de uma ideia** só é aceito se o ticket e os descendentes estiverem `a fazer` ou cancelados. A subárvore não é travada durante essa conferência; é um risco residual pequeno, conhecido.
+- **Registrar** uma ideia grava dois eventos (ticket criado e ideia registrada), e o histórico mostra as duas entradas.
+- **Camada de consulta e MCP:** aceitam o número `ideas` no progresso e o calculam como a API de tickets. Nada mais mudou para a IA: as ideias ainda aparecem para ela como tickets `a fazer` no resumo por situação, e a procura ainda as considera candidatas. Isso é a fatia 5 (`TREEPM-108`).
+- **Mapa:** a cor é aplicada em `buildMapItems` e a mistura em `paintBranches` (`apps/web/src/map/items.ts`). Ideia descartada usa a cor de ideia misturada meio a meio com o fundo. Um teste de instantâneo, gravado no código de antes, garante que uma árvore sem ideias é desenhada igual. O texto "Ideia · estágio" aparece no nível de detalhe "completo"; chip e compacto mostram só o quadrado, como já era.
+- **Página do ticket:** "Mais ações" passou a aparecer também para colaborador, por causa de "Transformar em ideia"; "Remover ticket" continua só para quem já podia.
+- **Linha de comando:** `ticket-create --idea` e `ticket-update --idea-stage`; `ticket-list` marca a raiz e os tickets de dentro. Aceitar e descartar ficaram fora, de propósito.
+- **As ideias de `docs/ideas.yaml`** foram levadas ao projeto `TREEPM` em 2026-11-22 (`TREEPM-110` a `TREEPM-176`): dez ideias com 57 subitens. Dez entradas do arquivo já estavam implementadas e duas já eram tickets; ficaram de fora. O arquivo não foi alterado (`TREEPM-177`).
+- **Não foi exercitado** com sessão real no navegador (`TREEPM-179`).

@@ -99,3 +99,7 @@ As mesmas da ADR 0024, aplicadas pela API e refletidas na página:
 - A página guarda o ticket aberto na URL, o primeiro estado do mapa que vai para o endereço. A câmera continua fora da URL.
 - A seção de atividade aprovada no quadro fica sem implementação até existir a rota de eventos.
 - Sem controle de versão na edição, uma gravação pode sobrescrever outra feita ao mesmo tempo. Fica registrado como limite deste recorte.
+
+## Alteração de 2026-11-22: o clique abre o ticket
+
+Teodoro pediu em 2026-11-22: "remove aquele passo intermediário ao clicar em um ticket. sempre abrir o ticket direto, sem o 'explorar ramo'". Um clique num ticket passa a abrir a página do ticket, e o cartão de seleção com "Explorar ramo" e "Abrir" deixa de aparecer para tickets. Isto substitui o "Gesto que abre o ticket" desta ADR (o clique que só selecionava, o segundo clique e o botão "Abrir"). Arrastar continua sendo pan, e o clique em organização e projeto não muda. Em implementação no `TREEPM-180`.
