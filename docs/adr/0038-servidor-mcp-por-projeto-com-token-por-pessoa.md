@@ -1,6 +1,6 @@
 # ADR 0038 — Servidor MCP por projeto, com token por pessoa
 
-**Status:** Aceita por Teodoro em 2026-11-21 quanto ao objetivo ("Mcp com token por pessoa tbm"). O desenho abaixo é escolha da coordenação e vale até ele dizer o contrário. A fatia dos tokens foi implementada em 2026-11-21 (PR #113, migration `0012_access_tokens`); o endereço MCP e as telas ainda não. O código depende da camada de consulta da [ADR 0037](0037-relacoes-entre-tickets-e-camada-de-consulta.md) (`TREEPM-77`). **Data:** 2026-11-21.
+**Status:** Aceita por Teodoro em 2026-11-21 quanto ao objetivo ("Mcp com token por pessoa tbm"). O desenho abaixo é escolha da coordenação e vale até ele dizer o contrário. A fatia dos tokens foi implementada em 2026-11-21 (PR #113, migration `0012_access_tokens`); o endereço MCP e as telas em 2026-11-22 (PRs #118 e #117). Não foi exercitado com um cliente MCP de verdade nem com o Clerk real. O código depende da camada de consulta da [ADR 0037](0037-relacoes-entre-tickets-e-camada-de-consulta.md) (`TREEPM-77`). **Data:** 2026-11-21.
 
 ## Contexto
 
@@ -25,7 +25,7 @@ O que existe hoje na API e pesa aqui:
 - **Um endereço por projeto:** `POST /api/mcp/<chave do projeto>`. As ferramentas não recebem projeto: o endereço já diz qual é.
 - **Só leitura.** As ferramentas são as quatro operações da camada de consulta (buscar, ler ticket, listar, resumo do projeto), marcadas como somente leitura. Nenhuma ferramenta altera dados.
 - **O que devolve:** título, descrição, situação, chave real do ticket, pai, filhos e ligações. **Não devolve dado de pessoa** (responsáveis, autor) nem histórico nesta primeira versão.
-- **Tamanho:** as listas têm o teto da camada de consulta e dizem quando foram cortadas; nenhuma resposta passa de 25.000 tokens estimados, que é o limite padrão do Claude Code.
+- **Tamanho:** as listas têm o teto da camada de consulta e dizem quando foram cortadas; o resultado de uma ferramenta é cortado em 80.000 caracteres de JSON, perto do limite padrão de 25.000 tokens do Claude Code. *(A primeira redação falava em tokens; a implementação mede caracteres.)*
 
 Aqui o limite da ADR 0037 para a Anthropic não se aplica por si: o cliente é da própria pessoa e pode usar qualquer modelo. Por isso há a chave da organização, abaixo.
 
@@ -111,3 +111,33 @@ As duas ficam no `TREEPM-78`, com um filho por fatia quando começarem.
 - A montagem da identidade virou um serviço comum à sessão e ao token; o caminho da sessão passou a ler `mcp_enabled`, e por isso a migration precisa estar aplicada antes do código.
 - Uma revisão de segurança independente não achou falha grave; o que ela apontou entrou antes do merge, menos o limite por IP antes da autenticação, que é da fatia do endereço.
 - Suítes: domain 243, db 200, api 1.442. O Clerk não foi chamado de verdade.
+
+## Como ficou na implementação (fatia 2, endereço e telas)
+
+**O endereço (PR #118)**
+
+- `POST /api/mcp/<chave do projeto>`, montado antes do leitor de corpo da API e fora da guarda de sessão. `GET` e `DELETE` respondem 405.
+- **Biblioteca:** `@modelcontextprotocol/server` 2.4.0, conferida no pacote instalado e na especificação de 2026-07-28. Atende a revisão atual em JSON e os clientes da geração anterior, cuja resposta sai como fluxo de uma mensagem só.
+- **Ferramentas:** `search_tickets`, `get_ticket`, `list_tickets` e `get_project_overview`, com nomes e descrições em inglês e marcadas como somente leitura. Devolvem a chave real; um teste varre todas as respostas atrás de id, pessoa e data.
+- **Ordem de cada requisição:** limite por IP; caminho e método; `Origin`; corpo de até 64 KB; só objeto JSON; recusa de fluxos abertos; token; ferramenta.
+- **Erro de ferramenta:** a mensagem do SDK é trocada por uma frase curta, por um ponto de extensão que não é público na biblioteca. A versão é fixada, e um teste falha se a troca deixar de valer.
+
+**O que a revisão de segurança mudou**
+
+Uma revisão independente reproduziu dois defeitos contra o código real, corrigidos antes do merge:
+
+- **Lote:** um corpo com 100 mensagens passava por uma única conta do limite por token. Agora só objeto JSON é aceito.
+- **Fluxo aberto:** um corpo com BOM contornava a recusa e deixava uma conexão pendurada. O corpo passou a ser interpretado uma vez só, e toda requisição tem prazo de 30 segundos com cancelamento.
+- **IP atrás do proxy:** sem ajuste, todos os clientes dividiriam um limite só. O IP vem de um cabeçalho configurável (`CLIENT_IP_HEADER`), com IPv6 agrupado por /64. A documentação da Fly não diz que o proxy sobrescreve `Fly-Client-IP`; `docs/deploy.md` tem a conferência a fazer depois do primeiro deploy.
+- **Proteção que não depende do IP:** no máximo quatro consultas de token ao mesmo tempo, com fila de 16.
+- **Log:** só o id do registro do token, o método, a ferramenta, o tempo e o tamanho; texto vindo do cliente é limpo de caracteres de controle, e erros internos entram só pela classe.
+
+**As telas (PR #117)**
+
+- Ficaram em **Configurações**, na seção "Clientes de IA (MCP)", e não na página de cada projeto como esta ADR previa: a chave da organização, os próprios tokens e os da organização ficam juntos.
+- O token novo aparece uma vez, com a configuração pronta para Claude Code, Cursor e Codex, e some ao fechar o painel.
+- Na lista, o token aparece por um trecho de 8 caracteres do meio dele.
+
+**Memória.** Com o banco em uso, o processo fica perto de 200 MiB; a máquina de produção passou de 256 para 512 MB.
+
+Suítes: domain 243, db 200, api 1.524, web 1.430 e 85 na suíte de navegador.
