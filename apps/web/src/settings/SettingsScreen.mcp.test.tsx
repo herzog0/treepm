@@ -49,7 +49,7 @@ describe("Configurações › Clientes de IA (MCP): a chave", () => {
     const { client } = setup({ me: makeMe({ mcp: false }) });
     const toggle = within(section()).getByRole("switch", { name: "Permitir acesso por MCP" });
     expect(toggle).not.toBeChecked();
-    expect(within(section()).getByText(/só para leitura/)).toBeInTheDocument();
+    expect(within(section()).getByText(/só de leitura/)).toBeInTheDocument();
     expect(within(section()).queryByRole("heading", { name: "Seus tokens" })).not.toBeInTheDocument();
     expect(within(section()).queryByRole("button", { name: "Criar token" })).not.toBeInTheDocument();
     expect(client.listAccessTokens).not.toHaveBeenCalled();

@@ -168,3 +168,9 @@ button.ticket-comment-area:hover { border-color: var(--tp-border-strong, var(--t
 /* Linha "Ideia" da raiz de uma ideia (ADR 0042): o menu do estágio e os botões de triagem, lado a lado. */
 .ticket-idea-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
 .ticket-page .ticket-idea-row .confirm-action { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+/* Marcador de trabalho pela IA (ADR 0043) e etiqueta "pelo MCP". */
+.ticket-agent-work .ticket-value { flex-wrap: wrap; gap: 6px 10px; }
+.ticket-agent-work-by { font-weight: 500; }
+.ticket-agent-work-note { color: var(--tp-text-2); }
+.ticket-via { margin-left: 6px; padding: 0 6px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); color: var(--tp-text-2); font-size: 11px; font-weight: 400; line-height: 16px; white-space: nowrap; }

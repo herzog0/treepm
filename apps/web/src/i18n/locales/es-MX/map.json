@@ -26,6 +26,7 @@
     "organization_many": "{{label}}. Organización con {{count}} proyectos.",
     "organization_other": "{{label}}. Organización con {{count}} proyectos.",
     "ticket": "{{label}}. Ticket.",
+    "ticketWorking": "{{label}}. Ticket. En trabajo por la IA.",
     "project": "{{label}}. Proyecto.",
     "draft": "Borrador de ticket: {{label}}. Aún no creado."
   },
@@ -86,5 +87,8 @@
     "count_one": "{{count}} idea",
     "count_many": "{{count}} ideas",
     "count_other": "{{count}} ideas"
+  },
+  "agentWork": {
+    "label": "En trabajo por la IA"
   }
 }

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { ActivityComment, ApiClient, ApiError } from "../api/client.js";
+import type { ActivityComment, ActivityEntry, ApiClient, ApiError } from "../api/client.js";
 import { useDescribeApiError } from "../api/errorText.js";
 import { formatActivityTime, formatDateTime } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
@@ -30,6 +30,12 @@ export function Avatar({ person }: { person: { displayName: string; avatarUrl: s
  * lido pelo mesmo componente da descrição, só para leitura. `onOpenArea` liga a etiqueta de área (só na Atividade); sem ele
  * a etiqueta não aparece.
  */
+/** A etiqueta "pelo MCP" (ADR 0043): o que um agente fez nunca se confunde com o que a pessoa fez à mão. */
+export function ViaMcp({ via }: { via: ActivityEntry["via"] }) {
+  const { t } = useTranslation("ticket");
+  return via === "mcp" ? <span className="ticket-via" title={t("activity.viaTitle")}>{t("activity.via")}</span> : null;
+}
+
 export function CommentItem({ client, entry, mentions, language, now, onChange, onOpenArea }: { client: ApiClient; entry: ActivityComment; mentions: MentionContext; language: Language; now: Date; onChange: (entry: ActivityComment) => void; onOpenArea?: (contributionId: string) => void }) {
   const { t } = useTranslation("ticket");
   const action = useAction();
@@ -67,6 +73,7 @@ export function CommentItem({ client, entry, mentions, language, now, onChange, 
       <div className="ticket-comment-main">
         <div className="ticket-comment-head">
           <span className="ticket-comment-author">{name}</span>
+          <ViaMcp via={entry.via} />
           {area &&
             (area.id !== null ? (
               <button type="button" className="ticket-comment-area" aria-label={t("activity.comment.openArea", { area: area.name })} onClick={() => onOpenArea?.(area.id as string)}>{area.name}</button>

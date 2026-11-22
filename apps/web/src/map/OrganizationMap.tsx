@@ -1,7 +1,7 @@
 import { SpatialCanvasView, useSpatialCanvas } from "@treepm/react";
 import type { SpatialCanvasLabels, SpatialNodeContent } from "@treepm/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ApiClient, ApiResult, Me, Person, Project, TicketSummary } from "../api/client.js";
+import type { ApiClient, Me, Person, Project, TicketSummary } from "../api/client.js";
 import { useTranslation } from "react-i18next";
 import { useApiResource } from "../api/useApiResource.js";
 import { CommandBar } from "../command/CommandBar.js";
@@ -16,6 +16,10 @@ import { ticketFocus } from "../ticket/focus.js";
 import { TicketPage } from "../ticket/TicketPage.js";
 import type { CreateRequest } from "../ticket/TicketPage.js";
 import type { PanelTab } from "../panel/SidePanel.js";
+import { isAgentWorkActive, useAgentWorkClock } from "./agentWork.js";
+import { loadMapData, mergeMapData } from "./mapData.js";
+import type { MapData } from "./mapData.js";
+import { useAutoRefresh } from "./useAutoRefresh.js";
 import { MapDetailProvider, buildDetailData, createMapScaleStore } from "./detail.js";
 import { DRAFT_NODE_ID, buildMapItems, mixMapColors } from "./items.js";
 import type { MapDraft } from "./items.js";
@@ -26,6 +30,7 @@ import "@treepm/react/styles.css";
 import "../demo/Demo.css";
 import "./map.css";
 import "./status-mark.css";
+import "./agent-work.css";
 import "../assistant/assistant.css";
 
 const getLabel = (node: MapNode) => node.label;
@@ -89,16 +94,19 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     () => ({ canvas: t("canvas.label"), toolbar: t("canvas.toolbar"), zoomOut: t("canvas.zoomOut"), reset: t("canvas.reset"), zoomIn: t("canvas.zoomIn"), colors: t("canvas.colors") }),
     [t],
   );
+  // O rótulo do nó diz "em trabalho pela IA" enquanto o marcador vale (ADR 0043) e deixa de dizer quando ele vence.
+  const untils = useMemo(() => Object.values(ticketsByProject).flatMap((list) => list.map((ticket) => ticket.agentWork?.until)), [ticketsByProject]);
+  const clock = useAgentWorkClock(untils);
   const getNodeAriaLabel = useCallback(
     ({ node, childCount }: SpatialNodeContent<MapNode>) =>
       node.kind === "organization"
         ? t("node.organization", { label: node.label, count: childCount })
         : node.kind === "ticket"
-          ? t("node.ticket", { label: describeNode(node) })
+          ? t(isAgentWorkActive(node.ticket?.agentWork, clock) ? "node.ticketWorking" : "node.ticket", { label: describeNode(node) })
           : node.kind === "draft"
             ? t("node.draft", { label: node.label })
             : t("node.project", { label: describeNode(node) }),
-    [t],
+    [t, clock],
   );
   const getGroupAriaLabel = useCallback(
     (members: readonly MapNode[]) => {
@@ -571,6 +579,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
         me={me}
         projects={projects}
         ticketId={openTicketId}
+        listedAgentWork={openTicketId === null ? undefined : Object.values(ticketsByProject).flat().find((ticket) => ticket.id === openTicketId)?.agentWork}
         creating={creating}
         onOpenTicket={openTicket}
         onClose={closePage}
@@ -599,30 +608,16 @@ export interface OrganizationMapProps {
   onOpenTicketChange?: (ticketId: string | null) => void;
 }
 
-interface MapData {
-  projects: readonly Project[];
-  people: readonly Person[];
-  ticketsByProject: Readonly<Record<string, readonly TicketSummary[]>>;
-}
-
-/** Projetos e pessoas primeiro; depois os tickets de cada projeto visível e não arquivado, em paralelo. Qualquer falha falha a carga. */
-async function loadMapData(client: ApiClient): Promise<ApiResult<MapData>> {
-  const [projects, people] = await Promise.all([client.listProjects(), client.listPeople()]);
-  if (!projects.ok) return projects;
-  if (!people.ok) return people;
-  const visible = projects.data.filter((project) => project.archivedAt === null);
-  const lists = await Promise.all(visible.map((project) => client.listTickets(project.id)));
-  const ticketsByProject: Record<string, readonly TicketSummary[]> = {};
-  for (const [position, list] of lists.entries()) {
-    if (!list.ok) return list;
-    ticketsByProject[visible[position]!.id] = list.data;
-  }
-  return { ok: true, data: { projects: projects.data, people: people.data, ticketsByProject } };
-}
-
 export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTicketChange }: OrganizationMapProps) {
   const { t } = useTranslation("map");
-  const { state, reload, retry } = useApiResource(() => loadMapData(client));
+  const { state, reload, retry, update, version } = useApiResource(() => loadMapData(client));
+  // O mapa se atualiza sozinho (ADR 0043): só troca os dados se a resposta difere do que está na tela.
+  useAutoRefresh(async (isActive) => {
+    const startedAt = version;
+    const result = await loadMapData(client);
+    if (!isActive() || !result.ok) return;
+    update((current: MapData) => mergeMapData(current, result.data), startedAt);
+  });
   const [ownTicketId, setOwnTicketId] = useState<string | null>(null);
   const controlled = openTicketId !== undefined;
   const changeTicket = useCallback((id: string | null) => {

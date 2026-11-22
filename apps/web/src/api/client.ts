@@ -26,7 +26,7 @@ const meSchema = z.object({
   /** Ausente em uma API antiga: o GitHub conta como desligado (ADR 0032). */
   github: z.object({ enabled: z.boolean() }).optional(),
   /** A chave "Permitir acesso por MCP" da organização (ADR 0038). Ausente em uma API antiga: a seção não aparece. */
-  mcp: z.object({ enabled: z.boolean() }).optional(),
+  mcp: z.object({ enabled: z.boolean(), /** A chave "Permitir escrita por MCP" (ADR 0043); ausente em uma API antiga: desligada. */ writeEnabled: z.boolean().optional() }).optional(),
 });
 const personSchema = z.object({
   id: z.string(),
@@ -61,6 +61,17 @@ const ideaSchema = z
   .union([z.object({ root: z.literal(true), stage: ideaStage }), z.object({ root: z.literal(false), rootId: z.string(), rootKey: z.string() })])
   .nullable()
   .optional();
+/** O marcador de trabalho pela IA (ADR 0043): vale enquanto `until` é futuro. Ausente ou nulo = sem marcador. */
+const agentWorkSchema = z
+  .object({
+    since: z.string(),
+    until: z.string(),
+    note: z.string().nullable(),
+    /** A pessoa do token; só o detalhe do ticket a traz. */
+    by: z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() }).nullable().optional(),
+  })
+  .nullable()
+  .optional();
 const ticketSummarySchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -76,6 +87,7 @@ const ticketSummarySchema = z.object({
   assigneeIds: z.array(z.string()),
   /** Primeiros caracteres da descrição, para o card em "detalhe" do mapa (ADR 0027). */
   descriptionExcerpt: z.string(),
+  agentWork: agentWorkSchema,
 });
 const ticketLinkSchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatus });
 const contributionStatus = z.enum(["todo", "in_progress", "done"]);
@@ -93,6 +105,8 @@ const ticketDetailSchema = ticketSummarySchema.extend({
   contributions: z.array(contributionSchema).optional(),
   /** Quem lê pode mexer nelas (falso em projeto arquivado). */
   canEditContributions: z.boolean().optional(),
+  /** Quem lê pode encerrar o marcador (quem pode editar o ticket); ausente = não. */
+  canEndAgentWork: z.boolean().optional(),
   description: z.string(),
   /** Quem lê pode aceitar e descartar a ideia (gestor do projeto, ADR 0042); ausente = não. */
   canTriageIdea: z.boolean().optional(),
@@ -193,13 +207,16 @@ const activityTicketSchema = z.object({ id: z.string().nullable(), key: z.string
 const contributionAreaRef = z.object({ id: z.string(), name: z.string() }).nullable();
 /** A área de um comentário: `id` é o da contribuição, nulo quando ela foi removida (o nome ficou guardado); `null` no comentário do ticket. */
 const commentAreaRef = z.object({ id: z.string().nullable(), name: z.string() }).nullable();
-const activityBase = { id: z.string(), occurredAt: z.string(), actor: activityPersonSchema.nullable() };
+/** `via: "mcp"`: a entrada foi gravada por uma chamada MCP (ADR 0043); ausente = feita à mão. */
+const activityBase = { id: z.string(), occurredAt: z.string(), actor: activityPersonSchema.nullable(), via: z.enum(["mcp"]).nullish() };
 const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("created") }),
   z.object({ ...activityBase, type: z.literal("title_changed"), from: z.string(), to: z.string() }),
   z.object({ ...activityBase, type: z.literal("description_changed") }),
   z.object({ ...activityBase, type: z.literal("status_changed"), from: ticketStatus, to: ticketStatus, automatic: z.boolean(), causedBy: activityTicketSchema.nullable() }),
   z.object({ ...activityBase, type: z.literal("parent_changed"), from: activityTicketSchema.nullable(), to: activityTicketSchema.nullable() }),
+  z.object({ ...activityBase, type: z.literal("agent_work_started"), until: z.string() }),
+  z.object({ ...activityBase, type: z.literal("agent_work_ended"), reason: z.enum(["agent", "person", "finished", "idea"]) }),
   z.object({ ...activityBase, type: z.literal("idea_registered") }),
   z.object({ ...activityBase, type: z.literal("idea_stage_changed"), from: ideaStage, to: ideaStage }),
   z.object({ ...activityBase, type: z.literal("idea_accepted") }),
@@ -231,6 +248,8 @@ const activityPageSchema = z.object({
 });
 const accessTokenSchema = z.object({
   id: z.string(),
+  /** O alcance do token (ADR 0043); ausente em uma API antiga: leitura. */
+  scope: z.enum(["read", "write"]).optional(),
   name: z.string(),
   project: z.object({ id: z.string(), key: z.string() }),
   tokenPrefix: z.string(),
@@ -256,7 +275,7 @@ const aiConsentSchema = z.object({
   assistant: consentSchema,
   codeReading: consentSchema.extend({ githubConnected: z.boolean(), offerable: z.boolean() }),
 });
-const mcpStateSchema = z.object({ mcp: z.object({ enabled: z.boolean() }) });
+const mcpStateSchema = z.object({ mcp: z.object({ enabled: z.boolean(), writeEnabled: z.boolean().optional() }) });
 const errorBodySchema = z.object({ error: z.object({ code: z.string() }) });
 
 export type Me = z.output<typeof meSchema>;
@@ -322,6 +341,8 @@ export interface CreateAccessTokenBody {
   projectId: string;
   name: string;
   expiresInDays: 30 | 90 | 365;
+  /** Padrão da API: leitura (ADR 0043). */
+  scope?: "read" | "write";
 }
 export type CreatedFromConversation = z.output<typeof createdFromConversationSchema>;
 
@@ -561,6 +582,10 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
 
     /** A chave "Permitir acesso por MCP" (ADR 0038); só administrador. */
     setMcpEnabled: (mcpEnabled: boolean) => request("PATCH", "/api/organization", mcpStateSchema, { mcpEnabled }),
+    /** A chave "Permitir escrita por MCP" (ADR 0043); só administrador. */
+    setMcpWriteEnabled: (mcpWriteEnabled: boolean) => request("PATCH", "/api/organization/mcp-write", mcpStateSchema, { mcpWriteEnabled }),
+    /** Encerra o marcador de trabalho pela IA do ticket (ADR 0043); a resposta é o detalhe. */
+    endAgentWork: (id: string) => request("DELETE", `${ticket(id)}/agent-work`, ticketDetailSchema),
     /** Cria um token de acesso por MCP para um projeto (ADR 0038); a resposta é a única vez em que o token inteiro aparece. */
     createAccessToken: (body: CreateAccessTokenBody) => request("POST", "/api/access-tokens", createdAccessTokenSchema, body),
     listAccessTokens: () => request("GET", "/api/access-tokens", z.array(accessTokenSchema)),

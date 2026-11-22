@@ -13,12 +13,13 @@
     "title": "Clientes de IA (MCP)",
     "switch": {
       "label": "Permitir acceso por MCP",
-      "hint": "Las personas de la organización podrán conectar clientes de IA propios a los proyectos que ven, solo para lectura."
+      "hint": "Las personas de la organización podrán conectar clientes de IA propios a los proyectos que ven. Por defecto el acceso es de solo lectura; escribir requiere un token de lectura y escritura y el interruptor de abajo."
     },
     "askAdmin": "Un administrador de la organización debe permitir el acceso por MCP.",
     "notice": {
       "switchFailed": "No se pudo cambiar el acceso por MCP. Inténtalo de nuevo.",
-      "disabledMeanwhile": "El acceso por MCP se desactivó."
+      "disabledMeanwhile": "El acceso por MCP se desactivó.",
+      "writeSwitchFailed": "No se pudo cambiar la escritura por MCP. Inténtalo de nuevo."
     },
     "loading": "Cargando…",
     "retry": "Reintentar",
@@ -41,7 +42,8 @@
       "token": "Fragmento del token",
       "createdAt": "Creado el",
       "lastUsedAt": "Último uso",
-      "expiresAt": "Vigencia"
+      "expiresAt": "Vigencia",
+      "scope": "Alcance"
     },
     "revoke": "Revocar",
     "revokeNamed": "Revocar {{name}}",
@@ -101,6 +103,18 @@
       "limit": "Ya tienes 10 tokens activos. Revoca alguno antes de crear otro.",
       "projectGone": "El proyecto ya no existe o no lo ves.",
       "projects": "No se pudieron cargar los proyectos."
+    },
+    "writeSwitch": {
+      "label": "Permitir escritura por MCP",
+      "hint": "Con el interruptor activado, los tokens de lectura y escritura podrán cambiar el estado de los tickets, comentar y marcar trabajo en curso, con los permisos de la persona de cada token. Desactivado, ningún token escribe, sin importar su alcance."
+    },
+    "scope": {
+      "label": "Alcance",
+      "read": "Solo lectura",
+      "write": "Lectura y escritura",
+      "readHint": "El cliente de IA solo consulta los tickets del proyecto.",
+      "writeHint": "Además de consultar, el cliente de IA podrá cambiar el estado de los tickets, comentar y marcar trabajo en curso, con los permisos de tu propia cuenta.",
+      "writeOff": "La escritura por MCP está desactivada en la organización: este token solo escribirá cuando un administrador active el interruptor."
     }
   },
   "ai": {

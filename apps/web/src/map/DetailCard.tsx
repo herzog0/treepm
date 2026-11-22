@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { toUpper } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { stripMarkdown } from "../ticket/description/excerpt.js";
+import { AgentWorkMark } from "./agentWork.js";
 import { useMapDetailData } from "./detail.js";
 import type { LeafStatusCounts } from "./detail.js";
 import type { MapNode } from "./items.js";
@@ -97,6 +98,7 @@ export function DetailCard({ node, childCount }: { node: MapNode; childCount: nu
   const excerpt = stripMarkdown(ticket?.descriptionExcerpt ?? "");
   return (
     <span className="node-detail">
+      {ticket?.agentWork && <AgentWorkMark agentWork={ticket.agentWork} />}
       <span className="node-detail-top">
         <span className="spatial-key">{node.key ?? t("organizationKey")}</span>
         {more && <span className="node-detail-count">{more}</span>}

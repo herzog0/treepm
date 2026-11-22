@@ -13,12 +13,13 @@
     "title": "AI clients (MCP)",
     "switch": {
       "label": "Allow MCP access",
-      "hint": "People in the organization can connect their own AI clients to the projects they can see, read-only."
+      "hint": "People in the organization will be able to connect their own AI clients to the projects they can see. Access is read-only by default; writing needs a read and write token and the switch below."
     },
     "askAdmin": "An organization administrator needs to allow MCP access.",
     "notice": {
       "switchFailed": "Couldn't change MCP access. Try again.",
-      "disabledMeanwhile": "MCP access was turned off."
+      "disabledMeanwhile": "MCP access was turned off.",
+      "writeSwitchFailed": "Could not change MCP writes. Try again."
     },
     "loading": "Loading…",
     "retry": "Try again",
@@ -41,7 +42,8 @@
       "token": "Token fragment",
       "createdAt": "Created on",
       "lastUsedAt": "Last used",
-      "expiresAt": "Valid until"
+      "expiresAt": "Valid until",
+      "scope": "Scope"
     },
     "revoke": "Revoke",
     "revokeNamed": "Revoke {{name}}",
@@ -101,6 +103,18 @@
       "limit": "You already have 10 active tokens. Revoke one before creating another.",
       "projectGone": "The project no longer exists or you can't see it.",
       "projects": "Couldn't load the projects."
+    },
+    "writeSwitch": {
+      "label": "Allow MCP writes",
+      "hint": "With the switch on, read and write tokens can change ticket status, comment and mark work in progress, with the permissions of each token's person. With it off, no token writes, whatever its scope."
+    },
+    "scope": {
+      "label": "Scope",
+      "read": "Read only",
+      "write": "Read and write",
+      "readHint": "The AI client can only read the project's tickets.",
+      "writeHint": "Besides reading, the AI client will be able to change ticket status, comment and mark work in progress, with the permissions of your own account.",
+      "writeOff": "MCP writes are off for the organization: this token will only write once an administrator turns the switch on."
     }
   },
   "ai": {

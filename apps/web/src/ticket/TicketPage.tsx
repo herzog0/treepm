@@ -3,6 +3,9 @@ import type { KeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ApiClient, Me, Person, Project, TicketDetail, TicketStatus, TicketSummary } from "../api/client.js";
 import { assistantEnabled, githubEnabled } from "../api/client.js";
+import { useAgentWorkActive } from "../map/agentWork.js";
+import { formatClock, formatDateTime } from "../i18n/format.js";
+import type { Language } from "../i18n/languages.js";
 import { TicketCode } from "../github/TicketCode.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { canCreateTickets, canRemoveTickets } from "../import/permissions.js";
@@ -52,6 +55,11 @@ export interface TicketPageProps {
   onStartCreate: (request: CreateRequest) => void;
   onCancelCreate: () => void;
   onCreated: (ticketId: string) => void;
+  /**
+   * O marcador de trabalho pela IA do ticket aberto, como a lista do mapa o traz (ADR 0043). Quando difere do que a página
+   * tem, o detalhe é buscado de novo, desde que nenhum campo esteja em edição. Sem a prop, a página não acompanha a lista.
+   */
+  listedAgentWork?: TicketSummary["agentWork"];
 }
 
 const Icon = ({ children, fill = false }: { children: ReactNode; fill?: boolean }) => (
@@ -246,13 +254,56 @@ interface ReadyProps extends LoadedProps {
   reloadList: () => void;
 }
 
-function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail, reloadList, onOpenTicket, onClose, onChanged, onRemoved, onShowOnMap, onStartCreate }: ReadyProps) {
+/** Só o que o marcador diz de si, para comparar o da lista com o do detalhe (o detalhe ainda traz `by`). */
+const agentWorkKey = (agentWork: TicketSummary["agentWork"]): string => (agentWork ? `${agentWork.since}|${agentWork.until}|${agentWork.note ?? ""}` : "none");
+
+/** Há um campo da página em edição (o foco está num campo de texto dentro dela)? */
+function useEditingField(): boolean {
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    const editable = (target: EventTarget | null): boolean =>
+      target instanceof HTMLElement && target.closest(".ticket-page") !== null && (target.matches("input:not([type=checkbox]):not([type=radio]), textarea, select") || target.isContentEditable);
+    const onIn = (event: FocusEvent) => setEditing(editable(event.target));
+    const onOut = (event: FocusEvent) => setEditing(editable(event.relatedTarget));
+    document.addEventListener("focusin", onIn);
+    document.addEventListener("focusout", onOut);
+    return () => {
+      document.removeEventListener("focusin", onIn);
+      document.removeEventListener("focusout", onOut);
+    };
+  }, []);
+  return editing;
+}
+
+function AgentWorkRow({ detail, onEnd, busy }: { detail: TicketDetail; onEnd: (() => void) | null; busy: boolean }) {
+  const { t, i18n } = useTranslation("ticket");
+  const language = i18n.language as Language;
+  const agentWork = detail.agentWork;
+  const active = useAgentWorkActive(agentWork);
+  if (!agentWork || !active) return null;
+  return (
+    <div className="ticket-row ticket-agent-work">
+      <dt>{t("agentWork.label")}</dt>
+      <dd>
+        <span className="ticket-value">
+          {agentWork.by && <span className="ticket-agent-work-by">{agentWork.by.displayName}</span>}
+          <span title={formatDateTime(language, agentWork.until)}>{t("agentWork.until", { time: formatClock(language, agentWork.until) })}</span>
+          {agentWork.note && <span className="ticket-agent-work-note">{agentWork.note}</span>}
+          {onEnd && <ConfirmAction label={t("agentWork.end")} tone="neutral" disabled={busy} onConfirm={onEnd} />}
+        </span>
+      </dd>
+    </div>
+  );
+}
+
+function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail, reloadList, onOpenTicket, onClose, onChanged, onRemoved, onShowOnMap, onStartCreate, listedAgentWork }: ReadyProps) {
   const { t } = useTranslation("ticket");
   const { t: tMap } = useTranslation("map");
   const describeError = useDescribeApiError();
   const title = useRef<HTMLHeadingElement>(null);
   const removal = useAction();
   const ideaMaking = useAction();
+  const agentEnding = useAction();
   // Cada alteração feita nesta página pede a atividade de novo (ADR 0040).
   const [activityVersion, setActivityVersion] = useState(0);
   // Comentários (ADR 0041, fatia 2): o que muda numa conversa de área e o que muda na seção "Atividade" avisa o outro lado,
@@ -275,6 +326,21 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
     reloadDetail();
     reloadList();
     onChanged();
+  };
+
+  // O mapa se atualiza sozinho e a lista dele pode trazer um marcador diferente do que esta página tem: busca o detalhe de novo,
+  // mas nunca com um campo em edição (volta a tentar quando o foco sai dele).
+  const editing = useEditingField();
+  const listedKey = listedAgentWork === undefined ? null : agentWorkKey(listedAgentWork);
+  const ownKey = agentWorkKey(detail.agentWork);
+  useEffect(() => {
+    if (listedKey === null || listedKey === ownKey || editing) return;
+    reloadDetail();
+    setActivityVersion((version) => version + 1);
+  }, [listedKey, ownKey, editing]);
+  const endAgentWork = async () => {
+    const result = await agentEnding.run(() => client.endAgentWork(detail.id));
+    if (result.ok) refresh();
   };
 
   const commentsChangedInArea = () => {
@@ -333,6 +399,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
               {t(archived ? "readOnly.archived" : "readOnly.reader")}
             </p>
           )}
+          {agentEnding.error && <p role="alert" className="ticket-error">{describeError(agentEnding.error)}</p>}
           {removal.error && <p role="alert" className="ticket-error">{describeError(removal.error, "remove")}</p>}
           <TitleField ref={title} client={client} detail={detail} canEdit={canEdit} onSaved={refresh} />
           <dl className="ticket-fields">
@@ -350,6 +417,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
                 )}
               </dd>
             </div>
+            <AgentWorkRow detail={detail} onEnd={detail.canEndAgentWork === true ? () => void endAgentWork() : null} busy={agentEnding.busy} />
             {detail.progress && (
               <div className="ticket-row">
                 <dt>{t("fields.progress")}</dt>

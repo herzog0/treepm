@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { MapNode } from "./items.js";
 import { DetailCard } from "./DetailCard.js";
 import { useIsDetail } from "./detail.js";
+import { AgentWorkMark } from "./agentWork.js";
 import { TicketMark, cardStateText } from "./ticketState.js";
 
 // Nomes das situações para os outros diretórios: `useStatusText` / `statusText` (de `ticketState.tsx`, reexportados aqui).
@@ -24,7 +25,8 @@ function FullContent({ context }: { context: SpatialNodeContent<MapNode> }) {
 function CardContent({ context }: { context: SpatialNodeContent<MapNode> }) {
   const { t } = useTranslation("map");
   const { node, lod, childCount, aggregate, descendantCount } = context;
-  if (lod === "dot") return null;
+  // O ponto não tem conteúdo; só o ticket em trabalho pela IA leva a marca do contorno (ADR 0043).
+  if (lod === "dot") return node.ticket?.agentWork ? <AgentWorkMark agentWork={node.ticket.agentWork} /> : null;
   if (node.kind === "draft") return <DraftContent node={node} lod={lod} />;
   const ticket = node.ticket;
   const aggregateCount = aggregate && (
@@ -33,9 +35,12 @@ function CardContent({ context }: { context: SpatialNodeContent<MapNode> }) {
     </span>
   );
 
+  const working = ticket?.agentWork ? <AgentWorkMark agentWork={ticket.agentWork} /> : null;
+
   if (lod === "chip") {
     return (
       <>
+        {working}
         {ticket && <TicketMark ticket={ticket} discarded={node.ideaDiscarded} />}
         <strong>{node.label}</strong>
       </>
@@ -44,6 +49,7 @@ function CardContent({ context }: { context: SpatialNodeContent<MapNode> }) {
 
   return (
     <>
+      {working}
       <span className="spatial-key">{node.key ?? t("organizationKey")}</span>
       <strong>{node.label}</strong>
       {ticket && (

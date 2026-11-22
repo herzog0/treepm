@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiError, ApiResult } from "./client.js";
 
 export type ResourceState<T> =
@@ -10,6 +10,8 @@ export type ResourceState<T> =
 export function useApiResource<T>(load: () => Promise<ApiResult<T>>) {
   const [state, setState] = useState<ResourceState<T>>({ status: "loading" });
   const [version, setVersion] = useState(0);
+  const currentVersion = useRef(version);
+  currentVersion.current = version;
 
   useEffect(() => {
     let active = true;
@@ -23,10 +25,22 @@ export function useApiResource<T>(load: () => Promise<ApiResult<T>>) {
     };
   }, [version]);
 
+  /**
+   * Troca os dados prontos por `merge(atual)`; devolver o próprio objeto atual não muda nada (nada se redesenha). Uma
+   * busca em segundo plano começada antes de uma recarga (`startedAt`) não pode sobrescrever o que a recarga trouxe.
+   */
+  const update = useCallback((merge: (current: T) => T, startedAt?: number) => {
+    if (startedAt !== undefined && startedAt !== currentVersion.current) return;
+    setState((state) => {
+      if (state.status !== "ready") return state;
+      const data = merge(state.data);
+      return data === state.data ? state : { status: "ready", data };
+    });
+  }, []);
   const reload = useCallback(() => setVersion((current) => current + 1), []);
   const retry = useCallback(() => {
     setState({ status: "loading" });
     setVersion((current) => current + 1);
   }, []);
-  return { state, reload, retry };
+  return { state, reload, retry, update, version };
 }
