@@ -31,6 +31,8 @@ export const MAX_BODY_BYTES = 64 * 1024;
 export const IP_LIMIT_PER_MINUTE = 120;
 /** Escritas por minuto por token (ADR 0043), contadas à parte das leituras. */
 export const WRITE_LIMIT_PER_MINUTE = 20;
+/** Somando todos os tokens da mesma pessoa na mesma organização (TREEPM-197). */
+export const WRITE_LIMIT_PER_PERSON_PER_MINUTE = 40;
 const IP_WINDOW_MS = 60_000;
 
 /** Prazo total de uma requisição ao servidor MCP (inclui o corpo da resposta). */
@@ -70,6 +72,7 @@ export class McpGateway {
   private readonly logger = new Logger("Mcp");
   private readonly ipLimiter: RateLimiter;
   private readonly writeLimiter: RateLimiter;
+  private readonly personWriteLimiter: RateLimiter;
   private readonly handler: McpHttpHandler;
   private readonly gate = new Gate(MAX_CONCURRENT_RESOLVES, MAX_QUEUED_RESOLVES);
   /** Prazo total por requisição; mutável só para os testes. */
@@ -88,6 +91,7 @@ export class McpGateway {
   ) {
     this.ipLimiter = new RateLimiter(clock, IP_LIMIT_PER_MINUTE, IP_WINDOW_MS);
     this.writeLimiter = new RateLimiter(clock, WRITE_LIMIT_PER_MINUTE, IP_WINDOW_MS);
+    this.personWriteLimiter = new RateLimiter(clock, WRITE_LIMIT_PER_PERSON_PER_MINUTE, IP_WINDOW_MS);
     const run: RunInTenant = (principal, fn) => this.tenants.run({ orgId: principal.session.orgId, userId: principal.session.userId }, fn);
     const factory: McpServerFactory = (ctx) => {
       const resolved = ctx.authInfo?.extra?.["resolved"] as Resolved | undefined;
@@ -110,6 +114,7 @@ export class McpGateway {
   resetMemory(): void {
     this.ipLimiter.clear();
     this.writeLimiter.clear();
+    this.personWriteLimiter.clear();
   }
 
   /** `rest` é o que vem depois de `/api/mcp`: deve ser `/<chave do projeto>`, com ou sem barra no fim. */
@@ -125,6 +130,14 @@ export class McpGateway {
     }
     const ms = Math.round(performance.now() - started);
     this.logger.log(`token=${meta.tokenId} method=${meta.method} tool=${meta.tool} status=${res.statusCode} ${ms} ms ${bytes} bytes`);
+  }
+
+  /** Escrita: conta no limite do token e no da pessoa (a recusa devolve o maior `Retry-After` entre os dois). */
+  private writeHit(tokenId: string, personKey: string): ReturnType<RateLimiter["hit"]> {
+    const byToken = this.writeLimiter.hit(tokenId);
+    const byPerson = this.personWriteLimiter.hit(personKey);
+    if (byToken.allowed && byPerson.allowed) return { allowed: true };
+    return { allowed: false, retryAfterMs: Math.max(byToken.allowed ? 0 : byToken.retryAfterMs, byPerson.allowed ? 0 : byPerson.retryAfterMs) };
   }
 
   /** Balde do limite por IP: o cabeçalho configurado (se vier e for um IP válido) ou o IP da conexão. Nunca uma chave vazia. */
@@ -178,7 +191,7 @@ export class McpGateway {
     try {
       // Escrita: a participação no Clerk é conferida de novo, sem a memória de 5 minutos da leitura (ADR 0043).
       // O pedido "fresco" só vale para token `write` com a chave ligada; o limite de escritas é contado antes de ir ao Clerk.
-      resolved = await this.tokens.resolve(token, projectKey, { fresh: isWrite, onWriteAttempt: (tokenId) => this.writeLimiter.hit(tokenId) });
+      resolved = await this.tokens.resolve(token, projectKey, { fresh: isWrite, onWriteAttempt: (tokenId, personKey) => this.writeHit(tokenId, personKey) });
     } catch (error) {
       this.logger.error(`resolve failed: ${errorClass(error)}`);
       throw new HttpFailure(503, "service_unavailable", "Try again shortly.", { "Retry-After": "5" });
