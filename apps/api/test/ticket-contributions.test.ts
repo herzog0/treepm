@@ -329,7 +329,7 @@ describe("leitura: GET tickets/:id", () => {
     const t = await add();
     await made(t.id);
     const list = await h.call("GET", `/api/projects/${priv()}/tickets`, as("admin"));
-    expect(Object.keys((list.body as Body[])[0] as Body).sort()).toEqual(["assigneeIds", "descriptionExcerpt", "id", "key", "number", "parentId", "progress", "projectId", "status", "title"]);
+    expect(Object.keys((list.body as Body[])[0] as Body).sort()).toEqual(["assigneeIds", "descriptionExcerpt", "id", "idea", "key", "number", "parentId", "progress", "projectId", "status", "title"]);
     expect(JSON.stringify(list.body)).not.toMatch(/contribution/i);
   });
 

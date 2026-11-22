@@ -1,13 +1,13 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { canEditContributions, descriptionExcerpt, isFinished, mentionedKeys, ticketProgress, ticketsToReopen } from "@treepm/domain";
-import type { Actor, TicketNode, TicketStatus } from "@treepm/domain";
+import { canEditContributions, canTriageIdea, descriptionExcerpt, ideaRootsOf, isFinished, mentionedKeys, ticketProgress, ticketsToReopen } from "@treepm/domain";
+import type { Actor, IdeaStage, TicketNode, TicketStatus } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { parseOutput } from "../common/zod.js";
-import { ticketDetailSchema, ticketStatusSchema } from "./tickets.schema.js";
-import type { TicketDetail, TicketPage, TicketSummary } from "./tickets.schema.js";
+import { ideaStageSchema, ticketDetailSchema, ticketStatusSchema } from "./tickets.schema.js";
+import type { TicketDetail, TicketIdea, TicketPage, TicketSummary } from "./tickets.schema.js";
 import { readContributions } from "./ticket-contributions.read.js";
 
 export type ProjectRow = {
@@ -26,6 +26,8 @@ export type TicketRow = {
   title: string;
   description: string;
   status: string;
+  /** Estágio de ideia (ADR 0042): só a raiz de uma ideia tem. */
+  ideaStage: string | null;
   assignees: { personId: string }[];
 };
 export type TicketDetailRow = TicketRow & {
@@ -47,11 +49,31 @@ export function statusOf(row: { status: string }): TicketStatus {
 }
 
 /** Os nós do projeto no formato do cálculo de progresso. */
-export function toNodes(rows: readonly { id: string; parentId: string | null; status: string }[]): TicketNode[] {
-  return rows.map((row): TicketNode => ({ id: row.id, parentId: row.parentId, status: statusOf(row) }));
+export function toNodes(rows: readonly { id: string; parentId: string | null; status: string; ideaStage?: string | null }[]): TicketNode[] {
+  return rows.map((row): TicketNode => ({ id: row.id, parentId: row.parentId, status: statusOf(row), ideaStage: row.ideaStage ? ideaStageSchema.parse(row.ideaStage) : null }));
 }
 
-export function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, progress: Progress): TicketSummary {
+/**
+ * Como cada ticket aparece em relação às ideias (ADR 0042), sem consulta por ticket: a raiz com o estágio; quem está dentro
+ * com a raiz mais próxima; ticket comum não entra no mapa (`null`).
+ */
+export function ideaViews(
+  project: Pick<ProjectRow, "key">,
+  rows: readonly { id: string; number: number; parentId: string | null; status: string; ideaStage?: string | null }[],
+): Map<string, TicketIdea> {
+  const nodes = toNodes(rows);
+  const numberOf = new Map(rows.map((row) => [row.id, row.number] as const));
+  const stageOf = new Map(nodes.map((node) => [node.id, node.ideaStage ?? null] as const));
+  const views = new Map<string, TicketIdea>();
+  for (const [id, rootId] of ideaRootsOf(nodes)) {
+    const stage = stageOf.get(id);
+    if (id === rootId && stage) views.set(id, { root: true, stage });
+    else views.set(id, { root: false, rootId, rootKey: `${project.key}-${numberOf.get(rootId) ?? 0}` });
+  }
+  return views;
+}
+
+export function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, progress: Progress, idea: TicketIdea = null): TicketSummary {
   return {
     id: row.id,
     projectId: row.projectId,
@@ -64,19 +86,21 @@ export function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, prog
     // Ticket com filhos: progresso sobre todos os descendentes (ADR 0034); sem filhos: null.
     progress: progress.get(row.id) ?? null,
     assigneeIds: row.assignees.map((assignee) => assignee.personId).sort(),
+    idea,
   };
 }
 
 export type MentionedByRow = { number: number; id: string; title: string; status: string };
 
 export function toDetail(project: Pick<ProjectRow, "key">, row: TicketDetailRow, progress: Progress,
+  idea: TicketIdea = null,
   mentionedBy: readonly MentionedByRow[] = [],
   dependsOn: readonly MentionedByRow[] = [],
   blocks: readonly MentionedByRow[] = [],
 ): TicketDetail {
   const link = (from: MentionedByRow) => ({ id: from.id, key: `${project.key}-${from.number}`, title: from.title, status: from.status });
   return parseOutput(ticketDetailSchema, {
-    ...toSummary(project, row, progress),
+    ...toSummary(project, row, progress, idea),
     description: row.description,
     mentionedBy: mentionedBy.map(link),
     dependsOn: dependsOn.map(link),
@@ -172,7 +196,60 @@ export class TicketsService {
   /** O ticket como a página o lê: o detalhe mais as contribuições e se quem lê pode mexer nelas (ADR 0041). */
   async detailFor(tx: TenantClient, project: ProjectRow, id: string, viewer: { actor: Actor }): Promise<TicketPage> {
     const [detail, contributions] = await Promise.all([this.detail(tx, project, id), readContributions(tx, id)]);
-    return { ...detail, contributions, canEditContributions: this.canEditContributionsOf(viewer.actor, project) };
+    return {
+      ...detail,
+      contributions,
+      canEditContributions: this.canEditContributionsOf(viewer.actor, project),
+      canTriageIdea: this.canTriageIdeaOf(viewer.actor, project, detail.idea),
+    };
+  }
+
+  /** Aceitar e descartar: gestor, em raiz de ideia, em projeto que não está arquivado (ADR 0042). */
+  canTriageIdeaOf(actor: Actor, project: Pick<ProjectRow, "id" | "archivedAt">, idea: TicketIdea): boolean {
+    return idea?.root === true && project.archivedAt === null && canTriageIdea(actor, project.id);
+  }
+
+  /**
+   * A raiz de ideia mais próxima de `startId`, ele incluído (ADR 0042): uma consulta recursiva, qualquer que seja a
+   * profundidade. `null` quando `startId` é nulo ou não está dentro de nenhuma ideia.
+   */
+  async ideaRootFor(tx: TenantClient, startId: string | null): Promise<{ id: string; number: number; stage: IdeaStage } | null> {
+    if (startId === null) return null;
+    const rows = await tx.$queryRaw<{ id: string; number: number; idea_stage: string }[]>`
+      with recursive up as (
+        select id, number, parent_id, idea_stage, 1 as depth from tickets where id = ${startId}::uuid
+        union all
+        select t.id, t.number, t.parent_id, t.idea_stage, up.depth + 1
+        from tickets t join up on t.id = up.parent_id where up.idea_stage is null and up.depth < 1000
+      )
+      select id, number, idea_stage from up where idea_stage is not null order by depth limit 1`;
+    const row = rows[0];
+    return row ? { id: row.id, number: row.number, stage: ideaStageSchema.parse(row.idea_stage) } : null;
+  }
+
+  /** As situações de todos os descendentes de um ticket (ele não entra), qualquer que seja a profundidade. */
+  async descendantStatuses(tx: TenantClient, id: string): Promise<TicketStatus[]> {
+    const rows = await tx.$queryRaw<{ status: string }[]>`
+      with recursive down as (
+        select id, status, 1 as depth from tickets where parent_id = ${id}::uuid
+        union all
+        select t.id, t.status, down.depth + 1 from tickets t join down on t.parent_id = down.id where down.depth < 1000
+      )
+      select status from down`;
+    return rows.map((row) => ticketStatusSchema.parse(row.status));
+  }
+
+  /** Trava o ticket e todos os descendentes (`for update`) até o fim da transação: ninguém muda a situação deles no meio de uma conferência. */
+  async lockSubtree(tx: TenantClient, id: string): Promise<void> {
+    await tx.$queryRaw`
+      select id from tickets where id in (
+        with recursive down as (
+          select id, 1 as depth from tickets where id = ${id}::uuid
+          union all
+          select t.id, down.depth + 1 from tickets t join down on t.parent_id = down.id where down.depth < 1000
+        )
+        select id from down
+      ) order by id for update`;
   }
 
   canEditContributionsOf(actor: Actor, project: Pick<ProjectRow, "id" | "archivedAt">): boolean {
@@ -182,7 +259,7 @@ export class TicketsService {
   async detail(tx: TenantClient, project: ProjectRow, id: string): Promise<TicketDetail> {
     const [row, nodes, mentions, dependencies] = await Promise.all([
       tx.ticket.findFirstOrThrow({ where: { id }, include: { assignees: { select: { personId: true } } } }),
-      tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, parentId: true, status: true } }),
+      tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, number: true, parentId: true, status: true, ideaStage: true } }),
       tx.ticketRelation.findMany({
         where: { toTicketId: id, kind: "mentions" },
         select: { from: { select: { id: true, number: true, title: true, status: true } } },
@@ -201,7 +278,7 @@ export class TicketsService {
     const byNumber = (a: MentionedByRow, b: MentionedByRow) => a.number - b.number;
     const dependsOn = dependencies.filter((relation) => relation.fromTicketId === id).map((relation) => relation.to).sort(byNumber);
     const blocks = dependencies.filter((relation) => relation.fromTicketId !== id).map((relation) => relation.from).sort(byNumber);
-    return toDetail(project, row, progress, mentionedBy, dependsOn, blocks);
+    return toDetail(project, row, progress, ideaViews(project, nodes).get(id) ?? null, mentionedBy, dependsOn, blocks);
   }
 
   /**
@@ -304,15 +381,23 @@ export class TicketsService {
       parentId: string | null;
       status: TicketStatus;
       assigneeIds: string[];
+      /** Registra a ideia (ADR 0042): estágio `new`, situação sempre `todo`. */
+      idea?: boolean;
     },
     extraPayload: Record<string, string> = {},
   ): Promise<TicketDetail> {
     if (input.parentId) await this.requireParent(tx, project.id, input.parentId);
+    // Ideia, ou ticket dentro de uma: fora do processo (ADR 0042). A situação fica em `todo` e o pai concluído não é reaberto.
+    const parentIdea = await this.ideaRootFor(tx, input.parentId);
+    const outside = input.idea === true || parentIdea !== null;
+    if (outside && input.status !== "todo") {
+      throw new ConflictException({ code: "ticket_in_idea", message: "Dentro de uma ideia a situação fica em a fazer; aceite a ideia antes." });
+    }
     const assigneeIds = [...new Set(input.assigneeIds)];
     for (const personId of assigneeIds) await this.requireAssignable(tx, project, personId);
 
     const number = await this.allocateNumbers(tx, project, 1);
-    if (input.parentId && !isFinished(input.status)) {
+    if (input.parentId && !isFinished(input.status) && !outside) {
       await this.reopenAncestors(tx, principal, project, input.parentId, `${project.key}-${number}`);
     }
     const created = await tx.ticket.create({
@@ -324,6 +409,7 @@ export class TicketsService {
         title: input.title,
         description: input.description,
         status: input.status,
+        ...(input.idea ? { ideaStage: "new" } : {}),
         createdByPersonId: principal.person.id,
       },
     });
@@ -347,6 +433,14 @@ export class TicketsService {
         ...extraPayload,
       },
     });
+    if (input.idea) {
+      await this.activity.record(tx, principal, {
+        kind: "ticket.idea_registered",
+        subjectType: "ticket",
+        subjectId: created.id,
+        payload: { key: `${project.key}-${number}`, source: "created" },
+      });
+    }
     return this.detail(tx, project, created.id);
   }
 

@@ -8,7 +8,7 @@ import { activityPageSchema } from "./ticket-activity.schema.js";
 import type { ActivityEntry, ActivityPage } from "./ticket-activity.schema.js";
 import { commentRights, commentSelect, toCommentEntry } from "./ticket-comments.service.js";
 import type { Viewer } from "./ticket-comments.service.js";
-import { contributionStatusSchema, ticketStatusSchema } from "./tickets.schema.js";
+import { contributionStatusSchema, ideaStageSchema, ticketStatusSchema } from "./tickets.schema.js";
 import type { ProjectRow } from "./tickets.service.js";
 
 /** Tipos de evento que viram entradas; o resto (inclusive `ticket.comment_*`) nem é lido do banco. */
@@ -25,6 +25,11 @@ const READ_KINDS = [
   "ticket.contribution_updated",
   "ticket.contribution_person_added",
   "ticket.contribution_person_removed",
+  "ticket.idea_registered",
+  "ticket.idea_stage_changed",
+  "ticket.idea_accepted",
+  "ticket.idea_discarded",
+  "ticket.idea_reopened",
 ];
 
 /** Ordem fixa das entradas de um `ticket.updated`, da mais antiga para a mais nova. */
@@ -52,6 +57,8 @@ type Data =
   | { type: "contribution_removed"; areaId: string; areaName: string | null }
   | { type: "contribution_status_changed"; areaId: string; from: z.output<typeof contributionStatusSchema>; to: z.output<typeof contributionStatusSchema> }
   | { type: "contribution_person_added" | "contribution_person_removed"; areaId: string; personId: string }
+  | { type: "idea_registered" | "idea_accepted" | "idea_discarded" | "idea_reopened" }
+  | { type: "idea_stage_changed"; from: z.output<typeof ideaStageSchema>; to: z.output<typeof ideaStageSchema> }
   | { type: "comment"; comment: CommentRow };
 /** Entrada ainda sem os ids resolvidos. `pos` é a posição na ordem total (instante, evento, campo). */
 type Draft = { id: string; type: Data["type"]; actorId: string | null; occurredAt: number; pos: Position; data: Data; contributionId?: string };
@@ -133,6 +140,18 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
       if (!v.success) return [];
       const type = row.kind === "ticket.dependency_added" ? "dependency_added" : "dependency_removed";
       return [make(0, row.id, { type, ticket: { id: v.data.dependsOnTicketId, key: v.data.dependsOnKey ?? null, number: null } })];
+    }
+    case "ticket.idea_registered":
+      return [make(0, row.id, { type: "idea_registered" })];
+    case "ticket.idea_accepted":
+      return [make(0, row.id, { type: "idea_accepted" })];
+    case "ticket.idea_discarded":
+      return [make(0, row.id, { type: "idea_discarded" })];
+    case "ticket.idea_reopened":
+      return [make(0, row.id, { type: "idea_reopened" })];
+    case "ticket.idea_stage_changed": {
+      const v = fromTo(ideaStageSchema).safeParse(p);
+      return v.success ? [make(0, row.id, { type: "idea_stage_changed", from: v.data.from, to: v.data.to })] : [];
     }
     case "ticket.summary_updated": {
       const v = z.enum(["person", "assistant"]).safeParse(p["source"]);
@@ -345,7 +364,13 @@ export class TicketActivityService {
       switch (data.type) {
         case "created":
         case "description_changed":
+        case "idea_registered":
+        case "idea_accepted":
+        case "idea_discarded":
+        case "idea_reopened":
           return { ...common, type: data.type };
+        case "idea_stage_changed":
+          return { ...common, type: data.type, from: data.from, to: data.to };
         case "title_changed":
           return { ...common, type: data.type, from: data.from, to: data.to };
         case "status_changed":

@@ -6,8 +6,8 @@ import type { ApiClient, ApiResponse } from "./client.js";
  * chamam IA e nunca imprimem descrição de ticket nem dados de pessoas.
  */
 export type TicketContext = { client: ApiClient; project: string; log: (line: string) => void };
-export type TicketCreateInput = { title: string; descriptionFile?: string; parent?: number; status?: string };
-export type TicketUpdateInput = { number: number; status?: string; title?: string; descriptionFile?: string; parent?: number; root?: boolean };
+export type TicketCreateInput = { title: string; descriptionFile?: string; parent?: number; status?: string; idea?: boolean };
+export type TicketUpdateInput = { number: number; status?: string; title?: string; descriptionFile?: string; parent?: number; root?: boolean; ideaStage?: "new" | "refining" | "ready" };
 
 /** Erro esperado de um comando de ticket: a mensagem é o que o terminal mostra, sem rastro de pilha. */
 export class TicketCommandError extends Error {
@@ -21,7 +21,9 @@ type Row = {
   parentId: string | null;
   title: string;
   status: string;
-  progress: { done: number; total: number; excluded: number } | null;
+  progress: { done: number; total: number; excluded: number; ideas?: number } | null;
+  /** ADR 0042: `null` ticket comum; raiz com o estágio; ou ticket dentro de uma ideia. */
+  idea?: { root: true; stage: string } | { root: false; rootId: string; rootKey: string } | null;
 };
 
 function failure(what: string, response: ApiResponse): TicketCommandError {
@@ -100,18 +102,27 @@ export async function ticketListCommand(ctx: TicketContext, json: boolean): Prom
           status: row.status,
           title: row.title,
           progress: row.progress,
+          idea: row.idea ?? null,
         })),
       ),
     );
     return;
   }
   for (const { row, depth } of ordered) {
-    const progress = row.progress ? `  (${row.progress.done} de ${row.progress.total})` : "";
-    ctx.log(`${"  ".repeat(depth)}${row.key}  [${row.status}]  ${row.title}${progress}`);
+    const idea = row.idea ?? null;
+    const ideas = row.progress?.ideas ?? 0;
+    // Dentro de uma ideia não há progresso a mostrar; fora, as ideias abaixo aparecem à parte.
+    const progress =
+      idea || !row.progress
+        ? ""
+        : `  (${row.progress.done} de ${row.progress.total}${ideas > 0 ? `; ${ideas} ${ideas === 1 ? "ideia" : "ideias"}` : ""})`;
+    const state = idea?.root ? `ideia: ${idea.stage}` : row.status;
+    ctx.log(`${"  ".repeat(depth)}${row.key}  [${state}]  ${row.title}${idea && !idea.root ? "  (ideia)" : ""}${progress}`);
   }
 }
 
 export async function ticketCreateCommand(ctx: TicketContext, input: TicketCreateInput): Promise<void> {
+  if (input.idea && input.status !== undefined) throw new TicketCommandError("--idea não combina com --status: a situação de uma ideia é sempre todo.");
   const description = input.descriptionFile === undefined ? undefined : readText(input.descriptionFile);
   const before = await listRows(ctx);
   const parent = input.parent === undefined ? null : await resolveNumber(ctx, before, input.parent);
@@ -120,14 +131,16 @@ export async function ticketCreateCommand(ctx: TicketContext, input: TicketCreat
     ...(description === undefined ? {} : { description }),
     parentId: parent?.id ?? null,
     ...(input.status === undefined ? {} : { status: input.status }),
+    ...(input.idea ? { idea: true } : {}),
   });
   ctx.log(`Criado: ${created.key}  ${created.id}`);
+  if (input.idea) ctx.log(`${created.key}: ideia (estágio new)`);
   reportReopened(ctx, reopened(before, await listRows(ctx)));
 }
 
 export async function ticketUpdateCommand(ctx: TicketContext, input: TicketUpdateInput): Promise<void> {
-  const hasChange = [input.status, input.title, input.descriptionFile, input.parent, input.root].some((value) => value !== undefined);
-  if (!hasChange) throw new TicketCommandError("Informe ao menos um de --status, --title, --description-file, --parent ou --root.");
+  const hasChange = [input.status, input.title, input.descriptionFile, input.parent, input.root, input.ideaStage].some((value) => value !== undefined);
+  if (!hasChange) throw new TicketCommandError("Informe ao menos um de --status, --title, --description-file, --parent, --root ou --idea-stage.");
   if (input.parent !== undefined && input.root) throw new TicketCommandError("--parent não combina com --root.");
   const description = input.descriptionFile === undefined ? undefined : readText(input.descriptionFile);
   const before = await listRows(ctx);
@@ -140,7 +153,14 @@ export async function ticketUpdateCommand(ctx: TicketContext, input: TicketUpdat
     ...(parent ? { parentId: parent.id } : {}),
     ...(input.root ? { parentId: null } : {}),
   };
-  const updated = await call<Row>("mudar ticket", ctx, "PATCH", `/tickets/${ticket.id}`, body);
+  const onlyStage = Object.keys(body).length === 0;
+  const updated = onlyStage ? ticket : await call<Row>("mudar ticket", ctx, "PATCH", `/tickets/${ticket.id}`, body);
+  if (input.ideaStage !== undefined) {
+    const before = ticket.idea?.root ? ticket.idea.stage : null;
+    const after = await call<Row>("mudar estágio da ideia", ctx, "PUT", `/tickets/${ticket.id}/idea-stage`, { stage: input.ideaStage });
+    const to = after.idea?.root ? after.idea.stage : input.ideaStage;
+    ctx.log(`${ticket.key}: estágio da ideia ${before ?? "?"} → ${to}`);
+  }
   if (input.status !== undefined) ctx.log(`${ticket.key}: situação ${ticket.status} → ${updated.status}`);
   if (input.title !== undefined) ctx.log(`${ticket.key}: título alterado`);
   if (description !== undefined) ctx.log(`${ticket.key}: descrição substituída (${description.length} caracteres)`);

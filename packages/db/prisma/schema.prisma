@@ -222,6 +222,8 @@ model Ticket {
   description       String   @default("")
   /// todo | in_progress | in_review | done | cancelled (check no banco)
   status            String   @default("todo")
+  /// Estágio de ideia (ADR 0042): new | refining | ready | discarded (check no banco); só a raiz da ideia tem. Com estágio, a situação é sempre todo.
+  ideaStage         String?  @map("idea_stage")
   createdByPersonId String   @map("created_by_person_id") @db.Uuid
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)

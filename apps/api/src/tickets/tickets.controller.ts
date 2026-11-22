@@ -14,7 +14,7 @@ import {
   Query,
 } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { createsDependencyCycle, isFinished, parentWouldCreateCycle, ticketProgress } from "@treepm/domain";
+import { createsDependencyCycle, isFinished, parentWouldCreateCycle, statusChangeAllowed, canMoveIntoIdea, ticketProgress } from "@treepm/domain";
 import type { TicketStatus } from "@treepm/domain";
 import type { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
@@ -35,7 +35,7 @@ import type { ImportItem, TicketPage, TicketSummary } from "./tickets.schema.js"
 import { activityQuerySchema } from "./ticket-activity.schema.js";
 import type { ActivityPage } from "./ticket-activity.schema.js";
 import { TicketActivityService } from "./ticket-activity.service.js";
-import { TicketsService, toNodes, toSummary } from "./tickets.service.js";
+import { TicketsService, ideaViews, toNodes, toSummary } from "./tickets.service.js";
 import type { ProjectRow, TicketRow } from "./tickets.service.js";
 
 const summarySelect = {
@@ -46,6 +46,7 @@ const summarySelect = {
   title: true,
   description: true,
   status: true,
+  ideaStage: true,
   assignees: { select: { personId: true } },
 } as const;
 
@@ -71,7 +72,8 @@ export class TicketsController {
       orderBy: { number: "asc" },
     });
     const progress = ticketProgress(toNodes(rows));
-    return rows.map((row) => parseOutput(ticketSummarySchema, toSummary(project, row, progress)));
+    const ideas = ideaViews(project, rows);
+    return rows.map((row) => parseOutput(ticketSummarySchema, toSummary(project, row, progress, ideas.get(row.id) ?? null)));
   }
 
   @Post("projects/:projectId/tickets")
@@ -82,7 +84,8 @@ export class TicketsController {
     @Body(new ZodPipe(createTicketSchema)) body: z.output<typeof createTicketSchema>,
   ): Promise<TicketPage> {
     const project = await this.findVisibleProject(tx, principal.actor, projectId);
-    this.authorization.createTicket(principal.actor, projectId);
+    if (body.idea) this.authorization.registerIdea(principal.actor, projectId);
+    else this.authorization.createTicket(principal.actor, projectId);
     this.requireActive(project);
     const created = await this.tickets.create(tx, principal, project, {
       title: body.title,
@@ -90,8 +93,14 @@ export class TicketsController {
       parentId: body.parentId ?? null,
       status: body.status ?? "todo",
       assigneeIds: body.assigneeIds ?? [],
+      ...(body.idea ? { idea: true } : {}),
     });
-    return { ...created, contributions: [], canEditContributions: this.tickets.canEditContributionsOf(principal.actor, project) };
+    return {
+      ...created,
+      contributions: [],
+      canEditContributions: this.tickets.canEditContributionsOf(principal.actor, project),
+      canTriageIdea: this.tickets.canTriageIdeaOf(principal.actor, project, created.idea),
+    };
   }
 
   @Post("projects/:projectId/tickets/import")
@@ -105,6 +114,8 @@ export class TicketsController {
     this.authorization.importTickets(principal.actor, projectId);
     this.requireActive(project);
     if (body.parentId) await this.tickets.requireParent(tx, projectId, body.parentId);
+    // Importar dentro de uma ideia (ADR 0042): os itens fazem parte dela, ficam `todo` e não reabrem o pai concluído.
+    const parentIdea = await this.tickets.ideaRootFor(tx, body.parentId ?? null);
 
     // Pré-ordem: o pai antes dos filhos, irmãos na ordem recebida. Item com filhos é só um ticket com filhos.
     const flat: { item: ImportItem; parentIndex: number | null }[] = [];
@@ -115,6 +126,9 @@ export class TicketsController {
       }
     };
     walk(body.items, null);
+    if (parentIdea && flat.some(({ item }) => (item.status ?? "todo") !== "todo")) {
+      throw new ConflictException({ code: "ticket_in_idea", message: "Dentro de uma ideia a situação fica em a fazer; aceite a ideia antes." });
+    }
 
     // Nenhum `done` com filho direto aberto (ADR 0034): item concluído que traz filho aberto na própria lista nasce `todo`.
     const hasOpenChild = new Set<number>();
@@ -122,7 +136,7 @@ export class TicketsController {
       if (parentIndex !== null && !isFinished(item.status ?? "todo")) hasOpenChild.add(parentIndex);
     });
     const first = await this.tickets.allocateNumbers(tx, project, flat.length);
-    if (body.parentId && flat.some(({ item, parentIndex }) => parentIndex === null && !isFinished(item.status ?? "todo"))) {
+    if (body.parentId && !parentIdea && flat.some(({ item, parentIndex }) => parentIndex === null && !isFinished(item.status ?? "todo"))) {
       await this.tickets.reopenAncestors(tx, principal, project, body.parentId, `${project.key}-${first}`);
     }
     // IDs gerados pelo banco (`app_uuid_v7()`, o mesmo padrão da coluna) em UMA consulta; com eles, pais e filhos
@@ -138,6 +152,7 @@ export class TicketsController {
       title: item.title,
       description: item.description ?? "",
       status: item.status === "done" && hasOpenChild.has(index) ? "todo" : (item.status ?? "todo"),
+      ideaStage: null,
       assignees: [],
     }));
     await tx.ticket.createMany({
@@ -164,8 +179,12 @@ export class TicketsController {
     });
     await this.tickets.reconcileMentions(tx, project, rows);
     await this.tickets.backfillMentionsTo(tx, project, rows);
-    const progress = ticketProgress(toNodes(rows));
-    return rows.map((row) => parseOutput(ticketSummarySchema, toSummary(project, row, progress)));
+    // Dentro de uma ideia, o progresso e o `idea` dos itens são os de quem está dentro: um nó de raiz só para o cálculo.
+    const nodes = toNodes(rows);
+    if (parentIdea && body.parentId) nodes.push({ id: body.parentId, parentId: null, status: "todo", ideaStage: "new" });
+    const progress = ticketProgress(nodes);
+    const rootIdea = parentIdea ? { root: false as const, rootId: parentIdea.id, rootKey: `${project.key}-${parentIdea.number}` } : null;
+    return rows.map((row) => parseOutput(ticketSummarySchema, toSummary(project, row, progress, rootIdea)));
   }
 
   /** Refaz as ligações "menciona" de todo o projeto a partir das descrições (ADR 0037); usada pela ferramenta local. */
@@ -254,10 +273,29 @@ export class TicketsController {
     const fields = Object.keys(data);
     const finalStatus = (data.status ?? ticket.status) as TicketStatus;
     const finalParent = body.parentId !== undefined ? body.parentId : ticket.parentId;
+    // Ideias (ADR 0042): a raiz, ou um ticket dentro de uma, está fora do processo. A posição que vale é a final: quem sai da
+    // ideia no mesmo pedido já muda de situação como ticket comum, e quem entra não muda.
+    const parentIdea = data.parentId !== undefined || data.status !== undefined ? await this.tickets.ideaRootFor(tx, finalParent) : null;
+    const outside = ticket.ideaStage !== null || parentIdea !== null;
+    if (data.parentId !== undefined && parentIdea !== null) {
+      // Trabalho em andamento não vira ideia por arrasto: o ticket e os descendentes `todo` ou `cancelled`.
+      if (!canMoveIntoIdea(ticket.status as TicketStatus, await this.tickets.descendantStatuses(tx, id))) {
+        throw new ConflictException({
+          code: "move_into_idea_blocked",
+          message: "Trabalho em andamento, em revisão ou concluído não entra numa ideia; mova só o que ainda está a fazer.",
+        });
+      }
+    }
     // Reabertura (ADR 0034): ticket aberto que entra num pai (mudou de pai ou voltou a ficar aberto) reabre o pai `done`.
-    // Antes de qualquer outro bloqueio da transação, de baixo para cima.
-    if (finalParent && !isFinished(finalStatus) && (data.parentId !== undefined || data.status !== undefined)) {
+    // Antes de qualquer outro bloqueio da transação, de baixo para cima. Fora do processo, nada reabre (ADR 0042).
+    if (finalParent && !outside && !isFinished(finalStatus) && (data.parentId !== undefined || data.status !== undefined)) {
       await this.tickets.reopenAncestors(tx, principal, project, finalParent, `${project.key}-${ticket.number}`);
+    }
+    if (data.status !== undefined) {
+      // Regra 5 (ADR 0042). Trava a linha e confere de novo: uma transformação em ideia que acabou de confirmar vale a partir daqui.
+      const locked = await tx.$queryRaw<{ idea_stage: string | null }[]>`select idea_stage from tickets where id = ${id}::uuid for update`;
+      const inside = locked[0]?.idea_stage != null || (await this.tickets.ideaRootFor(tx, finalParent)) !== null;
+      if (!statusChangeAllowed(inside, ticket.status as TicketStatus, data.status as TicketStatus)) this.throwInIdea();
     }
     if (data.status === "done") await this.requireNoOpenChildren(tx, id);
     if (fields.length > 0) {
@@ -445,7 +483,8 @@ export class TicketsController {
    */
   private async requireNoOpenChildren(tx: TenantClient, id: string): Promise<void> {
     await tx.$queryRaw`select id from tickets where id = ${id}::uuid for update`;
-    const open = await tx.ticket.count({ where: { parentId: id, status: { notIn: ["done", "cancelled"] } } });
+    // A ideia (a raiz de ideia filha) não conta como filho aberto (ADR 0042).
+    const open = await tx.ticket.count({ where: { parentId: id, status: { notIn: ["done", "cancelled"] }, ideaStage: null } });
     if (open > 0) {
       throw new ConflictException({
         code: "ticket_has_open_children",
@@ -456,6 +495,10 @@ export class TicketsController {
         details: { openChildCount: open },
       });
     }
+  }
+
+  private throwInIdea(): never {
+    throw new ConflictException({ code: "ticket_in_idea", message: "Dentro de uma ideia a situação fica em a fazer; aceite a ideia antes." });
   }
 
   private async hasChildren(tx: TenantClient, id: string): Promise<boolean> {

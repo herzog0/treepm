@@ -17,7 +17,7 @@ export const querySummarySchema = z.strictObject({
 });
 export type QueryTicketSummary = z.infer<typeof querySummarySchema>;
 
-export const queryProgressSchema = z.strictObject({ done: z.number().int(), total: z.number().int(), excluded: z.number().int() });
+export const queryProgressSchema = z.strictObject({ done: z.number().int(), total: z.number().int(), excluded: z.number().int(), ideas: z.number().int() });
 
 /** Lista com teto: `truncated` diz que havia mais do que coube. */
 export const queryListSchema = z.strictObject({ tickets: z.array(querySummarySchema), truncated: z.boolean() });

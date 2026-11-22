@@ -210,12 +210,25 @@ describe("get_project_overview", () => {
       by_status: { todo: 2, in_progress: 1, in_review: 0, done: 1, cancelled: 0 },
       top: {
         tickets: [
-          { key: "PRIV-1", title: "Raiz do projeto", excerpt: "Descrição inteira da raiz. Ver PRIV-4.", status: "in_progress", parent: null, progress: { done: 1, total: 2, excluded: 0 } },
+          { key: "PRIV-1", title: "Raiz do projeto", excerpt: "Descrição inteira da raiz. Ver PRIV-4.", status: "in_progress", parent: null, progress: { done: 1, total: 2, excluded: 0, ideas: 0 } },
           { key: "PRIV-4", title: "Solto", excerpt: "Depende de PRIV-2", status: "todo", parent: null, progress: null },
         ],
         truncated: false,
       },
     });
+  });
+
+  it("com uma ideia no projeto: o progresso do pai não a conta e ideas vale 1 (ADR 0042)", async () => {
+    const token = await setup();
+    const parent = (await h.pool.query("select id from tickets where project_id = $1 and number = 1", [priv()])).rows[0].id as string;
+    await h.pool.query(
+      "insert into tickets (org_id, project_id, number, title, parent_id, idea_stage, created_by_person_id) values ('org_A', $1, 90, 'Ideia', $2, 'new', $3)",
+      [priv(), parent, h.world().people.admin],
+    );
+    const res = await h.tool(token, "PRIV", "get_project_overview");
+    expectConsistent(res);
+    const root = (res.json as { top: { tickets: { key: string; progress: unknown }[] } }).top.tickets.find((t) => t.key === "PRIV-1");
+    expect(root?.progress).toEqual({ done: 1, total: 2, excluded: 0, ideas: 1 });
   });
 
   it("projeto vazio", async () => {

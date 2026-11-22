@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { contributionStatusSchema, ticketStatusSchema } from "./tickets.schema.js";
+import { contributionStatusSchema, ideaStageSchema, ticketStatusSchema } from "./tickets.schema.js";
 
 export const ACTIVITY_DEFAULT_LIMIT = 30;
 export const ACTIVITY_MAX_LIMIT = 100;
@@ -55,6 +55,11 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("contribution_status_changed"), area: areaRefSchema, from: contributionStatusSchema, to: contributionStatusSchema }),
   z.object({ ...base, type: z.literal("contribution_person_added"), area: areaRefSchema, person: personSchema.nullable() }),
   z.object({ ...base, type: z.literal("contribution_person_removed"), area: areaRefSchema, person: personSchema.nullable() }),
+  z.object({ ...base, type: z.literal("idea_registered") }),
+  z.object({ ...base, type: z.literal("idea_stage_changed"), from: ideaStageSchema, to: ideaStageSchema }),
+  z.object({ ...base, type: z.literal("idea_accepted") }),
+  z.object({ ...base, type: z.literal("idea_discarded") }),
+  z.object({ ...base, type: z.literal("idea_reopened") }),
   z.object({
     ...base,
     type: z.literal("comment"),

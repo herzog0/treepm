@@ -58,6 +58,7 @@ async function runTicketCommand(command: "ticket-list" | "ticket-create" | "tick
         ...(options.descriptionFile ? { descriptionFile: options.descriptionFile } : {}),
         ...(options.parent ? { parent: options.parent } : {}),
         ...(options.status ? { status: options.status } : {}),
+        ...(options.idea ? { idea: true } : {}),
       });
     } else {
       await ticketUpdateCommand(ctx, {
@@ -67,6 +68,7 @@ async function runTicketCommand(command: "ticket-list" | "ticket-create" | "tick
         ...(options.descriptionFile ? { descriptionFile: options.descriptionFile } : {}),
         ...(options.parent ? { parent: options.parent } : {}),
         ...(options.root ? { root: true } : {}),
+        ...(options.ideaStage ? { ideaStage: options.ideaStage } : {}),
       });
     }
     return 0;

@@ -95,7 +95,7 @@ describe("ticketProgress", () => {
       node("d", "root", "in_review"),
       node("e", "root", "todo"),
     ];
-    expect(ticketProgress(tickets).get("root")).toEqual({ done: 1, total: 4, excluded: 1 });
+    expect(ticketProgress(tickets).get("root")).toEqual({ done: 1, total: 4, excluded: 1, ideas: 0 });
   });
 
   it("counts every descendant, at any level, and a descendant that is a parent counts as one item by its own status", () => {
@@ -112,20 +112,20 @@ describe("ticketProgress", () => {
     ];
     const progress = ticketProgress(tickets);
     // Do pai: filho (aberto), neto-feito, neto-aberto, filho-feito, neto-do-cancelado contam; neto-cancelado e filho-cancelado são excluídos.
-    expect(progress.get("pai")).toEqual({ done: 2, total: 5, excluded: 2 });
-    expect(progress.get("filho")).toEqual({ done: 1, total: 2, excluded: 1 });
-    expect(progress.get("filho-cancelado")).toEqual({ done: 0, total: 1, excluded: 0 });
+    expect(progress.get("pai")).toEqual({ done: 2, total: 5, excluded: 2, ideas: 0 });
+    expect(progress.get("filho")).toEqual({ done: 1, total: 2, excluded: 1, ideas: 0 });
+    expect(progress.get("filho-cancelado")).toEqual({ done: 0, total: 1, excluded: 0, ideas: 0 });
     expect(progress.has("neto-feito")).toBe(false);
   });
 
   it("does not depend on the input order", () => {
     const tickets = [node("leaf", "root", "done"), node("root", null)];
-    expect(ticketProgress(tickets).get("root")).toEqual({ done: 1, total: 1, excluded: 0 });
+    expect(ticketProgress(tickets).get("root")).toEqual({ done: 1, total: 1, excluded: 0, ideas: 0 });
   });
 
   it("handles all children cancelled", () => {
     const tickets = [node("root", null), node("a", "root", "cancelled")];
-    expect(ticketProgress(tickets).get("root")).toEqual({ done: 0, total: 0, excluded: 1 });
+    expect(ticketProgress(tickets).get("root")).toEqual({ done: 0, total: 0, excluded: 1, ideas: 0 });
   });
 });
 
@@ -195,9 +195,9 @@ describe("isTurn / ticketsOfTheTurn", () => {
       expect(isTurn(ticket.status, progress.get(ticket.id) ?? null), ticket.id).toBe(turn.has(ticket.id));
     }
     expect(isTurn("todo", null)).toBe(true);
-    expect(isTurn("todo", { done: 1, total: 1, excluded: 3 })).toBe(true);
-    expect(isTurn("todo", { done: 0, total: 0, excluded: 2 })).toBe(true);
-    expect(isTurn("todo", { done: 1, total: 2, excluded: 0 })).toBe(false);
+    expect(isTurn("todo", { done: 1, total: 1, excluded: 3, ideas: 0 })).toBe(true);
+    expect(isTurn("todo", { done: 0, total: 0, excluded: 2, ideas: 0 })).toBe(true);
+    expect(isTurn("todo", { done: 1, total: 2, excluded: 0, ideas: 0 })).toBe(false);
     expect(isTurn("done", null)).toBe(false);
   });
 });

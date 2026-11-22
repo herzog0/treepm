@@ -351,6 +351,10 @@ export type CliOptions = {
   number?: number;
   /** `ticket-update`: move o ticket para a raiz. */
   root?: boolean;
+  /** `ticket-create`: cria uma ideia (ADR 0042). */
+  idea?: boolean;
+  /** `ticket-update`: estágio da ideia (`new`, `refining` ou `ready`). */
+  ideaStage?: "new" | "refining" | "ready";
   role?: string;
   retryDelaysMs?: number[];
   fake503First?: number;
@@ -388,11 +392,12 @@ export const TICKET_STATUSES: readonly TicketStatus[] = ["todo", "in_progress", 
 /** Opções de cada comando de ticket, além de `--org`, `--user` e `--project`. */
 const TICKET_OPTIONS: Record<string, readonly string[]> = {
   "ticket-list": ["json"],
-  "ticket-create": ["title", "descriptionFile", "parent", "status"],
-  "ticket-update": ["number", "title", "descriptionFile", "parent", "status", "root"],
+  "ticket-create": ["title", "descriptionFile", "parent", "status", "idea"],
+  "ticket-update": ["number", "title", "descriptionFile", "parent", "status", "root", "ideaStage"],
   "relations-rebuild": [],
 };
-const TICKET_ONLY = ["json", "title", "descriptionFile", "parent", "status", "number", "root"] as const;
+const TICKET_ONLY = ["json", "title", "descriptionFile", "parent", "status", "number", "root", "idea", "ideaStage"] as const;
+const IDEA_STAGES_CLI = ["new", "refining", "ready"] as const;
 
 const FLAGS: Record<string, keyof CliOptions> = {
   "--org": "org",
@@ -425,6 +430,8 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--status": "status",
   "--number": "number",
   "--root": "root",
+  "--idea": "idea",
+  "--idea-stage": "ideaStage",
   "--role": "role",
   "--retry-delays-ms": "retryDelaysMs",
   "--fake-503-first": "fake503First",
@@ -437,8 +444,8 @@ const usage = `Comandos: ${COMMANDS.join(", ")}.
   pairs          --dir [--org <organização, obrigatório sem --fake-providers>] [--variant <nome>] [--limit N] [--repeats N] [--resume] [--fake-providers]
   report --pairs --dir [--variant <nome>]
   ticket-list    --org --user --project [--json]
-  ticket-create  --org --user --project --title <texto> [--description-file <caminho>] [--parent <número>] [--status <situação>]
-  ticket-update  --org --user --project --number <número> [--status <situação>] [--title <texto>] [--description-file <caminho>] [--parent <número> | --root]
+  ticket-create  --org --user --project --title <texto> [--description-file <caminho>] [--parent <número>] [--status <situação> | --idea]
+  ticket-update  --org --user --project --number <número> [--status <situação>] [--title <texto>] [--description-file <caminho>] [--parent <número> | --root] [--idea-stage <new|refining|ready>]
   relations-rebuild --org --user --project`;
 
 export function parseCliArgs(argv: readonly string[]): ParsedArgs {
@@ -452,7 +459,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     const flag = rest[i] as string;
     const key = FLAGS[flag];
     if (!key) return fail(`Opção desconhecida: ${flag}.`);
-    if (key === "fakeProviders" || key === "loo" || key === "collect" || key === "pairs" || key === "resume" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root") {
+    if (key === "fakeProviders" || key === "loo" || key === "collect" || key === "pairs" || key === "resume" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root" || key === "idea") {
       options[key] = true;
       continue;
     }
@@ -522,10 +529,14 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     return fail(`--status é uma de: ${TICKET_STATUSES.join(", ")}.`);
   }
   if (options["parent"] !== undefined && options["root"] !== undefined) return fail("--parent não combina com --root.");
+  if (options["ideaStage"] !== undefined && !(IDEA_STAGES_CLI as readonly string[]).includes(options["ideaStage"] as string)) {
+    return fail(`--idea-stage é uma de: ${IDEA_STAGES_CLI.join(", ")}.`);
+  }
+  if (options["idea"] !== undefined && options["status"] !== undefined) return fail("--idea não combina com --status: a situação de uma ideia é sempre todo.");
   if (command === "ticket-update" && options["number"] !== undefined) {
-    const changes = ["status", "title", "descriptionFile", "parent", "root"];
+    const changes = ["status", "title", "descriptionFile", "parent", "root", "ideaStage"];
     if (!changes.some((key) => options[key] !== undefined)) {
-      return fail("ticket-update pede ao menos um de --status, --title, --description-file, --parent ou --root.");
+      return fail("ticket-update pede ao menos um de --status, --title, --description-file, --parent, --root ou --idea-stage.");
     }
   }
   // `report --pairs` lê só os arquivos de `--dir`: o projeto vem do gabarito.

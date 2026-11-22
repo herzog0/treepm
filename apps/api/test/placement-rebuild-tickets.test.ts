@@ -94,9 +94,9 @@ describe("ticket-list", () => {
     const parsed = JSON.parse(lines[0] as string) as Record<string, unknown>[];
     const key = (await rows(project))[0]?.key.split("-")[0] as string;
     expect(parsed.map((r) => r["number"])).toEqual([1, 2, 3, 5, 4]);
-    expect(parsed[0]).toEqual({ key: `${key}-1`, number: 1, id: ids.a, parentNumber: null, status: "todo", title: "Alfa", progress: { done: 1, total: 3, excluded: 0 } });
-    expect(parsed[2]).toEqual({ key: `${key}-3`, number: 3, id: ids.c, parentNumber: 2, status: "done", title: "Gama", progress: null });
-    expect(Object.keys(parsed[0] as object).sort()).toEqual(["id", "key", "number", "parentNumber", "progress", "status", "title"]);
+    expect(parsed[0]).toEqual({ key: `${key}-1`, number: 1, id: ids.a, parentNumber: null, status: "todo", title: "Alfa", progress: { done: 1, total: 3, excluded: 0, ideas: 0 }, idea: null });
+    expect(parsed[2]).toEqual({ key: `${key}-3`, number: 3, id: ids.c, parentNumber: 2, status: "done", title: "Gama", progress: null, idea: null });
+    expect(Object.keys(parsed[0] as object).sort()).toEqual(["id", "idea", "key", "number", "parentNumber", "progress", "status", "title"]);
   });
 
   it("projeto vazio não imprime nada", async () => {
