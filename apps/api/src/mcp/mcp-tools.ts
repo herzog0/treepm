@@ -55,7 +55,7 @@ const listSchema = z.strictObject({
   truncated: z.boolean().describe("True when there were more tickets than fit in the result."),
 });
 const directionsSchema = z.strictObject({ outgoing: listSchema, incoming: listSchema });
-const progressSchema = z.strictObject({ done: z.number().int(), total: z.number().int(), excluded: z.number().int() });
+const progressSchema = z.strictObject({ done: z.number().int(), total: z.number().int(), excluded: z.number().int(), ideas: z.number().int() });
 
 export const searchTicketsOutput = listSchema;
 export const getTicketOutput = z.strictObject({

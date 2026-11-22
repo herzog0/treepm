@@ -5,7 +5,7 @@ import type { TicketStatus } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
 import { parseOutput } from "../common/zod.js";
-import { ticketStatusSchema } from "../tickets/tickets.schema.js";
+import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
 import { queryOverviewSchema, queryTicketPageSchema, queryTicketSchema, queryListSchema } from "./query.schema.js";
 import type { QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "./query.schema.js";
 
@@ -156,10 +156,11 @@ export class ProjectQueryService {
   /** Total por situação e os tickets do topo com situação e progresso (`ticketProgress`). 3 consultas. */
   async overview(tx: TenantClient, principal: Principal, projectId: string): Promise<QueryOverview> {
     const project = await this.requireProject(tx, principal, projectId);
-    const nodes = (await tx.ticket.findMany({ where: { projectId }, select: { id: true, parentId: true, status: true } })).map((row) => ({
+    const nodes = (await tx.ticket.findMany({ where: { projectId }, select: { id: true, parentId: true, status: true, ideaStage: true } })).map((row) => ({
       id: row.id,
       parentId: row.parentId,
       status: ticketStatusSchema.parse(row.status),
+      ideaStage: ideaStageSchema.nullable().parse(row.ideaStage),
     }));
     const top = await tx.ticket.findMany({ where: { projectId, parentId: null }, select: SUMMARY_SELECT, orderBy: RELATED_ORDER, take: RELATED_MAX + 1 });
     const byStatus: Record<TicketStatus, number> = { todo: 0, in_progress: 0, in_review: 0, done: 0, cancelled: 0 };

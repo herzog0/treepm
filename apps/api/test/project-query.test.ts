@@ -323,6 +323,17 @@ describe("overview", () => {
     expect(view.top.tickets[1]?.progress).toBeNull();
   });
 
+  it("com uma ideia no projeto: o progresso do pai não a conta e ideas vale 1 (ADR 0042)", async () => {
+    const top = await ticket(OPEN(), 1, "Exportação");
+    await ticket(OPEN(), 2, "CSV", { parent: top, status: "done" });
+    await ticket(OPEN(), 3, "PDF", { parent: top });
+    const idea = await ticket(OPEN(), 4, "Ideia de exportação", { parent: top });
+    await ticket(OPEN(), 5, "Dentro da ideia", { parent: idea });
+    await pool.query("update tickets set idea_stage = 'new' where id = $1", [idea]);
+    const view = await as("reader", (tx, p) => service.overview(tx, p, OPEN()));
+    expect(view.top.tickets[0]?.progress).toEqual({ done: 1, total: 2, excluded: 0, ideas: 1 });
+  });
+
   it("is zeroed for an empty project", async () => {
     const view = await as("reader", (tx, p) => service.overview(tx, p, OPEN()));
     expect(view.total).toBe(0);

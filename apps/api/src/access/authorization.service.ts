@@ -6,6 +6,9 @@ import {
   canCreateProject,
   canCommentTicket,
   canCreateTicket,
+  canRefineIdea,
+  canRegisterIdea,
+  canTriageIdea,
   canEditContributions,
   canEditComment,
   canEditTicket,
@@ -110,6 +113,15 @@ export class AuthorizationService {
   }
   editTicket(actor: Actor, projectId: string): void {
     this.require(canEditTicket(actor, projectId));
+  }
+  registerIdea(actor: Actor, projectId: string): void {
+    this.require(canRegisterIdea(actor, projectId));
+  }
+  refineIdea(actor: Actor, projectId: string): void {
+    this.require(canRefineIdea(actor, projectId));
+  }
+  triageIdea(actor: Actor, projectId: string): void {
+    this.require(canTriageIdea(actor, projectId));
   }
   commentTicket(actor: Actor, projectId: string): void {
     this.require(canCommentTicket(actor, projectId));

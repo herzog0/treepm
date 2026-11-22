@@ -252,8 +252,19 @@ describe("as ferramentas", () => {
     expect(overview.total).toBe(7);
     expect(overview.by_status).toMatchObject({ todo: 7, done: 0 });
     expect(overview.top.tickets.map((x: any) => x.label)).toEqual(["T1", "T5", "T7"]);
-    expect(overview.top.tickets[0]).toMatchObject({ title: "Auth", parent: null, progress: { done: 0, total: 3, excluded: 0 } });
+    expect(overview.top.tickets[0]).toMatchObject({ title: "Auth", parent: null, progress: { done: 0, total: 3, excluded: 0, ideas: 0 } });
     for (const out of [found, list, overview]) expect(keysDeep(out).filter((k) => FORBIDDEN_KEYS.includes(k))).toEqual([]);
+  });
+
+  it("project_overview com uma ideia no projeto: o progresso do pai não a conta e ideas vale 1 (ADR 0042)", async () => {
+    await seed();
+    const parent = (await rows("select id from tickets where project_id = $1 and number = 1", [priv()]))[0].id as string;
+    await h.pool.query(
+      "insert into tickets (org_id, project_id, number, title, parent_id, idea_stage, created_by_person_id) values ('org_A', $1, 90, 'Ideia', $2, 'new', $3)",
+      [priv(), parent, h.world().people.admin],
+    );
+    const overview = await json("project_overview", {});
+    expect(overview.top.tickets[0]).toMatchObject({ title: "Auth", progress: { done: 0, total: 3, excluded: 0, ideas: 1 } });
   });
 
   it("list_tickets pagina por rótulo: truncated e after", async () => {

@@ -1,4 +1,4 @@
-import { CONTRIBUTION_STATUSES, CONTRIBUTION_TEXT_MAX } from "@treepm/domain";
+import { CONTRIBUTION_STATUSES, CONTRIBUTION_TEXT_MAX, IDEA_STAGES } from "@treepm/domain";
 import { z } from "zod";
 import { idSchema } from "../common/schemas.js";
 
@@ -6,6 +6,8 @@ export const MAX_IMPORT_ITEMS = 500;
 export const MAX_IMPORT_DEPTH = 20;
 
 export const ticketStatusSchema = z.enum(["todo", "in_progress", "in_review", "done", "cancelled"]);
+/** Estágio de ideia (ADR 0042). */
+export const ideaStageSchema = z.enum(IDEA_STAGES);
 export const ticketTitleSchema = z.string().trim().min(1).max(200);
 export const ticketDescriptionSchema = z.string().max(20_000);
 const titleSchema = ticketTitleSchema;
@@ -18,8 +20,14 @@ export const createTicketSchema = z
     parentId: idSchema.nullable().optional(),
     status: ticketStatusSchema.optional(),
     assigneeIds: z.array(idSchema).max(100).optional(),
+    /** Cria a ideia no estágio `new` (ADR 0042); a situação de uma ideia é sempre `todo`. */
+    idea: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  .refine((value) => !value.idea || value.status === undefined || value.status === "todo", "Uma ideia nasce na situação todo.");
+
+/** Mudar o estágio de uma ideia: só os três estágios abertos; descartar tem rota própria. */
+export const ideaStageBodySchema = z.object({ stage: z.enum(["new", "refining", "ready"]) }).strict();
 
 export const updateTicketSchema = z
   .object({
@@ -70,7 +78,15 @@ export const importTicketsSchema = z
   .strict()
   .refine((value) => countItems(value.items) <= MAX_IMPORT_ITEMS, "Máximo de 500 itens.");
 
-const progressSchema = z.object({ done: z.number(), total: z.number(), excluded: z.number() });
+const progressSchema = z.object({ done: z.number(), total: z.number(), excluded: z.number(), ideas: z.number() });
+
+/** `null`: ticket comum; raiz de ideia com o estágio; ou ticket dentro de uma ideia, com a raiz (ADR 0042). */
+export const ticketIdeaSchema = z
+  .union([
+    z.object({ root: z.literal(true), stage: ideaStageSchema }),
+    z.object({ root: z.literal(false), rootId: z.string(), rootKey: z.string() }),
+  ])
+  .nullable();
 
 export const ticketSummarySchema = z.object({
   id: z.string(),
@@ -83,7 +99,21 @@ export const ticketSummarySchema = z.object({
   status: ticketStatusSchema,
   progress: progressSchema.nullable(),
   assigneeIds: z.array(z.string()),
+  idea: ticketIdeaSchema,
 });
+
+/** Uma ideia da lista de ideias do projeto (ADR 0042): a raiz, o caminho (títulos dos ancestrais, do topo para baixo) e a criação. */
+export const ideaListItemSchema = z.object({
+  id: z.string(),
+  number: z.number(),
+  key: z.string(),
+  title: z.string(),
+  stage: ideaStageSchema,
+  path: z.array(z.string()),
+  createdAt: z.string(),
+});
+export type IdeaListItem = z.output<typeof ideaListItemSchema>;
+export type TicketIdea = z.output<typeof ticketIdeaSchema>;
 
 /** Ticket que menciona outro na descrição (ADR 0037), para a seção "Mencionado em". */
 export const mentionedBySchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatusSchema });
@@ -137,6 +167,8 @@ export const ticketPageSchema = ticketDetailSchema.extend({
   contributions: z.array(contributionSchema),
   /** Para quem lê: pode mexer nas contribuições (falso em projeto arquivado). */
   canEditContributions: z.boolean(),
+  /** Para quem lê: pode aceitar e descartar esta ideia (gestor, em raiz de ideia, projeto não arquivado; ADR 0042). */
+  canTriageIdea: z.boolean(),
 });
 
 export type Contribution = z.output<typeof contributionSchema>;
