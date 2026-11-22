@@ -85,6 +85,8 @@ export class TicketContributionsService {
     this.authorization.editContributions(principal.actor, project.id);
     this.requireActive(project);
     const area = await tx.area.findFirst({ where: { id: contribution.areaId }, select: { name: true } });
+    // Os comentários da contribuição ficam no ticket: o banco zera `contribution_id` e guarda o nome da área (gatilho).
+    const commentsKept = await tx.ticketComment.count({ where: { contributionId: id, removedAt: null } });
     await tx.ticketContributionPerson.deleteMany({ where: { contributionId: id } });
     const gone = await tx.ticketContribution.deleteMany({ where: { id } });
     if (gone.count === 0) return;
@@ -92,7 +94,7 @@ export class TicketContributionsService {
       kind: "ticket.contribution_removed",
       subjectType: "ticket",
       subjectId: ticket.id,
-      payload: { key: `${project.key}-${ticket.number}`, contributionId: id, areaId: contribution.areaId, areaName: area?.name ?? null },
+      payload: { key: `${project.key}-${ticket.number}`, contributionId: id, areaId: contribution.areaId, areaName: area?.name ?? null, commentsKept },
     });
   }
 

@@ -6,8 +6,8 @@ import { idSchema } from "../common/schemas.js";
 import { ZodPipe } from "../common/zod.js";
 import { Tx } from "../db/tx.decorator.js";
 import type { CommentEntry } from "./ticket-activity.schema.js";
-import { commentInputSchema } from "./ticket-comments.schema.js";
-import type { CommentInput } from "./ticket-comments.schema.js";
+import { commentInputSchema, createCommentSchema } from "./ticket-comments.schema.js";
+import type { CommentInput, CreateCommentInput } from "./ticket-comments.schema.js";
 import { TicketCommentsService } from "./ticket-comments.service.js";
 
 /** Comentários do ticket (ADR 0040, fatia 2). A leitura vem na rota de atividade (`GET tickets/:id/activity`). */
@@ -20,9 +20,9 @@ export class TicketCommentsController {
     @Tx() tx: TenantClient,
     @CurrentPrincipal() principal: Principal,
     @Param("id", new ZodPipe(idSchema)) id: string,
-    @Body(new ZodPipe(commentInputSchema)) body: CommentInput,
+    @Body(new ZodPipe(createCommentSchema)) body: CreateCommentInput,
   ): Promise<CommentEntry> {
-    return this.comments.add(tx, principal, id, body.body);
+    return this.comments.add(tx, principal, id, body.body, body.contributionId);
   }
 
   @Patch("comments/:id")

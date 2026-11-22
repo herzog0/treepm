@@ -23,7 +23,7 @@ const at = (minutesAgo: number) => new Date(NOW.getTime() - minutesAgo * 60_000)
 let counter = 0;
 type Comment = Extract<ActivityEntry, { type: "comment" }>;
 const comment = (data: Partial<Comment> = {}): Comment => ({
-  id: `c${++counter}`, type: "comment", occurredAt: at(5), actor: ana, body: "Texto do comentário", editedAt: null, removed: false, canEdit: false, canRemove: false, ...data,
+  id: `c${++counter}`, type: "comment", occurredAt: at(5), actor: ana, body: "Texto do comentário", editedAt: null, removed: false, canEdit: false, canRemove: false, area: null, ...data,
 });
 const page = (entries: ActivityEntry[], canComment = false): ActivityPage => ({ entries, before: null, canComment });
 

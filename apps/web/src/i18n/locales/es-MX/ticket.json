@@ -194,7 +194,9 @@
       "sending": "Enviando…",
       "hint": "Ctrl+Enter para comentar",
       "by": "Comentario de {{name}}",
-      "gone": "comentario eliminado"
+      "gone": "comentario eliminado",
+      "openArea": "Abrir la conversación del área {{area}}",
+      "areaGone": "Área quitada; el comentario se queda en el ticket"
     },
     "contributionAdded": "<who>{{actor}}</who> agregó el área <name>{{area}}</name>",
     "contributionAdded_noActor": "Área <name>{{area}}</name> agregada",
@@ -227,6 +229,18 @@
     "addPersonLabel": "Agregar una persona al área {{area}}",
     "removePerson": "Quitar a {{name}} del área {{area}}",
     "textLabel": "Texto del área {{area}}",
-    "removedArea": "(área eliminada)"
+    "removedArea": "(área eliminada)",
+    "removeWarningWithComments": "Se borrarán el texto y las personas de esta área. Sus comentarios se quedan en el ticket.",
+    "conversation": {
+      "start": "Comentar",
+      "count_one": "{{count}} comentario",
+      "count_many": "{{count}} comentarios",
+      "count_other": "{{count}} comentarios",
+      "region": "Conversación del área {{area}}",
+      "list": "Comentarios del área {{area}}",
+      "field": "Nuevo comentario en el área {{area}}",
+      "loading": "Cargando comentarios…",
+      "empty": "No hay comentarios en esta área."
+    }
   }
 }

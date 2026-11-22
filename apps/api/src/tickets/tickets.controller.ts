@@ -201,6 +201,9 @@ export class TicketsController {
     @Query(new ZodPipe(activityQuerySchema)) query: z.output<typeof activityQuerySchema>,
   ): Promise<ActivityPage> {
     const { project, ticket } = await this.findVisibleTicket(tx, actor, id);
+    if (query.contribution !== undefined && !(await tx.ticketContribution.findFirst({ where: { id: query.contribution, ticketId: id }, select: { id: true } }))) {
+      throw new NotFoundException("Contribuição não encontrada.");
+    }
     return this.ticketActivity.read(tx, project, ticket, query, { personId: person.id, actor });
   }
 

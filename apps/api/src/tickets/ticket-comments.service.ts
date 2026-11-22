@@ -20,6 +20,10 @@ type CommentRow = {
   createdAt: Date;
   editedAt: Date | null;
   removedAt: Date | null;
+  /** A contribuição (área) do comentário, quando ainda existe (ADR 0041). */
+  contribution: { id: string; area: { name: string } } | null;
+  /** O nome da área que a contribuição removida tinha; nulo enquanto a contribuição existe. */
+  areaName: string | null;
 };
 
 /** `canEdit` e `canRemove` de um comentário para quem lê: comentário removido e projeto arquivado não têm ação. */
@@ -31,6 +35,12 @@ export function commentRights(viewer: Viewer, project: Pick<ProjectRow, "id" | "
   };
 }
 
+/** A área do comentário: a contribuição de hoje, o nome guardado quando ela foi removida, ou `null` (comentário do ticket). */
+export function commentArea(row: Pick<CommentRow, "contribution" | "areaName">): { id: string | null; name: string } | null {
+  if (row.contribution) return { id: row.contribution.id, name: row.contribution.area.name };
+  return row.areaName === null ? null : { id: null, name: row.areaName };
+}
+
 /** A entrada de atividade de um comentário; o corpo de um removido nunca sai. */
 export function toCommentEntry(row: CommentRow, author: Author | null, rights: { canEdit: boolean; canRemove: boolean }): CommentEntry {
   const removed = row.removedAt !== null;
@@ -40,13 +50,25 @@ export function toCommentEntry(row: CommentRow, author: Author | null, rights: {
     occurredAt: row.createdAt.toISOString(),
     actor: author,
     body: removed ? null : row.body,
+    area: commentArea(row),
     editedAt: row.editedAt ? row.editedAt.toISOString() : null,
     removed,
     ...rights,
   };
 }
 
-const select = { id: true, authorPersonId: true, body: true, createdAt: true, editedAt: true, removedAt: true } as const;
+/** O que ler de um comentário; a área vem na mesma consulta (o nome da área fica na contribuição). */
+export const commentSelect = {
+  id: true,
+  authorPersonId: true,
+  body: true,
+  createdAt: true,
+  editedAt: true,
+  removedAt: true,
+  areaName: true,
+  contribution: { select: { id: true, area: { select: { name: true } } } },
+} as const;
+const select = commentSelect;
 
 /**
  * Comentar, editar e remover (ADR 0040, fatia 2). O corpo nunca vai para o evento de atividade nem para o log.
@@ -59,19 +81,24 @@ export class TicketCommentsService {
     @Inject(ActivityService) private readonly activity: ActivityService,
   ) {}
 
-  async add(tx: TenantClient, principal: Principal, ticketId: string, body: string): Promise<CommentEntry> {
+  async add(tx: TenantClient, principal: Principal, ticketId: string, body: string, contributionId?: string): Promise<CommentEntry> {
     const { project, ticket } = await this.visibleTicket(tx, principal.actor, ticketId);
     this.authorization.commentTicket(principal.actor, project.id);
     this.requireActive(project);
+    // Contribuição de outro ticket, inexistente ou de outra organização (RLS): o mesmo 404. O banco também garante
+    // que a contribuição é do mesmo ticket (chave estrangeira composta).
+    if (contributionId !== undefined && !(await tx.ticketContribution.findFirst({ where: { id: contributionId, ticketId }, select: { id: true } }))) {
+      throw new NotFoundException("Contribuição não encontrada.");
+    }
     const row = await tx.ticketComment.create({
-      data: { orgId: project.orgId, projectId: project.id, ticketId, authorPersonId: principal.person.id, body },
+      data: { orgId: project.orgId, projectId: project.id, ticketId, authorPersonId: principal.person.id, body, ...(contributionId === undefined ? {} : { contributionId }) },
       select,
     });
     await this.activity.record(tx, principal, {
       kind: "ticket.comment_added",
       subjectType: "ticket",
       subjectId: ticketId,
-      payload: { key: `${project.key}-${ticket.number}`, commentId: row.id },
+      payload: { key: `${project.key}-${ticket.number}`, commentId: row.id, ...this.contributionPart(row) },
     });
     return this.entry(principal, project, row);
   }
@@ -90,7 +117,7 @@ export class TicketCommentsService {
       kind: "ticket.comment_edited",
       subjectType: "ticket",
       subjectId: ticket.id,
-      payload: { key: `${project.key}-${ticket.number}`, commentId },
+      payload: { key: `${project.key}-${ticket.number}`, commentId, ...this.contributionPart(comment) },
     });
     return this.entry(principal, project, { ...comment, body, editedAt });
   }
@@ -111,8 +138,13 @@ export class TicketCommentsService {
       kind: "ticket.comment_removed",
       subjectType: "ticket",
       subjectId: ticket.id,
-      payload: { key: `${project.key}-${ticket.number}`, commentId },
+      payload: { key: `${project.key}-${ticket.number}`, commentId, ...this.contributionPart(comment) },
     });
+  }
+
+  /** O id da contribuição no evento, quando o comentário é de uma área. Nunca o corpo nem o nome. */
+  private contributionPart(row: Pick<CommentRow, "contribution">): { contributionId?: string } {
+    return row.contribution ? { contributionId: row.contribution.id } : {};
   }
 
   private entry(principal: Principal, project: ProjectRow, row: CommentRow): CommentEntry {

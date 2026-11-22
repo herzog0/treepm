@@ -13,8 +13,8 @@ const project = makeProject("p1", "ALFA", "Projeto Alfa");
 const summaries: TicketSummary[] = [makeTicket("t1", "p1", 1, "Tela de acesso por token", { key: "ALFA-1" }), makeTicket("t2", "p1", 2, "Cadastro de áreas", { key: "ALFA-2" })];
 const ana = { id: "person-1", displayName: "Ana Souza", avatarUrl: null };
 const bruno = { id: "person-2", displayName: "Bruno Lima", avatarUrl: null };
-const design: Contribution = { id: "k1", area: { id: "a1", name: "Design" }, text: "## Entrega\n\n- Telas de **login** e de erro\n- Ver ALFA-2 para o cadastro\n\n- [ ] Revisar contraste", status: "in_progress", people: [ana, bruno] };
-const dados: Contribution = { id: "k2", area: { id: "a2", name: "Dados" }, text: "", status: "todo", people: [] };
+const design: Contribution = { id: "k1", area: { id: "a1", name: "Design" }, text: "## Entrega\n\n- Telas de **login** e de erro\n- Ver ALFA-2 para o cadastro\n\n- [ ] Revisar contraste", status: "in_progress", people: [ana, bruno], commentCount: 0 };
+const dados: Contribution = { id: "k2", area: { id: "a2", name: "Dados" }, text: "", status: "todo", people: [], commentCount: 0 };
 const areas = [{ id: "a1", name: "Design" }, { id: "a2", name: "Dados" }, { id: "a3", name: "Jurídico" }, { id: "a4", name: "Segurança" }];
 const dir = (import.meta.env["VITE_TREEPM_CAPTURES"] as string | undefined);
 const shot = async (name: string) => {

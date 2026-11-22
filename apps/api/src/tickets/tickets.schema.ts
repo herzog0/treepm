@@ -119,6 +119,8 @@ export const contributionSchema = z.object({
   text: z.string(),
   status: contributionStatusSchema,
   people: z.array(contributionPersonSchema),
+  /** Comentários vivos desta contribuição (ADR 0041, fatia 2). */
+  commentCount: z.number().int().nonnegative(),
 });
 
 export const createContributionSchema = z.object({ areaId: idSchema }).strict();

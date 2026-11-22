@@ -68,7 +68,7 @@ describe("criar: POST tickets/:id/contributions", () => {
       const a = await area();
       const res = await create(t.id, a.id, who);
       expect(res.status, who).toBe(201);
-      expect(res.body).toEqual({ id: expect.any(String), area: { id: a.id, name: a.name }, text: "", status: "todo", people: [] });
+      expect(res.body).toEqual({ id: expect.any(String), area: { id: a.id, name: a.name }, text: "", status: "todo", people: [], commentCount: 0 });
       expect(await row((res.body as Contribution).id)).toMatchObject({ project_id: priv(), ticket_id: t.id, area_id: a.id, created_by_person_id: personId(who), text: "", status: "todo" });
     }
   });
@@ -296,7 +296,7 @@ describe("leitura: GET tickets/:id", () => {
     await update(one.id, { text: "Texto um", status: "done" });
     const d = await detail(t.id);
     expect(d.contributions.map((c) => c.id)).toEqual([one.id, two.id]);
-    expect(d.contributions[0]).toEqual({ id: one.id, area: one.area, text: "Texto um", status: "done", people: [] });
+    expect(d.contributions[0]).toEqual({ id: one.id, area: one.area, text: "Texto um", status: "done", people: [], commentCount: 0 });
     expect(d.contributions[1]?.people.map((p) => p.displayName)).toEqual(["Nome admin", "Nome manager"]);
     expect(d.canEditContributions).toBe(true);
   });
@@ -447,7 +447,7 @@ describe("eventos: payload exato e sem texto", () => {
       { ...base, personId: personId("manager") },
       { ...base, fields: ["status"], status: { from: "in_progress", to: "done" } },
       { ...base, fields: ["text"] },
-      { ...base, areaName: "Dados" },
+      { ...base, areaName: "Dados", commentsKept: 0 },
     ]);
     expect(rows.map((r) => r.actor_person_id)).toEqual([personId("contributor"), personId("manager"), personId("contributor"), personId("contributor"), personId("contributor"), personId("contributor"), personId("manager")]);
     const all = JSON.stringify((await h.pool.query("select * from activity_events")).rows);

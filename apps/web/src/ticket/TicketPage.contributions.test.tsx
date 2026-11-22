@@ -12,8 +12,8 @@ const project = makeProject("p1", "ALFA", "Projeto Alfa");
 const summaries: TicketSummary[] = [makeTicket("t1", "p1", 1, "Este ticket", { key: "ALFA-1" })];
 const ana = { id: "person-1", displayName: "Ana", avatarUrl: null };
 const bruno = { id: "person-2", displayName: "Bruno", avatarUrl: null };
-const design: Contribution = { id: "k1", area: { id: "a1", name: "Design" }, text: "Entregar a tela", status: "todo", people: [] };
-const dados: Contribution = { id: "k2", area: { id: "a2", name: "Dados" }, text: "", status: "in_progress", people: [bruno] };
+const design: Contribution = { id: "k1", area: { id: "a1", name: "Design" }, text: "Entregar a tela", status: "todo", people: [], commentCount: 0 };
+const dados: Contribution = { id: "k2", area: { id: "a2", name: "Dados" }, text: "", status: "in_progress", people: [bruno], commentCount: 0 };
 const areas = [{ id: "a1", name: "Design" }, { id: "a2", name: "Dados" }, { id: "a3", name: "Jurídico" }];
 
 type Options = { contributions?: Contribution[]; canEdit?: boolean; reader?: boolean; archived?: boolean; areas?: { id: string; name: string }[]; activity?: ActivityEntry[] };
@@ -28,7 +28,7 @@ function setup(options: Options = {}) {
   const client = makeClient({ projects: [proj], people: [makePerson("person-1", "Ana"), makePerson("person-2", "Bruno")], tickets: { p1: summaries }, areas: options.areas ?? areas });
   const spies = {
     createContribution: vi.fn(async (_id: string, body: { areaId: string }) => {
-      const created: Contribution = { id: `new-${body.areaId}`, area: areas.find((a) => a.id === body.areaId)!, text: "", status: "todo", people: [] };
+      const created: Contribution = { id: `new-${body.areaId}`, area: areas.find((a) => a.id === body.areaId)!, text: "", status: "todo", people: [], commentCount: 0 };
       current = [...current, created];
       return ok(created);
     }),

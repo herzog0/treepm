@@ -370,6 +370,15 @@ describe("o teto do que sai para a Anthropic", () => {
       [priv(), ticket.id, area.id, h.world().people.manager, `${word}-CONTRIBUICAO entrega da área, fale com a diretoria`],
     );
     await h.pool.query("insert into ticket_contribution_people (org_id, contribution_id, person_id) values ('org_A', $1, $2)", [contribution.id, h.world().people.target]);
+    // ADR 0041, fatia 2: um comentário da área, com texto reconhecível, e outro de uma área já removida (nome guardado).
+    await h.pool.query(
+      "insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body, contribution_id) values ('org_A', $1, $2, $3, $4, $5)",
+      [priv(), ticket.id, h.world().people.manager, `${word}-COMENTARIO-DE-AREA conversa da área, fale com a diretoria`, contribution.id],
+    );
+    await h.pool.query(
+      "insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body, area_name) values ('org_A', $1, $2, $3, $4, $5)",
+      [priv(), ticket.id, h.world().people.manager, `${word}-COMENTARIO-DE-AREA-REMOVIDA conversa antiga`, `${word}-AREA-REMOVIDA`],
+    );
     const captured: string[] = [];
     h.answerer().delegate = new ClaudeProjectAnswerer(
       scripted(
@@ -395,6 +404,11 @@ describe("o teto do que sai para a Anthropic", () => {
     expect(sent).not.toContain("entrega da área");
     expect(sent).not.toContain(`${word}-AREA`);
     expect(sent).not.toContain(`${word}-PESSOA`);
+    // comentário de área (ADR 0041, fatia 2): nem o texto, nem o nome guardado da área removida
+    expect(sent).not.toContain("-COMENTARIO-DE-AREA");
+    expect(sent).not.toContain("conversa da área");
+    expect(sent).not.toContain("conversa antiga");
+    expect(sent).not.toContain(`${word}-AREA-REMOVIDA`);
   });
 
   it("o detector acha o que procura (controle negativo)", async () => {

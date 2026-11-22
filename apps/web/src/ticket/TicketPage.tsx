@@ -232,6 +232,11 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
   const removal = useAction();
   // Cada alteração feita nesta página pede a atividade de novo (ADR 0040).
   const [activityVersion, setActivityVersion] = useState(0);
+  // Comentários (ADR 0041, fatia 2): o que muda numa conversa de área e o que muda na seção "Atividade" avisa o outro lado,
+  // e o ticket é lido de novo para a contagem de cada área. `openArea` pede para abrir a conversa de uma área.
+  const [areaChanges, setAreaChanges] = useState(0);
+  const [activityChanges, setActivityChanges] = useState(0);
+  const [openArea, setOpenArea] = useState<{ id: string; n: number } | null>(null);
 
   useEffect(() => {
     title.current?.focus();
@@ -247,6 +252,15 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
     reloadDetail();
     reloadList();
     onChanged();
+  };
+
+  const commentsChangedInArea = () => {
+    setAreaChanges((n) => n + 1);
+    reloadDetail();
+  };
+  const commentsChangedInActivity = () => {
+    setActivityChanges((n) => n + 1);
+    reloadDetail();
   };
 
   const children = list.filter((entry) => entry.parentId === detail.id);
@@ -335,7 +349,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
           </dl>
           <DescriptionField client={client} detail={detail} canEdit={canEdit} assistant={assistantEnabled(me)} tickets={list} onOpenTicket={onOpenTicket} onSaved={refresh} />
 
-          <Contributions client={client} detail={detail} people={people} tickets={list} isAdmin={me.roles.clerk === "admin"} onOpenTicket={onOpenTicket} onSaved={refresh} />
+          <Contributions client={client} detail={detail} people={people} tickets={list} isAdmin={me.roles.clerk === "admin"} onOpenTicket={onOpenTicket} onSaved={refresh} activityChanges={activityChanges} openRequest={openArea} onCommentsChanged={commentsChangedInArea} />
 
           <LinkedTickets id="ticket-mentioned-by" heading={t("mentionedBy.heading")} links={detail.mentionedBy} onOpen={onOpenTicket} />
           <LinkedTickets id="ticket-blocking" heading={t("blocking.heading")} links={detail.blocks} onOpen={onOpenTicket} />
@@ -375,7 +389,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
 
           {githubEnabled(me) && <TicketCode client={client} detail={detail} project={project} />}
 
-          <TicketActivity client={client} ticketId={detail.id} projectId={detail.projectId} tickets={list} version={activityVersion} onOpenTicket={onOpenTicket} />
+          <TicketActivity client={client} ticketId={detail.id} projectId={detail.projectId} tickets={list} version={activityVersion} areaChanges={areaChanges} onOpenTicket={onOpenTicket} onOpenArea={(id) => setOpenArea((current) => ({ id, n: (current?.n ?? 0) + 1 }))} onCommentsChanged={commentsChangedInActivity} />
         </div>
       </div>
     </>
