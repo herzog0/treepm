@@ -109,6 +109,14 @@ const TABLES: TableSpec[] = [
     appCanUpdateAndDelete: true,
   },
   {
+    table: "organization_consents",
+    insert:
+      "insert into organization_consents (org_id, kind, document_version, accepted_by_person_id) values ($1, 'assistant', 'rascunho-1', gen_random_uuid())",
+    update: "update organization_consents set withdrawn_at = now() where org_id = $1",
+    remove: "delete from organization_consents where org_id = $1",
+    appCanUpdateAndDelete: false,
+  },
+  {
     table: "ticket_assignees",
     insert:
       "insert into ticket_assignees (org_id, ticket_id, person_id) values ($1, gen_random_uuid(), gen_random_uuid())",
@@ -189,6 +197,11 @@ beforeAll(async () => {
     await owner.query(
       "insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ($1, $2, $3, $4, 'mentions')",
       [orgId, ids.project, second.rows[0]?.id, ids.ticket],
+    );
+    // Um aceite por organização, para a tabela organization_consents ter linhas a isolar.
+    await owner.query(
+      "insert into organization_consents (org_id, kind, document_version, accepted_by_person_id) values ($1, 'assistant', 'rascunho-1', $2)",
+      [orgId, ids.person],
     );
     // Um token por organização, para a tabela access_tokens ter linhas a isolar.
     await owner.query(

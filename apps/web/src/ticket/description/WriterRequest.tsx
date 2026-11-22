@@ -1,14 +1,16 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { ConsentRequiredNotice } from "../../api/ConsentRequired.js";
 import type { CSSProperties, KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { RichDescription } from "./RichDescription.js";
 
 /** Resultado do pedido ao assistente, como o editor o vê: o texto em markdown, ou falha (sem dizer por quê). */
-export type DraftResult = { ok: true; text: string } | { ok: false };
+/** `consentRequired`: a organização não tem (mais) o aceite da IA em vigor (ADR 0039); repetir não adianta. */
+export type DraftResult = { ok: true; text: string } | { ok: false; consentRequired?: boolean };
 /** Pede o trecho. `description` é o texto atual do editor; o `signal` cancela o pedido. */
 export type DraftRequest = (request: string, description: string, signal: AbortSignal) => Promise<DraftResult>;
 
-type Phase = { kind: "input" } | { kind: "busy" } | { kind: "proposal"; text: string } | { kind: "error" };
+type Phase = { kind: "input" } | { kind: "busy" } | { kind: "proposal"; text: string } | { kind: "error"; consentRequired?: boolean };
 
 const WIDTH = 460;
 const HEIGHT = 340;
@@ -75,7 +77,7 @@ export function WriterRequest({ anchor, currentText, onDraft, onInsert, onClose 
     const result = await onDraft(text, currentText(), current.signal).catch((): DraftResult => ({ ok: false }));
     if (current.signal.aborted) return;
     controller.current = null;
-    setPhase(result.ok ? { kind: "proposal", text: result.text } : { kind: "error" });
+    setPhase(result.ok ? { kind: "proposal", text: result.text } : { kind: "error", ...(result.consentRequired ? { consentRequired: true } : {}) });
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -121,7 +123,7 @@ export function WriterRequest({ anchor, currentText, onDraft, onInsert, onClose 
       <div className="description-writer-status" role="status" aria-live="polite" aria-atomic="true">{busy ? t("writer.writing") : ""}</div>
       {phase.kind === "error" && (
         <div className="description-writer-error">
-          <p role="alert">{t("writer.error")}</p>
+          {phase.consentRequired ? <ConsentRequiredNotice /> : <p role="alert">{t("writer.error")}</p>}
           <button ref={retry} type="button" onClick={() => void send()}>{t("writer.retry")}</button>
         </div>
       )}

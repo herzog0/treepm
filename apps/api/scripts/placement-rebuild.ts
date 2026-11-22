@@ -11,6 +11,7 @@
 import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { bootApp } from "./placement-rebuild/app.js";
+import { requireAssistantConsentOfOrg } from "./placement-rebuild/consent.js";
 import { collectCommand, collectCompareCommand, collectReportCommand } from "./placement-rebuild/collect.js";
 import { ApiClient } from "./placement-rebuild/client.js";
 import { pairsCommand, pairsReportCommand } from "./placement-rebuild/pairs.js";
@@ -96,7 +97,15 @@ async function main(): Promise<number> {
     return 0;
   }
   if (command === "pairs") {
-    // Só os provedores: nada de API em processo nem de banco.
+    // Só os provedores, sem API em processo. Com provedor de verdade o texto dos tickets de uma organização sai da
+    // máquina: `--org` é obrigatório e o aceite do assistente dessa organização é conferido antes (ADR 0039).
+    if (!options.fakeProviders) {
+      if (!options.org) {
+        console.error("O pairs com provedores de verdade precisa de --org: o aceite do assistente de IA dessa organização é conferido antes de qualquer envio.");
+        return 2;
+      }
+      await requireAssistantConsentOfOrg(loadConfig(process.env), options.org);
+    }
     const kit = options.fakeProviders ? fakePairsKit() : realPairsKit(loadConfig(process.env));
     const ok = await pairsCommand(
       {

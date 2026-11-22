@@ -20,7 +20,8 @@
       "installation_unavailable": "The app installation on GitHub is not available.",
       "repository_already_linked": "This repository is already linked.",
       "repository_not_found": "The app does not have access to this repository.",
-      "person_without_project_access": "This person does not have access to the project yet. Grant a project role before assigning."
+      "person_without_project_access": "This person does not have access to the project yet. Grant a project role before assigning.",
+      "assistant_consent_required": "AI is off for this organization. An administrator needs to turn it on in Settings. Create the ticket manually."
     },
     "kind": {
       "unauthenticated": "Your session has expired. Sign in again.",
@@ -31,6 +32,7 @@
       "server_error": "The server ran into an error. Try again; if it keeps happening, let your administrator know.",
       "unavailable": "The API is unavailable. Try again in a moment."
     },
-    "removeTicketWithItems": "This ticket has items. Move or remove the items before removing it."
+    "removeTicketWithItems": "This ticket has items. Move or remove the items before removing it.",
+    "settingsLink": "Open Settings"
   }
 }

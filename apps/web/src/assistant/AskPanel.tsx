@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { ApiClient, Project, TicketSummary } from "../api/client.js";
+import { ConsentRequiredNotice, isConsentRequired } from "../api/ConsentRequired.js";
 import { AiIcon } from "../command/icons.js";
 import { formatNumber } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
@@ -133,7 +134,7 @@ function Thread({ client, project, tickets, incoming, expanded, onProgress, onOp
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   // A pergunta que falhou, com as mensagens que a precediam: "Tentar de novo" a repete do mesmo ponto.
-  const [failure, setFailure] = useState<{ question: string; history: Message[] } | null>(null);
+  const [failure, setFailure] = useState<{ question: string; history: Message[]; consentRequired?: boolean } | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const sendingRef = useRef(false);
   const controller = useRef<AbortController | null>(null);
@@ -178,7 +179,7 @@ function Thread({ client, project, tickets, incoming, expanded, onProgress, onOp
       return;
     }
     setAnnouncement("");
-    setFailure({ question, history });
+    setFailure({ question, history, ...(isConsentRequired(result.error) ? { consentRequired: true } : {}) });
   };
 
   const submit = (override?: string) => {
@@ -255,10 +256,12 @@ function Thread({ client, project, tickets, incoming, expanded, onProgress, onOp
         {sending && <p role="status" className="assistant-waiting">{t("ask.waiting")}</p>}
         {failure && !sending && (
           <div className="assistant-error">
-            <p role="alert">{t("ask.error")}</p>
-            <div>
-              <button type="button" onClick={retry}>{t("ask.retry")}</button>
-            </div>
+            {failure.consentRequired ? <ConsentRequiredNotice /> : <p role="alert">{t("ask.error")}</p>}
+            {!failure.consentRequired && (
+              <div>
+                <button type="button" onClick={retry}>{t("ask.retry")}</button>
+              </div>
+            )}
           </div>
         )}
       </div>

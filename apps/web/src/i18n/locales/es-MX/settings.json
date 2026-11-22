@@ -110,5 +110,36 @@
       "projectGone": "El proyecto ya no existe o no lo ves.",
       "projects": "No se pudieron cargar los proyectos."
     }
+  },
+  "ai": {
+    "title": "IA y privacidad",
+    "loading": "Cargando…",
+    "retry": "Intentar de nuevo",
+    "terms": "Términos de uso",
+    "privacy": "Política de privacidad",
+    "newTab": "se abre en otra pestaña",
+    "outdated": "Los documentos cambiaron (versión {{current}}) y la aceptación anterior ya no vale. Hay que aceptar de nuevo.",
+    "askAdmin": "Un administrador de la organización debe aceptar.",
+    "failed": "No se pudo cambiar la aceptación. Inténtalo de nuevo.",
+    "versionChanged": "Los documentos cambiaron mientras leías. Lee la versión actual y acepta de nuevo.",
+    "given": "Aceptado por {{name}} el {{date}} (versión {{version}}).",
+    "withdraw": "Retirar la aceptación",
+    "assistant": {
+      "heading": "Asistente de IA",
+      "explain": "Al aceptar, el texto de los tickets y de las conversaciones con el asistente se envía a Anthropic y a TypeSafe para las funciones de IA. No se envían nombres, correos ni identificadores de personas.",
+      "on": "El asistente está activado.",
+      "off": "El asistente está desactivado.",
+      "accept": "Aceptar y activar el asistente",
+      "withdrawWarning": "El asistente deja de funcionar en la organización: la conversación para crear tickets, la búsqueda del lugar, el texto de los grupos, la escritura en la descripción y las preguntas sobre el proyecto. También se retira la lectura de código por la IA."
+    },
+    "codeReading": {
+      "heading": "Lectura de código por la IA",
+      "explain": "Al aceptar, fragmentos de código de los repositorios vinculados se enviarán a Anthropic, y solo a ella. Esta función aún no está disponible; la aceptación ya se puede dar.",
+      "needsAssistant": "Acepta primero el asistente de IA.",
+      "on": "La lectura de código está aceptada.",
+      "off": "La lectura de código no está aceptada.",
+      "accept": "Aceptar la lectura de código",
+      "withdrawWarning": "La IA deja de poder leer código de los repositorios vinculados."
+    }
   }
 }

@@ -7,6 +7,7 @@ import {
   canCreateTicket,
   canEditTicket,
   canImportTickets,
+  canManageAiConsent,
   canLinkRepository,
   canListInstallationRepositories,
   canManageGithubConnection,
@@ -88,6 +89,10 @@ export class AuthorizationService {
   /** Chave "Permitir acesso por MCP", lista de todos os tokens da organização e revogação de qualquer um (ADR 0038). */
   manageMcpAccess(actor: Actor): void {
     this.require(canManageMcpAccess(actor));
+  }
+  /** Aceitar e retirar o uso da IA pela organização (ADR 0039): a mesma regra de quem liga o MCP. */
+  manageAiConsent(actor: Actor): void {
+    this.require(canManageAiConsent(actor));
   }
   listInstallationRepositories(actor: Actor): void {
     this.require(canListInstallationRepositories(actor));

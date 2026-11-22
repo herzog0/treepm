@@ -20,7 +20,8 @@
       "installation_unavailable": "A instalação do app no GitHub não está disponível.",
       "repository_already_linked": "Este repositório já está ligado.",
       "repository_not_found": "O app não tem acesso a este repositório.",
-      "person_without_project_access": "A pessoa ainda não tem acesso ao projeto. Conceda um papel no projeto antes de atribuir."
+      "person_without_project_access": "A pessoa ainda não tem acesso ao projeto. Conceda um papel no projeto antes de atribuir.",
+      "assistant_consent_required": "A IA está desligada nesta organização. Um administrador precisa ativá-la em Configurações. Crie o ticket manualmente."
     },
     "kind": {
       "unauthenticated": "Sua sessão expirou. Entre novamente.",
@@ -31,6 +32,7 @@
       "server_error": "O servidor encontrou um erro. Tente de novo; se continuar, avise quem administra.",
       "unavailable": "A API está indisponível. Tente novamente em instantes."
     },
-    "removeTicketWithItems": "Este ticket tem itens. Mova ou remova os itens antes de removê-lo."
+    "removeTicketWithItems": "Este ticket tem itens. Mova ou remova os itens antes de removê-lo.",
+    "settingsLink": "Abrir Configurações"
   }
 }

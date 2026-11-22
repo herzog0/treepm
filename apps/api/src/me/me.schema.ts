@@ -12,7 +12,11 @@ export const meResponseSchema = z.object({
     name: z.string(),
     slug: z.string(),
   }),
-  assistant: z.object({ enabled: z.boolean() }),
+  /**
+   * `configured`: o servidor tem as chaves dos provedores. `consent`: a organização aceitou o uso da IA (ADR 0039).
+   * `enabled` só vale com as duas coisas e é o que a interface usa para mostrar ou esconder as funções de IA.
+   */
+  assistant: z.object({ configured: z.boolean(), consent: z.boolean(), enabled: z.boolean() }),
   github: z.object({ enabled: z.boolean() }),
   /** Chave da organização "Permitir acesso por MCP" (ADR 0038). */
   mcp: z.object({ enabled: z.boolean() }),

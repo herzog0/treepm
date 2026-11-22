@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { AccessToken, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, TicketSummary } from "../api/client.js";
+import type { AccessToken, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid" | "server_error", code?: string): ApiResult<never> => ({
@@ -7,10 +7,12 @@ export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "
   error: code === undefined ? { kind } : { kind, code },
 });
 
-export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean; github?: boolean; mcp?: boolean } = {}): Me {
+/** `assistant`: o servidor tem a IA configurada; `consent` (padrão: aceito): a organização aceitou o uso (ADR 0039). */
+export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean; consent?: boolean; github?: boolean; mcp?: boolean } = {}): Me {
+  const consent = overrides.consent ?? true;
   return {
     ...(overrides.mcp === undefined ? {} : { mcp: { enabled: overrides.mcp } }),
-    ...(overrides.assistant === undefined ? {} : { assistant: { enabled: overrides.assistant } }),
+    ...(overrides.assistant === undefined ? {} : { assistant: { enabled: overrides.assistant && consent, configured: overrides.assistant, consent } }),
     ...(overrides.github === undefined ? {} : { github: { enabled: overrides.github } }),
     person: { id: "person-1", displayName: "Ana", email: "ana@example.com", avatarUrl: null },
     organization: { orgId: overrides.orgId ?? "org-1", name: overrides.orgName ?? "Equipe Alfa", slug: "alfa" },
@@ -68,8 +70,63 @@ interface FakeData {
   summaries?: FakeSummaries;
   /** Liga as rotas de tokens de acesso por MCP (ADR 0038) com as regras do contrato; sem isso elas lançam, como o resto. */
   mcp?: FakeMcp;
+  /** Liga as rotas do aceite da organização para a IA (ADR 0039) com as regras do contrato; sem isso elas lançam, como o resto. */
+  aiConsent?: FakeAiConsent;
   /** Conversas de criação com a IA, por ID, para `createTicketFromConversation` do cliente em árvore; sem entrada, o rascunho é o padrão. */
   conversations?: Record<string, ConversationDetail>;
+}
+
+export interface FakeAiConsent {
+  /** Estado inicial; padrão: nada aceito, versão atual `rascunho-1`, GitHub desligado. */
+  state?: Partial<AiConsent>;
+  /** Faz aceitar/retirar falharem com este tipo e código de erro. */
+  changeError?: [Parameters<typeof failed>[0], string?];
+}
+
+const NO_CONSENT = { inForce: false, version: null, acceptedBy: null, acceptedAt: null, outdated: false } as const;
+
+/** As rotas do aceite (ADR 0039), em memória: só administrador muda; `code_reading` exige o assistente e o GitHub; retirar o assistente leva a leitura de código. */
+function aiConsentMethods(data: FakeData): Partial<ApiClient> {
+  const config = data.aiConsent!;
+  const me = data.me ?? makeMe();
+  const isAdmin = me.roles.clerk === "admin";
+  let state: AiConsent = {
+    currentVersion: "rascunho-1",
+    assistant: { ...NO_CONSENT },
+    codeReading: { ...NO_CONSENT, githubConnected: false, offerable: false },
+    ...config.state,
+  };
+  const refresh = () => {
+    state = { ...state, codeReading: { ...state.codeReading, offerable: state.codeReading.githubConnected && state.assistant.inForce } };
+  };
+  refresh();
+  const given = () => ({ inForce: true, version: state.currentVersion, acceptedBy: me.person.displayName, acceptedAt: "2026-11-22T12:00:00.000Z", outdated: false });
+  return {
+    getAiConsent: vi.fn(async () => ok(structuredClone(state))),
+    acceptAiConsent: vi.fn(async (kind: AiConsentKind, version: string) => {
+      if (!isAdmin) return failed("forbidden");
+      if (config.changeError) return failed(...config.changeError);
+      if (version !== state.currentVersion) return failed("conflict", "consent_version_changed");
+      if (kind === "code_reading") {
+        if (!state.assistant.inForce) return failed("conflict", "assistant_consent_required_first");
+        if (!state.codeReading.githubConnected) return failed("conflict", "github_not_connected");
+        state = { ...state, codeReading: { ...state.codeReading, ...given() } };
+      } else {
+        state = { ...state, assistant: given() };
+      }
+      refresh();
+      return ok(structuredClone(state));
+    }),
+    withdrawAiConsent: vi.fn(async (kind: AiConsentKind) => {
+      if (!isAdmin) return failed("forbidden");
+      if (config.changeError) return failed(...config.changeError);
+      state = kind === "assistant"
+        ? { ...state, assistant: { ...NO_CONSENT }, codeReading: { ...state.codeReading, ...NO_CONSENT } }
+        : { ...state, codeReading: { ...state.codeReading, ...NO_CONSENT } };
+      refresh();
+      return ok(structuredClone(state));
+    }),
+  };
 }
 
 export interface FakeSummaries {
@@ -400,6 +457,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "createTicketFromConversation", "listConversations", "getConversation", "removeConversation",
     ...GITHUB_NAMES,
     ...MCP_NAMES,
+    "getAiConsent", "acceptAiConsent", "withdrawAiConsent",
     ...SUMMARY_NAMES,
     "draftTicketDescription",
     "askProject",
@@ -415,6 +473,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     listTickets: vi.fn(async (projectId: string) => ok(data.tickets?.[projectId] ?? [])),
     ...(data.github ? githubMethods(data) : {}),
     ...(data.mcp ? mcpMethods(data) : {}),
+    ...(data.aiConsent ? aiConsentMethods(data) : {}),
     ...(data.summaries ? summaryMethods(data) : {}),
   };
 }

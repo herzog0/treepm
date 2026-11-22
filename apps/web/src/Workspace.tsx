@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { createApiClient } from "./api/client.js";
+import { AdminProvider } from "./api/ConsentRequired.js";
 import { useApiResource } from "./api/useApiResource.js";
 import { LoadError } from "./LoadError.js";
 import { ImportScreen } from "./import/ImportScreen.js";
@@ -32,13 +33,13 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
     () => createApiClient({ getToken: () => getTokenRef.current(), ...(fetchImpl ? { fetch: fetchImpl } : {}) }),
     [fetchImpl],
   );
-  const { state, retry } = useApiResource(() => client.getMe());
+  const { state, retry, reload } = useApiResource(() => client.getMe());
 
   // Com o mapa ocioso, o editor da descrição começa a baixar em segundo plano: o primeiro ticket abre sem espera (e o mapa não o espera).
   useEffect(() => (view === "map" ? scheduleDescriptionEditorPreload() : undefined), [view]);
 
   // As configurações são da pessoa, não da organização: não esperam a API.
-  if (view === "settings") return <main className="tenant-settings"><SettingsScreen client={client} me={state.status === "ready" ? state.data : null} /></main>;
+  if (view === "settings") return <main className="tenant-settings"><SettingsScreen client={client} me={state.status === "ready" ? state.data : null} onConsentChange={reload} /></main>;
   if (state.status === "loading") return <p className="map-state" role="status">{t("loading.organization")}</p>;
   if (state.status === "error") {
     return (
@@ -52,6 +53,7 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
     return <ImportScreen client={client} me={state.data} projectId={projectId} onExit={() => onNavigate?.("map")} />;
   }
   return (
+    <AdminProvider isAdmin={state.data.roles.clerk === "admin"}>
     <main className="tenant-map">
       <OrganizationMap
         client={client}
@@ -60,6 +62,7 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
         {...(ticketId !== undefined && onOpenTicket ? { openTicketId: ticketId, onOpenTicketChange: onOpenTicket } : {})}
       />
     </main>
+    </AdminProvider>
   );
 }
 

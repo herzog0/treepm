@@ -84,7 +84,7 @@ describe("GET /api/me", () => {
       },
       organization: { orgId: "org_A", name: "Organização org_A", slug: "org_a" },
       roles: { clerk: "admin", teams: [], projects: [] },
-      assistant: { enabled: false },
+      assistant: { configured: false, consent: false, enabled: false },
       github: { enabled: false },
       mcp: { enabled: false },
     });

@@ -14,3 +14,13 @@
 .settings-github button { margin-bottom: 10px; }
 .settings-actions { display: grid; gap: 6px; }
 .settings-actions .confirm-message { font-size: 13px; }
+
+.settings-ai .ai-block { display: grid; gap: 8px; }
+.settings-ai .ai-block + .ai-block { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--tp-divider); }
+.settings-ai h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.settings-ai p { margin: 0; font-size: 14px; }
+.settings-ai .settings-hint { color: var(--tp-text-2); font-size: 13px; }
+.settings-ai .ai-docs { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; }
+.settings-ai .ai-docs a { color: var(--tp-accent); }
+.settings-ai .ai-warning { padding: 8px 10px; border-radius: 6px; background: var(--tp-card); border: 1px solid var(--tp-divider); font-size: 13px; }
+.settings-ai .ai-state { display: flex; align-items: center; gap: 8px; }

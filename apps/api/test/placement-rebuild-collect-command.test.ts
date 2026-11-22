@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { APP_URL } from "@treepm/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ownerPoolWithCleanup } from "./helpers.js";
 import { bootApp } from "../scripts/placement-rebuild/app.js";
 import type { Booted, CollectKit } from "../scripts/placement-rebuild/app.js";
 import { ApiClient } from "../scripts/placement-rebuild/client.js";
@@ -47,6 +48,15 @@ let judgeDrafts: { title: string; description: string }[];
 let claudeOverride: ((message: string) => unknown) | null;
 
 beforeAll(async () => {
+  // A ferramenta só roda numa organização que já aceitou o assistente (ADR 0039): semente com o papel dono.
+  const owner = ownerPoolWithCleanup();
+  await owner.query("insert into organizations (org_id, name, slug) values ('org_cmd', 'Cmd', 'org_cmd') on conflict do nothing");
+  const person = await owner.query<{ id: string }>(
+    "insert into people (org_id, clerk_user_id, display_name, email, clerk_role) values ('org_cmd', 'user_cmd', 'Admin', 'a@x.test', 'admin') on conflict do nothing returning id",
+  );
+  const personId = person.rows[0]?.id ?? (await owner.query<{ id: string }>("select id from people where org_id = 'org_cmd' and clerk_user_id = 'user_cmd'")).rows[0]?.id;
+  await owner.query("insert into organization_consents (org_id, kind, document_version, accepted_by_person_id) values ('org_cmd', 'assistant', 'rascunho-1', $1)", [personId]);
+  await owner.end();
   booted = await bootApp({ org: "org_cmd", user: "user_cmd", role: "org:admin", fakeProviders: true, fake503First: 0, fake503JudgeAt: 0, needsAi: true, collect: true });
   const client = new ApiClient(booted.baseUrl, booted.token);
   const created = await client.request("POST", "/projects", { key: "CMD", name: "Comando" });
