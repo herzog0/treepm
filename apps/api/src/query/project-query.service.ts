@@ -178,7 +178,7 @@ export class ProjectQueryService {
   }
 
   /** Projeto inexistente, de outra organização (RLS) ou que a pessoa não enxerga: o mesmo 404 das rotas. Arquivado pode ser lido. */
-  private async requireProject(tx: TenantClient, principal: Principal, projectId: string): Promise<{ id: string; key: string }> {
+  async requireProject(tx: TenantClient, principal: Principal, projectId: string): Promise<{ id: string; key: string }> {
     const project = await tx.project.findFirst({ where: { id: projectId }, select: { id: true, key: true, visibility: true } });
     if (!project || !this.authorization.canView(principal.actor, project)) throw new NotFoundException("Projeto não encontrado.");
     return project;
