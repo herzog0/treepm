@@ -70,3 +70,37 @@ describe("mergeDescriptionEdits (newest first)", () => {
     expect([...ids(head), ...ids(tail)]).toEqual(whole);
   });
 });
+
+describe("mergeDescriptionEdits with contribution text edits (ADR 0041)", () => {
+  const text = (id: string, contributionId: string | null, minutes: number, actorId: string | null = "ana"): MergeableEntry & { id: string } => ({
+    id,
+    type: "contribution_text_changed",
+    actorId,
+    occurredAt: minutes * MIN,
+    contributionId,
+  });
+
+  it("joins the same person's edits of the same contribution under ten minutes", () => {
+    const [a, b, c] = [text("a", "c1", 12), text("b", "c1", 8), text("c", "c1", 1)] as const;
+    expect(ids(mergeDescriptionEdits([a, b, c]))).toEqual(["a<c"]);
+  });
+
+  it("does not join edits of different contributions", () => {
+    expect(ids(mergeDescriptionEdits([text("a", "c2", 5), text("b", "c1", 4)]))).toEqual(["a<a", "b<b"]);
+  });
+
+  it("never joins a contribution text edit with a description edit, in either order", () => {
+    expect(ids(mergeDescriptionEdits([text("a", "c1", 5), edit("b", "ana", 4)]))).toEqual(["a<a", "b<b"]);
+    expect(ids(mergeDescriptionEdits([edit("a", "ana", 5), text("b", "c1", 4)]))).toEqual(["a<a", "b<b"]);
+  });
+
+  it("another entry in the middle breaks the sequence", () => {
+    expect(ids(mergeDescriptionEdits([text("a", "c1", 5), other("x", 4), text("b", "c1", 3)]))).toEqual(["a<a", "x<x", "b<b"]);
+  });
+
+  it("respects the ten minute limit, the person and a missing contribution id", () => {
+    expect(ids(mergeDescriptionEdits([text("a", "c1", 20), text("b", "c1", 10)]))).toEqual(["a<a", "b<b"]);
+    expect(ids(mergeDescriptionEdits([text("a", "c1", 5, "bia"), text("b", "c1", 4)]))).toEqual(["a<a", "b<b"]);
+    expect(ids(mergeDescriptionEdits([text("a", null, 5), text("b", null, 4)]))).toEqual(["a<a", "b<b"]);
+  });
+});

@@ -6,6 +6,7 @@ import {
   canCreateProject,
   canCommentTicket,
   canCreateTicket,
+  canEditContributions,
   canEditComment,
   canEditTicket,
   canImportTickets,
@@ -118,6 +119,9 @@ export class AuthorizationService {
   }
   removeComment(actor: Actor, projectId: string, authorPersonId: string, personId: string): void {
     this.require(canRemoveComment(actor, projectId, authorPersonId, personId));
+  }
+  editContributions(actor: Actor, projectId: string): void {
+    this.require(canEditContributions(actor, projectId));
   }
   assignTicket(actor: Actor, projectId: string): void {
     this.require(canAssignTicket(actor, projectId));

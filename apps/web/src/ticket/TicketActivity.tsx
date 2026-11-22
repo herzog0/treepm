@@ -375,6 +375,20 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
       return render(entry.type === "dependency_added" ? "dependencyAdded" : "dependencyRemoved", { values: { ticket: ticketText(entry.ticket) }, components: { ticket: ref(entry.ticket) } });
     case "summary_updated":
       return render(entry.source === "person" ? "summaryByPerson" : "summaryByAssistant", { values: { section: t("summary.heading") } });
+    case "contribution_added":
+    case "contribution_removed":
+    case "contribution_text_changed":
+    case "contribution_status_changed":
+    case "contribution_person_added":
+    case "contribution_person_removed": {
+      const area = entry.area?.name ?? t("contributions.removedArea");
+      const key = { contribution_added: "contributionAdded", contribution_removed: "contributionRemoved", contribution_text_changed: "contributionTextChanged", contribution_status_changed: "contributionStatusChanged", contribution_person_added: "contributionPersonAdded", contribution_person_removed: "contributionPersonRemoved" }[entry.type];
+      const contribution = (status: "todo" | "in_progress" | "done") => t(`contributions.status.${status}`);
+      const extra: Record<string, string> = { area };
+      if (entry.type === "contribution_status_changed") Object.assign(extra, { from: contribution(entry.from), to: contribution(entry.to) });
+      if (entry.type === "contribution_person_added" || entry.type === "contribution_person_removed") extra["person"] = entry.person?.displayName ?? t("people.removed");
+      return render(key, { values: extra });
+    }
     case "comment":
       return null;
   }

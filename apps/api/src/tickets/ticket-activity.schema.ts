@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ticketStatusSchema } from "./tickets.schema.js";
+import { contributionStatusSchema, ticketStatusSchema } from "./tickets.schema.js";
 
 export const ACTIVITY_DEFAULT_LIMIT = 30;
 export const ACTIVITY_MAX_LIMIT = 100;
@@ -12,6 +12,9 @@ export const activityQuerySchema = z.object({
 const personSchema = z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() });
 /** Ticket citado numa entrada: dados de hoje quando existe; `id` e `title` nulos quando não existe mais. */
 const ticketRefSchema = z.object({ id: z.string().nullable(), key: z.string().nullable(), title: z.string().nullable() });
+
+/** Área de uma entrada de contribuição: o nome de hoje; o guardado no evento de remoção quando a área não existe mais; `null` sem nenhum dos dois. */
+const areaRefSchema = z.object({ id: z.string(), name: z.string() }).nullable();
 
 const base = { id: z.string(), occurredAt: z.string(), actor: personSchema.nullable() };
 
@@ -38,6 +41,12 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("dependency_added"), ticket: ticketRefSchema }),
   z.object({ ...base, type: z.literal("dependency_removed"), ticket: ticketRefSchema }),
   z.object({ ...base, type: z.literal("summary_updated"), source: z.enum(["person", "assistant"]) }),
+  z.object({ ...base, type: z.literal("contribution_added"), area: areaRefSchema }),
+  z.object({ ...base, type: z.literal("contribution_removed"), area: areaRefSchema }),
+  z.object({ ...base, type: z.literal("contribution_text_changed"), area: areaRefSchema }),
+  z.object({ ...base, type: z.literal("contribution_status_changed"), area: areaRefSchema, from: contributionStatusSchema, to: contributionStatusSchema }),
+  z.object({ ...base, type: z.literal("contribution_person_added"), area: areaRefSchema, person: personSchema.nullable() }),
+  z.object({ ...base, type: z.literal("contribution_person_removed"), area: areaRefSchema, person: personSchema.nullable() }),
   z.object({
     ...base,
     type: z.literal("comment"),

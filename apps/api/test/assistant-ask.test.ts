@@ -362,6 +362,14 @@ describe("o teto do que sai para a Anthropic", () => {
       );
     }
     expect((await rows("select count(*)::int as n from ticket_comments where body like $1", [`%${word}%`]))[0].n).toBe(1);
+    // ADR 0041: uma contribuição de área, com texto, nome de área e pessoa reconhecíveis, no mesmo ticket.
+    const area = (await rows("insert into areas (org_id, name) values ('org_A', $1) returning id", [`${word}-AREA`]))[0];
+    await h.pool.query("update people set display_name = $1 where id = $2", [`${word}-PESSOA`, h.world().people.target]);
+    const [contribution] = await rows(
+      "insert into ticket_contributions (org_id, project_id, ticket_id, area_id, created_by_person_id, text, status) values ('org_A', $1, $2, $3, $4, $5, 'in_progress') returning id",
+      [priv(), ticket.id, area.id, h.world().people.manager, `${word}-CONTRIBUICAO entrega da área, fale com a diretoria`],
+    );
+    await h.pool.query("insert into ticket_contribution_people (org_id, contribution_id, person_id) values ('org_A', $1, $2)", [contribution.id, h.world().people.target]);
     const captured: string[] = [];
     h.answerer().delegate = new ClaudeProjectAnswerer(
       scripted(
@@ -382,6 +390,11 @@ describe("o teto do que sai para a Anthropic", () => {
     // a palavra só pode estar onde a própria pergunta e a busca roteirizada a puseram; o texto do comentário, nunca
     expect(sent).not.toContain("fale com a diretoria");
     expect(sent).not.toContain("aberto, fale");
+    // contribuição de área (ADR 0041): nem o texto, nem o nome da área, nem a pessoa dela
+    expect(sent).not.toContain("-CONTRIBUICAO");
+    expect(sent).not.toContain("entrega da área");
+    expect(sent).not.toContain(`${word}-AREA`);
+    expect(sent).not.toContain(`${word}-PESSOA`);
   });
 
   it("o detector acha o que procura (controle negativo)", async () => {

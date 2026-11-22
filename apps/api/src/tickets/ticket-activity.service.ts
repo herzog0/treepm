@@ -8,7 +8,7 @@ import { activityPageSchema } from "./ticket-activity.schema.js";
 import type { ActivityEntry, ActivityPage } from "./ticket-activity.schema.js";
 import { commentRights, toCommentEntry } from "./ticket-comments.service.js";
 import type { Viewer } from "./ticket-comments.service.js";
-import { ticketStatusSchema } from "./tickets.schema.js";
+import { contributionStatusSchema, ticketStatusSchema } from "./tickets.schema.js";
 import type { ProjectRow } from "./tickets.service.js";
 
 /** Tipos de evento que viram entradas; o resto (inclusive `ticket.comment_*`) nem é lido do banco. */
@@ -20,10 +20,18 @@ const READ_KINDS = [
   "ticket.dependency_added",
   "ticket.dependency_removed",
   "ticket.summary_updated",
+  "ticket.contribution_added",
+  "ticket.contribution_removed",
+  "ticket.contribution_updated",
+  "ticket.contribution_person_added",
+  "ticket.contribution_person_removed",
 ];
 
 /** Ordem fixa das entradas de um `ticket.updated`, da mais antiga para a mais nova. */
 const FIELD_ORDER = ["title", "description", "status", "parentId"] as const;
+/** Ordem fixa das entradas de um `ticket.contribution_updated`, da mais antiga para a mais nova. */
+const CONTRIBUTION_FIELD_ORDER = ["text", "status"] as const;
+const contributionRef = z.object({ contributionId: z.uuid(), areaId: z.uuid() });
 const SYNTHETIC_ID = "";
 const FIRST_BATCH_EXTRA = 5;
 const MAX_BATCH = 500;
@@ -40,9 +48,13 @@ type Data =
   | { type: "assignee_added" | "assignee_removed"; personId: string }
   | { type: "dependency_added" | "dependency_removed"; ticket: RefDraft }
   | { type: "summary_updated"; source: "person" | "assistant" }
+  | { type: "contribution_added" | "contribution_text_changed"; areaId: string }
+  | { type: "contribution_removed"; areaId: string; areaName: string | null }
+  | { type: "contribution_status_changed"; areaId: string; from: z.output<typeof contributionStatusSchema>; to: z.output<typeof contributionStatusSchema> }
+  | { type: "contribution_person_added" | "contribution_person_removed"; areaId: string; personId: string }
   | { type: "comment"; comment: CommentRow };
 /** Entrada ainda sem os ids resolvidos. `pos` é a posição na ordem total (instante, evento, campo). */
-type Draft = { id: string; type: Data["type"]; actorId: string | null; occurredAt: number; pos: Position; data: Data };
+type Draft = { id: string; type: Data["type"]; actorId: string | null; occurredAt: number; pos: Position; data: Data; contributionId?: string };
 
 const idOrNull = z.uuid().nullable();
 const fromTo = <T extends z.ZodType>(schema: T) => z.object({ from: schema, to: schema });
@@ -69,7 +81,15 @@ function decodeCursor(raw: string): Position {
 /** Entradas de um evento, da mais nova para a mais antiga; payload fora do esperado só descarta a entrada. */
 function draftsOf(row: { id: string; kind: string; actorPersonId: string | null; occurredAt: Date; payload: unknown }): Draft[] {
   const t = row.occurredAt.getTime();
-  const make = (sub: number, id: string, data: Data): Draft => ({ id, type: data.type, actorId: row.actorPersonId, occurredAt: t, pos: { t, e: row.id, s: sub }, data });
+  const make = (sub: number, id: string, data: Data, contributionId?: string): Draft => ({
+    id,
+    type: data.type,
+    actorId: row.actorPersonId,
+    occurredAt: t,
+    pos: { t, e: row.id, s: sub },
+    data,
+    ...(contributionId === undefined ? {} : { contributionId }),
+  });
   const payload = row.payload;
   if (row.kind === "ticket.created") return [make(0, row.id, { type: "created" })];
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return [];
@@ -118,6 +138,34 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
       const v = z.enum(["person", "assistant"]).safeParse(p["source"]);
       return v.success ? [make(0, row.id, { type: "summary_updated", source: v.data })] : [];
     }
+    case "ticket.contribution_added": {
+      const v = contributionRef.safeParse(p);
+      return v.success ? [make(0, row.id, { type: "contribution_added", areaId: v.data.areaId })] : [];
+    }
+    case "ticket.contribution_removed": {
+      const v = contributionRef.extend({ areaName: z.string().max(500).nullish() }).safeParse(p);
+      return v.success ? [make(0, row.id, { type: "contribution_removed", areaId: v.data.areaId, areaName: v.data.areaName ?? null })] : [];
+    }
+    case "ticket.contribution_person_added":
+    case "ticket.contribution_person_removed": {
+      const v = contributionRef.extend({ personId: z.uuid() }).safeParse(p);
+      if (!v.success) return [];
+      const type = row.kind === "ticket.contribution_person_added" ? "contribution_person_added" : "contribution_person_removed";
+      return [make(0, row.id, { type, areaId: v.data.areaId, personId: v.data.personId })];
+    }
+    case "ticket.contribution_updated": {
+      const v = contributionRef.extend({ fields: z.array(z.string()) }).safeParse(p);
+      if (!v.success) return [];
+      const out: Draft[] = [];
+      CONTRIBUTION_FIELD_ORDER.forEach((field, index) => {
+        if (!v.data.fields.includes(field)) return;
+        const id = `${row.id}:${field}`;
+        if (field === "text") return void out.push(make(index, id, { type: "contribution_text_changed", areaId: v.data.areaId }, v.data.contributionId));
+        const status = fromTo(contributionStatusSchema).safeParse(p["status"]);
+        if (status.success) out.push(make(index, id, { type: "contribution_status_changed", areaId: v.data.areaId, from: status.data.from, to: status.data.to }, v.data.contributionId));
+      });
+      return out.reverse();
+    }
     default:
       return [];
   }
@@ -131,7 +179,7 @@ type Stream = { exhausted: boolean; after: { t: number; e: string } | null; incl
 /**
  * Atividade de um ticket (ADR 0040): mudanças (fatia 1) e comentários (fatia 2), intercalados. Só lê.
  * Consultas, em número constante: as de quem chama para achar o ticket e o projeto, mais, aqui, uma de eventos, uma de
- * comentários, uma de tickets citados e uma de pessoas (estas duas só quando há o que resolver, e em paralelo).
+ * comentários, uma de tickets citados, uma de pessoas e uma de áreas (estas três só quando há o que resolver, e em paralelo).
  * Só crescem se a página exigir mais lotes (muitas edições da descrição ou eventos ignorados no caminho) ou, em páginas
  * seguintes de ticket sem evento de criação visto, por uma conferência de "tem evento de criação".
  */
@@ -243,6 +291,7 @@ export class TicketActivityService {
     const personIds = new Set<string>();
     const ticketIds = new Set<string>();
     const numbers = new Set<number>();
+    const areaIds = new Set<string>();
     const refs = (d: Draft): (RefDraft | null)[] => {
       const data = d.data;
       if (data.type === "status_changed") return [data.causedBy];
@@ -253,12 +302,14 @@ export class TicketActivityService {
     for (const d of drafts) {
       if (d.actorId) personIds.add(d.actorId);
       if (d.data.type === "assignee_added" || d.data.type === "assignee_removed") personIds.add(d.data.personId);
+      if (d.data.type === "contribution_person_added" || d.data.type === "contribution_person_removed") personIds.add(d.data.personId);
+      if ("areaId" in d.data) areaIds.add(d.data.areaId);
       for (const ref of refs(d)) {
         if (ref?.id) ticketIds.add(ref.id);
         if (ref?.number != null) numbers.add(ref.number);
       }
     }
-    const [people, tickets] = await Promise.all([
+    const [people, tickets, areas] = await Promise.all([
       personIds.size === 0 ? [] : tx.person.findMany({ where: { id: { in: [...personIds] } }, select: { id: true, displayName: true, avatarUrl: true } }),
       ticketIds.size === 0 && numbers.size === 0
         ? []
@@ -269,7 +320,13 @@ export class TicketActivityService {
             },
             select: { id: true, number: true, title: true },
           }),
+      areaIds.size === 0 ? [] : tx.area.findMany({ where: { id: { in: [...areaIds] } }, select: { id: true, name: true } }),
     ]);
+    const areaById = new Map(areas.map((a) => [a.id, a]));
+    const areaRef = (id: string, storedName: string | null = null) => {
+      const found = areaById.get(id);
+      return found ? { id: found.id, name: found.name } : storedName === null ? null : { id, name: storedName };
+    };
     const personById = new Map(people.map((p) => [p.id, { id: p.id, displayName: p.displayName, avatarUrl: p.avatarUrl }]));
     const byId = new Map(tickets.map((x) => [x.id, x]));
     const byNumber = new Map(tickets.map((x) => [x.number, x]));
@@ -300,6 +357,16 @@ export class TicketActivityService {
           return { ...common, type: data.type, ticket: ticketRef(data.ticket) };
         case "summary_updated":
           return { ...common, type: data.type, source: data.source };
+        case "contribution_added":
+        case "contribution_text_changed":
+          return { ...common, type: data.type, area: areaRef(data.areaId) };
+        case "contribution_removed":
+          return { ...common, type: data.type, area: areaRef(data.areaId, data.areaName) };
+        case "contribution_status_changed":
+          return { ...common, type: data.type, area: areaRef(data.areaId), from: data.from, to: data.to };
+        case "contribution_person_added":
+        case "contribution_person_removed":
+          return { ...common, type: data.type, area: areaRef(data.areaId), person: person(data.personId) };
         case "comment":
           return toCommentEntry(data.comment, common.actor, commentRights(viewer, project, data.comment));
       }

@@ -1,3 +1,4 @@
+import { CONTRIBUTION_STATUSES, CONTRIBUTION_TEXT_MAX } from "@treepm/domain";
 import { z } from "zod";
 import { idSchema } from "../common/schemas.js";
 
@@ -106,3 +107,35 @@ export const ticketDetailSchema = ticketSummarySchema.extend({
 
 export type TicketSummary = z.output<typeof ticketSummarySchema>;
 export type TicketDetail = z.output<typeof ticketDetailSchema>;
+
+export const contributionStatusSchema = z.enum(CONTRIBUTION_STATUSES);
+
+const contributionPersonSchema = z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() });
+
+/** Contribuição de uma área no ticket (ADR 0041), como a API a devolve. */
+export const contributionSchema = z.object({
+  id: z.string(),
+  area: z.object({ id: z.string(), name: z.string() }),
+  text: z.string(),
+  status: contributionStatusSchema,
+  people: z.array(contributionPersonSchema),
+});
+
+export const createContributionSchema = z.object({ areaId: idSchema }).strict();
+
+/** Muda o que veio; o texto vai como está (de 0 a 20.000 caracteres), sem aparar. */
+export const updateContributionSchema = z
+  .object({ text: z.string().max(CONTRIBUTION_TEXT_MAX), status: contributionStatusSchema })
+  .partial()
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, "Informe ao menos um campo.");
+
+/** O ticket como a página o lê (`GET tickets/:id` e as alterações dele): o detalhe mais as contribuições (ADR 0041). */
+export const ticketPageSchema = ticketDetailSchema.extend({
+  contributions: z.array(contributionSchema),
+  /** Para quem lê: pode mexer nas contribuições (falso em projeto arquivado). */
+  canEditContributions: z.boolean(),
+});
+
+export type Contribution = z.output<typeof contributionSchema>;
+export type TicketPage = z.output<typeof ticketPageSchema>;

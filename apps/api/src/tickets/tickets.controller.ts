@@ -31,7 +31,7 @@ import {
   ticketSummarySchema,
   updateTicketSchema,
 } from "./tickets.schema.js";
-import type { ImportItem, TicketDetail, TicketSummary } from "./tickets.schema.js";
+import type { ImportItem, TicketPage, TicketSummary } from "./tickets.schema.js";
 import { activityQuerySchema } from "./ticket-activity.schema.js";
 import type { ActivityPage } from "./ticket-activity.schema.js";
 import { TicketActivityService } from "./ticket-activity.service.js";
@@ -80,17 +80,18 @@ export class TicketsController {
     @CurrentPrincipal() principal: Principal,
     @Param("projectId", new ZodPipe(idSchema)) projectId: string,
     @Body(new ZodPipe(createTicketSchema)) body: z.output<typeof createTicketSchema>,
-  ): Promise<TicketDetail> {
+  ): Promise<TicketPage> {
     const project = await this.findVisibleProject(tx, principal.actor, projectId);
     this.authorization.createTicket(principal.actor, projectId);
     this.requireActive(project);
-    return this.tickets.create(tx, principal, project, {
+    const created = await this.tickets.create(tx, principal, project, {
       title: body.title,
       description: body.description ?? "",
       parentId: body.parentId ?? null,
       status: body.status ?? "todo",
       assigneeIds: body.assigneeIds ?? [],
     });
+    return { ...created, contributions: [], canEditContributions: this.tickets.canEditContributionsOf(principal.actor, project) };
   }
 
   @Post("projects/:projectId/tickets/import")
@@ -186,9 +187,9 @@ export class TicketsController {
     @Tx() tx: TenantClient,
     @CurrentPrincipal() { actor }: Principal,
     @Param("id", new ZodPipe(idSchema)) id: string,
-  ): Promise<TicketDetail> {
+  ): Promise<TicketPage> {
     const { project } = await this.findVisibleTicket(tx, actor, id);
-    return this.tickets.detail(tx, project, id);
+    return this.tickets.detailFor(tx, project, id, { actor });
   }
 
   /** Atividade do ticket (ADR 0040): mudanças e comentários, da entrada mais recente para a mais antiga; só lê. */
@@ -209,7 +210,7 @@ export class TicketsController {
     @CurrentPrincipal() principal: Principal,
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(updateTicketSchema)) body: z.output<typeof updateTicketSchema>,
-  ): Promise<TicketDetail> {
+  ): Promise<TicketPage> {
     const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
     this.authorization.editTicket(principal.actor, project.id);
     this.requireActive(project);
@@ -266,7 +267,7 @@ export class TicketsController {
       });
     }
     if (data.description !== undefined) await this.tickets.syncMentions(tx, project, ticket, data.description);
-    return this.tickets.detail(tx, project, id);
+    return this.tickets.detailFor(tx, project, id, principal);
   }
 
   @Delete("tickets/:id")
@@ -297,7 +298,7 @@ export class TicketsController {
     @CurrentPrincipal() principal: Principal,
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Param("personId", new ZodPipe(idSchema)) personId: string,
-  ): Promise<TicketDetail> {
+  ): Promise<TicketPage> {
     const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
     this.authorization.assignTicket(principal.actor, project.id);
     this.requireActive(project);
@@ -312,7 +313,7 @@ export class TicketsController {
         payload: { key: `${project.key}-${ticket.number}`, personId },
       });
     }
-    return this.tickets.detail(tx, project, id);
+    return this.tickets.detailFor(tx, project, id, principal);
   }
 
   @Delete("tickets/:id/assignees/:personId")
@@ -352,7 +353,7 @@ export class TicketsController {
     @CurrentPrincipal() principal: Principal,
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(addDependencySchema)) body: z.output<typeof addDependencySchema>,
-  ): Promise<TicketDetail> {
+  ): Promise<TicketPage> {
     const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
     this.authorization.editTicket(principal.actor, project.id);
     this.requireActive(project);
@@ -374,7 +375,7 @@ export class TicketsController {
         payload: { key: `${project.key}-${ticket.number}`, dependsOnKey: `${project.key}-${other.number}`, dependsOnTicketId: other.id },
       });
     }
-    return this.tickets.detail(tx, project, id);
+    return this.tickets.detailFor(tx, project, id, principal);
   }
 
   @Delete("tickets/:id/dependencies/:ticketId")

@@ -67,6 +67,8 @@ model Organization {
   repositorySyncPages        RepositorySyncPage[]
   accessTokens               AccessToken[]
   ticketComments             TicketComment[]
+  ticketContributions        TicketContribution[]
+  ticketContributionPeople   TicketContributionPerson[]
   organizationConsents       OrganizationConsent[]
 
   @@map("organizations")
@@ -84,7 +86,7 @@ model Person {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization           Organization          @relation(fields: [orgId], references: [orgId])
+  organization           Organization               @relation(fields: [orgId], references: [orgId])
   teamMemberships        TeamMembership[]
   projectMemberships     ProjectMembership[]
   createdTickets         Ticket[]
@@ -95,10 +97,12 @@ model Person {
   linkedRepositories     ProjectRepository[]
   editedBranchSummaries  BranchSummary[]
   accessTokens           AccessToken[]
-  commentsWritten        TicketComment[]       @relation("CommentAuthor")
-  commentsRemoved        TicketComment[]       @relation("CommentRemovedBy")
-  consentsAccepted       OrganizationConsent[] @relation("ConsentAcceptedBy")
-  consentsWithdrawn      OrganizationConsent[] @relation("ConsentWithdrawnBy")
+  commentsWritten        TicketComment[]            @relation("CommentAuthor")
+  commentsRemoved        TicketComment[]            @relation("CommentRemovedBy")
+  contributionsCreated   TicketContribution[]       @relation("ContributionCreatedBy")
+  contributionPeople     TicketContributionPerson[]
+  consentsAccepted       OrganizationConsent[]      @relation("ConsentAcceptedBy")
+  consentsWithdrawn      OrganizationConsent[]      @relation("ConsentWithdrawnBy")
 
   @@id([orgId, id])
   @@unique([orgId, clerkUserId])
@@ -144,7 +148,8 @@ model Area {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization Organization @relation(fields: [orgId], references: [orgId])
+  organization  Organization         @relation(fields: [orgId], references: [orgId])
+  contributions TicketContribution[]
 
   @@id([orgId, id])
   @@unique([orgId, name])
@@ -233,6 +238,7 @@ model Ticket {
   relationsFrom        TicketRelation[]     @relation("RelationFrom")
   relationsTo          TicketRelation[]     @relation("RelationTo")
   comments             TicketComment[]
+  contributions        TicketContribution[]
 
   @@id([orgId, id])
   @@unique([orgId, projectId, id])
@@ -543,4 +549,46 @@ model TicketComment {
   @@id([orgId, id])
   @@index([orgId, ticketId, createdAt, id])
   @@map("ticket_comments")
+}
+
+/// Contribuição de uma área no ticket (ADR 0041): texto em markdown, situação própria e pessoas. Única por ticket e área.
+model TicketContribution {
+  orgId             String   @map("org_id")
+  id                String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId         String   @map("project_id") @db.Uuid
+  ticketId          String   @map("ticket_id") @db.Uuid
+  areaId            String   @map("area_id") @db.Uuid
+  /// 0 a 20.000 caracteres (check no banco)
+  text              String   @default("")
+  /// todo | in_progress | done (check no banco)
+  status            String   @default("todo")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdByPersonId String   @map("created_by_person_id") @db.Uuid
+
+  organization Organization               @relation(fields: [orgId], references: [orgId])
+  ticket       Ticket                     @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+  area         Area                       @relation(fields: [orgId, areaId], references: [orgId, id], onDelete: Restrict)
+  createdBy    Person                     @relation("ContributionCreatedBy", fields: [orgId, createdByPersonId], references: [orgId, id], onDelete: Restrict)
+  people       TicketContributionPerson[]
+
+  @@id([orgId, id])
+  @@unique([orgId, ticketId, areaId])
+  @@index([orgId, ticketId, createdAt, id])
+  @@index([orgId, areaId])
+  @@map("ticket_contributions")
+}
+
+/// Pessoa de uma contribuição (ADR 0041); não é a linha "Pessoas" do ticket.
+model TicketContributionPerson {
+  orgId          String   @map("org_id")
+  contributionId String   @map("contribution_id") @db.Uuid
+  personId       String   @map("person_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization       @relation(fields: [orgId], references: [orgId])
+  contribution TicketContribution @relation(fields: [orgId, contributionId], references: [orgId, id], onDelete: Cascade)
+  person       Person             @relation(fields: [orgId, personId], references: [orgId, id], onDelete: Restrict)
+
+  @@id([orgId, contributionId, personId])
+  @@map("ticket_contribution_people")
 }

@@ -1,13 +1,14 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { descriptionExcerpt, isFinished, mentionedKeys, ticketProgress, ticketsToReopen } from "@treepm/domain";
-import type { TicketNode, TicketStatus } from "@treepm/domain";
+import { canEditContributions, descriptionExcerpt, isFinished, mentionedKeys, ticketProgress, ticketsToReopen } from "@treepm/domain";
+import type { Actor, TicketNode, TicketStatus } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { parseOutput } from "../common/zod.js";
 import { ticketDetailSchema, ticketStatusSchema } from "./tickets.schema.js";
-import type { TicketDetail, TicketSummary } from "./tickets.schema.js";
+import type { TicketDetail, TicketPage, TicketSummary } from "./tickets.schema.js";
+import { readContributions } from "./ticket-contributions.read.js";
 
 export type ProjectRow = {
   orgId: string;
@@ -166,6 +167,16 @@ export class TicketsService {
       select: { nextTicketNumber: true },
     });
     return updated.nextTicketNumber - count;
+  }
+
+  /** O ticket como a página o lê: o detalhe mais as contribuições e se quem lê pode mexer nelas (ADR 0041). */
+  async detailFor(tx: TenantClient, project: ProjectRow, id: string, viewer: { actor: Actor }): Promise<TicketPage> {
+    const [detail, contributions] = await Promise.all([this.detail(tx, project, id), readContributions(tx, id)]);
+    return { ...detail, contributions, canEditContributions: this.canEditContributionsOf(viewer.actor, project) };
+  }
+
+  canEditContributionsOf(actor: Actor, project: Pick<ProjectRow, "id" | "archivedAt">): boolean {
+    return project.archivedAt === null && canEditContributions(actor, project.id);
   }
 
   async detail(tx: TenantClient, project: ProjectRow, id: string): Promise<TicketDetail> {

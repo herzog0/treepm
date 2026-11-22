@@ -109,6 +109,22 @@ const TABLES: TableSpec[] = [
     appCanUpdateAndDelete: false,
   },
   {
+    table: "ticket_contributions",
+    insert:
+      "insert into ticket_contributions (org_id, project_id, ticket_id, area_id, created_by_person_id) values ($1, gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid())",
+    update: "update ticket_contributions set text = 'hacked' where org_id = $1",
+    remove: "delete from ticket_contributions where org_id = $1",
+    appCanUpdateAndDelete: true,
+  },
+  {
+    table: "ticket_contribution_people",
+    insert:
+      "insert into ticket_contribution_people (org_id, contribution_id, person_id) values ($1, gen_random_uuid(), gen_random_uuid())",
+    update: "update ticket_contribution_people set person_id = gen_random_uuid() where org_id = $1",
+    remove: "delete from ticket_contribution_people where org_id = $1",
+    appCanUpdateAndDelete: false,
+  },
+  {
     table: "access_tokens",
     insert:
       "insert into access_tokens (org_id, person_id, project_id, name, token_prefix, token_hash, expires_at) values ($1, gen_random_uuid(), gen_random_uuid(), 'x', 'abcd1234', md5(random()::text), now())",
@@ -216,6 +232,12 @@ beforeAll(async () => {
       "insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body) values ($1, $2, $3, $4, 'Comentário')",
       [orgId, ids.project, ids.ticket, ids.person],
     );
+    // Uma contribuição (com uma pessoa) por organização, para as tabelas ticket_contributions e ticket_contribution_people.
+    const contribution = await owner.query<{ id: string }>(
+      "insert into ticket_contributions (org_id, project_id, ticket_id, area_id, created_by_person_id) values ($1, $2, $3, $4, $5) returning id",
+      [orgId, ids.project, ids.ticket, ids.area, ids.person],
+    );
+    await owner.query("insert into ticket_contribution_people (org_id, contribution_id, person_id) values ($1, $2, $3)", [orgId, contribution.rows[0]?.id, ids.person]);
     // Um token por organização, para a tabela access_tokens ter linhas a isolar.
     await owner.query(
       "insert into access_tokens (org_id, person_id, project_id, name, token_prefix, token_hash, expires_at) values ($1, $2, $3, 'T', 'abcd1234', $4, now() + interval '1 day')",
@@ -295,7 +317,7 @@ describe.each(TABLES)("isolamento por organização em $table", (spec) => {
     expect(affected).toBe(0);
     expect(await ownerCount(spec.table, ORG_B)).toBeGreaterThan(0);
     const hacked = await owner.query(
-      `select 1 from ${spec.table} where org_id = $1 and (to_jsonb(${spec.table}) ->> 'name' = 'hacked' or to_jsonb(${spec.table}) ->> 'title' = 'hacked' or to_jsonb(${spec.table}) ->> 'kind' = 'hacked' or to_jsonb(${spec.table}) ->> 'display_name' = 'hacked' or to_jsonb(${spec.table}) ->> 'draft_title' = 'hacked' or to_jsonb(${spec.table}) ->> 'body' = 'hacked' or to_jsonb(${spec.table}) ->> 'summary' = 'hacked')`,
+      `select 1 from ${spec.table} where org_id = $1 and (to_jsonb(${spec.table}) ->> 'name' = 'hacked' or to_jsonb(${spec.table}) ->> 'title' = 'hacked' or to_jsonb(${spec.table}) ->> 'kind' = 'hacked' or to_jsonb(${spec.table}) ->> 'display_name' = 'hacked' or to_jsonb(${spec.table}) ->> 'draft_title' = 'hacked' or to_jsonb(${spec.table}) ->> 'body' = 'hacked' or to_jsonb(${spec.table}) ->> 'text' = 'hacked' or to_jsonb(${spec.table}) ->> 'summary' = 'hacked')`,
       [ORG_B],
     );
     expect(hacked.rowCount).toBe(0);
