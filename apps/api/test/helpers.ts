@@ -11,11 +11,11 @@ import type { DirectoryProvider } from "../src/auth/directory-provider.js";
 import { DIRECTORY_PROVIDER } from "../src/auth/directory-provider.js";
 import type { SessionVerifier, VerifiedSession } from "../src/auth/session-verifier.js";
 import { SESSION_VERIFIER } from "../src/auth/session-verifier.js";
-import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, GROUP_NAMER, PLACEMENT_TIMEOUTS } from "../src/assistant/ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS } from "../src/assistant/ports.js";
 import type { PlacementTimeouts } from "../src/assistant/ports.js";
 import { REPOSITORY_PROVIDER } from "../src/github/ports.js";
 import { APP_ID, FakeRepositoryProvider } from "./github-fakes.js";
-import { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeConversationProvider, FakeGroupNamer } from "./assistant-fakes.js";
+import { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer } from "./assistant-fakes.js";
 
 export { OWNER_URL };
 
@@ -105,6 +105,7 @@ export async function createTestApp(
   summarizer: FakeBranchSummarizer;
   affinity: FakeAffinityJudge;
   namer: FakeGroupNamer;
+  writer: FakeDescriptionWriter;
   github: FakeRepositoryProvider;
 }> {
   const directory = new FakeDirectory();
@@ -114,6 +115,7 @@ export async function createTestApp(
   const summarizer = new FakeBranchSummarizer();
   const affinity = new FakeAffinityJudge();
   const namer = new FakeGroupNamer();
+  const writer = new FakeDescriptionWriter();
   const github = new FakeRepositoryProvider();
   let builder = Test.createTestingModule({
     imports: [AppModule],
@@ -130,7 +132,9 @@ export async function createTestApp(
       .overrideProvider(AFFINITY_JUDGE)
       .useValue(affinity)
       .overrideProvider(GROUP_NAMER)
-      .useValue(namer);
+      .useValue(namer)
+      .overrideProvider(DESCRIPTION_WRITER)
+      .useValue(writer);
   }
   if (!options.realGithub) builder = builder.overrideProvider(REPOSITORY_PROVIDER).useValue(github);
   if (options.timeouts) builder = builder.overrideProvider(PLACEMENT_TIMEOUTS).useValue(options.timeouts);
@@ -145,7 +149,7 @@ export async function createTestApp(
   const app = moduleRef.createNestApplication({ logger: false });
   configureApp(app, config);
   await app.init();
-  return { app, directory, verifier, conversation, judge, summarizer, affinity, namer, github };
+  return { app, directory, verifier, conversation, judge, summarizer, affinity, namer, writer, github };
 }
 
 export function ownerPoolWithCleanup(): pg.Pool {

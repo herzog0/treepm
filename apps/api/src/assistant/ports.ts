@@ -119,3 +119,18 @@ export const GROUP_NAMER = Symbol("GROUP_NAMER");
 /** Prazos da procura em milissegundos (a descida e a proposta); sem valor, valem os da ADR (30 s e 20 s). Os testes trocam. */
 export type PlacementTimeouts = { descentMs?: number; proposalMs?: number };
 export const PLACEMENT_TIMEOUTS = Symbol("PLACEMENT_TIMEOUTS");
+
+// ---- Escrever na descrição (ADR 0036, fatia 5) -----------------------------------------------------------------
+
+/**
+ * O que vai ao provedor para escrever um trecho da descrição, e nada além: o título do ticket, a descrição atual do
+ * editor (que pode não estar salva), os títulos do caminho até a raiz (do topo até o pai) e o pedido. Nenhum id.
+ */
+export type DescriptionDraftInput = { title: string; description: string; ancestors: readonly string[]; request: string };
+
+/** Claude: escreve um trecho em markdown para a descrição, atendendo ao pedido. Nada é gravado por quem chama. */
+export interface DescriptionWriter {
+  write(input: DescriptionDraftInput, options?: { signal?: AbortSignal }): Promise<{ text: string; model: string }>;
+}
+
+export const DESCRIPTION_WRITER = Symbol("DESCRIPTION_WRITER");

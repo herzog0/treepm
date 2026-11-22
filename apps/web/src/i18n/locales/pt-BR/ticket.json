@@ -101,11 +101,24 @@
     "quote": "Citação",
     "code": "Código",
     "mention": "Mencionar ticket",
+    "assistant": "Pedir ao assistente para escrever",
     "empty": "Nenhum bloco corresponde."
   },
   "mention": {
     "label": "Mencionar ticket",
     "footer": "Enter insere · Esc fecha",
     "empty": "Nenhum ticket encontrado."
+  },
+  "writer": {
+    "label": "Pedir ao assistente para escrever",
+    "prompt": "O que o assistente deve escrever?",
+    "hint": "Enter envia · Esc fecha",
+    "writing": "Escrevendo…",
+    "writingHint": "Esc cancela",
+    "proposal": "Proposta do assistente",
+    "insert": "Inserir",
+    "discard": "Descartar",
+    "error": "O assistente não está disponível agora.",
+    "retry": "Tentar de novo"
   }
 }

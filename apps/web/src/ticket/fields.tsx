@@ -10,6 +10,7 @@ import { OptionMenu } from "./menu.js";
 import { useAction } from "../panel/useAction.js";
 import { isOpenStatus, reopenedNoticeText, reopensOnReceiving } from "./reopen.js";
 import { RichDescription } from "./description/RichDescription.js";
+import type { DraftRequest } from "./description/WriterRequest.js";
 import { descendantIds } from "./tree.js";
 
 const STATUSES: readonly TicketStatus[] = ["todo", "in_progress", "in_review", "done", "cancelled"];
@@ -102,6 +103,8 @@ export const TitleField = forwardRef<HTMLHeadingElement, FieldBase & { canEdit: 
 
 interface DescriptionProps extends FieldBase {
   canEdit: boolean;
+  /** O assistente está ligado neste ambiente: o menu "/" oferece "Pedir ao assistente para escrever". */
+  assistant: boolean;
   /** Tickets do projeto: as chaves no texto viram menções e o "@" os lista. */
   tickets: readonly TicketSummary[];
   onOpenTicket: (id: string) => void;
@@ -113,7 +116,7 @@ type SaveState = "idle" | "saving" | "saved";
  * Descrição do ticket (ADR 0036): o texto é o próprio campo. Clicar nele edita; sair do campo ou Ctrl+Enter salva; Esc desfaz.
  * A API só é chamada se o texto mudou, e quem só lê não edita.
  */
-export function DescriptionField({ client, detail, canEdit, tickets, onOpenTicket, onSaved }: DescriptionProps) {
+export function DescriptionField({ client, detail, canEdit, assistant, tickets, onOpenTicket, onSaved }: DescriptionProps) {
   const { t } = useTranslation("ticket");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(detail.description);
@@ -162,6 +165,11 @@ export function DescriptionField({ client, detail, canEdit, tickets, onOpenTicke
     setDraft(value);
     setEditing(false);
   };
+  // Pedir texto à IA não grava nada: o texto atual do editor vai junto (pode não estar salvo) e a resposta só entra por "Inserir".
+  const askWriter: DraftRequest = async (request, description, signal) => {
+    const result = await client.draftTicketDescription(detail.id, { request, description }, { signal });
+    return result.ok ? { ok: true, text: result.data.text } : { ok: false };
+  };
   const toggleTask = async (text: string) => {
     if (!(await commit(text))) setRevision((current) => current + 1);
   };
@@ -193,6 +201,7 @@ export function DescriptionField({ client, detail, canEdit, tickets, onOpenTicke
           placeholder={t("description.placeholder")}
           mentions={{ projectId: detail.projectId, tickets, ownId: detail.id }}
           onChange={setDraft}
+          {...(assistant && canEdit ? { onDraft: askWriter } : {})}
           autoFocus
           onRequestEdit={startEditing}
           onLeave={() => void leave()}

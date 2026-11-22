@@ -2,6 +2,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent } from "react";
+import type { JSONContent, Range } from "@tiptap/core";
 import { useTranslation } from "react-i18next";
 import { useStatusText } from "../../map/nodeContent.js";
 import { descriptionDecorations, decorationsKey } from "./decorations.js";
@@ -12,6 +13,8 @@ import { optionId, SuggestionMenu } from "./SuggestionMenu.js";
 import type { MenuState } from "./SuggestionMenu.js";
 import { suggestionExtension } from "./suggestions.js";
 import type { MenuKind, SuggestionHost } from "./suggestions.js";
+import { WriterRequest } from "./WriterRequest.js";
+import type { DraftRequest } from "./WriterRequest.js";
 import "./description.css";
 
 export interface RichDescriptionProps {
@@ -41,6 +44,11 @@ export interface RichDescriptionProps {
   onToggleTask?: (text: string) => void;
   /** Clique ou Enter em uma menção. */
   onOpenMention?: (ticketId: string) => void;
+  /**
+   * Pedir ao assistente um trecho para a descrição (ADR 0036, fatia 5). Com isto e a edição aberta, o menu "/" ganha
+   * "Pedir ao assistente para escrever". Sem isto (assistente desligado, criação), o item não existe.
+   */
+  onDraft?: DraftRequest;
   /** O foco entra no texto quando a edição abre junto com o componente (o convite de uma descrição vazia). */
   autoFocus?: boolean;
   /** Classe extra no recipiente (por exemplo o contorno de campo, na criação). */
@@ -69,6 +77,9 @@ export function RichDescription(props: RichDescriptionProps) {
   const menuRef = useRef<MenuState | null>(null);
   const pendingPos = useRef<number | "end">("end");
   const refocus = useRef(false);
+  // O pedido ao assistente: aberto ou não, e a posição do cursor onde a proposta entra (acompanha as mudanças do texto).
+  const [writing, setWriting] = useState(false);
+  const writerPos = useRef(0);
 
   const setMenuState = useCallback((next: MenuState | null) => {
     menuRef.current = next;
@@ -111,6 +122,16 @@ export function RichDescription(props: RichDescriptionProps) {
     [setMenuState],
   );
 
+  const askAssistant = useCallback(
+    (current: Editor, range: Range) => {
+      current.chain().focus().deleteRange(range).run();
+      writerPos.current = range.from;
+      setMenuState(null);
+      setWriting(true);
+    },
+    [setMenuState],
+  );
+
   const extensions = useMemo(
     () => [
       ...descriptionExtensions({ canToggleTasks: () => latest.current.canEdit, taskLabel: (text) => latest.current.t("description.task", { text }) }),
@@ -119,10 +140,10 @@ export function RichDescription(props: RichDescriptionProps) {
         placeholder: latest.current.placeholder,
         statusText: latest.current.statusText,
       })),
-      suggestionExtension("blocks", host, (query) => blockItems(latest.current.t, query)),
+      suggestionExtension("blocks", host, (query) => blockItems(latest.current.t, query, latest.current.onDraft ? askAssistant : undefined)),
       suggestionExtension("mention", host, (query) => (latest.current.mentions ? mentionItems(query, latest.current.mentions) : [])),
     ],
-    [host],
+    [host, askAssistant],
   );
 
   const editor = useEditor({
@@ -155,6 +176,32 @@ export function RichDescription(props: RichDescriptionProps) {
     },
   });
 
+  // A posição do pedido segue o texto: se a pessoa escreve antes dela enquanto espera, a proposta entra no lugar certo.
+  useEffect(() => {
+    if (!editor) return;
+    const follow = ({ transaction }: { transaction: { docChanged: boolean; mapping: { map: (pos: number) => number } } }) => {
+      if (transaction.docChanged) writerPos.current = transaction.mapping.map(writerPos.current);
+    };
+    editor.on("transaction", follow);
+    return () => void editor.off("transaction", follow);
+  }, [editor]);
+
+  const closeWriter = useCallback(() => {
+    // O foco volta ao texto antes de o campo sair: perder o foco de dentro do componente não pode contar como sair da edição.
+    editor?.commands.focus();
+    setWriting(false);
+  }, [editor]);
+  const insertProposal = useCallback(
+    (text: string) => {
+      if (!editor) return;
+      const parsed = (editor as unknown as { markdown: { parse: (markdown: string) => JSONContent } }).markdown.parse(text);
+      const position = Math.min(writerPos.current, editor.state.doc.content.size);
+      editor.chain().focus().insertContentAt(position, parsed.content ?? []).run();
+      setWriting(false);
+    },
+    [editor],
+  );
+
   if (baseline.current === null) baseline.current = normalizeDescription(value);
 
   // O texto guardado mudou por fora (outro ticket, recarga, descarte): o editor passa a mostrá-lo.
@@ -183,6 +230,7 @@ export function RichDescription(props: RichDescriptionProps) {
     if (editing && !wasEditing.current) editor.commands.focus(pendingPos.current);
     if (!editing) {
       setMenuState(null);
+      setWriting(false);
       if (wasEditing.current && refocus.current) wrapper.current?.focus();
     }
     refocus.current = false;
@@ -293,6 +341,18 @@ export function RichDescription(props: RichDescriptionProps) {
     >
       <EditorContent editor={editor} />
       {menu && editing && <SuggestionMenu state={menu} idPrefix={id} />}
+      {writing && editing && props.onDraft && editor && (
+        <WriterRequest
+          anchor={() => {
+            const at = editor.view.coordsAtPos(Math.min(writerPos.current, editor.state.doc.content.size));
+            return { left: at.left, top: at.top, bottom: at.bottom };
+          }}
+          currentText={() => shown.current}
+          onDraft={props.onDraft}
+          onInsert={insertProposal}
+          onClose={closeWriter}
+        />
+      )}
     </div>
   );
 }

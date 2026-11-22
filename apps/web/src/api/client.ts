@@ -142,6 +142,7 @@ const codeLinkSchema = z.object({
   updatedAt: z.string().nullable(),
 });
 const ticketCodeSchema = z.object({ repositories: z.number(), syncedAt: z.string().nullable(), links: z.array(codeLinkSchema) });
+const descriptionDraftSchema = z.object({ text: z.string(), model: z.string() });
 const ticketSummaryTextSchema = z.object({
   summary: z.object({ text: z.string(), source: z.enum(["assistant", "person"]), updatedAt: z.string() }).nullable(),
 });
@@ -264,6 +265,7 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     path: string,
     schema: z.ZodType<T> | null,
     body?: unknown,
+    signal?: AbortSignal,
   ): Promise<ApiResult<T>> {
     try {
       const token = await getToken();
@@ -271,6 +273,7 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
 
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
       const init: RequestInit = { headers };
+      if (signal) init.signal = signal;
       if (method !== "GET") init.method = method;
       if (body !== undefined) {
         headers["Content-Type"] = "application/json";
@@ -375,6 +378,9 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     getTicketSummary: (id: string) => request("GET", `${ticket(id)}/summary`, ticketSummaryTextSchema),
     putTicketSummary: (id: string, body: { text: string }) => request("PUT", `${ticket(id)}/summary`, ticketSummaryTextSchema, body),
     regenerateTicketSummary: (id: string) => request("POST", `${ticket(id)}/summary/regenerate`, ticketSummaryTextSchema),
+    /** Pede à IA um trecho em markdown para a descrição (ADR 0036). Não grava nada; `description` é o texto atual do editor. */
+    draftTicketDescription: (id: string, body: { request: string; description: string }, options: { signal?: AbortSignal } = {}) =>
+      request("POST", `${ticket(id)}/description/draft`, descriptionDraftSchema, body, options.signal),
   };
 }
 

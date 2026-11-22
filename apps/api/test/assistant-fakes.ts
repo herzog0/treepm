@@ -9,6 +9,8 @@ import type {
   ConversationProvider,
   ConversationTurn,
   ConversationTurnInput,
+  DescriptionDraftInput,
+  DescriptionWriter,
   GroupNameInput,
   GroupNamer,
 } from "../src/assistant/ports.js";
@@ -117,5 +119,19 @@ export class FakeGroupNamer implements GroupNamer {
     if (this.fail) throw new AssistantUnavailableError("fake");
     const out = this.reply ? this.reply(input) : { title: `Grupo de ${input.newTicket.title}`, description: "Tickets do mesmo assunto." };
     return { ...out, model: "fake-model" };
+  }
+}
+
+/** Escritor de descrição falso: `Texto para: <pedido>`, a menos que `reply` mande outra coisa. */
+export class FakeDescriptionWriter implements DescriptionWriter {
+  readonly calls: DescriptionDraftInput[] = [];
+  onCall: (() => Promise<void>) | null = null;
+  reply: ((input: DescriptionDraftInput) => string) | null = null;
+  fail = false;
+  async write(input: DescriptionDraftInput): Promise<{ text: string; model: string }> {
+    this.calls.push(structuredClone(input) as DescriptionDraftInput);
+    await this.onCall?.();
+    if (this.fail) throw new AssistantUnavailableError("fake");
+    return { text: this.reply ? this.reply(input) : `Texto para: ${input.request}`, model: "fake-model" };
   }
 }
