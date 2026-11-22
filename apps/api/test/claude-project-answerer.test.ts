@@ -155,6 +155,21 @@ describe("ClaudeProjectAnswerer — o laço", () => {
     expect(closing.content.at(-1).text).toMatch(/limite/i);
   });
 
+  it("com maxToolRounds 1: a segunda chamada já vai sem ferramentas (tool_choice none), e o padrão continua 8", async () => {
+    const captured: Captured[] = [];
+    const ex = executor();
+    const out = await ask(
+      scripted((n, p) => (p["tool_choice"]?.type === "none" ? answer("Pronto.") : toolTurn(use(`u${n}`, "project_overview"))), captured),
+      ex.tools,
+      { maxToolRounds: 1 },
+    );
+    expect(out.text).toBe("Pronto.");
+    expect(captured).toHaveLength(2);
+    expect(ex.calls).toHaveLength(1);
+    expect(captured[0]!.params["tool_choice"]).toBeUndefined();
+    expect(captured[1]!.params["tool_choice"]).toEqual({ type: "none" });
+  });
+
   it("16 execuções: o excedente da rodada volta como erro, sem executar, e a chamada seguinte vai sem ferramentas", async () => {
     const captured: Captured[] = [];
     const ex = executor();
