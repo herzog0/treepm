@@ -28,7 +28,7 @@ describe("POST /ticket-conversations/:id/ticket — a criação", () => {
       projectId: priv(),
       parentId: tree.sso,
       title: "Rascunho 1",
-      description: "Quero corrigir o login",
+      description: "Pedido original:\n\n> Quero corrigir o login\n\nQuero corrigir o login",
       key: "PRIV-8",
       number: 8,
       createdByPersonId: h.world().people.contributor,
@@ -68,7 +68,7 @@ describe("POST /ticket-conversations/:id/ticket — a criação", () => {
     const id = await open();
     await h.call("PATCH", `/api/ticket-conversations/${id}/draft`, as("contributor"), { title: "Título meu", description: "Texto meu" });
     const res = await create(id, null);
-    expect(res.body.ticket).toMatchObject({ title: "Título meu", description: "Texto meu" });
+    expect(res.body.ticket).toMatchObject({ title: "Título meu", description: "Pedido original:\n\n> Quero corrigir o login\n\nTexto meu" });
   });
 
   it("grava ticket.created com a origem assistente e a conversa", async () => {

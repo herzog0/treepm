@@ -2,7 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { Logger } from "@nestjs/common";
 import { z } from "zod";
-import { AssistantUnavailableError } from "./ports.js";
+import { AssistantUnavailableError, MAX_DRAFT_CHILDREN } from "./ports.js";
 import { ticketDescriptionSchema, ticketTitleSchema } from "../tickets/tickets.schema.js";
 import { CLAUDE_MODEL, FALLBACK_BETA, MAX_TOKENS, callClaude, requireEndTurn } from "./claude-call.js";
 import type { ClaudeStreamer, FinalMessage, StreamParams } from "./claude-call.js";
@@ -22,16 +22,28 @@ export const MAX_ASSISTANT_MESSAGE = 8000;
 const turnFormat = z.object({
   message: z.string().describe("O que você diz à pessoa."),
   draft: z
-    .object({ title: z.string(), description: z.string() })
+    .object({
+      title: z.string(),
+      description: z.string(),
+      children: z
+        .array(z.object({ title: z.string(), description: z.string() }))
+        .describe("Os filhos do ticket, na ordem; lista vazia quando o rascunho é um ticket só. Filhos não têm filhos."),
+    })
     .nullable()
-    .describe("Rascunho completo do ticket, ou null se ainda não houver o que propor."),
+    .describe("Rascunho completo do ticket (com os filhos, se houver), ou null se ainda não houver o que propor."),
   ready: z.boolean().describe("O rascunho está bom para procurar o lugar do ticket na árvore."),
 });
 
-/** Limites do ticket (ADR 0024) e da mensagem: saída fora deles é tratada como falha, nunca cortada. */
+/** Limites do ticket (ADR 0024), de até 20 filhos (ADR 0044) e da mensagem: saída fora deles é tratada como falha, nunca cortada. */
 const turnLimits = z.object({
   message: z.string().trim().min(1).max(MAX_ASSISTANT_MESSAGE),
-  draft: z.object({ title: ticketTitleSchema, description: ticketDescriptionSchema }).nullable(),
+  draft: z
+    .object({
+      title: ticketTitleSchema,
+      description: ticketDescriptionSchema,
+      children: z.array(z.object({ title: ticketTitleSchema, description: ticketDescriptionSchema })).max(MAX_DRAFT_CHILDREN).default([]),
+    })
+    .nullable(),
   ready: z.boolean(),
 });
 

@@ -385,7 +385,9 @@ async function rebuildOne(
   const created = await call<{ ticket: Detail }>("ticket", "criar ticket", () =>
     ctx.client.request("POST", `/ticket-conversations/${conversation.id}/ticket`, { parentId: outcome.destination.parentId }),
   );
-  return { ...finish(created.ticket, outcome, judgments, false), affinity: affinityRecordOf(pairs, outcome, (id) => state.newToOld.get(id) ?? id) };
+  // A conversa grava a citação do pedido na frente da descrição (ADR 0044); a reconstrução quer o texto do gabarito.
+  const restored = await call<Detail>("ticket", "restaurar a descrição do gabarito", () => withOriginalDescription(ctx, created.ticket, ticket.description));
+  return { ...finish(restored, outcome, judgments, false), affinity: affinityRecordOf(pairs, outcome, (id) => state.newToOld.get(id) ?? id) };
 }
 
 // ---- restore-state ------------------------------------------------------------------------------------------------
@@ -567,6 +569,12 @@ export async function leaveOneOutCommand(ctx: Context, limit: number | undefined
   return false;
 }
 
+/** O ticket criado pela conversa leva a citação do pedido (ADR 0044); devolve a descrição ao texto do gabarito. */
+export async function withOriginalDescription(ctx: Context, ticket: Detail, description: string): ReturnType<ApiClient["request"]> {
+  if (ticket.description === description) return { status: 200, body: ticket };
+  return ctx.client.request("PATCH", `/tickets/${ticket.id}`, { description });
+}
+
 /** Recria um ticket que a interrupção deixou removido: pela conversa já aberta, se ela ainda serve; senão pela rota do projeto. */
 export async function restoreMissing(ctx: Context, original: GabaritoTicket, mark: LooMark): Promise<string> {
   const retry = async (what: string, run: () => ReturnType<ApiClient["request"]>) => {
@@ -581,7 +589,11 @@ export async function restoreMissing(ctx: Context, original: GabaritoTicket, mar
       const created = await retry("criar ticket pela conversa", () =>
         ctx.client.request("POST", `/ticket-conversations/${mark.conversationId}/ticket`, { parentId: mark.expectedParentNewId }),
       );
-      if (created.status >= 200 && created.status < 300) return (created.body as { ticket: Detail }).ticket.id;
+      if (created.status >= 200 && created.status < 300) {
+        const made = (created.body as { ticket: Detail }).ticket;
+        expectOk<Detail>("restaurar a descrição do gabarito", await withOriginalDescription(ctx, made, original.description));
+        return made.id;
+      }
     }
   }
   const created = await retry("recriar ticket", () =>
@@ -626,11 +638,13 @@ async function looOne(
   const pairs = ctx.recorder.takePairs();
   const scopeChecks = ctx.scopeCheck && ticket.parentId !== null ? await scopeChecksFor(ctx, call, conversation.id, ticket, tree, map) : undefined;
   // Não cria no destino da procura: recoloca no pai original, para a árvore ficar igual à de antes.
-  const created = (
+  const made = (
     await call<{ ticket: Detail }>("ticket", "recriar ticket", () =>
       ctx.client.request("POST", `/ticket-conversations/${conversation.id}/ticket`, { parentId: expectedParentNewId }),
     )
   ).ticket;
+  // A conversa grava a citação do pedido na frente da descrição (ADR 0044); a reconstrução quer o texto do gabarito.
+  const created = await call<Detail>("ticket", "restaurar a descrição do gabarito", () => withOriginalDescription(ctx, made, ticket.description));
 
   const newToOld = new Map([...map].map(([oldId, newId]) => [newId, oldId]));
   const chosen = outcome.destination.parentId;

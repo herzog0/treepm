@@ -1,4 +1,4 @@
-import { ideaRootsOf } from "@treepm/domain";
+import { ideaRootsOf, mentionedKeys, scanTicketKeys } from "@treepm/domain";
 import type { IdeaStage, TicketStatus } from "@treepm/domain";
 import {
   Body,
@@ -36,13 +36,16 @@ import {
   placementBodySchema,
   placementOutcomeSchema,
   draftBodySchema,
+  previewSchema,
 } from "./conversations.schema.js";
 import type { ConversationDetail, ConversationSummary } from "./conversations.schema.js";
+import { buildRequestQuote, withRequestQuote } from "./request-quote.js";
 import { PlacementService } from "./placement.service.js";
 import { AssistantGate } from "./assistant-gate.js";
 import { AssistantUnavailableError, PLACEMENT_TIMEOUTS } from "./ports.js";
-import type { ConversationProvider, ConversationTurn, PlacementTimeouts } from "./ports.js";
+import type { ConversationDraft, ConversationProvider, ConversationTurn, DraftChild, PlacementTimeouts } from "./ports.js";
 import { TicketsService } from "../tickets/tickets.service.js";
+import { MAX_TICKET_DESCRIPTION } from "../tickets/tickets.schema.js";
 import type { TicketDetail } from "../tickets/tickets.schema.js";
 import type { ProjectRow } from "../tickets/tickets.service.js";
 
@@ -57,10 +60,38 @@ type ConversationRow = {
   status: string;
   draftTitle: string | null;
   draftDescription: string | null;
+  draftChildren: unknown;
   ready: boolean;
   createdTicketId: string | null;
   createdAt: Date;
   updatedAt: Date;
+};
+
+/** Os filhos guardados do rascunho (JSON validado pelo banco e por quem grava); ausente = nenhum. */
+const childrenOf = (row: { draftChildren: unknown }): DraftChild[] =>
+  Array.isArray(row.draftChildren) ? (row.draftChildren as DraftChild[]).map(({ title, description }) => ({ title, description })) : [];
+
+/**
+ * O texto que a procura do lugar usa (ADR 0044): a descrição do pai e, com filhos, a lista dos títulos deles. A citação do
+ * pedido nunca entra (ela só é montada na criação), então nada fica duplicado. A procura roda uma vez, para o pai.
+ */
+const placementDraft = (row: ConversationRow): { title: string; description: string } => {
+  const description = row.draftDescription ?? "";
+  const titles = childrenOf(row).map((child) => `- ${child.title}`);
+  if (titles.length === 0) return { title: row.draftTitle ?? "", description };
+  const parts = `Partes:\n${titles.join("\n")}`;
+  return { title: row.draftTitle ?? "", description: description === "" ? parts : `${description}\n\n${parts}` };
+};
+
+/** O rascunho da conversa, ou `null` se ainda não há. */
+const draftOf = (row: ConversationRow): { title: string; description: string; children: DraftChild[] } | null =>
+  row.draftTitle === null ? null : { title: row.draftTitle, description: row.draftDescription ?? "", children: childrenOf(row) };
+
+/** O que vai ao provedor: sem a chave `children` quando o rascunho é um ticket só, como antes da ADR 0044. */
+const draftForProvider = (row: ConversationRow): ConversationDraft | null => {
+  const draft = draftOf(row);
+  if (draft === null) return null;
+  return draft.children.length > 0 ? draft : { title: draft.title, description: draft.description };
 };
 
 const asStatus = (row: { status: string }) => row.status as ConversationSummary["status"];
@@ -70,7 +101,7 @@ function toSummary(row: ConversationRow): ConversationSummary {
     id: row.id,
     projectId: row.projectId,
     status: asStatus(row),
-    draft: row.draftTitle === null ? null : { title: row.draftTitle, description: row.draftDescription ?? "" },
+    draft: draftOf(row),
     ready: row.ready,
     createdTicketId: row.createdTicketId,
     createdAt: row.createdAt.toISOString(),
@@ -117,6 +148,7 @@ export class TicketConversationsController {
           authorPersonId: principal.person.id,
           draftTitle: turn.draft?.title ?? null,
           draftDescription: turn.draft?.description ?? null,
+          ...(turn.draft ? { draftChildren: [...(turn.draft.children ?? [])] } : {}),
           ready: turn.ready,
         },
       });
@@ -147,10 +179,7 @@ export class TicketConversationsController {
       ...seen.messages.map((m) => ({ author: m.author as "person" | "assistant", body: m.body })),
       { author: "person" as const, body: body.message },
     ];
-    const current =
-      seen.conversation.draftTitle === null
-        ? null
-        : { title: seen.conversation.draftTitle, description: seen.conversation.draftDescription ?? "" };
+    const current = draftForProvider(seen.conversation);
     const turn = await this.ask(provider, { history, draft: current, groups: seen.groups });
     return tenant.run(async (tx, principal) => {
       await tx.$queryRaw`select 1 from ticket_conversations where id = ${id}::uuid for update`; // serializa turnos concorrentes
@@ -177,9 +206,38 @@ export class TicketConversationsController {
     const { conversation } = await this.requireWritable(tx, principal, id);
     await tx.ticketConversation.update({
       where: { orgId_id: { orgId: conversation.orgId, id } },
-      data: { draftTitle: body.title, draftDescription: body.description },
+      data: {
+        draftTitle: body.title,
+        draftDescription: body.description,
+        // Sem `children` no corpo, os filhos ficam como estão; a lista nova (inclusive vazia) substitui a anterior.
+        ...(body.children ? { draftChildren: body.children } : {}),
+      },
     });
     return this.detail(tx, id);
+  }
+
+  /**
+   * O que a criação vai gravar, sem criar nada (ADR 0044): a descrição já com a citação do pedido, os filhos, e o que a
+   * criação recusaria (chaves que não existem, tamanho). Não chama provedor.
+   */
+  @Get("ticket-conversations/:id/preview")
+  async preview(
+    @Tx() tx: TenantClient,
+    @CurrentPrincipal() principal: Principal,
+    @Param("id", new ZodPipe(idSchema)) id: string,
+  ): Promise<z.output<typeof previewSchema>> {
+    const conversation = await this.findOwn(tx, principal, id);
+    const project = await this.findVisibleProject(tx, principal, conversation.projectId);
+    if (conversation.draftTitle === null) throw this.draftRequired();
+    const built = await this.assemble(tx, project, conversation);
+    return parseOutput(previewSchema, {
+      title: built.title,
+      description: built.description,
+      quote: built.quote,
+      children: built.children,
+      unknownKeys: built.unknownKeys,
+      descriptionTooLong: built.description.length > MAX_TICKET_DESCRIPTION,
+    });
   }
 
   @Post("ticket-conversations/:id/placement")
@@ -206,7 +264,7 @@ export class TicketConversationsController {
       const tickets = allTickets.filter((t) => !inIdea.has(t.id)).map(({ id, parentId, number, title, description }) => ({ id, parentId, number, title, description }));
       if (body.scopeId) this.requireScope(tickets.find((ticket) => ticket.id === body.scopeId));
       return {
-        draft: { title: conversation.draftTitle, description: conversation.draftDescription ?? "" },
+        draft: placementDraft(conversation),
         snapshot: {
           projectId: conversation.projectId,
           projectName: project.name,
@@ -260,12 +318,22 @@ export class TicketConversationsController {
       return parseOutput(createdTicketSchema, {
         conversation: await this.detail(tx, id),
         ticket: await this.tickets.detail(tx, project, conversation.createdTicketId),
+        children: await this.createdChildren(tx, project, id, conversation.createdTicketId),
       });
     }
     if (conversation.status !== "open") {
       throw new ConflictException({ code: "conversation_closed", message: "A conversa já foi encerrada." });
     }
     if (conversation.draftTitle === null) throw this.draftRequired();
+    const built = await this.assemble(tx, project, conversation);
+    this.requireFits(built);
+    if (built.unknownKeys.length > 0) {
+      throw new ConflictException({
+        code: "unknown_ticket_keys",
+        message: `A descrição cita tickets que não existem neste projeto: ${built.unknownKeys.join(", ")}. Corrija a conversa e confirme de novo.`,
+        details: { keys: built.unknownKeys },
+      });
+    }
     const origin = { origin: "assistant", conversationId: id };
     let parentId = body.parentId;
     if (body.group) {
@@ -277,19 +345,29 @@ export class TicketConversationsController {
       principal,
       project,
       {
-        title: conversation.draftTitle,
-        description: conversation.draftDescription ?? "",
+        title: built.title,
+        description: built.description,
         parentId,
         status: "todo",
         assigneeIds: [],
       },
       origin,
     );
+    // Os filhos nascem dentro do pai, na ordem do rascunho, na mesma transação da rota: falhou um, não existe nenhum.
+    const kids: TicketDetail[] = [];
+    for (const child of built.children) {
+      kids.push(await this.tickets.create(tx, principal, project, { title: child.title, description: child.description, parentId: ticket.id, status: "todo", assigneeIds: [] }, origin));
+    }
     await tx.ticketConversation.update({
       where: { orgId_id: { orgId: conversation.orgId, id } },
       data: { status: "ticket_created", createdTicketId: ticket.id, closedAt: new Date() },
     });
-    return parseOutput(createdTicketSchema, { conversation: await this.detail(tx, id), ticket });
+    return parseOutput(createdTicketSchema, {
+      conversation: await this.detail(tx, id),
+      // Com filhos, o pai é lido de novo: o progresso e a contagem dele mudam quando os filhos nascem.
+      ticket: kids.length > 0 ? await this.tickets.detail(tx, project, ticket.id) : ticket,
+      children: kids,
+    });
   }
 
   @Get("ticket-conversations")
@@ -351,6 +429,79 @@ export class TicketConversationsController {
       select: { title: true },
     });
     return rows.map((row) => row.title);
+  }
+
+  /**
+   * O que será gravado (ADR 0044): o título e a descrição do pai com a citação do pedido na frente (as mensagens da pessoa
+   * naquela conversa, na ordem, como ela as escreveu), os filhos, e as chaves de ticket da parte escrita pela IA que não
+   * existem no projeto. Chaves que a própria pessoa escreveu em alguma mensagem não são recusadas, nem quando a IA as repete.
+   */
+  private async assemble(tx: TenantClient, project: ProjectRow, conversation: ConversationRow) {
+    const messages = (
+      await tx.ticketConversationMessage.findMany({
+        where: { conversationId: conversation.id, author: "person" },
+        orderBy: { position: "asc" },
+        select: { body: true },
+      })
+    ).map((message) => message.body);
+    const aiDescription = conversation.draftDescription ?? "";
+    const children = childrenOf(conversation);
+    const personKeys = new Set(messages.flatMap((message) => scanTicketKeys(message).map((match) => match.key)));
+    const prefix = `${project.key}-`;
+    const cited = [...new Set([aiDescription, ...children.map((child) => child.description)].flatMap((text) => mentionedKeys(text)))].filter(
+      (key) => key.startsWith(prefix) && !personKeys.has(key),
+    );
+    const numbers = cited.map((key) => ({ key, number: Number(key.slice(prefix.length)) }));
+    const existing = new Set(
+      numbers.length === 0
+        ? []
+        : (
+            await tx.ticket.findMany({
+              where: { projectId: project.id, number: { in: numbers.filter((entry) => entry.number <= 2_147_483_647).map((entry) => entry.number) } },
+              select: { number: true },
+            })
+          ).map((row) => row.number),
+    );
+    return {
+      title: conversation.draftTitle ?? "",
+      description: withRequestQuote(messages, aiDescription),
+      quote: buildRequestQuote(messages),
+      aiDescription,
+      children,
+      unknownKeys: numbers.filter((entry) => !existing.has(entry.number)).map((entry) => entry.key),
+    };
+  }
+
+  /** Nunca corta o texto da pessoa: a citação fica inteira e a criação é recusada, pedindo para encurtar a parte da IA. */
+  private requireFits(built: { quote: string; description: string }): void {
+    if (built.quote.length > MAX_TICKET_DESCRIPTION) {
+      throw new ConflictException({
+        code: "request_too_long",
+        message: "O pedido da pessoa, citado inteiro no ticket, já passa do tamanho máximo da descrição. Divida o pedido em conversas menores.",
+        details: { max: MAX_TICKET_DESCRIPTION, quoteLength: built.quote.length },
+      });
+    }
+    if (built.description.length > MAX_TICKET_DESCRIPTION) {
+      throw new ConflictException({
+        code: "description_too_long",
+        message: "A citação do pedido mais a descrição passam do tamanho máximo. Encurte a descrição escrita pelo assistente; o pedido original nunca é cortado.",
+        details: { max: MAX_TICKET_DESCRIPTION, length: built.description.length, quoteLength: built.quote.length },
+      });
+    }
+  }
+
+  /** Os filhos que esta conversa criou sob o pai (já criada antes), na ordem do número: lidos do histórico, que guarda a conversa. */
+  private async createdChildren(tx: TenantClient, project: ProjectRow, conversationId: string, parentId: string): Promise<TicketDetail[]> {
+    const events = await tx.activityEvent.findMany({
+      where: { kind: "ticket.created", payload: { path: ["conversationId"], equals: conversationId } },
+      select: { subjectId: true },
+    });
+    const ids = events.map((event) => event.subjectId).filter((subjectId) => subjectId !== parentId);
+    if (ids.length === 0) return [];
+    const rows = await tx.ticket.findMany({ where: { id: { in: ids }, parentId }, orderBy: { number: "asc" }, select: { id: true } });
+    const details: TicketDetail[] = [];
+    for (const row of rows) details.push(await this.tickets.detail(tx, project, row.id));
+    return details;
   }
 
   private draftRequired(): ConflictException {
@@ -421,7 +572,9 @@ export class TicketConversationsController {
       data: {
         ready: turn.ready,
         // `null` da IA mantém o rascunho anterior (inclusive o editado à mão pela pessoa).
-        ...(turn.draft ? { draftTitle: turn.draft.title, draftDescription: turn.draft.description } : {}),
+        ...(turn.draft
+          ? { draftTitle: turn.draft.title, draftDescription: turn.draft.description, draftChildren: [...(turn.draft.children ?? [])] }
+          : {}),
       },
     });
   }

@@ -30,6 +30,7 @@ import {
   readJsonLines,
   readLooMap,
   restoreMissing,
+  withOriginalDescription,
   looMapPath,
 } from "./commands.js";
 import type { Context, Conversation, Detail, Outcome, Summary, Timings } from "./commands.js";
@@ -353,11 +354,13 @@ async function collectOne(
   }
 
   // Devolve o ticket ao lugar original pela conversa (rascunho original do gabarito), com situação e pessoas.
-  const created = (
+  const made = (
     await call<{ ticket: Detail }>("ticket", "recriar ticket", () =>
       ctx.client.request("POST", `/ticket-conversations/${conversation.id}/ticket`, { parentId: expectedParentNewId }),
     )
   ).ticket;
+  // A conversa grava a citação do pedido na frente da descrição (ADR 0044); a coleta quer o texto do gabarito.
+  const created = await call<Detail>("ticket", "restaurar a descrição do gabarito", () => withOriginalDescription(ctx, made, ticket.description));
   await restoreStateOf(ctx, created.id, ticket);
 
   const record: CollectRecord = {
