@@ -10,6 +10,8 @@ export type ConversationCase = {
   id: string;
   messages: readonly string[];
   expectChildren: boolean | "either";
+  /** A IA deve (`true`) ou não deve (`false`) ligar `idea`; ausente, não se confere (TREEPM-242). */
+  expectIdea?: boolean | undefined;
   minChildren?: number | undefined;
   maxChildren?: number | undefined;
   mustMention: readonly MustMention[];
@@ -131,6 +133,10 @@ export type DraftCheck = {
   parentDescriptionLength: number;
   childrenDescriptionLength: number;
   childrenOk: boolean;
+  /** O `idea` que o rascunho trouxe (falso sem rascunho). */
+  idea: boolean;
+  /** `idea` bate com `expectIdea` (sempre verdadeiro quando o caso não o define). */
+  ideaOk: boolean;
   passes: boolean;
 };
 
@@ -150,6 +156,8 @@ export function checkDraft(testCase: ConversationCase, turn: TurnLike): DraftChe
     (testCase.expectChildren === "either" || (testCase.expectChildren ? childCount > 0 : childCount === 0)) &&
     (testCase.minChildren === undefined || childCount >= testCase.minChildren) &&
     (testCase.maxChildren === undefined || childCount <= testCase.maxChildren);
+  const idea = draft?.idea === true;
+  const ideaOk = testCase.expectIdea === undefined || idea === testCase.expectIdea;
   return {
     hasDraft: draft !== null,
     ready: turn.ready,
@@ -164,6 +172,8 @@ export function checkDraft(testCase: ConversationCase, turn: TurnLike): DraftChe
     parentDescriptionLength: draft?.description.length ?? 0,
     childrenDescriptionLength: children.reduce((sum, c) => sum + c.description.length, 0),
     childrenOk,
-    passes: draft !== null && childrenOk && missed.length === 0 && invented.length === 0 && ticketKeys.length === 0 && claims.length === 0,
+    idea,
+    ideaOk,
+    passes: draft !== null && childrenOk && ideaOk && missed.length === 0 && invented.length === 0 && ticketKeys.length === 0 && claims.length === 0,
   };
 }

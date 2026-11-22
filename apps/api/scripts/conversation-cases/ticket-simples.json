@@ -4,6 +4,7 @@
     "o botão de salvar da tela de configurações fica desabilitado depois de trocar o idioma; tem que continuar habilitado"
   ],
   "expectChildren": false,
+  "expectIdea": false,
   "mustMention": [
     {
       "label": "botão de salvar",

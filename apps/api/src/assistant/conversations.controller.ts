@@ -61,6 +61,7 @@ type ConversationRow = {
   draftTitle: string | null;
   draftDescription: string | null;
   draftChildren: unknown;
+  draftIdea: boolean;
   ready: boolean;
   createdTicketId: string | null;
   createdAt: Date;
@@ -84,14 +85,19 @@ const placementDraft = (row: ConversationRow): { title: string; description: str
 };
 
 /** O rascunho da conversa, ou `null` se ainda não há. */
-const draftOf = (row: ConversationRow): { title: string; description: string; children: DraftChild[] } | null =>
-  row.draftTitle === null ? null : { title: row.draftTitle, description: row.draftDescription ?? "", children: childrenOf(row) };
+const draftOf = (row: ConversationRow): { title: string; description: string; children: DraftChild[]; idea: boolean } | null =>
+  row.draftTitle === null ? null : { title: row.draftTitle, description: row.draftDescription ?? "", children: childrenOf(row), idea: row.draftIdea };
 
-/** O que vai ao provedor: sem a chave `children` quando o rascunho é um ticket só, como antes da ADR 0044. */
+/** O que vai ao provedor: sem `children` quando o rascunho é um ticket só, como antes da ADR 0044; `idea` sempre, para a IA ver o que a pessoa ligou ou desligou à mão. */
 const draftForProvider = (row: ConversationRow): ConversationDraft | null => {
   const draft = draftOf(row);
   if (draft === null) return null;
-  return draft.children.length > 0 ? draft : { title: draft.title, description: draft.description };
+  return {
+    title: draft.title,
+    description: draft.description,
+    ...(draft.children.length > 0 ? { children: draft.children } : {}),
+    idea: draft.idea,
+  };
 };
 
 const asStatus = (row: { status: string }) => row.status as ConversationSummary["status"];
@@ -148,7 +154,7 @@ export class TicketConversationsController {
           authorPersonId: principal.person.id,
           draftTitle: turn.draft?.title ?? null,
           draftDescription: turn.draft?.description ?? null,
-          ...(turn.draft ? { draftChildren: [...(turn.draft.children ?? [])] } : {}),
+          ...(turn.draft ? { draftChildren: [...(turn.draft.children ?? [])], draftIdea: turn.draft.idea === true } : {}),
           ready: turn.ready,
         },
       });
@@ -211,6 +217,8 @@ export class TicketConversationsController {
         draftDescription: body.description,
         // Sem `children` no corpo, os filhos ficam como estão; a lista nova (inclusive vazia) substitui a anterior.
         ...(body.children ? { draftChildren: body.children } : {}),
+        // Sem `idea` no corpo, a opção fica como está.
+        ...(body.idea !== undefined ? { draftIdea: body.idea } : {}),
       },
     });
     return this.detail(tx, id);
@@ -235,6 +243,7 @@ export class TicketConversationsController {
       description: built.description,
       quote: built.quote,
       children: built.children,
+      idea: conversation.draftIdea,
       unknownKeys: built.unknownKeys,
       descriptionTooLong: built.description.length > MAX_TICKET_DESCRIPTION,
     });
@@ -325,6 +334,10 @@ export class TicketConversationsController {
       throw new ConflictException({ code: "conversation_closed", message: "A conversa já foi encerrada." });
     }
     if (conversation.draftTitle === null) throw this.draftRequired();
+    // Ideia (ADR 0044, adendo): o pai nasce como ideia pelo mesmo caminho da tela, com a mesma permissão. Num lugar que já está
+    // dentro de uma ideia, o que nasce faz parte dela, sem estágio próprio, e a opção não pede permissão nenhuma.
+    const asIdea = conversation.draftIdea && (await this.tickets.ideaRootFor(tx, body.parentId)) === null;
+    if (asIdea) this.authorization.registerIdea(principal.actor, project.id);
     const built = await this.assemble(tx, project, conversation);
     this.requireFits(built);
     if (built.unknownKeys.length > 0) {
@@ -350,6 +363,7 @@ export class TicketConversationsController {
         parentId,
         status: "todo",
         assigneeIds: [],
+        ...(asIdea ? { idea: true } : {}),
       },
       origin,
     );
@@ -573,7 +587,13 @@ export class TicketConversationsController {
         ready: turn.ready,
         // `null` da IA mantém o rascunho anterior (inclusive o editado à mão pela pessoa).
         ...(turn.draft
-          ? { draftTitle: turn.draft.title, draftDescription: turn.draft.description, draftChildren: [...(turn.draft.children ?? [])] }
+          ? {
+              draftTitle: turn.draft.title,
+              draftDescription: turn.draft.description,
+              draftChildren: [...(turn.draft.children ?? [])],
+              // Uma IA que não manda `idea` mantém a opção como está.
+              ...(turn.draft.idea !== undefined ? { draftIdea: turn.draft.idea } : {}),
+            }
           : {}),
       },
     });

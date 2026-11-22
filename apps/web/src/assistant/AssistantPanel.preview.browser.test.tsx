@@ -35,7 +35,7 @@ const children = TITLES.map((title) => ({ title, description: `O que a pessoa di
 
 function makeClientWith(options: { children?: typeof children; unknownKeys?: string[]; slow?: boolean }): ApiClient {
   const kids = options.children ?? [];
-  const preview: DraftPreview = { title: "Chat de trabalho por ticket", description: `${QUOTE}\n\nO pedido descreve uma funcionalidade com várias partes.`, quote: QUOTE, children: kids, unknownKeys: options.unknownKeys ?? [], descriptionTooLong: false };
+  const preview: DraftPreview = { title: "Chat de trabalho por ticket", description: `${QUOTE}\n\nO pedido descreve uma funcionalidade com várias partes.`, quote: QUOTE, children: kids, idea: false, unknownKeys: options.unknownKeys ?? [], descriptionTooLong: false };
   const client = makeClient({ projects: [project] });
   const conversation = makeConversation("c1", "p1", { draft: { title: "Chat de trabalho por ticket no painel lateral", description: "O pedido descreve uma funcionalidade com várias partes.", children: kids } });
   Object.assign(client, {

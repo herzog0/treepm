@@ -10,7 +10,7 @@ const detail = {
   id: ID,
   projectId: OTHER,
   status: "open",
-  draft: { title: "Corrigir o login", description: "Texto", children: [] },
+  draft: { title: "Corrigir o login", description: "Texto", children: [], idea: false },
   ready: true,
   createdTicketId: null,
   createdAt: "2026-11-20T10:00:00.000Z",
@@ -168,7 +168,7 @@ describe("conversa que quebra o pedido em pai e filhos (ADR 0044)", () => {
     expect(old.ok && old.data.draft?.children).toEqual([]);
   });
   it("lê a prévia em GET …/preview", async () => {
-    const preview = { title: "Pai", description: "Pedido original:\n\n> x\n\nD", quote: "Pedido original:\n\n> x", children: [{ title: "Chat", description: "" }], unknownKeys: ["ALFA-9"], descriptionTooLong: false };
+    const preview = { title: "Pai", description: "Pedido original:\n\n> x\n\nD", quote: "Pedido original:\n\n> x", children: [{ title: "Chat", description: "" }], idea: false, unknownKeys: ["ALFA-9"], descriptionTooLong: false };
     const { client, fetchImpl } = setup(preview);
     expect(await client.getConversationPreview(ID)).toEqual({ ok: true, data: preview });
     expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/preview`, method: "GET", body: undefined });
@@ -291,5 +291,28 @@ describe("askProject", () => {
   it("rejects an answer without text as an invalid response", async () => {
     const { client } = setup({ model: "m" });
     expect((await client.askProject(OTHER, { question: "?" })).ok).toBe(false);
+  });
+});
+
+describe("registrar o rascunho como ideia (TREEPM-242)", () => {
+  it("lê idea do rascunho; um servidor antigo (sem o campo) vale como falso", async () => {
+    const on = await setup({ ...detail, draft: { ...detail.draft, idea: true } }).client.getConversation(ID);
+    expect(on.ok && on.data.draft?.idea).toBe(true);
+    const old = await setup(detail).client.getConversation(ID);
+    expect(old.ok && old.data.draft?.idea).toBe(false);
+  });
+
+  it("manda idea no PATCH só quando informado", async () => {
+    const { client, fetchImpl } = setup(detail);
+    await client.updateConversationDraft(ID, { title: "T", description: "D", idea: true });
+    expect(lastCall(fetchImpl).body).toEqual({ title: "T", description: "D", idea: true });
+    await client.updateConversationDraft(ID, { title: "T", description: "D" });
+    expect(lastCall(fetchImpl).body).toEqual({ title: "T", description: "D" });
+  });
+
+  it("a prévia traz idea", async () => {
+    const body = { title: "T", description: "D", quote: "", children: [], idea: true, unknownKeys: [], descriptionTooLong: false };
+    const result = await setup(body).client.getConversationPreview(ID);
+    expect(result.ok && result.data.idea).toBe(true);
   });
 });

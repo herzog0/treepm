@@ -12,6 +12,7 @@
  *     "id": "chat-por-ticket",
  *     "messages": ["mensagem da pessoa", "..."],       // na ordem; normalmente uma
  *     "expectChildren": true | false | "either",       // a IA deve propor filhos, não deve, ou tanto faz
+ *     "expectIdea": true | false,                      // opcional: a IA deve ligar `idea`, ou não deve; ausente, não se confere
  *     "minChildren": 6, "maxChildren": 12,             // opcionais
  *     "mustMention": [{ "label": "branch", "anyOf": ["branch", "ramo"] }],  // detalhes que não podem se perder: pelo menos um
  *                                                      // trecho de `anyOf` (sem diferenciar caixa nem acento) no título + descrição do pai e dos filhos
@@ -42,6 +43,7 @@ const caseSchema = z.object({
   id: z.string().min(1),
   messages: z.array(z.string().min(1)).min(1),
   expectChildren: z.union([z.boolean(), z.literal("either")]),
+  expectIdea: z.boolean().optional(),
   minChildren: z.number().int().min(0).optional(),
   maxChildren: z.number().int().min(0).optional(),
   mustMention: z.array(z.object({ label: z.string().min(1), anyOf: z.array(z.string().min(1)).min(1) })),
@@ -132,6 +134,7 @@ function printRun(result: RunResult, testCase: ConversationCase): void {
   console.log(`modelo: ${result.model} | tempo: ${result.ms} ms | turnos: ${result.turns}`);
   for (const question of result.questions) console.log(`pergunta da IA (sem resposta no turno medido): ${clip(question, 300)}`);
   console.log(`rascunho: ${c.hasDraft ? "sim" : "NÃO"} | pronto: ${c.ready ? "sim" : "não"} | filhos: ${c.childCount} (${flag(c.childrenOk)}; esperado ${JSON.stringify(testCase.expectChildren)}${testCase.minChildren !== undefined || testCase.maxChildren !== undefined ? ` de ${testCase.minChildren ?? 0} a ${testCase.maxChildren ?? "∞"}` : ""})`);
+  console.log(`ideia: ${c.idea ? "sim" : "não"}${testCase.expectIdea === undefined ? "" : ` (${flag(c.ideaOk)}; esperado ${testCase.expectIdea ? "sim" : "não"})`}`);
   if (c.parentTitle !== null) {
     console.log(`pai: ${c.parentTitle}`);
     c.childTitles.forEach((title, index) => console.log(`  filho ${index + 1}: ${title}`));
@@ -168,6 +171,7 @@ let missedTotal = 0;
 let inventedTotal = 0;
 let keysTotal = 0;
 let claimsTotal = 0;
+let ideaMisses = 0;
 let passingCases = 0;
 for (const testCase of cases) {
   const own = results.filter((r) => r.caseId === testCase.id);
@@ -178,6 +182,7 @@ for (const testCase of cases) {
   inventedTotal += own.reduce((sum, r) => sum + r.check.invented.length, 0);
   keysTotal += own.reduce((sum, r) => sum + r.check.ticketKeys.length, 0);
   claimsTotal += own.reduce((sum, r) => sum + r.check.claims.length, 0);
+  ideaMisses += own.filter((r) => !r.check.ideaOk).length;
   const counts = own.map((r) => r.check.childCount);
   const covered = own.map((r) => `${r.check.mentions.filter((m) => m.covered).length}/${r.check.mentions.length}`);
   const variation = own.length > 1 ? ` | filhos ${Math.min(...counts)}–${Math.max(...counts)} | cobertos ${covered.join(", ")} | tempo ${Math.min(...own.map((r) => r.ms))}–${Math.max(...own.map((r) => r.ms))} ms` : "";
@@ -186,6 +191,7 @@ for (const testCase of cases) {
 console.log(`Casos que passam em tudo (todas as rodadas): ${passingCases}/${cases.length}`);
 console.log(`Detalhes perdidos no total: ${missedTotal}`);
 console.log(`Trechos inventados no total: ${inventedTotal} (chaves de ticket: ${keysTotal}; "criei/dividi": ${claimsTotal})`);
+console.log(`Rodadas em que \`idea\` não é o esperado: ${ideaMisses}`);
 
 if (values.json) {
   writeFileSync(values.json, `${JSON.stringify({ at: new Date().toISOString(), runs, maxTurns, results }, null, 2)}\n`);

@@ -103,4 +103,4 @@ Resolve o item 2 de "Em aberto". No mesmo primeiro uso real, Teodoro escreveu "I
 - Ao criar, o pai nasce como ideia no estágio "Nova" e os filhos nascem dentro dele, como parte da ideia ([ADR 0042](0042-ideias-na-arvore.md)). Nenhuma regra nova: é a mesma criação de ideia da tela.
 - A procura do lugar funciona como hoje e a pessoa confirma o lugar. Se o lugar escolhido já está dentro de uma ideia, a opção some: o que nasce ali já é parte dela.
 - Quem não pode registrar ideia no projeto não vê a opção, e a API recusa.
-- Nenhuma migration: o rascunho já é guardado como documento.
+- Migration `0022`: `ticket_conversations.draft_idea` (booleano, falso por padrão). A primeira redação deste adendo supunha que não haveria migration; o rascunho é guardado em colunas, não como documento.

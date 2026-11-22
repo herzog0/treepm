@@ -26,6 +26,8 @@ export const draftBodySchema = z
     title: ticketTitleSchema,
     description: ticketDescriptionSchema.default(""),
     children: z.array(draftChildSchema).max(MAX_DRAFT_CHILDREN).optional(),
+    /** Registrar o rascunho como ideia ao criar (ADR 0044, adendo): ausente mantém a opção como está. */
+    idea: z.boolean().optional(),
   })
   .strict();
 
@@ -56,6 +58,8 @@ const draftSchema = z
     description: z.string(),
     /** Os filhos do rascunho, na ordem; vazio quando o rascunho é um ticket só. */
     children: z.array(z.object({ title: z.string(), description: z.string() })),
+    /** O rascunho será registrado como ideia ao criar (ADR 0044, adendo). */
+    idea: z.boolean(),
   })
   .nullable();
 const statusSchema = z.enum(["open", "ticket_created", "discarded"]);
@@ -122,6 +126,8 @@ export const previewSchema = z.object({
   /** Só a citação (linha fixa e mensagens da pessoa), a parte do começo de `description`; vazia se não houver mensagens. */
   quote: z.string(),
   children: z.array(z.object({ title: z.string(), description: z.string() })),
+  /** O que será criado é uma ideia (a opção do rascunho; o lugar escolhido pode torná-la parte de outra ideia). */
+  idea: z.boolean(),
   /** Chaves de ticket da parte escrita pela IA que não existem no projeto: a criação seria recusada. */
   unknownKeys: z.array(z.string()),
   /** `description` passa do máximo: a criação seria recusada. */

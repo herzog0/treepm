@@ -732,6 +732,8 @@ describe("proposal of a new parent ticket (ADR 0031, ADR 0034)", () => {
   const search = async () => userEvent.click(await screen.findByRole("button", { name: "Procurar o lugar" }));
   const path = () => screen.getByRole("region", { name: "Caminho encontrado" });
   const box = (name: string) => screen.getByRole("checkbox", { name });
+  // A opção «Registrar como ideia» (TREEPM-242) também é um checkbox: a proposta é só a lista dos tickets que vão para o pai novo.
+  const proposalBoxes = () => screen.queryAllByRole("checkbox").filter((element) => element.closest(".proposal-tickets") !== null);
   const shown = async () => {
     await search();
     await screen.findByRole("region", { name: "Caminho encontrado" });
@@ -795,7 +797,7 @@ describe("proposal of a new parent ticket (ADR 0031, ADR 0034)", () => {
     await shown();
     expect(screen.getByRole("button", { name: "Criar aqui" })).toHaveClass("primary");
     expect(path()).not.toHaveTextContent("forma");
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(proposalBoxes()).toHaveLength(0);
   });
 
   it("lets the person uncheck a ticket, but the last checked one cannot be unchecked", async () => {
@@ -850,7 +852,7 @@ describe("proposal of a new parent ticket (ADR 0031, ADR 0034)", () => {
   describe("discarding", () => {
     const gone = () => {
       expect(screen.queryByText("Este ticket parece formar um grupo com outros daqui.")).not.toBeInTheDocument();
-      expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+      expect(proposalBoxes()).toHaveLength(0);
       expect(screen.queryByRole("button", { name: "Criar ticket pai e mover" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Criar aqui" })).toHaveClass("primary");
     };
@@ -913,7 +915,7 @@ describe("proposal of a new parent ticket (ADR 0031, ADR 0034)", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Algum desses tickets mudou de lugar. Procure de novo.");
     expect(path().contains(alert)).toBe(true);
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(proposalBoxes()).toHaveLength(0);
     expect(screen.getByText("Acesso")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Usar: Relatórios/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Criar aqui" })).toBeInTheDocument();

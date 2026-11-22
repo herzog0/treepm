@@ -35,7 +35,7 @@ describe("o rascunho com filhos", () => {
   it("a resposta da IA com filhos é guardada e devolvida na conversa", async () => {
     proposeFamily();
     const conv = await open();
-    expect(conv.draft).toEqual({ title: "Chat no painel", description: "Organizado pela IA.", children: children(3) });
+    expect(conv.draft).toEqual({ title: "Chat no painel", description: "Organizado pela IA.", children: children(3), idea: false });
     const got = await h.call("GET", `/api/ticket-conversations/${conv.id}`, as("contributor"));
     expect(got.body.draft.children).toEqual(children(3));
     const list = await h.call("GET", `/api/ticket-conversations?projectId=${priv()}`, as("contributor"));
@@ -44,7 +44,7 @@ describe("o rascunho com filhos", () => {
 
   it("rascunho de um ticket só: children é lista vazia e nada muda", async () => {
     const conv = await open("Quero corrigir o login");
-    expect(conv.draft).toEqual({ title: "Rascunho 1", description: "Quero corrigir o login", children: [] });
+    expect(conv.draft).toEqual({ title: "Rascunho 1", description: "Quero corrigir o login", children: [], idea: false });
   });
 
   it("o rascunho atual com filhos volta ao provedor no turno seguinte; sem filhos, o formato é o de antes", async () => {
@@ -52,10 +52,10 @@ describe("o rascunho com filhos", () => {
     const conv = await open();
     h.conversation().reply = null;
     await h.call("POST", `/api/ticket-conversations/${conv.id}/messages`, as("contributor"), { message: "junte as duas últimas" });
-    expect(h.conversation().calls.at(-1)?.draft).toEqual({ title: "Chat no painel", description: "Organizado pela IA.", children: children(3) });
+    expect(h.conversation().calls.at(-1)?.draft).toEqual({ title: "Chat no painel", description: "Organizado pela IA.", children: children(3), idea: false });
     const plain = await open("Quero corrigir o login");
     await h.call("POST", `/api/ticket-conversations/${plain.id}/messages`, as("contributor"), { message: "mais" });
-    expect(h.conversation().calls.at(-1)?.draft).toEqual({ title: "Rascunho 1", description: "Quero corrigir o login" });
+    expect(h.conversation().calls.at(-1)?.draft).toEqual({ title: "Rascunho 1", description: "Quero corrigir o login", idea: false });
   });
 
   it("um turno da IA com draft null mantém título, descrição e filhos", async () => {
@@ -69,9 +69,9 @@ describe("o rascunho com filhos", () => {
   it("um turno da IA com children vazio tira os filhos", async () => {
     proposeFamily();
     const conv = await open();
-    h.conversation().reply = () => turn({ title: "Um só", description: "x", children: [] });
+    h.conversation().reply = () => turn({ title: "Um só", description: "x", children: [], idea: false });
     const res = await h.call("POST", `/api/ticket-conversations/${conv.id}/messages`, as("contributor"), { message: "um ticket só" });
-    expect(res.body.draft).toEqual({ title: "Um só", description: "x", children: [] });
+    expect(res.body.draft).toEqual({ title: "Um só", description: "x", children: [], idea: false });
   });
 
   it("PATCH edita pai e filhos, tira um e reordena", async () => {
@@ -93,6 +93,7 @@ describe("o rascunho com filhos", () => {
         { title: "C", description: "terceira" },
         { title: "A", description: "primeira" },
       ],
+      idea: false,
     });
   });
 
@@ -133,6 +134,7 @@ describe("a prévia", () => {
       description: `Pedido original:\n\n> ${REQUEST}\n\nOrganizado pela IA.`,
       quote: `Pedido original:\n\n> ${REQUEST}`,
       children: children(3),
+      idea: false,
       unknownKeys: [],
       descriptionTooLong: false,
     });

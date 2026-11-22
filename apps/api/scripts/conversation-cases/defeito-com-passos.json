@@ -4,6 +4,7 @@
     "quando eu abro um ticket e volto para o mapa, o ticket continua selecionado e o painel não fecha. passos para reproduzir:\n1) abrir um ticket pelo mapa;\n2) clicar em voltar para o mapa;\n3) o painel do ticket continua aberto, deveria fechar."
   ],
   "expectChildren": false,
+  "expectIdea": false,
   "mustMention": [
     {
       "label": "voltar para o mapa",

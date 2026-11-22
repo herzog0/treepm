@@ -326,6 +326,8 @@ model TicketConversation {
   draftDescription String?   @map("draft_description")
   /// Filhos do rascunho (ADR 0044): lista de `{ title, description }` na ordem do rascunho, até 20; nulo = um ticket só.
   draftChildren    Json?     @map("draft_children")
+  /// Registrar o rascunho como ideia ao criar (ADR 0044, adendo; ADR 0042).
+  draftIdea        Boolean   @default(false) @map("draft_idea")
   ready            Boolean   @default(false)
   createdTicketId  String?   @map("created_ticket_id") @db.Uuid
   closedAt         DateTime? @map("closed_at") @db.Timestamptz(3)
