@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { mentionCases } from "@treepm/domain";
 import { render } from "vitest-browser-react";
 import { userEvent } from "vitest/browser";
 import "../../theme.css";
@@ -91,5 +92,25 @@ describe("links", () => {
     await userEvent.keyboard("{Control>}{End}{/Control}!");
     expect(onChange).toHaveBeenCalled();
     expect(bad()).toEqual([]);
+  });
+});
+
+describe("agreement with the domain (ADR 0037)", () => {
+  // Toda chave dos casos existe como ticket no projeto: o que o editor desenha é só o que a regra da menção aceita.
+  const keys = [...new Set([...mentionCases.flatMap((c) => c.keys), ...Array.from({ length: 40 }, (_, i) => `TREEPM-${i + 1}`)])];
+  const all = keys.map((key, i) => makeTicket(`k${i}`, "p1", i + 1, `Ticket ${key}`, { key }));
+
+  it.each(mentionCases.map((c) => [c.name, c] as const))("%s: the labels drawn are exactly the keys the domain finds", async (_name, c) => {
+    for (const editing of [false, true]) {
+      const screen = await render(
+        <div style={{ width: 300, font: "14px sans-serif" }}>
+          <RichDescription value={c.markdown} editing={editing} canEdit label="Descrição" placeholder="" mentions={{ projectId: "p1", tickets: all }} onChange={vi.fn()} onOpenMention={vi.fn()} />
+        </div>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const drawn = Array.from(document.querySelectorAll(".description-mention")).map((el) => (el.textContent ?? "").trim());
+      expect([...new Set(drawn)]).toEqual([...c.keys]);
+      await screen.unmount();
+    }
   });
 });

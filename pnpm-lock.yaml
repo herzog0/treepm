@@ -132,6 +132,9 @@ importers:
       '@tiptap/suggestion':
         specifier: ^3.35.0
         version: 3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)
+      '@treepm/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@treepm/engine':
         specifier: workspace:*
         version: link:../../packages/engine
