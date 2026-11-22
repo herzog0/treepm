@@ -25,6 +25,7 @@
     "@tiptap/react": "^3.35.0",
     "@tiptap/starter-kit": "^3.35.0",
     "@tiptap/suggestion": "^3.35.0",
+    "@treepm/domain": "workspace:*",
     "@treepm/engine": "workspace:*",
     "@treepm/react": "workspace:*",
     "i18next": "^27.2.2",

@@ -93,6 +93,14 @@ const TABLES: TableSpec[] = [
     appCanUpdateAndDelete: true,
   },
   {
+    table: "ticket_relations",
+    insert:
+      "insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ($1, gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'mentions')",
+    update: "update ticket_relations set kind = 'depends_on' where org_id = $1",
+    remove: "delete from ticket_relations where org_id = $1",
+    appCanUpdateAndDelete: true,
+  },
+  {
     table: "ticket_assignees",
     insert:
       "insert into ticket_assignees (org_id, ticket_id, person_id) values ($1, gen_random_uuid(), gen_random_uuid())",
@@ -163,6 +171,18 @@ beforeAll(async () => {
   await owner.query("truncate organizations cascade");
   idsA = await seedOrg(owner, ORG_A);
   idsB = await seedOrg(owner, ORG_B);
+  // Uma ligação por organização, para a tabela ticket_relations ter linhas a isolar.
+  for (const ids of [idsA, idsB]) {
+    const orgId = ids === idsA ? ORG_A : ORG_B;
+    const second = await owner.query<{ id: string }>(
+      "insert into tickets (org_id, project_id, number, title, created_by_person_id) values ($1, $2, 2, 'Segundo', $3) returning id",
+      [orgId, ids.project, ids.person],
+    );
+    await owner.query(
+      "insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ($1, $2, $3, $4, 'mentions')",
+      [orgId, ids.project, second.rows[0]?.id, ids.ticket],
+    );
+  }
 });
 
 afterAll(async () => {

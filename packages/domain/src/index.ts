@@ -81,6 +81,9 @@ export function visibleProjects<Project extends ProjectAccess>(
   return projects.filter((project) => canViewProject(actor, project));
 }
 export * from "./tickets.js";
+export * from "./mentions.js";
+export * from "./mention-cases.js";
+export * from "./dependencies.js";
 
 /** Allows organization admins to connect and disconnect the organization's GitHub installation (ADR 0032). */
 export function canManageGithubConnection(actor: Actor): boolean {

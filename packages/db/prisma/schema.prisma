@@ -54,6 +54,7 @@ model Organization {
   projectMemberships         ProjectMembership[]
   tickets                    Ticket[]
   ticketAssignees            TicketAssignee[]
+  ticketRelations            TicketRelation[]
   activityEvents             ActivityEvent[]
   ticketConversations        TicketConversation[]
   ticketConversationMessages TicketConversationMessage[]
@@ -218,11 +219,35 @@ model Ticket {
   conversationsCreated TicketConversation[]
   branchSummaries      BranchSummary[]
   codeLinks            TicketCodeLink[]
+  relationsFrom        TicketRelation[]     @relation("RelationFrom")
+  relationsTo          TicketRelation[]     @relation("RelationTo")
 
   @@id([orgId, id])
   @@unique([orgId, projectId, id])
   @@unique([orgId, projectId, number])
   @@map("tickets")
+}
+
+/// Ligação entre dois tickets do mesmo projeto (ADR 0037): "de" menciona "para" ou "de" depende de "para".
+model TicketRelation {
+  orgId        String   @map("org_id")
+  id           String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId    String   @map("project_id") @db.Uuid
+  fromTicketId String   @map("from_ticket_id") @db.Uuid
+  toTicketId   String   @map("to_ticket_id") @db.Uuid
+  /// mentions | depends_on (check no banco)
+  kind         String
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  from         Ticket       @relation("RelationFrom", fields: [orgId, projectId, fromTicketId], references: [orgId, projectId, id], onDelete: Cascade)
+  to           Ticket       @relation("RelationTo", fields: [orgId, projectId, toTicketId], references: [orgId, projectId, id], onDelete: Cascade)
+
+  @@id([orgId, id])
+  @@unique([orgId, fromTicketId, toTicketId, kind])
+  @@index([orgId, toTicketId, kind])
+  @@map("ticket_relations")
 }
 
 model TicketAssignee {
