@@ -57,40 +57,29 @@ async function explored(ui: ReactElement) {
 const page = () => screen.queryByRole("complementary", { name: "Página do ticket" });
 
 describe("opening a ticket from the map", () => {
-  it("selects on the first click and opens on the second click of the same ticket", async () => {
+  it("opens the ticket page with a single click, with no intermediate selection card", async () => {
     const onChange = vi.fn();
     await explored(<Host client={makeFullClient()} onChange={onChange} />);
-    const node = await ticketButton(/ALFA-3 · Publicar/);
-    await userEvent.click(node);
-    expect(screen.getByRole("complementary", { name: "Nó selecionado" })).toBeInTheDocument();
-    expect(onChange).not.toHaveBeenCalled();
-    expect(page()).not.toBeInTheDocument();
-    await userEvent.click(node);
+    await userEvent.click(await ticketButton(/ALFA-3 · Publicar/));
+    expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith("t3");
     expect(await screen.findByRole("heading", { level: 1, name: "Publicar" })).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Nó selecionado" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Explorar ramo" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Abrir" })).not.toBeInTheDocument();
+    expect(await ticketButton(/ALFA-3 · Publicar/)).toHaveAttribute("aria-pressed", "true");
   }, SLOW);
 
-  it("opens from the Abrir button of the selection card, next to Explorar ramo", async () => {
+  it("opens with one Enter when the keyboard focus is on the ticket node", async () => {
     const onChange = vi.fn();
     await explored(<Host client={makeFullClient()} onChange={onChange} />);
-    await userEvent.click(await ticketButton(/ALFA-3 · Publicar/));
-    const card = screen.getByRole("complementary", { name: "Nó selecionado" });
-    expect(within(card).getByRole("button", { name: "Explorar ramo" })).toBeInTheDocument();
-    await userEvent.click(within(card).getByRole("button", { name: "Abrir" }));
-    expect(onChange).toHaveBeenCalledWith("t3");
-  }, SLOW);
-
-  it("opens with Enter on the map when a ticket is selected, and not when only the stage is focused with nothing selected", async () => {
-    const onChange = vi.fn();
-    await explored(<Host client={makeFullClient()} onChange={onChange} />);
-    await userEvent.click(await ticketButton(/ALFA-3 · Publicar/));
-    const stage = screen.getByRole("region", { name: "Mapa da organização" });
-    stage.focus();
+    (await ticketButton(/ALFA-3 · Publicar/)).focus();
     await userEvent.keyboard("{Enter}");
+    expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith("t3");
   }, SLOW);
 
-  it("does not open on Enter without a selected ticket", async () => {
+  it("does not open on Enter without a ticket under the focus", async () => {
     const onChange = vi.fn();
     await explored(<Host client={makeFullClient()} onChange={onChange} />);
     await ticketButton(/ALFA-3 · Publicar/);
@@ -99,10 +88,10 @@ describe("opening a ticket from the map", () => {
     expect(onChange).not.toHaveBeenCalled();
   }, SLOW);
 
-  it("does not open on Enter typed in a text field of the selection or the page", async () => {
+  it("does not open on Enter typed in a text field of the map", async () => {
     const onChange = vi.fn();
     await explored(<Host client={makeFullClient()} onChange={onChange} />);
-    await userEvent.click(await ticketButton(/ALFA-3 · Publicar/));
+    await ticketButton(/ALFA-3 · Publicar/);
     const input = document.createElement("input");
     screen.getByRole("region", { name: "Mapa da organização" }).append(input);
     input.focus();
@@ -123,12 +112,12 @@ describe("opening a ticket from the map", () => {
     expect(page()).not.toBeInTheDocument();
   }, SLOW);
 
-  it("keeps Explorar ramo, selection and Esc as before when no page is open", async () => {
-    await explored(<Host client={makeFullClient()} />);
-    await userEvent.click(await ticketButton(/ALFA-3 · Publicar/));
-    expect(screen.getByRole("complementary", { name: "Nó selecionado" })).toBeInTheDocument();
-    await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("complementary", { name: "Nó selecionado" })).not.toBeInTheDocument();
+  it("keeps the selection card of a project, with Explorar ramo", async () => {
+    render(<Host client={makeFullClient()} />);
+    await userEvent.click(await screen.findByRole("button", { name: /ALFA · Projeto Alfa/ }));
+    const card = screen.getByRole("complementary", { name: "Nó selecionado" });
+    expect(within(card).getByRole("button", { name: "Explorar ramo" })).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Abrir" })).not.toBeInTheDocument();
   }, SLOW);
 });
 
@@ -143,18 +132,15 @@ describe("the open page and the map", () => {
     expect(screen.queryByRole("complementary", { name: "Nó selecionado" })).not.toBeInTheDocument();
   }, SLOW);
 
-  it("shows the selection card of another node beside the page without changing the open ticket", async () => {
+  it("opens another ticket with a single click while a page is open", async () => {
     const onChange = vi.fn();
     render(<Host client={makeFullClient()} initial="t3" onChange={onChange} />);
     await screen.findByRole("heading", { level: 1, name: "Publicar" });
     await userEvent.click(await ticketButton(/ALFA-2 · Escrever o teste/));
-    const card = screen.getByRole("complementary", { name: "Nó selecionado" });
-    expect(within(card).getByText("Escrever o teste")).toBeInTheDocument();
-    expect(onChange).not.toHaveBeenCalled();
-    expect(screen.getByRole("heading", { level: 1, name: "Publicar" })).toBeInTheDocument();
-    await userEvent.click(within(card).getByRole("button", { name: "Abrir" }));
+    expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith("t2");
     expect(await screen.findByRole("heading", { level: 1, name: "Escrever o teste" })).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Nó selecionado" })).not.toBeInTheDocument();
   }, SLOW);
 
   it("closes with the button, restoring the full-width map and the focus on the map", async () => {
@@ -185,7 +171,6 @@ describe("the open page and the map", () => {
     expect(page()).not.toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Áreas e projetos" })).toBeInTheDocument();
 
-    await userEvent.click(node);
     await userEvent.click(node);
     expect(await screen.findByRole("heading", { level: 1, name: "Publicar" })).toBeInTheDocument();
     expect(screen.queryByRole("complementary", { name: "Áreas e projetos" })).not.toBeInTheDocument();

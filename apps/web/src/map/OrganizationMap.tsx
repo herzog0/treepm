@@ -23,8 +23,7 @@ import type { MapDraft } from "./items.js";
 import { useRestoreCameraPlace } from "./cameraPlace.js";
 import { computeMapMaxScale } from "./zoom.js";
 import type { MapNode } from "./items.js";
-import { TicketMark, renderNodeContent } from "./nodeContent.js";
-import { ticketStateText } from "./ticketState.js";
+import { renderNodeContent } from "./nodeContent.js";
 import "@treepm/react/styles.css";
 import "../demo/Demo.css";
 import "./map.css";
@@ -186,8 +185,8 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     }
     if (node?.kind === "draft") return;
     if (node?.kind === "project") setPanel({ open: true, tab: "projects", projectId: node.id });
-    // Ativar um ticket que já está selecionado (clique ou Enter no nó) o abre; o primeiro clique só seleciona.
-    if (node?.kind === "ticket" && node.id === live.current.selectedId) openTicket(node.id);
+    // Um clique num ticket (ou Enter no nó, que o navegador trata como clique) abre a página direto. O ticket aberto fica selecionado pelo efeito abaixo; esse eco não reabre.
+    if (node?.kind === "ticket" && node.id !== live.current.openTicketId) openTicket(node.id);
   }, [openTicket]);
 
   // Memoizado por itens: um objeto novo a cada render reiniciaria a câmera do pacote.
@@ -289,7 +288,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     wasOpen.current = pageOpen;
   }, [pageOpen]);
 
-  // Esc fecha a página (ou cancela a criação) e Enter abre o ticket selecionado, com o foco no mapa.
+  // Esc fecha a página (ou cancela a criação). Enter num ticket do mapa é o clique do nó, tratado na seleção.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
@@ -312,18 +311,10 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
         else closePage();
         return;
       }
-      if (event.key !== "Enter" || event.repeat) return;
-      const target = event.target;
-      const ticket = live.current.selected;
-      if (!ticket || ticket.kind !== "ticket" || !(target instanceof Element)) return;
-      if (target.closest("input, textarea, select, button, a, [contenteditable]")) return;
-      if (!canvasRef.current.rootRef.current?.contains(target)) return;
-      event.preventDefault();
-      openTicket(ticket.id);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closePage, collapseAssistant, collapseAsk, openTicket]);
+  }, [closePage, collapseAssistant, collapseAsk]);
 
   // Projeto da conversa: o do ticket ou do projeto selecionado; sem seleção, o único em que a pessoa pode criar.
   const chooseProject = () => {
@@ -534,7 +525,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               />
             )}
           </CommandBar>
-          {selected && selected.kind !== "draft" && selected.id !== openTicketId && (
+          {selected && selected.kind !== "draft" && selected.kind !== "ticket" && (
             <aside
               className={`spatial-selection ${panel.open ? "is-beside-panel" : ""}`}
               aria-label={t("selection.region")}
@@ -545,19 +536,11 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
                 <button onClick={() => selectNode(null)} aria-label={t("selection.close")}>×</button>
               </div>
               <strong>{selected.label}</strong>
-              {selected.ticket ? (
-                <p className="selection-state">
-                  <TicketMark ticket={selected.ticket} />
-                  <span>{ticketStateText(t, selected.ticket)}</span>
-                </p>
-              ) : (
-                <p>{(() => {
-                  const count = index.childrenByParentId.get(selected.id)?.length ?? 0;
-                  return selected.kind === "project" ? t("count.items", { count }) : t("selection.projects", { count });
-                })()}</p>
-              )}
+              <p>{(() => {
+                const count = index.childrenByParentId.get(selected.id)?.length ?? 0;
+                return selected.kind === "project" ? t("count.items", { count }) : t("selection.projects", { count });
+              })()}</p>
               <button onClick={() => focusNode(selected.id)}>{t("selection.explore")}</button>
-              {selected.kind === "ticket" && <button onClick={() => openTicket(selected.id)}>{t("selection.open")}</button>}
             </aside>
           )}
           {showCreateFirst && (
