@@ -63,6 +63,14 @@ export type Elaboration = {
   links: { de: "pai" | number; dependeDe: string; dependeDeTitle: string; motivo: string }[];
   suggested: { title: string; description: string; motivo: string }[];
   unavailable: string | null;
+  /** Só números e códigos: o que o modelo devolveu, o que o descarte tirou, o desfecho de cada sugerida e os tempos. */
+  diagnostics?: ElaborationDiagnostics;
+};
+export type ElaborationDiagnostics = {
+  model: { links: number; suggested: number };
+  dropped: { links: Record<string, number>; suggested: Record<string, number> };
+  lookups: { outcome: string; candidates: number; maxSameRequest: number | null }[];
+  timingsMs: { claude: number; lookup: number };
 };
 
 /** O que uma passada devolve, ainda com os ids da API: quem chama traduz para as chaves que quiser. */
@@ -123,6 +131,7 @@ export async function conversationDryRunCommand(ctx: TicketContext, input: Conve
       links: run.elaboration?.links ?? [],
       suggested: run.elaboration?.suggested ?? [],
       elaborationUnavailable: run.elaboration === null ? "unavailable" : run.elaboration.unavailable,
+      diagnostics: run.elaboration?.diagnostics ?? null,
       conversationDiscarded: run.conversationDiscarded,
       ...(run.conversationDiscarded ? {} : { conversationId: run.conversationId }),
     }),

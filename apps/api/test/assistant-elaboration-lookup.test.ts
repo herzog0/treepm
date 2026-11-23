@@ -46,7 +46,7 @@ describe("a sugerida que já existe vira ligação", () => {
     requestOdds({ [REIMPORT]: 0.9 });
     const res = await elaborate(await open());
     expect(res.status).toBe(201);
-    expect(res.body).toEqual({
+    expect(res.body).toMatchObject({
       links: [{ de: "pai", dependeDe: "PRIV-8", dependeDeTitle: REIMPORT, motivo: "sem vínculo não há diff" }],
       suggested: [],
       unavailable: null,
@@ -158,7 +158,7 @@ describe("robustez", () => {
     h.related().fail = true;
     const res = await elaborate(await open());
     expect(res.status).toBe(201);
-    expect(res.body).toEqual({ links: [], suggested: [SUGGESTED], unavailable: null });
+    expect(res.body).toMatchObject({ links: [], suggested: [SUGGESTED], unavailable: null });
   });
 
   it("o Jev não responde: cabe no prazo da rota e as sugeridas voltam", async () => {
@@ -168,7 +168,7 @@ describe("robustez", () => {
     const started = Date.now();
     const res = await elaborate(await open());
     expect(Date.now() - started).toBeLessThan(2_000);
-    expect(res.body).toEqual({ links: [], suggested: [SUGGESTED], unavailable: null });
+    expect(res.body).toMatchObject({ links: [], suggested: [SUGGESTED], unavailable: null });
   });
 
   it("sem sugeridas, o Jev não é chamado", async () => {
@@ -188,5 +188,70 @@ describe("robustez", () => {
     const withLookup = await recordQueries(() => elaborate(id));
     expect(h.related().calls.length).toBeGreaterThan(0);
     expect(withLookup.queries.length).toBe(without.queries.length);
+  });
+});
+
+describe("diagnostics: só números e códigos", () => {
+  type Diag = { model: { links: number; suggested: number }; dropped: { links: Record<string, number>; suggested: Record<string, number> }; lookups: { outcome: string; candidates: number; maxSameRequest: number | null }[]; timingsMs: { claude: number; lookup: number } };
+  it("conversão: o modelo devolveu 1 sugerida, a procura achou candidatos e converteu", async () => {
+    await seed();
+    suggest(SUGGESTED);
+    requestOdds({ [REIMPORT]: 0.9 });
+    const res = await elaborate(await open());
+    const d = res.body.diagnostics as Diag;
+    expect(d.model).toEqual({ links: 0, suggested: 1 });
+    expect(d.lookups).toHaveLength(1);
+    expect(d.lookups[0]).toMatchObject({ outcome: "converted", maxSameRequest: 0.9 });
+    expect(d.lookups[0]!.candidates).toBeGreaterThan(0);
+    expect(typeof d.timingsMs.claude).toBe("number");
+    expect(typeof d.timingsMs.lookup).toBe("number");
+    expect(Object.values(d.dropped.suggested).every((n) => n === 0)).toBe(true);
+  });
+
+  it("nada de texto: nem título, descrição, motivo, nem texto do rascunho ou de ticket", async () => {
+    await seed();
+    suggest(SUGGESTED);
+    requestOdds({ [REIMPORT]: 0.9 });
+    const text = JSON.stringify((await elaborate(await open())).body.diagnostics);
+    for (const leak of [SUGGESTED.title, SUGGESTED.description, SUGGESTED.motivo, REIMPORT, "Sincronizar tickets com o Jira", "Receber só o diff", "PRIV-"]) expect(text, leak).not.toContain(leak);
+    // Só chaves fixas, números e códigos.
+    expect(text).toMatch(/^[\w{}[\]":,.-]*$/);
+  });
+
+  it("descarte do servidor contado: sugerida com título repetido não chega à procura", async () => {
+    await seed();
+    suggest(SUGGESTED, SUGGESTED);
+    requestOdds({});
+    const d = (await elaborate(await open())).body.diagnostics as Diag;
+    expect(d.model.suggested).toBe(2);
+    expect(d.dropped.suggested["repeatedTitle"]).toBe(1);
+    expect(d.lookups).toHaveLength(1);
+    expect(d.lookups[0]!.outcome).toBe("kept");
+  });
+
+  it("falha do Jev: lookup_failed", async () => {
+    await seed();
+    suggest(SUGGESTED);
+    h.related().fail = true;
+    const d = (await elaborate(await open())).body.diagnostics as Diag;
+    expect(d.lookups.map((l) => l.outcome)).toEqual(["lookup_failed"]);
+  });
+
+  it("ligação repetida e limite aparecem como desfechos", async () => {
+    await seed();
+    h.elaborator().reply = () => ({ links: [{ de: "pai", dependeDe: "PRIV-8", motivo: "do modelo" }], suggested: [SUGGESTED] });
+    h.related().verdict = (input) => Object.fromEntries(input.candidates.map((c) => [c.id, { sameSubject: c.title === REIMPORT && !input.draft.title.startsWith("Guardar") ? 0.9 : 0.3, sameRequest: input.draft.title.startsWith("Guardar") && c.title === REIMPORT ? 0.9 : 0 }]));
+    const id = await open();
+    await h.call("POST", `/api/ticket-conversations/${id}/placement`, as("contributor"), {});
+    const d = (await elaborate(id)).body.diagnostics as Diag;
+    expect(d.model.links).toBe(1);
+    expect(d.lookups.map((l) => l.outcome)).toEqual(["dropped_duplicate"]);
+  });
+
+  it("indisponível não leva diagnostics", async () => {
+    await seed();
+    h.elaborator().hang = true;
+    const res = await elaborate(await open());
+    expect(res.body.unavailable).toBe("unavailable");
   });
 });

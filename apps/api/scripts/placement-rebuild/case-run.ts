@@ -3,7 +3,7 @@ import { expectOk } from "./client.js";
 import { importGabarito, readGabarito } from "./commands.js";
 import type { Context, Summary } from "./commands.js";
 import { runDryRun } from "./conversation-dry-run.js";
-import type { Decision } from "./conversation-dry-run.js";
+import type { Decision, ElaborationDiagnostics } from "./conversation-dry-run.js";
 import type { Gabarito, GabaritoTicket } from "./core.js";
 import { probabilitiesOf } from "./conversation-dry-run.js";
 
@@ -109,13 +109,23 @@ export type CaseRepeat = {
   related: (string | null)[];
   duplicate: string | null;
   /** A elaboração (ADR 0052, fatia 3), com as chaves do projeto original; vazias quando o modelo não respondeu (`elaborationUnavailable`). */
-  links: { de: "pai" | number; dependeDe: string | null; dependeDeTitle: string; motivo: string }[];
+  links: { de: "pai" | number; dependeDe: string; translated: boolean; dependeDeTitle: string; motivo: string }[];
+  /** Só números e códigos da elaboração (TREEPM-329); `null` quando a rota não os devolveu. */
+  diagnostics: ElaborationDiagnostics | null;
   suggested: { title: string; description: string; motivo: string }[];
   elaborationUnavailable: string | null;
   uncertain: boolean;
   stopReason: string | null;
   probabilities: ReturnType<typeof probabilitiesOf> | null;
 };
+
+/** As ligações da elaboração com as chaves do projeto original. Chave sem correspondência fica como veio (a do projeto de medição) com `translated: false`. */
+export function translateLinks<T extends { dependeDe: string }>(links: readonly T[], originalOf: ReadonlyMap<string, string>): (T & { translated: boolean })[] {
+  return links.map((link) => {
+    const original = originalOf.get(link.dependeDe);
+    return { ...link, dependeDe: original ?? link.dependeDe, translated: original !== undefined };
+  });
+}
 
 const randomKey = (): string => `CS${Array.from({ length: 6 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join("")}`;
 
@@ -152,6 +162,7 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
     const { created, order } = await importGabarito(measured, trimmed);
     const newOf = new Map(order.map((oldId, index) => [oldId, created[index] as Summary]));
     const originalKeyOfNewId = new Map([...newOf].map(([oldId, summary]) => [summary.id, kept.find((t) => t.id === oldId)?.key ?? summary.key]));
+    const originalKeyOfMeasuredKey = new Map([...newOf].map(([oldId, summary]) => [summary.key, kept.find((t) => t.id === oldId)?.key ?? summary.key]));
     const keyOf = (id: string | null): string | null => (id === null ? null : (originalKeyOfNewId.get(id) ?? null));
     const acceptedNewIds = new Set(accepted.map((t) => (newOf.get(t.id) as Summary).id));
 
@@ -164,9 +175,10 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
       const duplicate = run.outcome.duplicate ? keyOf(run.outcome.duplicate.id) : null;
       const relatedHit = spec.expectRelatedKeys.every((key) => related.includes(key));
       const duplicateHit = spec.expectDuplicateKey === null || duplicate === spec.expectDuplicateKey;
-      // A API devolve as chaves do projeto de medição; o id do relacionado liga de volta à chave do projeto original.
-      const idOfKey = new Map((run.outcome.related ?? []).map((item) => [item.key, item.id]));
-      const links = (run.elaboration?.links ?? []).map((link) => ({ ...link, dependeDe: keyOf(idOfKey.get(link.dependeDe) ?? null) }));
+      // A API devolve as chaves do projeto de medição; o mapa de todos os tickets importados liga de volta à chave do projeto original
+      // (a ligação convertida de uma sugerida aponta para um ticket que pode nem estar entre os relacionados). Sem correspondência,
+      // fica a chave do projeto de medição e `translated: false`: nunca null calado.
+      const links = translateLinks(run.elaboration?.links ?? [], originalKeyOfMeasuredKey);
       const linkHit = spec.expectLinkKeys.every((key) => links.some((link) => link.dependeDe === key));
       const record: CaseRepeat = {
         repeat,
@@ -180,6 +192,7 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
         duplicate,
         links,
         suggested: run.elaboration?.suggested ?? [],
+        diagnostics: run.elaboration?.diagnostics ?? null,
         elaborationUnavailable: run.elaboration === null ? "unavailable" : run.elaboration.unavailable,
         uncertain: run.outcome.uncertain as boolean,
         stopReason: run.decision?.stopReason ?? null,
@@ -191,9 +204,20 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
     const hits = results.filter((r) => r.hit).length;
     const destinations = new Map<string, number>();
     for (const r of results) destinations.set(r.destinationKey ?? "(raiz)", (destinations.get(r.destinationKey ?? "(raiz)") ?? 0) + 1);
+    const lookupOutcomes: Record<string, number> = {};
+    for (const r of results) for (const lookup of r.diagnostics?.lookups ?? []) lookupOutcomes[lookup.outcome] = (lookupOutcomes[lookup.outcome] ?? 0) + 1;
+    const diagnostics = {
+      /** Em quantas repetições todas as ligações esperadas apareceram (0 quando o caso não pede nenhuma). */
+      repeatsWithExpectedLink: spec.expectLinkKeys.length > 0 ? results.filter((r) => r.linkHit).length : 0,
+      repeatsWithSuggestedKept: results.filter((r) => r.suggested.length > 0).length,
+      repeatsModelProposedNothing: results.filter((r) => r.diagnostics !== null && r.diagnostics.model.links === 0 && r.diagnostics.model.suggested === 0).length,
+      repeatsWithoutDiagnostics: results.filter((r) => r.diagnostics === null).length,
+      lookupOutcomes,
+    };
     ctx.log(
       JSON.stringify({
         summary: true,
+        diagnostics,
         destinationHits: results.filter((r) => r.destinationHit).length,
         case: spec.name,
         expect: spec.expectParentKey,

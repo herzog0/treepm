@@ -38,6 +38,10 @@ export type LinkLookupInput = {
   signal?: AbortSignal | undefined;
 };
 
+/** O que aconteceu com uma sugerida na procura (só códigos e números). */
+export type LookupOutcome = "converted" | "kept" | "dropped_duplicate" | "dropped_repeated_link" | "dropped_limit" | "lookup_failed" | "skipped_no_time";
+export type LookupDiagnostic = { outcome: LookupOutcome; /** Quantos candidatos a triagem entregou ao Jev. */ candidates: number; /** O maior `sameRequest` do Jev; `null` sem candidato ou sem resposta. */ maxSameRequest: number | null };
+
 export type LinkLookupResult = {
   links: ElaborationLink[];
   suggested: ElaborationSuggestion[];
@@ -45,10 +49,12 @@ export type LinkLookupResult = {
   titles: Map<string, string>;
   /** Quantas procuras falharam ou foram interrompidas (a sugerida correspondente volta como veio). */
   failed: number;
+  /** Um desfecho por sugerida de entrada, na mesma ordem. */
+  lookups: LookupDiagnostic[];
 };
 
-/** O melhor candidato (maior `sameRequest`) de uma sugerida, ou `null` se não houve candidato. Lança se o Jev falhar. */
-async function bestMatch(task: ElaborationSuggestion, tree: readonly LookupTicket[], judge: RelatedJudge, signal: AbortSignal | undefined): Promise<{ id: string; sameRequest: number } | null> {
+/** O melhor candidato (maior `sameRequest`) de uma sugerida (`best` é `null` se não houve candidato), com quantos candidatos foram ao Jev. Lança se o Jev falhar. */
+async function bestMatch(task: ElaborationSuggestion, tree: readonly LookupTicket[], judge: RelatedJudge, signal: AbortSignal | undefined): Promise<{ best: { id: string; sameRequest: number } | null; candidates: number }> {
   const hits = triageRelated(
     { title: task.title, description: task.description, partTitles: [] },
     tree.map((ticket) => ({ id: ticket.id, title: ticket.title, excerpt: descriptionExcerpt(ticket.description) })),
@@ -62,7 +68,7 @@ async function bestMatch(task: ElaborationSuggestion, tree: readonly LookupTicke
   const asked = { title: task.title, description: task.description };
   let candidates = all;
   while (candidates.length > 0 && !relatedInputFits({ draft: asked, candidates })) candidates = candidates.slice(0, -1);
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) return { best: null, candidates: 0 };
   const aborted = new Promise<never>((_, reject) => {
     if (signal?.aborted) reject(new Error("lookup_aborted"));
     signal?.addEventListener("abort", () => reject(new Error("lookup_aborted")), { once: true });
@@ -73,7 +79,7 @@ async function bestMatch(task: ElaborationSuggestion, tree: readonly LookupTicke
     const sameRequest = answers[candidate.id]?.sameRequest ?? 0;
     if (best === null || sameRequest > best.sameRequest) best = { id: candidate.id, sameRequest };
   }
-  return best;
+  return { best, candidates: candidates.length };
 }
 
 export async function linkExistingSuggestions(input: LinkLookupInput): Promise<LinkLookupResult> {
@@ -89,28 +95,45 @@ export async function linkExistingSuggestions(input: LinkLookupInput): Promise<L
   const seen = new Set(links.map((link) => `${link.de}>${link.dependeDe}`));
   const suggested: ElaborationSuggestion[] = [];
   const titles = new Map<string, string>();
+  const lookups: LookupDiagnostic[] = [];
+  const addedHere = new Set<string>();
   let failed = 0;
   tasks.forEach((task, index) => {
-    const outcome = settled[index] as PromiseSettledResult<{ id: string; sameRequest: number } | null>;
+    const outcome = settled[index] as PromiseSettledResult<Awaited<ReturnType<typeof bestMatch>>>;
     if (outcome.status === "rejected") {
       failed += 1;
       suggested.push(task);
+      lookups.push({ outcome: "lookup_failed", candidates: 0, maxSameRequest: null });
       return;
     }
-    const best = outcome.value;
+    const { best, candidates } = outcome.value;
+    const note = (code: LookupOutcome): void => void lookups.push({ outcome: code, candidates, maxSameRequest: best?.sameRequest ?? null });
     const ticket = best !== null && best.sameRequest >= SUGGESTED_LINK_MIN ? byId.get(best.id) : undefined;
     if (!ticket) {
       suggested.push(task);
+      note("kept");
       return;
     }
     // A sugerida existe na árvore: nunca volta como tarefa. A ligação entra se ainda não existe e se cabe no limite.
     const key = keyOf(ticket);
-    if (seen.has(`pai>${key}`) || links.length >= ELABORATION_MAX_LINKS) return;
+    if (seen.has(`pai>${key}`)) {
+      note(addedHere.has(key) ? "dropped_repeated_link" : "dropped_duplicate");
+      return;
+    }
+    if (links.length >= ELABORATION_MAX_LINKS) {
+      note("dropped_limit");
+      return;
+    }
     seen.add(`pai>${key}`);
+    addedHere.add(key);
     links.push({ de: "pai", dependeDe: key, motivo: oneLine(task.motivo) });
     titles.set(key, ticket.title);
+    note("converted");
   });
   // O que passou do teto de procuras (nunca acontece com o limite do servidor) volta como veio.
-  suggested.push(...input.suggested.slice(SUGGESTED_LOOKUP_PARALLEL));
-  return { links, suggested, titles, failed };
+  for (const task of input.suggested.slice(SUGGESTED_LOOKUP_PARALLEL)) {
+    suggested.push(task);
+    lookups.push({ outcome: "skipped_no_time", candidates: 0, maxSameRequest: null });
+  }
+  return { links, suggested, titles, failed, lookups };
 }

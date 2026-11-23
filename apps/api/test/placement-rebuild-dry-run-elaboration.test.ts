@@ -50,6 +50,7 @@ describe("conversation-dry-run: a elaboração", () => {
     expect(out.links).toEqual([{ de: "pai", dependeDe: "DRY-1", dependeDeTitle: "Cobrança mensal", motivo: expect.any(String) }]);
     expect(out.suggested).toEqual([]);
     expect(out.elaborationUnavailable).toBeNull();
+    expect((JSON.parse(lines[0] as string) as { diagnostics: { model: { links: number } } }).diagnostics.model.links).toBeGreaterThan(0);
     expect(out.conversationDiscarded).toBe(true);
   });
 });

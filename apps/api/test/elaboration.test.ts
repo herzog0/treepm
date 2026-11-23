@@ -82,3 +82,28 @@ describe("revisão 1: motivo de uma linha, texto proibido, chaves e tamanho", ()
     expect(out.suggested.map((s) => s.title)).toEqual(["Cabe"]);
   });
 });
+
+describe("contagem do que o descarte tirou (diagnostics)", () => {
+  const raw = (links: ReturnType<typeof link>[], suggested: ReturnType<typeof task>[]) => sanitizeElaboration({ links, suggested }, ctx);
+  it("uma contagem por regra, só números", () => {
+    const out = raw(
+      [
+        link("pai", "TREEPM-144"),
+        link("pai", "TREEPM-144"), // repetida
+        link("pai", "TREEPM-999"), // fora da lista
+        link("pai", "TREEPM-7"), // o duplicado
+        link(9, "TREEPM-139"), // parte inexistente
+        { de: "pai", dependeDe: "TREEPM-139", motivo: "   " }, // motivo vazio
+      ],
+      [task("Tarefa nova", "m"), task("Tarefa nova", "m"), task("   ", "m"), { title: "Com citação", description: "> forjada", motivo: "m" }, task("Cita TREEPM-5000 que não existe", "m")],
+    );
+    expect(out.dropped.links).toMatchObject({ outsideList: 1, duplicateTarget: 1, invalidPart: 1, badReason: 1, repeated: 1, limit: 0 });
+    expect(out.dropped.suggested).toMatchObject({ repeatedTitle: 1, size: 1, forbiddenText: 1, keyInText: 1, limit: 0 });
+  });
+  it("o que passa do limite é contado como limite", () => {
+    const many = (["pai", 0, 1] as const).flatMap((de) => ["TREEPM-144", "TREEPM-139"].map((dependeDe) => ({ de, dependeDe, motivo: "m" })));
+    expect(raw(many, []).dropped.links.limit).toBe(1);
+    const tasks = Array.from({ length: 8 }, (_, i) => task(`Tarefa ${String.fromCharCode(65 + i)}`, "m"));
+    expect(raw([], tasks).dropped.suggested.limit).toBe(3);
+  });
+});

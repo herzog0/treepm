@@ -48,6 +48,7 @@ import { decisionOf, errorCode, handDecisionToTicket, readDecisionSafely, saveDe
 import type { DecisionExtras, PlacementDecisionRecord } from "./placement-decision.js";
 import { pickRelated, relatedListing } from "./related-placement.js";
 import { linkExistingSuggestions, SUGGESTED_LOOKUP_TIMEOUT_MAX_MS } from "./suggested-links.js";
+import type { LookupOutcome } from "./suggested-links.js";
 import type { LinkLookupResult, LookupTicket } from "./suggested-links.js";
 import type { PlacementOutcome } from "./placement-search.js";
 import { PlacementService } from "./placement.service.js";
@@ -420,6 +421,7 @@ export class TicketConversationsController {
       // Só chave, título, trecho e situação vão ao modelo: nenhum id.
       const sent = seen.related.map(({ key, title, excerpt, status }) => ({ key, title, excerpt, status }));
       const answer = await Promise.race([providers.elaborator.elaborate({ draft: seen.draft, related: sent }, { signal: controller.signal }), timedOut]);
+      const claudeMs = Date.now() - started;
       const clean = sanitizeElaboration(answer, {
         draftTitle: seen.draft.title,
         partTitles: seen.draft.parts.map((part) => part.title),
@@ -428,12 +430,28 @@ export class TicketConversationsController {
         projectKey: seen.projectKey,
       });
       // Tarefa sugerida que já existe na árvore vira ligação (ADR 0052, item 4). Falha ou prazo nunca derrubam a elaboração.
+      const lookupStarted = Date.now();
       const found = await this.linkSuggested(providers.related, seen, clean, started);
+      const lookupMs = Date.now() - lookupStarted;
+      const diagnostics = {
+        model: { links: answer.links.length, suggested: answer.suggested.length },
+        dropped: clean.dropped,
+        lookups: found.lookups,
+        timingsMs: { claude: claudeMs, lookup: lookupMs },
+      };
+      // Só contagens e códigos: nunca texto do rascunho, de ticket nem do modelo.
+      const tally = (counts: Record<string, number>): string => Object.entries(counts).map(([name, n]) => `${name}=${n}`).join(",");
+      const outcomes: Record<string, number> = {};
+      for (const lookup of found.lookups) outcomes[lookup.outcome] = (outcomes[lookup.outcome] ?? 0) + 1;
+      this.logger.log(
+        `elaboração diagnóstico modelo_ligacoes=${diagnostics.model.links} modelo_sugeridas=${diagnostics.model.suggested} descartes_ligacoes=${tally(clean.dropped.links)} descartes_sugeridas=${tally(clean.dropped.suggested)} procura=${tally(outcomes) || "nenhuma"} ms_claude=${claudeMs} ms_procura=${lookupMs}`,
+      );
       const titleOf = new Map([...sent.map((entry) => [entry.key, entry.title] as const), ...found.titles]);
       return parseOutput(elaborationOutcomeSchema, {
         links: found.links.map((link) => ({ ...link, ...(link.de === "pai" ? {} : { deTitle: seen.draft.parts[link.de]?.title ?? "" }), dependeDeTitle: titleOf.get(link.dependeDe) ?? "" })),
         suggested: found.suggested,
         unavailable: null,
+        diagnostics,
       });
     } catch (error) {
       // Só o motivo vai ao registro: nunca texto do rascunho nem do modelo.
@@ -454,13 +472,19 @@ export class TicketConversationsController {
     clean: { links: ElaborationLink[]; suggested: ElaborationSuggestion[] },
     started: number,
   ): Promise<LinkLookupResult> {
-    const untouched: LinkLookupResult = { links: clean.links, suggested: clean.suggested, titles: new Map(), failed: 0 };
-    if (clean.suggested.length === 0) return untouched;
+    const untouched = (outcome: LookupOutcome | null): LinkLookupResult => ({
+      links: clean.links,
+      suggested: clean.suggested,
+      titles: new Map(),
+      failed: 0,
+      lookups: outcome === null ? [] : clean.suggested.map(() => ({ outcome, candidates: 0, maxSameRequest: null })),
+    });
+    if (clean.suggested.length === 0) return untouched(null);
     const left = (this.timeouts?.elaborationMs ?? ELABORATION_TIMEOUT_MS) - (Date.now() - started);
     const budget = Math.min(this.timeouts?.suggestedLookupMs ?? SUGGESTED_LOOKUP_TIMEOUT_MAX_MS, left);
     if (budget <= 0) {
       this.logger.warn("procura das sugeridas sem prazo motivo=no_time_left");
-      return untouched;
+      return untouched("skipped_no_time");
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), budget);
@@ -470,7 +494,7 @@ export class TicketConversationsController {
       return result;
     } catch (error) {
       this.logger.warn(`procura das sugeridas indisponível motivo=${error instanceof AssistantUnavailableError ? error.reason : errorCode(error)}`);
-      return untouched;
+      return untouched("lookup_failed");
     } finally {
       clearTimeout(timer);
     }
