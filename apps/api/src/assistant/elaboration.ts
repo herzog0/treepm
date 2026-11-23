@@ -40,11 +40,13 @@ export type ElaborationContext = {
   duplicateKey: string | null;
   /** A chave do projeto (sem o número): sugerida que cita outro ticket do projeto além dos relacionados é descartada. */
   projectKey: string;
+  /** Chaves do lugar escolhido e dos ancestrais dele: um ticket não depende do próprio pai nem de um ancestral. */
+  ancestorKeys?: ReadonlySet<string> | undefined;
 };
 
 /** Quantas ligações e sugeridas cada regra do descarte tirou (só números: diagnóstico da elaboração). */
 export type DroppedCounts = {
-  links: { outsideList: number; duplicateTarget: number; invalidPart: number; badReason: number; repeated: number; limit: number };
+  links: { outsideList: number; duplicateTarget: number; invalidPart: number; badReason: number; repeated: number; limit: number; ancestor: number };
   suggested: { forbiddenText: number; keyInText: number; size: number; repeatedTitle: number; limit: number };
 };
 
@@ -53,7 +55,7 @@ export function sanitizeElaboration(
   ctx: ElaborationContext,
 ): { links: ElaborationLink[]; suggested: ElaborationSuggestion[]; dropped: DroppedCounts } {
   const dropped: DroppedCounts = {
-    links: { outsideList: 0, duplicateTarget: 0, invalidPart: 0, badReason: 0, repeated: 0, limit: 0 },
+    links: { outsideList: 0, duplicateTarget: 0, invalidPart: 0, badReason: 0, repeated: 0, limit: 0, ancestor: 0 },
     suggested: { forbiddenText: 0, keyInText: 0, size: 0, repeatedTitle: 0, limit: 0 },
   };
   const keys = new Set(ctx.related.map((entry) => entry.key));
@@ -72,6 +74,10 @@ export function sanitizeElaboration(
     }
     if (!keys.has(entry.dependeDe)) {
       dropped.links.outsideList += 1;
+      continue;
+    }
+    if (ctx.ancestorKeys?.has(entry.dependeDe)) {
+      dropped.links.ancestor += 1;
       continue;
     }
     if (entry.dependeDe === ctx.duplicateKey) {

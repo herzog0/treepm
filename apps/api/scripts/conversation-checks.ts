@@ -3,7 +3,7 @@
  * recebem o que o provedor devolveu e dizem o que se perdeu, o que foi inventado e o que a IA afirmou que fez.
  */
 import { sanitizeElaboration } from "../src/assistant/elaboration.js";
-import type { ConversationDraft, ElaborationLink, ElaborationRelated, ElaborationSuggestion, RelatedInput, RelatedJudge, RelatedJudgment } from "../src/assistant/ports.js";
+import type { ConversationDraft, ElaborationLink, ElaborationRelated, ElaborationSuggestion, ExistingMatchInput, ExistingMatchResult, ExistingMatcher } from "../src/assistant/ports.js";
 import { linkExistingSuggestions } from "../src/assistant/suggested-links.js";
 
 export type MustMention = { label: string; anyOf: readonly string[] };
@@ -33,8 +33,13 @@ export type ConversationCase = {
    * tarefas sugeridas roda sobre ela, com o Jev falso `sameRequestByTitle`.
    */
   tree?: readonly { key: string; title: string; excerpt: string; status: string }[] | undefined;
-  /** O Jev falso da medição: o ticket (por título) "pede a mesma coisa" que a sugerida cujo texto cita pelo menos um dos trechos. */
-  sameRequestByTitle?: readonly { ticketTitle: string; whenSuggestedMentions: readonly string[] }[] | undefined;
+  /** O Claude falso da segunda chamada (nos testes): o ticket (por título) "já entrega" a sugerida cujo texto cita pelo menos um dos trechos. */
+  existingByTitle?: readonly { ticketTitle: string; whenSuggestedMentions: readonly string[] }[] | undefined;
+  /**
+   * Quando o pedido implica um pré-requisito que NÃO existe na árvore: o que a tarefa sugerida tem de cobrir, por palavras-chave
+   * (como `mustMention`; basta uma das palavras de cada item aparecer no título ou na descrição de alguma sugerida que sobrou).
+   */
+  expectSuggestedMention?: readonly MustMention[] | undefined;
   /** Trechos que NÃO podem aparecer nos títulos das tarefas sugeridas que sobraram (a equivalente tem de virar ligação). */
   noSuggestedMention?: readonly string[] | undefined;
 };
@@ -208,6 +213,12 @@ export type ElaborationCheck = {
   suggestedCount: number;
   linksMissing: string[];
   suggestedOk: boolean;
+  /** O que o modelo propôs ANTES do descarte e da procura (chaves e títulos), o que virou ligação na procura e o que ficou sugerido. */
+  modelLinkKeys: string[];
+  modelSuggestedTitles: string[];
+  convertedKeys: string[];
+  /** Itens de `expectSuggestedMention` que nenhuma sugerida que sobrou cobre (rótulos). */
+  suggestedMissing: string[];
   /** Trechos proibidos (`noSuggestedMention`) que apareceram nas sugeridas que sobraram. */
   equivalentSuggested: InventedHit[];
   passes: boolean;
@@ -222,12 +233,20 @@ const sanitize = (testCase: ConversationCase, draft: ConversationDraft, raw: { l
     projectKey: "DEMO",
   });
 
-function evaluate(testCase: ConversationCase, clean: { links: ElaborationLink[]; suggested: ElaborationSuggestion[] }): ElaborationCheck {
+function evaluate(
+  testCase: ConversationCase,
+  raw: { links: readonly ElaborationLink[]; suggested: readonly ElaborationSuggestion[] },
+  clean: { links: ElaborationLink[]; suggested: ElaborationSuggestion[] },
+  cleanedLinks: readonly ElaborationLink[],
+): ElaborationCheck {
   const linkKeys = clean.links.map((link) => link.dependeDe);
   const linksMissing = (testCase.expectLinkKeys ?? []).filter((key) => !linkKeys.includes(key));
   const count = clean.suggested.length;
   const suggestedOk = (testCase.minSuggested === undefined || count >= testCase.minSuggested) && (testCase.maxSuggested === undefined || count <= testCase.maxSuggested);
   const equivalentSuggested = checkMustNotMention(clean.suggested.map((task) => task.title).join("\n"), testCase.noSuggestedMention ?? []);
+  const suggestedText = normalizeText(clean.suggested.map((task) => `${task.title}\n${task.description}`).join("\n"));
+  const suggestedMissing = (testCase.expectSuggestedMention ?? []).filter((item) => !item.anyOf.some((word) => suggestedText.includes(normalizeText(word)))).map((item) => item.label);
+  const convertedKeys = linkKeys.filter((key) => !cleanedLinks.some((link) => link.dependeDe === key));
   return {
     linkKeys,
     links: clean.links,
@@ -236,8 +255,12 @@ function evaluate(testCase: ConversationCase, clean: { links: ElaborationLink[];
     suggestedCount: count,
     linksMissing,
     suggestedOk,
+    modelLinkKeys: raw.links.map((link) => link.dependeDe),
+    modelSuggestedTitles: raw.suggested.map((task) => task.title),
+    convertedKeys,
+    suggestedMissing,
     equivalentSuggested,
-    passes: linksMissing.length === 0 && suggestedOk && equivalentSuggested.length === 0,
+    passes: linksMissing.length === 0 && suggestedOk && equivalentSuggested.length === 0 && suggestedMissing.length === 0,
   };
 }
 
@@ -251,23 +274,28 @@ export function checkElaboration(
   draft: ConversationDraft,
   raw: { links: readonly ElaborationLink[]; suggested: readonly ElaborationSuggestion[] },
 ): ElaborationCheck {
-  return evaluate(testCase, sanitize(testCase, draft, raw));
+  const clean = sanitize(testCase, draft, raw);
+  return evaluate(testCase, raw, clean, clean.links);
 }
 
-/** O Jev falso da medição: responde `sameRequest` por título do ticket, quando a sugerida cita um dos trechos do caso. Nunca chama provedor. */
-export function titleKeyedJudge(testCase: ConversationCase): RelatedJudge {
+/**
+ * O Claude falso da segunda chamada (só nos testes): aponta, por título do ticket, o candidato que "já entrega" a sugerida quando o
+ * texto dela cita um dos trechos do caso (`existingByTitle`); senão `null`. Nunca chama provedor. A medição de verdade usa o real.
+ */
+export function titleKeyedMatcher(testCase: ConversationCase): ExistingMatcher {
   return {
-    judge(input: RelatedInput): Promise<Record<string, RelatedJudgment>> {
-      const text = normalizeText(`${input.draft.title}\n${input.draft.description}`);
-      return Promise.resolve(
-        Object.fromEntries(
-          input.candidates.map((candidate) => {
-            const rule = (testCase.sameRequestByTitle ?? []).find((entry) => entry.ticketTitle === candidate.title);
-            const hit = rule?.whenSuggestedMentions.some((phrase) => text.includes(normalizeText(phrase))) ?? false;
-            return [candidate.id, { sameSubject: hit ? 0.9 : 0.1, sameRequest: hit ? 0.9 : 0.1 }];
-          }),
-        ),
-      );
+    matchExisting(input: ExistingMatchInput): Promise<ExistingMatchResult> {
+      return Promise.resolve({
+        answers: input.tasks.map((task) => {
+          const text = normalizeText(`${task.title}\n${task.description}`);
+          const hit = task.candidates.find((candidate) => {
+            const rule = (testCase.existingByTitle ?? []).find((entry) => entry.ticketTitle === candidate.title);
+            return rule?.whenSuggestedMentions.some((phrase) => text.includes(normalizeText(phrase))) ?? false;
+          });
+          return { index: task.index, existing: hit?.key ?? null };
+        }),
+        model: "fake",
+      });
     },
   };
 }
@@ -277,11 +305,12 @@ export async function checkElaborationWithLookup(
   testCase: ConversationCase,
   draft: ConversationDraft,
   raw: { links: readonly ElaborationLink[]; suggested: readonly ElaborationSuggestion[] },
+  matcher: ExistingMatcher = titleKeyedMatcher(testCase),
 ): Promise<ElaborationCheck> {
   const clean = sanitize(testCase, draft, raw);
   const tree = testCase.tree ?? [];
-  if (tree.length === 0) return evaluate(testCase, clean);
-  const numbered = tree.map((entry) => ({ id: entry.key, number: Number(entry.key.split("-").pop()), title: entry.title, description: entry.excerpt }));
-  const found = await linkExistingSuggestions({ ...clean, tree: numbered, projectKey: "DEMO", duplicateKey: null, judge: titleKeyedJudge(testCase) });
-  return evaluate(testCase, found);
+  if (tree.length === 0) return evaluate(testCase, raw, clean, clean.links);
+  const numbered = tree.map((entry) => ({ id: entry.key, number: Number(entry.key.split("-").pop()), title: entry.title, description: entry.excerpt, status: entry.status }));
+  const found = await linkExistingSuggestions({ ...clean, tree: numbered, projectKey: "DEMO", duplicateKey: null, matcher });
+  return evaluate(testCase, raw, found, clean.links);
 }

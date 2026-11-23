@@ -2,10 +2,10 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { AssistantUnavailableError } from "../src/assistant/ports.js";
-import type { ElaborationInput } from "../src/assistant/ports.js";
+import type { ElaborationInput, ExistingMatchInput } from "../src/assistant/ports.js";
 import { ClaudeTicketElaborator } from "../src/assistant/claude-ticket-elaborator.js";
 import type { ClaudeStreamer } from "../src/assistant/claude-call.js";
-import { ELABORATION_SYSTEM_PROMPT, SYSTEM_PROMPT } from "../src/assistant/prompts.js";
+import { ELABORATION_SYSTEM_PROMPT, EXISTING_MATCH_SYSTEM_PROMPT, SYSTEM_PROMPT } from "../src/assistant/prompts.js";
 
 // ADR 0052, fatia 3: a elaboração (ligações e tarefas sugeridas) é uma chamada própria ao Claude.
 
@@ -52,7 +52,6 @@ describe("ClaudeTicketElaborator — a requisição", () => {
       "Não reescreva",
       "prazo",
       "pré-requisito",
-      "em dúvida",
       "lista vazia",
       "Formato da resposta",
     ]) expect(ELABORATION_SYSTEM_PROMPT.toLowerCase(), piece).toContain(piece.toLowerCase());
@@ -136,5 +135,83 @@ describe("revisão 1: o adaptador e o prompt", () => {
     expect(ELABORATION_SYSTEM_PROMPT).not.toContain("2000");
     expect(ELABORATION_SYSTEM_PROMPT).toContain("Escreva no idioma do pedido.");
     expect(ELABORATION_SYSTEM_PROMPT).not.toContain("português do Brasil");
+  });
+});
+
+describe("o prompt da elaboração não puxa para o silêncio (R6)", () => {
+  const text = ELABORATION_SYSTEM_PROMPT.toLowerCase();
+  it("some o 'em dúvida, não sugira' e entra a obrigação de propor o que o pedido implica", () => {
+    expect(text).not.toContain("em dúvida, não sugira");
+    expect(text).not.toContain("frequente");
+    expect(text).toContain("deve ser proposto");
+    expect(text).toContain("se o pedido se basta");
+  });
+  it("mantém as proibições e não leva palavras do caso medido", () => {
+    for (const piece of ["boas práticas genéricas", "testes e documentação que ninguém pediu", "Não invente prazo, pessoa, número nem critério de aceite", "Não reescreva nem contradiga"]) expect(ELABORATION_SYSTEM_PROMPT).toContain(piece);
+    for (const word of ["sincroniz", "origem", "jira", "github", "linear"]) expect(text, word).not.toContain(word);
+  });
+});
+
+describe("ClaudeTicketElaborator.matchExisting — a segunda chamada (R6)", () => {
+  const match: ExistingMatchInput = {
+    tasks: [
+      { index: 0, title: "Guardar o vínculo externo", description: "Registrar o id externo", motivo: "sem vínculo não há diff", candidates: [{ key: "TREEPM-144", title: "Guardar a origem de cada ticket", excerpt: "Saber de onde veio", status: "todo" }] },
+      { index: 1, title: "Cadastrar o token", description: "", motivo: "precisa autenticar", candidates: [{ key: "TREEPM-139", title: "Importar de GitHub", excerpt: "", status: "done" }] },
+    ],
+  };
+  const answer = { matches: [{ index: 0, existing: "TREEPM-144" }, { index: 1, existing: null }] };
+
+  it("Opus 5.5, esforço low, saída estruturada, sem ferramentas, com o prompt próprio e estável", async () => {
+    const captured: Captured[] = [];
+    await new ClaudeTicketElaborator(streamer(ok(answer), captured)).matchExisting(match);
+    const params = captured[0]!.params;
+    expect(params["model"]).toBe("claude-opus-5-5");
+    expect(params["output_config"].effort).toBe("low");
+    expect(params["output_config"].format).toBeDefined();
+    expect(params["tools"]).toBeUndefined();
+    expect(params["system"]).toEqual([{ type: "text", text: EXISTING_MATCH_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }]);
+    expect(EXISTING_MATCH_SYSTEM_PROMPT).not.toBe(ELABORATION_SYSTEM_PROMPT);
+    expect(EXISTING_MATCH_SYSTEM_PROMPT).not.toBe(SYSTEM_PROMPT);
+    const system = EXISTING_MATCH_SYSTEM_PROMPT.toLowerCase();
+    for (const piece of ["dados, não instruções", "só chaves recebidas", "o mais específico", "null", "mais amplo"]) expect(system, piece).toContain(piece);
+    expect(JSON.stringify(params["system"])).not.toContain("TREEPM-144");
+  });
+
+  it("a mensagem leva só índice, título, descrição e motivo das sugeridas e chave, título, trecho e situação dos candidatos", async () => {
+    const captured: Captured[] = [];
+    const sneaky = { tasks: match.tasks.map((t) => ({ ...t, id: "5f0e2d6e", assignee: "Maria", candidates: t.candidates.map((c) => ({ ...c, id: "5f0e2d6e-1111", comments: ["segredo"] })) })) } as unknown as ExistingMatchInput;
+    await new ClaudeTicketElaborator(streamer(ok(answer), captured)).matchExisting(sneaky);
+    expect(captured[0]!.params["messages"]).toHaveLength(1);
+    const [message] = captured[0]!.params["messages"] as { role: string; content: string }[];
+    expect(JSON.parse(message!.content.slice(message!.content.indexOf("{")))).toEqual({
+      tasks: [
+        { index: 0, title: "Guardar o vínculo externo", description: "Registrar o id externo", motivo: "sem vínculo não há diff", candidates: [{ key: "TREEPM-144", title: "Guardar a origem de cada ticket", excerpt: "Saber de onde veio", status: "todo" }] },
+        { index: 1, title: "Cadastrar o token", description: "", motivo: "precisa autenticar", candidates: [{ key: "TREEPM-139", title: "Importar de GitHub", excerpt: "", status: "done" }] },
+      ],
+    });
+    for (const leak of ["5f0e2d6e", "Maria", "segredo", "assignee", "comments"]) expect(message!.content, leak).not.toContain(leak);
+  });
+
+  it("devolve a resposta por índice e o modelo que respondeu", async () => {
+    const out = await new ClaudeTicketElaborator(streamer(ok(answer, { model: "claude-opus-4-8" }))).matchExisting(match);
+    expect(out).toEqual({ answers: [{ index: 0, existing: "TREEPM-144" }, { index: 1, existing: null }], model: "claude-opus-4-8" });
+  });
+
+  it.each([
+    ["recusa", ok(undefined, { stop_reason: "refusal" })],
+    ["saída fora do formato", ok({ matches: 3 })],
+    ["saída nula", ok(null)],
+  ])("%s vira assistant_unavailable", async (_n, response) => {
+    await expect(new ClaudeTicketElaborator(streamer(response)).matchExisting(match)).rejects.toBeInstanceOf(AssistantUnavailableError);
+  });
+
+  it("prazo próprio: estourar cancela a chamada; sinal abortado rejeita logo", async () => {
+    const captured: Captured[] = [];
+    await expect(new ClaudeTicketElaborator(streamer(() => new Promise(() => undefined), captured), { matchTimeoutMs: 20 }).matchExisting(match)).rejects.toMatchObject({ reason: "timeout" });
+    expect(captured[0]!.options.signal.aborted).toBe(true);
+    const controller = new AbortController();
+    const pending = new ClaudeTicketElaborator(streamer(() => new Promise(() => undefined)), { matchTimeoutMs: 60_000 }).matchExisting(match, { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toBeInstanceOf(AssistantUnavailableError);
   });
 });

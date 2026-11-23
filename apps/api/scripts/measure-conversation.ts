@@ -54,7 +54,7 @@ const caseSchema = z.object({
   expectLinkKeys: z.array(z.string().min(1)).optional(),
   minSuggested: z.number().int().min(0).optional(),
   maxSuggested: z.number().int().min(0).optional(),
-  // R4: a árvore inteira do caso (inclui tickets que o modelo não recebeu), o Jev falso por título e o que não pode sobrar como sugerida.
+  // R4: a árvore inteira do caso (inclui tickets que o modelo não recebeu), o falso do Claude por título (só nos testes; aqui responde o real) e o que não pode sobrar como sugerida.
   tree: z.array(z.object({ key: z.string().min(1), title: z.string().min(1), excerpt: z.string().default(""), status: z.string().min(1) })).optional(),
   sameRequestByTitle: z.array(z.object({ ticketTitle: z.string().min(1), whenSuggestedMentions: z.array(z.string().min(1)).min(1) })).optional(),
   noSuggestedMention: z.array(z.string().min(1)).optional(),
@@ -130,7 +130,7 @@ async function runCase(testCase: ConversationCase, run: number): Promise<RunResu
   let elaboration: ElaborationCheck | undefined;
   if (testCase.related !== undefined && turn.draft !== null) {
     const answer = await elaborator.elaborate({ draft: { title: turn.draft.title, description: turn.draft.description, parts: turn.draft.children ?? [] }, related: testCase.related });
-    elaboration = await checkElaborationWithLookup(testCase, turn.draft, answer);
+    elaboration = await checkElaborationWithLookup(testCase, turn.draft, answer, elaborator);
   }
   return {
     caseId: testCase.id,
@@ -169,6 +169,9 @@ function printRun(result: RunResult, testCase: ConversationCase): void {
   if (c.claims.length > 0) console.log(`  A IA DIZ QUE FEZ ALGO: ${c.claims.map((claim) => `"${claim}"`).join(", ")}`);
   const e = result.elaboration;
   if (e) {
+    console.log(`o modelo propôs: ligações ${e.modelLinkKeys.length === 0 ? "nenhuma" : e.modelLinkKeys.join(", ")}; sugeridas ${e.modelSuggestedTitles.length === 0 ? "nenhuma" : e.modelSuggestedTitles.map((title) => clip(title)).join(" | ")}`);
+    console.log(`virou ligação na segunda chamada: ${e.convertedKeys.length === 0 ? "nada" : e.convertedKeys.join(", ")}; ficou sugerido: ${e.suggestedCount}`);
+    if (e.suggestedMissing.length > 0) console.log(`  FALTOU NA SUGERIDA: ${e.suggestedMissing.join("; ")}`);
     console.log(`ligações propostas: ${e.linkKeys.length === 0 ? "nenhuma" : e.links.map((l) => `${l.de === "pai" ? "pai" : `parte ${l.de}`} → ${l.dependeDe}`).join(", ")} (${flag(e.linksMissing.length === 0)}${e.linksMissing.length > 0 ? `; faltou ${e.linksMissing.join(", ")}` : ""})`);
     console.log(`sugeridas pelo assistente (à parte de "inventados"): ${e.suggestedCount} (${flag(e.suggestedOk)}; esperado ${testCase.minSuggested ?? 0} a ${testCase.maxSuggested ?? "∞"})`);
     for (const hit of e.equivalentSuggested) console.log(`  SUGERIDA EQUIVALENTE A TICKET DA ÁRVORE "${hit.phrase}": …${hit.context}…`);

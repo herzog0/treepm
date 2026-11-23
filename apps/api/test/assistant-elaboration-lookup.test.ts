@@ -5,7 +5,7 @@ import { useHarness } from "./harness.js";
 import { recordQueries } from "./query-recorder.js";
 import { as } from "./world.js";
 
-// ADR 0052, item 4 (R4): a tarefa sugerida que já existe na árvore vira ligação, pela rota de elaboração.
+// ADR 0052, item 4 (R6): a tarefa sugerida que já existe na árvore vira ligação, pela rota de elaboração; quem decide é o Claude.
 const h = useHarness(AI_CONFIG, { timeouts: { relatedMs: 300, elaborationMs: 400 } });
 const priv = () => h.world().projects.priv;
 const REIMPORT = "Reimportar sem duplicar: guardar a origem de cada ticket";
@@ -31,9 +31,9 @@ const open = async () => {
   return id;
 };
 const elaborate = (id: string) => h.call("POST", `/api/ticket-conversations/${id}/elaboration`, as("contributor"));
-/** O Jev falso: "pede a mesma coisa" por título do candidato, só quando a requisição é de uma sugerida (não do rascunho). */
-const requestOdds = (odds: Record<string, number>) => {
-  h.related().verdict = (input) => Object.fromEntries(input.candidates.map((c) => [c.id, { sameSubject: 0.3, sameRequest: input.draft.title.startsWith("Guardar o vínculo") ? (odds[c.title] ?? 0) : 0 }]));
+/** O Claude falso da segunda chamada: aponta, por título de candidato, o ticket que "já entrega" a sugerida (ou nenhum). */
+const existing = (...titles: string[]) => {
+  h.elaborator().matchReply = (task) => task.candidates.find((c) => titles.includes(c.title))?.key ?? null;
 };
 const suggest = (...tasks: { title: string; description: string; motivo: string }[]) => {
   h.elaborator().reply = () => ({ links: [], suggested: tasks });
@@ -43,7 +43,7 @@ describe("a sugerida que já existe vira ligação", () => {
   it("vira ligação do pai com o motivo da sugerida e sai das sugeridas; o título vem da árvore", async () => {
     await seed();
     suggest(SUGGESTED);
-    requestOdds({ [REIMPORT]: 0.9 });
+    existing(REIMPORT);
     const res = await elaborate(await open());
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({
@@ -53,29 +53,38 @@ describe("a sugerida que já existe vira ligação", () => {
     });
   });
 
-  it("sem equivalente na árvore, continua sugerida", async () => {
+  it("null: continua sugerida", async () => {
     await seed();
     suggest(SUGGESTED);
-    requestOdds({ [REIMPORT]: 0.4 });
+    existing();
     const res = await elaborate(await open());
     expect(res.body.links).toEqual([]);
     expect(res.body.suggested).toHaveLength(1);
   });
 
-  it("o limiar: 0,7 liga e 0,69 não", async () => {
+  it("chave fora dos candidatos da sugerida é ignorada", async () => {
     await seed();
     suggest(SUGGESTED);
-    requestOdds({ [REIMPORT]: 0.69 });
-    expect((await elaborate(await open())).body.links).toEqual([]);
-    requestOdds({ [REIMPORT]: 0.7 });
-    expect((await elaborate(await open())).body.links).toHaveLength(1);
+    h.elaborator().matchReply = () => "PRIV-999";
+    const res = await elaborate(await open());
+    expect(res.body.links).toEqual([]);
+    expect(res.body.suggested).toHaveLength(1);
+  });
+
+  it("nenhuma chamada ao Jev nesta etapa (a decisão é do Claude)", async () => {
+    await seed();
+    suggest(SUGGESTED);
+    existing(REIMPORT);
+    await elaborate(await open());
+    expect(h.related().calls).toHaveLength(0);
+    expect(h.elaborator().matchCalls).toHaveLength(1);
   });
 
   it("ideia e cancelado não são alvo (a árvore é a viva)", async () => {
     const { reimport } = await seed();
     await h.pool.query("update tickets set idea_stage = 'new' where id = $1", [reimport]);
     suggest(SUGGESTED);
-    requestOdds({ [REIMPORT]: 0.99 });
+    existing(REIMPORT);
     const asIdea = await elaborate(await open());
     expect(asIdea.body.links).toEqual([]);
     expect(asIdea.body.suggested).toHaveLength(1);
@@ -83,30 +92,29 @@ describe("a sugerida que já existe vira ligação", () => {
     const cancelled = await elaborate(await open());
     expect(cancelled.body.links).toEqual([]);
     expect(cancelled.body.suggested).toHaveLength(1);
-    for (const call of h.related().calls) expect(JSON.stringify(call)).not.toContain("Reimportar");
+    for (const call of h.elaborator().matchCalls) expect(JSON.stringify(call)).not.toContain("Reimportar");
   });
 
   it("o duplicado nunca é alvo", async () => {
     const { tree } = await seed();
-    // SAML (PRIV-4) é o duplicado da procura; a sugerida parece com ele.
-    h.related().verdict = (input) => Object.fromEntries(input.candidates.map((c) => [c.id, { sameSubject: 0.5, sameRequest: c.title === "SAML" || (c.title === REIMPORT && input.draft.title.startsWith("Guardar")) ? 0.95 : 0 }]));
+    h.related().verdict = (input) => Object.fromEntries(input.candidates.map((c) => [c.id, { sameSubject: 0.5, sameRequest: c.title === "SAML" ? 0.95 : 0 }]));
     const id = await open();
     await h.call("PATCH", `/api/ticket-conversations/${id}/draft`, as("contributor"), { title: "Entrar com SAML", description: "Login SAML" });
     expect((await h.call("POST", `/api/ticket-conversations/${id}/placement`, as("contributor"), {})).body.duplicate?.id).toBe(tree.saml);
-    h.related().calls.length = 0;
     suggest({ title: "Guardar o SAML do vínculo", description: "SAML e Reimportar", motivo: "ok" });
+    h.elaborator().matchReply = (task) => task.candidates[0]?.key ?? null;
     const res = await elaborate(id);
-    expect(h.related().calls.length).toBeGreaterThan(0);
-    for (const call of h.related().calls) expect(call.candidates.map((c) => c.title)).not.toContain("SAML");
+    expect(h.elaborator().matchCalls.length).toBeGreaterThan(0);
+    for (const call of h.elaborator().matchCalls) for (const task of call.tasks) expect(task.candidates.map((c) => c.title)).not.toContain("SAML");
     expect(res.body.links.map((l: { dependeDe: string }) => l.dependeDe)).not.toContain("PRIV-4");
   });
 
   it("ligação já proposta pelo modelo não duplica", async () => {
     await seed();
     h.elaborator().reply = () => ({ links: [{ de: "pai", dependeDe: "PRIV-8", motivo: "do modelo" }], suggested: [SUGGESTED] });
-    requestOdds({ [REIMPORT]: 0.9 });
+    existing(REIMPORT);
     // PRIV-8 precisa estar entre os relacionados para o modelo poder ligá-lo.
-    h.related().verdict = (input) => Object.fromEntries(input.candidates.map((c) => [c.id, { sameSubject: c.title === REIMPORT && !input.draft.title.startsWith("Guardar") ? 0.9 : 0.3, sameRequest: input.draft.title.startsWith("Guardar") ? (c.title === REIMPORT ? 0.9 : 0) : 0 }]));
+    h.related().verdict = (input) => Object.fromEntries(input.candidates.map((c) => [c.id, { sameSubject: c.title === REIMPORT ? 0.9 : 0.3, sameRequest: 0 }]));
     const id = await open();
     await h.call("POST", `/api/ticket-conversations/${id}/placement`, as("contributor"), {});
     const res = await elaborate(id);
@@ -117,13 +125,13 @@ describe("a sugerida que já existe vira ligação", () => {
   it("no limite de 5 ligações a sugerida é descartada, não volta como tarefa", async () => {
     const { add } = await seed();
     const keys: string[] = [];
-    h.related().verdict = (input) =>
-      Object.fromEntries(input.candidates.map((c) => [c.id, { sameSubject: input.draft.title.startsWith("Guardar") ? 0.3 : c.title.startsWith("Painel") ? 0.9 : 0.1, sameRequest: input.draft.title.startsWith("Guardar") && c.title === REIMPORT ? 0.9 : 0 }]));
+    h.related().verdict = (input) => Object.fromEntries(input.candidates.map((c) => [c.id, { sameSubject: c.title.startsWith("Painel") ? 0.9 : 0.1, sameRequest: 0 }]));
     for (let n = 0; n < 5; n += 1) {
       await add(20 + n, `Painel ${n} do sincronizar Jira diff`, "");
       keys.push(`PRIV-${20 + n}`);
     }
     h.elaborator().reply = () => ({ links: keys.map((dependeDe) => ({ de: "pai" as const, dependeDe, motivo: "m" })), suggested: [SUGGESTED] });
+    existing(REIMPORT);
     const id = await open();
     await h.call("POST", `/api/ticket-conversations/${id}/placement`, as("contributor"), {});
     const res = await elaborate(id);
@@ -133,49 +141,50 @@ describe("a sugerida que já existe vira ligação", () => {
   });
 });
 
-describe("o que vai ao Jev", () => {
-  it("título e descrição da sugerida e título e trecho dos candidatos: nada de ids, motivo, pessoas nem da citação do pedido", async () => {
-    const { reimport, tree } = await seed();
+describe("o que vai ao Claude na segunda chamada", () => {
+  it("só índice, título, descrição e motivo da sugerida e chave, título, trecho e situação dos candidatos: nada de ids, pessoas nem da citação do pedido", async () => {
+    const { tree } = await seed();
     suggest(SUGGESTED);
-    requestOdds({});
+    existing();
     await elaborate(await open());
-    expect(h.related().calls).toHaveLength(1);
-    const call = h.related().calls[0]!;
-    expect(call.draft).toEqual({ title: SUGGESTED.title, description: SUGGESTED.description });
-    expect(call.candidates.length).toBeGreaterThan(0);
-    for (const candidate of call.candidates) expect(Object.keys(candidate).sort()).toEqual(["excerpt", "id", "title"]);
+    expect(h.elaborator().matchCalls).toHaveLength(1);
+    const call = h.elaborator().matchCalls[0]!;
+    expect(call.tasks).toHaveLength(1);
+    const task = call.tasks[0]!;
+    expect([task.index, task.title, task.description, task.motivo]).toEqual([0, SUGGESTED.title, SUGGESTED.description, SUGGESTED.motivo]);
+    expect(task.candidates.length).toBeGreaterThan(0);
+    for (const candidate of task.candidates) expect(Object.keys(candidate).sort()).toEqual(["excerpt", "key", "status", "title"]);
     const sent = JSON.stringify(call);
-    for (const leak of [SUGGESTED.motivo, "Quero sincronizar com o Jira", h.world().people.manager, h.world().people.contributor, "org_A", "PRIV-", tree.auth]) expect(sent, leak).not.toContain(leak);
-    expect(reimport).toBeTruthy();
+    for (const leak of ["Quero sincronizar com o Jira", h.world().people.manager, h.world().people.contributor, "org_A", tree.auth]) expect(sent, leak).not.toContain(leak);
   });
 });
 
 describe("robustez", () => {
-  it("falha do Jev: as sugeridas voltam como vieram", async () => {
+  it("falha da segunda chamada: as sugeridas voltam como vieram", async () => {
     await seed();
     suggest(SUGGESTED);
-    requestOdds({ [REIMPORT]: 0.99 });
-    h.related().fail = true;
+    existing(REIMPORT);
+    h.elaborator().matchFail = true;
     const res = await elaborate(await open());
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ links: [], suggested: [SUGGESTED], unavailable: null });
   });
 
-  it("o Jev não responde: cabe no prazo da rota e as sugeridas voltam", async () => {
+  it("a segunda chamada não responde: cabe no prazo da rota e as sugeridas voltam", async () => {
     await seed();
     suggest(SUGGESTED);
-    h.related().hang = true;
+    h.elaborator().matchHang = true;
     const started = Date.now();
     const res = await elaborate(await open());
     expect(Date.now() - started).toBeLessThan(2_000);
     expect(res.body).toMatchObject({ links: [], suggested: [SUGGESTED], unavailable: null });
   });
 
-  it("sem sugeridas, o Jev não é chamado", async () => {
+  it("sem sugeridas, a segunda chamada não acontece", async () => {
     await seed();
     h.elaborator().reply = () => ({ links: [], suggested: [] });
     await elaborate(await open());
-    expect(h.related().calls).toHaveLength(0);
+    expect(h.elaborator().matchCalls).toHaveLength(0);
   });
 
   it("nenhuma consulta a mais ao banco por causa da etapa", async () => {
@@ -184,44 +193,45 @@ describe("robustez", () => {
     suggest();
     const without = await recordQueries(() => elaborate(id));
     suggest(SUGGESTED, { ...SUGGESTED, title: "Guardar o vínculo de novo no item externo" });
-    requestOdds({ [REIMPORT]: 0.9 });
+    existing(REIMPORT);
     const withLookup = await recordQueries(() => elaborate(id));
-    expect(h.related().calls.length).toBeGreaterThan(0);
+    expect(h.elaborator().matchCalls.length).toBeGreaterThan(0);
     expect(withLookup.queries.length).toBe(without.queries.length);
   });
 });
 
 describe("diagnostics: só números e códigos", () => {
-  type Diag = { model: { links: number; suggested: number }; dropped: { links: Record<string, number>; suggested: Record<string, number> }; lookups: { outcome: string; candidates: number; maxSameRequest: number | null }[]; timingsMs: { claude: number; lookup: number } };
-  it("conversão: o modelo devolveu 1 sugerida, a procura achou candidatos e converteu", async () => {
+  type Diag = { model: { links: number; suggested: number }; dropped: { links: Record<string, number>; suggested: Record<string, number> }; lookups: { outcome: string; candidates: number; chosen: boolean }[]; timingsMs: { claude: number; lookup: number; secondCall: number } };
+  it("conversão: o modelo devolveu 1 sugerida, a procura achou candidatos e o Claude apontou o ticket", async () => {
     await seed();
     suggest(SUGGESTED);
-    requestOdds({ [REIMPORT]: 0.9 });
+    existing(REIMPORT);
     const res = await elaborate(await open());
     const d = res.body.diagnostics as Diag;
     expect(d.model).toEqual({ links: 0, suggested: 1 });
     expect(d.lookups).toHaveLength(1);
-    expect(d.lookups[0]).toMatchObject({ outcome: "converted", maxSameRequest: 0.9 });
+    expect(d.lookups[0]).toMatchObject({ outcome: "converted", chosen: true });
     expect(d.lookups[0]!.candidates).toBeGreaterThan(0);
     expect(typeof d.timingsMs.claude).toBe("number");
     expect(typeof d.timingsMs.lookup).toBe("number");
+    expect(typeof d.timingsMs.secondCall).toBe("number");
+    expect(d.dropped.links["ancestor"]).toBe(0);
     expect(Object.values(d.dropped.suggested).every((n) => n === 0)).toBe(true);
   });
 
   it("nada de texto: nem título, descrição, motivo, nem texto do rascunho ou de ticket", async () => {
     await seed();
     suggest(SUGGESTED);
-    requestOdds({ [REIMPORT]: 0.9 });
+    existing(REIMPORT);
     const text = JSON.stringify((await elaborate(await open())).body.diagnostics);
     for (const leak of [SUGGESTED.title, SUGGESTED.description, SUGGESTED.motivo, REIMPORT, "Sincronizar tickets com o Jira", "Receber só o diff", "PRIV-"]) expect(text, leak).not.toContain(leak);
-    // Só chaves fixas, números e códigos.
     expect(text).toMatch(/^[\w{}[\]":,.-]*$/);
   });
 
   it("descarte do servidor contado: sugerida com título repetido não chega à procura", async () => {
     await seed();
     suggest(SUGGESTED, SUGGESTED);
-    requestOdds({});
+    existing();
     const d = (await elaborate(await open())).body.diagnostics as Diag;
     expect(d.model.suggested).toBe(2);
     expect(d.dropped.suggested["repeatedTitle"]).toBe(1);
@@ -229,18 +239,19 @@ describe("diagnostics: só números e códigos", () => {
     expect(d.lookups[0]!.outcome).toBe("kept");
   });
 
-  it("falha do Jev: lookup_failed", async () => {
+  it("falha da segunda chamada: lookup_failed", async () => {
     await seed();
     suggest(SUGGESTED);
-    h.related().fail = true;
+    h.elaborator().matchFail = true;
     const d = (await elaborate(await open())).body.diagnostics as Diag;
     expect(d.lookups.map((l) => l.outcome)).toEqual(["lookup_failed"]);
   });
 
-  it("ligação repetida e limite aparecem como desfechos", async () => {
+  it("ligação repetida aparece como desfecho", async () => {
     await seed();
     h.elaborator().reply = () => ({ links: [{ de: "pai", dependeDe: "PRIV-8", motivo: "do modelo" }], suggested: [SUGGESTED] });
-    h.related().verdict = (input) => Object.fromEntries(input.candidates.map((c) => [c.id, { sameSubject: c.title === REIMPORT && !input.draft.title.startsWith("Guardar") ? 0.9 : 0.3, sameRequest: input.draft.title.startsWith("Guardar") && c.title === REIMPORT ? 0.9 : 0 }]));
+    existing(REIMPORT);
+    h.related().verdict = (input) => Object.fromEntries(input.candidates.map((c) => [c.id, { sameSubject: c.title === REIMPORT ? 0.9 : 0.3, sameRequest: 0 }]));
     const id = await open();
     await h.call("POST", `/api/ticket-conversations/${id}/placement`, as("contributor"), {});
     const d = (await elaborate(id)).body.diagnostics as Diag;

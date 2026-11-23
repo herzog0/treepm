@@ -15,6 +15,8 @@ import type {
   DescriptionWriter,
   ElaborationInput,
   ElaborationResult,
+  ExistingMatchInput,
+  ExistingMatchResult,
   GroupNameInput,
   GroupNamer,
   ProjectAnswerInput,
@@ -208,6 +210,17 @@ export class FakeTicketElaborator implements TicketElaborator {
   reply: ((input: ElaborationInput) => Pick<ElaborationResult, "links" | "suggested">) | null = null;
   fail = false;
   hang = false;
+  /** A segunda chamada (a sugerida já existe?): por padrão `null` para todas; `matchReply` devolve, por sugerida, a chave ou `null`. */
+  readonly matchCalls: ExistingMatchInput[] = [];
+  matchReply: ((task: ExistingMatchInput["tasks"][number]) => string | null) | null = null;
+  matchFail = false;
+  matchHang = false;
+  async matchExisting(input: ExistingMatchInput): Promise<ExistingMatchResult> {
+    this.matchCalls.push(structuredClone(input) as ExistingMatchInput);
+    if (this.matchHang) await new Promise<never>(() => undefined);
+    if (this.matchFail) throw new AssistantUnavailableError("fake");
+    return { answers: input.tasks.map((task) => ({ index: task.index, existing: this.matchReply ? this.matchReply(task) : null })), model: "fake-model" };
+  }
   async elaborate(input: ElaborationInput): Promise<ElaborationResult> {
     this.calls.push(structuredClone(input) as ElaborationInput);
     await this.onCall?.();

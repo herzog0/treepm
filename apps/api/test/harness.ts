@@ -100,6 +100,10 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     elaborator.reply = null;
     elaborator.fail = false;
     elaborator.hang = false;
+    elaborator.matchCalls.length = 0;
+    elaborator.matchReply = null;
+    elaborator.matchFail = false;
+    elaborator.matchHang = false;
     namer.calls.length = 0;
     namer.onCall = null;
     namer.reply = null;

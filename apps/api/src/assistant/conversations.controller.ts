@@ -55,7 +55,7 @@ import { PlacementService } from "./placement.service.js";
 import { AssistantGate } from "./assistant-gate.js";
 import { PLACEMENT_TIMEOUT_MS } from "./placement-search.js";
 import { AssistantUnavailableError, PLACEMENT_TIMEOUTS } from "./ports.js";
-import type { ConversationDraft, ConversationProvider, ConversationTurn, DraftChild, ElaborationLink, ElaborationSuggestion, PlacementTimeouts, RelatedJudge } from "./ports.js";
+import type { ConversationDraft, ConversationProvider, ConversationTurn, DraftChild, ElaborationLink, ElaborationSuggestion, ExistingMatcher, PlacementTimeouts } from "./ports.js";
 import { QueuesStructure } from "../tickets/structure-queue.js";
 import { TicketsService } from "../tickets/tickets.service.js";
 import { MAX_TICKET_DESCRIPTION } from "../tickets/tickets.schema.js";
@@ -404,13 +404,18 @@ export class TicketConversationsController {
       });
       // O duplicado sai da árvore viva (já lida), não só dos relacionados: a procura das sugeridas também o evita.
       const duplicate = decision?.duplicateTicketId ? liveTree.find((ticket) => ticket.id === decision.duplicateTicketId) : undefined;
+      // O lugar escolhido e os ancestrais dele (a decisão guardada): nenhuma ligação vai a eles.
+      const pathIds = new Set(decision?.chosenPath ?? []);
+      const path = liveTree.filter((ticket) => pathIds.has(ticket.id));
       return {
+        ancestorKeys: new Set(path.map((ticket) => `${project.key}-${ticket.number}`)),
+        excludeIds: new Set(path.map((ticket) => ticket.id)),
         draft: { title: conversation.draftTitle, description: conversation.draftDescription ?? "", parts: childrenOf(conversation) },
         related,
         duplicateKey: duplicate ? `${project.key}-${duplicate.number}` : null,
         projectKey: project.key,
         // A mesma leitura da árvore viva: a procura das tarefas sugeridas não lê mais nada do banco.
-        tree: liveTree.map(({ id: ticketId, number, title, description }) => ({ id: ticketId, number, title, description })),
+        tree: liveTree.map(({ id: ticketId, number, title, description, status }) => ({ id: ticketId, number, title, description, status })),
       };
     });
     const started = Date.now();
@@ -428,23 +433,24 @@ export class TicketConversationsController {
         related: sent,
         duplicateKey: seen.duplicateKey,
         projectKey: seen.projectKey,
+        ancestorKeys: seen.ancestorKeys,
       });
       // Tarefa sugerida que já existe na árvore vira ligação (ADR 0052, item 4). Falha ou prazo nunca derrubam a elaboração.
       const lookupStarted = Date.now();
-      const found = await this.linkSuggested(providers.related, seen, clean, started);
+      const found = await this.linkSuggested(providers.elaborator, seen, clean, started);
       const lookupMs = Date.now() - lookupStarted;
       const diagnostics = {
         model: { links: answer.links.length, suggested: answer.suggested.length },
         dropped: clean.dropped,
         lookups: found.lookups,
-        timingsMs: { claude: claudeMs, lookup: lookupMs },
+        timingsMs: { claude: claudeMs, lookup: lookupMs, secondCall: found.matchMs },
       };
       // Só contagens e códigos: nunca texto do rascunho, de ticket nem do modelo.
       const tally = (counts: Record<string, number>): string => Object.entries(counts).map(([name, n]) => `${name}=${n}`).join(",");
       const outcomes: Record<string, number> = {};
       for (const lookup of found.lookups) outcomes[lookup.outcome] = (outcomes[lookup.outcome] ?? 0) + 1;
       this.logger.log(
-        `elaboração diagnóstico modelo_ligacoes=${diagnostics.model.links} modelo_sugeridas=${diagnostics.model.suggested} descartes_ligacoes=${tally(clean.dropped.links)} descartes_sugeridas=${tally(clean.dropped.suggested)} procura=${tally(outcomes) || "nenhuma"} ms_claude=${claudeMs} ms_procura=${lookupMs}`,
+        `elaboração diagnóstico modelo_ligacoes=${diagnostics.model.links} modelo_sugeridas=${diagnostics.model.suggested} descartes_ligacoes=${tally(clean.dropped.links)} descartes_sugeridas=${tally(clean.dropped.suggested)} procura=${tally(outcomes) || "nenhuma"} ms_claude=${claudeMs} ms_procura=${lookupMs} ms_segunda=${found.matchMs}`,
       );
       const titleOf = new Map([...sent.map((entry) => [entry.key, entry.title] as const), ...found.titles]);
       return parseOutput(elaborationOutcomeSchema, {
@@ -467,8 +473,8 @@ export class TicketConversationsController {
    * `SUGGESTED_LOOKUP_TIMEOUT_MAX_MS`. Nunca lança: qualquer falha devolve o que veio, com o motivo (sem texto) no registro.
    */
   private async linkSuggested(
-    judge: RelatedJudge,
-    seen: { draft: { title: string }; related: readonly { key: string }[]; duplicateKey: string | null; projectKey: string; tree: readonly LookupTicket[] },
+    matcher: ExistingMatcher,
+    seen: { draft: { title: string }; related: readonly { key: string }[]; duplicateKey: string | null; projectKey: string; tree: readonly LookupTicket[]; excludeIds: ReadonlySet<string> },
     clean: { links: ElaborationLink[]; suggested: ElaborationSuggestion[] },
     started: number,
   ): Promise<LinkLookupResult> {
@@ -477,7 +483,8 @@ export class TicketConversationsController {
       suggested: clean.suggested,
       titles: new Map(),
       failed: 0,
-      lookups: outcome === null ? [] : clean.suggested.map(() => ({ outcome, candidates: 0, maxSameRequest: null })),
+      lookups: outcome === null ? [] : clean.suggested.map(() => ({ outcome, candidates: 0, chosen: false })),
+      matchMs: 0,
     });
     if (clean.suggested.length === 0) return untouched(null);
     const left = (this.timeouts?.elaborationMs ?? ELABORATION_TIMEOUT_MS) - (Date.now() - started);
@@ -489,7 +496,7 @@ export class TicketConversationsController {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), budget);
     try {
-      const result = await linkExistingSuggestions({ ...clean, tree: seen.tree, projectKey: seen.projectKey, duplicateKey: seen.duplicateKey, judge, signal: controller.signal });
+      const result = await linkExistingSuggestions({ ...clean, tree: seen.tree, projectKey: seen.projectKey, duplicateKey: seen.duplicateKey, excludeIds: seen.excludeIds, matcher, signal: controller.signal });
       if (result.failed > 0) this.logger.warn(`procura das sugeridas incompleta falhas=${result.failed} de=${clean.suggested.length}`);
       return result;
     } catch (error) {
@@ -536,7 +543,7 @@ export class TicketConversationsController {
     if (asIdea) this.authorization.registerIdea(principal.actor, project.id);
     const built = await this.assemble(tx, project, conversation);
     this.requireFits(built);
-    const { resolved, warnings } = await this.resolveLinks(tx, project, body.links, built.children);
+    const { resolved, warnings } = await this.resolveLinks(tx, project, body.links, built.children, body.parentId ?? null);
     if (built.unknownKeys.length > 0) {
       throw new ConflictException({
         code: "unknown_ticket_keys",
@@ -712,7 +719,7 @@ export class TicketConversationsController {
    * (o número que o ticket novo vai ter, outro projeto e chave inventada não resolvem) e a origem é o pai ou uma parte do rascunho.
    * O que não vale vira aviso; repetida some em silêncio.
    */
-  private async resolveLinks(tx: TenantClient, project: ProjectRow, links: readonly { de: "pai" | number; deTitle?: string | undefined; dependeDe: string }[], parts: readonly { title: string }[]) {
+  private async resolveLinks(tx: TenantClient, project: ProjectRow, links: readonly { de: "pai" | number; deTitle?: string | undefined; dependeDe: string }[], parts: readonly { title: string }[], parentId: string | null) {
     const warnings: z.output<typeof createdTicketSchema>["warnings"] = [];
     const prefix = `${project.key}-`;
     const numberOf = (key: string): number | null => {
@@ -724,6 +731,8 @@ export class TicketConversationsController {
     const byNumber = new Map(found.map((row) => [row.number, row]));
     // Só a árvore viva (sem ideias nem cancelados) pode ser alvo, como na procura.
     const live = found.length === 0 ? new Set<string>() : new Set((await loadPlacementTree(tx, project.id)).tickets.map((ticket) => ticket.id));
+    // Um ticket não depende do próprio pai nem de um ancestral: a cadeia do pai escolhido para cima (uma consulta, só com ligações).
+    const ancestors = links.length === 0 ? new Map<string, string | null>() : await this.tickets.ancestorLinks(tx, project, parentId);
     const seen = new Set<string>();
     const resolved: { de: "pai" | number; key: string; target: { id: string; number: number } }[] = [];
     for (const link of links) {
@@ -733,6 +742,7 @@ export class TicketConversationsController {
       const number = numberOf(link.dependeDe);
       const target = number === null ? undefined : byNumber.get(number);
       if (!target) warnings.push({ code: "link_discarded", de: link.de, dependeDe: link.dependeDe, reason: "unknown_ticket" });
+      else if (ancestors.has(target.id)) warnings.push({ code: "link_discarded", de: link.de, dependeDe: link.dependeDe, reason: "ancestor" });
       else if (!live.has(target.id)) warnings.push({ code: "link_discarded", de: link.de, dependeDe: link.dependeDe, reason: "inactive_ticket" });
       else if (link.de !== "pai" && (link.de >= parts.length || normalizeTitle(parts[link.de]!.title) !== normalizeTitle(link.deTitle ?? ""))) warnings.push({ code: "link_discarded", de: link.de, dependeDe: link.dependeDe, reason: "invalid_part" });
       else resolved.push({ de: link.de, key: link.dependeDe, target });

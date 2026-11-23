@@ -240,8 +240,21 @@ export type ElaborationLink = { de: "pai" | number; dependeDe: string; motivo: s
 export type ElaborationSuggestion = { title: string; description: string; motivo: string };
 export type ElaborationResult = { links: readonly ElaborationLink[]; suggested: readonly ElaborationSuggestion[]; model: string };
 
+/** Um candidato da árvore para uma tarefa sugerida, como o Claude o vê na segunda chamada: chave, título, trecho e situação. Nenhum id. */
+export type ExistingMatchCandidate = { key: string; title: string; excerpt: string; status: string };
+/** Uma tarefa sugerida com os candidatos que a triagem por palavras achou para ELA. `index` é a posição na lista de sugeridas. */
+export type ExistingMatchTask = { index: number; title: string; description: string; motivo: string; candidates: readonly ExistingMatchCandidate[] };
+export type ExistingMatchInput = { tasks: readonly ExistingMatchTask[] };
+/** Por sugerida (`index`): a chave de um candidato DAQUELA sugerida quando fazer aquele ticket já entrega o que ela precisa; `null` quando o trabalho não existe. */
+export type ExistingMatchResult = { answers: readonly { index: number; existing: string | null }[]; model: string };
+
+/** Claude, segunda chamada da elaboração: decide, por tarefa sugerida, se ela já existe na árvore. */
+export interface ExistingMatcher {
+  matchExisting(input: ExistingMatchInput, options?: { signal?: AbortSignal }): Promise<ExistingMatchResult>;
+}
+
 /** Claude: lê o rascunho e os relacionados e propõe ligações com tickets que existem e tarefas que o pedido implica. Só propõe. */
-export interface TicketElaborator {
+export interface TicketElaborator extends ExistingMatcher {
   elaborate(input: ElaborationInput, options?: { signal?: AbortSignal }): Promise<ElaborationResult>;
 }
 

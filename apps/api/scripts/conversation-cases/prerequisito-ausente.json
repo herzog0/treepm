@@ -1,0 +1,28 @@
+{
+  "id": "prerequisito-ausente",
+  "messages": [
+    "Quero que a pessoa responsável por um ticket receba um e-mail de aviso sempre que o ticket dela mudar de situação (por exemplo, de 'a fazer' para 'em andamento')."
+  ],
+  "expectChildren": "either",
+  "mustMention": [
+    { "label": "e-mail de aviso", "anyOf": ["e-mail", "email"] },
+    { "label": "mudança de situação", "anyOf": ["situação", "mudar", "muda"] }
+  ],
+  "mustNotMention": ["critérios de aceite", "fase", "prazo", "sprint"],
+  "related": [
+    { "key": "DEMO-21", "title": "Tela de ajustes do projeto", "excerpt": "Preferências gerais do projeto.", "status": "todo" },
+    { "key": "DEMO-22", "title": "Filtrar tickets por situação", "excerpt": "Filtro na lista de tickets.", "status": "done" }
+  ],
+  "tree": [
+    { "key": "DEMO-21", "title": "Tela de ajustes do projeto", "excerpt": "Preferências gerais do projeto.", "status": "todo" },
+    { "key": "DEMO-22", "title": "Filtrar tickets por situação", "excerpt": "Filtro na lista de tickets.", "status": "done" },
+    { "key": "DEMO-23", "title": "Atribuir um ticket a uma pessoa", "excerpt": "Escolher quem é responsável por cada ticket.", "status": "done" }
+  ],
+  "existingByTitle": [],
+  "expectLinkKeys": [],
+  "expectSuggestedMention": [
+    { "label": "o envio de e-mail (serviço, remetente ou configuração) ainda não existe", "anyOf": ["envio", "enviar", "remetente", "servi", "smtp", "provedor de e-mail", "configur"] }
+  ],
+  "minSuggested": 1,
+  "maxSuggested": 1
+}

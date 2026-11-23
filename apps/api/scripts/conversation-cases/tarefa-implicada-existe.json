@@ -18,7 +18,7 @@
     { "key": "DEMO-11", "title": "Importar tickets de GitHub, Jira e Linear", "excerpt": "Importar por lista, uma vez só.", "status": "done" },
     { "key": "DEMO-12", "title": "Tela de ajustes do projeto", "excerpt": "", "status": "todo" }
   ],
-  "sameRequestByTitle": [
+  "existingByTitle": [
     { "ticketTitle": "Reimportar sem duplicar: guardar a origem de cada ticket", "whenSuggestedMentions": ["vínculo", "vinculo", "origem", "identificador externo", "item externo", "id externo", "correspondente"] }
   ],
   "expectLinkKeys": ["DEMO-10"],

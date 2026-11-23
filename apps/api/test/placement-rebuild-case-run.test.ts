@@ -130,11 +130,11 @@ describe("case-run: a medição", () => {
     expect(record).toMatchObject({ destinationHit: true, relatedHit: false, hit: false });
   });
 
-  it("imprime as ligações e as tarefas sugeridas da elaboração, com as chaves do projeto original", async () => {
+  it("imprime a elaboração com as chaves do projeto original; o destino e os ancestrais (TST-1, TST-2) não viram ligação (R6)", async () => {
     await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, omit: ["TST-6"] }), repeats: 1 });
-    const record = JSON.parse(lines.find((l) => l.includes('"repeat"')) as string) as { links: { de: string; dependeDe: string; dependeDeTitle: string; motivo: string }[]; suggested: unknown[]; elaborationUnavailable: string | null };
-    expect(record.links.map((l) => l.dependeDe).sort()).toEqual(["TST-1", "TST-2"]);
-    expect(record.links.every((l) => l.de === "pai" && l.motivo !== "" && l.dependeDeTitle !== "")).toBe(true);
+    const record = JSON.parse(lines.find((l) => l.includes('"repeat"')) as string) as { links: unknown[]; suggested: unknown[]; elaborationUnavailable: string | null; diagnostics: { dropped: { links: { ancestor: number } } } };
+    expect(record.links).toEqual([]);
+    expect(record.diagnostics.dropped.links.ancestor).toBe(2);
     expect(record.suggested).toEqual([]);
     expect(record.elaborationUnavailable).toBeNull();
   });
@@ -146,12 +146,12 @@ describe("case-run: a medição", () => {
     expect(record.suggested).toHaveLength(1);
   });
 
-  it("expectLinkKeys: passa se todas aparecem em links[].dependeDe; uma que falta reprova", async () => {
-    expect(await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, expectLinkKeys: ["TST-1", "TST-2"] }), repeats: 1 })).toBe(true);
-    lines.length = 0;
-    expect(await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, expectLinkKeys: ["TST-1", "TST-5"] }), repeats: 1 })).toBe(false);
+  it("expectLinkKeys: ligação a ancestral do destino não conta (R6); sem chaves esperadas, passa", async () => {
+    expect(await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, expectLinkKeys: ["TST-1"] }), repeats: 1 })).toBe(false);
     const record = JSON.parse(lines.find((l) => l.includes('"repeat"')) as string) as { hit: boolean; destinationHit: boolean; linkHit: boolean };
     expect(record).toMatchObject({ destinationHit: true, linkHit: false, hit: false });
+    lines.length = 0;
+    expect(await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, expectLinkKeys: [] }), repeats: 1 })).toBe(true);
   });
 
   it("expectLinkKeys com chave que o caso omite é erro claro, antes de criar projeto", async () => {

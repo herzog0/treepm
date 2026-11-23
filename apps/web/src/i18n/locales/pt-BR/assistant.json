@@ -165,6 +165,7 @@
         "invalid_part": "a parte mudou de nome ou de lugar",
         "cycle": "fecharia um ciclo de dependências",
         "self": "um ticket não depende de si mesmo",
+        "ancestor": "um ticket não depende do próprio pai nem de um ancestral",
         "unknown_keys": "cita um ticket que não existe",
         "forbidden_text": "o texto imita a citação do pedido"
       },

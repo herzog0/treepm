@@ -186,7 +186,7 @@ export const createdTicketSchema = z.object({
   /** Ligações pedidas que a API descartou na validação (a criação seguiu): o que, e por quê. */
   warnings: z.array(
     z.discriminatedUnion("code", [
-      z.object({ code: z.literal("link_discarded"), de: z.union([z.literal("pai"), z.number().int()]), dependeDe: z.string(), reason: z.enum(["unknown_ticket", "inactive_ticket", "invalid_part", "cycle", "self"]) }),
+      z.object({ code: z.literal("link_discarded"), de: z.union([z.literal("pai"), z.number().int()]), dependeDe: z.string(), reason: z.enum(["unknown_ticket", "inactive_ticket", "invalid_part", "cycle", "self", "ancestor"]) }),
       z.object({ code: z.literal("suggested_discarded"), title: z.string(), reason: z.enum(["unknown_keys", "forbidden_text"]) }),
     ]),
   ),
@@ -205,17 +205,17 @@ export const elaborationOutcomeSchema = z.object({
     .object({
       model: z.object({ links: z.number().int(), suggested: z.number().int() }),
       dropped: z.object({
-        links: z.object({ outsideList: z.number().int(), duplicateTarget: z.number().int(), invalidPart: z.number().int(), badReason: z.number().int(), repeated: z.number().int(), limit: z.number().int() }),
+        links: z.object({ outsideList: z.number().int(), duplicateTarget: z.number().int(), invalidPart: z.number().int(), badReason: z.number().int(), repeated: z.number().int(), limit: z.number().int(), ancestor: z.number().int() }),
         suggested: z.object({ forbiddenText: z.number().int(), keyInText: z.number().int(), size: z.number().int(), repeatedTitle: z.number().int(), limit: z.number().int() }),
       }),
       lookups: z.array(
         z.object({
           outcome: z.enum(["converted", "kept", "dropped_duplicate", "dropped_repeated_link", "dropped_limit", "lookup_failed", "skipped_no_time"]),
           candidates: z.number().int(),
-          maxSameRequest: z.number().nullable(),
+          chosen: z.boolean(),
         }),
       ),
-      timingsMs: z.object({ claude: z.number().int(), lookup: z.number().int() }),
+      timingsMs: z.object({ claude: z.number().int(), lookup: z.number().int(), secondCall: z.number().int() }),
     })
     .optional(),
 });
