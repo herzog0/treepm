@@ -10,6 +10,7 @@ import {
   checkMustMention,
   checkMustNotMention,
   checkDraft,
+  checkElaboration,
 } from "../scripts/conversation-checks.js";
 
 describe("normalizeText", () => {
@@ -168,5 +169,50 @@ describe("os casos da medição (TREEPM-242)", () => {
     expect(cases.get("ticket-simples")?.["expectIdea"]).toBe(false);
     expect(cases.get("defeito-com-passos")?.["expectIdea"]).toBe(false);
     for (const [id, c] of cases) if (!["ideia-declarada", "botao-play", "ticket-simples", "defeito-com-passos"].includes(id)) expect(c).not.toHaveProperty("expectIdea");
+  });
+});
+
+describe("a elaboração na medição (ADR 0052, fatia 3)", () => {
+  const related = [{ key: "T-1", title: "Guardar a origem de cada ticket", excerpt: "", status: "todo" }];
+  const base = { id: "e", messages: ["m"], expectChildren: "either" as const, mustMention: [], mustNotMention: [], related, expectLinkKeys: ["T-1"], minSuggested: 1, maxSuggested: 2 };
+  const draft = { title: "Sincronizar", description: "diff", children: [{ title: "Receber o diff", description: "" }] };
+  const raw = (links: { de: "pai" | number; dependeDe: string; motivo: string }[], suggested: { title: string; description: string; motivo: string }[]) => ({ links, suggested });
+
+  it("passa quando a ligação esperada aparece e o número de sugeridas está no intervalo; devolve o que ficou depois do descarte do servidor", () => {
+    const r = checkElaboration(base, draft, raw([{ de: "pai", dependeDe: "T-1", motivo: "ok" }, { de: "pai", dependeDe: "T-9", motivo: "fora da lista" }], [{ title: "Guardar o cursor", description: "", motivo: "sem isso não há diff" }, { title: "receber o DIFF", description: "", motivo: "repete a parte" }]));
+    expect(r).toMatchObject({ linkKeys: ["T-1"], linksMissing: [], suggestedCount: 1, suggestedOk: true, passes: true });
+    expect(r.suggestedTitles).toEqual(["Guardar o cursor"]);
+  });
+  it("reprova a ligação que falta e a quantidade de sugeridas fora do intervalo", () => {
+    expect(checkElaboration(base, draft, raw([], [{ title: "A", description: "", motivo: "m" }]))).toMatchObject({ linksMissing: ["T-1"], passes: false });
+    expect(checkElaboration(base, draft, raw([{ de: "pai", dependeDe: "T-1", motivo: "ok" }], []))).toMatchObject({ suggestedOk: false, passes: false });
+  });
+  it("caso em que nada é implicado: listas vazias passam; sugerir ou ligar reprova", () => {
+    const none = { ...base, related: [], expectLinkKeys: [], minSuggested: 0, maxSuggested: 0 };
+    expect(checkElaboration(none, draft, raw([], []))).toMatchObject({ passes: true, suggestedCount: 0 });
+    expect(checkElaboration(none, draft, raw([], [{ title: "Boas práticas", description: "", motivo: "m" }]))).toMatchObject({ suggestedOk: false, passes: false });
+  });
+  it("sugerida marcada não é inventada: o texto da sugerida não entra na checagem de invenção do rascunho", () => {
+    const withBan = { ...base, mustNotMention: ["critérios de aceite"] };
+    expect(checkDraft(withBan, { message: "ok", ready: true, draft }).invented).toEqual([]);
+    expect(checkElaboration(withBan, draft, raw([{ de: "pai", dependeDe: "T-1", motivo: "x" }], [{ title: "Escrever critérios de aceite", description: "", motivo: "m" }])).suggestedCount).toBe(1);
+  });
+});
+
+describe("os casos com relacionados (ADR 0052, fatia 3)", () => {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), "../scripts/conversation-cases");
+  const load = (id: string) => JSON.parse(readFileSync(join(dir, `${id}.json`), "utf8")) as { related: { key: string; title: string }[]; expectLinkKeys: string[]; minSuggested: number; maxSuggested: number; messages: string[] };
+  it("com-relacionados: uma parte implicada já existe (ligação) e outra não (tarefa sugerida)", () => {
+    const c = load("com-relacionados");
+    expect(c.related.length).toBeGreaterThanOrEqual(2);
+    expect(c.expectLinkKeys.length).toBeGreaterThanOrEqual(1);
+    for (const key of c.expectLinkKeys) expect(c.related.map((r) => r.key)).toContain(key);
+    expect(c.minSuggested).toBeGreaterThanOrEqual(1);
+  });
+  it("nada-implicado: pedido completo em si, sem relacionados, espera listas vazias", () => {
+    const c = load("nada-implicado");
+    expect(c.expectLinkKeys).toEqual([]);
+    expect(c.maxSuggested).toBe(0);
+    expect(c.related).toEqual([]);
   });
 });

@@ -37,6 +37,9 @@ interface PathCardProps {
   idea: boolean;
   /** A prévia recusa a criação: os botões de criar ficam desabilitados. */
   createBlocked: boolean;
+  /** A elaboração ainda carrega (ADR 0052, item 4): criar espera por ela, ou a pessoa escolhe criar sem ela. */
+  waiting?: boolean;
+  onCreateNow?: () => void;
 }
 
 /** O caminho do topo até a base, em palavras: sem probabilidades (ADR 0029). */
@@ -90,7 +93,7 @@ export function PathCard(props: PathCardProps) {
             })}
           </ul>
           <div className="proposal-actions">
-            <button type="button" disabled={busy || props.createBlocked} onClick={props.onCreateGroup}>{t("proposal.create")}</button>
+            <button type="button" disabled={busy || props.createBlocked || props.waiting === true} onClick={props.onCreateGroup}>{t("proposal.create")}</button>
           </div>
         </div>
       )}
@@ -122,7 +125,8 @@ export function PathCard(props: PathCardProps) {
       )}
       {props.error && <p role="alert">{describeError(props.error)}</p>}
       <div className="assistant-actions">
-        <button type="button" className="primary" data-assistant-create disabled={busy || props.createBlocked} onClick={props.onCreate}>{props.idea ? (props.parts > 0 ? t("path.createIdeaWithParts", { count: props.parts }) : t("path.createIdea")) : props.parts > 0 ? t("path.createWithParts", { count: props.parts }) : t("path.create")}</button>
+        <button type="button" className="primary" data-assistant-create disabled={busy || props.createBlocked || props.waiting === true} onClick={props.onCreate}>{props.waiting === true ? t("elaboration.waiting") : props.idea ? (props.parts > 0 ? t("path.createIdeaWithParts", { count: props.parts }) : t("path.createIdea")) : props.parts > 0 ? t("path.createWithParts", { count: props.parts }) : t("path.create")}</button>
+        {props.waiting === true && props.onCreateNow && <button type="button" className="text" disabled={busy || props.createBlocked} onClick={props.onCreateNow}>{t("elaboration.createNow")}</button>}
         <button type="button" disabled={!props.canGoUp} onClick={props.onUp}>{t("path.up")}</button>
         <button type="button" className="text" onClick={props.onChoose}>{t("pick.choose")}</button>
       </div>

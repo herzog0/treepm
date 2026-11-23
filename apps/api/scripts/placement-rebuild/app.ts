@@ -6,7 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { Test } from "@nestjs/testing";
 import { AppModule } from "../../src/app.module.js";
-import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, GROUP_NAMER, RELATED_JUDGE } from "../../src/assistant/ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, GROUP_NAMER, RELATED_JUDGE, TICKET_ELABORATOR } from "../../src/assistant/ports.js";
 import type { AffinityInput, AffinityJudge, BranchJudge, BranchJudgment } from "../../src/assistant/ports.js";
 import { JevAffinityJudge } from "../../src/assistant/jev-affinity-judge.js";
 import { sdkStreamer } from "../../src/assistant/claude-call.js";
@@ -20,7 +20,7 @@ import { DIRECTORY_PROVIDER } from "../../src/auth/directory-provider.js";
 import { SESSION_VERIFIER } from "../../src/auth/session-verifier.js";
 import type { SessionVerifier, VerifiedSession } from "../../src/auth/session-verifier.js";
 import { requireAssistantConsentOfOrg } from "./consent.js";
-import { FakeAffinity, FakeConversation, FakeDirectoryProvider, FakeJudge, FakeNamer, FakeRelated, FakeSummarizer } from "./fakes.js";
+import { FakeAffinity, FakeConversation, FakeDirectoryProvider, FakeElaborator, FakeJudge, FakeNamer, FakeRelated, FakeSummarizer } from "./fakes.js";
 import { NoTurnConversation, RootCapture, RootCaptureJudge, ZeroAffinity, ZeroRelated, fakeClaude, fakeSystemOne } from "./collect-providers.js";
 import { resolveCurrentId } from "./core.js";
 import type { AffinityRecord, JudgmentRecord } from "./core.js";
@@ -188,7 +188,9 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
       .overrideProvider(RELATED_JUDGE)
       .useValue(options.collect ? new ZeroRelated() : new FakeRelated())
       .overrideProvider(GROUP_NAMER)
-      .useValue(new FakeNamer());
+      .useValue(new FakeNamer())
+      .overrideProvider(TICKET_ELABORATOR)
+      .useValue(new FakeElaborator());
   } else {
     builder = builder.overrideProvider(BRANCH_JUDGE).useFactory({
       inject: [CONFIG],

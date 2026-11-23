@@ -30,7 +30,7 @@ function makeFullClient(extra: Partial<Record<keyof ApiClient, unknown>> = {}, l
     getConversation: vi.fn(async (id: string) => ok(makeConversation(id, "p1"))),
     openConversation: vi.fn(async (projectId: string) => ok(makeConversation("c1", projectId))),
     findPlacement: vi.fn(async () => ok(makePlacement({ destination: { parentId: "t1", path: [{ id: "t1", title: "Acesso" }] } }))),
-    createTicketFromConversation: vi.fn(async (id: string) => ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: detailOf(created) })),
+    createTicketFromConversation: vi.fn(async (id: string) => ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: detailOf(created), children: [], warnings: [] })),
     ...extra,
   });
   return client;

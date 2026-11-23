@@ -36,10 +36,15 @@ export async function callClaude(
   params: StreamParams,
   timeoutMs: number,
   logger: Logger,
+  /** Sinal de quem chamou: abortá-lo cancela a requisição ao provedor e rejeita logo (como o prazo). */
+  outer?: AbortSignal,
 ): Promise<FinalMessage> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onOuter = () => controller.abort();
+  outer?.addEventListener("abort", onOuter);
   try {
+    if (outer?.aborted) throw new AssistantUnavailableError("timeout");
     const aborted = new Promise<never>((_, reject) => {
       controller.signal.addEventListener("abort", () => reject(new AssistantUnavailableError("timeout")));
     });
@@ -50,6 +55,7 @@ export async function callClaude(
     throw new AssistantUnavailableError("provider_error");
   } finally {
     clearTimeout(timer);
+    outer?.removeEventListener("abort", onOuter);
   }
 }
 

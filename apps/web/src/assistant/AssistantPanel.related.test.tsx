@@ -28,6 +28,7 @@ function setup(placement: PlacementOutcome) {
         conversation: makeConversation(id, "p1", { status: "ticket_created" }),
         ticket: { ...makeTicket("t9", "p1", 9, "Sincronizar tickets", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" },
         children: [],
+        warnings: [],
       })),
   });
   const props = {

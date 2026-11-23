@@ -1,0 +1,17 @@
+{
+  "id": "nada-implicado",
+  "messages": [
+    "Trocar o texto do botão 'Salvar' por 'Gravar' na tela de edição de ticket, em português."
+  ],
+  "expectChildren": false,
+  "mustMention": [
+    { "label": "Salvar", "anyOf": ["salvar"] },
+    { "label": "Gravar", "anyOf": ["gravar"] },
+    { "label": "tela de edição de ticket", "anyOf": ["edição"] }
+  ],
+  "mustNotMention": ["critérios de aceite", "fase", "prazo", "sprint"],
+  "related": [],
+  "expectLinkKeys": [],
+  "minSuggested": 0,
+  "maxSuggested": 0
+}

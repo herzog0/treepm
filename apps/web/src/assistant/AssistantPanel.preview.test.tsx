@@ -38,6 +38,7 @@ function setup(options: { children?: { title: string; description: string }[]; p
       conversation: makeConversation(id, "p1", { status: "ticket_created" }),
       ticket: { ...makeTicket("t9", "p1", 9, "Chat no painel", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" },
       children: [],
+        warnings: [],
     })),
     ...options.extra,
   });

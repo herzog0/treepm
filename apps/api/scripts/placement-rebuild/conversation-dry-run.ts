@@ -58,8 +58,15 @@ export function probabilitiesOf(decision: Decision, keyOf: (id: string | null) =
   };
 }
 
+/** A elaboração como a rota a devolve (ADR 0052, fatia 3): `dependeDe` é a chave do ticket na API; `unavailable` diz por que veio vazia. */
+export type Elaboration = {
+  links: { de: "pai" | number; dependeDe: string; dependeDeTitle: string; motivo: string }[];
+  suggested: { title: string; description: string; motivo: string }[];
+  unavailable: string | null;
+};
+
 /** O que uma passada devolve, ainda com os ids da API: quem chama traduz para as chaves que quiser. */
-export type DryRunResult = { draft: NonNullable<Draft>; ready: boolean; outcome: Outcome; decision: Decision | null; conversationDiscarded: boolean; conversationId: string };
+export type DryRunResult = { draft: NonNullable<Draft>; ready: boolean; outcome: Outcome; decision: Decision | null; elaboration: Elaboration | null; conversationDiscarded: boolean; conversationId: string };
 
 /**
  * Uma passada: abre a conversa com o texto, pede o lugar, lê a decisão guardada e descarta a conversa (com sucesso ou erro).
@@ -76,7 +83,9 @@ export async function runDryRun(ctx: TicketContext, text: string, scopeId?: stri
     // A decisão sai ANTES do descarte: descartar a conversa apaga a decisão que ainda é dela.
     // A leitura é opcional: se falhar, o resultado da procura sai mesmo assim, sem as probabilidades.
     const stored = await call<{ decision: Decision | null }>("ler a decisão da procura", ctx, "GET", `/ticket-conversations/${conversation.id}/placement-decision`).catch(() => null);
-    result = { draft: conversation.draft, ready: conversation.ready, outcome, decision: stored?.decision ?? null };
+    // A elaboração lê a decisão guardada: roda ANTES do descarte. Falhar não derruba o ensaio.
+    const elaboration = await call<Elaboration>("elaborar ligações e tarefas", ctx, "POST", `/ticket-conversations/${conversation.id}/elaboration`).catch(() => null);
+    result = { draft: conversation.draft, ready: conversation.ready, outcome, decision: stored?.decision ?? null, elaboration };
   } finally {
     discarded = (await ctx.client.request("DELETE", `/ticket-conversations/${conversation.id}`)).status === 204;
   }
@@ -111,6 +120,9 @@ export async function conversationDryRunCommand(ctx: TicketContext, input: Conve
       duplicate: duplicate ? { key: duplicate.key, title: duplicate.title } : null,
       decision,
       probabilities: run.decision ? probabilitiesOf(run.decision, keyOf) : null,
+      links: run.elaboration?.links ?? [],
+      suggested: run.elaboration?.suggested ?? [],
+      elaborationUnavailable: run.elaboration === null ? "unavailable" : run.elaboration.unavailable,
       conversationDiscarded: run.conversationDiscarded,
       ...(run.conversationDiscarded ? {} : { conversationId: run.conversationId }),
     }),

@@ -15,11 +15,14 @@ import type {
   ConversationProvider,
   ConversationTurn,
   ConversationTurnInput,
+  ElaborationInput,
+  ElaborationResult,
   GroupNameInput,
   GroupNamer,
   RelatedInput,
   RelatedJudge,
   RelatedJudgment,
+  TicketElaborator,
 } from "../../src/assistant/ports.js";
 import type { DirectoryProvider } from "../../src/auth/directory-provider.js";
 
@@ -128,5 +131,17 @@ export class FakeRelated implements RelatedJudge {
 export class FakeNamer implements GroupNamer {
   name(input: GroupNameInput): Promise<{ title: string; description: string; model: string }> {
     return Promise.resolve({ title: `Grupo de ${input.newTicket.title}`.slice(0, 80), description: "Agrupador do ensaio.", model: "fake-model" });
+  }
+}
+
+/**
+ * Elaboração falsa do ensaio (ADR 0052, fatia 3): liga o pedido a cada relacionado (até cinco) e, sem relacionados, sugere uma
+ * tarefa, para o ensaio exercitar os dois lados. Nunca chama modelo.
+ */
+export class FakeElaborator implements TicketElaborator {
+  elaborate(input: ElaborationInput): Promise<ElaborationResult> {
+    const links = input.related.slice(0, 5).map((ticket) => ({ de: "pai" as const, dependeDe: ticket.key, motivo: "Ensaio: o pedido toca neste ticket." }));
+    const suggested = input.related.length === 0 ? [{ title: "Tarefa implicada (ensaio)", description: "", motivo: "Ensaio: nada existe sobre o assunto." }] : [];
+    return Promise.resolve({ links, suggested, model: "fake-model" });
   }
 }

@@ -1,4 +1,4 @@
-import { mentionedKeys, scanTicketKeys } from "@treepm/domain";
+import { descriptionExcerpt, mentionedKeys, scanTicketKeys } from "@treepm/domain";
 import {
   Body,
   ConflictException,
@@ -6,6 +6,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpException,
   Inject,
   Logger,
   NotFoundException,
@@ -32,13 +33,16 @@ import {
   conversationSummarySchema,
   createTicketBodySchema,
   createdTicketSchema,
+  elaborationOutcomeSchema,
   placementBodySchema,
   placementOutcomeSchema,
   draftBodySchema,
   previewSchema,
 } from "./conversations.schema.js";
 import type { ConversationDetail, ConversationSummary } from "./conversations.schema.js";
-import { buildRequestQuote, withRequestQuote } from "./request-quote.js";
+import { buildRequestQuote, suggestedDescription, withRequestQuote } from "./request-quote.js";
+import { forbiddenQuoteText, normalizeTitle, sanitizeElaboration } from "./elaboration.js";
+import { ELABORATION_TIMEOUT_MS } from "./claude-ticket-elaborator.js";
 import { loadPlacementTree } from "./branch-tree.js";
 import { decisionOf, errorCode, handDecisionToTicket, readDecisionSafely, saveDecision } from "./placement-decision.js";
 import type { DecisionExtras, PlacementDecisionRecord } from "./placement-decision.js";
@@ -358,6 +362,79 @@ export class TicketConversationsController {
     return { decision: await readDecisionSafely(tx, id) };
   }
 
+  /**
+   * As ligações e as tarefas que o pedido implica (ADR 0052, item 4). Lê o rascunho guardado e os relacionados da última procura
+   * (a decisão guardada: só ids e números, nada é refeito nem custa outra chamada ao Jev). Nunca derruba nada: sem provedor, sem
+   * aceite ou com erro do modelo, devolve listas vazias com o motivo, e a criação do ticket segue normal. O que o modelo devolve
+   * passa por `sanitizeElaboration`; nada é gravado aqui.
+   */
+  @Post("ticket-conversations/:id/elaboration")
+  @OwnTransactions()
+  async elaboration(
+    @Tenant() tenant: TenantRunner,
+    @Param("id", new ZodPipe(idSchema)) id: string,
+  ): Promise<z.output<typeof elaborationOutcomeSchema>> {
+    const empty = (unavailable: "not_configured" | "consent_required" | "unavailable") => parseOutput(elaborationOutcomeSchema, { links: [], suggested: [], unavailable });
+    // O portão do aceite vem antes de ler rascunho e tickets, como nas outras rotas do assistente.
+    let providers;
+    try {
+      providers = await this.gate.open(tenant);
+    } catch (error) {
+      const code = error instanceof HttpException ? (error.getResponse() as { code?: string }).code : undefined;
+      if (code === "assistant_not_configured") return empty("not_configured");
+      if (code === "assistant_consent_required") return empty("consent_required");
+      throw error;
+    }
+    const seen = await tenant.run(async (tx, principal) => {
+      const { conversation, project } = await this.requireWritable(tx, principal, id);
+      if (conversation.draftTitle === null) throw this.draftRequired();
+      const decision = await readDecisionSafely(tx, id);
+      // O que mudou depois da procura (virou ideia, foi cancelado, com a subárvore) não vai ao modelo nem vira ligação.
+      const live = new Set((await loadPlacementTree(tx, conversation.projectId)).tickets.map((ticket) => ticket.id));
+      const ids = (decision?.related ?? []).map((entry) => entry.ticketId).filter((ticketId) => live.has(ticketId));
+      const rows = ids.length === 0 ? [] : await tx.ticket.findMany({ where: { id: { in: ids }, projectId: conversation.projectId }, select: { id: true, number: true, title: true, description: true, status: true } });
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      const related = ids.flatMap((ticketId) => {
+        const row = byId.get(ticketId);
+        return row ? [{ id: row.id, key: `${project.key}-${row.number}`, title: row.title, excerpt: descriptionExcerpt(row.description), status: row.status }] : [];
+      });
+      const duplicate = decision?.duplicateTicketId ? byId.get(decision.duplicateTicketId) : undefined;
+      return {
+        draft: { title: conversation.draftTitle, description: conversation.draftDescription ?? "", parts: childrenOf(conversation) },
+        related,
+        duplicateKey: duplicate ? `${project.key}-${duplicate.number}` : null,
+        projectKey: project.key,
+      };
+    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeouts?.elaborationMs ?? ELABORATION_TIMEOUT_MS);
+    try {
+      const timedOut = new Promise<never>((_, reject) => controller.signal.addEventListener("abort", () => reject(new AssistantUnavailableError("timeout"))));
+      // Só chave, título, trecho e situação vão ao modelo: nenhum id.
+      const sent = seen.related.map(({ key, title, excerpt, status }) => ({ key, title, excerpt, status }));
+      const answer = await Promise.race([providers.elaborator.elaborate({ draft: seen.draft, related: sent }, { signal: controller.signal }), timedOut]);
+      const clean = sanitizeElaboration(answer, {
+        draftTitle: seen.draft.title,
+        partTitles: seen.draft.parts.map((part) => part.title),
+        related: sent,
+        duplicateKey: seen.duplicateKey,
+        projectKey: seen.projectKey,
+      });
+      const titleOf = new Map(sent.map((entry) => [entry.key, entry.title]));
+      return parseOutput(elaborationOutcomeSchema, {
+        links: clean.links.map((link) => ({ ...link, ...(link.de === "pai" ? {} : { deTitle: seen.draft.parts[link.de]?.title ?? "" }), dependeDeTitle: titleOf.get(link.dependeDe) ?? "" })),
+        suggested: clean.suggested,
+        unavailable: null,
+      });
+    } catch (error) {
+      // Só o motivo vai ao registro: nunca texto do rascunho nem do modelo.
+      this.logger.warn(`elaboração indisponível motivo=${error instanceof AssistantUnavailableError ? error.reason : errorCode(error)}`);
+      return empty("unavailable");
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** Não chama provedor: funciona sem as chaves. Idempotente: cada conversa cria no máximo um ticket. */
   @Post("ticket-conversations/:id/ticket")
   @QueuesStructure({ by: "conversation" })
@@ -376,6 +453,7 @@ export class TicketConversationsController {
         conversation: await this.detail(tx, id),
         ticket: await this.tickets.detail(tx, project, conversation.createdTicketId),
         children: await this.createdChildren(tx, project, id, conversation.createdTicketId),
+        warnings: [],
       });
     }
     if (conversation.status !== "open") {
@@ -384,12 +462,16 @@ export class TicketConversationsController {
     if (conversation.draftTitle === null) throw this.draftRequired();
     // ADR 0045: criar pai, filhos e agrupador muda a estrutura. A trava vem antes de ler a ideia que contém o lugar escolhido.
     await this.tickets.lockStructure(tx, project.id);
+    // Ordem das travas (ADR 0046): estrutura → dependências → linhas de ticket → linha do projeto. Com ligações a criar, a trava de
+    // dependências vem aqui, antes de o primeiro `create` reservar número na linha do projeto: a rota de dependências a pega primeiro.
+    if (body.links.length > 0) await this.tickets.lockDependencies(tx, project.id);
     // Ideia (ADR 0044, adendo): o pai nasce como ideia pelo mesmo caminho da tela, com a mesma permissão. Num lugar que já está
     // dentro de uma ideia, o que nasce faz parte dela, sem estágio próprio, e a opção não pede permissão nenhuma.
     const asIdea = conversation.draftIdea && (await this.tickets.ideaRootFor(tx, project, body.parentId)) === null;
     if (asIdea) this.authorization.registerIdea(principal.actor, project.id);
     const built = await this.assemble(tx, project, conversation);
     this.requireFits(built);
+    const { resolved, warnings } = await this.resolveLinks(tx, project, body.links, built.children);
     if (built.unknownKeys.length > 0) {
       throw new ConflictException({
         code: "unknown_ticket_keys",
@@ -397,6 +479,8 @@ export class TicketConversationsController {
         details: { keys: built.unknownKeys },
       });
     }
+    // A sugerida que cita ticket que não existe, ou que forjaria a citação do pedido, é descartada com aviso: a criação segue.
+    const suggested = await this.keepSuggested(tx, project, conversation, built.unknownKeys, body.suggested, warnings);
     const origin = { origin: "assistant", conversationId: id };
     let parentId = body.parentId;
     if (body.group) {
@@ -422,6 +506,24 @@ export class TicketConversationsController {
     for (const child of built.children) {
       kids.push(await this.tickets.create(tx, principal, project, { title: child.title, description: child.description, parentId: ticket.id, status: "todo", assigneeIds: [] }, origin));
     }
+    // As sugeridas ficam depois das partes da pessoa, com a linha fixa e sem a citação do pedido; o evento guarda quem as sugeriu.
+    for (const task of suggested) {
+      kids.push(
+        await this.tickets.create(
+          tx,
+          principal,
+          project,
+          { title: task.title, description: suggestedDescription(task.motivo, task.description), parentId: ticket.id, status: "todo", assigneeIds: [] },
+          { ...origin, suggestedBy: "assistant" },
+        ),
+      );
+    }
+    // As ligações valem na mesma operação; uma que a regra de dependência recusar vira aviso, nunca derruba a criação.
+    for (const link of resolved) {
+      const from = link.de === "pai" ? ticket : kids[link.de];
+      const outcome = from ? await this.tickets.linkDependency(tx, principal, project, { id: from.id, number: from.number }, link.target) : "self";
+      if (outcome === "cycle" || outcome === "self") warnings.push({ code: "link_discarded", de: link.de, dependeDe: link.key, reason: outcome });
+    }
     await tx.ticketConversation.update({
       where: { orgId_id: { orgId: conversation.orgId, id } },
       data: { status: "ticket_created", createdTicketId: ticket.id, closedAt: new Date() },
@@ -434,6 +536,7 @@ export class TicketConversationsController {
       // Com filhos, o pai é lido de novo: o progresso e a contagem dele mudam quando os filhos nascem.
       ticket: kids.length > 0 ? await this.tickets.detail(tx, project, ticket.id) : ticket,
       children: kids,
+      warnings,
     });
   }
 
@@ -503,7 +606,7 @@ export class TicketConversationsController {
    * naquela conversa, na ordem, como ela as escreveu), os filhos, e as chaves de ticket da parte escrita pela IA que não
    * existem no projeto. Chaves que a própria pessoa escreveu em alguma mensagem não são recusadas, nem quando a IA as repete.
    */
-  private async assemble(tx: TenantClient, project: ProjectRow, conversation: ConversationRow) {
+  private async assemble(tx: TenantClient, project: ProjectRow, conversation: ConversationRow, extraTexts: readonly string[] = []) {
     const messages = (
       await tx.ticketConversationMessage.findMany({
         where: { conversationId: conversation.id, author: "person" },
@@ -515,7 +618,7 @@ export class TicketConversationsController {
     const children = childrenOf(conversation);
     const personKeys = new Set(messages.flatMap((message) => scanTicketKeys(message).map((match) => match.key)));
     const prefix = `${project.key}-`;
-    const cited = [...new Set([aiDescription, ...children.map((child) => child.description)].flatMap((text) => mentionedKeys(text)))].filter(
+    const cited = [...new Set([aiDescription, ...children.map((child) => child.description), ...extraTexts].flatMap((text) => mentionedKeys(text)))].filter(
       (key) => key.startsWith(prefix) && !personKeys.has(key),
     );
     const numbers = cited.map((key) => ({ key, number: Number(key.slice(prefix.length)) }));
@@ -537,6 +640,63 @@ export class TicketConversationsController {
       children,
       unknownKeys: numbers.filter((entry) => !existing.has(entry.number)).map((entry) => entry.key),
     };
+  }
+
+  /**
+   * Resolve as ligações pedidas ANTES de criar qualquer ticket (ADR 0052, item 4): o alvo é um ticket que já existe neste projeto
+   * (o número que o ticket novo vai ter, outro projeto e chave inventada não resolvem) e a origem é o pai ou uma parte do rascunho.
+   * O que não vale vira aviso; repetida some em silêncio.
+   */
+  private async resolveLinks(tx: TenantClient, project: ProjectRow, links: readonly { de: "pai" | number; deTitle?: string | undefined; dependeDe: string }[], parts: readonly { title: string }[]) {
+    const warnings: z.output<typeof createdTicketSchema>["warnings"] = [];
+    const prefix = `${project.key}-`;
+    const numberOf = (key: string): number | null => {
+      const number = key.startsWith(prefix) ? Number(key.slice(prefix.length)) : Number.NaN;
+      return Number.isInteger(number) && number >= 1 && number <= 2_147_483_647 ? number : null;
+    };
+    const numbers = [...new Set(links.flatMap((link) => numberOf(link.dependeDe) ?? []))];
+    const found = numbers.length === 0 ? [] : await tx.ticket.findMany({ where: { projectId: project.id, number: { in: numbers } }, select: { id: true, number: true } });
+    const byNumber = new Map(found.map((row) => [row.number, row]));
+    // Só a árvore viva (sem ideias nem cancelados) pode ser alvo, como na procura.
+    const live = found.length === 0 ? new Set<string>() : new Set((await loadPlacementTree(tx, project.id)).tickets.map((ticket) => ticket.id));
+    const seen = new Set<string>();
+    const resolved: { de: "pai" | number; key: string; target: { id: string; number: number } }[] = [];
+    for (const link of links) {
+      const pair = `${link.de}>${link.dependeDe}`;
+      if (seen.has(pair)) continue;
+      seen.add(pair);
+      const number = numberOf(link.dependeDe);
+      const target = number === null ? undefined : byNumber.get(number);
+      if (!target) warnings.push({ code: "link_discarded", de: link.de, dependeDe: link.dependeDe, reason: "unknown_ticket" });
+      else if (!live.has(target.id)) warnings.push({ code: "link_discarded", de: link.de, dependeDe: link.dependeDe, reason: "inactive_ticket" });
+      else if (link.de !== "pai" && (link.de >= parts.length || normalizeTitle(parts[link.de]!.title) !== normalizeTitle(link.deTitle ?? ""))) warnings.push({ code: "link_discarded", de: link.de, dependeDe: link.dependeDe, reason: "invalid_part" });
+      else resolved.push({ de: link.de, key: link.dependeDe, target });
+    }
+    return { resolved, warnings };
+  }
+
+  /**
+   * As sugeridas que valem: descarta (com aviso) a que cita ticket que não existe no projeto ou que forjaria a citação do pedido.
+   * As chaves inexistentes são as que a conferência do rascunho ainda não tinha achado sozinha.
+   */
+  private async keepSuggested(
+    tx: TenantClient,
+    project: ProjectRow,
+    conversation: ConversationRow,
+    draftUnknown: readonly string[],
+    tasks: readonly { title: string; description: string; motivo: string }[],
+    warnings: z.output<typeof createdTicketSchema>["warnings"],
+  ) {
+    if (tasks.length === 0) return [];
+    const withTasks = await this.assemble(tx, project, conversation, tasks.map((task) => `${task.title}\n${task.motivo}\n${task.description}`));
+    const missing = new Set(withTasks.unknownKeys.filter((key) => !draftUnknown.includes(key)));
+    const kept: typeof tasks[number][] = [];
+    for (const task of tasks) {
+      if (forbiddenQuoteText(task.title, task.motivo, task.description)) warnings.push({ code: "suggested_discarded", title: task.title, reason: "forbidden_text" });
+      else if (mentionedKeys(`${task.title}\n${task.motivo}\n${task.description}`).some((key) => missing.has(key))) warnings.push({ code: "suggested_discarded", title: task.title, reason: "unknown_keys" });
+      else kept.push(task);
+    }
+    return kept;
   }
 
   /** Nunca corta o texto da pessoa: a citação fica inteira e a criação é recusada, pedindo para encurtar a parte da IA. */

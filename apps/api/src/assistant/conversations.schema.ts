@@ -2,7 +2,9 @@ import { z } from "zod";
 import { idSchema } from "../common/schemas.js";
 import { ticketDetailSchema } from "../tickets/tickets.schema.js";
 import { ticketDescriptionSchema, ticketTitleSchema } from "../tickets/tickets.schema.js";
+import { MAX_REASON_CHARS, MAX_SUGGESTED_DESCRIPTION_CHARS } from "./elaboration.js";
 import { MAX_DRAFT_CHILDREN } from "./ports.js";
+import { ELABORATION_MAX_LINKS, ELABORATION_MAX_SUGGESTED } from "./prompts.js";
 
 export const MAX_PERSON_MESSAGE = 4000;
 
@@ -43,11 +45,40 @@ export const newGroupSchema = z
   })
   .strict();
 
+export const MAX_SUGGESTED_TASKS = ELABORATION_MAX_SUGGESTED;
+export const MAX_LINKS = ELABORATION_MAX_LINKS;
+const suggestedTaskSchema = z
+  .object({
+    title: ticketTitleSchema,
+    description: z.string().max(MAX_SUGGESTED_DESCRIPTION_CHARS).default(""),
+    /** Uma linha só (ADR 0052, revisão 1): quebra de linha é recusada. */
+    motivo: z.string().trim().min(1).max(MAX_REASON_CHARS).refine((text) => !/[\r\n]/.test(text), "O motivo é uma linha só."),
+  })
+  .strict();
+const linkSchema = z
+  .object({
+    de: z.union([z.literal("pai"), z.number().int().min(0).max(MAX_DRAFT_CHILDREN - 1)]),
+    /** O título da parte de origem quando `de` é um índice: a API só liga se o título ainda casa com o do rascunho (ADR 0052, revisão 1). */
+    deTitle: z.string().max(200).optional(),
+    dependeDe: z.string().regex(/^[A-Z][A-Z0-9]{1,9}-\d{1,10}$/),
+  })
+  .strict()
+  .refine((link) => link.de === "pai" || (link.deTitle !== undefined && link.deTitle.trim() !== ""), { message: "Ligação de parte leva o título da parte.", path: ["deTitle"] });
+
 /**
  * O pai escolhido (ou `null`: ticket de raiz). Título e descrição do ticket vêm sempre do rascunho da conversa.
  * Com `group`, o ticket nasce dentro de um agrupador novo criado em `parentId`.
  */
-export const createTicketBodySchema = z.object({ parentId: idSchema.nullable(), group: newGroupSchema.optional() }).strict();
+export const createTicketBodySchema = z
+  .object({
+    parentId: idSchema.nullable(),
+    group: newGroupSchema.optional(),
+    /** As tarefas sugeridas pelo assistente que a pessoa deixou (ADR 0052, item 4); a API as valida de novo, venham de onde vierem. */
+    suggested: z.array(suggestedTaskSchema).max(MAX_SUGGESTED_TASKS).default([]),
+    /** As ligações "depende de" que a pessoa deixou marcadas: do pai (`"pai"`) ou de uma parte dela, para uma chave de ticket do projeto. */
+    links: z.array(linkSchema).max(MAX_LINKS).default([]),
+  })
+  .strict();
 
 /** Corpo opcional da procura: o agrupador de escopo (ou `null`: o projeto inteiro). */
 export const placementBodySchema = z.object({ scopeId: idSchema.nullable().optional() }).strict();
@@ -152,4 +183,21 @@ export const createdTicketSchema = z.object({
   conversation: conversationDetailSchema,
   ticket: ticketDetailSchema,
   children: z.array(ticketDetailSchema),
+  /** Ligações pedidas que a API descartou na validação (a criação seguiu): o que, e por quê. */
+  warnings: z.array(
+    z.discriminatedUnion("code", [
+      z.object({ code: z.literal("link_discarded"), de: z.union([z.literal("pai"), z.number().int()]), dependeDe: z.string(), reason: z.enum(["unknown_ticket", "inactive_ticket", "invalid_part", "cycle", "self"]) }),
+      z.object({ code: z.literal("suggested_discarded"), title: z.string(), reason: z.enum(["unknown_keys", "forbidden_text"]) }),
+    ]),
+  ),
+});
+
+/**
+ * O que a elaboração devolve (ADR 0052, item 4): ligações com tickets que existem (`de` é `"pai"` ou o índice da parte) e tarefas que
+ * o pedido implica. `unavailable` diz por que as listas vieram vazias quando o modelo não pôde responder; `null` quando respondeu.
+ */
+export const elaborationOutcomeSchema = z.object({
+  links: z.array(z.object({ de: z.union([z.literal("pai"), z.number().int()]), deTitle: z.string().optional(), dependeDe: z.string(), dependeDeTitle: z.string(), motivo: z.string() })),
+  suggested: z.array(z.object({ title: z.string(), description: z.string(), motivo: z.string() })),
+  unavailable: z.enum(["not_configured", "consent_required", "unavailable"]).nullable(),
 });

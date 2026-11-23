@@ -34,6 +34,7 @@ function setup(options: { idea?: boolean; children?: { title: string; descriptio
       conversation: makeConversation(id, "p1", { status: "ticket_created" }),
       ticket: { ...makeTicket("t9", "p1", 9, "Botão play", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" },
       children: [],
+        warnings: [],
     })),
   } as Partial<Record<keyof ApiClient, unknown>>);
   const props = {

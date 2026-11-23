@@ -28,6 +28,8 @@ export type CaseFile = {
   expectRelatedKeys: string[];
   /** Opcional: o duplicado apontado tem de ser este. */
   expectDuplicateKey: string | null;
+  /** Opcional (ADR 0052, fatia 3): passa se todas estas chaves aparecem em `links[].dependeDe`. */
+  expectLinkKeys: string[];
 };
 
 export class CaseError extends Error {
@@ -67,6 +69,7 @@ export function parseCase(raw: string): CaseFile {
     omit: list("omit"),
     expectRelatedKeys: list("expectRelatedKeys"),
     expectDuplicateKey: optionalKey("expectDuplicateKey"),
+    expectLinkKeys: list("expectLinkKeys"),
   };
 }
 
@@ -101,8 +104,14 @@ export type CaseRepeat = {
   destinationHit: boolean;
   relatedHit: boolean;
   duplicateHit: boolean;
+  /** Todas as `expectLinkKeys` apareceram em `links[].dependeDe` (verdadeiro quando o caso não pede nenhuma). */
+  linkHit: boolean;
   related: (string | null)[];
   duplicate: string | null;
+  /** A elaboração (ADR 0052, fatia 3), com as chaves do projeto original; vazias quando o modelo não respondeu (`elaborationUnavailable`). */
+  links: { de: "pai" | number; dependeDe: string | null; dependeDeTitle: string; motivo: string }[];
+  suggested: { title: string; description: string; motivo: string }[];
+  elaborationUnavailable: string | null;
   uncertain: boolean;
   stopReason: string | null;
   probabilities: ReturnType<typeof probabilitiesOf> | null;
@@ -127,8 +136,8 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
     return ticket;
   });
 
-  for (const key of [...spec.expectRelatedKeys, ...(spec.expectDuplicateKey === null ? [] : [spec.expectDuplicateKey])]) {
-    if (!byKey.has(key)) throw new CaseError(`${key} (relacionado ou duplicado esperado) não está na árvore depois de tirar o que o caso omite.`);
+  for (const key of [...spec.expectRelatedKeys, ...spec.expectLinkKeys, ...(spec.expectDuplicateKey === null ? [] : [spec.expectDuplicateKey])]) {
+    if (!byKey.has(key)) throw new CaseError(`${key} (relacionado, ligação ou duplicado esperado) não está na árvore depois de tirar o que o caso omite.`);
   }
 
   const project = expectOk<{ id: string; key: string }>(
@@ -155,15 +164,23 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
       const duplicate = run.outcome.duplicate ? keyOf(run.outcome.duplicate.id) : null;
       const relatedHit = spec.expectRelatedKeys.every((key) => related.includes(key));
       const duplicateHit = spec.expectDuplicateKey === null || duplicate === spec.expectDuplicateKey;
+      // A API devolve as chaves do projeto de medição; o id do relacionado liga de volta à chave do projeto original.
+      const idOfKey = new Map((run.outcome.related ?? []).map((item) => [item.key, item.id]));
+      const links = (run.elaboration?.links ?? []).map((link) => ({ ...link, dependeDe: keyOf(idOfKey.get(link.dependeDe) ?? null) }));
+      const linkHit = spec.expectLinkKeys.every((key) => links.some((link) => link.dependeDe === key));
       const record: CaseRepeat = {
         repeat,
         destinationKey: keyOf(destinationId),
-        hit: destinationHit && relatedHit && duplicateHit,
+        hit: destinationHit && relatedHit && duplicateHit && linkHit,
         destinationHit,
         relatedHit,
         duplicateHit,
+        linkHit,
         related,
         duplicate,
+        links,
+        suggested: run.elaboration?.suggested ?? [],
+        elaborationUnavailable: run.elaboration === null ? "unavailable" : run.elaboration.unavailable,
         uncertain: run.outcome.uncertain as boolean,
         stopReason: run.decision?.stopReason ?? null,
         probabilities: run.decision ? probabilitiesOf(run.decision as Decision, keyOf) : null,

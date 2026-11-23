@@ -486,7 +486,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "createArea", "renameArea", "removeArea", "getProject", "createProject", "updateProject",
     "putProjectMember", "removeProjectMember", "putProjectTeam", "removeProjectTeam",
     "getTicket", "endAgentWork", "createTicket", "updateTicket", "removeTicket", "listIdeas", "putIdeaStage", "acceptIdea", "discardIdea", "makeIdea", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency",
-    "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement",
+    "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement", "getElaboration",
     "createTicketFromConversation", "listConversations", "getConversation", "removeConversation", "getConversationPreview",
     ...GITHUB_NAMES,
     ...MCP_NAMES,
@@ -626,7 +626,7 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
       all.push(entry);
       if (conversation.draft?.description) descriptions.set(entry.id, conversation.draft.description);
       reopenFrom(body.parentId);
-      return ok({ conversation: { ...conversation, status: "ticket_created" as const, createdTicketId: entry.id }, ticket: detail(entry), children: [] });
+      return ok({ conversation: { ...conversation, status: "ticket_created" as const, createdTicketId: entry.id }, ticket: detail(entry), children: [], warnings: [] });
     }),
     updateTicket: vi.fn(async (id, body) => {
       const entry = find(id);

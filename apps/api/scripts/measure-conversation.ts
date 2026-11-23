@@ -33,9 +33,10 @@ import { parseArgs } from "node:util";
 import { z } from "zod";
 import { sdkStreamer } from "../src/assistant/claude-call.js";
 import { ClaudeConversationProvider } from "../src/assistant/claude-conversation-provider.js";
+import { ClaudeTicketElaborator } from "../src/assistant/claude-ticket-elaborator.js";
 import type { ConversationMessage, ConversationTurn } from "../src/assistant/ports.js";
-import { checkDraft } from "./conversation-checks.js";
-import type { ConversationCase, DraftCheck } from "./conversation-checks.js";
+import { checkDraft, checkElaboration } from "./conversation-checks.js";
+import type { ConversationCase, DraftCheck, ElaborationCheck } from "./conversation-checks.js";
 
 const FOLLOW_UP = "Pode seguir com o que eu já disse, sem inventar nada.";
 
@@ -48,6 +49,11 @@ const caseSchema = z.object({
   maxChildren: z.number().int().min(0).optional(),
   mustMention: z.array(z.object({ label: z.string().min(1), anyOf: z.array(z.string().min(1)).min(1) })),
   mustNotMention: z.array(z.string().min(1)),
+  // ADR 0052, fatia 3: com `related` (mesmo vazio) o caso também mede a elaboração.
+  related: z.array(z.object({ key: z.string().min(1), title: z.string().min(1), excerpt: z.string().default(""), status: z.string().min(1) })).optional(),
+  expectLinkKeys: z.array(z.string().min(1)).optional(),
+  minSuggested: z.number().int().min(0).optional(),
+  maxSuggested: z.number().int().min(0).optional(),
 });
 
 type RunResult = {
@@ -61,6 +67,8 @@ type RunResult = {
   message: string;
   draft: ConversationTurn["draft"];
   check: DraftCheck;
+  /** A elaboração (ligações e sugeridas), medida à parte do rascunho; ausente quando o caso não tem `related`. */
+  elaboration?: ElaborationCheck;
   model: string;
   ms: number;
 };
@@ -96,7 +104,9 @@ if (!anthropicKey) {
   console.error("Falta ANTHROPIC_API_KEY (ambiente ou apps/api/.env.local). Nada foi enviado.");
   process.exit(1);
 }
-const provider = new ClaudeConversationProvider(sdkStreamer(new Anthropic({ apiKey: anthropicKey, maxRetries: 0 })));
+const streamer = sdkStreamer(new Anthropic({ apiKey: anthropicKey, maxRetries: 0 }));
+const provider = new ClaudeConversationProvider(streamer);
+const elaborator = new ClaudeTicketElaborator(streamer);
 
 async function runCase(testCase: ConversationCase, run: number): Promise<RunResult> {
   const started = Date.now();
@@ -112,6 +122,12 @@ async function runCase(testCase: ConversationCase, run: number): Promise<RunResu
   } else if (turn.draft === null || !turn.ready) {
     questions.push(turn.message);
   }
+  // A elaboração roda sobre o rascunho que a conversa propôs, com a árvore do caso, e passa pelo mesmo descarte da rota.
+  let elaboration: ElaborationCheck | undefined;
+  if (testCase.related !== undefined && turn.draft !== null) {
+    const answer = await elaborator.elaborate({ draft: { title: turn.draft.title, description: turn.draft.description, parts: turn.draft.children ?? [] }, related: testCase.related });
+    elaboration = checkElaboration(testCase, turn.draft, answer);
+  }
   return {
     caseId: testCase.id,
     run,
@@ -120,6 +136,7 @@ async function runCase(testCase: ConversationCase, run: number): Promise<RunResu
     message: turn.message,
     draft: turn.draft,
     check: checkDraft(testCase, turn),
+    ...(elaboration ? { elaboration } : {}),
     model: turn.model,
     ms: Date.now() - started,
   };
@@ -146,7 +163,13 @@ function printRun(result: RunResult, testCase: ConversationCase): void {
   for (const hit of c.invented) console.log(`  INVENTADO "${hit.phrase}": …${hit.context}…`);
   if (c.ticketKeys.length > 0) console.log(`  CHAVE DE TICKET no texto da IA: ${c.ticketKeys.join(", ")}`);
   if (c.claims.length > 0) console.log(`  A IA DIZ QUE FEZ ALGO: ${c.claims.map((claim) => `"${claim}"`).join(", ")}`);
-  console.log(`resultado: ${c.passes ? "PASSA em tudo" : "NÃO passa"}`);
+  const e = result.elaboration;
+  if (e) {
+    console.log(`ligações propostas: ${e.linkKeys.length === 0 ? "nenhuma" : e.links.map((l) => `${l.de === "pai" ? "pai" : `parte ${l.de}`} → ${l.dependeDe}`).join(", ")} (${flag(e.linksMissing.length === 0)}${e.linksMissing.length > 0 ? `; faltou ${e.linksMissing.join(", ")}` : ""})`);
+    console.log(`sugeridas pelo assistente (à parte de "inventados"): ${e.suggestedCount} (${flag(e.suggestedOk)}; esperado ${testCase.minSuggested ?? 0} a ${testCase.maxSuggested ?? "∞"})`);
+    e.suggested.forEach((task, index) => console.log(`  sugerida ${index + 1}: ${clip(task.title)} — ${clip(task.motivo, 120)}`));
+  }
+  console.log(`resultado: ${c.passes && (e?.passes ?? true) ? "PASSA em tudo" : "NÃO passa"}`);
 }
 
 const results: RunResult[] = [];
@@ -176,7 +199,7 @@ let passingCases = 0;
 for (const testCase of cases) {
   const own = results.filter((r) => r.caseId === testCase.id);
   if (own.length === 0) continue;
-  const passes = own.filter((r) => r.check.passes).length;
+  const passes = own.filter((r) => r.check.passes && (r.elaboration?.passes ?? true)).length;
   if (passes === own.length) passingCases += 1;
   missedTotal += own.reduce((sum, r) => sum + r.check.missed.length, 0);
   inventedTotal += own.reduce((sum, r) => sum + r.check.invented.length, 0);
@@ -192,6 +215,8 @@ console.log(`Casos que passam em tudo (todas as rodadas): ${passingCases}/${case
 console.log(`Detalhes perdidos no total: ${missedTotal}`);
 console.log(`Trechos inventados no total: ${inventedTotal} (chaves de ticket: ${keysTotal}; "criei/dividi": ${claimsTotal})`);
 console.log(`Rodadas em que \`idea\` não é o esperado: ${ideaMisses}`);
+const elaborated = results.filter((r) => r.elaboration);
+console.log(`Elaboração (${elaborated.length} rodada(s)): ligações esperadas que faltaram ${elaborated.reduce((sum, r) => sum + (r.elaboration?.linksMissing.length ?? 0), 0)}; tarefas sugeridas pelo assistente ${elaborated.reduce((sum, r) => sum + (r.elaboration?.suggestedCount ?? 0), 0)} (contadas à parte de "inventados"); fora do esperado ${elaborated.filter((r) => !r.elaboration?.passes).length}`);
 
 if (values.json) {
   writeFileSync(values.json, `${JSON.stringify({ at: new Date().toISOString(), runs, maxTurns, results }, null, 2)}\n`);

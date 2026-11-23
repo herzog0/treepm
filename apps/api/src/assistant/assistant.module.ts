@@ -21,11 +21,12 @@ import { ChatService } from "./chat.service.js";
 import { ClaudeDescriptionWriter } from "./claude-description-writer.js";
 import { DescriptionDraftController } from "./description-draft.controller.js";
 import { ClaudeGroupNamer } from "./claude-group-namer.js";
+import { ClaudeTicketElaborator } from "./claude-ticket-elaborator.js";
 import { JevAffinityJudge } from "./jev-affinity-judge.js";
 import { JevBranchJudge, sdkSystemOne } from "./jev-branch-judge.js";
 import { JevRelatedJudge } from "./jev-related-judge.js";
 import { PlacementService } from "./placement.service.js";
-import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER, RELATED_JUDGE } from "./ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER, RELATED_JUDGE, TICKET_ELABORATOR } from "./ports.js";
 
 @Module({
   imports: [AccessModule, AccessTokensModule, TicketsModule, QueryModule],
@@ -107,6 +108,14 @@ import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERS
       useFactory: (config: AppConfig) =>
         assistantEnabled(config) && config.ANTHROPIC_API_KEY
           ? new ClaudeChatProvider(sdkStreamer(new Anthropic({ apiKey: config.ANTHROPIC_API_KEY, maxRetries: 0 })))
+          : null,
+    },
+    {
+      provide: TICKET_ELABORATOR,
+      inject: [CONFIG],
+      useFactory: (config: AppConfig) =>
+        assistantEnabled(config) && config.ANTHROPIC_API_KEY
+          ? new ClaudeTicketElaborator(sdkStreamer(new Anthropic({ apiKey: config.ANTHROPIC_API_KEY, maxRetries: 0 })))
           : null,
     },
     // Os prazos da ADR (30 s a descida, 20 s a proposta) valem quando nada os troca; os testes trocam.

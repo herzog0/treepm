@@ -15,6 +15,7 @@ import {
   GROUP_NAMER,
   PROJECT_ANSWERER,
   RELATED_JUDGE,
+  TICKET_ELABORATOR,
 } from "./ports.js";
 import type {
   AffinityJudge,
@@ -26,6 +27,7 @@ import type {
   GroupNamer,
   ProjectAnswerer,
   RelatedJudge,
+  TicketElaborator,
 } from "./ports.js";
 
 /** Os provedores de IA, entregues só depois de a conferência passar. */
@@ -39,6 +41,7 @@ export type AssistantProviders = {
   writer: DescriptionWriter;
   answerer: ProjectAnswerer;
   chat: ChatProvider;
+  elaborator: TicketElaborator;
 };
 
 /**
@@ -61,6 +64,7 @@ export class AssistantGate {
     @Optional() @Inject(DESCRIPTION_WRITER) private readonly writer: DescriptionWriter | null,
     @Optional() @Inject(PROJECT_ANSWERER) private readonly answerer: ProjectAnswerer | null,
     @Optional() @Inject(CHAT_PROVIDER) private readonly chat: ChatProvider | null,
+    @Optional() @Inject(TICKET_ELABORATOR) private readonly elaborator: TicketElaborator | null,
   ) {}
 
   /** Para rota com transação própria (`@OwnTransactions`): o aceite é conferido numa transação curta, antes de tudo. */
@@ -78,13 +82,13 @@ export class AssistantGate {
   }
 
   private configured(): AssistantProviders {
-    const { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat } = this;
-    if (!assistantEnabled(this.config) || !conversation || !judge || !summarizer || !affinity || !related || !namer || !writer || !answerer || !chat) {
+    const { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator } = this;
+    if (!assistantEnabled(this.config) || !conversation || !judge || !summarizer || !affinity || !related || !namer || !writer || !answerer || !chat || !elaborator) {
       throw new ServiceUnavailableException({
         code: "assistant_not_configured",
         message: "O assistente não está configurado neste ambiente.",
       });
     }
-    return { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat };
+    return { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator };
   }
 }

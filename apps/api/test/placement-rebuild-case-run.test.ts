@@ -74,6 +74,9 @@ describe("case-run: o arquivo de caso", () => {
     expect(() => parseCase(JSON.stringify({ ...base, omit: "TST-6" }))).toThrow(/omit/);
     expect(parseCase(JSON.stringify(base))).toMatchObject({ acceptKeys: [], omit: [], expectRelatedKeys: [], expectDuplicateKey: null });
     expect(parseCase(JSON.stringify({ ...base, expectRelatedKeys: ["TST-3"], expectDuplicateKey: "TST-3" }))).toMatchObject({ expectRelatedKeys: ["TST-3"], expectDuplicateKey: "TST-3" });
+    expect(parseCase(JSON.stringify(base))).toMatchObject({ expectLinkKeys: [] });
+    expect(parseCase(JSON.stringify({ ...base, expectLinkKeys: ["TST-3"] }))).toMatchObject({ expectLinkKeys: ["TST-3"] });
+    expect(() => parseCase(JSON.stringify({ ...base, expectLinkKeys: "TST-3" }))).toThrow(/expectLinkKeys/);
     expect(() => parseCase(JSON.stringify({ ...base, expectRelatedKeys: "TST-3" }))).toThrow(/expectRelatedKeys/);
     expect(() => parseCase(JSON.stringify({ ...base, expectDuplicateKey: 3 }))).toThrow(/expectDuplicateKey/);
   });
@@ -125,6 +128,35 @@ describe("case-run: a medição", () => {
     expect(await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, expectRelatedKeys: ["TST-1", "TST-5"] }), repeats: 1 })).toBe(false);
     const record = JSON.parse(lines.find((l) => l.includes('"repeat"')) as string) as { hit: boolean; destinationHit: boolean; relatedHit: boolean };
     expect(record).toMatchObject({ destinationHit: true, relatedHit: false, hit: false });
+  });
+
+  it("imprime as ligações e as tarefas sugeridas da elaboração, com as chaves do projeto original", async () => {
+    await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, omit: ["TST-6"] }), repeats: 1 });
+    const record = JSON.parse(lines.find((l) => l.includes('"repeat"')) as string) as { links: { de: string; dependeDe: string; dependeDeTitle: string; motivo: string }[]; suggested: unknown[]; elaborationUnavailable: string | null };
+    expect(record.links.map((l) => l.dependeDe).sort()).toEqual(["TST-1", "TST-2"]);
+    expect(record.links.every((l) => l.de === "pai" && l.motivo !== "" && l.dependeDeTitle !== "")).toBe(true);
+    expect(record.suggested).toEqual([]);
+    expect(record.elaborationUnavailable).toBeNull();
+  });
+
+  it("sem relacionados o ensaio sugere uma tarefa e não liga nada", async () => {
+    await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, request: "Zzzz\n\nqqqq wwww", expectParentKey: "TST-1", acceptKeys: ["TST-4"] }), repeats: 1 });
+    const record = JSON.parse(lines.find((l) => l.includes('"repeat"')) as string) as { links: unknown[]; suggested: { title: string; motivo: string }[] };
+    expect(record.links).toEqual([]);
+    expect(record.suggested).toHaveLength(1);
+  });
+
+  it("expectLinkKeys: passa se todas aparecem em links[].dependeDe; uma que falta reprova", async () => {
+    expect(await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, expectLinkKeys: ["TST-1", "TST-2"] }), repeats: 1 })).toBe(true);
+    lines.length = 0;
+    expect(await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, expectLinkKeys: ["TST-1", "TST-5"] }), repeats: 1 })).toBe(false);
+    const record = JSON.parse(lines.find((l) => l.includes('"repeat"')) as string) as { hit: boolean; destinationHit: boolean; linkHit: boolean };
+    expect(record).toMatchObject({ destinationHit: true, linkHit: false, hit: false });
+  });
+
+  it("expectLinkKeys com chave que o caso omite é erro claro, antes de criar projeto", async () => {
+    await expect(caseRunCommand(ctx(), { caseFile: writeCase({ ...base, expectLinkKeys: ["TST-7"], omit: ["TST-6"] }), repeats: 1 })).rejects.toThrow(/TST-7/);
+    expect(await measurementProjects()).toHaveLength(0);
   });
 
   it("expectDuplicateKey: o duplicado esperado confere com o apontado", async () => {

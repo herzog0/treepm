@@ -13,6 +13,8 @@ import type {
   ConversationTurnInput,
   DescriptionDraftInput,
   DescriptionWriter,
+  ElaborationInput,
+  ElaborationResult,
   GroupNameInput,
   GroupNamer,
   ProjectAnswerInput,
@@ -20,6 +22,7 @@ import type {
   RelatedInput,
   RelatedJudge,
   RelatedJudgment,
+  TicketElaborator,
 } from "../src/assistant/ports.js";
 
 /** Conversa falsa e determinística: registra as chamadas e responde sem rede. */
@@ -195,5 +198,21 @@ export class FakeChatProvider implements ChatProvider {
     if (this.fail) throw new AssistantUnavailableError("fake");
     const last = input.history[input.history.length - 1]?.body ?? "";
     return { message: this.reply_ ? this.reply_(input) : `Resposta sobre ${input.ticket.key}: ${last.slice(0, 40)}`, model: "claude-opus-5-5" };
+  }
+}
+
+/** Elaboração falsa (ADR 0052, fatia 3): por padrão não liga nem sugere nada; `reply` manda o que o "modelo" devolve. */
+export class FakeTicketElaborator implements TicketElaborator {
+  readonly calls: ElaborationInput[] = [];
+  onCall: (() => Promise<void>) | null = null;
+  reply: ((input: ElaborationInput) => Pick<ElaborationResult, "links" | "suggested">) | null = null;
+  fail = false;
+  hang = false;
+  async elaborate(input: ElaborationInput): Promise<ElaborationResult> {
+    this.calls.push(structuredClone(input) as ElaborationInput);
+    await this.onCall?.();
+    if (this.hang) await new Promise<never>(() => undefined);
+    if (this.fail) throw new AssistantUnavailableError("fake");
+    return { ...(this.reply ? this.reply(input) : { links: [], suggested: [] }), model: "fake-model" };
   }
 }
