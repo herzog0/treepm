@@ -62,3 +62,13 @@ Tabelas novas para chat, mensagem, participantes de thread e leitura, com isolam
 - **Revisão independente de privacidade** antes do merge: nenhum achado grave; os menores (número global exposto, threads sem limite, proteções só no serviço, limpar sem acesso) foram corrigidos.
 - **Para a tela:** a resposta do assistente é mostrada no subconjunto de formatação da descrição, sem imagem e sem carregar nada remoto, com links só por clique. Uma descrição de ticket maliciosa pode tentar induzir o modelo a montar um endereço que leve trechos da conversa para fora.
 - **Não foi exercitado** com provedor de verdade nem com sessão real; a tela é a fatia seguinte.
+
+## Como ficou a tela (PR #180, 2026-11-23)
+
+- **Onde fica:** botão "Chats" no cabeçalho, com o número de chats com não lidas, e um painel à esquerda de 380 px que divide o espaço com o mapa. A página do ticket continua à direita e os dois ficam abertos juntos. Em tela estreita o painel ocupa a tela inteira. O código está em `apps/web/src/chat/`.
+- **Conversa:** a mensagem aparece na hora, a resposta do assistente é revelada aos poucos e passa pelo leitor de markdown restrito da descrição (sem imagem, sem nada remoto, links só por clique). Falha deixa a mensagem como "não respondida", com "Tentar de novo". Um aviso fixo diz o que o assistente vê e que ele não executa nem altera nada.
+- **Menções e threads:** seletor de pessoas pelo botão "Mencionar" ou por `@`; com menção, o botão de enviar diz que a mensagem abre uma thread e não vai ao assistente. A thread aparece na Conversa de quem é responsável e na aba "Menções" de todos, e atualiza com o gatilho de 30 s do mapa.
+- **Sem aceite da organização:** frase própria, dizendo que as threads continuam funcionando.
+- **Com o play:** em tela larga os três convivem (painel, barra do play, página do ticket). Em tela estreita o painel cobre tudo e o play continua do mesmo passo quando o painel fecha.
+- **Página do ticket:** ganhou o botão "Abrir chat". Nas bases de layout só entraram os dois botões novos; nenhum elemento existente mudou de lugar.
+- **Conferência:** suíte de navegador rodada (265 testes) e capturas olhadas pela coordenação. Não foi usada com sessão real nem com o provedor de verdade (`TREEPM-264`). Acabamentos anotados em `TREEPM-265`.
