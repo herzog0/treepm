@@ -10,6 +10,8 @@
     "preview": "vite preview --port 5173",
     "test": "vitest run",
     "test:browser": "vitest run --config vitest.browser.config.ts",
+    "measure:big-project": "vitest run --config vitest.measure.config.ts",
+    "measure:big-project:browser": "vitest run --config vitest.measure.browser.config.ts",
     "clean": "rm -rf dist"
   },
   "dependencies": {
