@@ -4,7 +4,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ApiClient, Me, Person, Project, TicketSummary } from "../api/client.js";
 import { useTranslation } from "react-i18next";
 import { useApiResource } from "../api/useApiResource.js";
+import { emptyQueueReason, playTemplate, playTemplates, workQueue } from "@treepm/domain";
+import type { PlayInput, PlayTemplateId, WorkScope } from "@treepm/domain";
 import { CommandBar } from "../command/CommandBar.js";
+import { PlayBar } from "../play/PlayBar.js";
+import { toWorkTickets, turnOf } from "../play/playModel.js";
+import type { PlayRun } from "../play/playModel.js";
 import { splitIdeaText } from "../command/ideaText.js";
 import { useDescribeApiError } from "../api/errorText.js";
 import { AssistantPanel } from "../assistant/AssistantPanel.js";
@@ -142,11 +147,17 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     askProgressRef.current = active;
   }, []);
   const [barFocus, setBarFocus] = useState(0);
+  // Modo play (ADR 0048): a lista fotografada ao começar e a posição; só em memória, nada é gravado.
+  const [play, setPlay] = useState<PlayRun | null>(null);
+  const [playFocus, setPlayFocus] = useState(0);
+  const [playNotice, setPlayNotice] = useState<string | null>(null);
+  const nextButton = useRef<HTMLButtonElement>(null);
+  const { t: tPlay } = useTranslation("play");
 
   const [creating, setCreating] = useState<CreateRequest | null>(null);
   const pageOpen = openTicketId !== null || creating !== null;
   // Valores que os ouvintes (seleção, teclado) leem sem precisar ser refeitos a cada render.
-  const live = useRef({ selectedId: null as string | null, selected: null as MapNode | null, pageOpen, openTicketId, creating, panelOpen: false, assistantExpanded: false, askExpanded: false, ask: ASK_CLOSED });
+  const live = useRef({ selectedId: null as string | null, selected: null as MapNode | null, pageOpen, openTicketId, creating, panelOpen: false, assistantExpanded: false, askExpanded: false, ask: ASK_CLOSED, play: null as PlayRun | null });
 
   // Encerra a conversa na barra (criou o ticket, foi para a criação manual): a conversa guardada na API continua lá.
   const closeAssistant = useCallback(() => {
@@ -214,7 +225,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   useLayoutEffect(() => scaleStore.notify(), [scaleStore, canvas.camera.scale, layout]);
   const canvasRef = useRef(canvas);
   canvasRef.current = canvas;
-  live.current = { selectedId, selected, pageOpen, openTicketId, creating, panelOpen: panel.open, assistantExpanded: assistant.open && assistant.expanded, askExpanded: ask.open && ask.expanded, ask };
+  live.current = { selectedId, selected, pageOpen, openTicketId, creating, panelOpen: panel.open, assistantExpanded: assistant.open && assistant.expanded, askExpanded: ask.open && ask.expanded, ask, play };
   const hasOpenNode = openTicketId !== null && index.itemById.has(openTicketId);
 
   // Abrir o painel de áreas e projetos fecha a página; abrir um ticket fecha o painel (também pela URL).
@@ -282,6 +293,124 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     const { bounds, requiredScale } = ticketFocus(target, { width: rect.width, height: rect.height });
     current.fitBounds(bounds, false, undefined, requiredScale);
   };
+
+  // ---- Modo play (ADR 0047, ADR 0048) ----
+  const workTickets = useMemo(() => toWorkTickets(ticketsByProject), [ticketsByProject]);
+  const playFrame = useRef(0);
+  const showOnMapRef = useRef(showOnMap);
+  showOnMapRef.current = showOnMap;
+  const workTicketsRef = useRef(workTickets);
+  workTicketsRef.current = workTickets;
+  const peopleRef = useRef(people);
+  peopleRef.current = people;
+  const playPeople = useCallback(() => peopleRef.current.map((person) => ({ id: person.id, displayName: person.displayName })), []);
+
+  // O alcance é o ramo selecionado no mapa (projeto ou ticket); sem seleção, tudo o que a pessoa enxerga.
+  const currentScope = (): { scope: WorkScope; label: string } => {
+    const node = live.current.selected;
+    if (node?.kind === "ticket" && node.ticket) return { scope: { ticketId: node.ticket.id }, label: tPlay("menu.scopeIn", { key: node.ticket.key, title: node.ticket.title }) };
+    if (node?.kind === "project") return { scope: { projectId: node.id }, label: tPlay("menu.scopeIn", { key: node.key ?? "", title: node.label }) };
+    return { scope: {}, label: tPlay("menu.scopeAll") };
+  };
+  const playInput = (scope: WorkScope): PlayInput => ({ tickets: workTicketsRef.current, people: playPeople(), me: me.person.id, scope, now: Date.now() });
+
+  // Leva a câmera e a página ao ticket do passo, como um clique (ou "Ver no mapa" se ele já está aberto). Ticket que sumiu: a página fecha.
+  const visitStep = (run: PlayRun, index: number) => {
+    const ticketId = run.steps[index]?.ticketId;
+    if (ticketId === undefined) return;
+    if (!workTicketsRef.current.some((ticket) => ticket.id === ticketId)) {
+      closePage();
+      return;
+    }
+    if (live.current.openTicketId === ticketId) showOnMap(ticketId);
+    else openTicket(ticketId);
+    // A câmera vai de qualquer jeito, pelo caminho de "Ver no mapa": o enquadramento da abertura só dispara quando o ticket está no
+    // layout da hora, e o play precisa que ele chegue em todo passo. Dois quadros, para o palco estreitar antes (como no enquadramento).
+    cancelAnimationFrame(playFrame.current);
+    playFrame.current = requestAnimationFrame(() => {
+      playFrame.current = requestAnimationFrame(() => showOnMapRef.current(ticketId));
+    });
+  };
+  const goToStep = (index: number) => {
+    const run = live.current.play;
+    if (!run || index < 0 || index >= run.steps.length) return;
+    const next = { ...run, index };
+    live.current.play = next;
+    setPlay(next);
+    visitStep(next, index);
+  };
+  const startPlay = (id: PlayTemplateId) => {
+    const { scope, label } = currentScope();
+    const template = playTemplate(id, playInput(scope));
+    if (template.steps.length === 0) return;
+    const run: PlayRun = { template: id, scope, scopeLabel: label, steps: template.steps, index: 0 };
+    live.current.play = run;
+    setPlayNotice(null);
+    setPlay(run);
+    visitStep(run, 0);
+  };
+  const exitPlay = (notice: string | null = null) => {
+    live.current.play = null;
+    setPlay(null);
+    setPlayNotice(notice);
+    setPlayFocus((count) => count + 1);
+  };
+  const restartPlay = () => {
+    const run = live.current.play;
+    if (!run) return;
+    const template = playTemplate(run.template, playInput(run.scope));
+    if (template.steps.length === 0) {
+      exitPlay(tPlay("ended"));
+      return;
+    }
+    const next: PlayRun = { ...run, steps: template.steps, index: 0 };
+    live.current.play = next;
+    setPlay(next);
+    visitStep(next, 0);
+  };
+  const exitRef = useRef(exitPlay);
+  exitRef.current = exitPlay;
+  const goRef = useRef(goToStep);
+  goRef.current = goToStep;
+
+  // As teclas do play: seta para a direita ou J avança; seta para a esquerda ou K volta; Esc sai (com a página aberta o primeiro Esc a
+  // fecha, como sempre). Em fase de captura, porque a página do ticket para a propagação das teclas; não agem num campo de texto,
+  // num editor ou num menu aberto.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const run = live.current.play;
+      if (!run || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("input:not([type=checkbox]):not([type=radio]), textarea, select, [contenteditable=''], [contenteditable='true'], [role=menu], [role=listbox], [role=combobox], [role=dialog]")) return;
+      if (target?.closest("[aria-expanded='true']") && target.matches("button")) return;
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (key === "ArrowRight" || key === "j") {
+        event.preventDefault();
+        goRef.current(run.index + 1);
+      } else if (key === "ArrowLeft" || key === "k") {
+        event.preventDefault();
+        goRef.current(run.index - 1);
+      } else if (key === "Escape") {
+        const l = live.current;
+        if (l.pageOpen || l.creating || l.assistantExpanded || l.askExpanded || l.panelOpen || pickerRef.current) return;
+        event.preventDefault();
+        exitRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
+  // Ao começar, o foco vai ao "Avançar" da barra do play (a página do ticket não o toma enquanto ele estiver ali).
+  const playing = play !== null;
+  useEffect(() => {
+    if (playing) nextButton.current?.focus();
+  }, [playing]);
+  // O aviso de que o play terminou some sozinho.
+  useEffect(() => {
+    if (playNotice === null) return;
+    const timer = setTimeout(() => setPlayNotice(null), 8000);
+    return () => clearTimeout(timer);
+  }, [playNotice]);
 
   // "Ver no mapa" da tela "Ideias" (ADR 0042): a câmera vai ao ticket pedido, sem abrir a página, e o pedido vale uma vez. Dois
   // quadros, como no enquadramento do ticket aberto: o palco e o observador de tamanho do pacote se acertam antes.
@@ -442,6 +571,35 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     return null;
   };
 
+  // "Próximo ticket para trabalhar" da barra (ADR 0047): o primeiro da fila do alcance selecionado; nada é mudado. Fila vazia: o motivo.
+  const nextTicket = () => {
+    const { scope } = currentScope();
+    const [next] = workQueue(workTicketsRef.current, me.person.id, scope);
+    if (next === undefined) return emptyQueueReason(workTicketsRef.current, me.person.id, scope) ?? "none";
+    if (live.current.openTicketId === next) showOnMap(next);
+    else openTicket(next);
+    return null;
+  };
+
+  const playStepTicket = play === null ? undefined : Object.values(ticketsByProject).flat().find((ticket) => ticket.id === play.steps[play.index]?.ticketId);
+  const playTurn = play === null ? null : turnOf(play.steps, play.index);
+  const playBar =
+    play === null ? null : (
+      <PlayBar
+        ref={nextButton}
+        template={play.template}
+        scopeText={play.scopeLabel}
+        current={play.index + 1}
+        total={play.steps.length}
+        person={playTurn === null ? null : { name: people.find((person) => person.id === playTurn.personId)?.displayName ?? "—", position: playTurn.position, total: playTurn.total }}
+        ticket={playStepTicket === undefined ? null : { key: playStepTicket.key, title: playStepTicket.title }}
+        onPrevious={() => goToStep(play.index - 1)}
+        onNext={() => goToStep(play.index + 1)}
+        onRestart={restartPlay}
+        onExit={() => exitPlay()}
+      />
+    );
+
   const canCreateProject = me.roles.clerk === "admin";
   const showCreateFirst = items.length === 1 && canCreateProject;
 
@@ -492,6 +650,17 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
             onOpenTicket={openTicket}
             onCreate={startCreateFromBar}
             onRegisterIdea={registerIdea}
+            onNextTicket={nextTicket}
+            play={{
+              menu: () => {
+                const { scope, label } = currentScope();
+                return { scopeText: label, templates: playTemplates(playInput(scope)) };
+              },
+              onStart: startPlay,
+              bar: playBar,
+              focusRequest: playFocus,
+              notice: playNotice,
+            }}
             returnFocus={() => canvasRef.current.stageRef.current?.focus()}
             conversation={!assistant.open ? "none" : assistant.expanded ? "expanded" : "collapsed"}
             assistantAvailable={assistantAvailable}

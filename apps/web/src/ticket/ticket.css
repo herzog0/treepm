@@ -91,7 +91,18 @@
 .ticket-child-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .ticket-child .ticket-key { color: var(--tp-text-2); font-size: 11.5px; }
 .ticket-page .ticket-child .status-mark { --mark-size: 11px; }
-.ticket-child-state { flex: none; color: var(--tp-text-3); font-size: 12px; }
+.ticket-child-state { display: inline-flex; flex: none; align-items: center; gap: 8px; color: var(--tp-text-3); font-size: 12px; }
+.ticket-child-priority { padding: 1px 6px; border: 1px solid var(--tp-border); border-radius: 999px; color: var(--tp-text-2); font: 400 11px/1.4 var(--tp-font-mono); }
+
+/* Linha "Prioridade" (ADR 0047): número com menos e mais; sem as setinhas do navegador. */
+.ticket-priority { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 30px; }
+.ticket-page .ticket-priority-step { display: grid; place-items: center; width: 28px; height: 28px; min-height: 0; padding: 0; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); background: transparent; color: var(--tp-text); font-size: 15px; line-height: 1; cursor: pointer; }
+.ticket-page .ticket-priority-step:hover:not(:disabled) { background: var(--tp-selected); }
+.ticket-page .ticket-priority-step:disabled { opacity: 0.4; cursor: not-allowed; }
+.ticket-page .ticket-priority-input { box-sizing: border-box; width: 64px; height: 28px; padding: 0 6px; text-align: center; appearance: textfield; -moz-appearance: textfield; font-variant-numeric: tabular-nums; }
+.ticket-page .ticket-priority-input::-webkit-inner-spin-button, .ticket-page .ticket-priority-input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.ticket-priority-inherited { margin-left: 4px; color: var(--tp-text-2); font-size: 12.5px; }
+.ticket-page .ticket-priority-inherited button.text { min-height: 30px; padding: 0 4px; font: 400 12px/1.3 var(--tp-font-mono); }
 
 .ticket-edit, .ticket-form { display: grid; gap: 8px; margin-top: 6px; }
 .ticket-form { gap: 4px; margin-top: 18px; }
@@ -194,6 +205,9 @@ button.ticket-comment-area:hover { border-color: var(--tp-border-strong, var(--t
   /* O "×" tem 44×44 de verdade; as margens negativas devolvem o espaço ao desenho (a bolinha continua pequena). */
   .ticket-page.ticket-page.ticket-page .ticket-person-remove { width: 44px; margin: 0 -10px; }
   .ticket-page .ticket-person { padding: 0 0 0 8px; }
+  /* Prioridade: menos, número e mais com alvo de 44 px. */
+  .ticket-page.ticket-page.ticket-page .ticket-priority-step { width: 44px; height: 44px; }
+  .ticket-page .ticket-priority-input { width: 72px; height: 44px; font-size: 16px; }
   /* Linhas de propriedade: rótulo em cima, valor embaixo. */
   .ticket-row { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 4px 0; }
   .ticket-fields dt { padding-top: 4px; }

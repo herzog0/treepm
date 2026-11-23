@@ -25,7 +25,8 @@
     "people": "People",
     "parent": "Parent ticket",
     "dependsOn": "Depends on",
-    "idea": "Idea"
+    "idea": "Idea",
+    "priority": "Priority"
   },
   "create": {
     "heading": "New ticket",
@@ -93,7 +94,8 @@
     "heading": "Items",
     "newHere": "New ticket inside",
     "empty": "No tickets inside.",
-    "newIdeaHere": "New idea in here"
+    "newIdeaHere": "New idea in here",
+    "priority": "Priority {{value}}"
   },
   "mentionedBy": {
     "heading": "Mentioned in"
@@ -232,7 +234,9 @@
     "agentWorkEnded_idea": "The AI work was ended because the ticket became an idea",
     "agentWorkEnded_archived": "The AI work was ended because the project was archived",
     "via": "via MCP",
-    "viaTitle": "Done by an MCP call, with the person's token"
+    "viaTitle": "Done by an MCP call, with the person's token",
+    "priorityChanged": "<who>{{actor}}</who> changed the priority from <name>{{from}}</name> to <name>{{to}}</name>",
+    "priorityChanged_noActor": "Priority changed from <name>{{from}}</name> to <name>{{to}}</name>"
   },
   "contributions": {
     "heading": "Areas",
@@ -280,5 +284,11 @@
     "label": "Being worked on by AI",
     "until": "until {{time}}",
     "end": "End"
+  },
+  "priority": {
+    "increase": "Increase priority",
+    "decrease": "Decrease priority",
+    "invalid": "Priority is a whole number from -999 to 999.",
+    "inherited": "counts as {{value}}, from"
   }
 }

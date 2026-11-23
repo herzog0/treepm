@@ -14,6 +14,7 @@ import enImport from "./locales/en/import.json";
 import enMap from "./locales/en/map.json";
 import enNav from "./locales/en/nav.json";
 import enPanel from "./locales/en/panel.json";
+import enPlay from "./locales/en/play.json";
 import enSettings from "./locales/en/settings.json";
 import enTeams from "./locales/en/teams.json";
 import enTicket from "./locales/en/ticket.json";
@@ -29,6 +30,7 @@ import esImport from "./locales/es-MX/import.json";
 import esMap from "./locales/es-MX/map.json";
 import esNav from "./locales/es-MX/nav.json";
 import esPanel from "./locales/es-MX/panel.json";
+import esPlay from "./locales/es-MX/play.json";
 import esSettings from "./locales/es-MX/settings.json";
 import esTeams from "./locales/es-MX/teams.json";
 import esTicket from "./locales/es-MX/ticket.json";
@@ -44,15 +46,16 @@ import ptImport from "./locales/pt-BR/import.json";
 import ptMap from "./locales/pt-BR/map.json";
 import ptNav from "./locales/pt-BR/nav.json";
 import ptPanel from "./locales/pt-BR/panel.json";
+import ptPlay from "./locales/pt-BR/play.json";
 import ptSettings from "./locales/pt-BR/settings.json";
 import ptTeams from "./locales/pt-BR/teams.json";
 import ptTicket from "./locales/pt-BR/ticket.json";
 import ptTickets from "./locales/pt-BR/tickets.json";
 
 export const resources = {
-  "pt-BR": { api: ptApi, app: ptApp, assistant: ptAssistant, command: ptCommand, demo: ptDemo, github: ptGithub, ideas: ptIdeas, import: ptImport, map: ptMap, nav: ptNav, panel: ptPanel, settings: ptSettings, teams: ptTeams, ticket: ptTicket, tickets: ptTickets },
-  en: { api: enApi, app: enApp, assistant: enAssistant, command: enCommand, demo: enDemo, github: enGithub, ideas: enIdeas, import: enImport, map: enMap, nav: enNav, panel: enPanel, settings: enSettings, teams: enTeams, ticket: enTicket, tickets: enTickets },
-  "es-MX": { api: esApi, app: esApp, assistant: esAssistant, command: esCommand, demo: esDemo, github: esGithub, ideas: esIdeas, import: esImport, map: esMap, nav: esNav, panel: esPanel, settings: esSettings, teams: esTeams, ticket: esTicket, tickets: esTickets },
+  "pt-BR": { api: ptApi, app: ptApp, assistant: ptAssistant, command: ptCommand, demo: ptDemo, github: ptGithub, ideas: ptIdeas, import: ptImport, map: ptMap, nav: ptNav, panel: ptPanel, play: ptPlay, settings: ptSettings, teams: ptTeams, ticket: ptTicket, tickets: ptTickets },
+  en: { api: enApi, app: enApp, assistant: enAssistant, command: enCommand, demo: enDemo, github: enGithub, ideas: enIdeas, import: enImport, map: enMap, nav: enNav, panel: enPanel, play: enPlay, settings: enSettings, teams: enTeams, ticket: enTicket, tickets: enTickets },
+  "es-MX": { api: esApi, app: esApp, assistant: esAssistant, command: esCommand, demo: esDemo, github: esGithub, ideas: esIdeas, import: esImport, map: esMap, nav: esNav, panel: esPanel, play: esPlay, settings: esSettings, teams: esTeams, ticket: esTicket, tickets: esTickets },
 };
 
 export type Resources = (typeof resources)["pt-BR"];

@@ -1,0 +1,46 @@
+{
+  "button": "Play mode",
+  "menu": {
+    "label": "Play templates",
+    "scopeAll": "In everything you can see",
+    "scopeIn": "In {{key}} · {{title}}",
+    "emptyReason": "No tickets in this scope",
+    "none": "no tickets",
+    "count_one": "{{count}} ticket",
+    "count_other": "{{count}} tickets"
+  },
+  "template": {
+    "next_to_work": {
+      "name": "Next to work on",
+      "hint": "Ready to start, by priority"
+    },
+    "my_work": {
+      "name": "My work",
+      "hint": "My tickets in progress and to do"
+    },
+    "in_progress": {
+      "name": "In progress",
+      "hint": "Everything in progress, by assignee"
+    },
+    "standup": {
+      "name": "Stand-up",
+      "hint": "By person: what they have in progress and their next one"
+    },
+    "agent_work": {
+      "name": "AI work",
+      "hint": "Tickets the AI is working on right now"
+    }
+  },
+  "bar": {
+    "label": "Play bar",
+    "position": "{{current}} of {{total}}",
+    "person": "{{name}} · {{current}} of {{total}}",
+    "previous": "Back",
+    "next": "Next",
+    "exit": "Exit play",
+    "restart": "Start over",
+    "live": "{{current}} of {{total}}: {{ticket}}",
+    "missing": "This ticket is no longer available."
+  },
+  "ended": "There are no more tickets in this template. Play has ended."
+}

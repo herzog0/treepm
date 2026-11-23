@@ -293,7 +293,7 @@ describe("rows", () => {
     setup();
     await loaded();
     const labels = [...page().querySelectorAll("dl.ticket-fields dt")].map((node) => node.textContent);
-    expect(labels).toEqual(["Situação", "Pessoas", "Ticket pai", "Depende de"]);
+    expect(labels).toEqual(["Situação", "Pessoas", "Prioridade", "Ticket pai", "Depende de"]);
   });
 });
 

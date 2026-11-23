@@ -1,0 +1,47 @@
+{
+  "button": "Modo play",
+  "menu": {
+    "label": "Modelos del play",
+    "scopeAll": "En todo lo que ves",
+    "scopeIn": "En {{key}} · {{title}}",
+    "emptyReason": "Ningún ticket en este alcance",
+    "none": "ningún ticket",
+    "count_one": "{{count}} ticket",
+    "count_many": "{{count}} tickets",
+    "count_other": "{{count}} tickets"
+  },
+  "template": {
+    "next_to_work": {
+      "name": "Siguientes para trabajar",
+      "hint": "Los listos para empezar, por prioridad"
+    },
+    "my_work": {
+      "name": "Mi trabajo",
+      "hint": "Mis tickets en curso y por hacer"
+    },
+    "in_progress": {
+      "name": "En curso",
+      "hint": "Todo lo que está en curso, por responsable"
+    },
+    "standup": {
+      "name": "Stand-up",
+      "hint": "Por persona: lo que tiene en curso y el siguiente"
+    },
+    "agent_work": {
+      "name": "Trabajo de la IA",
+      "hint": "Tickets en los que la IA está trabajando ahora"
+    }
+  },
+  "bar": {
+    "label": "Barra del play",
+    "position": "{{current}} de {{total}}",
+    "person": "{{name}} · {{current}} de {{total}}",
+    "previous": "Atrás",
+    "next": "Avanzar",
+    "exit": "Salir del play",
+    "restart": "Reiniciar",
+    "live": "{{current}} de {{total}}: {{ticket}}",
+    "missing": "Este ticket ya no está disponible."
+  },
+  "ended": "Ya no hay tickets en este modelo. El play terminó."
+}

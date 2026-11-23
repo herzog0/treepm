@@ -248,6 +248,116 @@ export function StatusField({ client, detail, openItems, onSaved }: FieldBase & 
   );
 }
 
+const PRIORITY_MIN = -999;
+const PRIORITY_MAX = 999;
+
+/** Lê o texto digitado como prioridade: só inteiro de -999 a 999; qualquer outra coisa é `null`. */
+function parsePriority(text: string): number | null {
+  if (!/^-?\d+$/.test(text.trim())) return null;
+  const value = Number(text);
+  return value >= PRIORITY_MIN && value <= PRIORITY_MAX ? value : null;
+}
+
+/** "vale 5, de ALFA-1": a prioridade herdada, quando a própria é 0 e um ancestral manda (ADR 0047). */
+function InheritedPriority({ detail, onOpen }: { detail: TicketDetail; onOpen: (id: string) => void }) {
+  const { t } = useTranslation("ticket");
+  const effective = detail.effectivePriority;
+  const own = detail.priority ?? 0;
+  if (own !== 0 || !effective || effective.value === 0 || effective.from === null || effective.from.id === detail.id) return null;
+  const from = effective.from;
+  return (
+    <span className="ticket-priority-inherited">
+      {"· "}
+      {t("priority.inherited", { value: effective.value })}{" "}
+      <button type="button" className="text" onClick={() => onOpen(from.id)}>{from.key}</button>
+    </span>
+  );
+}
+
+/** Linha "Prioridade" (ADR 0047): o número, menos e mais (passo 1) e edição digitando; `Enter` grava e `Esc` desfaz. Quem só lê vê o número. */
+export function PriorityField({ client, detail, canEdit, onOpen, onSaved }: FieldBase & { canEdit: boolean; onOpen: (id: string) => void }) {
+  const { t } = useTranslation("ticket");
+  const action = useAction();
+  const value = detail.priority ?? 0;
+  const [draft, setDraft] = useState(String(value));
+  const [invalid, setInvalid] = useState(false);
+  // O número da página é o que o servidor guardou: depois de gravar (ou de recarregar), o campo o acompanha.
+  useEffect(() => {
+    setDraft(String(value));
+    setInvalid(false);
+  }, [value]);
+
+  const save = async (next: number) => {
+    if (action.busy) return;
+    if (next === value) {
+      setDraft(String(value));
+      return;
+    }
+    const result = await action.run(() => client.updateTicket(detail.id, { priority: next }));
+    if (result.ok) onSaved();
+    else setDraft(String(value));
+  };
+  const commit = () => {
+    const parsed = parsePriority(draft);
+    if (parsed === null) {
+      setInvalid(true);
+      return;
+    }
+    setInvalid(false);
+    void save(parsed);
+  };
+  const dirty = draft !== String(value) || invalid;
+  const undo = () => {
+    setDraft(String(value));
+    setInvalid(false);
+  };
+
+  if (!canEdit) {
+    return (
+      <span className="ticket-value">
+        {value}
+        <InheritedPriority detail={detail} onOpen={onOpen} />
+      </span>
+    );
+  }
+  return (
+    <>
+      <span className="ticket-priority">
+        <button type="button" className="ticket-priority-step" aria-label={t("priority.decrease")} disabled={action.busy || value <= PRIORITY_MIN} onClick={() => void save(value - 1)}>−</button>
+        <input
+          type="number"
+          className="ticket-priority-input"
+          aria-label={t("fields.priority")}
+          aria-invalid={invalid || undefined}
+          min={PRIORITY_MIN}
+          max={PRIORITY_MAX}
+          step={1}
+          value={draft}
+          disabled={action.busy}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setInvalid(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commit();
+            } else if (event.key === "Escape" && dirty) {
+              event.stopPropagation();
+              event.preventDefault();
+              undo();
+            }
+          }}
+        />
+        <button type="button" className="ticket-priority-step" aria-label={t("priority.increase")} disabled={action.busy || value >= PRIORITY_MAX} onClick={() => void save(value + 1)}>+</button>
+        <InheritedPriority detail={detail} onOpen={onOpen} />
+      </span>
+      {invalid && <p role="alert" className="ticket-error">{t("priority.invalid")}</p>}
+      <ActionError action={action} />
+    </>
+  );
+}
+
 const IDEA_STAGES: readonly Exclude<IdeaStage, "discarded">[] = ["new", "refining", "ready"];
 
 /** Marcador e nome do estágio de uma ideia (ADR 0042): o valor da linha "Ideia", com ou sem menu. */

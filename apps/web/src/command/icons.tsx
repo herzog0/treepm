@@ -17,3 +17,9 @@ export const IdeaIcon = () => (
     <path d="M6 14h4" />
   </svg>
 );
+/** O triângulo do botão play (ADR 0048) e da linha "Próximo ticket para trabalhar". */
+export const PlayIcon = () => (
+  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+    <path d="M3.5 2.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L4.4 1.7a.6.6 0 0 0-.9.5Z" />
+  </svg>
+);
