@@ -15,6 +15,23 @@ import { describe, expect, it } from "vitest";
  * texto, e a ORDEM das chamadas dentro de um método (a trava antes das conferências), que os testes de corrida cobrem. O método que
  * chama um auxiliar do mesmo arquivo conta como travado só se o auxiliar tem a chamada direta; auxiliares de outro arquivo não valem.
  * Auxiliares de gravação sem trava própria ficam em HELPERS, com o motivo.
+ *
+ * Fila em memória (ADR 0045, adendo 1): quem pega a trava tem de passar antes pela fila (`structure-queue.ts`), ANTES de abrir a
+ * transação. Duas conferências a mais, sobre o código-fonte:
+ *  3. por rota: todo método de rota (`@Post/@Patch/@Put/@Delete`) de um controlador que chama um caminho que trava (`lockStructure`,
+ *     `updateTicket`, `createChecked`, `createParentAndMove`, `create` de ticket, `accept/discard/transform` de ideia) tem
+ *     `@QueuesStructure(...)` nos decoradores (o interceptor entra na fila antes do `withTenant`);
+ *  4. no MCP (`mcp-write-tools.ts`): todo método que chama `createChecked`/`createParentAndMove`/`lockStructure`, ou `updateTicket`
+ *     com `parentId`, chama `withStructureSlot(` (o `updateTicket` só com situação ou prioridade não trava e fica de fora);
+ *  5. o interceptor chama `withStructureSlot(` ao redor do `withTenant` do handler (a fila vem antes de a transação abrir).
+ *  6. a trava (`lockProjectStructure`/`lockStructure`) só é chamada pelos arquivos de LOCK_CALLERS: um caminho novo, em arquivo novo, falha
+ *     até alguém decidir como ele entra na fila.
+ * O que NÃO enxerga: se a CHAVE ou a CONDIÇÃO declarada na rota (`when`) coincide com a condição real em que o serviço pega a trava
+ * (por exemplo `parentId` no corpo do `PATCH`), que os testes de integração da fila cobrem por rota; chamadas de caminhos que travam por
+ * um nome novo ainda não listado em QUEUED_CALLS; um método NOVO dentro de um arquivo de LOCK_CALLERS que chame a trava sem rota nem
+ * vaga (a conferência 2 só exige a trava, e a 3 só olha métodos de rota); e rotas que montem a transação por conta própria.
+ * A conferência 5 olha o texto: confere a forma (`withStructureSlot(chave, função, sinal)` com a função definida no arquivo e abrindo o
+ * `withTenant` antes do `return`), não o comportamento, que é o dos testes de integração.
  */
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const SCAN = ["apps/api/src", "apps/api/scripts", "packages/db/src", "packages/domain/src", "packages/engine/src"];
@@ -130,6 +147,71 @@ export function unlockedMethods(raw: string): string[] {
   return [...methods].filter(([name, body]) => structureWrites(body).length > 0 && !locking.has(name)).map(([name]) => name);
 }
 
+/** Chamadas que, direta ou por um serviço, pegam a trava de estrutura. */
+const QUEUED_CALLS = /\blockProjectStructure\(|\.lockStructure\(|\.updateTicket\(|\.createChecked\(|\.createParentAndMove\(|\bthis\.ideas\.(?:accept|discard|transform)\(|\bthis\.tickets\.create\(/;
+const ROUTE_HEAD = /^ {2}@(?:Post|Patch|Put|Delete)\(/m;
+
+/** Os métodos de rota (decoradores + corpo, até o fecho do método), sem comentários. */
+export function routeBlocks(raw: string): string[] {
+  const text = stripComments(raw);
+  const out: string[] = [];
+  const starts = [...text.matchAll(/^ {2}@(?:Post|Patch|Put|Delete)\(/gm)].map((m) => m.index as number);
+  for (const start of starts) {
+    const close = text.indexOf("\n  }\n", start);
+    out.push(text.slice(start, close < 0 ? text.length : close + 5));
+  }
+  return out;
+}
+
+/** Rotas que chamam um caminho que trava sem declarar a fila. */
+export function routesWithoutQueue(raw: string): string[] {
+  return routeBlocks(raw)
+    .filter((block) => QUEUED_CALLS.test(block) && !/@QueuesStructure\(/.test(block))
+    .map((block) => block.replace(/\s+/g, " ").slice(0, 60));
+}
+
+/** Métodos (do MCP) que chamam um caminho que trava sem passar pela fila. `updateTicket` só conta quando leva `parentId`. */
+export function methodsWithoutSlot(raw: string): string[] {
+  const out: string[] = [];
+  for (const [name, body] of methodsOf(raw)) {
+    const locks =
+      /\.createChecked\(|\.createParentAndMove\(|\.lockStructure\(|\blockProjectStructure\(/.test(body) ||
+      [...body.matchAll(/\.updateTicket\(/g)].some((m) => /\bparentId\b/.test(callText(body, m.index + m[0].length - 1)));
+    if (locks && !/\bwithStructureSlot\(/.test(body)) out.push(name);
+  }
+  return out;
+}
+
+/**
+ * O interceptor abre a transação do handler DENTRO da vaga da fila: a função passada a `withStructureSlot(chave, FUNÇÃO, sinal)` tem de
+ * ser um identificador definido no mesmo arquivo (`const FUNÇÃO = ... withTenant(`), e a transação que ela abre não pode ser a do
+ * `runner()` (que mora em outro método). Se a chamada passar uma função anônima ou o `open` sair de dentro da vaga, falha.
+ */
+export function slotWrapsTransaction(raw: string): boolean {
+  const text = stripComments(raw);
+  const call = /withStructureSlot\(\s*[^,()]+,\s*([A-Za-z_$][\w$]*)\s*[,)]/.exec(text);
+  if (call === null) return false;
+  const name = call[1] as string;
+  const def = new RegExp(`const ${name}\\s*=([\\s\\S]*?)\\n    return `).exec(text);
+  return def !== null && /\bwithTenant\(/.test(def[1] as string);
+}
+
+/** Quem pode chamar a trava (a definição e os serviços e controladores que a pegam); outro arquivo que a chame é um caminho novo sem fila. */
+const LOCK_CALLERS = new Set([
+  "apps/api/src/tickets/structure-lock.ts",
+  "apps/api/src/tickets/tickets.service.ts",
+  "apps/api/src/tickets/ideas.service.ts",
+  "apps/api/src/tickets/tickets.controller.ts",
+  "apps/api/src/assistant/conversations.controller.ts",
+]);
+/** Arquivos fora de LOCK_CALLERS que chamam `lockProjectStructure(`/`lockStructure(`. */
+export function lockCallsOutsideKnownFiles(files: Record<string, string>): string[] {
+  return Object.entries(files)
+    .filter(([path, text]) => !LOCK_CALLERS.has(path) && /\blockProjectStructure\(|\.lockStructure\(/.test(stripComments(text)))
+    .map(([path]) => path)
+    .sort();
+}
+
 describe("guarda: toda gravação de estrutura da árvore passa pela trava do projeto (ADR 0045)", () => {
   it("o detector enxerga cada tipo de gravação (autoteste)", () => {
     expect(structureWrites("await tx.ticket.create({ data })")).toHaveLength(1);
@@ -200,5 +282,81 @@ describe("guarda: toda gravação de estrutura da árvore passa pela trava do pr
         expect(locks, `${file}#${name} deixou de pegar a trava`).toBe(true);
       }
     }
+  });
+  it("fila: o detector enxerga rota sem @QueuesStructure, método do MCP sem vaga e interceptor sem a fila (autoteste)", () => {
+    const routes = [
+      "class C {",
+      "  @Patch('tickets/:id')",
+      "  update(tx) {",
+      "    return this.tickets.updateTicket(tx, p, id, body);",
+      "  }",
+      "  @Patch('tickets/:id/x')",
+      "  @QueuesStructure({ by: 'org' })",
+      "  fila(tx) {",
+      "    return this.tickets.updateTicket(tx, p, id, body);",
+      "  }",
+      "  @Get('a')",
+      "  ler(tx) {",
+      "    return this.tickets.updateTicket(tx);",
+      "  }",
+      "  @Post('b')",
+      "  comentada(tx) {",
+      "    // @QueuesStructure(",
+      "    return this.ideas.accept(tx, p, id);",
+      "  }",
+      "}",
+    ].join("\n");
+    expect(routesWithoutQueue(routes)).toHaveLength(2);
+    const mcp = [
+      "class W {",
+      "  async criar(input) {",
+      "    return this.writeAs((tx) => this.services.tickets.createChecked(tx));",
+      "  }",
+      "  async travado(input) {",
+      "    return withStructureSlot(k, () => this.writeAs((tx) => this.services.tickets.createChecked(tx)));",
+      "  }",
+      "  async status(input) {",
+      "    return this.services.tickets.updateTicket(tx, p, id, { status });",
+      "  }",
+      "  async mover(input) {",
+      "    return this.services.tickets.updateTicket(tx, p, id, { parentId });",
+      "  }",
+      "}",
+    ].join("\n");
+    expect(methodsWithoutSlot(mcp).sort()).toEqual(["criar", "mover"]);
+    const real = "    const open = (): Promise<unknown> =>\n      withTenant(prisma, t, fn);\n    return slot === undefined ? open() : withStructureSlot(slot.key, open, slot.signal);";
+    expect(slotWrapsTransaction(real)).toBe(true);
+    // o open sai de dentro da vaga (a vaga envolve outra coisa), função anônima, sem fila, comentário e o withTenant do runner: todos falham
+    expect(slotWrapsTransaction(real.replace("withStructureSlot(slot.key, open, slot.signal)", "withStructureSlot(slot.key, noop, slot.signal)"))).toBe(false);
+    expect(slotWrapsTransaction(real.replace("withStructureSlot(slot.key, open, slot.signal)", "withStructureSlot(slot.key, () => open(), slot.signal)"))).toBe(false);
+    expect(slotWrapsTransaction("    return withTenant(prisma, t, fn);\n")).toBe(false);
+    expect(slotWrapsTransaction("// withStructureSlot(k, open, s)\n    const open = () => withTenant(a);\n    return 1")).toBe(false);
+    expect(slotWrapsTransaction("    const open = () => other();\n    return withStructureSlot(k, open, s) + withTenant(x);")).toBe(false);
+    expect(lockCallsOutsideKnownFiles({ "apps/api/src/novo.service.ts": "await lockProjectStructure(tx, p)", "apps/api/src/tickets/ideas.service.ts": "this.tickets.lockStructure(tx, p)", "x.ts": "// lockProjectStructure(tx)" })).toEqual(["apps/api/src/novo.service.ts"]);
+  });
+
+  it("fila: toda rota que chega à trava declara a fila, o MCP passa pela vaga e o interceptor abre a transação dentro dela", () => {
+    const controllers = [
+      "apps/api/src/tickets/tickets.controller.ts",
+      "apps/api/src/tickets/ideas.controller.ts",
+      "apps/api/src/assistant/conversations.controller.ts",
+    ];
+    for (const file of controllers) {
+      const text = readFileSync(join(ROOT, file), "utf8");
+      expect(ROUTE_HEAD.test(text), `${file} não tem rotas?`).toBe(true);
+      expect(routesWithoutQueue(text), `${file}: rota que trava sem @QueuesStructure`).toEqual([]);
+    }
+    // todo controlador do código-fonte, não só os três: a rota nova que chamar um caminho que trava é pega
+    for (const path of sources(join(ROOT, "apps/api/src"))) {
+      if (!/\.controller\.ts$/.test(path)) continue;
+      expect(routesWithoutQueue(readFileSync(path, "utf8")), `${relative(ROOT, path)}: rota que trava sem @QueuesStructure`).toEqual([]);
+    }
+    const mcp = readFileSync(join(ROOT, "apps/api/src/mcp/mcp-write-tools.ts"), "utf8");
+    expect(methodsWithoutSlot(mcp), "mcp-write-tools.ts: método que trava sem withStructureSlot").toEqual([]);
+    expect(methodsOf(mcp).get("createTicket"), "create_ticket do MCP perdeu a vaga").toMatch(/\bwithStructureSlot\(/);
+    expect(slotWrapsTransaction(readFileSync(join(ROOT, "apps/api/src/db/tenant.interceptor.ts"), "utf8")), "interceptor: a função passada a withStructureSlot abre o withTenant do handler").toBe(true);
+    const all: Record<string, string> = {};
+    for (const dir of SCAN) for (const path of sources(join(ROOT, dir))) all[relative(ROOT, path)] = readFileSync(path, "utf8");
+    expect(lockCallsOutsideKnownFiles(all), "chamada à trava fora da lista conhecida: caminho novo sem passar pela fila").toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 import { ConflictException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
+import { isConnectionWaitTimeout } from "../common/connection-wait.js";
 
 /**
  * Trava de estrutura da árvore de tickets (ADR 0045): toda transação que muda a estrutura de um projeto (pai, criação com
@@ -23,14 +24,19 @@ export const structureLock = {
 /** Transações que pegaram a trava: só nelas o estouro do prazo da transação vira `structure_busy`. */
 const structureTransactions = new WeakSet<object>();
 
-const busy = (): ConflictException =>
+/** O 409 `structure_busy`: a espera pela trava, ou pela fila que vem antes dela, estourou. */
+export const structureBusy = (): ConflictException =>
   new ConflictException({
     code: "structure_busy",
     message: "Outra mudança na estrutura deste projeto está em andamento. Tente de novo em instantes.",
   });
 
-/** O Prisma fechou a transação por prazo (P2028), na própria exceção ou na causa. */
+/**
+ * O Prisma fechou a transação já aberta por prazo (P2028). A mesma sigla P2028 também é a da espera por conexão que estourou
+ * (`isConnectionWaitTimeout`, que vira 503 `server_busy`): aqui ela não conta.
+ */
 function isTransactionTimeout(error: unknown): boolean {
+  if (isConnectionWaitTimeout(error)) return false;
   const e = error as { code?: unknown; message?: unknown };
   return e?.code === "P2028" || (typeof e?.message === "string" && /Transaction already closed|P2028/.test(e.message));
 }
@@ -46,7 +52,7 @@ export async function withStructureTimeoutTranslation<T>(body: (watch: (tx: Tena
       current = tx;
     });
   } catch (error) {
-    if (current !== undefined && structureTransactions.has(current) && isTransactionTimeout(error)) throw busy();
+    if (current !== undefined && structureTransactions.has(current) && isTransactionTimeout(error)) throw structureBusy();
     throw error;
   }
 }
@@ -78,7 +84,7 @@ export async function lockProjectStructure(tx: TenantClient, projectId: string):
     await tx.$executeRaw`select pg_advisory_xact_lock(hashtextextended(${`ticket-structure:${projectId}`}, 0))`;
   } catch (error) {
     if (isLockTimeout(error)) {
-      throw busy();
+      throw structureBusy();
     }
     throw error;
   }

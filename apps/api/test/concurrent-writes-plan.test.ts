@@ -108,6 +108,8 @@ describe("estatística", () => {
     expect(codeOf(409, '{"code":"concurrent_update"}')).toBe("409 concurrent_update");
     expect(codeOf(429, "")).toBe("429");
     expect(codeOf(503, "")).toBe("5xx");
+    expect(codeOf(503, '{"error":{"code":"server_busy","message":"x"}}')).toBe("503 server_busy");
+    expect(codeOf(500, '{"error":{"code":"internal_error"}}')).toBe("500 internal_error");
     expect(codeOf(201, "")).toBe("2xx");
   });
 });

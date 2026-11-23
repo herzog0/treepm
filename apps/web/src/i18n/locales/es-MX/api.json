@@ -9,6 +9,7 @@
       "ticket_cycle": "Un ticket no puede ser el padre de sí mismo ni de uno de sus ancestros.",
       "structure_busy": "Otro cambio en la estructura de este proyecto está en curso. Inténtalo de nuevo en unos instantes.",
       "concurrent_update": "Otro cambio ocurrió al mismo tiempo. Inténtalo de nuevo.",
+      "server_busy": "El servidor está ocupado. Inténtalo de nuevo en unos instantes.",
       "project_archived": "El proyecto está archivado y solo admite lectura.",
       "assistant_not_configured": "El asistente no está configurado en este entorno. Crea el ticket manualmente.",
       "assistant_unavailable": "El asistente no respondió. Inténtalo de nuevo; si sigue igual, crea el ticket manualmente.",

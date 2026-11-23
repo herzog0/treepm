@@ -15,6 +15,7 @@ const CODES_PT: Record<string, string> = {
   ticket_cycle: "Um ticket não pode ser pai de si mesmo nem de um ancestral.",
   structure_busy: "Outra mudança na estrutura deste projeto está em andamento. Tente de novo em instantes.",
   concurrent_update: "Outra alteração aconteceu ao mesmo tempo. Tente de novo.",
+  server_busy: "O servidor está ocupado. Tente de novo em instantes.",
   project_archived: "O projeto está arquivado e só aceita leitura.",
   assistant_not_configured: "O assistente não está configurado neste ambiente. Crie o ticket manualmente.",
   assistant_unavailable: "O assistente não respondeu. Tente de novo; se continuar, crie o ticket manualmente.",
@@ -53,6 +54,9 @@ describe("describeApiError (pt-BR)", () => {
   });
   it("código desconhecido cai na mensagem do tipo", () => {
     expect(describeApiError(i18n.t, { kind: "conflict", code: "unknown_code" })).toBe(KINDS_PT.conflict);
+  });
+  it("server_busy (503 da API, tipo unavailable) mostra a frase de tente de novo, não a genérica", () => {
+    expect(describeApiError(i18n.t, { kind: "unavailable", code: "server_busy" })).toBe("O servidor está ocupado. Tente de novo em instantes.");
   });
   it("a remoção de ticket com filhos tem frase própria", () => {
     expect(describeApiError(i18n.t, { kind: "conflict", code: "ticket_has_children" }, "remove")).toBe(REMOVE_PT);

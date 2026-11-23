@@ -18,6 +18,7 @@ import { ProjectQueryService } from "../query/project-query.service.js";
 import { AgentWorkService } from "../tickets/agent-work.service.js";
 import { TicketCommentsService } from "../tickets/ticket-comments.service.js";
 import { TicketsService } from "../tickets/tickets.service.js";
+import { isConnectionWaitTimeout } from "../common/connection-wait.js";
 import { createProjectServer } from "./mcp-server.js";
 import type { RunInTenant } from "./mcp-tools.js";
 import { WRITE_TOOL_NAMES } from "./mcp-write-tools.js";
@@ -193,6 +194,10 @@ export class McpGateway {
       // O pedido "fresco" só vale para token `write` com a chave ligada; o limite de escritas é contado antes de ir ao Clerk.
       resolved = await this.tokens.resolve(token, projectKey, { fresh: isWrite, onWriteAttempt: (tokenId, personKey) => this.writeHit(tokenId, personKey) });
     } catch (error) {
+      if (isConnectionWaitTimeout(error)) {
+        this.logger.warn("resolve: connection wait timed out (503 server_busy)");
+        throw new HttpFailure(503, "server_busy", "The server is busy. Try again in a moment.", { "Retry-After": "1" });
+      }
       this.logger.error(`resolve failed: ${errorClass(error)}`);
       throw new HttpFailure(503, "service_unavailable", "Try again shortly.", { "Retry-After": "5" });
     } finally {
@@ -243,6 +248,10 @@ export class McpGateway {
   }
 
   private unexpected(error: unknown): HttpFailure {
+    if (isConnectionWaitTimeout(error)) {
+      this.logger.warn("unexpected: connection wait timed out (503 server_busy)");
+      return new HttpFailure(503, "server_busy", "The server is busy. Try again in a moment.", { "Retry-After": "1" });
+    }
     this.logger.error(`unexpected: ${errorClass(error)}`);
     return new HttpFailure(500, "internal_error", "Internal error.");
   }
