@@ -28,6 +28,7 @@ import {
   resumeState,
   withRetry503,
 } from "./core.js";
+import type { ImportItem } from "./core.js";
 import type { Gabarito, GabaritoTicket, LooMark, NodeKind, RunRecord, ScopeCheckRecord, StartedMark, Step, TicketStatus } from "./core.js";
 
 export type Summary = {
@@ -89,6 +90,7 @@ export type Context = {
 
 const MAX_MESSAGE = 4000;
 const MAX_IMPORT_ITEMS = 500;
+const MAX_IMPORT_DEPTH = 20;
 
 // ---- arquivos ---------------------------------------------------------------------------------------------------
 
@@ -445,16 +447,85 @@ export function reportCommand(ctx: Pick<Context, "dir" | "project" | "log">, loo
 
 // ---- restore-original -------------------------------------------------------------------------------------------------
 
-/** Recria a árvore do gabarito pela rota de importação, num projeto vazio; devolve os tickets criados na ordem do gabarito. */
+/** O corpo que a API aceita é de 100 KB (leitor de corpo padrão do Nest); cada requisição leva no máximo isto, medido em bytes. */
+export const IMPORT_BODY_BYTES = 80_000;
+
+type ImportNode = { item: ImportItem; index: number; kids: ImportNode[]; bytes: number; count: number; height: number };
+
+/** A árvore aninhada da rota, com o índice de pré-ordem de cada nó (o mesmo de `order`), o tamanho em bytes e a altura. */
+function indexImportTree(items: readonly ImportItem[]): ImportNode[] {
+  let next = 0;
+  const walk = (list: readonly ImportItem[]): ImportNode[] =>
+    list.map((full) => {
+      const { children, ...item } = full;
+      const index = next++;
+      const kids = walk(children ?? []);
+      const own = Buffer.byteLength(JSON.stringify(item), "utf8") + 2;
+      return {
+        item,
+        index,
+        kids,
+        bytes: own + kids.reduce((sum, kid) => sum + kid.bytes, 0),
+        count: 1 + kids.reduce((sum, kid) => sum + kid.count, 0),
+        height: 1 + kids.reduce((top, kid) => Math.max(top, kid.height), 0),
+      };
+    });
+  return walk(items);
+}
+
+const withKids = (node: ImportNode): ImportItem => (node.kids.length > 0 ? { ...node.item, children: node.kids.map(withKids) } : node.item);
+const preOrder = (nodes: readonly ImportNode[]): ImportNode[] => nodes.flatMap((node) => [node, ...preOrder(node.kids)]);
+
+/**
+ * Recria a árvore do gabarito pela rota de importação, num projeto vazio; devolve os tickets criados na ordem do gabarito.
+ * A rota aceita corpo de 100 KB, 500 itens e 20 níveis: as subárvores irmãs vão juntas em requisições que cabem nos três
+ * limites (bytes, itens, níveis), pais antes de filhos; uma subárvore que sozinha não cabe vira ticket avulso (sem filhos)
+ * e os filhos dela são importados dentro dele com `parentId`.
+ */
 export async function importGabarito(ctx: Context, gabarito: Gabarito): Promise<{ created: Summary[]; order: string[] }> {
   const existing = await listTickets(ctx);
   if (existing.length > 0) throw new Error(`O projeto ${ctx.project} tem ${existing.length} ticket(s); recuso restaurar em projeto não vazio.`);
   const { items, order } = buildImportTree(gabarito.tickets);
-  if (order.length > MAX_IMPORT_ITEMS) throw new Error(`O gabarito tem ${order.length} tickets e a rota de importação aceita ${MAX_IMPORT_ITEMS} por chamada.`);
-  const created = expectOk<Summary[]>("importar árvore", await ctx.client.request("POST", `/projects/${ctx.project}/tickets/import`, { items }));
-  if (created.length !== order.length) throw new Error(`A importação devolveu ${created.length} tickets, esperava ${order.length}.`);
+  const created: (Summary | undefined)[] = new Array(order.length).fill(undefined);
+  const send = async (parentId: string | null, nodes: readonly ImportNode[], shallow: boolean): Promise<void> => {
+    const body = shallow ? { items: nodes.map((node) => node.item), ...(parentId ? { parentId } : {}) } : { items: nodes.map(withKids), ...(parentId ? { parentId } : {}) };
+    const sent = shallow ? [...nodes] : preOrder(nodes);
+    const response = expectOk<Summary[]>("importar árvore", await ctx.client.request("POST", `/projects/${ctx.project}/tickets/import`, body));
+    if (response.length !== sent.length) throw new Error(`A importação devolveu ${response.length} tickets, esperava ${sent.length}.`);
+    sent.forEach((node, i) => {
+      created[node.index] = response[i] as Summary;
+    });
+  };
+  const pack = async (parentId: string | null, siblings: readonly ImportNode[]): Promise<void> => {
+    let batch: ImportNode[] = [];
+    let bytes = 0;
+    let count = 0;
+    const flush = async (): Promise<void> => {
+      if (batch.length === 0) return;
+      const nodes = batch;
+      batch = [];
+      bytes = 0;
+      count = 0;
+      await send(parentId, nodes, false);
+    };
+    for (const sibling of siblings) {
+      if (sibling.bytes <= IMPORT_BODY_BYTES && sibling.count <= MAX_IMPORT_ITEMS && sibling.height <= MAX_IMPORT_DEPTH) {
+        if (bytes + sibling.bytes > IMPORT_BODY_BYTES || count + sibling.count > MAX_IMPORT_ITEMS) await flush();
+        batch.push(sibling);
+        bytes += sibling.bytes;
+        count += sibling.count;
+      } else {
+        await flush();
+        await send(parentId, [sibling], true);
+        await pack((created[sibling.index] as Summary).id, sibling.kids);
+      }
+    }
+    await flush();
+  };
+  await pack(null, indexImportTree(items));
+  if (created.some((entry) => entry === undefined)) throw new Error("A importação deixou tickets sem criar.");
   ctx.log(`Árvore recriada: ${created.length} tickets.`);
-  return { created, order };
+  return { created: created as Summary[], order };
 }
 
 export async function restoreOriginalCommand(ctx: Context): Promise<boolean> {
@@ -489,7 +560,13 @@ export function readLooMap(dir: string, projectId: string): Map<string, string> 
 const writeLooMap = (dir: string, projectId: string, map: ReadonlyMap<string, string>): void =>
   writeFileSync(looMapPath(dir, projectId), JSON.stringify(Object.fromEntries(map), null, 2));
 
-/** Mede o uso normal da procura: tira um ticket-folha de uma árvore já organizada e deixa a procura pô-lo de volta. */
+/**
+ * Mede o uso normal da procura: tira um ticket-folha de uma árvore já organizada e deixa a procura pô-lo de volta.
+ *
+ * Desde a ADR 0052 o texto de cada ramo é montado na hora da procura, da árvore como está: o ticket retirado deixa de
+ * aparecer no texto do antigo pai, então a medição volta a medir acerto (antes, o resumo guardado do pai ainda citava o
+ * ticket retirado, e a procura o achava pelo texto). Nada aqui lê nem grava resumo guardado; a procura também não.
+ */
 export async function leaveOneOutCommand(ctx: Context, limit: number | undefined): Promise<boolean> {
   const original = readGabarito(ctx.dir);
   // `--flat`: a árvore medida é a achatada (só tickets, todos na raiz); o gabarito original fica no arquivo, para o relatório.

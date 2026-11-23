@@ -63,6 +63,7 @@ model Organization {
   ticketConversations        TicketConversation[]
   ticketConversationMessages TicketConversationMessage[]
   branchSummaries            BranchSummary[]
+  placementDecisions         PlacementDecision[]
   githubInstallations        GithubInstallation[]
   projectRepositories        ProjectRepository[]
   ticketCodeLinks            TicketCodeLink[]
@@ -184,6 +185,7 @@ model Project {
   tickets             Ticket[]
   ticketConversations TicketConversation[]
   branchSummaries     BranchSummary[]
+  placementDecisions  PlacementDecision[]
   repositories        ProjectRepository[]
   accessTokens        AccessToken[]
 
@@ -255,6 +257,7 @@ model Ticket {
   assignees            TicketAssignee[]
   conversationsCreated TicketConversation[]
   branchSummaries      BranchSummary[]
+  placementDecisions   PlacementDecision[]
   codeLinks            TicketCodeLink[]
   relationsFrom        TicketRelation[]         @relation("RelationFrom")
   relationsTo          TicketRelation[]         @relation("RelationTo")
@@ -349,11 +352,12 @@ model TicketConversation {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization  Organization                @relation(fields: [orgId], references: [orgId])
-  project       Project                     @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
-  author        Person                      @relation(fields: [orgId, authorPersonId], references: [orgId, id], onDelete: Cascade)
-  createdTicket Ticket?                     @relation(fields: [orgId, projectId, createdTicketId], references: [orgId, projectId, id], onDelete: Restrict)
-  messages      TicketConversationMessage[]
+  organization       Organization                @relation(fields: [orgId], references: [orgId])
+  project            Project                     @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
+  author             Person                      @relation(fields: [orgId, authorPersonId], references: [orgId, id], onDelete: Cascade)
+  createdTicket      Ticket?                     @relation(fields: [orgId, projectId, createdTicketId], references: [orgId, projectId, id], onDelete: Restrict)
+  messages           TicketConversationMessage[]
+  placementDecisions PlacementDecision[]
 
   @@id([orgId, id])
   @@index([orgId, projectId, authorPersonId, updatedAt(sort: Desc)])
@@ -379,6 +383,36 @@ model TicketConversationMessage {
   @@id([orgId, id])
   @@unique([orgId, conversationId, position])
   @@map("ticket_conversation_messages")
+}
+
+/// A decisão da procura de lugar (ADR 0052, item 5): só identificadores e números, nenhum texto. Uma por conversa; ao criar o
+/// ticket o dono passa a ser o ticket (`conversationId` zerado). Migration 0028.
+model PlacementDecision {
+  orgId          String   @map("org_id")
+  id             String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  conversationId String?  @map("conversation_id") @db.Uuid
+  ticketId       String?  @map("ticket_id") @db.Uuid
+  chosenPath     String[] @default([]) @map("chosen_path") @db.Uuid
+  /// Lista de caminhos alternativos, cada um uma lista de ids de ticket.
+  alternatives   Json     @default("[]")
+  uncertain      Boolean
+  /// no_candidates | below_low | band | candidates_too_large | max_levels (check no banco)
+  stopReason     String?  @map("stop_reason")
+  scopeTicketId  String?  @map("scope_ticket_id") @db.Uuid
+  scopeFit       Float?   @map("scope_fit")
+  /// Um elemento por pergunta ao juiz: { level, parentId, parentNumber (número do pai; null na raiz), result, belongs, candidates: [{ ticketId, number, probability }] }.
+  levels         Json     @default("[]")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization        @relation(fields: [orgId], references: [orgId])
+  project      Project             @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
+  conversation TicketConversation? @relation(fields: [orgId, conversationId], references: [orgId, id], onDelete: Cascade)
+  ticket       Ticket?             @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+
+  @@id([orgId, id])
+  @@index([orgId, projectId])
+  @@map("placement_decisions")
 }
 
 model BranchSummary {

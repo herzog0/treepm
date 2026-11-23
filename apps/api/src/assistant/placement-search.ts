@@ -19,10 +19,13 @@ export const PLACEMENT_TIMEOUT_MS = 30_000;
 
 export type JudgeInput = Parameters<BranchJudge["judge"]>[0];
 
+/** As proporções tentadas, em ordem, quando o nível não cabe no orçamento do juiz (1 é o texto cheio, já tentado). */
+const DESCENDANTS_SCALES = [0.5, 0.25, 0] as const;
+
 export type PlacementDeps = {
   judge: BranchJudge;
   /** Candidatos de um nó: os seus filhos diretos que têm filhos (ADR 0034); `null` é a raiz do projeto. Sem filho que tenha filhos não há candidatos, e a procura termina no nó. */
-  candidates(parentId: string | null): Promise<readonly BranchCandidate[]>;
+  candidates(parentId: string | null, descendantsScale?: number): Promise<readonly BranchCandidate[]>;
   /** A requisição cabe no limite de tokens do juiz? Se não, a procura para naquele nível. */
   fits(input: JudgeInput): boolean;
   /**
@@ -34,6 +37,30 @@ export type PlacementDeps = {
 };
 
 export type PlacementTarget = { parentId: string | null; path: { id: string; title: string }[] };
+
+/** Por que um caminho parou (ADR 0052, item 5): `band` é a faixa do meio, em que "parar aqui" ficou como hipótese. */
+export type StopWhy = "no_candidates" | "below_low" | "band" | "candidates_too_large" | "max_levels";
+
+/**
+ * O rastro da decisão (ADR 0052, item 5): só identificadores e números, nenhum título nem texto. Um passo por pergunta feita
+ * (ou recusada) ao juiz; `parentId` é o nó em que a pergunta foi feita (`null` = raiz do projeto).
+ */
+export type PlacementStep = {
+  level: number;
+  parentId: string | null;
+  result: "descended" | "band" | "below_low" | "no_candidates" | "too_large";
+  /** Probabilidade de "cabe em algum"; `null` quando o juiz não foi perguntado (sem candidatos, ou não coube). */
+  belongs: number | null;
+  candidates: { ticketId: string; probability: number }[];
+};
+export type PlacementTrace = {
+  steps: PlacementStep[];
+  /** Ids do caminho escolhido (da raiz até o destino) e de cada alternativa. */
+  chosen: string[];
+  alternatives: string[][];
+  stop: StopWhy | null;
+  scope: { id: string; fit: number | null } | null;
+};
 
 export type PlacementOutcome = {
   destination: PlacementTarget;
@@ -47,6 +74,8 @@ export type PlacementOutcome = {
    * feita porque a requisição não coube); `outOfScope` é verdadeiro abaixo de `BELONGS_LOW`.
    */
   scope: { id: string; title: string; outOfScope: boolean; fit: number | null } | null;
+  /** O que o juiz respondeu em cada nível e por que a descida parou (ADR 0052). Não sai pela rota: quem grava tira daqui. */
+  trace: PlacementTrace;
 };
 
 type Path = {
@@ -55,6 +84,7 @@ type Path = {
   decisions: number;
   done: boolean;
   stop: PlacementOutcome["stoppedEarly"];
+  why: StopWhy | null;
   /** Profundidades em que a faixa do meio (0,3 a 0,7) deixou "parar aqui" e "descer" como hipóteses do mesmo nó. */
   bands: number[];
 };
@@ -96,7 +126,8 @@ async function descend(draft: TicketDraft, deps: PlacementDeps, signal: AbortSig
   const base = scope ? 1 : 0;
   const ancestors = scope?.ancestors ?? [];
   let scopeFit: number | null = null;
-  let paths: Path[] = [{ nodes: scope ? [scope.node] : [], logSum: 0, decisions: 0, done: false, stop: null, bands: [] }];
+  let paths: Path[] = [{ nodes: scope ? [scope.node] : [], logSum: 0, decisions: 0, done: false, stop: null, why: null, bands: [] }];
+  const steps: PlacementStep[] = [];
   const discarded: PlacementOutcome["discarded"] = [];
 
   for (let level = 1; level <= MAX_LEVELS && paths.some((p) => !p.done); level++) {
@@ -109,37 +140,59 @@ async function descend(draft: TicketDraft, deps: PlacementDeps, signal: AbortSig
         .map(async (path): Promise<Path[]> => {
           const current = tip(path);
           const parentId = current?.id ?? null;
-          const candidates = await deps.candidates(parentId);
+          let candidates = await deps.candidates(parentId);
           // A conferência do escopo vai na primeira requisição dentro dele; o nó atual desse nível é o próprio escopo.
           const checksScope = scope !== undefined && level === 1;
-          if (candidates.length === 0 && !checksScope) return [{ ...path, done: true }];
-          const input: JudgeInput = {
+          if (candidates.length === 0 && !checksScope) {
+            steps.push({ level, parentId, result: "no_candidates", belongs: null, candidates: [] });
+            return [{ ...path, done: true, why: "no_candidates" }];
+          }
+          const inputOf = (offered: readonly BranchCandidate[]): JudgeInput => ({
             draft,
             current: current && !checksScope ? { title: current.title, summary: current.summary } : null,
-            candidates,
+            candidates: offered,
             ...(checksScope ? { scope: scope.node } : {}),
-          };
+          });
+          let input = inputOf(candidates);
+          // Nível grande demais: encolhe a parte dos descendentes de TODOS os candidatos na mesma proporção antes de desistir.
+          for (const scale of DESCENDANTS_SCALES) {
+            if (deps.fits(input)) break;
+            candidates = await deps.candidates(parentId, scale);
+            input = inputOf(candidates);
+          }
           if (!deps.fits(input)) {
-            return [{ ...path, done: true, stop: { reason: "candidates_too_large", level, parentId } }];
+            steps.push({ level, parentId, result: "too_large", belongs: null, candidates: [] });
+            return [{ ...path, done: true, stop: { reason: "candidates_too_large", level, parentId }, why: "candidates_too_large" }];
           }
           const verdict = await deps.judge.judge(input, { signal });
           if (checksScope) scopeFit = verdict.scopeFit ?? null;
-          if (candidates.length === 0) return [{ ...path, done: true }];
+          if (candidates.length === 0) {
+            steps.push({ level, parentId, result: "no_candidates", belongs: null, candidates: [] });
+            return [{ ...path, done: true, why: "no_candidates" }];
+          }
           for (const candidate of candidates) offered.push({ parentId, candidate });
-          if (verdict.belongs < BELONGS_LOW) return [{ ...path, done: true }];
+          const inBand = verdict.belongs >= BELONGS_LOW && verdict.belongs <= BELONGS_HIGH;
+          steps.push({
+            level,
+            parentId,
+            result: verdict.belongs < BELONGS_LOW ? "below_low" : inBand ? "band" : "descended",
+            belongs: verdict.belongs,
+            candidates: candidates.map((candidate) => ({ ticketId: candidate.id, probability: verdict.choice[candidate.id] ?? 0 })),
+          });
+          if (verdict.belongs < BELONGS_LOW) return [{ ...path, done: true, why: "below_low" }];
 
           const ranked = [...candidates].sort((a, b) => (verdict.choice[b.id] ?? 0) - (verdict.choice[a.id] ?? 0));
-          const inBand = verdict.belongs <= BELONGS_HIGH;
           const next: Path[] = ranked.slice(0, inBand ? 1 : MAX_PATHS).map((candidate) => ({
             nodes: [...path.nodes, candidate],
             logSum: path.logSum + (candidates.length > 1 ? Math.log(Math.max(verdict.choice[candidate.id] ?? 0, PROBABILITY_FLOOR)) : 0),
             decisions: path.decisions + (candidates.length > 1 ? 1 : 0),
             done: false,
             stop: null,
+            why: null,
             bands: inBand ? [...path.bands, path.nodes.length] : path.bands,
           }));
           // Na faixa do meio, "parar aqui" continua como hipótese ao lado de descer no mais provável.
-          return inBand ? [{ ...path, done: true, bands: [...path.bands, path.nodes.length] }, ...next] : next;
+          return inBand ? [{ ...path, done: true, why: "band", bands: [...path.bands, path.nodes.length] }, ...next] : next;
         }),
     );
 
@@ -159,12 +212,22 @@ async function descend(draft: TicketDraft, deps: PlacementDeps, signal: AbortSig
   const open = ordered.find((p) => !p.done);
   const stoppedEarly =
     top.stop ?? (top === open ? { reason: "max_levels" as const, level: MAX_LEVELS, parentId: tip(top)?.id ?? null } : null);
+  const idsOf = (path: Path): string[] => [...ancestors.map((a) => a.id), ...path.nodes.map((n) => n.id)];
+  const alternativePaths = ordered.slice(1, 1 + MAX_ALTERNATIVES);
+  steps.sort((a, b) => a.level - b.level || String(a.parentId).localeCompare(String(b.parentId)));
   return {
     destination: target(top, ancestors),
-    alternatives: ordered.slice(1, 1 + MAX_ALTERNATIVES).map((path) => target(path, ancestors)),
+    alternatives: alternativePaths.map((path) => target(path, ancestors)),
     discarded,
     uncertain: second !== undefined && (score(top) / score(second) < UNCERTAIN_RATIO || isBandPair(top, second)),
     stoppedEarly,
     scope: scope ? { id: scope.node.id, title: scope.node.title, outOfScope: scopeFit !== null && scopeFit < BELONGS_LOW, fit: scopeFit } : null,
+    trace: {
+      steps,
+      chosen: idsOf(top),
+      alternatives: alternativePaths.map(idsOf),
+      stop: stoppedEarly?.reason ?? top.why,
+      scope: scope ? { id: scope.node.id, fit: scopeFit } : null,
+    },
   };
 }

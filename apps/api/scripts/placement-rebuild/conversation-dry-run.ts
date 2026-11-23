@@ -4,16 +4,69 @@ import type { Row, TicketContext } from "./ticket-commands.js";
 
 /**
  * `conversation-dry-run`: o que a tela faz para um pedido novo (abre a conversa com o texto, recebe o rascunho e pede o lugar
- * proposto), sem criar ticket. A conversa aberta é descartada no fim, com sucesso ou erro. A procura de lugar da API grava o
- * resumo dos agrupadores que ainda não tinham (`createMany` em `placement.service.ts`); isso não dá para evitar daqui e o
- * comando lista quais foram em `summariesCreated`.
+ * proposto), sem criar ticket. A conversa aberta é descartada no fim, com sucesso ou erro. Desde a ADR 0052 a procura não
+ * escreve resumo nenhum (o texto do ramo é montado na hora) e a decisão dela fica guardada com a conversa: o comando a lê
+ * ANTES de descartar a conversa e a imprime em `probabilities`, com as chaves dos tickets no lugar dos ids.
  */
 export type ConversationDryRunInput = { textFile: string; scope?: number };
 
 type Draft = { title: string; description: string; children: { title: string; description: string }[]; idea: boolean } | null;
 type Conversation = { id: string; draft: Draft; ready: boolean };
 type Target = { parentId: string | null; path: { id: string; title: string }[] };
-type Outcome = { destination: Target; alternatives: Target[]; discarded: unknown[]; [rest: string]: unknown };
+export type Outcome = { destination: Target; alternatives: Target[]; discarded: unknown[]; [rest: string]: unknown };
+
+/** A decisão guardada da procura (ADR 0052): só ids e números. */
+export type Decision = {
+  uncertain: boolean;
+  stopReason: string | null;
+  chosenPath: string[];
+  alternatives: string[][];
+  scope: { ticketId: string; fit: number | null } | null;
+  levels: { level: number; parentId: string | null; result: string; belongs: number | null; candidates: { ticketId: string; probability: number }[] }[];
+};
+
+/** A decisão com as chaves dos tickets (as que a pessoa lê) no lugar dos ids. */
+export function probabilitiesOf(decision: Decision, keyOf: (id: string | null) => string | null) {
+  return {
+    uncertain: decision.uncertain,
+    stopReason: decision.stopReason,
+    chosenPath: decision.chosenPath.map(keyOf),
+    alternatives: decision.alternatives.map((path) => path.map(keyOf)),
+    scope: decision.scope ? { key: keyOf(decision.scope.ticketId), fit: decision.scope.fit } : null,
+    levels: decision.levels.map((level) => ({
+      level: level.level,
+      parentKey: keyOf(level.parentId),
+      result: level.result,
+      belongs: level.belongs,
+      candidates: level.candidates.map((candidate) => ({ key: keyOf(candidate.ticketId), probability: candidate.probability })),
+    })),
+  };
+}
+
+/** O que uma passada devolve, ainda com os ids da API: quem chama traduz para as chaves que quiser. */
+export type DryRunResult = { draft: NonNullable<Draft>; ready: boolean; outcome: Outcome; decision: Decision | null; conversationDiscarded: boolean; conversationId: string };
+
+/**
+ * Uma passada: abre a conversa com o texto, pede o lugar, lê a decisão guardada e descarta a conversa (com sucesso ou erro).
+ * Não imprime nada. `scopeId` é o id (da API) do ticket de escopo.
+ */
+export async function runDryRun(ctx: TicketContext, text: string, scopeId?: string): Promise<DryRunResult> {
+  const scopeBody = scopeId ? { scopeId } : {};
+  const conversation = await call<Conversation>("abrir conversa", ctx, "POST", `/projects/${ctx.project}/ticket-conversations`, { message: text, ...scopeBody });
+  let result: Omit<DryRunResult, "conversationDiscarded" | "conversationId">;
+  let discarded = false;
+  try {
+    if (!conversation.draft) throw new TicketCommandError("O assistente não montou um rascunho a partir do texto: não há o que procurar.");
+    const outcome = await call<Outcome>("procurar o lugar", ctx, "POST", `/ticket-conversations/${conversation.id}/placement`, scopeBody);
+    // A decisão sai ANTES do descarte: descartar a conversa apaga a decisão que ainda é dela.
+    // A leitura é opcional: se falhar, o resultado da procura sai mesmo assim, sem as probabilidades.
+    const stored = await call<{ decision: Decision | null }>("ler a decisão da procura", ctx, "GET", `/ticket-conversations/${conversation.id}/placement-decision`).catch(() => null);
+    result = { draft: conversation.draft, ready: conversation.ready, outcome, decision: stored?.decision ?? null };
+  } finally {
+    discarded = (await ctx.client.request("DELETE", `/ticket-conversations/${conversation.id}`)).status === 204;
+  }
+  return { ...result, conversationDiscarded: discarded, conversationId: conversation.id };
+}
 
 export async function conversationDryRunCommand(ctx: TicketContext, input: ConversationDryRunInput): Promise<void> {
   let text: string;
@@ -24,43 +77,25 @@ export async function conversationDryRunCommand(ctx: TicketContext, input: Conve
   }
   const rows = await listRows(ctx);
   const scope = input.scope === undefined ? null : await resolveNumber(ctx, rows, input.scope);
-  const scopeBody = scope ? { scopeId: scope.id } : {};
+  const run = await runDryRun(ctx, text, scope?.id);
 
-  const conversation = await call<Conversation>("abrir conversa", ctx, "POST", `/projects/${ctx.project}/ticket-conversations`, { message: text, ...scopeBody });
-  let result: Record<string, unknown>;
-  let discarded = false;
-  try {
-    if (!conversation.draft) throw new TicketCommandError("O assistente não montou um rascunho a partir do texto: não há o que procurar.");
-    const branches = rows.filter((row) => rows.some((other) => other.parentId === row.id));
-    const withSummary = async (): Promise<Set<string>> => {
-      const found = new Set<string>();
-      for (const branch of branches) {
-        const view = await call<{ summary: unknown }>("ler resumo", ctx, "GET", `/tickets/${branch.id}/summary`);
-        if (view.summary) found.add(branch.key);
-      }
-      return found;
-    };
-    const before = await withSummary();
-    const outcome = await call<Outcome>("procurar o lugar", ctx, "POST", `/ticket-conversations/${conversation.id}/placement`, scopeBody);
-    const after = await withSummary();
-
-    const byId = new Map<string, Row>(rows.map((row) => [row.id, row]));
-    const keyOf = (id: string | null): string | null => (id === null ? null : (byId.get(id)?.key ?? null));
-    const target = (value: Target) => ({
-      parentKey: keyOf(value.parentId),
-      path: value.path.map((step) => ({ key: keyOf(step.id), title: step.title })),
-    });
-    const { destination, alternatives, ...decision } = outcome;
-    result = {
-      draft: conversation.draft,
-      ready: conversation.ready,
+  const byId = new Map<string, Row>(rows.map((row) => [row.id, row]));
+  const keyOf = (id: string | null): string | null => (id === null ? null : (byId.get(id)?.key ?? null));
+  const target = (value: Target) => ({
+    parentKey: keyOf(value.parentId),
+    path: value.path.map((step) => ({ key: keyOf(step.id), title: step.title })),
+  });
+  const { destination, alternatives, ...decision } = run.outcome;
+  ctx.log(
+    JSON.stringify({
+      draft: run.draft,
+      ready: run.ready,
       destination: target(destination),
       alternatives: alternatives.map(target),
       decision,
-      summariesCreated: [...after].filter((key) => !before.has(key)),
-    };
-  } finally {
-    discarded = (await ctx.client.request("DELETE", `/ticket-conversations/${conversation.id}`)).status === 204;
-  }
-  ctx.log(JSON.stringify({ ...result, conversationDiscarded: discarded, ...(discarded ? {} : { conversationId: conversation.id }) }));
+      probabilities: run.decision ? probabilitiesOf(run.decision, keyOf) : null,
+      conversationDiscarded: run.conversationDiscarded,
+      ...(run.conversationDiscarded ? {} : { conversationId: run.conversationId }),
+    }),
+  );
 }

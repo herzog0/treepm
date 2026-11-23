@@ -121,7 +121,9 @@ export class JevBranchJudge implements BranchJudge {
     if (labelled.length === 0) {
       // Só a pergunta do escopo foi feita; `belongs` e `choice` não existem nesta requisição.
       if (!input.scope) throw new AssistantUnavailableError("invalid_output");
-      this.logger.log(`juiz model=${result.model} ms=${Date.now() - started} candidatos=0 tokens_in=${result.usage.input_tokens ?? "?"}`);
+      this.logger.log(
+        `juiz model=${result.model} ms=${Date.now() - started} candidatos=0 tokens_in=${result.usage.input_tokens ?? "?"}${scopeFit?.success ? ` escopo=${scopeFit.data.scope.noul.toFixed(3)}` : ""}`,
+      );
       return { belongs: 0, choice: {}, ...scopeResult };
     }
     const parsed = answersSchema.safeParse(result.answers);
@@ -134,8 +136,10 @@ export class JevBranchJudge implements BranchJudge {
       choiceById[id] = p;
     }
     if (Object.keys(probabilities).length !== labelled.length) throw new AssistantUnavailableError("invalid_output");
+    // As probabilidades por identificador do ticket: números e ids, nunca os títulos (que são os rótulos) nem o texto (ADR 0052).
+    const odds = labelled.map(({ id }) => `${id}:${(choiceById[id] ?? 0).toFixed(3)}`).join(",");
     this.logger.log(
-      `juiz model=${result.model} ms=${Date.now() - started} candidatos=${labelled.length} tokens_in=${result.usage.input_tokens ?? "?"}`,
+      `juiz model=${result.model} ms=${Date.now() - started} candidatos=${labelled.length} tokens_in=${result.usage.input_tokens ?? "?"} belongs=${parsed.data.belongs.noul.toFixed(3)} escolha=${odds}${scopeFit?.success ? ` escopo=${scopeFit.data.scope.noul.toFixed(3)}` : ""}`,
     );
     return { belongs: parsed.data.belongs.noul, choice: choiceById, ...scopeResult };
   }

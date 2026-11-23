@@ -220,7 +220,7 @@ const ticketCodeSchema = z.object({ repositories: z.number(), syncedAt: z.string
 const descriptionDraftSchema = z.object({ text: z.string(), model: z.string() });
 const askAnswerSchema = z.object({ text: z.string(), model: z.string() });
 const ticketSummaryTextSchema = z.object({
-  summary: z.object({ text: z.string(), source: z.enum(["assistant", "person"]), updatedAt: z.string() }).nullable(),
+  summary: z.object({ text: z.string(), source: z.enum(["assistant", "person", "built"]), updatedAt: z.string().optional(), built: z.boolean().optional() }).nullable(),
 });
 const activityPersonSchema = z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() });
 /** Ticket citado numa entrada: `id` e `title` nulos quando ele não existe mais (a chave pode faltar também). */

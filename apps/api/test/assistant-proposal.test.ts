@@ -93,18 +93,19 @@ describe("placement — proposta de agrupador na raiz", () => {
 });
 
 describe("placement — proposta de agrupador dentro de um agrupador", () => {
-  it("o destino leva título e resumo do agrupador; o resumo é escrito se faltar", async () => {
+  it("o destino leva título e o texto montado na hora do agrupador, sem chamar o resumidor", async () => {
     const id = await start();
     const extra = await addTicket("Parser de XML", tree.sso);
     affinityScores({ [tree.saml]: 0.9 });
     const res = await placement(id);
     expect(res.body.destination.parentId).toBe(tree.sso);
-    expect(h.affinity().calls[0]?.destination).toEqual({ title: "SSO", summary: "Resumo de SSO" });
+    expect(h.affinity().calls[0]?.destination).toEqual({ title: "SSO", summary: "Contém: SAML; Parser de XML" });
+    expect(h.summarizer().calls).toHaveLength(0);
     expect(h.affinity().calls[0]?.tickets.map((t) => t.id)).toEqual([tree.saml, extra]);
     expect(res.body.groupProposal.tickets.map((t: { id: string }) => t.id)).toEqual([tree.saml]);
   });
 
-  it("o destino com texto guardado (da pessoa) leva esse texto à afinidade, sem chamar o resumidor para ele", async () => {
+  it("o destino com nota de pessoa leva à afinidade a nota antes de \"Contém\", sem chamar o resumidor", async () => {
     const id = await start();
     await addTicket("Parser de XML", tree.sso);
     await h.pool.query(
@@ -113,8 +114,8 @@ describe("placement — proposta de agrupador dentro de um agrupador", () => {
     );
     affinityScores({ [tree.saml]: 0.9 });
     await placement(id);
-    expect(h.affinity().calls[0]?.destination).toEqual({ title: "SSO", summary: "Entrada com a conta da empresa" });
-    expect(h.summarizer().calls.map((c) => c.title)).not.toContain("SSO");
+    expect(h.affinity().calls[0]?.destination).toEqual({ title: "SSO", summary: "Nota: Entrada com a conta da empresa\nContém: SAML; Parser de XML" });
+    expect(h.summarizer().calls).toHaveLength(0);
   });
 
   it("todos os soltos do agrupador passam: same_as_destination, sem chamar o Claude", async () => {

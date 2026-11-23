@@ -86,6 +86,7 @@
     "hint": "The AI uses this text to decide whether a new ticket belongs to this ticket.",
     "counter": "{{length}} of {{max}} characters",
     "writtenByAssistant": "Written by the AI on {{date}}",
+    "built": "Assembled from the items in this ticket",
     "editedByPerson": "Edited by a person on {{date}}",
     "empty": "No text yet. The AI writes one on the first search that passes through here, or you can write one now.",
     "writing": "Writing…",

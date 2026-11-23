@@ -4,13 +4,14 @@ import { TicketCommandError, call, failure, listRows, resolveNumber } from "./ti
 import type { Row, TicketContext } from "./ticket-commands.js";
 
 /**
- * Comandos do texto fixo dos agrupadores (ADR 0033, 0034): `summary-show` e `summary-regenerate`. Só usam as rotas
- * `GET tickets/:id/summary` e `POST tickets/:id/summary/regenerate`. O texto do resumo só sai no `summary-show`.
+ * Comandos do texto dos agrupadores (ADR 0033, 0034, 0052): `summary-show` e `summary-regenerate`. Só usam as rotas
+ * `GET tickets/:id/summary` e `POST tickets/:id/summary/regenerate`. O texto só sai no `summary-show`. Desde a ADR 0052 o
+ * `summary-regenerate` não tem efeito (a rota só devolve o texto montado); ele fica para não quebrar quem o chama.
  */
 export type SummaryContext = TicketContext & { sleep: (ms: number) => Promise<void>; /** Pasta do andamento do `--subtree` e do `--all` (para o `--resume`). */ dir?: string };
 export type SummaryRegenerateInput = { number?: number; subtree?: number; all?: boolean; dryRun?: boolean; resume?: boolean };
 
-type SummaryView = { summary: { text: string; source: string; updatedAt: string } | null };
+type SummaryView = { summary: { text: string; source: string; updatedAt?: string; built?: boolean } | null };
 
 /** Tentativas de um ticket quando a API pede para esperar (429). */
 const MAX_RATE_LIMIT_WAITS = 5;
@@ -19,10 +20,10 @@ export async function summaryShowCommand(ctx: SummaryContext, number: number): P
   const ticket = await resolveNumber(ctx, await listRows(ctx), number);
   const view = await call<SummaryView>("ler resumo", ctx, "GET", `/tickets/${ticket.id}/summary`);
   if (!view.summary) {
-    ctx.log(`${ticket.key}: sem resumo guardado`);
+    ctx.log(`${ticket.key}: sem filhos e sem nota: não há texto de ramo`);
     return;
   }
-  ctx.log(`${ticket.key}: resumo escrito ${view.summary.source === "person" ? "por pessoa" : "pelo assistente"}, atualizado em ${view.summary.updatedAt}`);
+  ctx.log(`${ticket.key}: ${view.summary.built ? "texto montado agora da árvore (ADR 0052)" : "nota escrita por pessoa"}${view.summary.updatedAt ? `, atualizado em ${view.summary.updatedAt}` : ""}`);
   ctx.log(view.summary.text);
 }
 

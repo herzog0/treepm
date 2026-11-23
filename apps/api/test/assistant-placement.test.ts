@@ -27,10 +27,6 @@ const storePersonText = (ticketId: string, text: string) =>
   );
 
 let tree: Tree;
-const dropBilling = async () => {
-  await h.pool.query("delete from tickets where id = $1", [tree.invoices]);
-  await h.pool.query("delete from tickets where id = $1", [tree.billing]);
-};
 const start = async (who: Who = "contributor") => {
   tree = await seedTree(h.pool, h.world());
   return open(who);
@@ -54,7 +50,7 @@ describe("POST /ticket-conversations/:id/placement — o resultado", () => {
     expect(seen).toEqual([["Auth", "Billing"], ["SSO"]]);
     expect(h.judge().calls[0]?.draft).toEqual({ title: "Rascunho 1", description: "Quero corrigir o login" });
     expect(h.judge().calls[0]?.current).toBeNull();
-    expect(h.judge().calls[1]?.current).toEqual({ title: "Auth", summary: "Resumo de Auth" });
+    expect(h.judge().calls[1]?.current).toEqual({ title: "Auth", summary: "Tudo sobre entrar no sistema\nContém: Login; SSO\nDentro deles: SAML" });
   });
 
   it("projeto só com tickets soltos na raiz: o juiz nem é chamado e o destino é a raiz", async () => {
@@ -71,7 +67,7 @@ describe("POST /ticket-conversations/:id/placement — o resultado", () => {
     expect(h.summarizer().calls).toHaveLength(0);
   });
 
-  it("projeto com tickets que têm um filho cada: o juiz recebe os pais como candidatos, com o resumo escrito pelo resumidor", async () => {
+  it("projeto com tickets que têm um filho cada: o juiz recebe os pais como candidatos, com o texto montado na hora", async () => {
     await seedGroups(h.pool, h.world(), [{ title: "Acesso" }, { title: "Cobrança", description: "Faturas" }]);
     const id = await open();
     const res = await placement(id);
@@ -80,23 +76,22 @@ describe("POST /ticket-conversations/:id/placement — o resultado", () => {
     expect(h.judge().calls).toHaveLength(1);
     expect(h.judge().calls[0]?.candidates.map((c) => c.title)).toEqual(["Acesso", "Cobrança"]);
     expect(h.judge().calls[0]?.candidates.every((c) => c.hasChildren)).toBe(true);
-    expect(h.judge().calls[0]?.candidates.map((c) => c.summary)).toEqual(["Resumo de Acesso", "Resumo de Cobrança"]);
+    expect(h.judge().calls[0]?.candidates.map((c) => c.summary)).toEqual(["Contém: Item de Acesso", "Faturas\nContém: Item de Cobrança"]);
     expect(res.body.destination.path.map((p: { title: string }) => p.title)).toEqual(["Acesso"]);
   });
 
-  it("ticket sem filhos nunca é candidato (primeira fatia): não chega ao juiz nem ao resumidor, e não ganha resumo", async () => {
+  it("ticket sem filhos nunca é candidato (primeira fatia): não chega ao juiz e a procura não grava texto nenhum", async () => {
     const id = await start();
     await h.pool.query("update tickets set description = 'Trabalho avulso' where id = $1", [tree.loose]);
     await placement(id);
     const offered = h.judge().calls.flatMap((c) => c.candidates.map((x) => x.title));
     for (const ticket of ["Solto", "Login", "Invoices", "SAML"]) expect(offered).not.toContain(ticket);
-    expect(h.judge().calls[0]!.candidates.find((c) => c.title === "Auth")).toMatchObject({ summary: "Resumo de Auth", hasChildren: true });
-    const summarized = h.summarizer().calls.map((c) => c.title);
-    for (const ticket of ["Solto", "Login", "Invoices", "SAML"]) expect(summarized).not.toContain(ticket);
-    expect((await summaryRows()).map((r) => r.title)).toEqual(["Auth", "SSO", "Billing"]);
+    expect(h.judge().calls[0]!.candidates.find((c) => c.title === "Auth")).toMatchObject({ summary: "Tudo sobre entrar no sistema\nContém: Login; SSO\nDentro deles: SAML", hasChildren: true });
+    expect(h.summarizer().calls).toHaveLength(0);
+    expect(await summaryRows()).toEqual([]);
   });
 
-  it("ticket sem filhos ao lado de ticket com filhos: só o com filhos é candidato e passa pelo resumidor", async () => {
+  it("ticket sem filhos ao lado de ticket com filhos: só o com filhos é candidato", async () => {
     tree = await seedTree(h.pool, h.world());
     await h.pool.query(
       "insert into tickets (org_id, project_id, number, title, description, created_by_person_id) values ('org_A', $1, 8, 'Vazio', 'Ainda sem filhos', $2)",
@@ -106,15 +101,15 @@ describe("POST /ticket-conversations/:id/placement — o resultado", () => {
     await placement(id);
     const first = h.judge().calls[0]!.candidates;
     expect(first.map((c) => c.title)).toEqual(["Auth", "Billing"]);
-    expect(h.summarizer().calls.map((c) => c.title)).not.toContain("Vazio");
-    expect((await summaryRows()).map((r) => r.title)).not.toContain("Vazio");
+    expect(await summaryRows()).toEqual([]);
   });
 
-  it("o resumo de um agrupador usa título, descrição e os filhos, tickets e agrupadores", async () => {
+  it("o texto de um agrupador lista os filhos, tickets e agrupadores; sem descrição, começa por \"Contém\"", async () => {
     const id = await start();
     await placement(id);
-    const auth = h.summarizer().calls.find((c) => c.title === "Auth");
-    expect(auth?.children.map((c) => c.title)).toEqual(["Login", "SSO"]);
+    const first = h.judge().calls[0]!.candidates;
+    expect(first.find((c) => c.title === "Auth")?.summary).toBe("Tudo sobre entrar no sistema\nContém: Login; SSO\nDentro deles: SAML");
+    expect(first.find((c) => c.title === "Billing")?.summary).toBe("Contém: Invoices");
   });
 
   it("projeto vazio: nenhum candidato, o juiz nem é chamado e o destino é a raiz", async () => {
@@ -178,8 +173,8 @@ describe("placement — ideias não são lugar para um ticket novo (ADR 0043)", 
     const offered = h.judge().calls.flatMap((c) => c.candidates.map((x) => x.title));
     expect(offered.filter((t) => /Ideia/.test(t))).toEqual([]);
     expect(offered).toContain("Auth");
-    expect(h.summarizer().calls.map((c) => c.title).filter((t) => /Ideia/.test(t))).toEqual([]);
-    expect((await summaryRows()).map((r) => r.title).filter((t) => /Ideia/.test(t))).toEqual([]);
+    expect(JSON.stringify(h.judge().calls)).not.toMatch(/Ideia/); // nem no texto montado dos candidatos
+    expect(await summaryRows()).toEqual([]);
     // as ideias não aparecem em nenhum lugar do resultado
     expect(JSON.stringify(res.body)).not.toMatch(/Ideia/);
   });
@@ -210,206 +205,67 @@ describe("placement — ideias não são lugar para um ticket novo (ADR 0043)", 
   });
 });
 
-describe("placement — resumos de ramo", () => {
-  it("escreve os que faltam nos ramos visitados e os guarda com modelo e marca", async () => {
+describe("placement — texto do ramo montado na hora", () => {
+  it("mudar, acrescentar e remover filhos muda o texto na procura seguinte, sem chamar o resumidor", async () => {
     const id = await start();
-    await placement(id);
-    const stored = await summaryRows();
-    expect(stored.map((r) => r.title)).toEqual(["Auth", "SSO", "Billing"]);
-    expect(stored.every((r) => r.model === "fake-model" && /^[0-9a-f]{64}$/.test(r.content_mark))).toBe(true);
-  });
-
-  it("os resumos do mesmo nível são escritos em paralelo", async () => {
-    const id = await start();
-    h.summarizer().delayMs = 40;
-    await placement(id);
-    expect(h.summarizer().maxConcurrent).toBe(2);
-  });
-
-  it("o resumo recebe título, trecho da descrição e filhos com o resumo que já existe", async () => {
-    const id = await start();
-    await placement(id);
-    const auth = h.summarizer().calls.find((c) => c.title === "Auth");
-    expect(auth).toEqual({
-      title: "Auth",
-      descriptionExcerpt: "Tudo sobre entrar no sistema",
-      children: [{ title: "Login", summary: null }, { title: "SSO", summary: null }],
-    });
-  });
-
-  it("o texto guardado é fixo: a busca seguinte não refaz nenhum resumo, nem o do pai do que foi escrito depois", async () => {
-    const id = await start();
-    await placement(id);
-    expect(h.summarizer().calls).toHaveLength(3);
-    h.summarizer().calls.length = 0;
-    await placement(id);
-    await placement(id);
-    expect(h.summarizer().calls).toHaveLength(0);
-  });
-
-  it("muda um filho, adiciona um e remove um: a busca seguinte não chama o resumidor e manda o mesmo texto ao juiz", async () => {
-    const id = await start();
-    await placement(id);
-    const sentBefore = h.judge().calls.map((c) => ({ current: c.current, candidates: c.candidates.map((x) => x.summary) }));
-    h.summarizer().calls.length = 0;
-    h.judge().calls.length = 0;
-    await h.pool.query("update tickets set title = 'Single sign-on', description = 'Outro assunto' where id = $1", [tree.sso]); // muda um filho
-    await h.pool.query("update tickets set title = 'Login novo' where id = $1", [tree.login]);
+    await h.pool.query("update tickets set title = 'Single sign-on', description = 'Outro assunto' where id = $1", [tree.sso]);
     await h.pool.query(
       "insert into tickets (org_id, project_id, number, parent_id, title, created_by_person_id) values ('org_A', $1, 9, $2, 'Filho novo', $3)",
       [priv(), tree.auth, h.world().people.manager],
-    ); // adiciona um
+    );
     await h.pool.query("update projects set next_ticket_number = 10 where id = $1", [priv()]);
-    await h.pool.query("delete from tickets where id = $1", [tree.login]); // remove um
+    await h.pool.query("delete from tickets where id = $1", [tree.login]);
     await placement(id);
     expect(h.summarizer().calls).toHaveLength(0);
-    const sentAfter = h.judge().calls.map((c) => ({ current: c.current, candidates: c.candidates.map((x) => x.summary) }));
-    expect(sentAfter[0]).toEqual(sentBefore[0]); // mesmo texto de Auth e de Billing no primeiro nível
-    expect(sentAfter[1]?.current).toEqual(sentBefore[1]?.current);
-    // O SSO continua com o texto guardado; o ticket novo, sem filhos, não é candidato.
-    expect(h.judge().calls[1]?.candidates.map((c) => c.summary)).toEqual(["Resumo de SSO"]);
+    expect(h.judge().calls[0]?.candidates.map((c) => c.summary)).toEqual([
+      "Tudo sobre entrar no sistema\nContém: Single sign-on; Filho novo\nDentro deles: SAML",
+      "Contém: Invoices",
+    ]);
+    // O ticket novo, sem filhos, não é candidato; o SSO renomeado traz o texto montado dele.
+    expect(h.judge().calls[1]?.candidates).toMatchObject([{ title: "Single sign-on", summary: "Outro assunto\nContém: SAML" }]);
   });
 
-  it("mudar a descrição ou renomear o próprio ramo também não refaz o texto guardado", async () => {
+  it("mudar a descrição ou renomear o próprio ramo vale na procura seguinte", async () => {
     const id = await start();
-    await placement(id);
-    h.summarizer().calls.length = 0;
     await h.pool.query("update tickets set description = 'Cobrança e faturas' where id = $1", [tree.billing]);
     await h.pool.query("update tickets set title = 'Auth e SSO' where id = $1", [tree.auth]);
     await placement(id);
-    expect(h.summarizer().calls).toHaveLength(0);
-    expect(h.judge().calls[0]?.candidates.map((c) => c.summary)).toEqual(["Resumo de Auth", "Resumo de Billing"]);
+    expect(h.judge().calls[0]?.candidates.map((c) => [c.title, c.summary])).toEqual([
+      ["Auth e SSO", "Tudo sobre entrar no sistema\nContém: Login; SSO\nDentro deles: SAML"],
+      ["Billing", "Cobrança e faturas\nContém: Invoices"],
+    ]);
   });
 
-  it("o texto guardado vale qualquer que seja a marca de conteúdo guardada", async () => {
-    const id = await start();
-    await placement(id);
-    await h.pool.query("update branch_summaries set content_mark = 'marca-que-nao-bate-com-nada'");
-    h.summarizer().calls.length = 0;
-    await placement(id);
-    expect(h.summarizer().calls).toHaveLength(0);
-    expect((await summaryRows()).every((r) => r.content_mark === "marca-que-nao-bate-com-nada")).toBe(true);
-  });
-
-  it("agrupador sem texto e com itens: a IA escreve uma vez, guarda como 'assistant' e reaproveita", async () => {
-    const id = await start();
-    await placement(id);
-    const stored = await rows("select source, model, edited_by_person_id from branch_summaries");
-    expect(stored).toHaveLength(3);
-    expect(stored.every((r) => r.source === "assistant" && r.model === "fake-model" && r.edited_by_person_id === null)).toBe(true);
-    h.summarizer().calls.length = 0;
-    await placement(id);
-    expect(h.summarizer().calls).toHaveLength(0);
-  });
-
-  it("agrupador com itens e texto de pessoa: o texto da pessoa vai ao juiz e o resumidor não é chamado para ele", async () => {
+  it("agrupador com itens e nota de pessoa: a nota vai ao juiz antes de \"Contém\" e o resumidor não é chamado", async () => {
     const id = await start();
     await storePersonText(tree.billing, "Cobrança de clientes e emissão de faturas");
     await placement(id);
-    expect(h.judge().calls[0]?.candidates.find((c) => c.title === "Billing")?.summary).toBe("Cobrança de clientes e emissão de faturas");
-    expect(h.summarizer().calls.map((c) => c.title)).not.toContain("Billing");
-    expect((await rows("select source from branch_summaries where ticket_id = $1", [tree.billing]))[0].source).toBe("person");
+    expect(h.judge().calls[0]?.candidates.find((c) => c.title === "Billing")?.summary).toBe("Nota: Cobrança de clientes e emissão de faturas\nContém: Invoices");
+    expect(h.summarizer().calls).toHaveLength(0);
+    expect((await rows("select source from branch_summaries where ticket_id = $1", [tree.billing]))).toEqual([{ source: "person" }]);
   });
 
-  it("ao escrever um texto, o filho agrupador entra com o texto guardado dele; sem texto guardado, só com o título", async () => {
+  it("a nota de um filho agrupador não entra no texto do pai; entra só no dele", async () => {
     const id = await start();
     await storePersonText(tree.sso, "Entrar com a conta da empresa");
     await placement(id);
-    const auth = h.summarizer().calls.find((c) => c.title === "Auth");
-    expect(auth?.children).toEqual([
-      { title: "Login", summary: null },
-      { title: "SSO", summary: "Entrar com a conta da empresa" },
-    ]);
-    // O SSO não foi reescrito, e o Billing (filho só de ticket) foi escrito sem nenhum resumo de filho.
-    expect(h.summarizer().calls.map((c) => c.title).sort()).toEqual(["Auth", "Billing"]);
-  });
-
-  it("um texto de pessoa gravado enquanto a IA escrevia não é sobrescrito, e é ele que vai ao juiz", async () => {
-    const id = await start();
-    h.summarizer().onCall = async () => {
-      await h.pool.query(
-        "insert into branch_summaries (org_id, project_id, ticket_id, summary, content_mark, source, model, edited_by_person_id) values ('org_A', $1, $2, 'Texto da pessoa', 'x', 'person', null, $3) on conflict do nothing",
-        [priv(), tree.auth, h.world().people.manager],
-      );
-    };
-    await placement(id);
-    expect((await rows("select summary, source, model from branch_summaries where ticket_id = $1", [tree.auth]))[0]).toEqual({
-      summary: "Texto da pessoa",
-      source: "person",
-      model: null,
-    });
-    expect(h.judge().calls[0]?.candidates.find((c) => c.title === "Auth")?.summary).toBe("Texto da pessoa");
-  });
-
-  it("o resumo de um ticket removido some com ele", async () => {
-    const id = await start();
-    await placement(id);
-    await dropBilling();
-    expect((await summaryRows()).map((r) => r.title)).toEqual(["Auth", "SSO"]);
+    expect(h.judge().calls[0]?.candidates.find((c) => c.title === "Auth")?.summary).toBe("Tudo sobre entrar no sistema\nContém: Login; SSO\nDentro deles: SAML");
+    expect(h.judge().calls[1]?.candidates.find((c) => c.title === "SSO")?.summary).toBe("Nota: Entrar com a conta da empresa\nContém: SAML");
   });
 });
 
-describe("placement — fora de transação e conferência na escrita", () => {
-  it("não há transação aberta enquanto o resumidor e o juiz respondem", async () => {
+describe("placement — fora de transação", () => {
+  it("não há transação aberta enquanto o juiz responde", async () => {
     const id = await start();
     const during: number[] = [];
-    h.summarizer().onCall = async () => void during.push(await openTransactions());
     h.judge().onCall = async () => void during.push(await openTransactions());
     expect((await placement(id)).status).toBe(201);
-    expect(during.length).toBeGreaterThanOrEqual(4);
+    expect(during.length).toBeGreaterThanOrEqual(2);
     expect(during.every((n) => n === 0)).toBe(true);
-  });
-
-  it("projeto arquivado durante o resumo: 409 e nenhum resumo gravado", async () => {
-    const id = await start();
-    h.summarizer().onCall = async () => void (await h.pool.query("update projects set archived_at = now() where id = $1", [priv()]));
-    const res = await placement(id);
-    expect(errorOf(res)).toBe("project_archived");
-    expect(await summaryRows()).toEqual([]);
-  });
-
-  it("conversa apagada durante o resumo: 404 e nenhum resumo gravado", async () => {
-    const id = await start();
-    h.summarizer().onCall = async () => void (await h.pool.query("delete from ticket_conversations where id = $1", [id]));
-    const res = await placement(id);
-    expect(res.status).toBe(404);
-    expect(res.body.error.message).toBe("Conversa não encontrada.");
-    expect(await summaryRows()).toEqual([]);
-  });
-
-  it("conversa fechada durante o resumo: 409 conversation_closed", async () => {
-    const id = await start();
-    h.summarizer().onCall = async () => void (await h.pool.query("update ticket_conversations set status = 'discarded' where id = $1", [id]));
-    expect(errorOf(await placement(id))).toBe("conversation_closed");
-    expect(await summaryRows()).toEqual([]);
-  });
-
-  it("papel rebaixado a leitor durante o resumo: 403 e nada gravado", async () => {
-    const id = await start();
-    h.summarizer().onCall = async () =>
-      void (await h.pool.query("update project_memberships set role = 'reader' where person_id = $1", [h.world().people.contributor]));
-    expect((await placement(id)).status).toBe(403);
-    expect(await summaryRows()).toEqual([]);
-  });
-
-  it("ticket removido durante o resumo: segue sem gravar o resumo dele", async () => {
-    const id = await start();
-    h.summarizer().onCall = async () => void (await dropBilling());
-    const res = await placement(id);
-    expect(res.status).toBe(201);
-    expect((await summaryRows()).map((r) => r.title)).not.toContain("Billing");
   });
 });
 
 describe("placement — indisponibilidade e configuração", () => {
-  it("resumidor fora do ar: 503 assistant_unavailable", async () => {
-    const id = await start();
-    h.summarizer().fail = true;
-    const res = await placement(id);
-    expect(res.status).toBe(503);
-    expect(errorOf(res)).toBe("assistant_unavailable");
-  });
-
   it("juiz fora do ar: 503 assistant_unavailable", async () => {
     const id = await start();
     h.judge().fail = true;
@@ -507,18 +363,18 @@ describe("placement — escopo pela seleção (ADR 0031)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("escopo com filhos: a procura começa nele, o caminho vem desde a raiz e o resumo do escopo é escrito e gravado", async () => {
+  it("escopo com filhos: a procura começa nele, o caminho vem desde a raiz e o texto do escopo é montado na hora", async () => {
     const id = await start();
     const res = await scoped(id, tree.auth);
     expect(res.status).toBe(201);
     const first = h.judge().calls[0]!;
-    expect(first.scope).toEqual({ id: tree.auth, title: "Auth", summary: "Resumo de Auth", hasChildren: true });
+    expect(first.scope).toEqual({ id: tree.auth, title: "Auth", summary: "Tudo sobre entrar no sistema\nContém: Login; SSO\nDentro deles: SAML", hasChildren: true });
     expect(first.current).toBeNull();
     expect(first.candidates.map((c) => c.title)).toEqual(["SSO"]);
     expect(res.body.destination).toEqual({ parentId: tree.sso, path: [{ id: tree.auth, title: "Auth" }, { id: tree.sso, title: "SSO" }] });
     expect(res.body.scope).toEqual({ id: tree.auth, title: "Auth", outOfScope: false });
     expect(res.body.stoppedEarly).toBeNull();
-    expect((await summaryRows()).map((r) => r.title)).toContain("Auth");
+    expect(await summaryRows()).toEqual([]);
     expect(h.judge().calls).toHaveLength(1); // SSO só tem um ticket: não há mais o que perguntar
   });
 
