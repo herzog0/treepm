@@ -15,12 +15,13 @@ export function AdminProvider({ isAdmin, children }: { isAdmin: boolean; childre
 export const isConsentRequired = (error: ApiError | null | undefined): boolean => error?.code === "assistant_consent_required";
 
 /** O aviso de assistente desligado por falta de aceite: diz que um administrador precisa ativá-lo e, se for o caso, leva às Configurações. */
-export function ConsentRequiredNotice({ className }: { className?: string }) {
+/** `text` troca a frase de uma tela que tem a sua (o chat, ADR 0049); o resto (administrador, link) é igual. */
+export function ConsentRequiredNotice({ className, text }: { className?: string; text?: string }) {
   const { t } = useTranslation("api");
   const isAdmin = useContext(AdminContext);
   return (
     <p role="alert" {...(className ? { className } : {})}>
-      {t("errors.code.assistant_consent_required")}
+      {text ?? t("errors.code.assistant_consent_required")}
       {isAdmin && (
         <>
           {" "}

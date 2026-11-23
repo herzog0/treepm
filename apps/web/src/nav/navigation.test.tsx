@@ -1,7 +1,7 @@
 import { act, render, renderHook, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
-import { AppNav, useView, viewHref } from "./navigation.js";
+import { AppNav, chatTicketTarget, useView, viewHref } from "./navigation.js";
 
 function setUrl(url: string) {
   window.history.replaceState(null, "", url);
@@ -225,6 +225,23 @@ describe("ideas route", () => {
     expect(result.current[5]).toBeNull();
     expect(window.location.search).toBe("");
     expect(window.history.length).toBe(before);
+  });
+
+  it("keeps the page open and asks the camera to go to the same ticket (chat header with the page already open, ADR 0049)", () => {
+    setUrl("/?ticket=t1");
+    const { result } = renderHook(() => useView());
+    act(() => result.current[1]("map", null, { ticketId: "t1", focusId: "t1" }));
+    expect(result.current[3]).toBe("t1");
+    expect(result.current[5]).toBe("t1");
+    expect(window.location.search).toBe("?ticket=t1&focus=t1");
+    expect(viewHref("map", "https://x.test/app", null, { ticketId: "t1", focusId: "t1" })).toBe("/app?ticket=t1&focus=t1");
+    expect(chatTicketTarget("t1", "t1")).toEqual({ ticketId: "t1", focusId: "t1" });
+    expect(chatTicketTarget("t2", "t1")).toEqual({ ticketId: "t1" });
+    expect(chatTicketTarget(null, "t1")).toEqual({ ticketId: "t1" });
+    act(() => result.current[6]());
+    expect(result.current[3]).toBe("t1");
+    expect(result.current[5]).toBeNull();
+    expect(window.location.search).toBe("?ticket=t1");
   });
 
   it("ignores the ticket and focus targets for other views, and leaving the map drops ?focus", () => {

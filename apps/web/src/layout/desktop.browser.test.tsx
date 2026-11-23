@@ -11,10 +11,10 @@ const BASELINE = "src/layout/baseline.desktop.json";
 const RECORD = (import.meta.env as Record<string, string | undefined>)["VITE_TREEPM_RECORD"] === "1";
 const TOLERANCE = 0.6;
 
-const COMMON = [".tenant-header", ".tenant-brand", ".app-nav", ".app-nav a", ".tenant-controls", ".cl-organizationSwitcherTrigger", ".tenant-api-status", ".cl-userButtonTrigger"];
+const COMMON = [".tenant-header", ".tenant-brand", ".app-nav", ".app-nav a", ".tenant-controls", ".cl-organizationSwitcherTrigger", ".tenant-api-status", ".cl-userButtonTrigger", ".tenant-chats"];
 const SELECTORS: Record<Exclude<LayoutScreen, "ideas">, readonly string[]> = {
   map: [...COMMON, ".org-map", ".spatial-toolbar", ".spatial-toolbar button", ".spatial-help", ".spatial-context", ".command-zone", ".command-bar", ".command-field input"],
-  ticket: [...COMMON, ".map-workspace", ".ticket-page", ".ticket-header", ".ticket-icon-button", ".ticket-title", ".ticket-row", ".ticket-row button", ".ticket-section", ".ticket-section h2", ".ticket-contribution", ".ticket-contribution-head", ".ticket-activity-item", ".ticket-comment-composer", ".ticket-comment-composer textarea", ".command-bar"],
+  ticket: [...COMMON, ".map-workspace", ".ticket-page", ".ticket-header", ".ticket-chat-button", ".ticket-icon-button", ".ticket-title", ".ticket-row", ".ticket-row button", ".ticket-section", ".ticket-section h2", ".ticket-contribution", ".ticket-contribution-head", ".ticket-activity-item", ".ticket-comment-composer", ".ticket-comment-composer textarea", ".command-bar"],
   teams: [...COMMON, ".teams-screen", ".teams-layout", ".teams-screen h1", ".teams-screen h2", ".teams-screen button", ".teams-screen input", ".teams-screen li"],
   settings: [...COMMON, ".settings-screen", ".settings-screen h1", ".settings-screen h2", ".settings-screen button", ".settings-screen input", ".settings-screen select", ".mcp-token-meta"],
   import: [...COMMON, ".import-screen", ".import-columns", ".import-screen h1", ".import-screen textarea", ".import-screen button", ".import-input", ".import-preview"],

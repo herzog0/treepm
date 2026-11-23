@@ -232,3 +232,6 @@ button.ticket-comment-area:hover { border-color: var(--tp-border-strong, var(--t
   .ticket-page .ticket-activity-text button.ticket-activity-ref { position: relative; display: inline; }
   .ticket-page .ticket-activity-text button.ticket-activity-ref::after { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: 44px; transform: translate(-50%, -50%); }
 }
+.ticket-page .ticket-chat-button { min-height: 28px; padding: 0 10px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-raised); color: var(--tp-text); font: 400 12px/1.2 var(--tp-font); cursor: pointer; }
+.ticket-page .ticket-chat-button:hover { background: var(--tp-selected); border-color: var(--tp-border-strong); }
+@media (max-width: 720px) { .ticket-page .ticket-chat-button { min-height: 44px; } }

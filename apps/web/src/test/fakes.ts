@@ -1,7 +1,11 @@
 import { vi } from "vitest";
+import { createFakeChat } from "./chatFakes.js";
+import type { FakeChat } from "./chatFakes.js";
 import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, ConversationDraftChild, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, IdeaStage, TicketListUpdate, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
+export { createFakeChat };
+export type { FakeChat };
 export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid" | "server_error", code?: string, keys?: string[]): ApiResult<never> => ({
   ok: false,
   error: { kind, ...(code === undefined ? {} : { code }), ...(keys === undefined ? {} : { keys }) },
@@ -84,6 +88,8 @@ interface FakeData {
   ideaCreatedAt?: Record<string, string>;
   /** Conversas de criação com a IA, por ID, para `createTicketFromConversation` do cliente em árvore; sem entrada, o rascunho é o padrão. */
   conversations?: Record<string, ConversationDetail>;
+  /** Liga o chat de trabalho por ticket (ADR 0049) com as regras do contrato; sem isso, `listChats` devolve a lista vazia e as outras rotas lançam. */
+  chat?: FakeChat;
 }
 
 export interface FakeAiConsent {
@@ -490,6 +496,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "askProject",
     "createTicketComment", "updateComment", "removeComment",
     "createContribution", "updateContribution", "removeContribution", "putContributionPerson", "removeContributionPerson",
+    "getTicketChat", "getChatThread", "sendChatMessage", "replyChatThread", "markChatRead", "clearChat",
   ] as const;
   const base = Object.fromEntries(names.map((name) => [name, unexpected(name)])) as unknown as ApiClient;
   let client!: ApiClient;
@@ -506,6 +513,9 @@ export function makeClient(data: FakeData = {}): ApiClient {
     listTicketsIfChanged: vi.fn(async (projectId: string) => changedList(await self().listTickets(projectId))),
     // Atividade vazia por padrão: os testes que não falam dela não mudam (ADR 0040).
     ticketActivity: vi.fn(async (): Promise<ApiResult<ActivityPage>> => ok({ entries: [], before: null, canComment: false })),
+    // Sem chat configurado, a lista de chats é vazia: o mapa e o painel que a pedem não quebram os testes que não falam dela.
+    listChats: vi.fn(async () => ok({ items: [] })),
+    ...(data.chat ? data.chat.methods() : {}),
     ...(data.github ? githubMethods(data) : {}),
     ...(data.mcp ? mcpMethods(data) : {}),
     ...(data.aiConsent ? aiConsentMethods(data) : {}),

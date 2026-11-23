@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
+import { useChats } from "../chat/ChatsContext.js";
 import { useTranslation } from "react-i18next";
 import type { ApiClient, Me, Person, Project, TicketDetail, TicketStatus, TicketSummary } from "../api/client.js";
 import { assistantEnabled, githubEnabled } from "../api/client.js";
@@ -81,6 +82,7 @@ type CopyState = "idle" | "copied" | "failed";
 
 function Header({ projectKey, keyText, path, onClose, actions }: { projectKey: string; keyText: string; path: string; onClose: () => void; actions?: HeaderActions }) {
   const { t } = useTranslation("ticket");
+  const chats = useChats();
   const [copy, setCopy] = useState<CopyState>("idle");
   useEffect(() => {
     if (copy === "idle") return;
@@ -112,6 +114,11 @@ function Header({ projectKey, keyText, path, onClose, actions }: { projectKey: s
         {actions?.makeIdea?.error && <span role="alert" className="ticket-toast is-error">{actions.makeIdea.error}</span>}
         {actions && (
           <>
+            {chats && (
+              <button type="button" className="ticket-chat-button" onClick={() => chats.openChat(actions.ticketId)}>
+                {t("header.openChat")}
+              </button>
+            )}
             {actions.onShowOnMap && (
               <button type="button" className="ticket-icon-button" aria-label={t("header.viewOnMap")} onClick={() => actions.onShowOnMap?.(actions.ticketId)}>
                 <Icon><circle cx="8" cy="8" r="4.5" /><path d="M8 1.5v2.5M8 12v2.5M1.5 8H4M12 8h2.5" /></Icon>

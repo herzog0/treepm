@@ -18,10 +18,15 @@ interface Route {
   focusId: string | null;
 }
 
-/** Para onde vai quem chega no mapa vindo de outra tela: com um ticket aberto na página, ou com a câmera nele. */
+/** Para onde vai quem chega no mapa vindo de outra tela: com um ticket aberto na página, com a câmera nele, ou os dois. */
 export interface MapTarget {
   ticketId?: string;
   focusId?: string;
+}
+
+/** Para onde "o cabeçalho do chat" leva: abre a página do ticket; se ela já está aberta nele, só a câmera vai (ADR 0049). */
+export function chatTicketTarget(openTicketId: string | null, ticketId: string): MapTarget {
+  return openTicketId === ticketId ? { ticketId, focusId: ticketId } : { ticketId };
 }
 
 function parseRoute(search: string): Route {
@@ -44,7 +49,8 @@ export function viewHref(view: View, href: string = window.location.href, projec
   else url.searchParams.set("view", view);
   if (view === "import" && projectId !== null) url.searchParams.set("project", projectId);
   if (view === "map" && target.ticketId !== undefined) url.searchParams.set("ticket", target.ticketId);
-  else if (view === "map" && target.focusId !== undefined) url.searchParams.set("focus", target.focusId);
+  // Os dois juntos: a página do ticket já aberta e a câmera a caminho dele (cabeçalho do chat, ADR 0049).
+  if (view === "map" && target.focusId !== undefined) url.searchParams.set("focus", target.focusId);
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
@@ -74,7 +80,7 @@ export function useView(): [View, NavigateFn, string | null, string | null, (tic
       view,
       projectId: view === "import" ? projectId : null,
       ticketId: view === "map" ? target.ticketId ?? null : null,
-      focusId: view === "map" && target.ticketId === undefined ? target.focusId ?? null : null,
+      focusId: view === "map" ? target.focusId ?? null : null,
     };
     if (current.view !== next.view || current.projectId !== next.projectId || current.ticketId !== next.ticketId || current.focusId !== next.focusId) {
       window.history.pushState(window.history.state, "", viewHref(view, window.location.href, next.projectId, target));
