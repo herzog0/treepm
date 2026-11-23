@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, ConversationDraftChild, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, IdeaStage, TicketSummary } from "../api/client.js";
+import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, ConversationDraftChild, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, IdeaStage, TicketListUpdate, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "not_found" | "conflict" | "invalid" | "server_error", code?: string, keys?: string[]): ApiResult<never> => ({
@@ -465,6 +465,11 @@ function summaryMethods(data: FakeData): Partial<ApiClient> {
   };
 }
 
+/** A resposta condicional do cliente falso: sempre a lista inteira, sem versão (o servidor falso não guarda versões). */
+function changedList(list: ApiResult<TicketSummary[]>): ApiResult<TicketListUpdate> {
+  return list.ok ? { ok: true, data: { changed: true, tickets: list.data, version: null } } : list;
+}
+
 /** Cliente falso: cada método lança se não for configurado, para o teste dizer o que precisa. */
 export function makeClient(data: FakeData = {}): ApiClient {
   const unexpected = (name: string) => vi.fn(async () => {
@@ -487,7 +492,9 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "createContribution", "updateContribution", "removeContribution", "putContributionPerson", "removeContributionPerson",
   ] as const;
   const base = Object.fromEntries(names.map((name) => [name, unexpected(name)])) as unknown as ApiClient;
-  return {
+  let client!: ApiClient;
+  const self = () => client;
+  return (client = {
     ...base,
     getMe: vi.fn(async () => ok(data.me ?? makeMe())),
     listProjects: vi.fn(async () => ok(data.projects ?? [])),
@@ -495,13 +502,15 @@ export function makeClient(data: FakeData = {}): ApiClient {
     listTeams: vi.fn(async () => ok(data.teams ?? [])),
     listPeople: vi.fn(async () => ok(data.people ?? [])),
     listTickets: vi.fn(async (projectId: string) => ok(data.tickets?.[projectId] ?? [])),
+    // Sem versão: cada pergunta baixa a lista pelo `listTickets` falso (o servidor falso não faz resposta condicional).
+    listTicketsIfChanged: vi.fn(async (projectId: string) => changedList(await self().listTickets(projectId))),
     // Atividade vazia por padrão: os testes que não falam dela não mudam (ADR 0040).
     ticketActivity: vi.fn(async (): Promise<ApiResult<ActivityPage>> => ok({ entries: [], before: null, canComment: false })),
     ...(data.github ? githubMethods(data) : {}),
     ...(data.mcp ? mcpMethods(data) : {}),
     ...(data.aiConsent ? aiConsentMethods(data) : {}),
     ...(data.summaries ? summaryMethods(data) : {}),
-  };
+  });
 }
 
 /**
@@ -554,9 +563,12 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
     for (let at = parentId === null ? undefined : find(parentId); at && at.status === "done"; at = at.parentId === null ? undefined : find(at.parentId)) at.status = "todo";
   };
 
-  return {
+  let client!: ApiClient;
+  const self = () => client;
+  return (client = {
     ...base,
     listTickets: vi.fn(async (projectId: string) => ok(all.filter((entry) => entry.projectId === projectId).map(withProgress))),
+    listTicketsIfChanged: vi.fn(async (projectId: string) => changedList(await self().listTickets(projectId))),
     getTicket: vi.fn(async (id: string) => {
       const entry = find(id);
       return entry ? ok(detail(entry)) : failed("not_found");
@@ -664,5 +676,5 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
       all.splice(all.findIndex((entry) => entry.id === id), 1);
       return ok(undefined);
     }),
-  };
+  });
 }

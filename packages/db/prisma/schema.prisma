@@ -167,6 +167,8 @@ model Project {
   visibility       ProjectVisibility @default(organization)
   archivedAt       DateTime?         @map("archived_at") @db.Timestamptz(3)
   nextTicketNumber Int               @default(1) @map("next_ticket_number")
+  /// Versão da lista de tickets (ADR 0046): contador incrementado em 1 pelo toque do fim da transação, sem relógio.
+  ticketsVersion   BigInt            @default(0) @map("tickets_version")
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 

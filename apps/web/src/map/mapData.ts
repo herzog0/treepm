@@ -4,21 +4,42 @@ export interface MapData {
   projects: readonly Project[];
   people: readonly Person[];
   ticketsByProject: Readonly<Record<string, readonly TicketSummary[]>>;
+  /** A versão (`ETag`) da lista de cada projeto, para a atualização condicional (ADR 0046); ausente = sem versão conhecida. */
+  versions?: Readonly<Record<string, string>>;
 }
 
-/** Projetos e pessoas primeiro; depois os tickets de cada projeto visível e não arquivado, em paralelo. Qualquer falha falha a carga. */
-export async function loadMapData(client: ApiClient): Promise<ApiResult<MapData>> {
+/**
+ * Projetos e pessoas primeiro; depois os tickets de cada projeto visível e não arquivado, em paralelo. Qualquer falha falha a carga.
+ * Com `previous` (a atualização automática), cada projeto manda a versão que a tela tem e, se o servidor responder "nada mudou"
+ * (`304`), reaproveita a mesma lista (o mesmo objeto) sem baixar nada. Sem `previous` (carga inicial, recarga depois de uma ação)
+ * baixa tudo e guarda as versões recebidas.
+ */
+export async function loadMapData(client: ApiClient, previous?: MapData): Promise<ApiResult<MapData>> {
   const [projects, people] = await Promise.all([client.listProjects(), client.listPeople()]);
   if (!projects.ok) return projects;
   if (!people.ok) return people;
   const visible = projects.data.filter((project) => project.archivedAt === null);
-  const lists = await Promise.all(visible.map((project) => client.listTickets(project.id)));
+  const known = (id: string) => (previous?.ticketsByProject[id] !== undefined ? (previous.versions?.[id] ?? null) : null);
+  const lists = await Promise.all(visible.map((project) => client.listTicketsIfChanged(project.id, known(project.id))));
   const ticketsByProject: Record<string, readonly TicketSummary[]> = {};
+  const versions: Record<string, string> = {};
   for (const [position, list] of lists.entries()) {
     if (!list.ok) return list;
-    ticketsByProject[visible[position]!.id] = list.data;
+    const id = visible[position]!.id;
+    if (list.data.changed) {
+      ticketsByProject[id] = list.data.tickets;
+      if (list.data.version !== null) versions[id] = list.data.version;
+    } else {
+      // `304`: a lista e a versão são as que a tela já tem (só se pergunta com uma versão conhecida). Um 304 sem isso é resposta
+      // impossível do servidor: falha a carga em vez de inventar uma lista.
+      const list = previous?.ticketsByProject[id];
+      const version = previous?.versions?.[id];
+      if (list === undefined || version === undefined) return { ok: false, error: { kind: "unavailable" } };
+      ticketsByProject[id] = list;
+      versions[id] = version;
+    }
   }
-  return { ok: true, data: { projects: projects.data, people: people.data, ticketsByProject } };
+  return { ok: true, data: { projects: projects.data, people: people.data, ticketsByProject, versions } };
 }
 
 /**
@@ -60,6 +81,12 @@ export function mergeMapData(current: MapData, next: MapData): MapData {
       ticketsChanged = true;
     }
   }
-  if (projects === current.projects && people === current.people && !ticketsChanged) return current;
-  return { projects, people, ticketsByProject: ticketsChanged ? ticketsByProject : current.ticketsByProject };
+  const versions = next.versions === undefined || same(current.versions, next.versions) ? current.versions : next.versions;
+  if (projects === current.projects && people === current.people && !ticketsChanged && versions === current.versions) return current;
+  return {
+    projects,
+    people,
+    ticketsByProject: ticketsChanged ? ticketsByProject : current.ticketsByProject,
+    ...(versions === undefined ? {} : { versions }),
+  };
 }

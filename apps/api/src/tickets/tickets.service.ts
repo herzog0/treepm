@@ -17,6 +17,7 @@ import { ideaStageSchema, ticketDetailSchema, ticketStatusSchema } from "./ticke
 import type { AgentWork, EffectivePriorityView, TicketDetail, TicketIdea, TicketPage, TicketSummary, updateTicketSchema } from "./tickets.schema.js";
 import { readContributions } from "./ticket-contributions.read.js";
 import { readBranchOf } from "./ticket-reads.js";
+import { touchProjectVersion } from "./project-version.js";
 
 export type ProjectRow = {
   orgId: string;
@@ -219,6 +220,9 @@ export class TicketsService {
       changes["priority"] = { from: ticket.priority, to: body.priority };
     }
     const fields = Object.keys(data);
+    // Versão do projeto (ADR 0046): só marca; o toque sai no fim da transação. Tudo o que muda o resumo passa por `fields`
+    // (reabrir pais, encerrar marcador e limpar a subárvore só acontecem quando `data.status` ou `data.parentId` existem).
+    if (fields.length > 0) await touchProjectVersion(tx, project.id);
     const finalStatus = (data.status ?? ticket.status) as TicketStatus;
     const finalParent = body.parentId !== undefined ? body.parentId : ticket.parentId;
     // Ideias (ADR 0042): a raiz, ou um ticket dentro de uma, está fora do processo. A posição que vale é a final: quem sai da
@@ -389,7 +393,44 @@ export class TicketsService {
       data: { nextTicketNumber: { increment: count } },
       select: { nextTicketNumber: true },
     });
+    await touchProjectVersion(tx, project.id); // ADR 0046: criar e importar sempre passam por aqui; o toque sai no fim da transação.
     return updated.nextTicketNumber - count;
+  }
+
+  /**
+   * ADR 0046, ordem das travas: tudo o que a criação/importação trava em linhas de tickets (o pai, os tickets mencionados e os que
+   * citam as chaves novas, pelas chaves estrangeiras de `tickets` e `ticket_relations`) é travado AQUI, `for key share` em ordem de
+   * id, ANTES da reserva de número, que segura a linha do projeto até o fim. Quem tem `for update` num desses tickets e espera a
+   * linha do projeto no toque final não cruza mais com quem cria. Os "que citam" são procurados pelos números que a reserva vai
+   * devolver (lidos sem trava, `peekNextNumber`): numa corrida com uma criação sem pai (a única sem a trava de estrutura) o número
+   * pode diferir e um ticket citante ficar sem a trava antecipada; o caso restante é aceito (só vira 409 `concurrent_update`
+   * retentável, nunca dado errado).
+   */
+  async lockLinkedTickets(tx: TenantClient, project: ProjectRow, parentId: string | null, descriptions: readonly string[]): Promise<void> {
+    const first = await this.peekNextNumber(tx, project);
+    const fresh = new Set(descriptions.map((_d, at) => first + at));
+    const ids = new Set<string>(parentId === null ? [] : [parentId]);
+    const mentioned = new Set<number>();
+    for (const description of descriptions) for (const number of this.mentionedNumbers(project, { id: "", number: -1, description })) mentioned.add(number);
+    if (mentioned.size > 0) {
+      for (const row of await tx.ticket.findMany({ where: { projectId: project.id, number: { in: [...mentioned] } }, select: { id: true } })) ids.add(row.id);
+    }
+    const prefix = `${project.key}-`;
+    const candidates = await tx.ticket.findMany({
+      where: {
+        projectId: project.id,
+        ...(fresh.size <= MANY ? { OR: [...fresh].map((number) => ({ description: { contains: `${prefix}${number}` } })) } : { description: { contains: prefix } }),
+      },
+      select: { id: true, number: true, description: true },
+    });
+    for (const candidate of candidates) if (this.mentionedNumbers(project, candidate).some((number) => fresh.has(number))) ids.add(candidate.id);
+    if (ids.size > 0) await tx.$queryRaw`select id from tickets where id = any(${[...ids]}::uuid[]) order by id for key share`;
+  }
+
+  /** O próximo número do projeto, lido SEM trava: só para o texto de um evento escrito antes da reserva (ver `create`). */
+  async peekNextNumber(tx: TenantClient, project: ProjectRow): Promise<number> {
+    const row = await tx.project.findFirstOrThrow({ where: { id: project.id }, select: { nextTicketNumber: true } });
+    return row.nextTicketNumber;
   }
 
   /** O ticket como a página o lê: o detalhe mais as contribuições e se quem lê pode mexer nelas (ADR 0041). */
@@ -625,10 +666,13 @@ export class TicketsService {
     const assigneeIds = [...new Set(input.assigneeIds)];
     for (const personId of assigneeIds) await this.requireAssignable(tx, project, personId);
 
-    const number = await this.allocateNumbers(tx, project, 1);
+    // Ordem das travas (ADR 0046): as linhas de tickets (pai, mencionados, citantes, ancestrais da reabertura) antes da linha do
+    // projeto (reserva de números), que é a última trava das outras escritas. O número só entra no texto do evento (`peekNextNumber`).
+    await this.lockLinkedTickets(tx, project, input.parentId, [input.description]);
     if (input.parentId && !isFinished(input.status) && !outside) {
-      await this.reopenAncestors(tx, principal, project, input.parentId, `${project.key}-${number}`);
+      await this.reopenAncestors(tx, principal, project, input.parentId, `${project.key}-${await this.peekNextNumber(tx, project)}`);
     }
+    const number = await this.allocateNumbers(tx, project, 1);
     const created = await tx.ticket.create({
       data: {
         orgId: project.orgId,
@@ -688,6 +732,7 @@ export class TicketsService {
     origin: Record<string, string>,
   ): Promise<string> {
     await this.lockStructure(tx, project.id); // ADR 0045: o lugar, os tickets e o agrupamento são conferidos já com a trava.
+    await touchProjectVersion(tx, project.id); // ADR 0046: só marca (create também marca).
     if (parentId) await this.requireParent(tx, project.id, parentId);
     // Trava os tickets até o fim da transação: ninguém os move nem os remove entre a conferência e a mudança.
     await tx.$queryRaw`select id from tickets where id = any(${group.ticketIds}::uuid[]) order by id for update`;

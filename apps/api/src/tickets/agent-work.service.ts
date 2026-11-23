@@ -7,6 +7,7 @@ import { ACCESS_TOKEN_CLOCK } from "../access-tokens/clock.js";
 import type { AccessTokenClock } from "../access-tokens/clock.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { ideaRootOfTicket } from "./idea-root.js";
+import { touchProjectVersion } from "./project-version.js";
 import { MAX_TREE_DEPTH, scopeOf } from "./ticket-scope.js";
 import type { AgentWork } from "./tickets.schema.js";
 import { ticketStatusSchema } from "./tickets.schema.js";
@@ -15,8 +16,6 @@ import { ticketStatusSchema } from "./tickets.schema.js";
 export type AgentWorkEndReason = "agent" | "person" | "finished" | "idea" | "archived";
 
 export type AgentWorkInput = { working: boolean; minutes?: number | undefined; note?: string | undefined };
-
-type MarkerRow = { id: string; number: number; started: Date | null; until: Date | null; note: string | null };
 
 /**
  * Marcador de trabalho pela IA (ADR 0043): ligar, renovar, desligar e desligar junto com o ticket. Um relógio só (o injetável,
@@ -44,6 +43,7 @@ export class AgentWorkService {
     const { project, ticket } = await this.visible(tx, principal, ticketId);
     this.authorization.editTicket(principal.actor, project.id);
     this.requireActive(project);
+    await touchProjectVersion(tx, project.id); // ADR 0046: ligar e desligar mudam o resumo; só marca, o toque sai no fim da transação.
     if (!input.working) {
       await this.clearMarkers(tx, principal, project.key, [ticketId], "agent");
       return null;
@@ -140,6 +140,7 @@ export class AgentWorkService {
    * gravam `ticket.agent_work_ended` (motivo `archived`); os vencidos só têm as colunas limpas.
    */
   async endForArchivedProject(tx: TenantClient, principal: Principal, projectId: string): Promise<void> {
+    await touchProjectVersion(tx, projectId); // ADR 0046: marca; o toque sai no fim da transação (a consulta do lote segue sendo uma só).
     const rows = await tx.$queryRaw<{ id: string; number: number; key: string; until: Date }[]>`
       with marked as (
         select id, number, agent_work_until as until from tickets
@@ -167,11 +168,12 @@ export class AgentWorkService {
 
   private async clearMarkers(tx: TenantClient, principal: Principal, projectKey: string, ids: readonly string[], reason: AgentWorkEndReason): Promise<void> {
     if (ids.length === 0) return;
-    const rows = await tx.$queryRaw<{ id: string; number: number; started: Date | null; until: Date | null }[]>`
-      select id, number, agent_work_started_at as started, agent_work_until as until
+    const rows = await tx.$queryRaw<{ id: string; project_id: string; number: number; started: Date | null; until: Date | null }[]>`
+      select id, project_id, number, agent_work_started_at as started, agent_work_until as until
       from tickets where id = any(${[...ids]}::uuid[]) and agent_work_until is not null order by id for update`;
     const now = this.clock.now();
-    for (const row of rows as MarkerRow[]) {
+    for (const row of rows) {
+      await touchProjectVersion(tx, row.project_id); // ADR 0046: marca em toda limpeza que grava (lida depois da trava)
       await tx.ticket.update({
         where: { orgId_id: { orgId: principal.organization.orgId, id: row.id } },
         data: { agentWorkStartedAt: null, agentWorkUntil: null, agentWorkPersonId: null, agentWorkNote: null },
@@ -189,7 +191,7 @@ export class AgentWorkService {
 
   /** Inexistente, de outra organização (RLS) ou privado sem papel: o mesmo 404. */
   private async visible(tx: TenantClient, principal: Principal, id: string) {
-    const ticket = await tx.ticket.findFirst({ where: { id }, select: { id: true, number: true, parentId: true, projectId: true } });
+    const ticket = await tx.ticket.findFirst({ where: { id }, select: { id: true, number: true, parentId: true, projectId: true, agentWorkUntil: true } });
     if (!ticket) throw new NotFoundException("Ticket não encontrado.");
     const project = await tx.project.findFirst({ where: { id: ticket.projectId } });
     if (!project || !this.authorization.canView(principal.actor, project)) throw new NotFoundException("Ticket não encontrado.");
