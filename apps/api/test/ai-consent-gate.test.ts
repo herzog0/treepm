@@ -19,6 +19,7 @@ const AI_ROUTES: Route[] = [
   { name: "escrever o texto do agrupador", method: "PUT", path: ({ ticket }) => `/api/tickets/${ticket}/summary`, body: { text: "Texto" } },
   { name: "reescrever o texto do agrupador", method: "POST", path: ({ ticket }) => `/api/tickets/${ticket}/summary/regenerate` },
   { name: "escrever na descrição", method: "POST", path: ({ ticket }) => `/api/tickets/${ticket}/description/draft`, body: { request: "Critérios", description: "" } },
+  { name: "mensagem no chat do ticket", method: "POST", path: ({ ticket }) => `/api/tickets/${ticket}/chat/messages`, body: { body: "Me ajuda a pensar" } },
   { name: "perguntar sobre o projeto", method: "POST", path: ({ project }) => `/api/projects/${project}/assistant/ask`, body: { question: "Quantos?", history: [] } },
 ];
 
@@ -29,7 +30,7 @@ describe("sem o aceite do assistente, nenhuma rota de IA chega a um provedor", (
     return { project: h.world().projects.priv, ticket: tree.auth };
   };
   const providerCalls = () =>
-    h.conversation().calls.length + h.judge().calls.length + h.summarizer().calls.length + h.affinity().calls.length + h.namer().calls.length + h.writer().calls.length + h.answerer().calls.length;
+    h.conversation().calls.length + h.judge().calls.length + h.summarizer().calls.length + h.affinity().calls.length + h.namer().calls.length + h.writer().calls.length + h.answerer().calls.length + h.chat().calls.length;
 
   it.each(AI_ROUTES)("$name: 403 assistant_consent_required e nenhuma chamada", async (route) => {
     const c = await ctx();
@@ -115,8 +116,8 @@ describe("cobertura da conferência do aceite", () => {
   const ports = portSymbols();
   const rel = (file: string) => relative(join(__dirname, ".."), file);
 
-  it("enumera as portas de provedor de ports.ts (sete)", () => {
-    expect(ports.sort()).toEqual(["AFFINITY_JUDGE", "BRANCH_JUDGE", "BRANCH_SUMMARIZER", "CONVERSATION_PROVIDER", "DESCRIPTION_WRITER", "GROUP_NAMER", "PROJECT_ANSWERER"]);
+  it("enumera as portas de provedor de ports.ts (oito)", () => {
+    expect(ports.sort()).toEqual(["AFFINITY_JUDGE", "BRANCH_JUDGE", "BRANCH_SUMMARIZER", "CHAT_PROVIDER", "CONVERSATION_PROVIDER", "DESCRIPTION_WRITER", "GROUP_NAMER", "PROJECT_ANSWERER"]);
   });
 
   it("só o módulo do assistente e a porta de entrada (AssistantGate) tocam as portas na API", () => {
@@ -146,6 +147,7 @@ describe("cobertura da conferência do aceite", () => {
     expect(users.map(rel).sort()).toEqual([
       "src/assistant/ask.controller.ts",
       "src/assistant/branch-summary.controller.ts",
+      "src/assistant/chat.controller.ts",
       "src/assistant/conversations.controller.ts",
       "src/assistant/description-draft.controller.ts",
     ]);
@@ -154,7 +156,7 @@ describe("cobertura da conferência do aceite", () => {
 
   it("os controladores de IA não injetam provedor nenhum: só a porta de entrada", () => {
     for (const file of files(join(SRC, "assistant")).filter((f) => f.endsWith(".controller.ts"))) {
-      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(/@Inject\((CONVERSATION_PROVIDER|BRANCH_|AFFINITY_|GROUP_NAMER|DESCRIPTION_WRITER|PROJECT_ANSWERER)/);
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(/@Inject\((CHAT_PROVIDER|CONVERSATION_PROVIDER|BRANCH_|AFFINITY_|GROUP_NAMER|DESCRIPTION_WRITER|PROJECT_ANSWERER)/);
     }
   });
 

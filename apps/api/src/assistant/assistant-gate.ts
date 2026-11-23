@@ -9,6 +9,7 @@ import {
   AFFINITY_JUDGE,
   BRANCH_JUDGE,
   BRANCH_SUMMARIZER,
+  CHAT_PROVIDER,
   CONVERSATION_PROVIDER,
   DESCRIPTION_WRITER,
   GROUP_NAMER,
@@ -18,6 +19,7 @@ import type {
   AffinityJudge,
   BranchJudge,
   BranchSummarizer,
+  ChatProvider,
   ConversationProvider,
   DescriptionWriter,
   GroupNamer,
@@ -33,6 +35,7 @@ export type AssistantProviders = {
   namer: GroupNamer;
   writer: DescriptionWriter;
   answerer: ProjectAnswerer;
+  chat: ChatProvider;
 };
 
 /**
@@ -53,6 +56,7 @@ export class AssistantGate {
     @Optional() @Inject(GROUP_NAMER) private readonly namer: GroupNamer | null,
     @Optional() @Inject(DESCRIPTION_WRITER) private readonly writer: DescriptionWriter | null,
     @Optional() @Inject(PROJECT_ANSWERER) private readonly answerer: ProjectAnswerer | null,
+    @Optional() @Inject(CHAT_PROVIDER) private readonly chat: ChatProvider | null,
   ) {}
 
   /** Para rota com transação própria (`@OwnTransactions`): o aceite é conferido numa transação curta, antes de tudo. */
@@ -70,13 +74,13 @@ export class AssistantGate {
   }
 
   private configured(): AssistantProviders {
-    const { conversation, judge, summarizer, affinity, namer, writer, answerer } = this;
-    if (!assistantEnabled(this.config) || !conversation || !judge || !summarizer || !affinity || !namer || !writer || !answerer) {
+    const { conversation, judge, summarizer, affinity, namer, writer, answerer, chat } = this;
+    if (!assistantEnabled(this.config) || !conversation || !judge || !summarizer || !affinity || !namer || !writer || !answerer || !chat) {
       throw new ServiceUnavailableException({
         code: "assistant_not_configured",
         message: "O assistente não está configurado neste ambiente.",
       });
     }
-    return { conversation, judge, summarizer, affinity, namer, writer, answerer };
+    return { conversation, judge, summarizer, affinity, namer, writer, answerer, chat };
   }
 }

@@ -6,6 +6,8 @@ import type {
   BranchJudgment,
   BranchSummarizer,
   BranchSummaryInput,
+  ChatProvider,
+  ChatTurnInput,
   ConversationProvider,
   ConversationTurn,
   ConversationTurnInput,
@@ -155,5 +157,20 @@ export class FakeProjectAnswerer implements ProjectAnswerer {
     if (this.fail) throw new AssistantUnavailableError("fake");
     if (this.delegate) return this.delegate.answer(input);
     return { text: this.script ? await this.script(input) : `Resposta: ${input.question}`, model: "fake-model" };
+  }
+}
+
+/** Chat de trabalho falso (ADR 0049): grava EXATAMENTE o que recebeu e responde um texto previsível. */
+export class FakeChatProvider implements ChatProvider {
+  readonly calls: ChatTurnInput[] = [];
+  onCall: (() => Promise<void>) | null = null;
+  reply_: ((input: ChatTurnInput) => string) | null = null;
+  fail = false;
+  async reply(input: ChatTurnInput): Promise<{ message: string; model: string }> {
+    this.calls.push(structuredClone(input) as ChatTurnInput);
+    await this.onCall?.();
+    if (this.fail) throw new AssistantUnavailableError("fake");
+    const last = input.history[input.history.length - 1]?.body ?? "";
+    return { message: this.reply_ ? this.reply_(input) : `Resposta sobre ${input.ticket.key}: ${last.slice(0, 40)}`, model: "claude-opus-5-5" };
   }
 }

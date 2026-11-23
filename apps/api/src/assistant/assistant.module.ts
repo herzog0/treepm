@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { Module } from "@nestjs/common";
 import { AccessModule } from "../access/access.module.js";
+import { AccessTokensModule } from "../access-tokens/access-tokens.module.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { AssistantGate } from "./assistant-gate.js";
 import { CONFIG, assistantEnabled } from "../config.js";
@@ -14,20 +15,24 @@ import { TicketsModule } from "../tickets/tickets.module.js";
 import { ClaudeBranchSummarizer } from "./claude-branch-summarizer.js";
 import { AskController } from "./ask.controller.js";
 import { ClaudeProjectAnswerer } from "./claude-project-answerer.js";
+import { ClaudeChatProvider } from "./claude-chat-provider.js";
+import { ChatController } from "./chat.controller.js";
+import { ChatService } from "./chat.service.js";
 import { ClaudeDescriptionWriter } from "./claude-description-writer.js";
 import { DescriptionDraftController } from "./description-draft.controller.js";
 import { ClaudeGroupNamer } from "./claude-group-namer.js";
 import { JevAffinityJudge } from "./jev-affinity-judge.js";
 import { JevBranchJudge, sdkSystemOne } from "./jev-branch-judge.js";
 import { PlacementService } from "./placement.service.js";
-import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER } from "./ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER } from "./ports.js";
 
 @Module({
-  imports: [AccessModule, TicketsModule, QueryModule],
-  controllers: [TicketConversationsController, BranchSummaryController, DescriptionDraftController, AskController],
+  imports: [AccessModule, AccessTokensModule, TicketsModule, QueryModule],
+  controllers: [TicketConversationsController, BranchSummaryController, DescriptionDraftController, AskController, ChatController],
   providers: [
     ActivityService,
     PlacementService,
+    ChatService,
     AssistantGate,
     {
       provide: CONVERSATION_PROVIDER,
@@ -85,6 +90,14 @@ import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER,
       useFactory: (config: AppConfig) =>
         assistantEnabled(config) && config.ANTHROPIC_API_KEY
           ? new ClaudeProjectAnswerer(sdkStreamer(new Anthropic({ apiKey: config.ANTHROPIC_API_KEY, maxRetries: 0 })))
+          : null,
+    },
+    {
+      provide: CHAT_PROVIDER,
+      inject: [CONFIG],
+      useFactory: (config: AppConfig) =>
+        assistantEnabled(config) && config.ANTHROPIC_API_KEY
+          ? new ClaudeChatProvider(sdkStreamer(new Anthropic({ apiKey: config.ANTHROPIC_API_KEY, maxRetries: 0 })))
           : null,
     },
     // Os prazos da ADR (30 s a descida, 20 s a proposta) valem quando nada os troca; os testes trocam.
