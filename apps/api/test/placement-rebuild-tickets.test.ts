@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { bootApp } from "../scripts/placement-rebuild/app.js";
 import type { Booted } from "../scripts/placement-rebuild/app.js";
 import { ApiClient } from "../scripts/placement-rebuild/client.js";
-import { relationsRebuildCommand, ticketCreateCommand, ticketListCommand, ticketUpdateCommand } from "../scripts/placement-rebuild/ticket-commands.js";
+import { relationsRebuildCommand, ticketCreateCommand, ticketListCommand, ticketShowCommand, ticketUpdateCommand } from "../scripts/placement-rebuild/ticket-commands.js";
 import type { TicketContext } from "../scripts/placement-rebuild/ticket-commands.js";
 
 process.env["DATABASE_URL"] = APP_URL;
@@ -304,5 +304,103 @@ describe("prioridade (ADR 0047)", () => {
     await ticketListCommand(ctx, true);
     const parsed = JSON.parse(lines[0] as string) as Record<string, unknown>[];
     expect(parsed.map((entry) => entry["priority"])).toEqual([undefined, 7, -1]);
+  });
+});
+
+describe("ticket-update --depends-on e --no-depends-on (ADR 0037)", () => {
+  const dependsOn = async (id: string): Promise<string[]> => ((await detail(id)) as unknown as { dependsOn: { key: string }[] }).dependsOn.map((d) => d.key);
+
+  it("cria a relação 'N depende de M' e imprime o resultado", async () => {
+    const a = await add(project, "Alfa");
+    await add(project, "Beta");
+    await ticketUpdateCommand(ctx, { number: 2, dependsOn: 1 });
+    const key = (await rows(project))[0]?.key.split("-")[0] as string;
+    expect(await dependsOn((await rows(project))[1]?.id as string)).toEqual([`${key}-1`]);
+    expect(lines).toEqual([`${key}-2: depende de ${key}-1`]);
+    expect(((await detail(a)) as unknown as { blocks: unknown[] }).blocks).toHaveLength(1);
+  });
+
+  it("repetir não é erro e não duplica a relação", async () => {
+    await add(project, "Alfa");
+    const b = await add(project, "Beta");
+    await ticketUpdateCommand(ctx, { number: 2, dependsOn: 1 });
+    lines.length = 0;
+    await ticketUpdateCommand(ctx, { number: 2, dependsOn: 1 });
+    const key = (await rows(project))[0]?.key.split("-")[0] as string;
+    expect(lines).toEqual([`${key}-2: já dependia de ${key}-1`]);
+    expect(await dependsOn(b)).toHaveLength(1);
+  });
+
+  it("--no-depends-on remove a relação e repetir também não é erro", async () => {
+    await add(project, "Alfa");
+    const b = await add(project, "Beta");
+    await ticketUpdateCommand(ctx, { number: 2, dependsOn: 1 });
+    lines.length = 0;
+    await ticketUpdateCommand(ctx, { number: 2, noDependsOn: 1 });
+    await ticketUpdateCommand(ctx, { number: 2, noDependsOn: 1 });
+    const key = (await rows(project))[0]?.key.split("-")[0] as string;
+    expect(lines).toEqual([`${key}-2: não depende mais de ${key}-1`, `${key}-2: já não dependia de ${key}-1`]);
+    expect(await dependsOn(b)).toEqual([]);
+  });
+
+  it("ciclo e dependência de si mesmo saem com o código da API; número inexistente é erro claro", async () => {
+    await add(project, "Alfa");
+    await add(project, "Beta");
+    await ticketUpdateCommand(ctx, { number: 2, dependsOn: 1 });
+    await expect(ticketUpdateCommand(ctx, { number: 1, dependsOn: 2 })).rejects.toThrow(/dependency_cycle/);
+    await expect(ticketUpdateCommand(ctx, { number: 1, dependsOn: 1 })).rejects.toThrow(/dependency_self/);
+    await expect(ticketUpdateCommand(ctx, { number: 1, dependsOn: 99 })).rejects.toThrow(/99 não existe neste projeto/);
+  });
+
+  it("combina com outra mudança no mesmo comando", async () => {
+    await add(project, "Alfa");
+    await add(project, "Beta");
+    await ticketUpdateCommand(ctx, { number: 2, dependsOn: 1, status: "in_progress" });
+    const key = (await rows(project))[0]?.key.split("-")[0] as string;
+    expect(lines).toContain(`${key}-2: situação todo → in_progress`);
+    expect(lines).toContain(`${key}-2: depende de ${key}-1`);
+  });
+});
+
+describe("ticket-show", () => {
+  it("imprime o detalhe em JSON: título, situação, pai, caminho, descrição, dependências e mencionado em", async () => {
+    const a = await add(project, "Alfa");
+    const b = await add(project, "Beta", a);
+    const c = await add(project, "Gama", b, "in_progress");
+    await add(project, "Delta");
+    await client.request("PATCH", `/tickets/${c}`, { description: "Texto do Gama" });
+    await ticketUpdateCommand(ctx, { number: 3, dependsOn: 4 });
+    await client.request("PATCH", `/tickets/${a}`, { description: `veja ${(await rows(project))[3]?.key}` });
+    lines.length = 0;
+    await ticketShowCommand(ctx, 3);
+    const key = (await rows(project))[0]?.key.split("-")[0] as string;
+    expect(lines).toHaveLength(1);
+    const shown = JSON.parse(lines[0] as string) as Record<string, unknown>;
+    expect(shown).toMatchObject({
+      key: `${key}-3`,
+      number: 3,
+      title: "Gama",
+      status: "in_progress",
+      parent: { key: `${key}-2`, number: 2, title: "Beta" },
+      path: [
+        { key: `${key}-1`, title: "Alfa" },
+        { key: `${key}-2`, title: "Beta" },
+      ],
+      description: "Texto do Gama",
+      dependsOn: [{ key: `${key}-4`, title: "Delta", status: "todo" }],
+      blocks: [],
+      mentionedBy: [],
+    });
+    lines.length = 0;
+    await ticketShowCommand(ctx, 4);
+    const delta = JSON.parse(lines[0] as string) as { parent: unknown; path: unknown[]; blocks: { key: string }[]; mentionedBy: { key: string }[] };
+    expect(delta.parent).toBeNull();
+    expect(delta.path).toEqual([]);
+    expect(delta.blocks.map((x) => x.key)).toEqual([`${key}-3`]);
+    expect(delta.mentionedBy.map((x) => x.key)).toEqual([`${key}-1`]);
+  });
+
+  it("número inexistente é erro claro", async () => {
+    await expect(ticketShowCommand(ctx, 9)).rejects.toThrow(/9 não existe neste projeto/);
   });
 });

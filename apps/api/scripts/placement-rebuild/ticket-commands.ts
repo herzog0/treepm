@@ -7,14 +7,14 @@ import type { ApiClient, ApiResponse } from "./client.js";
  */
 export type TicketContext = { client: ApiClient; project: string; log: (line: string) => void };
 export type TicketCreateInput = { title: string; descriptionFile?: string; parent?: number; status?: string; idea?: boolean };
-export type TicketUpdateInput = { number: number; status?: string; title?: string; descriptionFile?: string; parent?: number; root?: boolean; ideaStage?: "new" | "refining" | "ready"; priority?: number; ideaAccept?: boolean; ideaDiscard?: boolean; ideaMake?: boolean };
+export type TicketUpdateInput = { number: number; status?: string; title?: string; descriptionFile?: string; parent?: number; root?: boolean; ideaStage?: "new" | "refining" | "ready"; priority?: number; ideaAccept?: boolean; ideaDiscard?: boolean; ideaMake?: boolean; dependsOn?: number; noDependsOn?: number };
 
 /** Erro esperado de um comando de ticket: a mensagem é o que o terminal mostra, sem rastro de pilha. */
 export class TicketCommandError extends Error {
   override name = "TicketCommandError";
 }
 
-type Row = {
+export type Row = {
   id: string;
   number: number;
   key: string;
@@ -28,20 +28,20 @@ type Row = {
   priority?: number;
 };
 
-function failure(what: string, response: ApiResponse): TicketCommandError {
+export function failure(what: string, response: ApiResponse): TicketCommandError {
   const error = (response.body as { error?: { code?: unknown; message?: unknown } } | null)?.error;
   const code = typeof error?.code === "string" ? error.code : `http_${response.status}`;
   const message = typeof error?.message === "string" ? ` — ${error.message}` : "";
   return new TicketCommandError(`${what}: ${code}${message}`);
 }
 
-async function call<T>(what: string, ctx: TicketContext, method: string, path: string, body?: unknown): Promise<T> {
+export async function call<T>(what: string, ctx: TicketContext, method: string, path: string, body?: unknown): Promise<T> {
   const response = await ctx.client.request(method, path, body);
   if (response.status < 200 || response.status >= 300) throw failure(what, response);
   return response.body as T;
 }
 
-const listRows = (ctx: TicketContext): Promise<Row[]> => call<Row[]>("listar tickets", ctx, "GET", `/projects/${ctx.project}/tickets`);
+export const listRows = (ctx: TicketContext): Promise<Row[]> => call<Row[]>("listar tickets", ctx, "GET", `/projects/${ctx.project}/tickets`);
 
 function readText(path: string): string {
   try {
@@ -52,7 +52,7 @@ function readText(path: string): string {
 }
 
 /** Resolve o número de um ticket no projeto; mensagem com a chave quando não existe. */
-async function resolveNumber(ctx: TicketContext, rows: readonly Row[], number: number): Promise<Row> {
+export async function resolveNumber(ctx: TicketContext, rows: readonly Row[], number: number): Promise<Row> {
   const found = rows.find((row) => row.number === number);
   if (found) return found;
   const project = await call<{ key: string }>("ler projeto", ctx, "GET", `/projects/${ctx.project}`);
@@ -161,13 +161,13 @@ export async function ticketUpdateCommand(ctx: TicketContext, input: TicketUpdat
     input.ideaDiscard ? "--idea-discard" : null,
     input.ideaMake ? "--idea-make" : null,
   ].filter((value) => value !== null);
-  const changes = [input.status, input.title, input.descriptionFile, input.parent, input.root, input.ideaStage, input.priority];
+  const changes = [input.status, input.title, input.descriptionFile, input.parent, input.root, input.ideaStage, input.priority, input.dependsOn, input.noDependsOn];
   if (actions.length > 1 || (actions.length === 1 && changes.some((value) => value !== undefined))) {
     throw new TicketCommandError(`${actions.join(", ")} valem sozinhos: uma coisa por comando.`);
   }
   if (actions.length === 1) return ideaActionCommand(ctx, input);
   const hasChange = changes.some((value) => value !== undefined);
-  if (!hasChange) throw new TicketCommandError("Informe ao menos um de --status, --title, --description-file, --parent, --root, --idea-stage ou --priority.");
+  if (!hasChange) throw new TicketCommandError("Informe ao menos um de --status, --title, --description-file, --parent, --root, --idea-stage, --priority, --depends-on ou --no-depends-on.");
   if (input.parent !== undefined && input.root) throw new TicketCommandError("--parent não combina com --root.");
   const description = input.descriptionFile === undefined ? undefined : readText(input.descriptionFile);
   const before = await listRows(ctx);
@@ -195,7 +195,61 @@ export async function ticketUpdateCommand(ctx: TicketContext, input: TicketUpdat
   if (description !== undefined) ctx.log(`${ticket.key}: descrição substituída (${description.length} caracteres)`);
   if (parent) ctx.log(`${ticket.key}: pai → ${parent.key}`);
   if (input.root) ctx.log(`${ticket.key}: pai → nenhum (raiz)`);
+  if (input.dependsOn !== undefined) await dependencyCommand(ctx, before, ticket, input.dependsOn, true);
+  if (input.noDependsOn !== undefined) await dependencyCommand(ctx, before, ticket, input.noDependsOn, false);
   reportReopened(ctx, reopened(before, await listRows(ctx), ticket.id));
+}
+
+type DependencyLink = { id: string; key: string; title: string; status: string };
+type Detail = Row & { description: string; dependsOn: DependencyLink[]; blocks: DependencyLink[]; mentionedBy: DependencyLink[] };
+
+/**
+ * `--depends-on M` / `--no-depends-on M` (ADR 0037): "N depende de M". Idempotente: o estado atual vem do detalhe e repetir
+ * só avisa que já estava assim. Ciclo e dependência de si mesmo saem com o código da API.
+ */
+async function dependencyCommand(ctx: TicketContext, rows: readonly Row[], ticket: Row, otherNumber: number, add: boolean): Promise<void> {
+  const other = await resolveNumber(ctx, rows, otherNumber);
+  const current = await call<Detail>("ler ticket", ctx, "GET", `/tickets/${ticket.id}`);
+  const already = current.dependsOn.some((link) => link.id === other.id);
+  if (add) {
+    if (!already) await call<unknown>("criar dependência", ctx, "POST", `/tickets/${ticket.id}/dependencies`, { ticketId: other.id });
+    ctx.log(`${ticket.key}: ${already ? "já dependia de" : "depende de"} ${other.key}`);
+    return;
+  }
+  if (already) await call<unknown>("remover dependência", ctx, "DELETE", `/tickets/${ticket.id}/dependencies/${other.id}`);
+  ctx.log(`${ticket.key}: ${already ? "não depende mais de" : "já não dependia de"} ${other.key}`);
+}
+
+/**
+ * `ticket-show --number N`: o detalhe do ticket em JSON (título, situação, pai, caminho dos ancestrais, descrição, de quem
+ * depende, quem depende dele e onde é mencionado). É a única saída que traz a descrição inteira, porque foi pedida.
+ */
+export async function ticketShowCommand(ctx: TicketContext, number: number): Promise<void> {
+  const all = await listRows(ctx);
+  const ticket = await resolveNumber(ctx, all, number);
+  const detail = await call<Detail>("ler ticket", ctx, "GET", `/tickets/${ticket.id}`);
+  const byId = new Map(all.map((row) => [row.id, row]));
+  const ancestors: Row[] = [];
+  for (let cursor = ticket.parentId === null ? undefined : byId.get(ticket.parentId); cursor && ancestors.length <= all.length; cursor = cursor.parentId === null ? undefined : byId.get(cursor.parentId)) {
+    ancestors.unshift(cursor);
+  }
+  const parent = ancestors.at(-1);
+  const brief = (row: Row) => ({ key: row.key, number: row.number, title: row.title });
+  const link = (item: DependencyLink) => ({ key: item.key, title: item.title, status: item.status });
+  ctx.log(
+    JSON.stringify({
+      key: detail.key,
+      number: detail.number,
+      title: detail.title,
+      status: detail.status,
+      parent: parent ? brief(parent) : null,
+      path: ancestors.map((row) => ({ key: row.key, title: row.title })),
+      description: detail.description,
+      dependsOn: detail.dependsOn.map(link),
+      blocks: detail.blocks.map(link),
+      mentionedBy: detail.mentionedBy.map(link),
+    }),
+  );
 }
 
 /**
