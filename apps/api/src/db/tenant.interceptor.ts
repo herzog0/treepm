@@ -17,6 +17,7 @@ import { OWN_TRANSACTIONS, TENANT_RUNNER_KEY } from "./own-transactions.js";
 import type { TenantRunner } from "./own-transactions.js";
 import { PRISMA } from "./prisma.provider.js";
 import { TX_KEY } from "./tx.decorator.js";
+import { withStructureTimeoutTranslation } from "../tickets/structure-lock.js";
 
 type Request = RequestWithSession & Record<string, unknown>;
 
@@ -76,20 +77,26 @@ export class TenantInterceptor implements NestInterceptor {
       return lastValueFrom(next.handle(), { defaultValue: undefined });
     }
 
-    return withTenant(this.prisma, tenant, async (tx) => {
-      request[TX_KEY] = tx;
-      request[PRINCIPAL_KEY] = await this.principals.load(tx, session, clerkRole, identity);
-      return lastValueFrom(next.handle(), { defaultValue: undefined });
-    });
+    return withStructureTimeoutTranslation((watch) =>
+      withTenant(this.prisma, tenant, async (tx) => {
+        watch(tx);
+        request[TX_KEY] = tx;
+        request[PRINCIPAL_KEY] = await this.principals.load(tx, session, clerkRole, identity);
+        return lastValueFrom(next.handle(), { defaultValue: undefined });
+      }),
+    );
   }
 
   private runner(tenant: { orgId: string; userId: string }, principal: Principal): TenantRunner {
     return {
       run: (fn) =>
-        withTenant(this.prisma, tenant, async (tx) => {
-          const actor = await this.authorization.loadActor(tx, principal.person.id, principal.actor.clerkRole);
-          return fn(tx, { ...principal, actor });
-        }),
+        withStructureTimeoutTranslation((watch) =>
+          withTenant(this.prisma, tenant, async (tx) => {
+            watch(tx);
+            const actor = await this.authorization.loadActor(tx, principal.person.id, principal.actor.clerkRole);
+            return fn(tx, { ...principal, actor });
+          }),
+        ),
     };
   }
 }

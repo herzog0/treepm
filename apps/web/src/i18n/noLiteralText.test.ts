@@ -11,7 +11,7 @@ async function lint(code: string, area: string, file = "Fake.tsx") {
 }
 
 // Toda área de `apps/web/src`, mais a raiz (`""`): nenhuma fica de fora da regra.
-const AREAS = ["teams/", "settings/", "nav/", "preferences/", "panel/", "ticket/", "tickets/", "import/", "github/", "map/", "assistant/", "command/", "demo/", "api/", "i18n/", "layout/", "ideas/", ""];
+const AREAS = ["teams/", "settings/", "nav/", "preferences/", "panel/", "ticket/", "tickets/", "import/", "github/", "map/", "assistant/", "command/", "demo/", "api/", "i18n/", "layout/", "ideas/", "perf/", ""];
 
 // Cada caso roda o ESLint de verdade sobre 16 áreas (cerca de 1 s com a máquina livre, e a primeira chamada carrega a
 // configuração inteira): com a máquina carregada passa dos 5 s padrão. Prazo próprio só para os testes que fazem esse trabalho.
