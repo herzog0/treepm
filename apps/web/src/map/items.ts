@@ -1,10 +1,13 @@
 import type { TreeNode } from "@treepm/engine";
 import type { TFunction } from "i18next";
 import i18n from "../i18n/index.js";
-import { mixIndicatorColorCounts, mixIndicatorColors } from "@treepm/react";
 import type { MixColors } from "@treepm/react";
-import type { Me, Project, TicketStatus, TicketSummary } from "../api/client.js";
+import type { Me, Project, TicketSummary } from "../api/client.js";
+import { ACCENT_COLOR, CANCELLED_COLOR, IDEA_COLOR, IDEA_DISCARDED_COLOR, PRECEDENCE, SITUATION_COLORS, STATUS_COLORS, effectiveSituation, mostWorryingColor, situationRank } from "./situation.js";
 import { hasOpenDescendants, isInDiscardedIdea } from "./ticketState.js";
+
+// A paleta mora em `situation.ts` (ADR 0051); estes nomes continuam saindo daqui para quem já os importava.
+export { ACCENT_COLOR, CANCELLED_COLOR, IDEA_COLOR, IDEA_DISCARDED_COLOR, STATUS_COLORS };
 
 export interface MapNode extends TreeNode {
   readonly kind: "organization" | "project" | "ticket" | "draft";
@@ -20,32 +23,6 @@ export interface MapNode extends TreeNode {
   readonly ideaDiscarded?: boolean;
 }
 
-/**
- * Cópias hexadecimais dos tokens `--tp-accent` e de situação: a mistura de cores do pacote trabalha com
- * cores resolvidas, não com `var()`. `theme.test.ts` garante que continuam iguais a `theme.css`.
- */
-export const ACCENT_COLOR = "#a99bff";
-export const STATUS_COLORS: Record<TicketStatus, string> = {
-  todo: "#8b92a3",
-  in_progress: "#6ea8ff",
-  in_review: "#e7b450",
-  done: "#4fc48c",
-  cancelled: "#8b92a3",
-};
-
-/** Cópia hexadecimal de `--tp-idea` (ADR 0042): a cor de todo nó dentro de uma ideia, qualquer que seja a situação. */
-export const IDEA_COLOR = "#e879c6";
-const BACKGROUND_COLOR = "#08090d";
-
-/** Mistura em sRGB, canal a canal, o mesmo cálculo do `color-mix(in srgb, …)` da folha de estilo. */
-function blendHex(from: string, into: string, share: number): string {
-  const channel = (hex: string, at: number) => Number.parseInt(hex.slice(at, at + 2), 16);
-  const part = (at: number) => Math.round(channel(from, at) * share + channel(into, at) * (1 - share));
-  return `#${[1, 3, 5].map((at) => part(at).toString(16).padStart(2, "0")).join("")}`;
-}
-/** A mesma cor de ideia, 50% misturada com o fundo: a ideia descartada, a raiz e tudo dentro dela. */
-export const IDEA_DISCARDED_COLOR = blendHex(IDEA_COLOR, BACKGROUND_COLOR, 0.5);
-
 /** O ticket é a raiz de uma ideia ou está dentro de uma (ADR 0042). */
 export const isInIdea = (ticket: Pick<TicketSummary, "idea">): boolean => ticket.idea !== null && ticket.idea !== undefined;
 
@@ -59,22 +36,17 @@ export interface MapDraft {
   readonly title: string;
 }
 
-export interface WeightedColor {
-  readonly color: string;
-  readonly weight: number;
-}
-
-/** Média ponderada em luz linear (a do pacote). Com pesos iguais a cores iguais, devolve a própria cor. */
-export function mixWeightedColors(entries: readonly WeightedColor[]): string {
-  return mixIndicatorColors(entries);
-}
-
 /**
- * Cor de um quadrado mesclado: a mistura das cores dos membros pesada pelo número de folhas de cada um,
- * o que equivale à mistura das folhas descendentes (a mesma regra de `buildMapItems` para um ticket com filhos).
+ * Cor de um quadrado mesclado (ADR 0051): a mais preocupante entre as dos membros, nunca uma média. Como a cor de cada
+ * membro já é a do seu ramo, o quadrado mostra o pior que há dentro dele.
  */
-export const mixMapColors: MixColors<MapNode> = (colors, members) =>
-  mixWeightedColors(colors.map((entry, position) => ({ color: entry.color, weight: members[position]?.leafCount ?? 1 })));
+export const mixMapColors: MixColors<MapNode> = (colors) => mostWorryingColor(colors.map((entry) => entry.color));
+
+/** Cor própria do ticket, antes de os ramos serem pintados: a situação, ou vermelho quando bloqueado (ADR 0051). */
+function ticketColor(ticket: TicketSummary): string {
+  const situation = effectiveSituation(ticket);
+  return situation === "blocked" ? SITUATION_COLORS.blocked : STATUS_COLORS[situation];
+}
 
 /**
  * Organização na raiz, projetos abaixo dela e tickets abaixo do pai (ou do projeto, na raiz).
@@ -119,7 +91,7 @@ export function buildMapItems(
         parentId: ticket.parentId ?? project.id,
         kind: "ticket",
         label: ticket.title,
-        color: !idea ? STATUS_COLORS[ticket.status] : muted ? IDEA_DISCARDED_COLOR : IDEA_COLOR,
+        color: !idea ? ticketColor(ticket) : muted ? IDEA_DISCARDED_COLOR : IDEA_COLOR,
         key: ticket.key,
         ticket,
         leafCount: 1,
@@ -145,13 +117,18 @@ export function buildMapItems(
   return [...painted, ghost];
 }
 
+const NOT_RANKED = Number.POSITIVE_INFINITY;
+/** Depois das cinco situações: só há cancelados abaixo (cinza apagado). */
+const ONLY_CANCELLED = PRECEDENCE.length;
+
 /**
- * Ticket com descendente aberto (ADR 0034) ganha a mistura das cores de todos os descendentes, cada um com a própria
- * situação (os que também têm filhos entram como itens). Sem descendente aberto, ou sem filhos, fica com a cor da
- * própria situação, como qualquer folha. Só quem tem descendente aberto muda: os demais já estão pintados.
+ * Pinta os ramos (ADR 0051): todo nó com tickets abaixo (ticket com filhos, projeto, organização) ganha a cor da primeira
+ * situação da precedência (bloqueado › em andamento › em revisão › a fazer › concluído) entre os tickets que contam
+ * abaixo dele: as folhas, mais qualquer ticket bloqueado no caminho. Cancelado e ideia não sobem; só cancelados dá o
+ * cinza apagado; sem ticket abaixo, a cor própria do nó fica. Nenhuma cor é misturada.
  *
- * Uma passada de baixo para cima: cada nó soma, por cor, os descendentes que não são de ideia (a mistura em luz linear
- * só depende de quantos membros há de cada cor, não da ordem). `mixIndicatorColorCounts` faz a mesma conta de `mixIndicatorColors`.
+ * Uma passada de baixo para cima (pós-ordem, sem recursão): cada nó resume o ramo em dois números, a posição mais
+ * preocupante e quantos tickets contam. `leafCount` (peso do nó no layout) só muda para quem tem descendente aberto.
  */
 export function paintBranches(nodes: readonly MapNode[]): readonly MapNode[] {
   const childrenOf = new Map<string, MapNode[]>();
@@ -161,9 +138,10 @@ export function paintBranches(nodes: readonly MapNode[]): readonly MapNode[] {
     if (siblings) siblings.push(node);
     else childrenOf.set(node.parentId, [node]);
   }
-  // Contagem por cor dos descendentes de ticket comum, de cada nó que tem filhos (pós-ordem, sem recursão).
-  const below = new Map<string, Map<string, number>>();
+  const worst = new Map<string, number>();
+  const counted = new Map<string, number>();
   const done = new Set<string>();
+  const countsAsTicket = (node: MapNode) => node.ticket !== null && !isInIdea(node.ticket);
   for (const start of nodes) {
     if (done.has(start.id)) continue;
     const stack: { node: MapNode; at: number }[] = [{ node: start, at: 0 }];
@@ -177,25 +155,38 @@ export function paintBranches(nodes: readonly MapNode[]): readonly MapNode[] {
         continue;
       }
       stack.pop();
-      done.add(frame.node.id);
+      const id = frame.node.id;
+      done.add(id);
       if (children === undefined) continue;
-      const counts = new Map<string, number>();
+      let rank = NOT_RANKED;
+      let total = 0;
       for (const child of children) {
-        if (child.ticket !== null && !isInIdea(child.ticket)) counts.set(child.color, (counts.get(child.color) ?? 0) + 1);
-        const childCounts = below.get(child.id);
-        if (childCounts) for (const [color, count] of childCounts) counts.set(color, (counts.get(color) ?? 0) + count);
+        // Os nós de ideia têm cor própria e não sobem para quem está fora da ideia (ADR 0042).
+        if (child.ticket !== null && isInIdea(child.ticket)) continue;
+        const childId = child.id;
+        const below = counted.get(childId) ?? 0;
+        total += below;
+        let own = NOT_RANKED;
+        if (countsAsTicket(child)) {
+          total += 1;
+          // Folha: a própria cor. Ticket com filhos: o que vem dos descendentes (e do próprio bloqueio, somado abaixo).
+          if (below === 0) own = child.color === CANCELLED_COLOR ? ONLY_CANCELLED : (situationRank(child.color) ?? NOT_RANKED);
+        }
+        rank = Math.min(rank, own, worst.get(childId) ?? NOT_RANKED);
       }
-      below.set(frame.node.id, counts);
+      // Um ticket bloqueado com filhos também é vermelho, e sobe como tal.
+      if (total > 0 && countsAsTicket(frame.node) && effectiveSituation(frame.node.ticket!) === "blocked") rank = 0;
+      worst.set(id, rank);
+      counted.set(id, total);
     }
   }
   return nodes.map((node) => {
-    // Os nós de ideia têm cor própria e não entram na mistura de quem está fora da ideia (ADR 0042).
-    if (!node.ticket || isInIdea(node.ticket) || !hasOpenDescendants(node.ticket)) return node;
-    const counts = below.get(node.id);
-    if (counts === undefined) return node;
-    let found = 0;
-    for (const count of counts.values()) found += count;
-    if (found === 0) return node;
-    return { ...node, leafCount: found, color: mixIndicatorColorCounts(counts) };
+    if (node.ticket !== null && isInIdea(node.ticket)) return node;
+    const id = node.id;
+    const found = counted.get(id) ?? 0;
+    const rank = worst.get(id) ?? NOT_RANKED;
+    if (found === 0 || rank === NOT_RANKED) return node;
+    const color = rank === ONLY_CANCELLED ? CANCELLED_COLOR : SITUATION_COLORS[PRECEDENCE[rank]!];
+    return node.ticket !== null && hasOpenDescendants(node.ticket) ? { ...node, leafCount: found, color } : { ...node, color };
   });
 }

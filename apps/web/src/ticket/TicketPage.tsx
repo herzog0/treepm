@@ -12,7 +12,7 @@ import { useApiResource } from "../api/useApiResource.js";
 import { canCreateTickets, canRemoveTickets } from "../import/permissions.js";
 import { LoadError } from "../LoadError.js";
 import { TicketMark, progressText, statusText, ticketStateText } from "../map/nodeContent.js";
-import { isInDiscardedIdea } from "../map/ticketState.js";
+import { isBlocked, isInDiscardedIdea } from "../map/ticketState.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
@@ -383,7 +383,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
 
   const readOnlyStatus = (
     <span className="ticket-value">
-      <StatusValue status={detail.status} />
+      <StatusValue status={detail.status} blocked={isBlocked(detail)} />
     </span>
   );
 

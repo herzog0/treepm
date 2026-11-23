@@ -1,7 +1,8 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ACCENT_COLOR, IDEA_COLOR, IDEA_DISCARDED_COLOR, STATUS_COLORS } from "./map/items.js";
+import { ACCENT_COLOR, CANCELLED_COLOR, IDEA_COLOR, IDEA_DISCARDED_COLOR, STATUS_COLORS } from "./map/items.js";
+import { SITUATION_COLORS } from "./map/situation.js";
 
 const SRC = import.meta.dirname;
 const theme = readFileSync(resolve(SRC, "theme.css"), "utf8");
@@ -23,11 +24,13 @@ const TOKENS: Record<string, string> = {
   "--tp-accent": "#a99bff",
   "--tp-accent-soft": "#d6ceff",
   "--tp-on-accent": "#121019",
-  "--tp-todo": "#8b92a3",
-  "--tp-doing": "#6ea8ff",
-  "--tp-review": "#e7b450",
-  "--tp-done": "#4fc48c",
-  "--tp-idea": "#e879c6",
+  "--tp-blocked": "#ff5a4a",
+  "--tp-todo": "#70778a",
+  "--tp-doing": "#3b8eff",
+  "--tp-review": "#ffd000",
+  "--tp-done": "#2ee6b6",
+  "--tp-cancelled": "#3c404c",
+  "--tp-idea": "#f472d0",
   "--tp-danger": "#e5687a",
   "--tp-danger-text": "#f0919b",
 };
@@ -58,8 +61,10 @@ describe("theme.css", () => {
       in_progress: TOKENS["--tp-doing"],
       in_review: TOKENS["--tp-review"],
       done: TOKENS["--tp-done"],
-      cancelled: TOKENS["--tp-todo"],
+      cancelled: TOKENS["--tp-cancelled"],
     });
+    expect(SITUATION_COLORS.blocked).toBe(TOKENS["--tp-blocked"]);
+    expect(CANCELLED_COLOR).toBe(TOKENS["--tp-cancelled"]);
   });
 });
 
@@ -69,7 +74,7 @@ describe("idea color (ADR 0042)", () => {
   });
 
   it("draws the discarded idea as the idea color blended 50% with the background, the same blend the stylesheet applies", () => {
-    expect(IDEA_DISCARDED_COLOR).toBe("#78416a");
+    expect(IDEA_DISCARDED_COLOR).toBe("#7e3e6f");
     expect(readFileSync(resolve(SRC, "map/status-mark.css"), "utf8")).toMatch(/color-mix\(in srgb, var\(--tp-idea\) 50%, var\(--tp-bg\)\)/);
   });
 });

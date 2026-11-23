@@ -16,11 +16,13 @@
   --tp-accent: #a99bff;
   --tp-accent-soft: #d6ceff;
   --tp-on-accent: #121019;
-  --tp-todo: #8b92a3;
-  --tp-doing: #6ea8ff;
-  --tp-review: #e7b450;
-  --tp-done: #4fc48c;
-  --tp-idea: #e879c6;
+  --tp-blocked: #ff5a4a;
+  --tp-todo: #70778a;
+  --tp-doing: #3b8eff;
+  --tp-review: #ffd000;
+  --tp-done: #2ee6b6;
+  --tp-cancelled: #3c404c;
+  --tp-idea: #f472d0;
   --tp-danger: #e5687a;
   --tp-danger-text: #f0919b;
 

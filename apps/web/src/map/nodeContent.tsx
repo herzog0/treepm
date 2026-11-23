@@ -4,6 +4,7 @@ import type { MapNode } from "./items.js";
 import { DetailCard } from "./DetailCard.js";
 import { useIsDetail } from "./detail.js";
 import { AgentWorkMark } from "./agentWork.js";
+import { CANCELLED_COLOR } from "./situation.js";
 import { TicketMark, cardStateText } from "./ticketState.js";
 
 // Nomes das situações para os outros diretórios: `useStatusText` / `statusText` (de `ticketState.tsx`, reexportados aqui).
@@ -35,6 +36,8 @@ function CardContent({ context }: { context: SpatialNodeContent<MapNode> }) {
     </span>
   );
 
+  // Cancelado e ideia descartada são cinza e magenta apagados: o texto escuro do cartão colorido não leria sobre eles (ADR 0051).
+  const ink = node.color === CANCELLED_COLOR || node.ideaDiscarded === true ? ({ color: "var(--tp-text)" } as const) : undefined;
   const working = ticket?.agentWork ? <AgentWorkMark agentWork={ticket.agentWork} /> : null;
 
   if (lod === "chip") {
@@ -42,7 +45,7 @@ function CardContent({ context }: { context: SpatialNodeContent<MapNode> }) {
       <>
         {working}
         {ticket && <TicketMark ticket={ticket} discarded={node.ideaDiscarded} />}
-        <strong>{node.label}</strong>
+        <strong style={ink}>{node.label}</strong>
       </>
     );
   }
@@ -50,10 +53,10 @@ function CardContent({ context }: { context: SpatialNodeContent<MapNode> }) {
   return (
     <>
       {working}
-      <span className="spatial-key">{node.key ?? t("organizationKey")}</span>
-      <strong>{node.label}</strong>
+      <span className="spatial-key" style={ink}>{node.key ?? t("organizationKey")}</span>
+      <strong style={ink}>{node.label}</strong>
       {ticket && (
-        <span className="node-state">
+        <span className="node-state" style={ink}>
           <TicketMark ticket={ticket} discarded={node.ideaDiscarded} />
           {lod === "full" && <span>{cardStateText(t, ticket)}</span>}
         </span>

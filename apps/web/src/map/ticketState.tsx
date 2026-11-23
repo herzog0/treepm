@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import type { TicketStatus, TicketSummary } from "../api/client.js";
+import { effectiveSituation } from "./situation.js";
 import { StatusMark } from "./StatusMark.js";
 
 /**
@@ -20,6 +21,13 @@ export function useStatusText(): (status: TicketStatus) => string {
   const { t } = useTranslation("map");
   return (status) => statusText(t, status);
 }
+
+/** O ticket está bloqueado (ADR 0051): depende de ticket aberto e não está concluído nem cancelado; ideia não é pintada de bloqueado. */
+export const isBlocked = (ticket: Pick<TicketSummary, "status" | "blocked"> & { idea?: TicketSummary["idea"] }): boolean => !ticket.idea && effectiveSituation(ticket) === "blocked";
+
+/** "Bloqueado · <estado>": o sinal escrito, para a cor não ser o único (ADR 0051). */
+const withBlocked = (t: TFunction<"map">, ticket: Pick<TicketSummary, "status" | "blocked"> & { idea?: TicketSummary["idea"] }, text: string): string =>
+  isBlocked(ticket) ? `${t("status.blocked")} · ${text}` : text;
 
 /**
  * O ticket está numa ideia descartada (a raiz ou algo dentro dela, ADR 0042)? Sobe pelos pais na lista; uma ideia dentro de
@@ -56,17 +64,17 @@ export function progressText(t: TFunction<"map">, progress: NonNullable<TicketSu
 export function ticketStateText(t: TFunction<"map">, ticket: TicketSummary): string {
   const idea = ideaText(t, ticket);
   if (idea !== null) return idea;
-  return hasOpenDescendants(ticket) && ticket.progress ? progressText(t, ticket.progress) : statusText(t, ticket.status);
+  return withBlocked(t, ticket, hasOpenDescendants(ticket) && ticket.progress ? progressText(t, ticket.progress) : statusText(t, ticket.status));
 }
 
 /**
  * Marcador do ticket: o de ideia na raiz e dentro dela (apagado quando a ideia foi descartada), o progresso quando há
  * descendente aberto, a situação própria nos demais casos.
  */
-export function TicketMark({ ticket, discarded }: { ticket: Pick<TicketSummary, "status" | "progress"> & { idea?: TicketSummary["idea"] }; discarded?: boolean }) {
+export function TicketMark({ ticket, discarded }: { ticket: Pick<TicketSummary, "status" | "progress" | "blocked"> & { idea?: TicketSummary["idea"] }; discarded?: boolean }) {
   if (ticket.idea) return <StatusMark idea={{ discarded: discarded ?? (ticket.idea.root && ticket.idea.stage === "discarded") }} />;
-  if (hasOpenDescendants(ticket) && ticket.progress) return <StatusMark progress={ticket.progress} />;
-  return <StatusMark status={ticket.status} />;
+  if (hasOpenDescendants(ticket) && ticket.progress) return <StatusMark progress={ticket.progress} blocked={isBlocked(ticket)} />;
+  return <StatusMark status={ticket.status} blocked={isBlocked(ticket)} />;
 }
 
 /**
@@ -77,5 +85,6 @@ export function cardStateText(t: TFunction<"map">, ticket: TicketSummary, option
   const idea = ideaText(t, ticket);
   if (idea !== null) return idea;
   const base = hasOpenDescendants(ticket) && ticket.progress ? t("progress.base", { done: ticket.progress.done, total: ticket.progress.total }) : statusText(t, ticket.status);
-  return options.withIdeas ? base + ideasSuffix(t, ticket) : base;
+  const text = withBlocked(t, ticket, base);
+  return options.withIdeas ? text + ideasSuffix(t, ticket) : text;
 }

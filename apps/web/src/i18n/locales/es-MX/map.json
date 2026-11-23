@@ -8,6 +8,10 @@
     "zoomIn": "Acercar",
     "colors": "Colores"
   },
+  "legend": {
+    "title": "Situaciones",
+    "hint": "La rama muestra la situación más preocupante que hay debajo."
+  },
   "breadcrumb": "Ruta del enfoque",
   "panelToggle": "Áreas y proyectos",
   "organizationKey": "Organización",
@@ -39,6 +43,7 @@
     "items_other": "{{count}} elementos agrupados: {{members}}. Acerca para revelar."
   },
   "status": {
+    "blocked": "Bloqueado",
     "todo": "Por hacer",
     "in_progress": "En curso",
     "in_review": "En revisión",
