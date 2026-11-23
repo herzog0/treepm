@@ -146,3 +146,43 @@ Não houve: ciclo, ticket órfão, versão do projeto que não muda, dado errado
 - **Escritas sem efeito em `branch`:** a diferença entre o contador e as escritas confirmadas é atribuída a escritas sem efeito por inferência, não verificada escrita a escrita.
 - **Espera por trava** é amostragem a cada ~200 ms de `pg_stat_activity` convertida em média por escrita: aproximação; não inclui a espera por conexão dentro do Prisma.
 - **Clerk:** a participação do MCP usa o diretório falso (instantâneo); em produção a escrita pelo MCP faz uma ida ao Clerk a cada chamada.
+
+## Depois do adendo 1 da ADR 0045
+
+Mesma ferramenta, mesmo banco (`treepm_p1`), 30 s por célula, uma rodada cada, a máquina com carga média de 40 a 47 (ruído de cerca de 15%). Antes = código sem a fila (`TREEPM-259`/`TREEPM-260`); depois = fila em memória (2 por chave) e `maxWait` de 5 s. `adv.` = máximo de conexões esperando a trava consultiva (`Lock:advisory`) numa amostra de 200 ms; `ativas` = máximo de conexões `active`.
+
+| N | Cenário | Esc. | ok/s antes → depois | p50 (ms) antes → depois | p95 (ms) antes → depois | Além de 2xx, antes | Além de 2xx, depois | ativas / adv. antes | ativas / adv. depois |
+|---|---|---|---|---|---|---|---|---|---|
+| 5 000 | structure | 16 | 37,2 → 38,8 | 405 → 451 | 602 → 765 | — | — | 10 / 9 | 4 / 3 |
+| 5 000 | structure | 64 | 38,4 → 38,4 | 1 634 → 1 973 | 1 894 → 2 870 | — | 409 `structure_busy`: 6 | 10 / 9 | 4 / 3 |
+| 5 000 | mixed | 16 | 66,5 → 77,2 | 150 → 52 | 514 → 776 | — | — | 10 / 9 | 10 / 3 |
+| 5 000 | mixed | 64 | 63,3 → 79,5 | 966 → 94 | 1 475 → 3 082 | — | 409 `structure_busy`: 151 | 10 / 9 | 10 / 3 |
+| 20 000 | structure | 16 | 18,7 → 19,1 | 811 → 911 | 1 235 → 1 462 | — | — | 10 / 9 | 4 / 3 |
+| 20 000 | structure | 64 | 16,0 → 16,2 | 2 720 → 3 032 | 3 494 → 3 252 | **500: 197** | 409 `structure_busy`: 165 | 10 / 9 | 4 / 3 |
+| 20 000 | mixed | 16 | 35,1 → 34,2 | 233 → 49 | 1 106 → 2 064 | — | — | 10 / 9 | 10 / 3 |
+| 20 000 | mixed | 64 | 38,4 → 51,6 | 1 471 → 103 | 2 326 → 3 293 | — | 409 `structure_busy`: 240 | 10 / 9 | 10 / 3 |
+
+Leitura:
+
+- **O defeito sumiu:** nenhum 500 em nenhuma célula (antes: 197 a 20 000 tickets e 64 escritores). A integridade passou nas 8 células.
+- **A vazão de `structure` não caiu** (todas as diferenças dentro do ruído). Em `mixed` subiu: a escrita que não muda estrutura deixou de esperar conexão atrás das que esperam a trava (p50 de 966 para 94 ms a 5 000 tickets e 64 escritores).
+- **Quem espera demais agora recebe 409 `structure_busy` em vez de 500**, depois de 3 s na fila: 6 a 240 por célula com 64 escritores. É o desenho do adendo (a tela mostra "tente de novo"); a vazão confirmada não muda, só a resposta de quem não cabe. O p95 de `mixed` subiu porque essas respostas chegam aos 3 s.
+- **O critério "no máximo 1 conexão esperando a trava por projeto" não foi atingido com a chave por organização na primeira versão: máximo de 3** (antes, 9), porque a chave de projeto e a de organização somavam até 4 transações do mesmo projeto. A revisão 1 troca a chave por organização + projeto sempre (tabela abaixo).
+- Em `mixed` as conexões ativas continuam chegando a 10: são as edições comuns (linha do ticket, commit do projeto), que a fila não toca.
+
+### Revisão 1: chave sempre organização + projeto
+
+Mesmas 8 células, mesmo banco, carga média de 40 a 47. Nas rotas que só conhecem o ticket ou a conversa, o projeto sai de uma leitura curta antes da fila.
+
+| N | Cenário | Esc. | ok/s | p50 (ms) | p95 (ms) | Além de 2xx | ativas / adv. |
+|---|---|---|---|---|---|---|---|
+| 5 000 | structure | 16 | 35,6 | 413 | 719 | — | 2 / 1 |
+| 5 000 | structure | 64 | 41,1 | 1 519 | 1 883 | — | 2 / 1 |
+| 5 000 | mixed | 16 | 77,8 | 51 | 613 | — | 9 / 1 |
+| 5 000 | mixed | 64 | 66,6 | 106 | 3 074 | 409 `structure_busy`: 111 | 10 / 1 |
+| 20 000 | structure | 16 | 19,5 | 810 | 1 105 | — | 2 / 1 |
+| 20 000 | structure | 64 | 18,2 | 2 914 | 3 119 | 409 `structure_busy`: 113 | 3 / 1 |
+| 20 000 | mixed | 16 | 33,0 | 45 | 1 573 | — | 10 / 1 |
+| 20 000 | mixed | 64 | 49,5 | 103 | 3 206 | 409 `structure_busy`: 279 | 10 / 1 |
+
+Nenhum 500; integridade ok nas 8 células; **conexões esperando a trava: no máximo 1 em todas** (antes 9); conexões ativas de `structure` caíram de 10 para 2 ou 3; vazão de `structure` dentro do ruído (37,2→35,6; 38,4→41,1; 18,7→19,5; 16,0→18,2). Os 409 são quem passa de 3 s na fila (antes, 500 ou espera sem fim).

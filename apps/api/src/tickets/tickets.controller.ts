@@ -40,6 +40,7 @@ import { TicketActivityService } from "./ticket-activity.service.js";
 import { AgentWorkService } from "./agent-work.service.js";
 import { ifNoneMatchHits, projectEtag, touchProjectVersion } from "./project-version.js";
 import { readSummaryRows } from "./ticket-reads.js";
+import { QueuesStructure, bodyField } from "./structure-queue.js";
 import { TicketsService, ideaViews, toNodes, toSummary } from "./tickets.service.js";
 import type { ProjectRow, TicketRow } from "./tickets.service.js";
 
@@ -79,7 +80,9 @@ export class TicketsController {
     return rows.map((row) => parseOutput(ticketSummarySchema, toSummary(project, row, progress, ideas.get(row.id) ?? null, now)));
   }
 
+  /** Fila de estrutura (ADR 0045, adendo 1): só quando traz pai, a mesma condição em que `createChecked` pega a trava. */
   @Post("projects/:projectId/tickets")
+  @QueuesStructure({ by: "project", when: (body) => Boolean(bodyField(body, "parentId")) })
   async create(
     @Tx() tx: TenantClient,
     @CurrentPrincipal() principal: Principal,
@@ -97,6 +100,7 @@ export class TicketsController {
   }
 
   @Post("projects/:projectId/tickets/import")
+  @QueuesStructure({ by: "project" })
   async import(
     @Tx() tx: TenantClient,
     @CurrentPrincipal() principal: Principal,
@@ -224,7 +228,9 @@ export class TicketsController {
     return this.ticketActivity.read(tx, project, ticket, query, { personId: person.id, actor });
   }
 
+  /** Fila de estrutura: só quando o corpo traz `parentId` (inclusive `null`), a mesma condição em que `updateTicket` pega a trava. */
   @Patch("tickets/:id")
+  @QueuesStructure({ by: "ticket", when: (body) => bodyField(body, "parentId") !== undefined })
   update(
     @Tx() tx: TenantClient,
     @CurrentPrincipal() principal: Principal,
@@ -247,6 +253,7 @@ export class TicketsController {
   }
 
   @Delete("tickets/:id")
+  @QueuesStructure({ by: "ticket" })
   @HttpCode(204)
   async remove(
     @Tx() tx: TenantClient,

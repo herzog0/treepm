@@ -7,7 +7,7 @@ export function percentile(sortedAsc: readonly number[], p: number): number | nu
 }
 
 export interface Sample { readonly ms: number; readonly code: string }
-/** Códigos: `2xx`, `409 structure_busy`, `409 concurrent_update`, `409 <outro código>`, `429`, `4xx`, `5xx`, `erro de rede`. */
+/** Códigos: `2xx`, `409 structure_busy`, `409 concurrent_update`, `409 <outro código>`, `429`, `4xx`, `500 <código>`, `503 server_busy`, `5xx`, `erro de rede`. */
 export function codeOf(status: number, body: string): string {
   if (status >= 200 && status < 300) return "2xx";
   if (status === 409) {
@@ -15,7 +15,12 @@ export function codeOf(status: number, body: string): string {
     return `409 ${m?.[1] ?? "?"}`;
   }
   if (status === 429) return "429";
-  if (status >= 500) return "5xx";
+  if (status >= 500) {
+    const m = /"code"\s*:\s*"([a-z_]+)"/.exec(body);
+    if (status === 500 && m !== null) return `500 ${m[1]}`;
+    if (status === 503 && m?.[1] === "server_busy") return "503 server_busy";
+    return "5xx";
+  }
   if (status >= 400) return `${status}`;
   return `${status}`;
 }

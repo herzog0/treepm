@@ -1,6 +1,8 @@
 import { Logger } from "@nestjs/common";
 import { McpServer } from "@modelcontextprotocol/server";
 import type { CallToolResult } from "@modelcontextprotocol/server";
+import { retryableConflict } from "../common/error.filter.js";
+import { isConnectionWaitTimeout } from "../common/connection-wait.js";
 import type { ProjectQueryService } from "../query/project-query.service.js";
 import { ProjectTools, TOOL_DEFINITIONS, ToolInputError } from "./mcp-tools.js";
 import type { RunInTenant, ToolContext } from "./mcp-tools.js";
@@ -10,6 +12,7 @@ import type { WriteContext, WriteServices } from "./mcp-write-tools.js";
 const ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 const WRITE_ANNOTATIONS = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
 const GENERIC_ERROR = "Something went wrong while reading the project. Try again.";
+const SERVER_BUSY = "The server is busy. Try again in a moment.";
 const MAX_MESSAGE = 200;
 
 /**
@@ -29,11 +32,14 @@ function ok(data: Record<string, unknown>): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: data };
 }
 
-async function guarded(name: string, work: () => Promise<Record<string, unknown>>): Promise<CallToolResult> {
+export async function guarded(name: string, work: () => Promise<Record<string, unknown>>): Promise<CallToolResult> {
   try {
     return ok(await work());
   } catch (error) {
     if (error instanceof ToolInputError) return toolError(error.message);
+    // A espera por conexão do pool estourou (ADR 0045, adendo 1): "tente de novo", sem texto do Prisma.
+    if (isConnectionWaitTimeout(error)) return toolError(SERVER_BUSY);
+    if (retryableConflict(error) !== null) return toolError("Another change happened at the same time. Try again in a moment.");
     const refusal = refusalMessage(error);
     if (refusal !== null) return toolError(refusal);
     // Falha de verdade (banco, bug): fica no log só com a mensagem, sem argumentos nem resultados; o cliente recebe uma frase genérica.

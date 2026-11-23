@@ -8,6 +8,7 @@ import { commentBodySchema } from "../tickets/ticket-comments.schema.js";
 import type { TicketCommentsService } from "../tickets/ticket-comments.service.js";
 import type { AgentWorkService } from "../tickets/agent-work.service.js";
 import { ticketDescriptionSchema, ticketPrioritySchema, ticketStatusSchema, ticketTitleSchema } from "../tickets/tickets.schema.js";
+import { structureKey, withStructureSlot } from "../tickets/structure-queue.js";
 import type { TicketsService } from "../tickets/tickets.service.js";
 import { ToolInputError } from "./mcp-tools.js";
 import type { ProjectTools, RunInTenant, ToolContext } from "./mcp-tools.js";
@@ -120,6 +121,8 @@ const CONFLICTS: Record<string, string> = {
   ticket_in_idea: "Tickets inside an idea stay in todo until the idea is accepted.",
   agent_work_in_idea: "An idea is not worked on before it is accepted.",
   agent_work_finished: "A done or cancelled ticket cannot be marked as worked on.",
+  structure_busy: "Another change to this project's structure is in progress. Try again in a moment.",
+  concurrent_update: "Another change happened at the same time. Try again in a moment.",
   request_id_reused: "requestId already used with a different request. Use a new requestId for a new request.",
 };
 
@@ -187,7 +190,9 @@ export class WriteTools {
 
   async createTicket(input: z.infer<typeof createTicketInput>): Promise<z.infer<typeof createTicketOutput>> {
     const parentNumber = input.parent === undefined ? undefined : this.reader.ticketNumber(input.parent);
-    return this.writeAs(async (tx, principal) => {
+    // Recusa barata antes da fila: sem a verificação fresca nada é escrito, então nem vale esperar uma vaga.
+    if (!this.context.fresh) throw new ToolInputError("This change could not be verified. Try again.");
+    const create = (): Promise<z.infer<typeof createTicketOutput>> => this.writeAs(async (tx, principal) => {
       let parentId: string | null = null;
       if (parentNumber !== undefined) {
         const parent = await tx.ticket.findFirst({ where: { projectId: this.context.project.id, number: parentNumber }, select: { id: true } });
@@ -206,6 +211,10 @@ export class WriteTools {
       const ticket = await this.reader.summaryIn(tx, principal, created.number);
       return { key: ticket.key, ticket };
     });
+    // Com pai, a criação muda a estrutura (ADR 0045, adendo 1): espera na fila em memória antes de abrir a transação, como na rota HTTP
+    // (mesma chave: o projeto). Sem pai não pega a trava e não passa pela fila.
+    const key = parentNumber === undefined ? undefined : structureKey(this.context.principal.session.orgId, this.context.project.id);
+    return key === undefined ? create() : withStructureSlot(key, create);
   }
 
   async addComment(input: z.infer<typeof addCommentInput>): Promise<z.infer<typeof addCommentOutput>> {

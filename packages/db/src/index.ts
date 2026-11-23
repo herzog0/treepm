@@ -33,7 +33,14 @@ export function createPrismaClient(connectionString?: string): PrismaClient {
  * de então; quem esperava quase todo o prazo ficava sem orçamento e a transação fechava no meio. Agora a espera é de 3 s e o prazo, de 15 s. Fica em um objeto para
  * os testes reduzirem os prazos; o valor de produção é o definido aqui.
  */
-export const tenantTransaction = { timeoutMs: 15_000 };
+export const tenantTransaction = {
+  timeoutMs: 15_000,
+  /**
+   * Quanto a requisição espera por uma conexão livre do pool antes de a transação abrir (`maxWait` do Prisma; o padrão dele, 2 s, não
+   * estava definido no código). Estourou: a API responde 503 `server_busy` com `Retry-After: 1` (ADR 0045, adendo 1), não 500.
+   */
+  maxWaitMs: 5000,
+};
 
 /**
  * Executa `fn` em UMA transação interativa cujo contexto de tenant é aplicado
@@ -57,7 +64,7 @@ export async function withTenant<T>(
       await touchChangedProjects(tx, changed);
       return result;
     },
-    { timeout: tenantTransaction.timeoutMs },
+    { timeout: tenantTransaction.timeoutMs, maxWait: tenantTransaction.maxWaitMs },
   );
 }
 

@@ -1,5 +1,7 @@
 import { Catch, HttpException, HttpStatus, Logger } from "@nestjs/common";
 import type { ArgumentsHost, ExceptionFilter } from "@nestjs/common";
+import { StructureQueueAborted } from "../tickets/structure-queue.js";
+import { SERVER_BUSY_MESSAGE, isConnectionWaitTimeout } from "./connection-wait.js";
 
 type ErrorBody = { error: { code: string; message: string; details?: Record<string, unknown> } };
 
@@ -58,6 +60,7 @@ export class ErrorFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<{
       status(code: number): { json(body: ErrorBody): void };
+      setHeader(name: string, value: string): void;
     }>();
 
     // 503 só nasce de exceção lançada de propósito (ex.: `assistant_unavailable`); os demais 5xx seguem opacos.
@@ -77,6 +80,20 @@ export class ErrorFilter implements ExceptionFilter {
           ...(details ? { details } : {}),
         },
       });
+      return;
+    }
+
+    // O cliente desistiu na fila de estrutura: a resposta já fechou, não há o que escrever nem o que registrar como erro.
+    if (exception instanceof StructureQueueAborted) {
+      this.logger.debug("cliente desistiu enquanto esperava na fila de estrutura");
+      return;
+    }
+
+    // A espera por uma conexão do pool estourou (ADR 0045, adendo 1): "tente de novo", não erro interno.
+    if (isConnectionWaitTimeout(exception)) {
+      this.logger.warn("pool de conexões esgotado: a espera por conexão estourou (503 server_busy)");
+      response.setHeader("Retry-After", "1");
+      response.status(HttpStatus.SERVICE_UNAVAILABLE).json({ error: { code: "server_busy", message: SERVER_BUSY_MESSAGE } });
       return;
     }
 

@@ -44,6 +44,7 @@ import { PlacementService } from "./placement.service.js";
 import { AssistantGate } from "./assistant-gate.js";
 import { AssistantUnavailableError, PLACEMENT_TIMEOUTS } from "./ports.js";
 import type { ConversationDraft, ConversationProvider, ConversationTurn, DraftChild, PlacementTimeouts } from "./ports.js";
+import { QueuesStructure } from "../tickets/structure-queue.js";
 import { TicketsService } from "../tickets/tickets.service.js";
 import { MAX_TICKET_DESCRIPTION } from "../tickets/tickets.schema.js";
 import type { TicketDetail } from "../tickets/tickets.schema.js";
@@ -313,6 +314,7 @@ export class TicketConversationsController {
 
   /** Não chama provedor: funciona sem as chaves. Idempotente: cada conversa cria no máximo um ticket. */
   @Post("ticket-conversations/:id/ticket")
+  @QueuesStructure({ by: "conversation" })
   async createTicket(
     @Tx() tx: TenantClient,
     @CurrentPrincipal() principal: Principal,

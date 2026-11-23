@@ -18,6 +18,8 @@ import type { TenantRunner } from "./own-transactions.js";
 import { PRISMA } from "./prisma.provider.js";
 import { TX_KEY } from "./tx.decorator.js";
 import { withStructureTimeoutTranslation } from "../tickets/structure-lock.js";
+import { STRUCTURE_QUEUE, structureKey, withStructureSlot } from "../tickets/structure-queue.js";
+import type { StructureRoute } from "../tickets/structure-queue.js";
 
 type Request = RequestWithSession & Record<string, unknown>;
 
@@ -27,6 +29,9 @@ type Request = RequestWithSession & Record<string, unknown>;
  *
  * A consulta ao Clerk (rede) acontece ANTES da transação: o diretório só é
  * lido no primeiro acesso, quando o papel mudou, ou em rotas `@RefreshIdentity()`.
+ *
+ * Rotas `@QueuesStructure()` (ADR 0045, adendo 1) esperam numa fila em memória ANTES de a transação abrir, para quem muda a estrutura
+ * não ocupar conexões do pool enquanto espera a trava do projeto.
  *
  * Rotas `@OwnTransactions()` (ADR 0029) não rodam dentro da transação: o interceptor só resolve o
  * `Principal` numa transação curta e entrega um `TenantRunner` para o handler abrir as suas.
@@ -51,7 +56,47 @@ export class TenantInterceptor implements NestInterceptor {
       context.getClass(),
     ]);
     const own = this.reflector.get<boolean | undefined>(OWN_TRANSACTIONS, context.getHandler());
-    return from(this.run(request, session, Boolean(refresh), Boolean(own), next));
+    const queue = this.reflector.get<StructureRoute | undefined>(STRUCTURE_QUEUE, context.getHandler());
+    if (queue !== undefined && own) {
+      // Defeito de programação: a rota abre as próprias transações, então a fila seria ignorada em silêncio.
+      throw new Error("@QueuesStructure não vale em rota @OwnTransactions: a fila de estrutura não seria usada.");
+    }
+    const slot = queue === undefined ? undefined : this.slotFor(queue, request, context);
+    return from(this.run(request, session, Boolean(refresh), Boolean(own), next, slot));
+  }
+
+  /**
+   * O sinal de aborto e a rota da fila de estrutura, ou nada se este pedido não muda a estrutura (a decisão sai da forma do pedido
+   * cru, porque os pipes ainda não rodaram). A chave, que pode pedir uma leitura curta, sai em `queueKey`, já dentro de `run`.
+   */
+  private slotFor(route: StructureRoute, request: Request, context: ExecutionContext): { route: StructureRoute; signal: AbortSignal } | undefined {
+    if (route.when !== undefined && !route.when(request["body"])) return undefined;
+    const controller = new AbortController();
+    const response = context.switchToHttp().getResponse<{ once(event: string, listener: () => void): unknown; writableFinished?: boolean; destroyed?: boolean; socket?: { destroyed?: boolean } | null }>();
+    if (response.destroyed === true || response.socket?.destroyed === true) controller.abort(); // o cliente fechou antes de chegarmos aqui
+    else {
+      response.once("close", () => {
+        if (!response.writableFinished) controller.abort(); // requisição abortada: quem ainda espera na fila sai dela
+      });
+    }
+    return { route, signal: controller.signal };
+  }
+
+  /**
+   * A chave da fila: organização + projeto. Em rota de ticket ou de conversa, o projeto sai de uma leitura curta no contexto da
+   * organização (RLS valendo), fora da transação da escrita. Sem projeto (id inválido, ticket que a organização não enxerga): sem fila.
+   */
+  private async queueKey(route: StructureRoute, request: Request, tenant: { orgId: string; userId: string }): Promise<string | undefined> {
+    const params = request["params"] as Record<string, string> | undefined;
+    if (route.by === "project") return structureKey(tenant.orgId, params?.["projectId"]);
+    const id = params?.["id"];
+    if (structureKey(tenant.orgId, id) === undefined) return undefined; // não é um uuid
+    const projectId = await withTenant(this.prisma, tenant, async (tx) =>
+      route.by === "ticket"
+        ? (await tx.ticket.findFirst({ where: { id: id as string }, select: { projectId: true } }))?.projectId
+        : (await tx.ticketConversation.findFirst({ where: { id: id as string }, select: { projectId: true } }))?.projectId,
+    );
+    return structureKey(tenant.orgId, projectId);
   }
 
   private async run(
@@ -60,6 +105,7 @@ export class TenantInterceptor implements NestInterceptor {
     refresh: boolean,
     own: boolean,
     next: CallHandler,
+    slot?: { route: StructureRoute; signal: AbortSignal },
   ): Promise<unknown> {
     const clerkRole = this.identities.clerkRoleOf(session);
     const tenant = { orgId: session.orgId, userId: session.userId };
@@ -77,14 +123,17 @@ export class TenantInterceptor implements NestInterceptor {
       return lastValueFrom(next.handle(), { defaultValue: undefined });
     }
 
-    return withStructureTimeoutTranslation((watch) =>
-      withTenant(this.prisma, tenant, async (tx) => {
-        watch(tx);
-        request[TX_KEY] = tx;
-        request[PRINCIPAL_KEY] = await this.principals.load(tx, session, clerkRole, identity);
-        return lastValueFrom(next.handle(), { defaultValue: undefined });
-      }),
-    );
+    const open = (): Promise<unknown> =>
+      withStructureTimeoutTranslation((watch) =>
+        withTenant(this.prisma, tenant, async (tx) => {
+          watch(tx);
+          request[TX_KEY] = tx;
+          request[PRINCIPAL_KEY] = await this.principals.load(tx, session, clerkRole, identity);
+          return lastValueFrom(next.handle(), { defaultValue: undefined });
+        }),
+      );
+    const key = slot === undefined ? undefined : await this.queueKey(slot.route, request, tenant);
+    return slot === undefined || key === undefined ? open() : withStructureSlot(key, open, slot.signal);
   }
 
   private runner(tenant: { orgId: string; userId: string }, principal: Principal): TenantRunner {

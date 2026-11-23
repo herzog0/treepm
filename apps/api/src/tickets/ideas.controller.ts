@@ -7,6 +7,7 @@ import { idSchema } from "../common/schemas.js";
 import { ZodPipe } from "../common/zod.js";
 import { Tx } from "../db/tx.decorator.js";
 import { IdeasService } from "./ideas.service.js";
+import { QueuesStructure } from "./structure-queue.js";
 import { ideaStageBodySchema } from "./tickets.schema.js";
 import type { IdeaListItem, TicketPage } from "./tickets.schema.js";
 
@@ -35,18 +36,21 @@ export class IdeasController {
   }
 
   @Post("tickets/:id/idea/accept")
+  @QueuesStructure({ by: "ticket" })
   @HttpCode(200)
   accept(@Tx() tx: TenantClient, @CurrentPrincipal() principal: Principal, @Param("id", new ZodPipe(idSchema)) id: string): Promise<TicketPage> {
     return this.ideas.accept(tx, principal, id);
   }
 
   @Post("tickets/:id/idea/discard")
+  @QueuesStructure({ by: "ticket" })
   @HttpCode(200)
   discard(@Tx() tx: TenantClient, @CurrentPrincipal() principal: Principal, @Param("id", new ZodPipe(idSchema)) id: string): Promise<TicketPage> {
     return this.ideas.discard(tx, principal, id);
   }
 
   @Post("tickets/:id/idea")
+  @QueuesStructure({ by: "ticket" })
   @HttpCode(200)
   transform(@Tx() tx: TenantClient, @CurrentPrincipal() principal: Principal, @Param("id", new ZodPipe(idSchema)) id: string): Promise<TicketPage> {
     return this.ideas.transform(tx, principal, id);
