@@ -64,6 +64,7 @@ model Organization {
   ticketConversationMessages TicketConversationMessage[]
   branchSummaries            BranchSummary[]
   placementDecisions         PlacementDecision[]
+  ticketEmbeddings           TicketEmbedding[]
   githubInstallations        GithubInstallation[]
   projectRepositories        ProjectRepository[]
   ticketCodeLinks            TicketCodeLink[]
@@ -258,6 +259,7 @@ model Ticket {
   conversationsCreated TicketConversation[]
   branchSummaries      BranchSummary[]
   placementDecisions   PlacementDecision[]
+  embeddings           TicketEmbedding[]
   codeLinks            TicketCodeLink[]
   relationsFrom        TicketRelation[]         @relation("RelationFrom")
   relationsTo          TicketRelation[]         @relation("RelationTo")
@@ -419,6 +421,26 @@ model PlacementDecision {
   @@id([orgId, id])
   @@index([orgId, projectId])
   @@map("placement_decisions")
+}
+
+/// Um vetor de 512 números por ticket vivo, para a busca por significado (ADR 0053). O vetor é lido e escrito só por SQL cru
+/// parametrizado (o Prisma não conhece o tipo `vector`). `contentHash` é o sha256 do texto que o gerou (título e descrição).
+model TicketEmbedding {
+  orgId       String                      @map("org_id")
+  ticketId    String                      @map("ticket_id") @db.Uuid
+  projectId   String                      @map("project_id") @db.Uuid
+  model       String
+  dimensions  Int
+  contentHash String                      @map("content_hash")
+  embedding   Unsupported("vector(512)")
+  updatedAt   DateTime                    @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  ticket       Ticket       @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+
+  @@id([orgId, ticketId])
+  @@index([orgId, projectId])
+  @@map("ticket_embeddings")
 }
 
 model BranchSummary {

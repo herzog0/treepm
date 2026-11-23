@@ -6,6 +6,7 @@ import { createTestApp, ownerPoolWithCleanup, truncateAll } from "./helpers.js";
 import type { FakeSessionVerifier } from "./helpers.js";
 import type { AppConfig } from "../src/config.js";
 import type { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeChatProvider, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer, FakeProjectAnswerer, FakeRelatedJudge, FakeTicketElaborator } from "./assistant-fakes.js";
+import type { FakeEmbeddingProvider } from "../scripts/placement-rebuild/fakes.js";
 import type { PlacementTimeouts } from "../src/assistant/ports.js";
 import type { FakeRepositoryProvider } from "./github-fakes.js";
 import { seedWorld } from "./world.js";
@@ -26,6 +27,7 @@ export type Harness = {
   answerer: () => FakeProjectAnswerer;
   chat: () => FakeChatProvider;
   elaborator: () => FakeTicketElaborator;
+  embedder: () => FakeEmbeddingProvider;
   github: () => FakeRepositoryProvider;
   call: (method: string, path: string, session: string, body?: unknown) => Promise<request.Response>;
 };
@@ -46,10 +48,11 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
   let answerer: FakeProjectAnswerer;
   let chat: FakeChatProvider;
   let elaborator: FakeTicketElaborator;
+  let embedder: FakeEmbeddingProvider;
   let github: FakeRepositoryProvider;
 
   beforeAll(async () => {
-    ({ app, verifier, conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator, github } = await createTestApp([], config, options.timeouts ? { timeouts: options.timeouts } : {}));
+    ({ app, verifier, conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator, embedder, github } = await createTestApp([], config, options.timeouts ? { timeouts: options.timeouts } : {}));
   });
   afterAll(async () => {
     await app.close();
@@ -104,6 +107,10 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     elaborator.matchReply = null;
     elaborator.matchFail = false;
     elaborator.matchHang = false;
+    embedder.calls.length = 0;
+    embedder.fail = null;
+    embedder.failCall = 0;
+    embedder.delayMs = 0;
     namer.calls.length = 0;
     namer.onCall = null;
     namer.reply = null;
@@ -128,6 +135,7 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     answerer: () => answerer,
     chat: () => chat,
     elaborator: () => elaborator,
+    embedder: () => embedder,
     github: () => github,
     call: (method, path, session, body) => {
       const agent = request(app.getHttpServer());

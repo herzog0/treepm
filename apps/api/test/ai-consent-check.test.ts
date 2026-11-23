@@ -14,14 +14,16 @@ function fakeTx(rows: Row[]): TenantClient {
   } as unknown as TenantClient;
 }
 
-const assistant: Row = { kind: "assistant", documentVersion: "rascunho-1", withdrawnAt: null };
-const code: Row = { kind: "code_reading", documentVersion: "rascunho-1", withdrawnAt: null };
+const assistant: Row = { kind: "assistant", documentVersion: "rascunho-2", withdrawnAt: null };
+const code: Row = { kind: "code_reading", documentVersion: "rascunho-2", withdrawnAt: null };
 
 describe("conferência do aceite do assistente", () => {
   it("em vigor só com a linha aberta da versão atual", async () => {
     expect(await assistantConsentInForce(fakeTx([assistant]), "org")).toBe(true);
     expect(await assistantConsentInForce(fakeTx([]), "org")).toBe(false);
     expect(await assistantConsentInForce(fakeTx([{ ...assistant, documentVersion: "rascunho-0" }]), "org")).toBe(false);
+    // ADR 0053: o texto novo cita a Voyage AI, então o aceite dado ao rascunho anterior deixou de valer.
+    expect(await assistantConsentInForce(fakeTx([{ ...assistant, documentVersion: "rascunho-1" }]), "org")).toBe(false);
     expect(await assistantConsentInForce(fakeTx([{ ...assistant, withdrawnAt: new Date() }]), "org")).toBe(false);
     expect(await assistantConsentInForce(fakeTx([code]), "org")).toBe(false);
   });

@@ -93,7 +93,7 @@ interface FakeData {
 }
 
 export interface FakeAiConsent {
-  /** Estado inicial; padrão: nada aceito, versão atual `rascunho-1`, GitHub desligado. */
+  /** Estado inicial; padrão: nada aceito, versão atual `rascunho-2`, GitHub desligado. */
   state?: Partial<AiConsent>;
   /** Faz aceitar/retirar falharem com este tipo e código de erro. */
   changeError?: [Parameters<typeof failed>[0], string?];
@@ -107,7 +107,7 @@ function aiConsentMethods(data: FakeData): Partial<ApiClient> {
   const me = data.me ?? makeMe();
   const isAdmin = me.roles.clerk === "admin";
   let state: AiConsent = {
-    currentVersion: "rascunho-1",
+    currentVersion: "rascunho-2",
     assistant: { ...NO_CONSENT },
     codeReading: { ...NO_CONSENT, githubConnected: false, offerable: false },
     ...config.state,

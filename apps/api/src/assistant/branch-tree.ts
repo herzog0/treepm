@@ -9,19 +9,11 @@ import type { TreeTicket } from "./placement.service.js";
 const EXCERPT_READ = 601;
 
 /**
- * A árvore do projeto como a procura a vê e as notas escritas por pessoa (ADR 0052), em DUAS leituras, qualquer que seja o
- * tamanho do projeto: nenhuma consulta por candidato, e a descrição vem cortada no banco. Saem da árvore, uma vez só, aqui:
- * ideia (a raiz e o que está dentro, ADR 0043) e ticket cancelado com toda a sua subárvore (revisão 1). Notas de origem
- * "assistente" já guardadas deixam de ser lidas.
+ * Os tickets vivos de um projeto: sem ideia (a raiz e o que está dentro, ADR 0043) e sem ticket cancelado com toda a sua
+ * subárvore (revisão 1). É a única definição de "vivo" da procura; a busca por significado (ADR 0053) usa a mesma.
  */
-export async function loadPlacementTree(tx: TenantClient, projectId: string): Promise<{ tickets: TreeTicket[]; notes: Map<string, string> }> {
-  const [all, notes] = await Promise.all([
-    tx.$queryRaw<{ id: string; parentId: string | null; number: number; title: string; description: string; status: string; ideaStage: string | null }[]>`
-      select id, parent_id as "parentId", number, title, left(description, ${EXCERPT_READ}::int) as description, status, idea_stage as "ideaStage"
-      from tickets where project_id = ${projectId}::uuid`,
-    tx.branchSummary.findMany({ where: { projectId, source: "person" }, select: { ticketId: true, summary: true } }),
-  ]);
-  const inIdea = ideaRootsOf(all.map((t) => ({ id: t.id, parentId: t.parentId, status: t.status as TicketStatus, ideaStage: (t.ideaStage ?? null) as IdeaStage | null })));
+export function liveTickets<T extends { id: string; parentId: string | null; status: TicketStatus; ideaStage: IdeaStage | null }>(all: readonly T[]): T[] {
+  const inIdea = ideaRootsOf(all.map((t) => ({ id: t.id, parentId: t.parentId, status: t.status, ideaStage: t.ideaStage })));
   const cancelled = new Set(all.filter((t) => t.status === "cancelled").map((t) => t.id));
   const childrenOf = new Map<string, string[]>();
   for (const t of all) if (t.parentId !== null) childrenOf.set(t.parentId, [...(childrenOf.get(t.parentId) ?? []), t.id]);
@@ -34,8 +26,25 @@ export async function loadPlacementTree(tx: TenantClient, projectId: string): Pr
       }
     }
   }
+  return all.filter((t) => !inIdea.has(t.id) && !cancelled.has(t.id));
+}
+
+/**
+ * A árvore do projeto como a procura a vê e as notas escritas por pessoa (ADR 0052), em DUAS leituras, qualquer que seja o
+ * tamanho do projeto: nenhuma consulta por candidato, e a descrição vem cortada no banco. Saem da árvore, uma vez só, aqui:
+ * ideia (a raiz e o que está dentro, ADR 0043) e ticket cancelado com toda a sua subárvore (revisão 1). Notas de origem
+ * "assistente" já guardadas deixam de ser lidas.
+ */
+export async function loadPlacementTree(tx: TenantClient, projectId: string): Promise<{ tickets: TreeTicket[]; notes: Map<string, string> }> {
+  const [all, notes] = await Promise.all([
+    tx.$queryRaw<{ id: string; parentId: string | null; number: number; title: string; description: string; status: string; ideaStage: string | null }[]>`
+      select id, parent_id as "parentId", number, title, left(description, ${EXCERPT_READ}::int) as description, status, idea_stage as "ideaStage"
+      from tickets where project_id = ${projectId}::uuid`,
+    tx.branchSummary.findMany({ where: { projectId, source: "person" }, select: { ticketId: true, summary: true } }),
+  ]);
+  const live = liveTickets(all.map((t) => ({ ...t, status: t.status as TicketStatus, ideaStage: (t.ideaStage ?? null) as IdeaStage | null })));
   return {
-    tickets: all.filter((t) => !inIdea.has(t.id) && !cancelled.has(t.id)).map(({ id, parentId, number, title, description, status }) => ({ id, parentId, number, title, description, status })),
+    tickets: live.map(({ id, parentId, number, title, description, status }) => ({ id, parentId, number, title, description, status })),
     notes: new Map(notes.map((note) => [note.ticketId, note.summary])),
   };
 }

@@ -132,7 +132,7 @@
     "withdraw": "Withdraw acceptance",
     "assistant": {
       "heading": "AI assistant",
-      "explain": "By accepting, the text of tickets and of conversations with the assistant is sent to Anthropic and TypeSafe for the AI features. Names, emails and identifiers of people are not sent.",
+      "explain": "By accepting, the text of tickets and of conversations with the assistant is sent to Anthropic and TypeSafe for the AI features, and the title and description of tickets also go to Voyage AI, which generates the vectors for search by meaning. Names, emails and identifiers of people are not sent.",
       "on": "The assistant is on.",
       "off": "The assistant is off.",
       "accept": "Accept and turn on the assistant",

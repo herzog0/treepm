@@ -116,8 +116,8 @@ describe("cobertura da conferência do aceite", () => {
   const ports = portSymbols();
   const rel = (file: string) => relative(join(__dirname, ".."), file);
 
-  it("enumera as portas de provedor de ports.ts (dez)", () => {
-    expect(ports.sort()).toEqual(["AFFINITY_JUDGE", "BRANCH_JUDGE", "BRANCH_SUMMARIZER", "CHAT_PROVIDER", "CONVERSATION_PROVIDER", "DESCRIPTION_WRITER", "GROUP_NAMER", "PROJECT_ANSWERER", "RELATED_JUDGE", "TICKET_ELABORATOR"]);
+  it("enumera as portas de provedor de ports.ts (onze)", () => {
+    expect(ports.sort()).toEqual(["AFFINITY_JUDGE", "BRANCH_JUDGE", "BRANCH_SUMMARIZER", "CHAT_PROVIDER", "CONVERSATION_PROVIDER", "DESCRIPTION_WRITER", "EMBEDDING_PROVIDER", "GROUP_NAMER", "PROJECT_ANSWERER", "RELATED_JUDGE", "TICKET_ELABORATOR"]);
   });
 
   it("só o módulo do assistente e a porta de entrada (AssistantGate) tocam as portas na API", () => {
@@ -132,9 +132,9 @@ describe("cobertura da conferência do aceite", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("ninguém fora do módulo cria um adaptador real (Claude*, Jev*) e usa sem passar pela porta de entrada", () => {
+  it("ninguém fora do módulo cria um adaptador real (Claude*, Jev*, Voyage*) e usa sem passar pela porta de entrada", () => {
     const allowed = new Set(["src/assistant/assistant.module.ts"]);
-    const adapter = /new (Claude[A-Za-z]+|Jev[A-Za-z]+)\(/;
+    const adapter = /new (Claude[A-Za-z]+|Jev[A-Za-z]+|Voyage[A-Za-z]+)\(/;
     const offenders = files(SRC)
       .filter((file) => !allowed.has(rel(file)))
       .filter((file) => adapter.test(readFileSync(file, "utf8")))
@@ -156,12 +156,12 @@ describe("cobertura da conferência do aceite", () => {
 
   it("os controladores de IA não injetam provedor nenhum: só a porta de entrada", () => {
     for (const file of files(join(SRC, "assistant")).filter((f) => f.endsWith(".controller.ts"))) {
-      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(/@Inject\((CHAT_PROVIDER|CONVERSATION_PROVIDER|BRANCH_|AFFINITY_|RELATED_|GROUP_NAMER|DESCRIPTION_WRITER|PROJECT_ANSWERER|TICKET_ELABORATOR)/);
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(/@Inject\((CHAT_PROVIDER|CONVERSATION_PROVIDER|BRANCH_|AFFINITY_|RELATED_|GROUP_NAMER|DESCRIPTION_WRITER|PROJECT_ANSWERER|TICKET_ELABORATOR|EMBEDDING_PROVIDER)/);
     }
   });
 
   it("nas ferramentas de linha de comando, quem monta provedor de verdade são só as ferramentas de dados fictícios (verificador e medição da conversa) e as duas entradas conferidas", () => {
-    const real = /new (Anthropic|TypeSafeClient)\(/;
+    const real = /new (Anthropic|TypeSafeClient|VoyageEmbeddingProvider)\(/;
     const builders = files(SCRIPTS)
       .filter((file) => real.test(readFileSync(file, "utf8")))
       .map(rel)
@@ -172,11 +172,19 @@ describe("cobertura da conferência do aceite", () => {
     expect(builders).toEqual([
       "scripts/measure-conversation.ts",
       "scripts/placement-rebuild/app.ts",
+      "scripts/placement-rebuild/embeddings-kit.ts",
       "scripts/placement-rebuild/pairs-kit.ts",
       "scripts/verify-providers.ts",
     ]);
     expect(readFileSync(join(SCRIPTS, "placement-rebuild", "app.ts"), "utf8")).toMatch(/requireAssistantConsentOfOrg\(baseConfig, options\.org\)/);
     expect(readFileSync(join(SCRIPTS, "placement-rebuild.ts"), "utf8")).toMatch(/requireAssistantConsentOfOrg\(loadConfig\(process\.env\), options\.org\)/);
+    // `embeddings-status` e `embeddings-reindex` (kit dos vetores): a conferência vem antes de ler o banco ou criar o provedor.
+    const embeddings = readFileSync(join(SCRIPTS, "placement-rebuild", "embeddings-commands.ts"), "utf8");
+    const run = embeddings.slice(embeddings.indexOf("export async function runEmbeddingsCommand"));
+    expect(run.indexOf("requireAssistantConsentOfOrg(config, options.org as string)")).toBeGreaterThan(-1);
+    expect(run.indexOf("requireAssistantConsentOfOrg(")).toBeLessThan(run.indexOf("createPrismaClient"));
+    expect(run.indexOf("requireAssistantConsentOfOrg(")).toBeLessThan(run.indexOf("providerFor"));
+    expect(readFileSync(join(SCRIPTS, "placement-rebuild.ts"), "utf8")).toMatch(/runEmbeddingsCommand\(command, options/);
     expect(readFileSync(join(SCRIPTS, "verify-providers.ts"), "utf8")).not.toMatch(/organizationConsent|requireAssistantConsent/);
     // A medição só manda ao provedor os textos fixos dos casos: sem banco, sem dado de organização, sem `--org`.
     const measure = readFileSync(join(SCRIPTS, "measure-conversation.ts"), "utf8");

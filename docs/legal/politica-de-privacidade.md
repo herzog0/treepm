@@ -39,6 +39,7 @@ Usamos fornecedores que tratam dados em nosso nome:
 | GitHub | Leitura de repositórios, só para organizações que o ligam | `[A PREENCHER: confirmar região]` |
 | Anthropic | Assistente de IA, só para organizações que o ativam | `[A PREENCHER: confirmar região]` |
 | TypeSafe | Assistente de IA, só para organizações que o ativam | Estados Unidos, segundo a política dela |
+| Voyage AI | Busca por significado (vetores de tickets), só para organizações que ativam o assistente | `[A PREENCHER: confirmar região]` |
 
 Não vendemos dados pessoais.
 
@@ -49,6 +50,7 @@ O assistente só funciona na organização depois que um administrador o ativa.
 **O que é enviado, e para quem:**
 
 - **Texto de tickets e de conversas com o assistente**, para a Anthropic e a TypeSafe: títulos, descrições, a situação de cada ticket, a posição dele na árvore e as ligações entre tickets.
+- **Título e descrição de tickets**, para a Voyage AI, que gera os vetores da busca por significado.
 - **Trechos de código do repositório ligado**, só para a Anthropic, e só se um administrador autorizou a leitura de código em um aceite separado.
 
 **O que não é enviado por nós:** nome, e-mail ou outro identificador de pessoa; quem é responsável por cada ticket; o histórico de atividade; identificadores internos. Atenção: o que alguém escrever dentro do texto de um ticket vai junto com esse texto.
@@ -57,6 +59,7 @@ O assistente só funciona na organização depois que um administrador o ativa.
 
 - **Anthropic:** não usa o conteúdo enviado pela API para treinar modelos; apaga entradas e saídas em até 30 dias, salvo conteúdo sinalizado por violação das regras de uso dela ou exigência legal. Termos: <https://www.anthropic.com/legal/commercial-terms>.
 - **TypeSafe:** declara que não treina nem ajusta modelos com as entradas dos clientes. **Não publica um prazo de retenção** e guarda dados derivados do uso (registros, estatísticas e classificações), que pode usar para melhorar os serviços dela. Política: <https://typesafe.ai/legal/privacy-policy>.
+- **Voyage AI:** recebe título e descrição de tickets. `[A CONFIRMAR ANTES DE PUBLICAR: a conta do TreePM na Voyage precisa estar fora do uso para treino; confirmação pelo canal da coordenação operacional.]` Segundo os termos dela, o conteúdo enviado é apagado depois de processado. Termos: <https://www.voyageai.com/tos> (consultados em 2026-11-23). `[REVISÃO JURÍDICA: o prazo de retenção para quem não saiu do treino não foi confirmado em nenhuma página lida; o adendo de tratamento de dados da Voyage AI (voyageai.com/dpa) não foi lido.]`
 
 O administrador pode desativar o assistente ou a leitura de código a qualquer momento; os envios param na hora. O que já foi enviado segue o prazo de cada provedor.
 

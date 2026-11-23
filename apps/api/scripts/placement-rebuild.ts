@@ -4,7 +4,7 @@
  *
  *   pnpm --filter @treepm/api placement:rebuild <comando> [opções]
  *
- * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update (com --idea-stage, --idea-accept, --idea-discard e --idea-make para ideias, e --depends-on e --no-depends-on para dependências), ticket-show, relations-rebuild, summary-show, summary-regenerate, conversation-dry-run, case-run.
+ * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update (com --idea-stage, --idea-accept, --idea-discard e --idea-make para ideias, e --depends-on e --no-depends-on para dependências), ticket-show, relations-rebuild, summary-show, summary-regenerate, conversation-dry-run, embeddings-status, embeddings-reindex, case-run.
  * Sobe a API real em processo (só a sessão é trocada), em 127.0.0.1 e porta efêmera, e fala com ela por HTTP.
  * O terminal mostra só progresso e contagens; todo texto de ticket fica nos arquivos de `--dir`.
  */
@@ -15,6 +15,7 @@ import { requireAssistantConsentOfOrg } from "./placement-rebuild/consent.js";
 import { caseRunCommand } from "./placement-rebuild/case-run.js";
 import { collectCommand, collectCompareCommand, collectReportCommand } from "./placement-rebuild/collect.js";
 import { ApiClient } from "./placement-rebuild/client.js";
+import { runEmbeddingsCommand } from "./placement-rebuild/embeddings-commands.js";
 import { pairsCommand, pairsReportCommand } from "./placement-rebuild/pairs.js";
 import { fakePairsKit, realPairsKit } from "./placement-rebuild/pairs-kit.js";
 import { loadConfig } from "../src/config.js";
@@ -119,6 +120,7 @@ async function main(): Promise<number> {
     return 2;
   }
   const { command, options } = parsed;
+  if (command === "embeddings-status" || command === "embeddings-reindex") return runEmbeddingsCommand(command, options, { log });
   if ((TICKET_ROUTE_COMMANDS as readonly string[]).includes(command)) return runTicketCommand(command as TicketRouteCommand, options);
   const dir = resolve(options.dir as string);
   ensureDir(dir);

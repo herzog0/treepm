@@ -118,3 +118,4 @@ export * from "./priority.js";
 export * from "./work-queue.js";
 export * from "./play.js";
 export * from "./related.js";
+export * from "./ticket-embedding-text.js";

@@ -61,6 +61,14 @@ describe("loadConfig", () => {
     expect(assistantEnabled(loadConfig({ ...valid, ANTHROPIC_API_KEY: "a", TYPESAFE_API_KEY: "t" }))).toBe(true);
   });
 
+  it("VOYAGE_API_KEY é opcional e não entra em assistantEnabled", () => {
+    expect(loadConfig(valid).VOYAGE_API_KEY).toBeUndefined();
+    expect(loadConfig({ ...valid, VOYAGE_API_KEY: "" }).VOYAGE_API_KEY).toBeUndefined();
+    expect(loadConfig({ ...valid, VOYAGE_API_KEY: "v" }).VOYAGE_API_KEY).toBe("v");
+    expect(assistantEnabled(loadConfig({ ...valid, ANTHROPIC_API_KEY: "a", TYPESAFE_API_KEY: "t" }))).toBe(true);
+    expect(assistantEnabled(loadConfig({ ...valid, VOYAGE_API_KEY: "v" }))).toBe(false);
+  });
+
   it("chave vazia vale como ausente", () => {
     const config = loadConfig({ ...valid, ANTHROPIC_API_KEY: "", TYPESAFE_API_KEY: "" });
     expect(assistantEnabled(config)).toBe(false);

@@ -3,7 +3,7 @@
  * Espelham os de `test/assistant-fakes.ts`, mas o juiz escolhe pelo vocabulário em comum, para o ensaio gerar um
  * resultado variado em vez de sempre o primeiro candidato.
  */
-import { AssistantUnavailableError } from "../../src/assistant/ports.js";
+import { AssistantUnavailableError, EMBEDDING_DIMENSIONS, EmbeddingError } from "../../src/assistant/ports.js";
 import type {
   AffinityInput,
   AffinityJudge,
@@ -17,6 +17,9 @@ import type {
   ConversationTurnInput,
   ElaborationInput,
   ElaborationResult,
+  EmbeddingFailure,
+  EmbeddingKind,
+  EmbeddingProvider,
   ExistingMatchInput,
   ExistingMatchResult,
   GroupNameInput,
@@ -153,4 +156,51 @@ export class FakeElaborator implements TicketElaborator {
     const suggested = input.related.length === 0 ? [{ title: "Tarefa implicada (ensaio)", description: "", motivo: "Ensaio: nada existe sobre o assunto." }] : [];
     return Promise.resolve({ links, suggested, model: "fake-model" });
   }
+}
+
+/**
+ * Vetores falsos e determinísticos (ADR 0053): cada palavra de 3 letras ou mais cai numa posição de 512 pelo resumo dela, então
+ * textos com palavras em comum ficam próximos pelo cosseno, e o mesmo texto dá sempre o mesmo vetor. Nunca chama a rede.
+ * `calls` guarda exatamente o que a porta recebeu (para os testes de privacidade); `fail` troca a resposta por uma falha.
+ */
+export class FakeEmbeddingProvider implements EmbeddingProvider {
+  /** Nunca `voyage-4-lite`: o que o falso grava conta como desatualizado para o provedor de verdade. */
+  readonly model: string = "fake";
+  readonly calls: { texts: string[]; kind: EmbeddingKind }[] = [];
+  /** Código da falha a lançar em toda chamada; `null` = funciona. */
+  fail: EmbeddingFailure | null = null;
+  /** Número de chamadas (a partir de 1) que falham com `failAt`; 0 = nenhuma. */
+  failCall = 0;
+  /** Espera antes de responder (ms), para ensaiar o prazo; respeita o sinal de quem chama. */
+  delayMs = 0;
+
+  async embed(texts: readonly string[], kind: EmbeddingKind, options?: { signal?: AbortSignal }): Promise<number[][]> {
+    this.calls.push({ texts: [...texts], kind });
+    if (this.delayMs > 0) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, this.delayMs);
+        options?.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new EmbeddingError("timeout"));
+        });
+      });
+    }
+    if (this.fail !== null || (this.failCall > 0 && this.calls.length === this.failCall)) throw new EmbeddingError(this.fail ?? "server_error");
+    return texts.map((text) => fakeVector(text));
+  }
+}
+
+/** O vetor falso de um texto: contagem de palavras em 512 posições, normalizada para norma 1 (texto sem palavra vira um vetor fixo). */
+export function fakeVector(text: string): number[] {
+  const vector = new Array<number>(EMBEDDING_DIMENSIONS).fill(0);
+  for (const word of text.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+    if (word.length < 3) continue;
+    let hash = 2166136261;
+    for (let i = 0; i < word.length; i += 1) hash = Math.imul(hash ^ word.charCodeAt(i), 16777619) >>> 0;
+    vector[hash % EMBEDDING_DIMENSIONS] = (vector[hash % EMBEDDING_DIMENSIONS] ?? 0) + 1;
+  }
+  const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+  if (norm === 0) vector[0] = 1;
+  else for (let i = 0; i < vector.length; i += 1) vector[i] = (vector[i] ?? 0) / norm;
+  return vector;
 }

@@ -12,6 +12,7 @@ import {
   CHAT_PROVIDER,
   CONVERSATION_PROVIDER,
   DESCRIPTION_WRITER,
+  EMBEDDING_PROVIDER,
   GROUP_NAMER,
   PROJECT_ANSWERER,
   RELATED_JUDGE,
@@ -24,6 +25,7 @@ import type {
   ChatProvider,
   ConversationProvider,
   DescriptionWriter,
+  EmbeddingProvider,
   GroupNamer,
   ProjectAnswerer,
   RelatedJudge,
@@ -42,6 +44,8 @@ export type AssistantProviders = {
   answerer: ProjectAnswerer;
   chat: ChatProvider;
   elaborator: TicketElaborator;
+  /** Vetores da busca por significado (ADR 0053). `null` sem `VOYAGE_API_KEY`: o assistente segue configurado e a busca usa só palavras. */
+  embedder: EmbeddingProvider | null;
 };
 
 /**
@@ -65,6 +69,7 @@ export class AssistantGate {
     @Optional() @Inject(PROJECT_ANSWERER) private readonly answerer: ProjectAnswerer | null,
     @Optional() @Inject(CHAT_PROVIDER) private readonly chat: ChatProvider | null,
     @Optional() @Inject(TICKET_ELABORATOR) private readonly elaborator: TicketElaborator | null,
+    @Optional() @Inject(EMBEDDING_PROVIDER) private readonly embedder: EmbeddingProvider | null,
   ) {}
 
   /** Para rota com transação própria (`@OwnTransactions`): o aceite é conferido numa transação curta, antes de tudo. */
@@ -89,6 +94,6 @@ export class AssistantGate {
         message: "O assistente não está configurado neste ambiente.",
       });
     }
-    return { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator };
+    return { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator, embedder: this.embedder ?? null };
   }
 }
