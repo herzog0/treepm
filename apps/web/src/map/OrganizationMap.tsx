@@ -201,7 +201,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   }, [openTicket]);
 
   // Memoizado por itens: um objeto novo a cada render reiniciaria a câmera do pacote.
-  const maxScale = computeMapMaxScale(items);
+  const maxScale = useMemo(() => computeMapMaxScale(items), [items]);
   const cameraOptions = useMemo(() => ({ maxScale }), [maxScale]);
 
   const geometry = useMemo(() => mapGeometry(items), [items]);

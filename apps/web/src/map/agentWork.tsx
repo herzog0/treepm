@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { TicketSummary } from "../api/client.js";
@@ -58,10 +58,11 @@ export function AgentWorkMark({ agentWork }: { agentWork: AgentWork }) {
  */
 export function useAgentWorkClock(untils: readonly (string | undefined)[]): number {
   const [now, setNow] = useState(() => Date.now());
-  const next = untils.reduce<number>((soonest, value) => {
+  // O mapa renderiza a cada quadro da câmera com a mesma lista: reler os prazos de todos os tickets (um `Date.parse` cada) só quando ela ou o relógio mudam.
+  const next = useMemo(() => untils.reduce<number>((soonest, value) => {
     const until = value === undefined ? Number.NaN : Date.parse(value);
     return until > now && until < soonest ? until : soonest;
-  }, Number.POSITIVE_INFINITY);
+  }, Number.POSITIVE_INFINITY), [untils, now]);
   useEffect(() => {
     if (next === Number.POSITIVE_INFINITY) return;
     const timer = setTimeout(() => setNow(Date.now()), Math.min(Math.max(next - Date.now(), 0), MAX_DELAY));
