@@ -79,3 +79,40 @@ Nada de categoria nova: títulos e trechos de descrição de tickets do projeto 
 1. Busca semântica por vetores (`TREEPM-127`).
 2. Sugerir "depende de" também ao editar um ticket que já existe.
 3. O que fazer com a tabela `branch_summaries` e a tela de resumo depois que os textos do assistente saírem de uso.
+
+## Como ficou (PRs #194, #196 a #201, 2026-11-23)
+
+**Ramo montado na hora (PR #196, migration `0028`).** `apps/api/src/assistant/branch-text.ts` monta o texto de cada candidato: trecho do próprio ticket, nota escrita por pessoa, "Contém:" (filhos diretos), "Dentro deles:" (netos) e "Mais abaixo:", com teto de 1 100 caracteres; se o nível não cabe na pergunta, os descendentes de todos encolhem na mesma proporção. A procura não lê nem escreve mais resumo escrito pelo assistente. A subárvore de um ticket cancelado saiu da árvore da procura, como a das ideias. As rotas de resumo continuam: `GET` devolve o texto montado (`source: "built"`) ou a nota da pessoa; regenerar não tem efeito.
+
+**Decisão guardada (migrations `0028` e `0029`).** Tabela `placement_decisions`: por nível, a probabilidade de "cabe em algum" e a de cada candidato, o caminho, as alternativas, os relacionados com as duas probabilidades e a regra que decidiu. Só identificadores e números. Guardar nunca impede a procura nem a criação do ticket.
+
+**Tickets relacionados e lugar (PR #197).** Triagem por palavras em `packages/domain/src/related.ts` (radical de 5 letras, peso que zera termo presente em quase todos os tickets, até 30) e duas perguntas ao Jev por candidato: mesmo assunto (relacionado a partir de 0,7, até 8) e mesmo pedido (duplicado a partir de 0,85, saído de qualquer candidato julgado). Regra do lugar (`related-placement.ts`), decidida pelo relacionado elegível mais provável:
+
+| Situação | Resultado |
+| --- | --- |
+| sem relacionado elegível | o destino da descida, como antes |
+| o pai do relacionado é o destino ou está acima dele | fica o destino da descida (a escolha nunca sobe) |
+| a descida parou na raiz | o pai do relacionado vence; sem aviso de incerteza só com probabilidade de 0,85 ou mais |
+| a descida parou num nível intermediário, ancestral do pai do relacionado | o pai do relacionado só vence com 0,85 ou mais; abaixo disso fica onde a descida parou, com o outro como alternativa |
+| ramos diferentes | pergunta de escolha ao Jev entre os destinos; o resultado sai marcado como incerto |
+
+O destino nunca sai do escopo que a pessoa escolheu. O pior caso de tempo da rota ficou igual ao de antes (50 s). Na tela: lista "Relacionados" e o aviso "Já existe um ticket que parece ser este pedido", com a situação dele, que bloqueia criar até a pessoa escolher; abrir um ticket não fecha o assistente.
+
+**Elaboração (PRs #198, #199, #200 e #201).** Rota `POST /ticket-conversations/:id/elaboration`, chamada pela tela depois da procura. Primeira chamada ao Claude: rascunho e até oito relacionados (chave, título, trecho, situação); devolve ligações "depende de" e tarefas sugeridas. Segunda chamada, só quando há sugeridas: cada sugerida com os dez tickets mais parecidos da árvore, e o modelo diz qual já a entrega; havendo, a sugerida vira ligação. O servidor descarta chave fora da lista, o duplicado, o destino e os ancestrais dele, repetidas, texto que imite a citação do pedido, e o que passa dos limites (5 e 5; descrição de sugerida até 600 caracteres). A resposta traz `diagnostics`, só com números. Na prévia: "Sugeridas pelo assistente" (já incluídas, removíveis, com a descrição à vista) e "Ligações propostas" (marcadas); o botão de criar espera a elaboração, com "Criar sem esperar"; elaboração feita para um rascunho que mudou não é enviada. Na criação: as sugeridas viram filhos depois das partes da pessoa, com a descrição começando por "Sugerida pelo assistente, não pedida:", e as dependências nascem na mesma transação; o servidor revalida tudo e informa o que descartou. Ordem das travas: consultivas do projeto (estrutura, depois dependências), linhas de ticket, linha do projeto por último. O prompt de sistema da conversa não mudou.
+
+**Ferramenta.** `conversation-dry-run`, `case-run` (caso fixo sobre uma árvore exportada, com repetições), dependência e resumo pela linha de comando, importação da árvore em partes.
+
+### O que foi medido com os provedores de verdade
+
+Arquivos em `~/.local/share/treepm-ops/medicao-0052/` e `medicao-conversa/`, fora do repositório.
+
+- **O caso que originou a ADR** (árvore exportada sem o `TREEPM-319`): antes, raiz. Depois, o lugar certo em todas as repetições de todas as rodadas (3, 3, 3, 6 e 6).
+- **A ligação com o pré-requisito que já existia (`TREEPM-144`)**, em seis repetições: com o julgamento do Jev, 1 de 6 (e o modelo calado em 3); com a segunda chamada ao Claude e o prompt menos calado, 4 de 6, e o modelo propôs em todas. Nas 2 restantes a tarefa ficou como sugerida: o modelo a escreveu mais ampla do que o ticket existente cobre.
+- **Medição da conversa** (13 casos, 2 rodadas): 11 passam em tudo; nenhum detalhe perdido, nenhum trecho inventado; os dois casos em que nada é implicado vieram vazios nas duas rodadas. Os dois que não passam: o caso da tarefa que já existe (1 de 2, o mesmo resíduo acima) e um caso que esperava exatamente uma sugerida e recebeu duas, ambas pré-requisitos razoáveis (a expectativa do caso é que estava estreita).
+- **Tirar e recolocar 40 tickets**, uma rodada por versão: 31 no ramo certo no código anterior (base inflada: o resumo do pai tinha sido escrito com o ticket testado dentro), 28 com o ramo montado na hora, 26 com os relacionados. As três cabem na oscilação que a ADR 0033 já tinha medido entre cópias iguais (28 a 33 de 39); uma rodada não distingue melhora de piora. **A condição do item 1 ("não pior") não pôde ser afirmada nem negada.** A medição precisa de repetição e de amostra sorteada (`TREEPM-338`).
+
+### O que continua em aberto
+
+- Ticket cujo pai tem poucos filhos e pouca descrição ainda vai para a raiz (`TREEPM-339`); inclui a regra da faixa de dúvida no primeiro nível, que é de Teodoro.
+- A tarefa sugerida que cobre mais do que o ticket existente ainda aparece como tarefa nova em parte das vezes.
+- Nada disso foi usado por Teodoro com sessão real.
