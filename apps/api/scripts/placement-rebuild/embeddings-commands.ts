@@ -2,7 +2,7 @@ import { createPrismaClient, withTenant } from "@treepm/db";
 import { EMBEDDING_MODEL } from "../../src/assistant/ports.js";
 import { loadConfig } from "../../src/config.js";
 import { requireAssistantConsentOfOrg } from "./consent.js";
-import { embeddingProviderFor } from "./embeddings-kit.js";
+import { embeddingProviderFor, refuseFakeOverReal } from "./embeddings-kit.js";
 import type { CliOptions } from "./core.js";
 import { EMBEDDING_SYNC_MAX, embeddingPlan, embeddingStatus, loadEmbeddableTickets, syncEmbeddings } from "../../src/assistant/ticket-embeddings.js";
 import type { EmbeddingStore } from "../../src/assistant/ticket-embeddings.js";
@@ -45,6 +45,7 @@ export async function embeddingsReindexCommand(ctx: EmbeddingsContext): Promise<
     return 0;
   }
   const provider = ctx.provider;
+  if (provider !== null && provider.model === "fake") await refuseFakeOverReal(ctx.store, ctx.projectId);
   if (provider === null) throw new Error("A reindexação precisa de VOYAGE_API_KEY (ou de --fake-providers, só para ensaio). Nada foi enviado.");
   const tickets = await ctx.store.run((tx) => loadEmbeddableTickets(tx, ctx.projectId));
   ctx.log(`vivos: ${tickets.length}`);

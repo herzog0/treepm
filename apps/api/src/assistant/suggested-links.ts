@@ -2,13 +2,18 @@
  * Tarefa sugerida que já existe vira ligação (ADR 0052, item 4; R6). Depois que o Claude devolve as tarefas que o pedido implica,
  * cada uma é procurada na árvore viva do projeto: triagem por palavras (a mesma de `related.ts`, com o título e a descrição da
  * sugerida no lugar do rascunho, até `SUGGESTED_CANDIDATES` candidatos) e UMA segunda chamada ao Claude que decide, por sugerida,
- * se algum candidato dela já entrega o que ela precisa. O servidor só aceita chave que esteja entre os candidatos DAQUELA
+ * se algum candidato dela já entrega o que ela precisa. Com `semantic` (ADR 0053, item 7) os candidatos de cada sugerida são a
+ * FUSÃO (até `SUGGESTED_CANDIDATES`) da triagem por palavras com os `SUGGESTED_CANDIDATES` vizinhos por vetor do título e da
+ * descrição dela, todas as sugeridas numa única consulta; as exclusões (duplicado, lugar escolhido e ancestrais) valem para as
+ * duas listas porque os vizinhos só são aceitos se estão na árvore já filtrada. O servidor só aceita chave que esteja entre os candidatos DAQUELA
  * sugerida. Nada aqui lê banco: quem chama entrega a árvore que a rota já leu. Falha, prazo ou sinal abortado devolvem as
  * sugeridas como vieram.
  */
-import { descriptionExcerpt, triageRelated } from "@treepm/domain";
+import { descriptionExcerpt, fuseRankings, triageRelated } from "@treepm/domain";
 import { oneLine } from "./elaboration.js";
 import { ELABORATION_MAX_LINKS } from "./prompts.js";
+import { boundedSearch, SEMANTIC_TRIAGE_DEADLINE_MS } from "./semantic-triage.js";
+import type { SemanticDiagnostics, SemanticSearch } from "./semantic-triage.js";
 import type { ElaborationLink, ElaborationSuggestion, ExistingMatchCandidate, ExistingMatcher, ExistingMatchTask } from "./ports.js";
 
 /** Quantos candidatos a triagem entrega ao Claude por sugerida. */
@@ -33,11 +38,23 @@ export type LinkLookupInput = {
   excludeIds?: ReadonlySet<string> | undefined;
   matcher: ExistingMatcher;
   signal?: AbortSignal | undefined;
+  /** A busca por vetor, ligada ao projeto; ausente = só palavras, como antes. Nunca lança e nunca falha a procura. */
+  semantic?: SemanticSearch | undefined;
+  /** Prazo do passo de vetor (a rota o limita ao que sobra do prazo da procura). */
+  semanticDeadlineMs?: number | undefined;
 };
 
 /** O que aconteceu com uma sugerida na procura (só códigos e números). */
 export type LookupOutcome = "converted" | "kept" | "dropped_duplicate" | "dropped_repeated_link" | "dropped_limit" | "lookup_failed" | "skipped_no_time";
-export type LookupDiagnostic = { outcome: LookupOutcome; /** Quantos candidatos a triagem entregou ao Claude. */ candidates: number; /** O Claude apontou um candidato válido. */ chosen: boolean };
+export type LookupDiagnostic = {
+  outcome: LookupOutcome;
+  /** Quantos candidatos a triagem entregou ao Claude. */
+  candidates: number;
+  /** O Claude apontou um candidato válido. */
+  chosen: boolean;
+  /** De onde vieram os candidatos (só com o passo de vetor ligado): palavras, vetor ou as duas listas. */
+  origins?: { words: number; vector: number; both: number };
+};
 
 export type LinkLookupResult = {
   links: ElaborationLink[];
@@ -50,6 +67,8 @@ export type LinkLookupResult = {
   lookups: LookupDiagnostic[];
   /** Quanto durou a segunda chamada ao Claude (0 sem chamada). */
   matchMs: number;
+  /** O que o passo de vetor fez (só números e um código); ausente quando não foi ligado. */
+  semantic?: SemanticDiagnostics;
 };
 
 export async function linkExistingSuggestions(input: LinkLookupInput): Promise<LinkLookupResult> {
@@ -59,17 +78,46 @@ export async function linkExistingSuggestions(input: LinkLookupInput): Promise<L
   const byKey = new Map(tree.map((ticket) => [keyOf(ticket), ticket]));
   const tasks = input.suggested.slice(0, SUGGESTED_LOOKUP_MAX);
 
-  // A triagem por palavras: até 10 candidatos da árvore viva por sugerida. Sem candidato, a sugerida nem vai ao Claude.
+  // O passo de vetor: UMA consulta para todas as sugeridas. Nunca lança; sem tempo ou com falha, só palavras.
+  let vectorByTask: string[][] = tasks.map(() => []);
+  let semantic: SemanticDiagnostics | undefined;
+  if (input.semantic && tasks.length > 0) {
+    if (input.signal?.aborted) {
+      semantic = { synced: 0, embedded: 0, pending: 0, syncMs: 0, queryMs: 0, failure: "skipped_no_time" };
+    } else {
+      // k + excluídos: sobram `SUGGESTED_CANDIDATES` depois de tirar duplicado, lugar escolhido e ancestrais.
+      const excluded = (input.excludeIds?.size ?? 0) + (input.duplicateKey === null ? 0 : 1);
+      const result = await boundedSearch(
+        input.semantic,
+        tasks.map((task) => ({ title: task.title, description: task.description })),
+        SUGGESTED_CANDIDATES + excluded,
+        { signal: input.signal, deadlineMs: input.semanticDeadlineMs ?? SEMANTIC_TRIAGE_DEADLINE_MS },
+      );
+      vectorByTask = tasks.map((_, index) => (result.neighbours[index] ?? []).map((neighbour) => neighbour.ticketId));
+      semantic = result.diagnostics;
+    }
+  }
+
+  // A triagem por palavras (até 10 da árvore viva) fundida com os vizinhos por vetor, por sugerida. Sem candidato, a sugerida nem vai ao Claude.
   const asked: ExistingMatchTask[] = [];
   const candidatesOf = new Map<number, ExistingMatchCandidate[]>();
+  const originsOf = new Map<number, { words: number; vector: number; both: number }>();
+  const byId = new Map(tree.map((ticket) => [ticket.id, ticket]));
   tasks.forEach((task, index) => {
     const hits = triageRelated(
       { title: task.title, description: task.description, partTitles: [] },
       tree.map((ticket) => ({ id: ticket.id, title: ticket.title, excerpt: descriptionExcerpt(ticket.description) })),
       SUGGESTED_CANDIDATES,
     );
-    const byId = new Map(tree.map((ticket) => [ticket.id, ticket]));
-    const candidates = hits.map((hit) => {
+    // Só vizinho que está na árvore já filtrada (sem duplicado, lugar escolhido nem ancestrais) vira candidato.
+    const vectorIds = (vectorByTask[index] ?? []).filter((id) => byId.has(id));
+    const fused = fuseRankings(
+      hits.map((hit) => hit.id),
+      vectorIds,
+      SUGGESTED_CANDIDATES,
+    );
+    originsOf.set(index, { words: fused.filter((hit) => hit.origin === "words").length, vector: fused.filter((hit) => hit.origin === "vector").length, both: fused.filter((hit) => hit.origin === "both").length });
+    const candidates = fused.map((hit) => {
       const ticket = byId.get(hit.id) as LookupTicket;
       return { key: keyOf(ticket), title: ticket.title, excerpt: descriptionExcerpt(ticket.description), status: ticket.status };
     });
@@ -111,7 +159,7 @@ export async function linkExistingSuggestions(input: LinkLookupInput): Promise<L
   let failed = 0;
   tasks.forEach((task, index) => {
     const candidates = candidatesOf.get(index)?.length ?? 0;
-    const note = (outcome: LookupOutcome, picked: boolean): void => void lookups.push({ outcome, candidates, chosen: picked });
+    const note = (outcome: LookupOutcome, picked: boolean): void => void lookups.push({ outcome, candidates, chosen: picked, ...(semantic ? { origins: originsOf.get(index) as { words: number; vector: number; both: number } } : {}) });
     if (callFailed && candidates > 0) {
       failed += 1;
       suggested.push(task);
@@ -145,5 +193,5 @@ export async function linkExistingSuggestions(input: LinkLookupInput): Promise<L
     suggested.push(task);
     lookups.push({ outcome: "skipped_no_time", candidates: 0, chosen: false });
   }
-  return { links, suggested, titles, failed, lookups, matchMs };
+  return { links, suggested, titles, failed, lookups, matchMs, ...(semantic ? { semantic } : {}) };
 }

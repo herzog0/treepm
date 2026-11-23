@@ -3,6 +3,7 @@ import { linkExistingSuggestions, SUGGESTED_CANDIDATES } from "../src/assistant/
 import type { LookupTicket } from "../src/assistant/suggested-links.js";
 import type { ElaborationLink, ElaborationSuggestion, ExistingMatchInput, ExistingMatchResult, ExistingMatcher } from "../src/assistant/ports.js";
 import { AssistantUnavailableError } from "../src/assistant/ports.js";
+import type { SemanticSearch } from "../src/assistant/semantic-triage.js";
 
 // ADR 0052, item 4 (R6): quem decide se a tarefa sugerida já existe é o Claude, numa segunda chamada curta.
 const tree: LookupTicket[] = [
@@ -27,7 +28,7 @@ class Scripted implements ExistingMatcher {
 }
 const pick = (key: string) => new Scripted(() => key);
 const base = { tree, projectKey: "P", duplicateKey: null as string | null };
-const run = (matcher: ExistingMatcher, over: { links?: ElaborationLink[]; suggested?: ElaborationSuggestion[]; duplicateKey?: string | null; tree?: LookupTicket[]; excludeIds?: ReadonlySet<string>; signal?: AbortSignal } = {}) =>
+const run = (matcher: ExistingMatcher, over: { links?: ElaborationLink[]; suggested?: ElaborationSuggestion[]; duplicateKey?: string | null; tree?: LookupTicket[]; excludeIds?: ReadonlySet<string>; signal?: AbortSignal; semantic?: SemanticSearch; semanticDeadlineMs?: number } = {}) =>
   linkExistingSuggestions({ ...base, links: [], suggested: [task("Guardar o vínculo entre cada ticket e o item na plataforma externa")], matcher, ...over });
 
 describe("tarefa sugerida que já existe", () => {
@@ -196,5 +197,115 @@ describe("desfechos por sugerida (diagnostics)", () => {
   });
   it("dropped_limit: já há 5 ligações", async () => {
     expect(await outcomes(pick("P-1"), { links: ["P-5", "P-6", "P-7", "P-8", "P-9"].map((k) => link(k)) })).toEqual(["dropped_limit"]);
+  });
+});
+
+// ADR 0053, item 7: os candidatos de cada sugerida passam a ser a fusão da triagem por palavras com os vizinhos por vetor.
+describe("candidatos por palavras e por vetor", () => {
+  const diag = { synced: 3, embedded: 0, pending: 0, syncMs: 1, queryMs: 2 };
+  /** A fonte falsa: um vizinho por consulta, escolhido pelo roteiro a partir do título da consulta. */
+  const semanticOf = (byTitle: (title: string) => string[], extra: { failure?: "timeout" } = {}) => {
+    const calls: { queries: { title: string; description: string }[]; k: number; deadlineMs: number | undefined }[] = [];
+    const search: SemanticSearch = (queries, k, options) => {
+      calls.push({ queries: queries.map((q) => ({ ...q })), k, deadlineMs: options.deadlineMs });
+      return Promise.resolve({ neighbours: queries.map((q) => byTitle(q.title).map((ticketId, i) => ({ ticketId, distance: i / 10 }))), diagnostics: { ...diag, ...extra } });
+    };
+    return Object.assign(search, { calls });
+  };
+  const noWordsTask = task("Zzzz qqqq xxxx", "m", ""); // nenhuma palavra em comum com a árvore
+
+  it("o ticket que só o vetor acha vira candidato, vai ao Claude e pode virar ligação", async () => {
+    const semantic = semanticOf(() => ["t1"]);
+    const matcher = pick("P-1");
+    const out = await run(matcher, { suggested: [noWordsTask], semantic });
+    expect(matcher.calls[0]!.tasks[0]!.candidates.map((c) => c.key)).toEqual(["P-1"]);
+    expect(out.links).toEqual([{ de: "pai", dependeDe: "P-1", motivo: "m" }]);
+    expect(out.lookups[0]).toMatchObject({ outcome: "converted", candidates: 1, origins: { words: 0, vector: 1, both: 0 } });
+    expect(out.semantic).toEqual(diag);
+  });
+
+  it("todas as sugeridas vão numa única consulta, com título e descrição de cada uma e k = 10", async () => {
+    const semantic = semanticOf(() => []);
+    await run(new Scripted(), { suggested: [task("Primeira", "m", "descrição um"), task("Segunda", "m", "descrição dois")], semantic });
+    expect(semantic.calls).toHaveLength(1);
+    expect(semantic.calls[0]!.queries).toEqual([
+      { title: "Primeira", description: "descrição um" },
+      { title: "Segunda", description: "descrição dois" },
+    ]);
+    expect(semantic.calls[0]!.k).toBe(SUGGESTED_CANDIDATES);
+  });
+
+  it("as exclusões valem também para os vizinhos por vetor: duplicado, lugar escolhido e ancestrais", async () => {
+    const semantic = semanticOf(() => ["t1", "t2", "t3"]);
+    const matcher = new Scripted();
+    await run(matcher, { suggested: [noWordsTask], semantic, duplicateKey: "P-1", excludeIds: new Set(["t2"]) });
+    expect(matcher.calls[0]!.tasks[0]!.candidates.map((c) => c.key)).toEqual(["P-3"]);
+  });
+
+  it("vizinho fora da árvore é ignorado e os candidatos nunca passam de 10", async () => {
+    const many: LookupTicket[] = Array.from({ length: 25 }, (_, i) => ({ id: `m${i}`, number: 100 + i, title: `Outro ${i}`, description: "", status: "todo" }));
+    const semantic = semanticOf(() => ["fora", ...many.map((m) => m.id)]);
+    const matcher = new Scripted();
+    await run(matcher, { suggested: [noWordsTask], semantic, tree: [...tree, ...many] });
+    const keys = matcher.calls[0]!.tasks[0]!.candidates.map((c) => c.key);
+    expect(keys).toHaveLength(SUGGESTED_CANDIDATES);
+    expect(keys).not.toContain("fora");
+  });
+
+  it("nos dois: a origem é both, e quem as palavras acham continua entre os candidatos quando a união cabe", async () => {
+    const semantic = semanticOf(() => ["t1", "t2"]);
+    const matcher = new Scripted();
+    const out = await run(matcher, { semantic });
+    const keys = matcher.calls[0]!.tasks[0]!.candidates.map((c) => c.key);
+    expect(keys).toContain("P-1");
+    expect(out.lookups[0]!.origins!.both).toBeGreaterThanOrEqual(1);
+    expect(out.lookups[0]!.origins!.words + out.lookups[0]!.origins!.vector + out.lookups[0]!.origins!.both).toBe(keys.length);
+  });
+
+  it("falha do passo de vetor: a mesma coisa de só palavras, com o código", async () => {
+    const failing: SemanticSearch = () => Promise.resolve({ neighbours: [[]], diagnostics: { ...diag, failure: "timeout" } });
+    const a = new Scripted();
+    const b = new Scripted();
+    const withFailure = await run(a, { semantic: failing });
+    await run(b);
+    expect(a.calls[0]).toEqual(b.calls[0]);
+    expect(withFailure.semantic?.failure).toBe("timeout");
+    expect(withFailure.lookups[0]!.origins).toMatchObject({ vector: 0 });
+  });
+
+  it("a fonte que lança nunca derruba: segue só com palavras", async () => {
+    const matcher = new Scripted();
+    const out = await run(matcher, { semantic: () => Promise.reject(new Error("boom")) });
+    expect(matcher.calls).toHaveLength(1);
+    expect(out.semantic?.failure).toBe("storage");
+  });
+
+  it("sem tempo (sinal já abortado): a fonte nem é chamada", async () => {
+    const semantic = semanticOf(() => ["t1"]);
+    const controller = new AbortController();
+    controller.abort();
+    await run(new Scripted(), { semantic, signal: controller.signal });
+    expect(semantic.calls).toHaveLength(0);
+  });
+
+  it("sem a fonte, o resultado e os diagnósticos são os de antes (sem origens)", async () => {
+    const out = await run(new Scripted());
+    expect(out.semantic).toBeUndefined();
+    expect(out.lookups[0]).not.toHaveProperty("origins");
+  });
+
+  it("pede k + excluídos vizinhos, para sobrarem 10 depois de tirar duplicado, lugar escolhido e ancestrais", async () => {
+    const semantic = semanticOf(() => []);
+    await run(new Scripted(), { semantic, duplicateKey: "P-1", excludeIds: new Set(["t2", "t3"]) });
+    expect(semantic.calls[0]!.k).toBe(SUGGESTED_CANDIDATES + 3);
+  });
+
+  it("fonte que trava: segue só com palavras dentro do prazo do passo", async () => {
+    const matcher = new Scripted();
+    const started = Date.now();
+    const out = await run(matcher, { semantic: () => new Promise(() => undefined), semanticDeadlineMs: 200 });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(matcher.calls).toHaveLength(1);
+    expect(out.semantic?.failure).toBe("timeout");
   });
 });

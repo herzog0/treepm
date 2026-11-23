@@ -411,6 +411,8 @@ model PlacementDecision {
   duplicateTicketId String?  @map("duplicate_ticket_id") @db.Uuid
   /// descent | related_within | related_ancestor | related_choice | choice_unavailable (check no banco)
   placementRule     String?  @map("placement_rule")
+  /// A triagem de relacionados (ADR 0053, fatia 2): só números e códigos; `{}` quando não houve triagem por vetor.
+  triage            Json     @default("{}")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   organization Organization        @relation(fields: [orgId], references: [orgId])

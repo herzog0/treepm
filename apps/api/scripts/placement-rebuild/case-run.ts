@@ -3,7 +3,7 @@ import { expectOk } from "./client.js";
 import { importGabarito, readGabarito } from "./commands.js";
 import type { Context, Summary } from "./commands.js";
 import { runDryRun } from "./conversation-dry-run.js";
-import type { Decision, ElaborationDiagnostics } from "./conversation-dry-run.js";
+import type { Decision, ElaborationDiagnostics, Triage } from "./conversation-dry-run.js";
 import type { Gabarito, GabaritoTicket } from "./core.js";
 import { probabilitiesOf } from "./conversation-dry-run.js";
 
@@ -30,10 +30,22 @@ export type CaseFile = {
   expectDuplicateKey: string | null;
   /** Opcional (ADR 0052, fatia 3): passa se todas estas chaves aparecem em `links[].dependeDe`. */
   expectLinkKeys: string[];
+  /**
+   * Opcional, só com `--fake-providers` (ADR 0053): "conceitos" do provedor de vetores falso. Palavras do mesmo conceito caem na
+   * mesma posição do vetor, então o caso pode ter o ticket certo SEM nenhuma palavra em comum com o pedido (nem radical) e
+   * ainda assim próximo pelo "significado", que é o que um modelo de vetores de verdade faz e o falso por palavras não faria.
+   */
+  concepts: Record<string, string>;
 };
 
 export class CaseError extends Error {
   override name = "CaseError";
+}
+
+function conceptsOf(value: unknown): Record<string, string> {
+  if (value === undefined) return {};
+  if (typeof value !== "object" || value === null || Array.isArray(value) || Object.values(value).some((v) => typeof v !== "string")) throw new CaseError('"concepts" deve ser um objeto { "palavra": "conceito" }.');
+  return Object.fromEntries(Object.entries(value as Record<string, string>).map(([word, concept]) => [word.toLowerCase(), concept]));
 }
 
 export function parseCase(raw: string): CaseFile {
@@ -70,6 +82,7 @@ export function parseCase(raw: string): CaseFile {
     expectRelatedKeys: list("expectRelatedKeys"),
     expectDuplicateKey: optionalKey("expectDuplicateKey"),
     expectLinkKeys: list("expectLinkKeys"),
+    concepts: conceptsOf(record["concepts"]),
   };
 }
 
@@ -116,6 +129,8 @@ export type CaseRepeat = {
   elaborationUnavailable: string | null;
   uncertain: boolean;
   stopReason: string | null;
+  /** Só números e códigos da triagem por palavras e vetores da procura (ADR 0053); `null` em decisão sem `triage`. */
+  triage: Triage | null;
   probabilities: ReturnType<typeof probabilitiesOf> | null;
 };
 
@@ -155,6 +170,8 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
     await ctx.client.request("POST", "/projects", { key: randomKey(), name: `Caso ${spec.name}`.slice(0, 80) }),
   );
   const measured: Context = { ...ctx, project: project.id };
+  // Os conceitos do falso valem só para este caso (o provedor falso é um por execução da ferramenta).
+  ctx.setConcepts?.(spec.concepts);
   ctx.log(`Projeto de medição ${project.key} criado (${kept.length} tickets, ${gabarito.tickets.length - kept.length} omitidos).`);
   let ok = true;
   try {
@@ -196,6 +213,7 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
         elaborationUnavailable: run.elaboration === null ? "unavailable" : run.elaboration.unavailable,
         uncertain: run.outcome.uncertain as boolean,
         stopReason: run.decision?.stopReason ?? null,
+        triage: run.decision?.triage ?? null,
         probabilities: run.decision ? probabilitiesOf(run.decision as Decision, keyOf) : null,
       };
       results.push(record);
@@ -211,6 +229,8 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
       repeatsWithExpectedLink: spec.expectLinkKeys.length > 0 ? results.filter((r) => r.linkHit).length : 0,
       repeatsWithSuggestedKept: results.filter((r) => r.suggested.length > 0).length,
       repeatsModelProposedNothing: results.filter((r) => r.diagnostics !== null && r.diagnostics.model.links === 0 && r.diagnostics.model.suggested === 0).length,
+      /** Em quantas repetições a triagem trouxe candidato que SÓ o vetor achou (ADR 0053). */
+      repeatsWithVectorOnlyCandidate: results.filter((r) => (r.triage?.onlyVector ?? 0) > 0).length,
       repeatsWithoutDiagnostics: results.filter((r) => r.diagnostics === null).length,
       lookupOutcomes,
     };

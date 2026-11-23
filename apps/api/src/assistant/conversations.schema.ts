@@ -213,9 +213,15 @@ export const elaborationOutcomeSchema = z.object({
           outcome: z.enum(["converted", "kept", "dropped_duplicate", "dropped_repeated_link", "dropped_limit", "lookup_failed", "skipped_no_time"]),
           candidates: z.number().int(),
           chosen: z.boolean(),
+          /** De onde vieram os candidatos (ADR 0053): só com o passo de vetor ligado. */
+          origins: z.object({ words: z.number().int(), vector: z.number().int(), both: z.number().int() }).optional(),
         }),
       ),
       timingsMs: z.object({ claude: z.number().int(), lookup: z.number().int(), secondCall: z.number().int() }),
+      /** O passo de vetor da elaboração: só números e um código curto. */
+      semantic: z
+        .object({ synced: z.number().int(), embedded: z.number().int(), pending: z.number().int(), syncMs: z.number().int(), queryMs: z.number().int(), failure: z.string().optional() })
+        .optional(),
     })
     .optional(),
 });

@@ -4,7 +4,7 @@
  *
  *   pnpm --filter @treepm/api placement:rebuild <comando> [opções]
  *
- * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update (com --idea-stage, --idea-accept, --idea-discard e --idea-make para ideias, e --depends-on e --no-depends-on para dependências), ticket-show, relations-rebuild, summary-show, summary-regenerate, conversation-dry-run, embeddings-status, embeddings-reindex, case-run.
+ * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update (com --idea-stage, --idea-accept, --idea-discard e --idea-make para ideias, e --depends-on e --no-depends-on para dependências), ticket-show, relations-rebuild, summary-show, summary-regenerate, conversation-dry-run, embeddings-status, embeddings-reindex, triage-measure, case-run.
  * Sobe a API real em processo (só a sessão é trocada), em 127.0.0.1 e porta efêmera, e fala com ela por HTTP.
  * O terminal mostra só progresso e contagens; todo texto de ticket fica nos arquivos de `--dir`.
  */
@@ -16,6 +16,8 @@ import { caseRunCommand } from "./placement-rebuild/case-run.js";
 import { collectCommand, collectCompareCommand, collectReportCommand } from "./placement-rebuild/collect.js";
 import { ApiClient } from "./placement-rebuild/client.js";
 import { runEmbeddingsCommand } from "./placement-rebuild/embeddings-commands.js";
+import { refuseFakeOverRealOfOrg } from "./placement-rebuild/embeddings-kit.js";
+import { runTriageMeasure } from "./placement-rebuild/triage-measure.js";
 import { pairsCommand, pairsReportCommand } from "./placement-rebuild/pairs.js";
 import { fakePairsKit, realPairsKit } from "./placement-rebuild/pairs-kit.js";
 import { loadConfig } from "../src/config.js";
@@ -58,6 +60,8 @@ async function runTicketCommand(command: TicketRouteCommand, options: CliOptions
     needsAi,
   });
   try {
+    // O falso nunca sobrescreve vetor de verdade (o `case-run` usa projeto novo e não precisa disto).
+    if (command === "conversation-dry-run" && options.fakeProviders) await refuseFakeOverRealOfOrg(options.org as string, options.user as string, options.project as string);
     const ctx = { client: new ApiClient(booted.baseUrl, booted.token), project: options.project as string, log };
     if (command === "ticket-list") await ticketListCommand(ctx, options.json ?? false);
     else if (command === "ticket-show") await ticketShowCommand(ctx, options.number as number);
@@ -121,6 +125,7 @@ async function main(): Promise<number> {
   }
   const { command, options } = parsed;
   if (command === "embeddings-status" || command === "embeddings-reindex") return runEmbeddingsCommand(command, options, { log });
+  if (command === "triage-measure") return runTriageMeasure(options, { log });
   if ((TICKET_ROUTE_COMMANDS as readonly string[]).includes(command)) return runTicketCommand(command as TicketRouteCommand, options);
   const dir = resolve(options.dir as string);
   ensureDir(dir);
@@ -197,6 +202,7 @@ async function main(): Promise<number> {
       ...(options.looCrashAfterRemove ? { looCrashAfterRemove: options.looCrashAfterRemove } : {}),
       ...(options.looCrashAfterDraft ? { looCrashAfterDraft: options.looCrashAfterDraft } : {}),
       ...(booted.collectKit ? { collectKit: booted.collectKit } : {}),
+      ...(booted.setConcepts ? { setConcepts: booted.setConcepts } : {}),
       ...(options.repeats ? { repeats: options.repeats } : {}),
       ...(options.variant ? { variant: options.variant } : {}),
       ...(options.claudeOutline ? { claudeOutline: true } : {}),

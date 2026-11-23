@@ -6,7 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { Test } from "@nestjs/testing";
 import { AppModule } from "../../src/app.module.js";
-import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, GROUP_NAMER, RELATED_JUDGE, TICKET_ELABORATOR } from "../../src/assistant/ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, EMBEDDING_PROVIDER, GROUP_NAMER, RELATED_JUDGE, TICKET_ELABORATOR } from "../../src/assistant/ports.js";
 import type { AffinityInput, AffinityJudge, BranchJudge, BranchJudgment } from "../../src/assistant/ports.js";
 import { JevAffinityJudge } from "../../src/assistant/jev-affinity-judge.js";
 import { sdkStreamer } from "../../src/assistant/claude-call.js";
@@ -20,7 +20,7 @@ import { DIRECTORY_PROVIDER } from "../../src/auth/directory-provider.js";
 import { SESSION_VERIFIER } from "../../src/auth/session-verifier.js";
 import type { SessionVerifier, VerifiedSession } from "../../src/auth/session-verifier.js";
 import { requireAssistantConsentOfOrg } from "./consent.js";
-import { FakeAffinity, FakeConversation, FakeDirectoryProvider, FakeElaborator, FakeJudge, FakeNamer, FakeRelated, FakeSummarizer } from "./fakes.js";
+import { FakeAffinity, FakeConversation, FakeDirectoryProvider, FakeElaborator, FakeEmbeddingProvider, FakeJudge, FakeNamer, FakeRelated, FakeSummarizer } from "./fakes.js";
 import { NoTurnConversation, RootCapture, RootCaptureJudge, ZeroAffinity, ZeroRelated, fakeClaude, fakeSystemOne } from "./collect-providers.js";
 import { resolveCurrentId } from "./core.js";
 import type { AffinityRecord, JudgmentRecord } from "./core.js";
@@ -144,6 +144,8 @@ export type Booted = {
   token: string;
   recorder: JudgmentRecorder;
   collectKit?: CollectKit;
+  /** Só com `--fake-providers` e fora do `collect`: o caso de medição configura os "conceitos" dos falsos (vetores e relacionados). */
+  setConcepts?: (concepts: Record<string, string>) => void;
   close(): Promise<void>;
 };
 
@@ -161,6 +163,8 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
   };
   const recorder = new JudgmentRecorder();
   const capture = new RootCapture();
+  const fakeEmbedder = options.fakeProviders && !options.collect ? new FakeEmbeddingProvider() : undefined;
+  const fakeRelated = new FakeRelated();
 
   let builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(SESSION_VERIFIER)
@@ -186,11 +190,14 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
       .overrideProvider(AFFINITY_JUDGE)
       .useValue(options.collect ? new ZeroAffinity() : new RecordingAffinity(new FakeAffinity(), recorder))
       .overrideProvider(RELATED_JUDGE)
-      .useValue(options.collect ? new ZeroRelated() : new FakeRelated())
+      .useValue(options.collect ? new ZeroRelated() : fakeRelated)
       .overrideProvider(GROUP_NAMER)
       .useValue(new FakeNamer())
       .overrideProvider(TICKET_ELABORATOR)
-      .useValue(new FakeElaborator());
+      .useValue(new FakeElaborator())
+      // A medição da descida (collect) não usa vetores; nos demais comandos o falso responde pela porta (nunca a Voyage).
+      .overrideProvider(EMBEDDING_PROVIDER)
+      .useValue(fakeEmbedder ?? null);
   } else {
     builder = builder.overrideProvider(BRANCH_JUDGE).useFactory({
       inject: [CONFIG],
@@ -202,8 +209,8 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
             ? new RecordingJudge(new JevBranchJudge(sdkSystemOne(new TypeSafeClient({ apiKey: config.TYPESAFE_API_KEY, logLevel: "off" }))), recorder)
             : null,
     });
-    // A medição da descida (coleta) não chama o Jev dos relacionados; nos demais comandos ele é o do produto.
-    if (options.collect) builder = builder.overrideProvider(RELATED_JUDGE).useValue(new ZeroRelated());
+    // A medição da descida (coleta) não chama o Jev dos relacionados nem a busca por significado; nos demais comandos são os do produto.
+    if (options.collect) builder = builder.overrideProvider(RELATED_JUDGE).useValue(new ZeroRelated()).overrideProvider(EMBEDDING_PROVIDER).useValue(null);
     if (options.collect) {
       builder = builder
         .overrideProvider(CONVERSATION_PROVIDER)
@@ -250,5 +257,5 @@ export async function bootApp(options: BootOptions): Promise<Booted> {
       };
     }
   }
-  return { baseUrl: `http://127.0.0.1:${address.port}/api`, token, recorder, ...(collectKit ? { collectKit } : {}), close: () => app.close() };
+  return { baseUrl: `http://127.0.0.1:${address.port}/api`, token, recorder, ...(collectKit ? { collectKit } : {}), ...(fakeEmbedder ? { setConcepts: (concepts: Record<string, string>) => { fakeEmbedder.concepts = concepts; fakeRelated.concepts = concepts; } } : {}), close: () => app.close() };
 }

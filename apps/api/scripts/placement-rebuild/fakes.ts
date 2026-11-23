@@ -50,12 +50,13 @@ export class FakeConversation implements ConversationProvider {
   }
 }
 
-const words = (text: string): Set<string> =>
+const words = (text: string, concepts: Readonly<Record<string, string>> = {}): Set<string> =>
   new Set(
     text
       .toLowerCase()
       .split(/[^\p{L}\p{N}]+/u)
-      .filter((word) => word.length >= 4 && word !== "resumo"),
+      .filter((word) => word.length >= 4 && word !== "resumo")
+      .map((word) => concepts[word] ?? word),
   );
 
 export class FakeJudge implements BranchJudge {
@@ -118,16 +119,18 @@ export class FakeAffinity implements AffinityJudge {
 export class FakeRelated implements RelatedJudge {
   /** Modo opcional: `sameRequest` por título do candidato (o que vale para as sugeridas procuradas na árvore); o que não está no mapa cai na regra de palavras. */
   constructor(private readonly sameRequestByTitle: Readonly<Record<string, number>> = {}) {}
+  /** "Conceitos" do caso de medição (ADR 0053): palavras do mesmo conceito contam como a mesma palavra, como o `FakeEmbeddingProvider`. */
+  concepts: Record<string, string> = {};
 
   judge(input: RelatedInput): Promise<Record<string, RelatedJudgment>> {
-    const draftWords = words(`${input.draft.title} ${input.draft.description}`);
+    const draftWords = words(`${input.draft.title} ${input.draft.description}`, this.concepts);
     const norm = (text: string) => text.trim().toLowerCase();
     return Promise.resolve(
       Object.fromEntries(
         input.candidates.map((c) => [
           c.id,
           {
-            sameSubject: [...words(`${c.title} ${c.excerpt}`)].some((w) => draftWords.has(w)) ? 0.9 : 0.1,
+            sameSubject: [...words(`${c.title} ${c.excerpt}`, this.concepts)].some((w) => draftWords.has(w)) ? 0.9 : 0.1,
             sameRequest: this.sameRequestByTitle[c.title] ?? (norm(c.title) === norm(input.draft.title) ? 0.9 : 0.1),
           },
         ]),
@@ -173,6 +176,12 @@ export class FakeEmbeddingProvider implements EmbeddingProvider {
   failCall = 0;
   /** Espera antes de responder (ms), para ensaiar o prazo; respeita o sinal de quem chama. */
   delayMs = 0;
+  /**
+   * "Conceitos" do falso: palavra (minúscula) → nome do conceito. Duas palavras do mesmo conceito caem na mesma posição do vetor,
+   * então textos que falam da mesma coisa com palavras DIFERENTES ficam próximos, como faria um modelo de significado. É o
+   * que deixa um caso de medição honesto: o ticket certo não tem palavra em comum com o pedido e só os vetores o aproximam.
+   */
+  concepts: Record<string, string> = {};
 
   async embed(texts: readonly string[], kind: EmbeddingKind, options?: { signal?: AbortSignal }): Promise<number[][]> {
     this.calls.push({ texts: [...texts], kind });
@@ -186,15 +195,16 @@ export class FakeEmbeddingProvider implements EmbeddingProvider {
       });
     }
     if (this.fail !== null || (this.failCall > 0 && this.calls.length === this.failCall)) throw new EmbeddingError(this.fail ?? "server_error");
-    return texts.map((text) => fakeVector(text));
+    return texts.map((text) => fakeVector(text, this.concepts));
   }
 }
 
 /** O vetor falso de um texto: contagem de palavras em 512 posições, normalizada para norma 1 (texto sem palavra vira um vetor fixo). */
-export function fakeVector(text: string): number[] {
+export function fakeVector(text: string, concepts: Readonly<Record<string, string>> = {}): number[] {
   const vector = new Array<number>(EMBEDDING_DIMENSIONS).fill(0);
-  for (const word of text.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
-    if (word.length < 3) continue;
+  for (const raw of text.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+    if (raw.length < 3) continue;
+    const word = concepts[raw] ?? raw;
     let hash = 2166136261;
     for (let i = 0; i < word.length; i += 1) hash = Math.imul(hash ^ word.charCodeAt(i), 16777619) >>> 0;
     vector[hash % EMBEDDING_DIMENSIONS] = (vector[hash % EMBEDDING_DIMENSIONS] ?? 0) + 1;
