@@ -5,6 +5,6 @@ export type { SpatialCanvasOptions, SpatialCanvasController } from "./useSpatial
 export { useSpatialCamera } from "./useSpatialCamera.js";
 export type { SpatialCameraOptions } from "./useSpatialCamera.js";
 export { useReducedMotion } from "./useReducedMotion.js";
-export { mixIndicatorColors } from "./colors.js";
+export { mixIndicatorColors, mixIndicatorColorCounts } from "./colors.js";
 export type { IndicatorColor } from "./colors.js";
 export type { SpatialAppearance, SpatialNodeContent, RenderNodeContent, MixColors, NodeAppearance } from "./appearance.js";

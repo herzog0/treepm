@@ -10,7 +10,7 @@ import type { SpatialCamera } from "@treepm/engine";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { describe, it } from "vitest";
 import { searchTickets } from "../command/search.js";
-import { buildMapItems } from "../map/items.js";
+import { buildMapItems, paintBranches } from "../map/items.js";
 import type { MapNode } from "../map/items.js";
 import { mergeMapData } from "../map/mapData.js";
 import type { MapData } from "../map/mapData.js";
@@ -72,7 +72,10 @@ describe("web com projeto grande, em Node", () => {
       const noProgress = Object.fromEntries(Object.entries(ticketsByProject).map(([id, list]) => [id, list.map((t) => ({ ...t, progress: null }))]));
       const light = bench(() => buildMapItems(me.organization, data.projects, noProgress));
       push("mapa", "buildMapItems sem progresso (paintBranches quase vazia)", light.s);
-      push("mapa", "paintBranches, por diferença", stats([Math.max(0, items.s.medianMs - light.s.medianMs)]), "limite: a função não é exportada; é mediana menos mediana");
+      push("mapa", "paintBranches, por diferença", stats([Math.max(0, items.s.medianMs - light.s.medianMs)]), "mediana menos mediana");
+      const byTicketId = new Map(data.tickets.map((ticket) => [ticket.id, ticket]));
+      const unpainted = (light.value as readonly MapNode[]).map((node) => (node.ticket ? { ...node, ticket: byTicketId.get(node.id)! } : node));
+      push("mapa", "paintBranches, direto", bench(() => paintBranches(unpainted)).s);
       const nodes = items.value as readonly MapNode[];
 
       // Engine.
@@ -80,7 +83,8 @@ describe("web com projeto grande, em Node", () => {
       push("engine", "buildTreeIndex", index.s);
       const layout = bench(() => buildSpatialLayout(index.value));
       push("engine", "buildSpatialLayout", layout.s);
-      push("engine", "computeMapMaxScale (refaz índice + layout)", bench(() => computeMapMaxScale(nodes)).s);
+      push("engine", "computeMapMaxScale (itens novos: monta índice + layout uma vez)", bench(() => computeMapMaxScale([...nodes])).s);
+      push("engine", "computeMapMaxScale (mesmos itens: reaproveita)", bench(() => computeMapMaxScale(nodes)).s);
       const maxScale = computeMapMaxScale(nodes);
       const { bounds } = layout.value;
       const worldW = bounds.maxX - bounds.minX;

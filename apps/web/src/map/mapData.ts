@@ -21,8 +21,25 @@ export async function loadMapData(client: ApiClient): Promise<ApiResult<MapData>
   return { ok: true, data: { projects: projects.data, people: people.data, ticketsByProject } };
 }
 
-/** Igualdade por conteúdo: as respostas vêm do mesmo esquema, então as chaves chegam sempre na mesma ordem. */
-const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+/**
+ * Igualdade por conteúdo, na mesma decisão de antes (comparar o JSON): objetos iguais campo a campo, arrays iguais item a
+ * item e na mesma ordem, e um campo ausente vale o mesmo que um `undefined` (o JSON os omitia), mas não um `null`. Sem
+ * serializar nada: em 20 000 tickets o `JSON.stringify` das duas listas custava ~100 ms a cada atualização de 30 s.
+ */
+function same(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let at = 0; at < a.length; at += 1) if (!same(a[at], b[at])) return false;
+    return true;
+  }
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  for (const key in left) if (left[key] !== undefined && !same(left[key], right[key])) return false;
+  for (const key in right) if (right[key] !== undefined && left[key] === undefined) return false;
+  return true;
+}
 
 /**
  * A atualização periódica (ADR 0043) só troca o que mudou: cada parte igual à que está na tela continua sendo o mesmo

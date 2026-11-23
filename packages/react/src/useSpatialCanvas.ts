@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildTreeIndex, buildSpatialLayout, buildSpatialScene } from "@treepm/engine";
-import type { SpatialLayoutOptions, SpatialSceneOptions, TreeNode } from "@treepm/engine";
+import type { SpatialLayout, SpatialLayoutOptions, SpatialSceneOptions, TreeIndex, TreeNode } from "@treepm/engine";
 import type { NodeAppearance, SpatialAppearance } from "./appearance.js";
 import { defaultGetColor, defaultGetLabel } from "./appearance.js";
 import { useSpatialCamera } from "./useSpatialCamera.js";
@@ -11,6 +11,11 @@ export interface SpatialCanvasOptions<TNode extends TreeNode> extends SpatialApp
   readonly items: readonly TNode[];
   readonly appearance?: SpatialAppearance<TNode>;
   readonly layoutOptions?: SpatialLayoutOptions<TNode>;
+  /**
+   * Índice e layout já calculados para estes mesmos `items` e as opções de layout padrão (sem `layoutOptions`): o hook os
+   * usa em vez de refazê-los. Quem passa garante a correspondência; sem isto, o hook calcula como sempre.
+   */
+  readonly geometry?: { readonly index: TreeIndex<TNode>; readonly layout: SpatialLayout<TNode> };
   readonly sceneOptions?: SpatialSceneOptions;
   readonly cameraOptions?: SpatialCameraOptions;
   readonly selectedId?: string | null;
@@ -26,12 +31,13 @@ export function useSpatialCanvas<TNode extends TreeNode>(options: SpatialCanvasO
   const getLabel = options.getLabel ?? options.appearance?.getLabel ?? defaultGetLabel;
   const getColor = options.getColor ?? options.appearance?.getColor ?? defaultGetColor;
   const mixColors = options.mixColors ?? options.appearance?.mixColors;
-  const index = useMemo(() => buildTreeIndex(items), [items]);
+  const geometry = options.geometry;
+  const index = useMemo(() => geometry?.index ?? buildTreeIndex(items), [items, geometry]);
   const dimensions = layoutOptions?.dimensions;
   const dimensionsKey = typeof dimensions === "function" ? undefined : JSON.stringify(dimensions);
   const normalization = layoutOptions?.normalization;
   // Inline value-only options must not rebuild layout/cancel motion on each hook render.
-  const layout = useMemo(() => buildSpatialLayout(index, layoutOptions), [index,
+  const layout = useMemo(() => (geometry && geometry.index === index ? geometry.layout : buildSpatialLayout(index, layoutOptions)), [index, geometry,
     typeof dimensions === "function" ? dimensions : undefined, dimensionsKey,
     layoutOptions?.rootGap, layoutOptions?.childGap, normalization === false,
     normalization && normalization.heightStart, normalization && normalization.heightFactor,

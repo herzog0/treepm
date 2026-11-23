@@ -1,7 +1,7 @@
 import type { TreeNode } from "@treepm/engine";
 import type { TFunction } from "i18next";
 import i18n from "../i18n/index.js";
-import { mixIndicatorColors } from "@treepm/react";
+import { mixIndicatorColorCounts, mixIndicatorColors } from "@treepm/react";
 import type { MixColors } from "@treepm/react";
 import type { Me, Project, TicketStatus, TicketSummary } from "../api/client.js";
 import { hasOpenDescendants, isInDiscardedIdea } from "./ticketState.js";
@@ -149,8 +149,11 @@ export function buildMapItems(
  * Ticket com descendente aberto (ADR 0034) ganha a mistura das cores de todos os descendentes, cada um com a própria
  * situação (os que também têm filhos entram como itens). Sem descendente aberto, ou sem filhos, fica com a cor da
  * própria situação, como qualquer folha. Só quem tem descendente aberto muda: os demais já estão pintados.
+ *
+ * Uma passada de baixo para cima: cada nó soma, por cor, os descendentes que não são de ideia (a mistura em luz linear
+ * só depende de quantos membros há de cada cor, não da ordem). `mixIndicatorColorCounts` faz a mesma conta de `mixIndicatorColors`.
  */
-function paintBranches(nodes: readonly MapNode[]): readonly MapNode[] {
+export function paintBranches(nodes: readonly MapNode[]): readonly MapNode[] {
   const childrenOf = new Map<string, MapNode[]>();
   for (const node of nodes) {
     if (node.parentId === null) continue;
@@ -158,12 +161,41 @@ function paintBranches(nodes: readonly MapNode[]): readonly MapNode[] {
     if (siblings) siblings.push(node);
     else childrenOf.set(node.parentId, [node]);
   }
-  const descendants = (node: MapNode): MapNode[] => (childrenOf.get(node.id) ?? []).flatMap((child) => [child, ...descendants(child)]);
+  // Contagem por cor dos descendentes de ticket comum, de cada nó que tem filhos (pós-ordem, sem recursão).
+  const below = new Map<string, Map<string, number>>();
+  const done = new Set<string>();
+  for (const start of nodes) {
+    if (done.has(start.id)) continue;
+    const stack: { node: MapNode; at: number }[] = [{ node: start, at: 0 }];
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1]!;
+      const children = childrenOf.get(frame.node.id);
+      if (children !== undefined && frame.at < children.length) {
+        const child = children[frame.at]!;
+        frame.at += 1;
+        if (!done.has(child.id)) stack.push({ node: child, at: 0 });
+        continue;
+      }
+      stack.pop();
+      done.add(frame.node.id);
+      if (children === undefined) continue;
+      const counts = new Map<string, number>();
+      for (const child of children) {
+        if (child.ticket !== null && !isInIdea(child.ticket)) counts.set(child.color, (counts.get(child.color) ?? 0) + 1);
+        const childCounts = below.get(child.id);
+        if (childCounts) for (const [color, count] of childCounts) counts.set(color, (counts.get(color) ?? 0) + count);
+      }
+      below.set(frame.node.id, counts);
+    }
+  }
   return nodes.map((node) => {
     // Os nós de ideia têm cor própria e não entram na mistura de quem está fora da ideia (ADR 0042).
     if (!node.ticket || isInIdea(node.ticket) || !hasOpenDescendants(node.ticket)) return node;
-    const found = descendants(node).filter((entry) => entry.ticket !== null && !isInIdea(entry.ticket));
-    if (found.length === 0) return node;
-    return { ...node, leafCount: found.length, color: mixWeightedColors(found.map((entry) => ({ color: entry.color, weight: 1 }))) };
+    const counts = below.get(node.id);
+    if (counts === undefined) return node;
+    let found = 0;
+    for (const count of counts.values()) found += count;
+    if (found === 0) return node;
+    return { ...node, leafCount: found, color: mixIndicatorColorCounts(counts) };
   });
 }
