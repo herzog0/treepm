@@ -68,7 +68,7 @@ describe("o que o servidor aceita da resposta", () => {
     const id = await open();
     await placement(id);
     const res = await elaborate(id);
-    expect(res.body).toEqual({
+    expect(res.body).toMatchObject({
       links: [{ de: "pai", dependeDe: "PRIV-2", dependeDeTitle: "Login", motivo: "usa a tela de entrada" }],
       suggested: [{ title: "Cadastrar o provedor", description: "No painel", motivo: "sem provedor não há login" }],
       unavailable: null,

@@ -154,3 +154,32 @@ describe("robustez", () => {
     expect(out.failed).toBe(1);
   });
 });
+
+describe("desfechos por sugerida (diagnostics)", () => {
+  const outcomes = async (judge: RelatedJudge, over: Parameters<typeof run>[1] = {}) => (await run(judge, over)).lookups.map((l) => l.outcome);
+  it("converted, com candidatos e maior sameRequest", async () => {
+    const out = await run(new ByTitle({ [REIMPORT]: 0.9 }));
+    expect(out.lookups).toHaveLength(1);
+    expect(out.lookups[0]).toMatchObject({ outcome: "converted", maxSameRequest: 0.9 });
+    expect(out.lookups[0]!.candidates).toBeGreaterThan(0);
+  });
+  it("kept: sem equivalente, e sem candidato nenhum", async () => {
+    expect(await outcomes(new ByTitle({ [REIMPORT]: 0.2 }))).toEqual(["kept"]);
+    const none = await run(new ByTitle({}), { suggested: [task("Zzzz qqqq xxxx", "m", "")] });
+    expect(none.lookups[0]).toEqual({ outcome: "kept", candidates: 0, maxSameRequest: null });
+  });
+  it("dropped_duplicate: o modelo já tinha proposto a mesma ligação", async () => {
+    expect(await outcomes(new ByTitle({ [REIMPORT]: 0.9 }), { links: [link("P-1")] })).toEqual(["dropped_duplicate"]);
+  });
+  it("dropped_repeated_link: outra sugerida desta etapa já ligou ao mesmo ticket", async () => {
+    expect(await outcomes(new ByTitle({ [REIMPORT]: 0.9 }), { suggested: [task("Guardar o vínculo externo A"), task("Guardar o vínculo externo B")] })).toEqual(["converted", "dropped_repeated_link"]);
+  });
+  it("dropped_limit: já há 5 ligações", async () => {
+    expect(await outcomes(new ByTitle({ [REIMPORT]: 0.9 }), { links: ["P-5", "P-6", "P-7", "P-8", "P-9"].map((k) => link(k)) })).toEqual(["dropped_limit"]);
+  });
+  it("lookup_failed: o Jev falhou", async () => {
+    const judge = new ByTitle({ [REIMPORT]: 0.9 });
+    judge.fail = () => true;
+    expect(await outcomes(judge)).toEqual(["lookup_failed"]);
+  });
+});

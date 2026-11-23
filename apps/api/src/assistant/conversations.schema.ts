@@ -200,4 +200,22 @@ export const elaborationOutcomeSchema = z.object({
   links: z.array(z.object({ de: z.union([z.literal("pai"), z.number().int()]), deTitle: z.string().optional(), dependeDe: z.string(), dependeDeTitle: z.string(), motivo: z.string() })),
   suggested: z.array(z.object({ title: z.string(), description: z.string(), motivo: z.string() })),
   unavailable: z.enum(["not_configured", "consent_required", "unavailable"]).nullable(),
+  /** Só números e códigos (nenhum texto de ticket, de rascunho ou do modelo): por que as listas vieram como vieram. Campo aditivo; a web ignora. */
+  diagnostics: z
+    .object({
+      model: z.object({ links: z.number().int(), suggested: z.number().int() }),
+      dropped: z.object({
+        links: z.object({ outsideList: z.number().int(), duplicateTarget: z.number().int(), invalidPart: z.number().int(), badReason: z.number().int(), repeated: z.number().int(), limit: z.number().int() }),
+        suggested: z.object({ forbiddenText: z.number().int(), keyInText: z.number().int(), size: z.number().int(), repeatedTitle: z.number().int(), limit: z.number().int() }),
+      }),
+      lookups: z.array(
+        z.object({
+          outcome: z.enum(["converted", "kept", "dropped_duplicate", "dropped_repeated_link", "dropped_limit", "lookup_failed", "skipped_no_time"]),
+          candidates: z.number().int(),
+          maxSameRequest: z.number().nullable(),
+        }),
+      ),
+      timingsMs: z.object({ claude: z.number().int(), lookup: z.number().int() }),
+    })
+    .optional(),
 });

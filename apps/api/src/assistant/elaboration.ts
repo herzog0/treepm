@@ -42,39 +42,84 @@ export type ElaborationContext = {
   projectKey: string;
 };
 
+/** Quantas ligações e sugeridas cada regra do descarte tirou (só números: diagnóstico da elaboração). */
+export type DroppedCounts = {
+  links: { outsideList: number; duplicateTarget: number; invalidPart: number; badReason: number; repeated: number; limit: number };
+  suggested: { forbiddenText: number; keyInText: number; size: number; repeatedTitle: number; limit: number };
+};
+
 export function sanitizeElaboration(
   raw: { links: readonly ElaborationLink[]; suggested: readonly ElaborationSuggestion[] },
   ctx: ElaborationContext,
-): { links: ElaborationLink[]; suggested: ElaborationSuggestion[] } {
+): { links: ElaborationLink[]; suggested: ElaborationSuggestion[]; dropped: DroppedCounts } {
+  const dropped: DroppedCounts = {
+    links: { outsideList: 0, duplicateTarget: 0, invalidPart: 0, badReason: 0, repeated: 0, limit: 0 },
+    suggested: { forbiddenText: 0, keyInText: 0, size: 0, repeatedTitle: 0, limit: 0 },
+  };
   const keys = new Set(ctx.related.map((entry) => entry.key));
   const seenLinks = new Set<string>();
   const links: ElaborationLink[] = [];
-  for (const entry of raw.links) {
-    if (links.length >= ELABORATION_MAX_LINKS) break;
+  for (const [index, entry] of raw.links.entries()) {
+    if (links.length >= ELABORATION_MAX_LINKS) {
+      dropped.links.limit = raw.links.length - index;
+      break;
+    }
     const motivo = oneLine(entry.motivo);
     const fromOk = entry.de === "pai" || (Number.isInteger(entry.de) && entry.de >= 0 && entry.de < ctx.partTitles.length);
-    if (!fromOk || !keys.has(entry.dependeDe) || entry.dependeDe === ctx.duplicateKey) continue;
-    if (motivo === "" || motivo.length > MAX_REASON_CHARS) continue;
+    if (!fromOk) {
+      dropped.links.invalidPart += 1;
+      continue;
+    }
+    if (!keys.has(entry.dependeDe)) {
+      dropped.links.outsideList += 1;
+      continue;
+    }
+    if (entry.dependeDe === ctx.duplicateKey) {
+      dropped.links.duplicateTarget += 1;
+      continue;
+    }
+    if (motivo === "" || motivo.length > MAX_REASON_CHARS) {
+      dropped.links.badReason += 1;
+      continue;
+    }
     const id = `${entry.de}>${entry.dependeDe}`;
-    if (seenLinks.has(id)) continue;
+    if (seenLinks.has(id)) {
+      dropped.links.repeated += 1;
+      continue;
+    }
     seenLinks.add(id);
     links.push({ de: entry.de, dependeDe: entry.dependeDe, motivo });
   }
 
   const taken = new Set([ctx.draftTitle, ...ctx.partTitles, ...ctx.related.map((entry) => entry.title)].map(normalizeTitle));
   const suggested: ElaborationSuggestion[] = [];
-  for (const entry of raw.suggested) {
-    if (suggested.length >= ELABORATION_MAX_SUGGESTED) break;
+  for (const [index, entry] of raw.suggested.entries()) {
+    if (suggested.length >= ELABORATION_MAX_SUGGESTED) {
+      dropped.suggested.limit = raw.suggested.length - index;
+      break;
+    }
     const title = entry.title.trim();
     const motivo = oneLine(entry.motivo);
     const description = entry.description.trim();
-    if (forbiddenQuoteText(title, motivo, description)) continue;
-    if (mentionedKeys(`${title}\n${motivo}\n${description}`).some((key) => key.startsWith(`${ctx.projectKey}-`) && !keys.has(key))) continue;
-    if (title === "" || title.length > MAX_SUGGESTED_TITLE_CHARS || motivo === "" || motivo.length > MAX_REASON_CHARS || description.length > MAX_SUGGESTED_DESCRIPTION_CHARS) continue;
+    if (forbiddenQuoteText(title, motivo, description)) {
+      dropped.suggested.forbiddenText += 1;
+      continue;
+    }
+    if (mentionedKeys(`${title}\n${motivo}\n${description}`).some((key) => key.startsWith(`${ctx.projectKey}-`) && !keys.has(key))) {
+      dropped.suggested.keyInText += 1;
+      continue;
+    }
+    if (title === "" || title.length > MAX_SUGGESTED_TITLE_CHARS || motivo === "" || motivo.length > MAX_REASON_CHARS || description.length > MAX_SUGGESTED_DESCRIPTION_CHARS) {
+      dropped.suggested.size += 1;
+      continue;
+    }
     const normalized = normalizeTitle(title);
-    if (normalized === "" || taken.has(normalized)) continue;
+    if (normalized === "" || taken.has(normalized)) {
+      dropped.suggested.repeatedTitle += 1;
+      continue;
+    }
     taken.add(normalized); // também descarta a sugestão repetida entre si
     suggested.push({ title, description, motivo });
   }
-  return { links, suggested };
+  return { links, suggested, dropped };
 }
