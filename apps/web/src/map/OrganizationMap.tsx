@@ -25,6 +25,7 @@ import { useAutoRefresh } from "./useAutoRefresh.js";
 import { MapDetailProvider, buildDetailData, createMapScaleStore } from "./detail.js";
 import { DRAFT_NODE_ID, buildMapItems, mixMapColors } from "./items.js";
 import type { MapDraft } from "./items.js";
+import { mapGeometry } from "./mapGeometry.js";
 import { computeMapMaxScale } from "./zoom.js";
 import type { MapNode } from "./items.js";
 import { renderNodeContent } from "./nodeContent.js";
@@ -203,7 +204,8 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   const maxScale = computeMapMaxScale(items);
   const cameraOptions = useMemo(() => ({ maxScale }), [maxScale]);
 
-  const canvas = useSpatialCanvas({ items, getLabel, getColor, mixColors: mixMapColors, defaultFilled: false, cameraOptions, onSelectionChange });
+  const geometry = useMemo(() => mapGeometry(items), [items]);
+  const canvas = useSpatialCanvas({ items, geometry, getLabel, getColor, mixColors: mixMapColors, defaultFilled: false, cameraOptions, onSelectionChange });
   const { index, layout, selected, selectedId, focusId, breadcrumb, focusNode, selectNode } = canvas;
   // Nível "detalhe" (ADR 0027): a escala vai para uma fonte externa que cada card assina; ver `detail.tsx`.
   const [scaleStore] = useState(createMapScaleStore);

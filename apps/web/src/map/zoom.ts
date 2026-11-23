@@ -1,15 +1,15 @@
-import { buildSpatialLayout, buildTreeIndex } from "@treepm/engine";
 import type { TreeNode } from "@treepm/engine";
+import { mapGeometry } from "./mapGeometry.js";
 
 /** Largura, em pixels de tela, que o menor nó do mapa alcança no zoom máximo (ADR 0026). */
 export const LEAF_READABLE_WIDTH = 440;
 
 /**
- * Escala máxima da câmera: a que leva o menor nó do layout a `LEAF_READABLE_WIDTH` px. O layout é montado
- * com as mesmas opções do mapa (nenhuma), então a largura do menor nó é a que o pacote enxerga.
+ * Escala máxima da câmera: a que leva o menor nó do layout a `LEAF_READABLE_WIDTH` px. O layout é o do mapa
+ * (`mapGeometry`: as mesmas opções, nenhuma, e calculado uma só vez por conjunto de itens), então a largura do menor nó é a que o pacote enxerga.
  */
 export function computeLeafMaxScale(items: readonly TreeNode[]): number {
-  const layout = buildSpatialLayout(buildTreeIndex(items));
+  const { layout } = mapGeometry(items);
   const smallest = layout.nodes.reduce((minimum, node) => Math.min(minimum, node.width), Infinity);
   return LEAF_READABLE_WIDTH / smallest;
 }
