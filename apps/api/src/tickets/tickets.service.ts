@@ -214,7 +214,9 @@ export class TicketsService {
       // travada (`for update`) antes de ler as situações: uma mudança de situação ainda não confirmada de um descendente
       // faz esta espera e, ao confirmar, é vista (risco residual da ADR 0042, fechado pela ADR 0045).
       await this.lockSubtree(tx, id);
-      if (!canMoveIntoIdea(ticket.status as TicketStatus, await this.descendantStatuses(tx, id))) {
+      // O próprio ticket também é relido depois da trava de linha: a situação da leitura de antes pode já não valer.
+      const fresh = await tx.ticket.findFirstOrThrow({ where: { id }, select: { status: true } });
+      if (!canMoveIntoIdea(fresh.status as TicketStatus, await this.descendantStatuses(tx, id))) {
         throw new ConflictException({
           code: "move_into_idea_blocked",
           message: "Trabalho em andamento, em revisão ou concluído não entra numa ideia; mova só o que ainda está a fazer.",
@@ -228,9 +230,11 @@ export class TicketsService {
     }
     if (data.status !== undefined) {
       // Regra 5 (ADR 0042). Trava a linha e confere de novo: uma transformação em ideia que acabou de confirmar vale a partir daqui.
-      const locked = await tx.$queryRaw<{ idea_stage: string | null }[]>`select idea_stage from tickets where id = ${id}::uuid for update`;
-      const inside = locked[0]?.idea_stage != null || (await this.ideaRootFor(tx, finalParent)) !== null;
-      if (!statusChangeAllowed(inside, ticket.status as TicketStatus, data.status as TicketStatus)) this.throwInIdea();
+      // O pai e a situação também vêm da linha travada: um movimento para dentro de uma ideia que acabou de confirmar vale a partir daqui.
+      const locked = await tx.$queryRaw<{ idea_stage: string | null; parent_id: string | null; status: string }[]>`select idea_stage, parent_id, status from tickets where id = ${id}::uuid for update`;
+      const lockedParent = body.parentId !== undefined ? body.parentId : (locked[0]?.parent_id ?? null);
+      const inside = locked[0]?.idea_stage != null || (await this.ideaRootFor(tx, lockedParent)) !== null;
+      if (!statusChangeAllowed(inside, (locked[0]?.status ?? ticket.status) as TicketStatus, data.status as TicketStatus)) this.throwInIdea();
     }
     if (data.status === "done") await this.requireNoOpenChildren(tx, id);
     // O marcador de trabalho pela IA (ADR 0043) acaba ANTES da gravação da situação: o banco recusa concluído ou cancelado com marcador.

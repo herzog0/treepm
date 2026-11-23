@@ -60,11 +60,22 @@ describe("gatilho de ciclo no pai do ticket", () => {
     expect((await owner.query("select parent_id from tickets where id = $1", [c])).rows[0].parent_id).toBe(b);
   });
 
-  it("não atrapalha a inserção em lote de pai e filhos", async () => {
-    const root = await make();
-    const child = await make(root);
-    await make(child);
-    expect((await owner.query("select count(*)::int as n from tickets where org_id = $1", [ORG])).rows[0].n).toBeGreaterThan(3);
+  it("inserção em lote de verdade: pai e filhos num único INSERT de várias linhas passam", async () => {
+    const [root, child, grandchild] = (await owner.query("select app_uuid_v7() as id from generate_series(1, 3)")).rows.map((r) => r.id as string);
+    await owner.query(
+      `insert into tickets (id, org_id, project_id, number, title, parent_id, created_by_person_id) values
+       ($1, $4, $5, $6, 'R', null, $9), ($2, $4, $5, $7, 'F', $1, $9), ($3, $4, $5, $8, 'N', $2, $9)`,
+      [root, child, grandchild, ORG, ids.project, ++counter, ++counter, ++counter, ids.person],
+    );
+    const rows = (await owner.query("select id, parent_id from tickets where id = any($1)", [[root, child, grandchild]])).rows;
+    expect(rows).toHaveLength(3);
+  });
+
+  it("o CHECK recusa o ticket como pai de si mesmo também na inserção (id explícito)", async () => {
+    const id = (await owner.query("select app_uuid_v7() as id")).rows[0].id as string;
+    await expect(
+      owner.query("insert into tickets (id, org_id, project_id, number, title, parent_id, created_by_person_id) values ($1,$2,$3,$4,'S',$1,$5)", [id, ORG, ids.project, ++counter, ids.person]),
+    ).rejects.toThrow(/tickets_parent_not_self/);
   });
 
   it("o custo acompanha a profundidade: cadeia funda recusa o ciclo e aceita o movimento válido", async () => {

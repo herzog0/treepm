@@ -1,8 +1,17 @@
--- Segunda barreira contra ciclo na árvore de tickets (ADR 0045, TREEPM-30): um UPDATE que muda `parent_id` é recusado se o novo pai
--- é o próprio ticket ou um descendente dele. A primeira barreira é a trava de estrutura por projeto na API; este gatilho cobre quem
--- escreve fora dela (script, SQL manual, defeito). Custo: sobe de pai em pai pela chave primária, proporcional à profundidade e não ao
--- tamanho da árvore. Só no UPDATE de `parent_id`: um ticket recém-inserido não tem descendentes, então o INSERT não pode fechar ciclo.
--- Esta migration só adiciona uma função e um gatilho (sem coluna nova): a API de antes continua funcionando com ela aplicada.
+-- Defesa no banco contra ciclo na árvore de tickets (ADR 0045, TREEPM-30). A primeira barreira é a trava de estrutura por projeto na API;
+-- esta migration cobre quem escreve fora dela (script, SQL manual, defeito) com duas peças:
+--  1. CHECK `parent_id <> id`: o ticket não pode ser pai de si mesmo, no INSERT (com id explícito) e no UPDATE.
+--  2. Gatilho em `UPDATE OF parent_id`: recusa um pai novo que seja o próprio ticket ou um descendente dele, subindo de pai em pai
+--     pela chave primária (custo proporcional à profundidade, não ao tamanho da árvore).
+-- O que NÃO cobre: o INSERT não tem gatilho (um ticket comum recém-inserido não tem descendentes), mas com ids explícitos um par mútuo
+-- (A pai de B e B pai de A) ou um ciclo mais longo inserido no mesmo comando passa, porque a chave estrangeira só é conferida no fim do
+-- comando; o CHECK só pega o auto-pai. Também não pega a corrida entre duas transações (cada uma só vê dados confirmados): isso é a
+-- trava da API. Não há coluna nova: a API de antes continua funcionando com esta migration aplicada.
+ALTER TABLE "tickets" ADD CONSTRAINT "tickets_parent_not_self" CHECK ("parent_id" IS NULL OR "parent_id" <> "id") NOT VALID;
+ALTER TABLE "tickets" VALIDATE CONSTRAINT "tickets_parent_not_self";
+
+-- Limite de saltos: nenhuma árvore real tem 10 000 níveis; o limite só existe para o caso de já haver um ciclo acima do pai novo (que
+-- nunca passa por NEW.id), quando o laço rodaria sem fim. 10 000 buscas pela chave primária terminam em milissegundos.
 CREATE FUNCTION tickets_reject_parent_cycle() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -14,7 +23,7 @@ BEGIN
       RAISE EXCEPTION 'ticket_parent_cycle: o pai escolhido é o próprio ticket ou um descendente dele' USING ERRCODE = '23514';
     END IF;
     hops := hops + 1;
-    IF hops > 100000 THEN
+    IF hops > 10000 THEN
       RAISE EXCEPTION 'ticket_parent_cycle: árvore profunda demais ou já com ciclo' USING ERRCODE = '23514';
     END IF;
     SELECT t.parent_id INTO walker FROM tickets t WHERE t.org_id = NEW.org_id AND t.id = walker;

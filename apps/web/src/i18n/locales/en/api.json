@@ -8,6 +8,7 @@
       "ticket_has_open_children": "This ticket has open items. Finish or cancel the items before finishing it.",
       "ticket_cycle": "A ticket cannot be its own parent or the parent of one of its ancestors.",
       "structure_busy": "Another change to this project's structure is in progress. Try again in a moment.",
+      "concurrent_update": "Another change happened at the same time. Try again.",
       "project_archived": "The project is archived and read-only.",
       "assistant_not_configured": "The assistant is not configured in this environment. Create the ticket manually.",
       "assistant_unavailable": "The assistant did not respond. Try again; if it keeps happening, create the ticket manually.",

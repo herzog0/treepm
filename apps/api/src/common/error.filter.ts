@@ -33,6 +33,23 @@ export function parentRuleConflict(exception: unknown): { status: number; code: 
   return { status: HttpStatus.CONFLICT, code: "ticket_has_children", message: "O ticket ganhou filhos; mova ou remova os filhos antes." };
 }
 
+/**
+ * Impasse entre travas de linha (40P01) ou falha de serialização (40001): o PostgreSQL abortou esta transação para as outras
+ * seguirem. Nada foi gravado; vira 409 `concurrent_update` ("tente de novo"), não 500 (ADR 0045, revisão 1).
+ */
+export function retryableConflict(exception: unknown): { status: number; code: string; message: string } | null {
+  const e = exception as {
+    code?: unknown;
+    message?: unknown;
+    meta?: { code?: unknown; driverAdapterError?: { cause?: { originalCode?: unknown; originalMessage?: unknown } } };
+  };
+  const codes = [e?.code, e?.meta?.code, e?.meta?.driverAdapterError?.cause?.originalCode];
+  const texts = [e?.message, e?.meta?.driverAdapterError?.cause?.originalMessage];
+  const hit = codes.some((c) => c === "40P01" || c === "40001") || texts.some((t) => typeof t === "string" && /40P01|40001|deadlock detected/.test(t));
+  if (!hit) return null;
+  return { status: HttpStatus.CONFLICT, code: "concurrent_update", message: "Outra alteração aconteceu ao mesmo tempo. Tente de novo." };
+}
+
 /** Formato único `{ error: { code, message } }`; erros internos nunca vazam detalhes. */
 @Catch()
 export class ErrorFilter implements ExceptionFilter {
@@ -63,7 +80,7 @@ export class ErrorFilter implements ExceptionFilter {
       return;
     }
 
-    const conflict = parentRuleConflict(exception);
+    const conflict = parentRuleConflict(exception) ?? retryableConflict(exception);
     if (conflict) {
       response.status(conflict.status).json({ error: { code: conflict.code, message: conflict.message } });
       return;
