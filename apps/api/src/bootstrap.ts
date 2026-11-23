@@ -3,6 +3,7 @@ import type { INestApplication } from "@nestjs/common";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import type { NextFunction, Request, Response } from "express";
 import type { AppConfig } from "./config.js";
+import { compressionMiddleware } from "./compression.js";
 import { McpGateway } from "./mcp/mcp-gateway.js";
 
 const MCP_PREFIX = "/api/mcp";
@@ -66,6 +67,7 @@ function serveMcp(app: INestApplication): void {
 export function configureApp(app: INestApplication, config: Pick<AppConfig, "WEB_DIST_DIR">): void {
   app.setGlobalPrefix("api");
   app.enableShutdownHooks();
+  app.use(compressionMiddleware());
   serveMcp(app);
   serveWeb(app, config.WEB_DIST_DIR);
 }

@@ -152,3 +152,9 @@ Quem tem papel de leitura num projeto passa a poder **comentar** nos tickets que
 Motivo: comentário é conversa, não edição. Quem acompanha um projeto sem trabalhar nele (um cliente, uma pessoa de outra área, a liderança) é justamente quem mais tem pergunta a fazer, e hoje precisa pedir a alguém que escreva por ela ou sair da plataforma. O risco é ruído, e ele é do mesmo tamanho do de qualquer pessoa do projeto; o histórico mostra quem escreveu.
 
 O que não muda: comentário por área continua exigindo fazer parte da contribuição daquela área, como já era; projeto arquivado não recebe comentário; o chat de trabalho por ticket (ADR 0049) já vale para qualquer pessoa que enxerga o ticket; pelo MCP, comentar continua exigindo token de escrita e a chave da organização, e passa a valer também para quem só lê o projeto.
+
+### Como ficou o adendo (TREEPM-92)
+
+- **Domínio:** `canCommentTicket` deixou de seguir `canEditTicket`: vale para o administrador da organização e para quem tem qualquer papel no projeto (gestor, colaborador, leitor). Quem só enxerga o projeto por ele ser da organização, sem papel, continua sem comentar. `canEditComment` herda a regra; `canRemoveComment` não mudou.
+- **Comentário por área:** o leitor comenta só no ticket. `POST …/comments` com `contributionId` exige `editContributions` (403 para o leitor), e a página de atividade de uma área (`?contribution=`) devolve `canComment: false` para ele.
+- **Web:** nenhuma mudança de código; o campo e as ações já dependiam só de `canComment`/`canEdit`/`canRemove` vindos da API. Há um teste de guarda.

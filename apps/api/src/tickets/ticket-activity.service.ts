@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { canCommentTicket, mergeDescriptionEdits } from "@treepm/domain";
+import { canCommentTicket, canEditContributions, mergeDescriptionEdits } from "@treepm/domain";
 import type { MergedEntry } from "@treepm/domain";
 import { z } from "zod";
 import { parseOutput } from "../common/zod.js";
@@ -288,7 +288,8 @@ export class TicketActivityService {
     const entries = shown.map(({ entry, oldest }) => ({ ...entry, id: oldest.id }));
     const lastShown = shown[shown.length - 1];
     const before = more && lastShown ? encodeCursor(lastShown.oldest.pos) : null;
-    const canComment = project.archivedAt === null && canCommentTicket(viewer.actor, project.id);
+    // A conversa de uma área (`contribution`) segue a regra de comentar numa área: o leitor comenta no ticket, não nela.
+    const canComment = project.archivedAt === null && canCommentTicket(viewer.actor, project.id) && (only === undefined || canEditContributions(viewer.actor, project.id));
     return parseOutput(activityPageSchema, { entries: await this.resolve(tx, project, entries, viewer), before, canComment });
   }
 

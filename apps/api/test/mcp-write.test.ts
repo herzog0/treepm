@@ -202,7 +202,6 @@ describe("comentar: a mesma tabela de recusas pelas duas portas (rota HTTP e add
   const comment = (key: string, extra: Record<string, unknown> = {}) => ({ key, body: "paridade-de-comentario", ...extra });
 
   const cases: Case[] = [
-    { name: "leitor do projeto", who: "reader" },
     { name: "projeto arquivado", who: "contributor", prepare: async () => { await h.pool.query("update projects set archived_at = now() where id = $1", [priv()]); return { key: "PRIV-3", ticket: await ticketId(priv(), 3) }; } },
     { name: "pessoa sem acesso (papel removido depois do token)", who: "contributor", prepare: async () => {
       await h.pool.query("delete from project_memberships where person_id = $1", [h.world().people.contributor]);
@@ -240,6 +239,18 @@ describe("comentar: a mesma tabela de recusas pelas duas portas (rota HTTP e add
     const viaHttp = await h.call("POST", `/api/tickets/${ticket}/comments`, as("outsider", OTHER_ORG), { body: "paridade-de-comentario" });
     expect(viaHttp.status, JSON.stringify(viaHttp.body)).toBeGreaterThanOrEqual(400);
     expect(await countRows("select count(*)::int n from ticket_comments")).toBe(0);
+  });
+
+  it("o leitor do projeto comenta pelas duas portas (ADR 0040, adendo de 2026-11-23), mas só no ticket, não em área", async () => {
+    const { token } = await setup("reader");
+    const viaMcp = await h.tool(token, "PRIV", "add_comment", comment("PRIV-3"));
+    expect(viaMcp.isError, viaMcp.text).toBe(false);
+    const viaHttp = await h.call("POST", `/api/tickets/${await ticketId(priv(), 3)}/comments`, as("reader"), { body: "paridade-de-comentario" });
+    expect(viaHttp.status, JSON.stringify(viaHttp.body)).toBe(201);
+    expect(await countRows(`select count(*)::int n from ticket_comments where author_person_id = '${h.world().people.reader}'`)).toBe(2);
+    // O token de leitura continua sem escrever, mesmo de quem lê o projeto.
+    const readOnly = await h.create("reader", priv(), { scope: "read" });
+    expect(refused(await h.tool(readOnly.body.token as string, "PRIV", "add_comment", comment("PRIV-3")))).toBe(true);
   });
 
   it("controle: quem pode comentar comenta pelas duas portas, no mesmo ticket", async () => {

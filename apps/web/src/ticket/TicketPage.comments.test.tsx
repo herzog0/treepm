@@ -191,6 +191,18 @@ describe("campo para escrever", () => {
     expect(list.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("quem só lê o projeto (canComment verdadeiro, ADR 0040 adendo) vê o campo e as ações do próprio comentário, e só elas", async () => {
+    const view = setup([comment({ canEdit: true, canRemove: true }), comment({ body: "Do colega", canEdit: false, canRemove: false })], { canComment: true, reader: true });
+    const [theirs, mine] = await blocks();
+    expect(await screen.findByRole("textbox", { name: "Novo comentário" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Comentar" })).toBeDisabled();
+    expect(within(mine!).getAllByRole("button").map((button) => button.textContent)).toEqual(["Editar", "Remover"]);
+    expect(within(theirs!).queryByRole("button")).toBeNull();
+    expect(view.client.createTicketComment).not.toHaveBeenCalled();
+    // O resto da página continua só leitura para ele: nenhum campo editável fora do de comentar.
+    expect(screen.queryByRole("button", { name: /Excluir|Mover|Concluir/ })).toBeNull();
+  });
+
   it("leitor (canComment falso) lê os comentários, sem o campo e sem ações", async () => {
     setup([comment({ canEdit: false, canRemove: false })], { canComment: false, reader: true });
     const [block] = await blocks();
