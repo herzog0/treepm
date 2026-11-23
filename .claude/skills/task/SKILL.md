@@ -15,7 +15,7 @@ O texto depois de `/task` é o pedido. Se vier vazio, peça o pedido e pare.
 
 - `tk.sh ticket-list --json`: todos os tickets, com `number`, `key`, `parentNumber`, `status`, `title`, `idea`.
 - `tk.sh ticket-create --title "…" --parent N --description-file arquivo.md [--idea]`: cria e imprime a chave. Sem `--parent`, nasce na raiz do projeto.
-- `tk.sh ticket-update --number N [--status todo|in_progress|done] [--title "…"] [--description-file arquivo.md]`.
+- `tk.sh ticket-update --number N [--status todo|in_progress|done] [--title "…"] [--description-file arquivo.md] [--parent M | --root]`: `--parent` move o ticket para dentro de outro.
 
 Escreva as descrições em arquivos do diretório temporário da sessão, nunca dentro do repositório. A descrição de um ticket existente é lida pela ferramenta `get_ticket` do servidor MCP `treepm-treepm`, quando ele estiver conectado.
 
@@ -28,12 +28,12 @@ Se o atalho não existir, pare e avise: os identificadores não ficam no Git.
 3. **Escolha o lugar.** O pai é o ticket mais específico cujo assunto contém o pedido inteiro. Desça enquanto houver um filho que ainda contém tudo. Regras:
    - nunca dentro de um ticket concluído (`done`), a não ser que Teodoro peça;
    - nunca dentro de uma ideia (`idea`) se o pedido é trabalho aceito, e o contrário também;
-   - não crie ticket agrupador nem mova tickets existentes para acomodar o novo;
+   - se o pai escolhido já tem mais de uns oito filhos de assuntos diferentes e o pedido pertence a um subassunto que dá para nomear, crie o nível intermediário (um ticket com o nome do subassunto e uma linha dizendo o que ele junta), mova para dentro dele os irmãos que são do mesmo subassunto e crie o pedido ali; diga na resposta o que moveu;
    - se nenhum assunto contém o pedido, ele nasce na raiz;
    - se dois lugares servem igualmente, escolha o da família em andamento e diga qual era o outro.
-4. **Quebre o pedido.** Uma parte por coisa distinguível que pode ser feita e conferida sozinha. Pedido de ação única (corrigir um defeito, trocar um texto) é um ticket só, sem filhos. No máximo 20 filhos.
+4. **Quebre o pedido, em quantos níveis ele tiver.** Uma parte por coisa distinguível que pode ser feita e conferida sozinha. Se uma parte ainda contém partes distinguíveis, ela vira pai delas: desça enquanto houver o que distinguir, sem inventar nada (a árvore vai tão fundo quanto o pedido; não achate em dois níveis). Pedido de ação única (corrigir um defeito, trocar um texto) é um ticket só, sem filhos. No máximo 20 filhos por pai.
 5. **Escreva** no formato abaixo.
-6. **Crie** o pai, leia a chave que voltou, e só então crie os filhos com `--parent` igual ao número do pai. Referências a outros tickets usam chaves que já existem: nunca adivinhe um número antes de criar.
+6. **Crie** de cima para baixo: o pai, leia a chave que voltou, e só então os filhos com `--parent` igual ao número do pai; o mesmo para cada nível abaixo. Referências a outros tickets usam chaves que já existem: nunca adivinhe um número antes de criar.
 7. **Responda** com uma tabela (chave, título), o lugar escolhido com o caminho até a raiz e, numa linha, por que ali. Não peça confirmação antes de criar: mover ou ajustar depois é barato.
 
 Se Teodoro disser que é uma ideia ("ideia:", "uma ideia"), crie o pai e os filhos com `--idea`.
@@ -50,7 +50,7 @@ Pedido original:
 
 Depois da citação, no máximo uma frase dizendo em quantas partes foi quebrado.
 
-**Cada filho.** Título que nomeia a parte. Descrição:
+**Cada filho.** Título que nomeia a parte. Um filho que tem filhos próprios usa o mesmo formato e acrescenta uma frase dizendo em quantas partes foi quebrado. Descrição:
 
 ```markdown
 O que foi pedido:
@@ -73,4 +73,4 @@ A seção "A definir" some quando não há pergunta aberta.
 
 ## Depois
 
-A situação dos tickets é da coordenação: o pai passa a `in_progress` quando o primeiro filho começa, e um ticket só vira `done` depois de o PR correspondente estar mesclado.
+A situação dos tickets é da coordenação: o pai passa a `in_progress` quando o primeiro filho começa, e um ticket só vira `done` depois de o PR correspondente estar mesclado. Durante o trabalho, a coordenação acrescenta como filhos do ticket da fatia as etapas dela, os achados de revisão e as correções que saírem deles.
