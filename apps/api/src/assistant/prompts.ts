@@ -103,6 +103,16 @@ export const JEV_AFFINITY_TRUE =
 export const JEV_AFFINITY_FALSE =
   "Os dois tratam de assuntos diferentes, ou só têm em comum o assunto geral de `destination`, que já os contém.";
 
+// ---- Tickets relacionados (ADR 0052, item 2) ------------------------------------------------------------------
+// Jev: duas perguntas Noul por candidato da triagem; o ticket vai como dado nomeado (`ticket`), nunca dentro da frase.
+
+export const JEV_RELATED_SUBJECT_QUESTION = "O trabalho descrito em `draft` trata do mesmo assunto que o ticket `ticket` desta pergunta?";
+export const JEV_RELATED_SUBJECT_TRUE = "O trabalho de `draft` e o ticket `ticket` tratam do mesmo assunto: quem trabalha em um precisa conhecer o outro.";
+export const JEV_RELATED_SUBJECT_FALSE = "Os dois tratam de assuntos diferentes, mesmo que usem algumas palavras em comum.";
+export const JEV_RELATED_REQUEST_QUESTION = "O trabalho descrito em `draft` pede a mesma coisa que o ticket `ticket` desta pergunta já descreve?";
+export const JEV_RELATED_REQUEST_TRUE = "Fazer o que `draft` pede é fazer o que `ticket` já descreve: criar o ticket novo seria repetir o ticket existente.";
+export const JEV_RELATED_REQUEST_FALSE = "O que `draft` pede é diferente do que `ticket` descreve: é outra entrega, uma parte dela, ou algo que depende dela.";
+
 // Claude: título e descrição do agrupador proposto (Opus 5.5, esforço low).
 
 export const GROUP_NAME_SYSTEM_PROMPT = `Você dá nome a agrupadores de uma árvore de tickets da plataforma TreePM. Um agrupador reúne tickets que tratam de um mesmo assunto ou de uma mesma entrega. Você recebe o lugar onde o agrupador vai ficar e os tickets que ele vai reunir (título e um trecho da descrição de cada um), e escreve o título e a descrição do agrupador.

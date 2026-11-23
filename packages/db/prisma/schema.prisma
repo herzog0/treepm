@@ -388,22 +388,28 @@ model TicketConversationMessage {
 /// A decisão da procura de lugar (ADR 0052, item 5): só identificadores e números, nenhum texto. Uma por conversa; ao criar o
 /// ticket o dono passa a ser o ticket (`conversationId` zerado). Migration 0028.
 model PlacementDecision {
-  orgId          String   @map("org_id")
-  id             String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
-  projectId      String   @map("project_id") @db.Uuid
-  conversationId String?  @map("conversation_id") @db.Uuid
-  ticketId       String?  @map("ticket_id") @db.Uuid
-  chosenPath     String[] @default([]) @map("chosen_path") @db.Uuid
+  orgId             String   @map("org_id")
+  id                String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId         String   @map("project_id") @db.Uuid
+  conversationId    String?  @map("conversation_id") @db.Uuid
+  ticketId          String?  @map("ticket_id") @db.Uuid
+  chosenPath        String[] @default([]) @map("chosen_path") @db.Uuid
   /// Lista de caminhos alternativos, cada um uma lista de ids de ticket.
-  alternatives   Json     @default("[]")
-  uncertain      Boolean
+  alternatives      Json     @default("[]")
+  uncertain         Boolean
   /// no_candidates | below_low | band | candidates_too_large | max_levels (check no banco)
-  stopReason     String?  @map("stop_reason")
-  scopeTicketId  String?  @map("scope_ticket_id") @db.Uuid
-  scopeFit       Float?   @map("scope_fit")
+  stopReason        String?  @map("stop_reason")
+  scopeTicketId     String?  @map("scope_ticket_id") @db.Uuid
+  scopeFit          Float?   @map("scope_fit")
   /// Um elemento por pergunta ao juiz: { level, parentId, parentNumber (número do pai; null na raiz), result, belongs, candidates: [{ ticketId, number, probability }] }.
-  levels         Json     @default("[]")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  levels            Json     @default("[]")
+  /// Os relacionados, em ordem de probabilidade: [{ ticketId, number, sameSubject, sameRequest }] (ADR 0052, fatia 2).
+  related           Json     @default("[]")
+  /// O relacionado apontado como o mesmo pedido; sem chave estrangeira (a decisão é diagnóstico).
+  duplicateTicketId String?  @map("duplicate_ticket_id") @db.Uuid
+  /// descent | related_within | related_ancestor | related_choice | choice_unavailable (check no banco)
+  placementRule     String?  @map("placement_rule")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   organization Organization        @relation(fields: [orgId], references: [orgId])
   project      Project             @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)

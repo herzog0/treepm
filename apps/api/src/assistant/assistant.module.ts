@@ -23,8 +23,9 @@ import { DescriptionDraftController } from "./description-draft.controller.js";
 import { ClaudeGroupNamer } from "./claude-group-namer.js";
 import { JevAffinityJudge } from "./jev-affinity-judge.js";
 import { JevBranchJudge, sdkSystemOne } from "./jev-branch-judge.js";
+import { JevRelatedJudge } from "./jev-related-judge.js";
 import { PlacementService } from "./placement.service.js";
-import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER } from "./ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER, RELATED_JUDGE } from "./ports.js";
 
 @Module({
   imports: [AccessModule, AccessTokensModule, TicketsModule, QueryModule],
@@ -66,6 +67,14 @@ import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERS
       useFactory: (config: AppConfig) =>
         assistantEnabled(config) && config.TYPESAFE_API_KEY
           ? new JevAffinityJudge(sdkSystemOne(new TypeSafeClient({ apiKey: config.TYPESAFE_API_KEY, logLevel: "off" })))
+          : null,
+    },
+    {
+      provide: RELATED_JUDGE,
+      inject: [CONFIG],
+      useFactory: (config: AppConfig) =>
+        assistantEnabled(config) && config.TYPESAFE_API_KEY
+          ? new JevRelatedJudge(sdkSystemOne(new TypeSafeClient({ apiKey: config.TYPESAFE_API_KEY, logLevel: "off" })))
           : null,
     },
     {

@@ -178,6 +178,12 @@ const placementOutcomeSchema = z.object({
     })
     .nullable()
     .default(null),
+  /** Tickets relacionados ao pedido (ADR 0052), do mais provável ao menos; vazio sem relacionado (e numa API que ainda não manda o campo). */
+  related: z
+    .array(z.object({ id: z.string(), key: z.string(), title: z.string(), status: z.string(), path: z.array(z.object({ id: z.string(), title: z.string() })) }))
+    .default([]),
+  /** O relacionado que parece ser este mesmo pedido; `null` sem duplicado (e numa API que ainda não manda o campo). */
+  duplicate: z.object({ id: z.string(), key: z.string(), title: z.string(), status: z.string().default("todo") }).nullable().default(null),
   /** Por que não houve proposta, quando há um motivo; `null` quando há proposta ou ninguém passou do limiar. */
   groupProposalSkipped: z
     .enum(["not_settled", "no_loose_tickets", "too_large", "same_as_destination", "invalid_name", "unavailable"])

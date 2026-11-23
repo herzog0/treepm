@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach } from "vitest";
 import { createTestApp, ownerPoolWithCleanup, truncateAll } from "./helpers.js";
 import type { FakeSessionVerifier } from "./helpers.js";
 import type { AppConfig } from "../src/config.js";
-import type { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeChatProvider, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer, FakeProjectAnswerer } from "./assistant-fakes.js";
+import type { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeChatProvider, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer, FakeProjectAnswerer, FakeRelatedJudge } from "./assistant-fakes.js";
 import type { PlacementTimeouts } from "../src/assistant/ports.js";
 import type { FakeRepositoryProvider } from "./github-fakes.js";
 import { seedWorld } from "./world.js";
@@ -20,6 +20,7 @@ export type Harness = {
   judge: () => FakeBranchJudge;
   summarizer: () => FakeBranchSummarizer;
   affinity: () => FakeAffinityJudge;
+  related: () => FakeRelatedJudge;
   namer: () => FakeGroupNamer;
   writer: () => FakeDescriptionWriter;
   answerer: () => FakeProjectAnswerer;
@@ -38,6 +39,7 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
   let judge: FakeBranchJudge;
   let summarizer: FakeBranchSummarizer;
   let affinity: FakeAffinityJudge;
+  let related: FakeRelatedJudge;
   let namer: FakeGroupNamer;
   let writer: FakeDescriptionWriter;
   let answerer: FakeProjectAnswerer;
@@ -45,7 +47,7 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
   let github: FakeRepositoryProvider;
 
   beforeAll(async () => {
-    ({ app, verifier, conversation, judge, summarizer, affinity, namer, writer, answerer, chat, github } = await createTestApp([], config, options.timeouts ? { timeouts: options.timeouts } : {}));
+    ({ app, verifier, conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, github } = await createTestApp([], config, options.timeouts ? { timeouts: options.timeouts } : {}));
   });
   afterAll(async () => {
     await app.close();
@@ -72,6 +74,12 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     affinity.verdict = null;
     affinity.fail = false;
     affinity.hang = false;
+    related.calls.length = 0;
+    related.onCall = null;
+    related.verdict = null;
+    related.fail = false;
+    related.hang = false;
+    related.judgeHook = null;
     writer.calls.length = 0;
     writer.onCall = null;
     writer.reply = null;
@@ -103,6 +111,7 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     judge: () => judge,
     summarizer: () => summarizer,
     affinity: () => affinity,
+    related: () => related,
     namer: () => namer,
     writer: () => writer,
     answerer: () => answerer,

@@ -110,5 +110,15 @@
     "line": "This ticket seems to form a group with others here.",
     "list": "Tickets that go to the new parent ticket",
     "create": "Create parent ticket and move"
+  },
+  "related": {
+    "heading": "Related",
+    "hint": "Tickets about the same subject. Open one to check before creating.",
+    "open": "Open {{key}} {{title}}",
+    "duplicate": {
+      "warning": "A ticket that looks like this request already exists: {{key}} {{title}}",
+      "open": "Open the ticket",
+      "anyway": "Create anyway"
+    }
   }
 }

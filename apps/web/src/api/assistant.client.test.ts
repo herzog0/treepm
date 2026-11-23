@@ -84,7 +84,15 @@ describe("ticket conversation calls", () => {
     const { client, fetchImpl } = setup(outcome);
     const result = await client.findPlacement(ID);
     expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/placement`, method: "POST", body: undefined });
-    expect(result).toEqual({ ok: true, data: outcome });
+    expect(result).toEqual({ ok: true, data: { ...outcome, related: [], duplicate: null } });
+  });
+  it("reads the related tickets and the duplicate, and defaults them when an older API omits them", async () => {
+    const related = [{ id: "t7", key: "A-7", title: "Importar", status: "todo", path: [{ id: "t1", title: "Acesso" }] }];
+    const duplicate = { id: "t7", key: "A-7", title: "Importar", status: "todo" };
+    const { client } = setup({ ...outcome, related, duplicate });
+    const result = await client.findPlacement(ID);
+    expect(result.ok && result.data.related).toEqual(related);
+    expect(result.ok && result.data.duplicate).toEqual(duplicate);
   });
   it("sends the scope ticket in the body when there is one", async () => {
     const { client, fetchImpl } = setup({ ...outcome, scope: { id: "t1", title: "Acesso", outOfScope: true } });

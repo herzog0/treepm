@@ -1,12 +1,21 @@
-import { Injectable } from "@nestjs/common";
-import { descriptionExcerpt } from "@treepm/domain";
+import { Injectable, Logger } from "@nestjs/common";
+import { descriptionExcerpt, triageRelated } from "@treepm/domain";
 import { branchTexts } from "./branch-text.js";
 import { searchPlacement } from "./placement-search.js";
 import type { PlacementDeps, PlacementOutcome } from "./placement-search.js";
 import { judgeInputFits } from "./jev-branch-judge.js";
+import { relatedInputFits } from "./jev-related-judge.js";
+import { resolvePlacement } from "./related-placement.js";
+import type { JudgedRelated, PlacementRule } from "./related-placement.js";
 import { proposeGroup } from "./group-proposal.js";
 import type { GroupProposalResult } from "./group-proposal.js";
-import type { AffinityJudge, BranchCandidate, BranchJudge, GroupNamer, TicketDraft } from "./ports.js";
+import { AssistantUnavailableError } from "./ports.js";
+import type { AffinityJudge, BranchCandidate, BranchJudge, GroupNamer, RelatedJudge, TicketDraft } from "./ports.js";
+
+/** Prazo da etapa dos relacionados (a requisição ao Jev), em milissegundos. */
+export const RELATED_TIMEOUT_MS = 20_000;
+/** Teto da pergunta de escolha entre ramos; ela usa o que sobrou do prazo da descida (30 s), então o total descida + escolha não passa de 30 s. */
+export const CHOICE_TIMEOUT_MAX_MS = 10_000;
 
 export type TreeTicket = { id: string; parentId: string | null; number: number; title: string; description: string; status: string };
 /**
@@ -22,6 +31,8 @@ export type PlacementSnapshot = { projectId: string; projectName: string; ticket
  */
 @Injectable()
 export class PlacementService {
+  private readonly logger = new Logger("PlacementService");
+
   private context(snapshot: PlacementSnapshot) {
     const childrenOf = new Map<string | null, TreeTicket[]>();
     for (const ticket of [...snapshot.tickets].sort((a, b) => a.number - b.number)) {
@@ -95,13 +106,13 @@ export class PlacementService {
     draft: TicketDraft,
     snapshot: PlacementSnapshot,
     outcome: PlacementOutcome,
-    deps: { affinity: AffinityJudge; namer: GroupNamer; timeoutMs?: number },
+    deps: { affinity: AffinityJudge; namer: GroupNamer; timeoutMs?: number; excludeIds?: readonly string[] },
   ): Promise<GroupProposalResult> {
     const { childrenOf, describe } = this.context(snapshot);
     const parentId = outcome.destination.parentId;
     const destinationTicket = parentId === null ? undefined : snapshot.tickets.find((ticket) => ticket.id === parentId);
     const looseTickets = (childrenOf.get(parentId) ?? [])
-      .filter((child) => (childrenOf.get(child.id) ?? []).length === 0)
+      .filter((child) => (childrenOf.get(child.id) ?? []).length === 0 && !(deps.excludeIds ?? []).includes(child.id))
       .map(({ id, number, title, description }) => ({ id, number, title, description }));
     return proposeGroup({
       draft,
@@ -118,6 +129,86 @@ export class PlacementService {
       affinity: deps.affinity,
       namer: deps.namer,
       ...(deps.timeoutMs ? { timeoutMs: deps.timeoutMs } : {}),
+    });
+  }
+
+  /**
+   * Os tickets relacionados ao rascunho, de baixo para cima (ADR 0052, item 2): a triagem por palavras sobre a árvore que a
+   * procura já leu (em memória, nenhuma leitura a mais) e uma requisição ao Jev com as duas perguntas de cada candidato.
+   * Se a requisição não couber, corta os candidatos de menor pontuação. Falha ou prazo estourado NUNCA derrubam a procura:
+   * devolve `failed` e nenhum julgamento (o aviso vai ao registro sem texto).
+   */
+  async findRelated(
+    draft: TicketDraft & { partTitles: readonly string[] },
+    snapshot: PlacementSnapshot,
+    deps: { related: RelatedJudge; timeoutMs?: number; signal?: AbortSignal },
+  ): Promise<{ judged: JudgedRelated[]; failed: boolean }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), deps.timeoutMs ?? RELATED_TIMEOUT_MS);
+    const onOutside = () => controller.abort();
+    deps.signal?.addEventListener("abort", onOutside);
+    try {
+      // A consulta da árvore não tem ORDER BY: a triagem lê os tickets por número, para o resultado não variar entre execuções.
+      const ordered = [...snapshot.tickets].sort((a, b) => a.number - b.number);
+      const byId = new Map(ordered.map((ticket) => [ticket.id, ticket]));
+      const shortlist = triageRelated(
+        draft,
+        ordered.map((ticket) => ({ id: ticket.id, title: ticket.title, excerpt: descriptionExcerpt(ticket.description) })),
+      );
+      const all = shortlist.map((hit) => {
+        const ticket = byId.get(hit.id) as TreeTicket;
+        return { id: ticket.id, title: ticket.title, excerpt: descriptionExcerpt(ticket.description) };
+      });
+      const asked = { title: draft.title, description: draft.description };
+      let candidates = all;
+      while (candidates.length > 0 && !relatedInputFits({ draft: asked, candidates })) candidates = candidates.slice(0, -1);
+      if (candidates.length < all.length) this.logger.warn(`relacionados cortados por tamanho enviados=${candidates.length} de=${all.length}`);
+      if (candidates.length === 0) return { judged: [], failed: false };
+      const timedOut = new Promise<never>((_, reject) => controller.signal.addEventListener("abort", () => reject(new Error("related_timeout"))));
+      const answers = await Promise.race([deps.related.judge({ draft: asked, candidates }, { signal: controller.signal }), timedOut]);
+      return { judged: candidates.map((candidate) => ({ id: candidate.id, sameSubject: answers[candidate.id]?.sameSubject ?? 0, sameRequest: answers[candidate.id]?.sameRequest ?? 0 })), failed: false };
+    } catch (error) {
+      // Só o motivo vai ao registro: nunca texto do rascunho nem dos tickets.
+      const reason = error instanceof AssistantUnavailableError ? error.reason : error instanceof Error && error.message === "related_timeout" ? "timeout" : "error";
+      this.logger.warn(`relacionados indisponíveis motivo=${reason}`);
+      return { judged: [], failed: true };
+    } finally {
+      clearTimeout(timer);
+      deps.signal?.removeEventListener("abort", onOutside);
+    }
+  }
+
+  /**
+   * O lugar com os relacionados concorrendo com a descida (ADR 0052, item 3). Quando a descida e os relacionados apontam
+   * para ramos diferentes, uma pergunta de escolha ao Jev (o mesmo juiz de ramo, com o texto montado de cada destino).
+   */
+  async place(
+    outcome: PlacementOutcome,
+    snapshot: PlacementSnapshot,
+    deps: { related: readonly JudgedRelated[]; duplicateId: string | null; scopeId: string | null; draft: TicketDraft; judge: BranchJudge; timeoutMs?: number },
+  ): Promise<{ outcome: PlacementOutcome; rule: PlacementRule }> {
+    const { describe } = this.context(snapshot);
+    const byId = new Map(snapshot.tickets.map((ticket) => [ticket.id, ticket]));
+    return resolvePlacement({
+      outcome,
+      related: deps.related,
+      duplicateId: deps.duplicateId,
+      byId,
+      scopeId: deps.scopeId,
+      choose: async (options) => {
+        const candidates = await describe(options.map((id) => byId.get(id) as TreeTicket));
+        const input = { draft: deps.draft, current: null, candidates };
+        if (!judgeInputFits(input)) throw new AssistantUnavailableError("choice_too_large");
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), Math.min(deps.timeoutMs ?? CHOICE_TIMEOUT_MAX_MS, CHOICE_TIMEOUT_MAX_MS));
+        try {
+          const timedOut = new Promise<never>((_, reject) => controller.signal.addEventListener("abort", () => reject(new AssistantUnavailableError("choice_timeout"))));
+          const verdict = await Promise.race([deps.judge.judge(input, { signal: controller.signal }), timedOut]);
+          return verdict.choice;
+        } finally {
+          clearTimeout(timer);
+        }
+      },
     });
   }
 }

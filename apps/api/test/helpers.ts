@@ -11,13 +11,13 @@ import type { DirectoryProvider } from "../src/auth/directory-provider.js";
 import { DIRECTORY_PROVIDER } from "../src/auth/directory-provider.js";
 import type { SessionVerifier, VerifiedSession } from "../src/auth/session-verifier.js";
 import { SESSION_VERIFIER } from "../src/auth/session-verifier.js";
-import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER } from "../src/assistant/ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER, RELATED_JUDGE } from "../src/assistant/ports.js";
 import type { PlacementTimeouts } from "../src/assistant/ports.js";
 import { ACCESS_TOKEN_CLOCK } from "../src/access-tokens/clock.js";
 import type { AccessTokenClock } from "../src/access-tokens/clock.js";
 import { REPOSITORY_PROVIDER } from "../src/github/ports.js";
 import { APP_ID, FakeRepositoryProvider } from "./github-fakes.js";
-import { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeChatProvider, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer, FakeProjectAnswerer } from "./assistant-fakes.js";
+import { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeChatProvider, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer, FakeProjectAnswerer, FakeRelatedJudge } from "./assistant-fakes.js";
 
 export { OWNER_URL };
 
@@ -118,6 +118,7 @@ export async function createTestApp(
   judge: FakeBranchJudge;
   summarizer: FakeBranchSummarizer;
   affinity: FakeAffinityJudge;
+  related: FakeRelatedJudge;
   namer: FakeGroupNamer;
   writer: FakeDescriptionWriter;
   answerer: FakeProjectAnswerer;
@@ -130,6 +131,7 @@ export async function createTestApp(
   const judge = new FakeBranchJudge();
   const summarizer = new FakeBranchSummarizer();
   const affinity = new FakeAffinityJudge();
+  const related = new FakeRelatedJudge();
   const namer = new FakeGroupNamer();
   const writer = new FakeDescriptionWriter();
   const answerer = new FakeProjectAnswerer();
@@ -149,6 +151,8 @@ export async function createTestApp(
       .useValue(summarizer)
       .overrideProvider(AFFINITY_JUDGE)
       .useValue(affinity)
+      .overrideProvider(RELATED_JUDGE)
+      .useValue(related)
       .overrideProvider(GROUP_NAMER)
       .useValue(namer)
       .overrideProvider(DESCRIPTION_WRITER)
@@ -172,7 +176,7 @@ export async function createTestApp(
   const app = moduleRef.createNestApplication({ logger: false });
   configureApp(app, config);
   await app.init();
-  return { app, directory, verifier, conversation, judge, summarizer, affinity, namer, writer, answerer, chat, github };
+  return { app, directory, verifier, conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, github };
 }
 
 /**

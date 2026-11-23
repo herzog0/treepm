@@ -116,8 +116,8 @@ describe("cobertura da conferência do aceite", () => {
   const ports = portSymbols();
   const rel = (file: string) => relative(join(__dirname, ".."), file);
 
-  it("enumera as portas de provedor de ports.ts (oito)", () => {
-    expect(ports.sort()).toEqual(["AFFINITY_JUDGE", "BRANCH_JUDGE", "BRANCH_SUMMARIZER", "CHAT_PROVIDER", "CONVERSATION_PROVIDER", "DESCRIPTION_WRITER", "GROUP_NAMER", "PROJECT_ANSWERER"]);
+  it("enumera as portas de provedor de ports.ts (nove)", () => {
+    expect(ports.sort()).toEqual(["AFFINITY_JUDGE", "BRANCH_JUDGE", "BRANCH_SUMMARIZER", "CHAT_PROVIDER", "CONVERSATION_PROVIDER", "DESCRIPTION_WRITER", "GROUP_NAMER", "PROJECT_ANSWERER", "RELATED_JUDGE"]);
   });
 
   it("só o módulo do assistente e a porta de entrada (AssistantGate) tocam as portas na API", () => {
@@ -156,7 +156,7 @@ describe("cobertura da conferência do aceite", () => {
 
   it("os controladores de IA não injetam provedor nenhum: só a porta de entrada", () => {
     for (const file of files(join(SRC, "assistant")).filter((f) => f.endsWith(".controller.ts"))) {
-      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(/@Inject\((CHAT_PROVIDER|CONVERSATION_PROVIDER|BRANCH_|AFFINITY_|GROUP_NAMER|DESCRIPTION_WRITER|PROJECT_ANSWERER)/);
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(/@Inject\((CHAT_PROVIDER|CONVERSATION_PROVIDER|BRANCH_|AFFINITY_|RELATED_|GROUP_NAMER|DESCRIPTION_WRITER|PROJECT_ANSWERER)/);
     }
   });
 

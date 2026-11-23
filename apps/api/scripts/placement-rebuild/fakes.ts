@@ -17,6 +17,9 @@ import type {
   ConversationTurnInput,
   GroupNameInput,
   GroupNamer,
+  RelatedInput,
+  RelatedJudge,
+  RelatedJudgment,
 } from "../../src/assistant/ports.js";
 import type { DirectoryProvider } from "../../src/auth/directory-provider.js";
 
@@ -99,6 +102,25 @@ export class FakeAffinity implements AffinityJudge {
     const draftWords = words(`${input.draft.title} ${input.draft.description}`);
     return Promise.resolve(
       Object.fromEntries(input.tickets.map((t) => [t.id, [...words(`${t.title} ${t.descriptionExcerpt}`)].some((w) => draftWords.has(w)) ? 0.9 : 0.1])),
+    );
+  }
+}
+
+/** Relacionados falsos do ensaio: "mesmo assunto" 0,9 quando o ticket divide alguma palavra com o rascunho, senão 0,1; "mesma coisa" 0,9 só com título igual. */
+export class FakeRelated implements RelatedJudge {
+  judge(input: RelatedInput): Promise<Record<string, RelatedJudgment>> {
+    const draftWords = words(`${input.draft.title} ${input.draft.description}`);
+    const norm = (text: string) => text.trim().toLowerCase();
+    return Promise.resolve(
+      Object.fromEntries(
+        input.candidates.map((c) => [
+          c.id,
+          {
+            sameSubject: [...words(`${c.title} ${c.excerpt}`)].some((w) => draftWords.has(w)) ? 0.9 : 0.1,
+            sameRequest: norm(c.title) === norm(input.draft.title) ? 0.9 : 0.1,
+          },
+        ]),
+      ),
     );
   }
 }

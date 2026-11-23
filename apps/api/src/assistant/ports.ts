@@ -132,8 +132,25 @@ export interface GroupNamer {
 
 export const GROUP_NAMER = Symbol("GROUP_NAMER");
 
-/** Prazos da procura em milissegundos (a descida e a proposta); sem valor, valem os da ADR (30 s e 20 s). Os testes trocam. */
-export type PlacementTimeouts = { descentMs?: number; proposalMs?: number };
+// ---- Tickets relacionados (ADR 0052, item 2) -------------------------------------------------------------------
+
+/** Um candidato da triagem por palavras, como o Jev o vê: título e trecho da descrição (o `id` não sai: o código liga a resposta de volta). */
+export type RelatedCandidate = { id: string; title: string; excerpt: string };
+
+export type RelatedInput = { draft: TicketDraft; candidates: readonly RelatedCandidate[] };
+
+/** As duas respostas do Jev por candidato: `sameSubject` (trata do mesmo assunto?) e `sameRequest` (pede a mesma coisa?). */
+export type RelatedJudgment = { sameSubject: number; sameRequest: number };
+
+/** Jev: para cada candidato, duas perguntas de sim ou não numa requisição só. Devolve as duas probabilidades por id. Quem decide é o código. */
+export interface RelatedJudge {
+  judge(input: RelatedInput, options?: { signal?: AbortSignal }): Promise<Readonly<Record<string, RelatedJudgment>>>;
+}
+
+export const RELATED_JUDGE = Symbol("RELATED_JUDGE");
+
+/** Prazos da procura em milissegundos (a descida, a proposta e os relacionados); sem valor, valem os da ADR (30 s, 20 s e 20 s). Os testes trocam. */
+export type PlacementTimeouts = { descentMs?: number; proposalMs?: number; relatedMs?: number };
 export const PLACEMENT_TIMEOUTS = Symbol("PLACEMENT_TIMEOUTS");
 
 // ---- Escrever na descrição (ADR 0036, fatia 5) -----------------------------------------------------------------

@@ -90,6 +90,12 @@
 .assistant-quote details:not([open]) summary h3::before { content: "▸"; }
 .assistant-quote .assistant-sub { margin: 4px 0 0; }
 .assistant-quote .description { max-height: 220px; overflow: auto; margin-top: 8px; }
+.assistant-duplicate { border-color: var(--tp-danger-text); }
+.assistant-duplicate:focus-visible { outline: 2px solid var(--tp-focus, currentColor); outline-offset: 2px; }
+.assistant-duplicate p { margin: 0 0 8px; overflow-wrap: anywhere; }
+.assistant-related ul { margin: 6px 0 0; padding: 0; list-style: none; }
+.assistant-related .text { max-width: 100%; padding: 2px 0; border-color: transparent; background: transparent; text-align: left; overflow-wrap: anywhere; }
+.assistant-related-key { color: var(--tp-text-3); font-variant-numeric: tabular-nums; }
 .assistant-warning { margin: 10px 0 0; color: var(--tp-danger-text); font-size: 12px; overflow-wrap: anywhere; }
 .assistant-parts { margin-top: 14px; }
 .assistant-parts-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -136,6 +142,7 @@
   .assistant-card h3 { font-size: 12px; }
   .assistant-person { max-width: 90%; }
   .assistant-part-tools button { width: 44px; height: 44px; }
+  .assistant-duplicate .assistant-actions button, .assistant-related .text { min-height: 44px; }
   .assistant-part-head { grid-template-columns: 18px minmax(0, 1fr); }
   .assistant-part-tools { grid-column: 1 / -1; justify-content: flex-end; }
   .assistant-part-body { padding-left: 0; }

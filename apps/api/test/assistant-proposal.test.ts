@@ -230,7 +230,7 @@ describe("placement — a resposta não traz probabilidades", () => {
     expect(text).not.toMatch(/"fit"|noul|probab/i);
     expect(res.body.scope).toEqual({ id: tree.auth, title: "Auth", outOfScope: false });
     expect(Object.keys(res.body).sort()).toEqual(
-      ["alternatives", "destination", "discarded", "groupProposal", "groupProposalSkipped", "scope", "stoppedEarly", "uncertain"],
+      ["alternatives", "destination", "discarded", "duplicate", "groupProposal", "groupProposalSkipped", "related", "scope", "stoppedEarly", "uncertain"],
     );
   });
 });

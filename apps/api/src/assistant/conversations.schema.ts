@@ -95,6 +95,15 @@ const targetSchema = z.object({
   path: z.array(z.object({ id: z.string(), title: z.string() })),
 });
 
+const relatedSchema = z.object({
+  id: z.string(),
+  key: z.string(),
+  title: z.string(),
+  status: z.string(),
+  /** Os ancestrais, da raiz ao pai (sem o próprio ticket). */
+  path: z.array(z.object({ id: z.string(), title: z.string() })),
+});
+
 export const placementOutcomeSchema = z.object({
   destination: targetSchema,
   alternatives: z.array(targetSchema).max(2),
@@ -113,6 +122,10 @@ export const placementOutcomeSchema = z.object({
       tickets: z.array(z.object({ id: z.string(), number: z.number(), title: z.string() })).min(1),
     })
     .nullable(),
+  /** Tickets relacionados ao pedido (ADR 0052), do mais provável ao menos; sem as probabilidades. Vazio sem relacionado. */
+  related: z.array(relatedSchema),
+  /** O relacionado que parece ser este mesmo pedido, ou `null` (ADR 0052, item 3). */
+  duplicate: z.object({ id: z.string(), key: z.string(), title: z.string(), status: z.string() }).nullable(),
   /** `null` quando há proposta ou quando ninguém passou do limiar; senão, por que a proposta não houve. */
   groupProposalSkipped: z
     .enum(["not_settled", "no_loose_tickets", "too_large", "same_as_destination", "invalid_name", "unavailable"])

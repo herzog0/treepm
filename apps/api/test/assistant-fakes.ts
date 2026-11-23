@@ -17,6 +17,9 @@ import type {
   GroupNamer,
   ProjectAnswerInput,
   ProjectAnswerer,
+  RelatedInput,
+  RelatedJudge,
+  RelatedJudgment,
 } from "../src/assistant/ports.js";
 
 /** Conversa falsa e determinística: registra as chamadas e responde sem rede. */
@@ -106,6 +109,26 @@ export class FakeAffinityJudge implements AffinityJudge {
     if (this.fail) throw new AssistantUnavailableError("fake");
     if (this.verdict) return this.verdict(input);
     return Object.fromEntries(input.tickets.map((t) => [t.id, 0.1]));
+  }
+}
+
+/** Relacionados falso: por padrão ninguém é relacionado (0 e 0), então nenhum teste antigo vê relacionado. */
+export class FakeRelatedJudge implements RelatedJudge {
+  readonly calls: RelatedInput[] = [];
+  onCall: (() => Promise<void>) | null = null;
+  /** As duas probabilidades por id de ticket; o padrão devolve 0 e 0 para todos. */
+  verdict: ((input: RelatedInput) => Record<string, RelatedJudgment>) | null = null;
+  fail = false;
+  hang = false;
+  judgeHook: ((signal: AbortSignal | undefined) => void) | null = null;
+  async judge(input: RelatedInput, options?: { signal?: AbortSignal }): Promise<Record<string, RelatedJudgment>> {
+    this.calls.push(structuredClone(input) as RelatedInput);
+    this.judgeHook?.(options?.signal);
+    await this.onCall?.();
+    if (this.hang) await new Promise<never>(() => undefined);
+    if (this.fail) throw new AssistantUnavailableError("fake");
+    if (this.verdict) return this.verdict(input);
+    return Object.fromEntries(input.candidates.map((c) => [c.id, { sameSubject: 0, sameRequest: 0 }]));
   }
 }
 

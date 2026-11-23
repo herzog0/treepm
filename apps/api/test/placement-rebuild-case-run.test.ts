@@ -72,7 +72,10 @@ describe("case-run: o arquivo de caso", () => {
     expect(() => parseCase("não é json")).toThrow(CaseError);
     expect(() => parseCase(JSON.stringify({ request: "x" }))).toThrow(/expectParentKey/);
     expect(() => parseCase(JSON.stringify({ ...base, omit: "TST-6" }))).toThrow(/omit/);
-    expect(parseCase(JSON.stringify(base))).toMatchObject({ acceptKeys: [], omit: [] });
+    expect(parseCase(JSON.stringify(base))).toMatchObject({ acceptKeys: [], omit: [], expectRelatedKeys: [], expectDuplicateKey: null });
+    expect(parseCase(JSON.stringify({ ...base, expectRelatedKeys: ["TST-3"], expectDuplicateKey: "TST-3" }))).toMatchObject({ expectRelatedKeys: ["TST-3"], expectDuplicateKey: "TST-3" });
+    expect(() => parseCase(JSON.stringify({ ...base, expectRelatedKeys: "TST-3" }))).toThrow(/expectRelatedKeys/);
+    expect(() => parseCase(JSON.stringify({ ...base, expectDuplicateKey: 3 }))).toThrow(/expectDuplicateKey/);
   });
 
   it("omit tira o ticket e os descendentes dele; chave inexistente é erro", () => {
@@ -105,6 +108,32 @@ describe("case-run: a medição", () => {
     lines.length = 0;
     const accepted = await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, expectParentKey: "TST-4", acceptKeys: ["TST-2"] }), repeats: 1 });
     expect(accepted).toBe(true);
+  });
+
+  it("imprime os relacionados e o duplicado com as chaves do projeto original", async () => {
+    await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, omit: ["TST-6"] }), repeats: 1 });
+    const record = JSON.parse(lines.find((l) => l.includes('"repeat"')) as string) as { related: string[]; duplicate: string | null; probabilities: { related: { key: string }[] } };
+    expect(record.related).toEqual(expect.arrayContaining(["TST-1", "TST-2"]));
+    expect(record.related.every((key) => key.startsWith("TST-"))).toBe(true);
+    expect(record.duplicate).toBeNull();
+    expect(record.probabilities.related.map((r) => r.key).sort()).toEqual([...record.related].sort());
+  });
+
+  it("expectRelatedKeys: passa se todos aparecem entre os relacionados; um que falta reprova", async () => {
+    expect(await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, expectRelatedKeys: ["TST-1", "TST-2"] }), repeats: 1 })).toBe(true);
+    lines.length = 0;
+    expect(await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, expectRelatedKeys: ["TST-1", "TST-5"] }), repeats: 1 })).toBe(false);
+    const record = JSON.parse(lines.find((l) => l.includes('"repeat"')) as string) as { hit: boolean; destinationHit: boolean; relatedHit: boolean };
+    expect(record).toMatchObject({ destinationHit: true, relatedHit: false, hit: false });
+  });
+
+  it("expectDuplicateKey: o duplicado esperado confere com o apontado", async () => {
+    const duplicateRequest = { ...base, expectParentKey: "TST-1", request: "Cobrança mensal\n\nCobrar todo mês" };
+    expect(await caseRunCommand(ctx(), { caseFile: writeCase({ ...duplicateRequest, expectDuplicateKey: "TST-2" }), repeats: 1 })).toBe(true);
+    lines.length = 0;
+    expect(await caseRunCommand(ctx(), { caseFile: writeCase({ ...duplicateRequest, expectDuplicateKey: "TST-3" }), repeats: 1 })).toBe(false);
+    lines.length = 0;
+    expect(await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, expectDuplicateKey: "TST-2" }), repeats: 1 })).toBe(false);
   });
 
   it("erro no meio: o projeto de medição é arquivado mesmo assim e o erro chega a quem chamou", async () => {

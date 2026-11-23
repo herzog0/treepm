@@ -11,6 +11,9 @@ import type {
   ConversationProvider,
   ConversationTurn,
   ConversationTurnInput,
+  RelatedInput,
+  RelatedJudge,
+  RelatedJudgment,
 } from "../../src/assistant/ports.js";
 import type { ClaudeStreamer } from "../../src/assistant/claude-call.js";
 import type { SystemOneCall } from "../../src/assistant/jev-branch-judge.js";
@@ -41,6 +44,13 @@ export class RootCaptureJudge implements BranchJudge {
 }
 
 /** Nenhum ticket solto passa: a proposta de agrupador não chama provedor nem nomeia nada. */
+/** Ninguém é relacionado: a medição da descida (leave-one-out, coleta) não chama o Jev dos relacionados. */
+export class ZeroRelated implements RelatedJudge {
+  judge(input: RelatedInput): Promise<Record<string, RelatedJudgment>> {
+    return Promise.resolve(Object.fromEntries(input.candidates.map((c) => [c.id, { sameSubject: 0, sameRequest: 0 }])));
+  }
+}
+
 export class ZeroAffinity implements AffinityJudge {
   judge(input: AffinityInput): Promise<Record<string, number>> {
     return Promise.resolve(Object.fromEntries(input.tickets.map((t) => [t.id, 0])));

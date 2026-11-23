@@ -3,5 +3,7 @@
   "request": "Quero sincronizar os tickets daqui com outro sistema, recebendo só as atualizações (o diff), e não apenas importar uma vez.",
   "expectParentKey": "DEMO-12",
   "acceptKeys": ["DEMO-13", "DEMO-14"],
-  "omit": ["DEMO-40"]
+  "omit": ["DEMO-40"],
+  "expectRelatedKeys": ["DEMO-20", "DEMO-21"],
+  "expectDuplicateKey": null
 }
