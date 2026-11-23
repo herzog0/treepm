@@ -382,3 +382,47 @@ describe("searchPlacement — escopo pela seleção (ADR 0031)", () => {
     expect(out.stoppedEarly).toEqual({ reason: "candidates_too_large", level: 1, parentId: "S" });
   });
 });
+
+describe("searchPlacement — o rastro da decisão (ADR 0052, item 5)", () => {
+  it("guarda por nível a probabilidade de caber e a de cada candidato, o caminho escolhido e por que parou", async () => {
+    const { deps } = setup(
+      { root: ["A", "B"], A: ["C"], C: [] },
+      { root: { belongs: 0.95, choice: { A: 0.9, B: 0.1 } }, A: { belongs: 0.9, choice: { C: 1 } } },
+    );
+    const { trace } = await searchPlacement(draft, deps);
+    expect(trace.steps).toEqual([
+      { level: 1, parentId: null, result: "descended", belongs: 0.95, candidates: [{ ticketId: "A", probability: 0.9 }, { ticketId: "B", probability: 0.1 }] },
+      { level: 2, parentId: "A", result: "descended", belongs: 0.9, candidates: [{ ticketId: "C", probability: 1 }] },
+      // Acima de 0,7 seguem até três caminhos: B também foi perguntado e não tem candidatos.
+      { level: 2, parentId: "B", result: "no_candidates", belongs: null, candidates: [] },
+      { level: 3, parentId: "C", result: "no_candidates", belongs: null, candidates: [] },
+    ]);
+    expect(trace.chosen).toEqual(["A", "C"]);
+    expect(trace.stop).toBe("no_candidates");
+  });
+
+  it("belongs abaixo de 0,3 para na raiz com o motivo; a faixa do meio deixa as duas hipóteses", async () => {
+    const low = await searchPlacement(draft, setup({ root: ["A"] }, { root: { belongs: 0.1, choice: { A: 1 } } }).deps);
+    expect(low.trace.stop).toBe("below_low");
+    expect(low.trace.chosen).toEqual([]);
+    expect(low.trace.steps[0]?.result).toBe("below_low");
+    const band = await searchPlacement(draft, setup({ root: ["A"], A: [] }, { root: { belongs: 0.5, choice: { A: 1 } } }).deps);
+    expect(band.trace.steps[0]?.result).toBe("band");
+    expect(band.alternatives.length).toBeGreaterThan(0);
+    expect(band.trace.alternatives.length).toBe(band.alternatives.length);
+  });
+
+  it("requisição que não cabe: o passo e o motivo vêm como too_large", async () => {
+    const { deps } = setup({ root: ["A"] }, {}, { fits: () => false });
+    const out = await searchPlacement(draft, deps);
+    expect(out.trace.steps).toEqual([{ level: 1, parentId: null, result: "too_large", belongs: null, candidates: [] }]);
+    expect(out.trace.stop).toBe("candidates_too_large");
+  });
+
+  it("o rastro só tem ids e números: nenhum título nem resumo aparece nele", async () => {
+    const { deps } = setup({ root: ["A"], A: [] }, { root: { belongs: 0.9, choice: { A: 1 } } });
+    const { trace } = await searchPlacement(draft, deps);
+    const json = JSON.stringify(trace);
+    for (const text of ["Ramo", "Resumo", "Corrigir login", "botão"]) expect(json).not.toContain(text);
+  });
+});

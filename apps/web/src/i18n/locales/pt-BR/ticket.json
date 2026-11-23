@@ -86,6 +86,7 @@
     "hint": "A IA usa este texto para decidir se um ticket novo pertence a este ticket.",
     "counter": "{{length}} de {{max}} caracteres",
     "writtenByAssistant": "Escrito pela IA em {{date}}",
+    "built": "Montado a partir dos itens deste ticket",
     "editedByPerson": "Editado por uma pessoa em {{date}}",
     "empty": "Ainda sem texto. A IA escreve um na primeira procura que passar por aqui, ou você pode escrever agora.",
     "writing": "Escrevendo…",

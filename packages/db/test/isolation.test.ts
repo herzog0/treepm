@@ -173,6 +173,14 @@ const TABLES: TableSpec[] = [
     appCanUpdateAndDelete: true,
   },
   {
+    table: "placement_decisions",
+    insert: "insert into placement_decisions (org_id, project_id, ticket_id, uncertain) values ($1, gen_random_uuid(), gen_random_uuid(), false)",
+    update: "update placement_decisions set ticket_id = gen_random_uuid() where org_id = $1",
+    remove: "delete from placement_decisions where org_id = $1",
+    // O papel da aplicação só muda o dono (ticket_id, conversation_id) e apaga: o teste genérico de UPDATE/DELETE não se aplica à coluna `uncertain`.
+    appCanUpdateAndDelete: true,
+  },
+  {
     table: "activity_events",
     insert:
       "insert into activity_events (org_id, kind, subject_type, subject_id) values ($1, 'k', 't', 's')",

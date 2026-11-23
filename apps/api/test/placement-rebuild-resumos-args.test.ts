@@ -62,3 +62,14 @@ describe("conversation-dry-run", () => {
     expect(error("conversation-dry-run", ...base, "--text-file", "a", "--scope", "0")).toMatch(/--scope deve ser o número de um ticket/);
   });
 });
+
+describe("case-run", () => {
+  const args = ["--org", "o", "--user", "u", "--dir", "d"];
+  it("pede --case (e a pasta do gabarito); --project não existe porque o projeto é criado por ele", () => {
+    expect(error("case-run", ...args)).toMatch(/Faltam opções para case-run: --case/);
+    expect(parse("case-run", ...args, "--case", "c.json", "--repeats", "5", "--fake-providers")).toMatchObject({ ok: true, command: "case-run", options: { caseFile: "c.json", repeats: 5, fakeProviders: true } });
+  });
+  it("--repeats vale no case-run e continua recusado nos outros comandos", () => {
+    expect(error("export", ...args, "--project", "p", "--repeats", "2")).toMatch(/--repeats só existe/);
+  });
+});

@@ -262,3 +262,22 @@ describe("judgeInputFits", () => {
     expect(estimateTokens("x".repeat(300))).toBeLessThanOrEqual(150);
   });
 });
+
+describe("JevBranchJudge — registro (ADR 0052)", () => {
+  it("o registro traz as probabilidades por identificador do ticket e nunca título nem texto", async () => {
+    const { Logger } = await import("@nestjs/common");
+    const { vi } = await import("vitest");
+    const lines: string[] = [];
+    const spy = vi.spyOn(Logger.prototype, "log").mockImplementation((message: unknown) => void lines.push(String(message)));
+    try {
+      const secret = { ...input, draft: { title: "SEGREDO DO RASCUNHO", description: "SEGREDO" } };
+      await new JevBranchJudge(fake(answer(0.82, { Login: 0.7, Cobrança: 0.3 }))).judge(secret);
+      const line = lines.find((l) => l.startsWith("juiz ")) ?? "";
+      expect(line).toContain("belongs=0.820");
+      expect(line).toContain("escolha=id-1:0.700,id-2:0.300");
+      for (const text of ["SEGREDO", "Login", "Cobrança", "Tela de login", "Faturas"]) expect(line).not.toContain(text);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

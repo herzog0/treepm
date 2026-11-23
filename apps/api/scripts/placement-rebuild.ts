@@ -4,7 +4,7 @@
  *
  *   pnpm --filter @treepm/api placement:rebuild <comando> [opções]
  *
- * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update (com --idea-stage, --idea-accept, --idea-discard e --idea-make para ideias, e --depends-on e --no-depends-on para dependências), ticket-show, relations-rebuild, summary-show, summary-regenerate, conversation-dry-run.
+ * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update (com --idea-stage, --idea-accept, --idea-discard e --idea-make para ideias, e --depends-on e --no-depends-on para dependências), ticket-show, relations-rebuild, summary-show, summary-regenerate, conversation-dry-run, case-run.
  * Sobe a API real em processo (só a sessão é trocada), em 127.0.0.1 e porta efêmera, e fala com ela por HTTP.
  * O terminal mostra só progresso e contagens; todo texto de ticket fica nos arquivos de `--dir`.
  */
@@ -12,6 +12,7 @@ import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { bootApp } from "./placement-rebuild/app.js";
 import { requireAssistantConsentOfOrg } from "./placement-rebuild/consent.js";
+import { caseRunCommand } from "./placement-rebuild/case-run.js";
 import { collectCommand, collectCompareCommand, collectReportCommand } from "./placement-rebuild/collect.js";
 import { ApiClient } from "./placement-rebuild/client.js";
 import { pairsCommand, pairsReportCommand } from "./placement-rebuild/pairs.js";
@@ -179,7 +180,7 @@ async function main(): Promise<number> {
     fakeProviders: options.fakeProviders ?? false,
     fake503First: options.fake503First ?? 0,
     fake503JudgeAt: options.fake503JudgeAt ?? 0,
-    needsAi: command === "rebuild" || command === "leave-one-out" || command === "collect",
+    needsAi: command === "rebuild" || command === "leave-one-out" || command === "collect" || command === "case-run",
     collect: command === "collect",
   });
   try {
@@ -225,6 +226,8 @@ async function main(): Promise<number> {
       case "create-project":
         await createProjectCommand(ctx, options.key as string, options.name as string);
         return 0;
+      case "case-run":
+        return (await caseRunCommand(ctx, { caseFile: resolve(options.caseFile as string), repeats: options.repeats ?? 3 })) ? 0 : 1;
       case "archive-project":
         await archiveProjectCommand(ctx);
         return 0;

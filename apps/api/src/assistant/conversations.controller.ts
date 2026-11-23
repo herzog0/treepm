@@ -1,5 +1,4 @@
-import { ideaRootsOf, mentionedKeys, scanTicketKeys } from "@treepm/domain";
-import type { IdeaStage, TicketStatus } from "@treepm/domain";
+import { mentionedKeys, scanTicketKeys } from "@treepm/domain";
 import {
   Body,
   ConflictException,
@@ -40,6 +39,10 @@ import {
 } from "./conversations.schema.js";
 import type { ConversationDetail, ConversationSummary } from "./conversations.schema.js";
 import { buildRequestQuote, withRequestQuote } from "./request-quote.js";
+import { loadPlacementTree } from "./branch-tree.js";
+import { decisionOf, errorCode, handDecisionToTicket, readDecisionSafely, saveDecision } from "./placement-decision.js";
+import type { PlacementDecisionRecord } from "./placement-decision.js";
+import type { PlacementOutcome } from "./placement-search.js";
 import { PlacementService } from "./placement.service.js";
 import { AssistantGate } from "./assistant-gate.js";
 import { AssistantUnavailableError, PLACEMENT_TIMEOUTS } from "./ports.js";
@@ -257,21 +260,15 @@ export class TicketConversationsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(placementBodySchema.default({}))) body: z.output<typeof placementBodySchema>,
   ): Promise<z.output<typeof placementOutcomeSchema>> {
-    const { judge, summarizer, affinity, namer } = await this.gate.open(tenant);
+    const { judge, affinity, namer } = await this.gate.open(tenant);
     const seen = await tenant.run(async (tx, principal) => {
       const { conversation } = await this.requireWritable(tx, principal, id);
       if (conversation.draftTitle === null) throw this.draftRequired();
-      const [project, allTickets, summaries] = await Promise.all([
+      const [project, tree] = await Promise.all([
         tx.project.findFirstOrThrow({ where: { id: conversation.projectId }, select: { name: true } }),
-        tx.ticket.findMany({
-          where: { projectId: conversation.projectId },
-          select: { id: true, parentId: true, number: true, title: true, description: true, status: true, ideaStage: true },
-        }),
-        tx.branchSummary.findMany({ where: { projectId: conversation.projectId }, select: { ticketId: true, summary: true } }),
+        loadPlacementTree(tx, conversation.projectId),
       ]);
-      // Uma ideia (a raiz e o que está dentro) não é lugar para um ticket novo: não entra na procura (ADR 0043).
-      const inIdea = ideaRootsOf(allTickets.map((t) => ({ id: t.id, parentId: t.parentId, status: t.status as TicketStatus, ideaStage: (t.ideaStage ?? null) as IdeaStage | null })));
-      const tickets = allTickets.filter((t) => !inIdea.has(t.id)).map(({ id, parentId, number, title, description }) => ({ id, parentId, number, title, description }));
+      const { tickets } = tree;
       if (body.scopeId) this.requireScope(tickets.find((ticket) => ticket.id === body.scopeId));
       return {
         draft: placementDraft(conversation),
@@ -279,17 +276,13 @@ export class TicketConversationsController {
           projectId: conversation.projectId,
           projectName: project.name,
           tickets,
-          summaries: new Map(summaries.map((s) => [s.ticketId, { summary: s.summary }])),
+          notes: tree.notes,
         },
       };
     });
     try {
-      const recheck = (tx: TenantClient, principal: Principal) => this.requireWritable(tx, principal, id);
       const outcome = await this.placementService.search(seen.draft, seen.snapshot, {
         judge,
-        summarizer,
-        tenant,
-        recheck,
         ...(body.scopeId ? { scopeId: body.scopeId } : {}),
         ...(this.timeouts?.descentMs ? { timeoutMs: this.timeouts.descentMs } : {}),
       });
@@ -297,12 +290,11 @@ export class TicketConversationsController {
       const proposal = await this.placementService.propose(seen.draft, seen.snapshot, outcome, {
         affinity,
         namer,
-        summarizer,
-        tenant,
-        recheck,
         ...(this.timeouts?.proposalMs ? { timeoutMs: this.timeouts.proposalMs } : {}),
       });
-      return parseOutput(placementOutcomeSchema, { ...outcome, ...proposal });
+      const { trace, ...shown } = outcome;
+      await this.keepDecision(tenant, id, seen.snapshot, { ...shown, trace });
+      return parseOutput(placementOutcomeSchema, { ...shown, ...proposal });
     } catch (error) {
       if (error instanceof AssistantUnavailableError) {
         this.logger.warn(`assistente indisponível motivo=${error.reason}`);
@@ -310,6 +302,34 @@ export class TicketConversationsController {
       }
       throw error;
     }
+  }
+
+  /**
+   * Guarda a decisão da procura (ADR 0052, item 5): só ids e números. É diagnóstico, nunca derruba a procura: se a conversa
+   * mudou durante a descida (fechada, apagada, permissão perdida) ou a gravação falha, a resposta sai igual e o aviso vai ao registro.
+   */
+  private async keepDecision(tenant: TenantRunner, id: string, snapshot: { projectId: string; tickets: readonly { id: string; number: number }[] }, outcome: Pick<PlacementOutcome, "uncertain" | "trace">): Promise<void> {
+    try {
+      const record = decisionOf(outcome, new Map(snapshot.tickets.map((t) => [t.id, t.number])));
+      await tenant.run(async (tx, principal) => {
+        await this.requireWritable(tx, principal, id);
+        await saveDecision(tx, { orgId: principal.organization.orgId, projectId: snapshot.projectId, conversationId: id, record });
+      });
+    } catch (error) {
+      this.logger.warn(`decisão da procura não guardada codigo=${errorCode(error)}`);
+    }
+  }
+
+  /** A decisão guardada da última procura da conversa (ADR 0052): só ids e números; `null` se ainda não houve procura. */
+  @Get("ticket-conversations/:id/placement-decision")
+  async placementDecision(
+    @Tx() tx: TenantClient,
+    @CurrentPrincipal() principal: Principal,
+    @Param("id", new ZodPipe(idSchema)) id: string,
+  ): Promise<{ decision: PlacementDecisionRecord | null }> {
+    const conversation = await this.findOwn(tx, principal, id);
+    await this.findVisibleProject(tx, principal, conversation.projectId);
+    return { decision: await readDecisionSafely(tx, id) };
   }
 
   /** Não chama provedor: funciona sem as chaves. Idempotente: cada conversa cria no máximo um ticket. */
@@ -380,6 +400,9 @@ export class TicketConversationsController {
       where: { orgId_id: { orgId: conversation.orgId, id } },
       data: { status: "ticket_created", createdTicketId: ticket.id, closedAt: new Date() },
     });
+    // A decisão da procura passa a ser do ticket criado (ADR 0052): a conversa pode ser apagada depois sem levá-la.
+    const handed = await handDecisionToTicket(tx, { orgId: conversation.orgId, conversationId: id, ticketId: ticket.id });
+    if (handed !== null) this.logger.warn(`decisão da procura não passou ao ticket codigo=${handed}`);
     return parseOutput(createdTicketSchema, {
       conversation: await this.detail(tx, id),
       // Com filhos, o pai é lido de novo: o progresso e a contagem dele mudam quando os filhos nascem.

@@ -301,6 +301,7 @@ export const COMMANDS = [
   "summary-show",
   "summary-regenerate",
   "conversation-dry-run",
+  "case-run",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -381,6 +382,8 @@ export type CliOptions = {
   dryRun?: boolean;
   /** `conversation-dry-run`: arquivo com o texto do pedido. */
   textFile?: string;
+  /** `case-run`: o arquivo do caso de medição (ADR 0052). */
+  caseFile?: string;
   /** `conversation-dry-run`: número do ticket usado como escopo da procura. */
   scope?: number;
   role?: string;
@@ -417,6 +420,7 @@ const REQUIRED: Record<Command, readonly (keyof CliOptions)[]> = {
   "summary-show": ["org", "user", "project", "number"],
   "summary-regenerate": ["org", "user", "project"],
   "conversation-dry-run": ["org", "user", "project", "textFile"],
+  "case-run": [...APP_REQUIRED, "caseFile"],
 };
 
 export const TICKET_COMMANDS: readonly Command[] = ["ticket-list", "ticket-create", "ticket-update", "relations-rebuild", "ticket-show"];
@@ -478,6 +482,7 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--all": "all",
   "--dry-run": "dryRun",
   "--text-file": "textFile",
+  "--case": "caseFile",
   "--scope": "scope",
   "--role": "role",
   "--retry-delays-ms": "retryDelaysMs",
@@ -498,7 +503,8 @@ const usage = `Comandos: ${COMMANDS.join(", ")}.
   ticket-show    --org --user --project --number <número>   (detalhe em JSON)
   summary-show   --org --user --project --number <número>
   summary-regenerate --org --user --project (--number <número> | --subtree <número> | --all) [--dry-run] [--resume] [--dir <pasta do andamento>] [--fake-providers]
-  conversation-dry-run --org --user --project --text-file <caminho> [--scope <número>] [--fake-providers]   (não cria ticket)`;
+  conversation-dry-run --org --user --project --text-file <caminho> [--scope <número>] [--fake-providers]   (não cria ticket)
+  case-run       --org --user --dir <pasta com o gabarito.json> --case <arquivo do caso> [--repeats N (padrão 3)] [--fake-providers]   (cria um projeto de medição sem os tickets de "omit", roda o pedido N vezes e o arquiva)`;
 
 export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   const fail = (message: string): ParsedArgs => ({ ok: false, error: `${message}\n${usage}` });
@@ -569,7 +575,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     if (numbers.some((n) => !Number.isInteger(n) || n < 1)) return fail("--phase-groups deve ser uma lista de números de ticket separados por vírgula.");
     options["phaseGroups"] = numbers;
   }
-  if (options["repeats"] !== undefined && command !== "collect" && command !== "pairs") return fail("--repeats só existe no collect e no pairs.");
+  if (options["repeats"] !== undefined && command !== "collect" && command !== "pairs" && command !== "case-run") return fail("--repeats só existe no collect, no pairs e no case-run.");
   if (options["collect"] !== undefined && command !== "report") return fail("--collect só existe no report.");
   if (options["pairs"] !== undefined && command !== "report") return fail("--pairs só existe no report.");
   if (options["resume"] !== undefined && command !== "pairs" && command !== "summary-regenerate") return fail("--resume só existe no pairs e no summary-regenerate.");

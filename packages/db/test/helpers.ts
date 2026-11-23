@@ -97,5 +97,6 @@ export async function seedOrg(
     "insert into branch_summaries (org_id, project_id, ticket_id, summary, content_mark, model) values ($1, $2, $3, 'Resumo', 'marca', 'claude-opus-5-5')",
     [orgId, project, ticket],
   );
+  await pool.query("insert into placement_decisions (org_id, project_id, conversation_id, uncertain) values ($1, $2, $3, false)", [orgId, project, conversation]);
   return { person, team, area, project, ticket, event, conversation };
 }

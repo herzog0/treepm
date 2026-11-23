@@ -92,15 +92,21 @@ beforeEach(async () => {
 });
 
 describe("summary-show", () => {
-  it("diz que não existe resumo guardado", async () => {
+  it("sem nota, mostra o texto montado agora da árvore (ADR 0052) e diz que ele é montado", async () => {
     await summaryShowCommand(ctx, 2);
-    expect(lines).toEqual([`${prefix}-2: sem resumo guardado`]);
+    expect(lines[0]).toMatch(new RegExp(`^${prefix}-2: texto montado agora da árvore \\(ADR 0052\\)$`));
+    expect(lines.slice(1)).toEqual(["Contém: C\nDentro deles: Folha C"]);
+  });
+
+  it("ticket sem filhos e sem nota: não há texto de ramo", async () => {
+    await summaryShowCommand(ctx, 4);
+    expect(lines).toEqual([`${prefix}-4: sem filhos e sem nota: não há texto de ramo`]);
   });
 
   it("mostra o texto guardado, a origem e quando foi atualizado", async () => {
     await real.request("PUT", `/tickets/${ids.get(2)}/summary`, { text: "O que entra aqui: tudo de B." });
     await summaryShowCommand(ctx, 2);
-    expect(lines[0]).toMatch(new RegExp(`^${prefix}-2: resumo escrito por pessoa, atualizado em \\d{4}-\\d{2}-\\d{2}T`));
+    expect(lines[0]).toMatch(new RegExp(`^${prefix}-2: nota escrita por pessoa, atualizado em \\d{4}-\\d{2}-\\d{2}T`));
     expect(lines.slice(1)).toEqual(["O que entra aqui: tudo de B."]);
   });
 
@@ -110,12 +116,13 @@ describe("summary-show", () => {
 });
 
 describe("summary-regenerate --number", () => {
-  it("chama a rota de regenerar do ticket e imprime o resultado", async () => {
+  it("chama a rota de regenerar do ticket, que não tem efeito: nada é guardado e o texto continua montado na hora", async () => {
     await summaryRegenerateCommand(ctx, { number: 2 });
     expect(calledKeys()).toEqual([`${prefix}-2`]);
     expect(lines).toEqual([`${prefix}-2: resumo regenerado (assistente)`]);
     await summaryShowCommand(ctx, 2);
-    expect(lines.at(-1)).toBe("Resumo de B");
+    expect(lines.at(-1)).toBe("Contém: C\nDentro deles: Folha C");
+    expect((await real.request("GET", `/tickets/${ids.get(2)}/summary`)).body).toMatchObject({ summary: { built: true } });
   });
 
   it("ticket sem filhos sai com o código da API", async () => {
@@ -254,14 +261,30 @@ describe("conversation-dry-run", () => {
     expect(Number(left.rows[0]?.c)).toBe(0);
   });
 
-  it("a procura grava o resumo dos agrupadores que ainda não tinham e o comando diz quais", async () => {
+  it("a procura não grava resumo nenhum e a saída traz as probabilidades por nível, com chaves e sem texto", async () => {
     await pagamentosTree();
-    const before = (await real.request("GET", `/tickets/${ids.get(1)}/summary`)).body as { summary: unknown };
-    expect(before.summary).toBeNull();
     const out = await run({ textFile: textFile("Cobrar pagamentos\n\nCobrança mensal") });
-    expect(out.summariesCreated).toEqual(expect.arrayContaining([`${prefix}-1`]));
-    const after = (await real.request("GET", `/tickets/${ids.get(1)}/summary`)).body as { summary: unknown };
-    expect(after.summary).not.toBeNull();
+    expect(out).not.toHaveProperty("summariesCreated");
+    const owner = ownerPoolWithCleanup();
+    const stored = await owner.query("select count(*)::int as n from branch_summaries where project_id = $1", [project]);
+    await owner.end();
+    expect(stored.rows[0].n).toBe(0);
+    const probabilities = (out as unknown as { probabilities: { levels: { parentKey: string | null; belongs: number | null; candidates: { key: string; probability: number }[] }[]; chosenPath: string[] } }).probabilities;
+    expect(probabilities.chosenPath).toEqual([`${prefix}-1`]);
+    expect(probabilities.levels[0]?.parentKey).toBeNull();
+    expect(probabilities.levels[0]?.belongs).toBeGreaterThan(0);
+    expect(probabilities.levels[0]?.candidates[0]).toMatchObject({ key: `${prefix}-1` });
+    expect(JSON.stringify(probabilities)).not.toContain("Pagamentos");
+  });
+
+  it("se a leitura da decisão falha, a procura sai mesmo assim com probabilities nulo e a conversa é descartada", async () => {
+    await pagamentosTree();
+    intercept = (method, path) => (method === "GET" && path.endsWith("/placement-decision") ? { status: 500, body: {} } : null);
+    const out = await run({ textFile: textFile("Cobrar pagamentos\n\nCobrança mensal") });
+    expect(out.destination.path.map((p) => p.title)).toEqual(["Pagamentos"]);
+    expect((out as unknown as { probabilities: unknown }).probabilities).toBeNull();
+    expect(out.conversationDiscarded).toBe(true);
+    expect(await conversations()).toBe(0);
   });
 
   it("--scope procura dentro do ticket indicado", async () => {

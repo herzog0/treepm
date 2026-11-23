@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AI_CONFIG, TEST_CONFIG, openApiTransactions } from "./helpers.js";
+import { AI_CONFIG, TEST_CONFIG } from "./helpers.js";
 import { seedLeaves, seedTree } from "./assistant-tree.js";
 import type { Tree } from "./assistant-tree.js";
 import { useHarness } from "./harness.js";
@@ -23,8 +23,6 @@ const stored = async (ticketId: string) =>
     | { summary: string; source: string; model: string | null; edited_by_person_id: string | null; content_mark: string }
     | undefined;
 const events = async () => rows("select kind, subject_type, subject_id, actor_person_id, payload from activity_events where kind = 'ticket.summary_updated' order by occurred_at, id");
-const openTransactions = async () =>
-  openApiTransactions(h.pool);
 const aiText = (ticketId: string, text = "Texto da IA") =>
   h.pool.query(
     "insert into branch_summaries (org_id, project_id, ticket_id, summary, content_mark, source, model) values ('org_A', $1, $2, $3, 'marca-antiga', 'assistant', 'claude-opus-5-5')",
@@ -40,21 +38,47 @@ let tree: Tree;
 afterEach(() => vi.restoreAllMocks());
 
 describe("GET /tickets/:id/summary", () => {
-  it("agrupador sem texto guardado: summary nulo", async () => {
+  it("agrupador sem nota: devolve o texto montado na hora, com built, e não grava nada", async () => {
     tree = await seedTree(h.pool, h.world());
     const res = await read(tree.auth);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ summary: null });
+    expect(res.body).toEqual({
+      summary: {
+        text: "Tudo sobre entrar no sistema\nContém: Login; SSO\nDentro deles: SAML",
+        source: "built",
+        built: true,
+      },
+    });
+    expect(await rows("select 1 from branch_summaries")).toEqual([]);
+    expect(h.summarizer().calls).toHaveLength(0);
   });
 
-  it("texto da IA: texto, origem e a data, e nada mais (sem modelo, marca nem autor)", async () => {
+  it("o texto montado acompanha a árvore: um filho novo aparece na leitura seguinte", async () => {
     tree = await seedTree(h.pool, h.world());
-    await aiText(tree.auth);
+    await h.pool.query(
+      "insert into tickets (org_id, project_id, number, parent_id, title, created_by_person_id) values ('org_A',$1,8,$2,'Logout',$3)",
+      [priv(), tree.auth, h.world().people.manager],
+    );
+    expect((await read(tree.auth)).body.summary.text).toBe("Tudo sobre entrar no sistema\nContém: Login; SSO; Logout\nDentro deles: SAML");
+  });
+
+  it("nota de pessoa: texto, origem, built falso e a data, e nada mais (sem modelo, marca nem autor)", async () => {
+    tree = await seedTree(h.pool, h.world());
+    await personText(tree.auth, "Texto da pessoa");
     const res = await read(tree.auth);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ summary: { text: "Texto da IA", source: "assistant", updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/) } });
+    expect(res.body).toEqual({ summary: { text: "Texto da pessoa", source: "person", updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/), built: false } });
     const at = (await rows("select updated_at from branch_summaries where ticket_id = $1", [tree.auth]))[0].updated_at as Date;
     expect(res.body.summary.updatedAt).toBe(at.toISOString());
+  });
+
+  it("linha guardada de origem 'assistant' não é devolvida: a leitura devolve o texto montado", async () => {
+    tree = await seedTree(h.pool, h.world());
+    await aiText(tree.auth, "TEXTO VELHO DA IA");
+    const res = await read(tree.auth);
+    expect(res.status).toBe(200);
+    expect(res.body.summary).toMatchObject({ text: "Tudo sobre entrar no sistema\nContém: Login; SSO\nDentro deles: SAML", source: "built", built: true });
+    expect(JSON.stringify(res.body)).not.toContain("TEXTO VELHO");
   });
 
   it("texto guardado de um ticket que não tem (mais) filhos continua sendo lido", async () => {
@@ -66,11 +90,11 @@ describe("GET /tickets/:id/summary", () => {
 
   it("quem vê o projeto lê, inclusive o leitor", async () => {
     tree = await seedTree(h.pool, h.world());
-    await aiText(tree.auth);
+    await personText(tree.auth);
     for (const who of ["admin", "manager", "contributor", "reader"] as Who[]) {
       const res = await read(tree.auth, who);
       expect(res.status, who).toBe(200);
-      expect(res.body.summary.text).toBe("Texto da IA");
+      expect(res.body.summary.text).toBe("Texto da pessoa");
     }
   });
 
@@ -105,7 +129,7 @@ describe("PUT /tickets/:id/summary", () => {
     tree = await seedTree(h.pool, h.world());
     const res = await write(tree.auth, { text: "  Tudo o que trata de entrar no sistema.  " });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ summary: { text: "Tudo o que trata de entrar no sistema.", source: "person", updatedAt: expect.any(String) } });
+    expect(res.body).toEqual({ summary: { text: "Tudo o que trata de entrar no sistema.", source: "person", updatedAt: expect.any(String), built: false } });
     expect(await stored(tree.auth)).toEqual({
       summary: "Tudo o que trata de entrar no sistema.",
       source: "person",
@@ -217,55 +241,52 @@ describe("PUT /tickets/:id/summary", () => {
     expect(await events()).toEqual([]);
   });
 
-  it("a procura seguinte usa o texto da pessoa e não chama o resumidor para ele", async () => {
+  it("a procura seguinte leva a nota da pessoa como \"Nota: …\" antes de \"Contém\" e não chama o resumidor", async () => {
     tree = await seedTree(h.pool, h.world());
     await write(tree.billing, { text: "Cobrança e faturas" });
     const id = (await h.call("POST", `/api/projects/${priv()}/ticket-conversations`, as("contributor"), { message: "Quero corrigir o login" })).body.id as string;
     await h.call("POST", `/api/ticket-conversations/${id}/placement`, as("contributor"));
-    expect(h.judge().calls[0]?.candidates.find((c) => c.title === "Billing")?.summary).toBe("Cobrança e faturas");
-    expect(h.summarizer().calls.map((c) => c.title)).not.toContain("Billing");
+    expect(h.judge().calls[0]?.candidates.find((c) => c.title === "Billing")?.summary).toBe("Nota: Cobrança e faturas\nContém: Invoices");
+    expect(h.summarizer().calls).toHaveLength(0);
   });
 });
 
-describe("POST /tickets/:id/summary/regenerate", () => {
-  it("a IA reescreve a partir dos itens atuais e substitui o texto da pessoa", async () => {
+describe("POST /tickets/:id/summary/regenerate (sem efeito desde a ADR 0052)", () => {
+  it("não sobrescreve a nota da pessoa: devolve a nota, sem chamar o resumidor e sem gravar", async () => {
     tree = await seedTree(h.pool, h.world());
     await personText(tree.auth, "Texto antigo da pessoa");
+    const before = await stored(tree.auth);
+    const beforeAt = (await rows("select updated_at from branch_summaries where ticket_id = $1", [tree.auth]))[0].updated_at;
+    h.summarizer().fail = true; // chamar o resumidor derrubaria a rota com 503
     const res = await regenerate(tree.auth);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ summary: { text: "Resumo de Auth", source: "assistant", updatedAt: expect.any(String) } });
-    expect(await stored(tree.auth)).toMatchObject({ summary: "Resumo de Auth", source: "assistant", model: "fake-model", edited_by_person_id: null });
-    expect(await stored(tree.auth)).toMatchObject({ content_mark: expect.stringMatching(/^[0-9a-f]{64}$/) });
-    expect(await rows("select 1 from branch_summaries where ticket_id = $1", [tree.auth])).toHaveLength(1);
-    expect(h.summarizer().calls).toEqual([
-      { title: "Auth", descriptionExcerpt: "Tudo sobre entrar no sistema", children: [{ title: "Login", summary: null }, { title: "SSO", summary: null }] },
-    ]);
+    expect(res.body).toEqual({ summary: { text: "Texto antigo da pessoa", source: "person", updatedAt: expect.any(String), built: false } });
+    expect(h.summarizer().calls).toHaveLength(0);
+    expect(await stored(tree.auth)).toEqual(before);
+    expect((await rows("select updated_at from branch_summaries where ticket_id = $1", [tree.auth]))[0].updated_at).toEqual(beforeAt);
+    expect(await events()).toEqual([]);
   });
 
-  it("os filhos que são agrupadores entram com o texto guardado deles; sem texto guardado, só com o título; nada em cadeia", async () => {
+  it("sem nota: devolve o texto montado na hora, o mesmo da leitura, sem gravar linha nem registrar evento", async () => {
     tree = await seedTree(h.pool, h.world());
-    await personText(tree.sso, "Entrar com a conta da empresa");
-    await regenerate(tree.auth);
-    expect(h.summarizer().calls).toHaveLength(1);
-    expect(h.summarizer().calls[0]?.children).toEqual([
-      { title: "Login", summary: null },
-      { title: "SSO", summary: "Entrar com a conta da empresa" },
-    ]);
-    await h.pool.query("delete from branch_summaries");
-    h.summarizer().calls.length = 0;
-    await regenerate(tree.auth);
-    expect(h.summarizer().calls).toHaveLength(1); // o SSO não foi escrito para isso
-    expect(await rows("select 1 from branch_summaries where ticket_id = $1", [tree.sso])).toEqual([]);
+    h.summarizer().fail = true;
+    const res = await regenerate(tree.auth, "manager");
+    expect(res.status).toBe(200);
+    expect(res.body.summary).toMatchObject({ text: "Tudo sobre entrar no sistema\nContém: Login; SSO\nDentro deles: SAML", source: "built", built: true });
+    expect(res.body.summary.text).toBe((await read(tree.auth)).body.summary.text);
+    expect(h.summarizer().calls).toHaveLength(0);
+    expect(await rows("select 1 from branch_summaries")).toEqual([]);
+    expect(await events()).toEqual([]);
   });
 
-  it("sem texto anterior, escreve; a procura seguinte reaproveita", async () => {
+  it("linha guardada de origem 'assistant' fica como está e não é devolvida", async () => {
     tree = await seedTree(h.pool, h.world());
-    expect((await regenerate(tree.billing)).status).toBe(200);
-    expect((await read(tree.billing)).body.summary).toMatchObject({ text: "Resumo de Billing", source: "assistant" });
-    const id = (await h.call("POST", `/api/projects/${priv()}/ticket-conversations`, as("contributor"), { message: "Quero corrigir o login" })).body.id as string;
-    h.summarizer().calls.length = 0;
-    await h.call("POST", `/api/ticket-conversations/${id}/placement`, as("contributor"));
-    expect(h.summarizer().calls.map((c) => c.title)).not.toContain("Billing");
+    await aiText(tree.auth, "TEXTO VELHO DA IA");
+    const res = await regenerate(tree.auth);
+    expect(res.status).toBe(200);
+    expect(res.body.summary).toMatchObject({ source: "built", built: true });
+    expect(res.body.summary.text).not.toContain("TEXTO VELHO");
+    expect(await stored(tree.auth)).toMatchObject({ summary: "TEXTO VELHO DA IA", source: "assistant" });
   });
 
   it("ticket sem filhos: 409 ticket_has_no_items, sem chamar a IA, e o texto guardado fica", async () => {
@@ -277,28 +298,6 @@ describe("POST /tickets/:id/summary/regenerate", () => {
     expect(h.summarizer().calls).toHaveLength(0);
     expect(await stored(empty!)).toMatchObject({ summary: "Texto da pessoa", source: "person" });
     expect(await events()).toEqual([]);
-  });
-
-  it("falha do provedor: 503 assistant_unavailable (como a procura) e o texto anterior fica como estava", async () => {
-    tree = await seedTree(h.pool, h.world());
-    await personText(tree.auth, "Texto da pessoa");
-    const before = await stored(tree.auth);
-    const beforeAt = (await rows("select updated_at from branch_summaries where ticket_id = $1", [tree.auth]))[0].updated_at;
-    h.summarizer().fail = true;
-    const res = await regenerate(tree.auth);
-    expect(res.status).toBe(503);
-    expect(errorOf(res)).toBe("assistant_unavailable");
-    expect(await stored(tree.auth)).toEqual(before);
-    expect((await rows("select updated_at from branch_summaries where ticket_id = $1", [tree.auth]))[0].updated_at).toEqual(beforeAt);
-    expect(await events()).toEqual([]);
-  });
-
-  it("não há transação aberta enquanto a IA escreve", async () => {
-    tree = await seedTree(h.pool, h.world());
-    const during: number[] = [];
-    h.summarizer().onCall = async () => void during.push(await openTransactions());
-    await regenerate(tree.auth);
-    expect(during).toEqual([0]);
   });
 
   it.each(WHO_EDIT)("%s pode pedir", async (who) => {
@@ -331,43 +330,6 @@ describe("POST /tickets/:id/summary/regenerate", () => {
     expect(res.status).toBe(409);
     expect(errorOf(res)).toBe("ticket_has_no_items");
     expect(h.summarizer().calls).toHaveLength(0);
-  });
-
-  it("a escrita confere de novo: projeto arquivado durante a chamada (409) e nada é gravado", async () => {
-    tree = await seedTree(h.pool, h.world());
-    await personText(tree.auth, "Texto da pessoa");
-    h.summarizer().onCall = async () => void (await h.pool.query("update projects set archived_at = now() where id = $1", [priv()]));
-    const res = await regenerate(tree.auth);
-    expect(res.status).toBe(409);
-    expect(errorOf(res)).toBe("project_archived");
-    expect((await stored(tree.auth))?.summary).toBe("Texto da pessoa");
-  });
-
-  it("a escrita confere de novo: papel rebaixado a leitor durante a chamada (403) e ticket apagado (404)", async () => {
-    tree = await seedTree(h.pool, h.world());
-    h.summarizer().onCall = async () =>
-      void (await h.pool.query("update project_memberships set role = 'reader' where person_id = $1 and project_id = $2", [h.world().people.contributor, priv()]));
-    expect((await regenerate(tree.auth)).status).toBe(403);
-    expect(await stored(tree.auth)).toBeUndefined();
-    await h.pool.query("update project_memberships set role = 'contributor' where person_id = $1 and project_id = $2", [h.world().people.contributor, priv()]);
-    h.summarizer().onCall = async () => {
-      await h.pool.query("delete from tickets where id in ($1, $2)", [tree.invoices, tree.billing]);
-    };
-    expect((await regenerate(tree.billing)).status).toBe(404);
-    expect(await rows("select 1 from branch_summaries")).toEqual([]);
-  });
-
-  it("registra ticket.summary_updated com origem 'assistant' e sem o texto", async () => {
-    tree = await seedTree(h.pool, h.world());
-    await regenerate(tree.auth, "manager");
-    const recorded = await events();
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]).toMatchObject({
-      subject_id: tree.auth,
-      actor_person_id: h.world().people.manager,
-      payload: { key: "PRIV-1", source: "assistant" },
-    });
-    expect(JSON.stringify(recorded[0]?.payload)).not.toContain("Resumo de Auth");
   });
 });
 

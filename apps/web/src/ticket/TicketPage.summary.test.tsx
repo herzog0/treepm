@@ -67,6 +67,16 @@ describe("Página do ticket com itens › O que entra aqui", { timeout: 15000 },
     expect(entra.getByText("Editado por uma pessoa em 20 de novembro de 2026")).toBeInTheDocument();
   });
 
+  it("says the text was assembled from the items, with no date and no refresh button, when it is not a person's note", async () => {
+    setup({ summaries: { texts: { t1: { text: "Contém: Escrever o texto; Revisar o texto", source: "built" } } } });
+    const entra = await section();
+    expect(entra.getByText("Contém: Escrever o texto; Revisar o texto")).toBeInTheDocument();
+    expect(entra.getByText("Montado a partir dos itens deste ticket")).toBeInTheDocument();
+    expect(entra.queryByText(/Escrito pela IA/)).not.toBeInTheDocument();
+    expect(entra.queryByRole("button", { name: "Atualizar pela IA" })).not.toBeInTheDocument();
+    expect(entra.getByRole("button", { name: "Editar" })).toBeInTheDocument();
+  });
+
   it("without text, explains and offers Escrever instead of Editar", async () => {
     setup({ summaries: { texts: {} } });
     const entra = await section();

@@ -176,20 +176,20 @@ describe("texto 'O que entra aqui'", () => {
     expect((await h.call("DELETE", `/api/tickets/${tree.invoices}`, as("admin"))).status).toBe(204);
     expect((await read(tree.billing)).body.summary.text).toBe("Cobranças e faturas");
     expect(await rows("select 1 from branch_summaries where ticket_id = $1", [tree.billing])).toHaveLength(1);
-    // Sem filhos: a procura usa o trecho da descrição, não o texto guardado.
+    // Sem filhos: a procura usa o texto montado do ticket, e o escopo diz que não tem filhos.
     const id = await startConversation();
     h.judge().calls.length = 0;
     await placement(id, { scopeId: tree.billing });
     expect(h.judge().calls[0]?.scope).toMatchObject({ hasChildren: false });
     expect(h.judge().calls[0]?.scope?.summary).not.toBe("Cobranças e faturas");
-    // Com filhos de novo: o texto guardado volta a ser usado, sem chamar o resumidor.
+    // Com filhos de novo: a nota guardada volta antes de "Contém", sem chamar o resumidor.
     await child(tree.billing, "Nova fatura", 50);
     h.judge().calls.length = 0;
     h.summarizer().calls.length = 0;
     await placement(id);
     const offered = h.judge().calls[0]?.candidates.find((c) => c.id === tree.billing);
-    expect(offered?.summary).toBe("Cobranças e faturas");
-    expect(h.summarizer().calls.map((c) => c.title)).not.toContain("Billing");
+    expect(offered?.summary).toBe("Nota: Cobranças e faturas\nContém: Nova fatura");
+    expect(h.summarizer().calls).toHaveLength(0);
   });
 
   it("mudar o pai ou remover filhos pela API não apaga o texto", async () => {

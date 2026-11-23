@@ -1,0 +1,158 @@
+import { readFileSync } from "node:fs";
+import { expectOk } from "./client.js";
+import { importGabarito, readGabarito } from "./commands.js";
+import type { Context, Summary } from "./commands.js";
+import { runDryRun } from "./conversation-dry-run.js";
+import type { Decision } from "./conversation-dry-run.js";
+import type { Gabarito, GabaritoTicket } from "./core.js";
+import { probabilitiesOf } from "./conversation-dry-run.js";
+
+/**
+ * `case-run`: o caso de medição fixo da ADR 0052. Cria um projeto de medição a partir da árvore exportada (`export`), SEM
+ * os tickets de `omit` e os descendentes deles, roda o pedido pela conversa a seco N vezes, compara o destino com o pai
+ * esperado e arquiva o projeto no fim, com sucesso ou erro. As chaves do arquivo de caso são as do projeto exportado (o
+ * `gabarito.json` de `--dir`); a ferramenta traduz para as do projeto de medição e imprime de volta nas do original.
+ *
+ * Formato do arquivo de caso (exemplo em `cases/sincronizar.example.json`):
+ *   { "name": "…", "request": "texto do pedido, como a pessoa o digitaria",
+ *     "expectParentKey": "chave do pai esperado", "acceptKeys": ["outras chaves que também valem"], "omit": ["chaves a tirar da árvore"] }
+ */
+export type CaseFile = { name: string; request: string; expectParentKey: string; acceptKeys: string[]; omit: string[] };
+
+export class CaseError extends Error {
+  override name = "CaseError";
+}
+
+export function parseCase(raw: string): CaseFile {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new CaseError("O arquivo de caso não é JSON válido.");
+  }
+  const record = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
+  const text = (name: string): string => {
+    const field = record[name];
+    if (typeof field !== "string" || field.trim() === "") throw new CaseError(`O arquivo de caso precisa de "${name}" (texto).`);
+    return field;
+  };
+  const list = (name: string): string[] => {
+    const field = record[name];
+    if (field === undefined) return [];
+    if (!Array.isArray(field) || field.some((item) => typeof item !== "string")) throw new CaseError(`"${name}" deve ser uma lista de chaves.`);
+    return field as string[];
+  };
+  return {
+    name: typeof record["name"] === "string" ? record["name"] : "caso",
+    request: text("request"),
+    expectParentKey: text("expectParentKey"),
+    acceptKeys: list("acceptKeys"),
+    omit: list("omit"),
+  };
+}
+
+/** A árvore sem os tickets de `omit` e sem o que está dentro deles. As chaves que não existem no gabarito são erro. */
+export function withoutOmitted(tickets: readonly GabaritoTicket[], omitKeys: readonly string[]): GabaritoTicket[] {
+  const byKey = new Map(tickets.map((t) => [t.key, t]));
+  const dropped = new Set<string>();
+  for (const key of omitKeys) {
+    const ticket = byKey.get(key);
+    if (!ticket) throw new CaseError(`"omit" cita ${key}, que não existe na árvore exportada.`);
+    dropped.add(ticket.id);
+  }
+  const childrenOf = new Map<string, GabaritoTicket[]>();
+  for (const t of tickets) if (t.parentId !== null) childrenOf.set(t.parentId, [...(childrenOf.get(t.parentId) ?? []), t]);
+  const stack = [...dropped];
+  while (stack.length > 0) {
+    for (const child of childrenOf.get(stack.pop() as string) ?? []) {
+      if (!dropped.has(child.id)) {
+        dropped.add(child.id);
+        stack.push(child.id);
+      }
+    }
+  }
+  return tickets.filter((t) => !dropped.has(t.id));
+}
+
+export type CaseRepeat = {
+  repeat: number;
+  destinationKey: string | null;
+  hit: boolean;
+  uncertain: boolean;
+  stopReason: string | null;
+  probabilities: ReturnType<typeof probabilitiesOf> | null;
+};
+
+const randomKey = (): string => `CS${Array.from({ length: 6 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join("")}`;
+
+export async function caseRunCommand(ctx: Context, input: { caseFile: string; repeats: number }): Promise<boolean> {
+  let raw: string;
+  try {
+    raw = readFileSync(input.caseFile, "utf8");
+  } catch {
+    throw new CaseError(`Não consegui ler o arquivo de caso ${input.caseFile}.`);
+  }
+  const spec = parseCase(raw);
+  const gabarito = readGabarito(ctx.dir);
+  const kept = withoutOmitted(gabarito.tickets, spec.omit);
+  const byKey = new Map(kept.map((t) => [t.key, t]));
+  const accepted = [spec.expectParentKey, ...spec.acceptKeys].map((key) => {
+    const ticket = byKey.get(key);
+    if (!ticket) throw new CaseError(`${key} (pai esperado ou aceito) não está na árvore depois de tirar o que o caso omite.`);
+    return ticket;
+  });
+
+  const project = expectOk<{ id: string; key: string }>(
+    "criar projeto de medição",
+    await ctx.client.request("POST", "/projects", { key: randomKey(), name: `Caso ${spec.name}`.slice(0, 80) }),
+  );
+  const measured: Context = { ...ctx, project: project.id };
+  ctx.log(`Projeto de medição ${project.key} criado (${kept.length} tickets, ${gabarito.tickets.length - kept.length} omitidos).`);
+  let ok = true;
+  try {
+    const trimmed: Gabarito = { ...gabarito, tickets: kept };
+    const { created, order } = await importGabarito(measured, trimmed);
+    const newOf = new Map(order.map((oldId, index) => [oldId, created[index] as Summary]));
+    const originalKeyOfNewId = new Map([...newOf].map(([oldId, summary]) => [summary.id, kept.find((t) => t.id === oldId)?.key ?? summary.key]));
+    const keyOf = (id: string | null): string | null => (id === null ? null : (originalKeyOfNewId.get(id) ?? null));
+    const acceptedNewIds = new Set(accepted.map((t) => (newOf.get(t.id) as Summary).id));
+
+    const results: CaseRepeat[] = [];
+    for (let repeat = 1; repeat <= input.repeats; repeat++) {
+      const run = await runDryRun(measured, spec.request);
+      const destinationId = run.outcome.destination.parentId;
+      const hit = destinationId !== null && acceptedNewIds.has(destinationId);
+      const record: CaseRepeat = {
+        repeat,
+        destinationKey: keyOf(destinationId),
+        hit,
+        uncertain: run.outcome.uncertain as boolean,
+        stopReason: run.decision?.stopReason ?? null,
+        probabilities: run.decision ? probabilitiesOf(run.decision as Decision, keyOf) : null,
+      };
+      results.push(record);
+      ctx.log(JSON.stringify(record));
+    }
+    const hits = results.filter((r) => r.hit).length;
+    const destinations = new Map<string, number>();
+    for (const r of results) destinations.set(r.destinationKey ?? "(raiz)", (destinations.get(r.destinationKey ?? "(raiz)") ?? 0) + 1);
+    ctx.log(
+      JSON.stringify({
+        summary: true,
+        case: spec.name,
+        expect: spec.expectParentKey,
+        accepted: accepted.map((t) => t.key),
+        repeats: input.repeats,
+        hits,
+        distinctDestinations: [...destinations].map(([key, count]) => ({ key, count })),
+        belongsAtFirstLevel: results.map((r) => r.probabilities?.levels[0]?.belongs ?? null),
+      }),
+    );
+    ok = hits === input.repeats;
+  } finally {
+    // Arquiva também em caso de erro; um erro ao arquivar não esconde o erro de quem chamou.
+    const archived = await ctx.client.request("PATCH", `/projects/${project.id}`, { archived: true });
+    ctx.log(archived.status >= 200 && archived.status < 300 ? `Projeto de medição ${project.key} arquivado.` : `ATENÇÃO: não consegui arquivar o projeto de medição ${project.key} (${archived.status}).`);
+  }
+  return ok;
+}

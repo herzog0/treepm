@@ -5,15 +5,12 @@ import {
   Get,
   HttpCode,
   Inject,
-  Logger,
   NotFoundException,
   Param,
   Post,
   Put,
-  ServiceUnavailableException,
 } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { descriptionExcerpt } from "@treepm/domain";
 import type { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { CurrentPrincipal } from "../access/principal.js";
@@ -21,27 +18,20 @@ import type { Principal } from "../access/principal.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { idSchema } from "../common/schemas.js";
 import { ZodPipe, parseOutput } from "../common/zod.js";
-import { OwnTransactions, Tenant } from "../db/own-transactions.js";
-import type { TenantRunner } from "../db/own-transactions.js";
 import { Tx } from "../db/tx.decorator.js";
-import { branchContentMark } from "./branch-mark.js";
 import { groupTextBodySchema, groupTextResponseSchema } from "./branch-summary.schema.js";
 import type { GroupTextResponse } from "./branch-summary.schema.js";
+import { branchTexts } from "./branch-text.js";
+import { loadBranchSubtree } from "./branch-tree.js";
 import { AssistantGate } from "./assistant-gate.js";
-import { AssistantUnavailableError } from "./ports.js";
-import type { BranchSummaryInput } from "./ports.js";
-
-type Source = "assistant" | "person";
 
 /**
- * O texto fixo do agrupador ("O que entra aqui", ADR 0033): ler, escrever à mão e pedir à IA que reescreva. O texto
- * guardado é o que a procura usa e só muda por estas rotas. Com a IA desligada (503 `assistant_not_configured`) ou sem o aceite da
+ * O texto do agrupador ("O que entra aqui", ADR 0033, 0052): ler, escrever a nota à mão e (sem efeito) pedir que reescreva.
+ * A procura monta o texto na hora e só lê daqui a nota escrita por pessoa. Com a IA desligada (503 `assistant_not_configured`) ou sem o aceite da
  * organização (403 `assistant_consent_required`) as três respondem como as demais rotas do assistente.
  */
 @Controller()
 export class BranchSummaryController {
-  private readonly logger = new Logger("BranchSummary");
-
   constructor(
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(ActivityService) private readonly activity: ActivityService,
@@ -68,63 +58,25 @@ export class BranchSummaryController {
   ): Promise<GroupTextResponse> {
     await this.gate.openIn(tx, principal);
     const { project, ticket } = await this.requireEditableParent(tx, principal, id);
-    await this.store(tx, principal, { projectId: project.id, ticketId: id, key: `${project.key}-${ticket.number}`, text: body.text, source: "person" });
+    await this.store(tx, principal, { projectId: project.id, ticketId: id, key: `${project.key}-${ticket.number}`, text: body.text });
     return this.view(tx, id);
   }
 
-  /** A IA reescreve a partir dos itens atuais. Leitura curta → chamada SEM transação aberta → escrita curta que confere tudo de novo. */
+  /**
+   * Sem efeito desde a ADR 0052: o texto do ramo é montado na hora da procura e a nota da pessoa nunca é sobrescrita. A
+   * rota continua para não quebrar a tela nem a ferramenta; confere as mesmas regras de antes (ticket com filhos, pode
+   * editar, projeto aberto) e devolve o que a leitura devolve. Nenhum provedor é chamado e nada é gravado.
+   */
   @Post("tickets/:id/summary/regenerate")
   @HttpCode(200)
-  @OwnTransactions()
   async regenerate(
-    @Tenant() tenant: TenantRunner,
+    @Tx() tx: TenantClient,
+    @CurrentPrincipal() principal: Principal,
     @Param("id", new ZodPipe(idSchema)) id: string,
   ): Promise<GroupTextResponse> {
-    const { summarizer } = await this.gate.open(tenant);
-    const input = await tenant.run(async (tx, principal) => {
-      const { ticket } = await this.requireEditableParent(tx, principal, id);
-      const children = await tx.ticket.findMany({
-        where: { parentId: id },
-        orderBy: { number: "asc" },
-        select: { id: true, title: true },
-      });
-      // O filho agrupador entra com o texto guardado dele, se houver; sem texto, só com o título (nada é escrito em cadeia).
-      const texts = await tx.branchSummary.findMany({
-        where: { ticketId: { in: children.map((child) => child.id) } },
-        select: { ticketId: true, summary: true },
-      });
-      const byId = new Map(texts.map((text) => [text.ticketId, text.summary]));
-      return {
-        title: ticket.title,
-        descriptionExcerpt: descriptionExcerpt(ticket.description),
-        children: children.map((child) => ({ title: child.title, summary: byId.get(child.id) ?? null })),
-      } satisfies BranchSummaryInput;
-    });
-
-    let result: { summary: string; model: string };
-    try {
-      result = await summarizer.summarize(input);
-    } catch (error) {
-      if (error instanceof AssistantUnavailableError) {
-        this.logger.warn(`assistente indisponível motivo=${error.reason}`);
-        throw new ServiceUnavailableException({ code: "assistant_unavailable", message: error.message });
-      }
-      throw error;
-    }
-
-    return tenant.run(async (tx, principal) => {
-      const { project, ticket } = await this.requireEditableParent(tx, principal, id);
-      await this.store(tx, principal, {
-        projectId: project.id,
-        ticketId: id,
-        key: `${project.key}-${ticket.number}`,
-        text: result.summary,
-        source: "assistant",
-        model: result.model,
-        contentMark: branchContentMark(input),
-      });
-      return this.view(tx, id);
-    });
+    await this.gate.openIn(tx, principal);
+    await this.requireEditableParent(tx, principal, id);
+    return this.view(tx, id);
   }
 
   // ---- regras ---------------------------------------------------------------------------------------------
@@ -159,13 +111,10 @@ export class BranchSummaryController {
   private async store(
     tx: TenantClient,
     principal: Principal,
-    input: { projectId: string; ticketId: string; key: string; text: string; source: Source; model?: string; contentMark?: string },
+    input: { projectId: string; ticketId: string; key: string; text: string },
   ): Promise<void> {
     const { orgId } = principal.organization;
-    const data =
-      input.source === "person"
-        ? { summary: input.text, contentMark: "", source: "person", model: null, editedByPersonId: principal.person.id }
-        : { summary: input.text, contentMark: input.contentMark ?? "", source: "assistant", model: input.model ?? null, editedByPersonId: null };
+    const data = { summary: input.text, contentMark: "", source: "person", model: null, editedByPersonId: principal.person.id };
     await tx.branchSummary.upsert({
       where: { orgId_ticketId: { orgId, ticketId: input.ticketId } },
       create: { orgId, projectId: input.projectId, ticketId: input.ticketId, ...data },
@@ -176,14 +125,25 @@ export class BranchSummaryController {
       kind: "ticket.summary_updated",
       subjectType: "ticket",
       subjectId: input.ticketId,
-      payload: { key: input.key, source: input.source },
+      payload: { key: input.key, source: "person" },
     });
   }
 
+  /**
+   * A nota da pessoa, se houver; senão o texto montado agora da árvore (`built: true`), ou `null` em ticket sem filhos. O
+   * texto de origem "assistente" já guardado não é lido (ADR 0052). O texto montado sai com `source: "built"` e sem
+   * `updatedAt` (não foi escrito em momento nenhum); `built: true` continua.
+   */
   private async view(tx: TenantClient, id: string): Promise<GroupTextResponse> {
-    const row = await tx.branchSummary.findFirst({ where: { ticketId: id } });
-    return parseOutput(groupTextResponseSchema, {
-      summary: row ? { text: row.summary, source: row.source, updatedAt: row.updatedAt.toISOString() } : null,
-    });
+    const row = await tx.branchSummary.findFirst({ where: { ticketId: id, source: "person" } });
+    if (row) {
+      return parseOutput(groupTextResponseSchema, { summary: { text: row.summary, source: "person", updatedAt: row.updatedAt.toISOString(), built: false } });
+    }
+    const ticket = await tx.ticket.findFirst({ where: { id }, select: { orgId: true, projectId: true } });
+    const nodes = await loadBranchSubtree(tx, { orgId: ticket?.orgId ?? "", projectId: ticket?.projectId ?? "" }, id);
+    if (!nodes.some((node) => node.parentId !== null)) return parseOutput(groupTextResponseSchema, { summary: null });
+    const notes = new Map<string, string>();
+    const text = branchTexts(nodes, notes).textOf(id);
+    return parseOutput(groupTextResponseSchema, { summary: { text, source: "built", built: true } });
   }
 }

@@ -87,7 +87,9 @@ export function ItemsSummary({ client, ticketId, canEdit }: ItemsSummaryProps) {
             <button ref={startButton} type="button" className="text" disabled={busy} onClick={start}>
               {summary ? t("summary.edit") : t("summary.write")}
             </button>
-            <ConfirmAction label={t("summary.refresh")} disabled={busy} message={t("summary.refreshConfirm")} onConfirm={() => void update()} />
+            {summary?.source !== "built" && (
+              <ConfirmAction label={t("summary.refresh")} disabled={busy} message={t("summary.refreshConfirm")} onConfirm={() => void update()} />
+            )}
           </span>
         )}
       </div>
@@ -105,7 +107,9 @@ export function ItemsSummary({ client, ticketId, canEdit }: ItemsSummaryProps) {
         <>
           <p className="ticket-description">{summary.text}</p>
           <p className="ticket-summary-meta">
-            {t(summary.source === "assistant" ? "summary.writtenByAssistant" : "summary.editedByPerson", { date: formatDate(language, summary.updatedAt) })}
+            {summary.source === "built" || summary.updatedAt === undefined
+              ? t("summary.built")
+              : t(summary.source === "assistant" ? "summary.writtenByAssistant" : "summary.editedByPerson", { date: formatDate(language, summary.updatedAt) })}
           </p>
         </>
       ) : (
