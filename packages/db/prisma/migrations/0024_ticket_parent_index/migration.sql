@@ -1,0 +1,15 @@
+-- Índice de pai para filhos (TREEPM-254). As consultas que DESCEM a árvore (filhos de um ticket, progresso do ramo, "dentro de
+-- um ramo", total do projeto a partir das raízes) procuram `org_id = $ and project_id = $ and parent_id = $` e, antes deste índice,
+-- só podiam varrer o projeto inteiro: nenhum índice de `tickets` começava por `parent_id`.
+--
+-- Ordem das colunas: `org_id`, `project_id`, `parent_id`.
+--  - É a ordem da chave estrangeira do pai (`tickets_org_id_project_id_parent_id_fkey`, migration 0004), então o mesmo índice também
+--    serve à conferência dela (apagar ou mudar um ticket olha se ainda há filhos) e a `parent_id IS NULL` (as raízes do projeto).
+--  - As duas primeiras são igualdades em toda consulta recursiva (agora explícitas em cada passo, TREEPM-253); `parent_id` vem por
+--    último e é a coluna que muda a cada passo da recursão. Com `parent_id` primeiro o índice não serviria às consultas só do projeto
+--    (`parent_id IS NULL` do projeto A misturaria todas as organizações), e a coluna de menor seletividade ficaria na frente.
+--
+-- CREATE INDEX simples, dentro da migration: a tabela é pequena hoje e o `CREATE INDEX` trava as ESCRITAS em `tickets` enquanto roda
+-- (as leituras seguem). Em produção com a tabela grande, o caminho é `CREATE INDEX CONCURRENTLY` fora de transação (o Prisma não roda
+-- `CONCURRENTLY` dentro de uma migration), seguido de `prisma migrate resolve --applied 0024_ticket_parent_index`.
+CREATE INDEX "tickets_org_id_project_id_parent_id_idx" ON "tickets"("org_id", "project_id", "parent_id");

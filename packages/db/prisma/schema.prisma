@@ -254,6 +254,7 @@ model Ticket {
   @@id([orgId, id])
   @@unique([orgId, projectId, id])
   @@unique([orgId, projectId, number])
+  @@index([orgId, projectId, parentId])
   @@map("tickets")
 }
 

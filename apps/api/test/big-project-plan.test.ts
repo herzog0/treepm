@@ -121,4 +121,49 @@ describe("planejamento do projeto grande (determinístico, por semente)", () => 
     expect(t(f.moveTo).ideaStage).toBeNull();
     expect(["todo", "in_progress", "in_review"]).toContain(t(f.moveTo).status);
   });
+
+  describe("variedade de ideias por opção (oráculo de equivalência, TREEPM-254)", () => {
+    const rich = (n = 2000, seed = 3): BigProjectPlan => planBigProject({ n, seed, key: "BG", now: NOW, nestedIdeas: true, topIdeas: true, closedInIdeas: true });
+    const ancestorsOf = (p: BigProjectPlan, index: number): number[] => {
+      const out: number[] = [];
+      for (let cursor = p.tickets[index]!.parent; cursor !== null; cursor = p.tickets[cursor]!.parent) out.push(cursor);
+      return out;
+    };
+
+    it("com as opções desligadas, o plano é exatamente o de sempre (as referências gravadas dependem disso)", () => {
+      for (const seed of [3, 7]) {
+        const off = planBigProject({ n: 400, seed, key: "BG", now: NOW, nestedIdeas: false, topIdeas: false, closedInIdeas: false });
+        const plain = plan(400, seed);
+        expect(JSON.stringify(off.tickets)).toBe(JSON.stringify(plain.tickets));
+        expect(JSON.stringify(off.fixtures)).toBe(JSON.stringify(plain.fixtures));
+        expect(JSON.stringify(off.relations)).toBe(JSON.stringify(plain.relations));
+        expect(JSON.stringify(off.events)).toBe(JSON.stringify(plain.events));
+      }
+    });
+
+    it("é determinístico e gera ideia dentro de ideia, ideia no topo e cancelado dentro de ideia", () => {
+      expect(JSON.stringify(rich())).toBe(JSON.stringify(rich()));
+      const p = rich();
+      const roots = p.tickets.filter((t) => t.ideaStage !== null);
+      expect(roots.some((t) => t.parent === null)).toBe(true);
+      expect(roots.some((t) => ancestorsOf(p, t.index).some((a) => p.tickets[a]!.ideaStage !== null))).toBe(true);
+      const insideIdea = (index: number): boolean => p.tickets[index]!.ideaStage !== null || ancestorsOf(p, index).some((a) => p.tickets[a]!.ideaStage !== null);
+      expect(p.tickets.some((t) => t.status === "cancelled" && t.ideaStage === null && insideIdea(t.index))).toBe(true);
+    });
+
+    it("respeita as regras: dentro de ideia só a fazer ou cancelado (nunca concluído), a raiz a fazer, sem marcador", () => {
+      for (const seed of [3, 11, 19]) {
+        const p = rich(1500, seed);
+        for (const t of p.tickets) {
+          const inside = t.ideaStage !== null || ancestorsOf(p, t.index).some((a) => p.tickets[a]!.ideaStage !== null);
+          if (!inside) continue;
+          expect(["todo", "cancelled"], `ticket ${t.number} dentro de ideia`).toContain(t.status);
+          if (t.ideaStage !== null) expect(t.status).toBe("todo");
+          expect(t.agentWork).toBeNull();
+        }
+        for (const t of p.tickets) if (t.agentWork !== null) expect(["todo", "in_progress", "in_review"]).toContain(t.status);
+        for (const t of p.tickets) if (t.parent !== null && p.tickets[t.parent]!.status === "done") expect(["done", "cancelled"]).toContain(t.status);
+      }
+    });
+  });
 });

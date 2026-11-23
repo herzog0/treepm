@@ -338,7 +338,7 @@ export class TicketConversationsController {
     await this.tickets.lockStructure(tx, project.id);
     // Ideia (ADR 0044, adendo): o pai nasce como ideia pelo mesmo caminho da tela, com a mesma permissão. Num lugar que já está
     // dentro de uma ideia, o que nasce faz parte dela, sem estágio próprio, e a opção não pede permissão nenhuma.
-    const asIdea = conversation.draftIdea && (await this.tickets.ideaRootFor(tx, body.parentId)) === null;
+    const asIdea = conversation.draftIdea && (await this.tickets.ideaRootFor(tx, project, body.parentId)) === null;
     if (asIdea) this.authorization.registerIdea(principal.actor, project.id);
     const built = await this.assemble(tx, project, conversation);
     this.requireFits(built);
