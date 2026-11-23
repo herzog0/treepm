@@ -258,9 +258,15 @@ const EXCERPT_LENGTH = 600;
 /** First 600 code points of a description, ending in "…" when it is longer. Never splits a surrogate pair. */
 export function descriptionExcerpt(description: string): string {
   if (description.length <= EXCERPT_LENGTH) return description;
-  const points = Array.from(description);
-  if (points.length <= EXCERPT_LENGTH) return description;
-  return `${points.slice(0, EXCERPT_LENGTH).join("")}…`;
+  // Anda no máximo 600 pontos de código (sem materializar a descrição inteira): um par substituto vale um ponto e ocupa dois
+  // índices; um substituto solto vale um ponto, como em `Array.from`.
+  let end = 0;
+  let points = 0;
+  while (points < EXCERPT_LENGTH && end < description.length) {
+    end += (description.codePointAt(end) ?? 0) > 0xffff ? 2 : 1;
+    points += 1;
+  }
+  return end >= description.length ? description : `${description.slice(0, end)}…`;
 }
 
 /**

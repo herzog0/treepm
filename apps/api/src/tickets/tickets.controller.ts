@@ -35,23 +35,9 @@ import { activityQuerySchema } from "./ticket-activity.schema.js";
 import type { ActivityPage } from "./ticket-activity.schema.js";
 import { TicketActivityService } from "./ticket-activity.service.js";
 import { AgentWorkService } from "./agent-work.service.js";
+import { readSummaryRows } from "./ticket-reads.js";
 import { TicketsService, ideaViews, toNodes, toSummary } from "./tickets.service.js";
 import type { ProjectRow, TicketRow } from "./tickets.service.js";
-
-const summarySelect = {
-  id: true,
-  projectId: true,
-  number: true,
-  parentId: true,
-  title: true,
-  description: true,
-  status: true,
-  ideaStage: true,
-  agentWorkStartedAt: true,
-  agentWorkUntil: true,
-  agentWorkNote: true,
-  assignees: { select: { personId: true } },
-} as const;
 
 @Controller()
 export class TicketsController {
@@ -70,11 +56,7 @@ export class TicketsController {
     @Param("projectId", new ZodPipe(idSchema)) projectId: string,
   ): Promise<TicketSummary[]> {
     const project = await this.findVisibleProject(tx, actor, projectId);
-    const rows = await tx.ticket.findMany({
-      where: { projectId },
-      select: summarySelect,
-      orderBy: { number: "asc" },
-    });
+    const rows = await readSummaryRows(tx, projectId); // trecho da descrição e pessoas em uma consulta por projeto
     const progress = ticketProgress(toNodes(rows));
     const ideas = ideaViews(project, rows);
     const now = this.tickets.now();

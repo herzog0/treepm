@@ -1,12 +1,13 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { agentWorkIsValid, descriptionExcerpt, ideaRootsOf, searchTickets, ticketProgress } from "@treepm/domain";
+import { agentWorkIsValid, descriptionExcerpt, searchTickets } from "@treepm/domain";
 import type { TicketStatus } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { ACCESS_TOKEN_CLOCK } from "../access-tokens/clock.js";
 import type { AccessTokenClock } from "../access-tokens/clock.js";
 import type { Principal } from "../access/principal.js";
 import { parseOutput } from "../common/zod.js";
+import { EXCERPT_SOURCE_LENGTH, readProgressOf } from "../tickets/ticket-reads.js";
 import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
 import { queryOverviewSchema, queryTicketPageSchema, queryTicketSchema, queryListSchema } from "./query.schema.js";
 import type { QueryIdea, QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "./query.schema.js";
@@ -57,32 +58,42 @@ export class ProjectQueryService {
     @Inject(ACCESS_TOKEN_CLOCK) private readonly clock: AccessTokenClock,
   ) {}
 
-  /** `idea` de todos os tickets do projeto: a raiz (com o estágio) e o que está dentro (com o número da raiz). Ticket comum não entra. */
-  private async ideas(tx: TenantClient, projectId: string): Promise<IdeaMap> {
-    const rows = await tx.ticket.findMany({ where: { projectId }, select: { id: true, number: true, parentId: true, status: true, ideaStage: true } });
-    return this.ideaMap(rows);
-  }
-
-  private ideaMap(rows: readonly { id: string; number: number; parentId: string | null; status: string; ideaStage: string | null }[]): IdeaMap {
-    const nodes = rows.map((row) => ({ id: row.id, parentId: row.parentId, status: ticketStatusSchema.parse(row.status), ideaStage: ideaStageSchema.nullable().parse(row.ideaStage) }));
-    const numberOf = new Map(rows.map((row) => [row.id, row.number] as const));
-    const stageOf = new Map(nodes.map((node) => [node.id, node.ideaStage] as const));
+  /**
+   * `idea` só dos tickets de `ids`: a raiz de ideia mais próxima de cada um, ele incluído, por uma consulta recursiva que sobe de pai em
+   * pai. Ticket comum não entra. Não lê o projeto inteiro: o custo é a profundidade dos tickets pedidos.
+   */
+  private async ideasOf(tx: TenantClient, ids: readonly string[]): Promise<IdeaMap> {
     const out = new Map<string, QueryIdea>();
-    for (const [id, rootId] of ideaRootsOf(nodes)) {
-      const stage = stageOf.get(id);
-      out.set(id, id === rootId && stage ? { kind: "root", stage } : { kind: "inside", rootNumber: numberOf.get(rootId) ?? 0 });
+    if (ids.length === 0) return out;
+    const rows = await tx.$queryRaw<{ origin: string; root_id: string; root_number: number; idea_stage: string }[]>`
+      with recursive up as (
+        select t.id as origin, t.id, t.parent_id, t.number, t.idea_stage, 1 as depth from tickets t where t.id = any(${[...new Set(ids)]}::uuid[])
+        union all
+        select up.origin, p.id, p.parent_id, p.number, p.idea_stage, up.depth + 1
+        from tickets p join up on p.id = up.parent_id where up.idea_stage is null and up.depth < 10000
+      )
+      select distinct on (origin) origin, id as root_id, number as root_number, idea_stage from up where idea_stage is not null order by origin, depth`;
+    for (const row of rows) {
+      const stage = ideaStageSchema.parse(row.idea_stage);
+      out.set(row.origin, row.origin === row.root_id ? { kind: "root", stage } : { kind: "inside", rootNumber: row.root_number });
     }
     return out;
   }
 
-  /** Busca da barra (ADR 0036) sobre os tickets do projeto. Padrão 8, máximo 50. 2 consultas. */
+  /**
+   * Busca da barra (ADR 0036) sobre os tickets do projeto. Padrão 8, máximo 50. 2 consultas além do projeto: os tickets (só o trecho da
+   * descrição, que é o que a regra de busca lê) e a situação de ideia dos que voltam, não dos 20 000.
+   */
   async search(tx: TenantClient, principal: Principal, projectId: string, text: string, options: SearchOptions = {}): Promise<QueryTicketList> {
     const project = await this.requireProject(tx, principal, projectId);
     const limit = clamp(options.limit, SEARCH_DEFAULT_LIMIT, SEARCH_MAX_LIMIT);
-    const rows = await tx.ticket.findMany({ where: { projectId }, select: SUMMARY_SELECT, orderBy: { number: "asc" } });
-    const ideas = await this.ideas(tx, projectId);
-    const found = cut(searchTickets(text, rows.map((row) => this.summary(project.key, row, ideas)), limit + 1), limit);
-    return parseOutput(queryListSchema, { tickets: found.rows, truncated: found.truncated });
+    const rows = await tx.$queryRaw<Row[]>`
+      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil"
+      from tickets where project_id = ${projectId}::uuid order by number asc`;
+    const searchable = rows.map((row) => ({ key: `${project.key}-${row.number}`, number: row.number, title: row.title, descriptionExcerpt: descriptionExcerpt(row.description), row }));
+    const found = cut(searchTickets(text, searchable, limit + 1), limit);
+    const ideas = await this.ideasOf(tx, found.rows.map((entry) => entry.row.id));
+    return parseOutput(queryListSchema, { tickets: found.rows.map((entry) => this.summary(project.key, entry.row, ideas)), truncated: found.truncated });
   }
 
   /**
@@ -93,13 +104,6 @@ export class ProjectQueryService {
     const project = await this.requireProject(tx, principal, projectId);
     const row = await tx.ticket.findFirst({ where: { projectId, number }, select: SUMMARY_SELECT });
     if (!row) throw new NotFoundException("Ticket não encontrado.");
-    const ideas = await this.ideas(tx, projectId);
-    const summary = (entry: Row): QueryTicketSummary => this.summary(project.key, entry, ideas);
-    const list = (rows: readonly Row[]): QueryTicketList => {
-      const part = cut(rows, RELATED_MAX);
-      return { tickets: part.rows.map(summary), truncated: part.truncated };
-    };
-
     const children = await tx.ticket.findMany({
       where: { projectId, parentId: row.id },
       select: SUMMARY_SELECT,
@@ -120,60 +124,68 @@ export class ProjectQueryService {
         orderBy: { from: RELATED_ORDER },
         take: RELATED_MAX + 1,
       })).map((relation) => relation.from);
-    const relations = {
-      mentions: { outgoing: list(await outgoing("mentions")), incoming: list(await incoming("mentions")) },
-      dependsOn: { outgoing: list(await outgoing("depends_on")), incoming: list(await incoming("depends_on")) },
+    const parts = {
+      children: cut(children, RELATED_MAX),
+      mentionsOut: cut(await outgoing("mentions"), RELATED_MAX),
+      mentionsIn: cut(await incoming("mentions"), RELATED_MAX),
+      dependsOut: cut(await outgoing("depends_on"), RELATED_MAX),
+      dependsIn: cut(await incoming("depends_on"), RELATED_MAX),
     };
-    const path = (await this.ancestors(tx, row.parentId)).map(summary);
+    const pathRows = await this.ancestors(tx, row.parentId);
+    // A situação de ideia só dos tickets que a resposta mostra (o próprio, o caminho, os filhos e as ligações), numa consulta.
+    const shown = [row, ...pathRows, ...Object.values(parts).flatMap((part) => part.rows)];
+    const ideas = await this.ideasOf(tx, shown.map((entry) => entry.id));
+    const summary = (entry: Row): QueryTicketSummary => this.summary(project.key, entry, ideas);
+    const list = (part: { rows: Row[]; truncated: boolean }): QueryTicketList => ({ tickets: part.rows.map(summary), truncated: part.truncated });
+    const relations = {
+      mentions: { outgoing: list(parts.mentionsOut), incoming: list(parts.mentionsIn) },
+      dependsOn: { outgoing: list(parts.dependsOut), incoming: list(parts.dependsIn) },
+    };
+    const path = pathRows.map(summary);
 
     return parseOutput(queryTicketSchema, {
       ...summary(row),
       description: row.description,
       parent: path.at(-1) ?? null,
       path,
-      children: list(children),
+      children: list(parts.children),
       relations,
     });
   }
 
-  /** Resumos em ordem de número, com filtro de situação e de ramo. Padrão 50, máximo 200. 2 consultas (3 com `under`). */
+  /**
+   * Resumos em ordem de número, com filtro de situação e de ramo. Padrão 50, máximo 200. O banco filtra, ordena e corta (`limit`): só a
+   * página sai dele, com o trecho da descrição, e a situação de ideia vem só dos tickets da página. Um ramo (`under`) é uma consulta
+   * recursiva descendo de pai em pai, não a árvore do projeto lida para filtrar em memória.
+   */
   async list(tx: TenantClient, principal: Principal, projectId: string, options: ListOptions = {}): Promise<QueryTicketPage> {
     const project = await this.requireProject(tx, principal, projectId);
     const limit = clamp(options.limit, LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT);
     const statuses = (options.status ?? []).map((status) => ticketStatusSchema.parse(status));
-    let ids: string[] | undefined;
+    let under: string | null = null;
     if (options.under !== undefined) {
-      const tree = await tx.ticket.findMany({ where: { projectId }, select: { id: true, number: true, parentId: true } });
-      const start = tree.find((node) => node.number === options.under);
+      const start = await tx.ticket.findFirst({ where: { projectId, number: options.under }, select: { id: true } });
       if (!start) throw new NotFoundException("Ticket não encontrado.");
-      const kids = new Map<string, string[]>();
-      for (const node of tree) {
-        if (node.parentId === null) continue;
-        const siblings = kids.get(node.parentId);
-        if (siblings) siblings.push(node.id);
-        else kids.set(node.parentId, [node.id]);
-      }
-      ids = [];
-      for (const queue = [start.id]; queue.length > 0; ) {
-        for (const kid of kids.get(queue.shift() ?? "") ?? []) {
-          ids.push(kid);
-          queue.push(kid);
-        }
-      }
+      under = start.id;
     }
-    const rows = await tx.ticket.findMany({
-      where: {
-        projectId,
-        ...(statuses.length > 0 ? { status: { in: statuses } } : {}),
-        ...(options.after !== undefined ? { number: { gt: options.after } } : {}),
-        ...(ids ? { id: { in: ids } } : {}),
-      },
-      select: SUMMARY_SELECT,
-      orderBy: { number: "asc" },
-      take: limit + 1,
-    });
+    const rows = await tx.$queryRaw<Row[]>`
+      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil"
+      from tickets
+      where project_id = ${projectId}::uuid
+        and (${statuses.length > 0 ? statuses : null}::text[] is null or status = any(${statuses.length > 0 ? statuses : null}::text[]))
+        and (${options.after ?? null}::int is null or number > ${options.after ?? null}::int)
+        and (${under}::uuid is null or id in (
+          with recursive down as (
+            select id, 1 as depth from tickets where parent_id = ${under}::uuid
+            union all
+            select t.id, down.depth + 1 from tickets t join down on t.parent_id = down.id where down.depth < 10000
+          )
+          select id from down
+        ))
+      order by number asc
+      limit ${limit + 1}::int`;
     const page = cut(rows, limit);
-    const ideas = await this.ideas(tx, projectId);
+    const ideas = await this.ideasOf(tx, page.rows.map((row) => row.id));
     return parseOutput(queryTicketPageSchema, {
       tickets: page.rows.map((row) => this.summary(project.key, row, ideas)),
       truncated: page.truncated,
@@ -181,30 +193,36 @@ export class ProjectQueryService {
     });
   }
 
-  /** Total por situação e os tickets do topo com situação e progresso (`ticketProgress`). 3 consultas. */
+  /**
+   * Total por situação e os tickets do topo com situação e progresso. O total e as contagens saem do banco por `group by` (uma linha por
+   * situação e por estágio), o progresso dos tickets do topo vem de `readProgressOf` (só o ramo de cada um), e o projeto não é lido.
+   */
   async overview(tx: TenantClient, principal: Principal, projectId: string): Promise<QueryOverview> {
     const project = await this.requireProject(tx, principal, projectId);
-    const nodes = (await tx.ticket.findMany({ where: { projectId }, select: { id: true, number: true, parentId: true, status: true, ideaStage: true } })).map((row) => ({
-      id: row.id,
-      number: row.number,
-      parentId: row.parentId,
-      status: ticketStatusSchema.parse(row.status),
-      ideaStage: ideaStageSchema.nullable().parse(row.ideaStage),
-    }));
-    const ideas = this.ideaMap(nodes);
-    const top = await tx.ticket.findMany({ where: { projectId, parentId: null }, select: SUMMARY_SELECT, orderBy: RELATED_ORDER, take: RELATED_MAX + 1 });
+    // Descendo da raiz, cada ticket sabe se está dentro de uma ideia (ele mesmo ser raiz já conta): ideia não é trabalho aceito.
+    const groups = await tx.$queryRaw<{ status: string; idea_stage: string | null; inside: boolean; n: bigint }[]>`
+      with recursive down as (
+        select id, status, idea_stage, (idea_stage is not null) as inside from tickets where project_id = ${projectId}::uuid and parent_id is null
+        union all
+        select t.id, t.status, t.idea_stage, (down.inside or t.idea_stage is not null)
+        from tickets t join down on t.parent_id = down.id where t.project_id = ${projectId}::uuid
+      )
+      select status, idea_stage, inside, count(*) as n from down group by status, idea_stage, inside`;
+    const top = await tx.$queryRaw<Row[]>`
+      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil"
+      from tickets where project_id = ${projectId}::uuid and parent_id is null order by number asc limit ${RELATED_MAX + 1}::int`;
     const byStatus: Record<TicketStatus, number> = { todo: 0, in_progress: 0, in_review: 0, done: 0, cancelled: 0 };
     const ideaCounts = { new: 0, refining: 0, ready: 0, discarded: 0 };
     let work = 0;
-    for (const node of nodes) {
-      const idea = ideas.get(node.id);
-      if (idea?.kind === "root" && node.ideaStage) ideaCounts[node.ideaStage] += 1;
-      if (idea) continue; // ideia não é trabalho aceito: fica fora do total e da contagem por situação
-      work += 1;
-      byStatus[node.status] += 1;
+    for (const group of groups) {
+      const count = Number(group.n);
+      if (group.idea_stage !== null) ideaCounts[ideaStageSchema.parse(group.idea_stage)] += count;
+      if (group.inside) continue; // ideia não é trabalho aceito: fica fora do total e da contagem por situação
+      work += count;
+      byStatus[ticketStatusSchema.parse(group.status)] += count;
     }
-    const progress = ticketProgress(nodes);
     const part = cut(top, RELATED_MAX);
+    const [progress, ideas] = await Promise.all([readProgressOf(tx, part.rows.map((row) => row.id)), this.ideasOf(tx, part.rows.map((row) => row.id))]);
     return parseOutput(queryOverviewSchema, {
       projectKey: project.key,
       total: work,
@@ -229,9 +247,9 @@ export class ProjectQueryService {
     if (parentId === null) return [];
     return tx.$queryRaw<Row[]>`
       with recursive up as (
-        select id, number, title, description, status, parent_id, 1 as depth from tickets where id = ${parentId}::uuid
+        select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id, 1 as depth from tickets where id = ${parentId}::uuid
         union all
-        select t.id, t.number, t.title, t.description, t.status, t.parent_id, up.depth + 1
+        select t.id, t.number, t.title, left(t.description, ${EXCERPT_SOURCE_LENGTH}::int), t.status, t.parent_id, up.depth + 1
         from tickets t join up on t.id = up.parent_id where up.depth < 1000
       )
       select id, number, title, description, status, parent_id as "parentId" from up order by depth desc`;

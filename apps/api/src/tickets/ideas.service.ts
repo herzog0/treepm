@@ -169,30 +169,32 @@ export class IdeasService {
 
   /**
    * `GET projects/:projectId/ideas`: as raízes de ideia do projeto, por estágio (`ready`, `refining`, `new`, `discarded`) e,
-   * dentro do estágio, da mais antiga para a mais nova. Duas consultas: as raízes (pelo índice parcial) e os títulos para os caminhos.
+   * dentro do estágio, da mais antiga para a mais nova. Duas consultas: as raízes (pelo índice parcial) e os títulos dos ancestrais de cada uma (consulta recursiva).
    */
   async list(tx: TenantClient, principal: Principal, projectId: string): Promise<IdeaListItem[]> {
     const project = await this.visibleProject(tx, principal.actor, projectId);
-    const [roots, titles] = await Promise.all([
+    const [roots, ancestors] = await Promise.all([
       tx.ticket.findMany({
         where: { projectId, ideaStage: { not: null } },
         select: { id: true, number: true, parentId: true, title: true, ideaStage: true, createdAt: true },
       }),
-      tx.ticket.findMany({ where: { projectId }, select: { id: true, parentId: true, title: true } }),
+      // O caminho de cada ideia, subindo de pai em pai só a partir das ideias: os títulos dos ancestrais, não os do projeto inteiro.
+      tx.$queryRaw<{ origin: string; title: string }[]>`
+        with recursive up as (
+          select r.id as origin, t.id, t.parent_id, t.title, 1 as depth
+          from tickets r join tickets t on t.id = r.parent_id where r.project_id = ${projectId}::uuid and r.idea_stage is not null
+          union all
+          select up.origin, t.id, t.parent_id, t.title, up.depth + 1 from tickets t join up on t.id = up.parent_id where up.depth < 10000
+        )
+        select origin, title from up order by origin, depth desc`,
     ]);
-    const byId = new Map(titles.map((row) => [row.id, row] as const));
-    const pathOf = (parentId: string | null): string[] => {
-      const path: string[] = [];
-      const seen = new Set<string>();
-      for (let cursor = parentId; cursor !== null && !seen.has(cursor); ) {
-        seen.add(cursor);
-        const row = byId.get(cursor);
-        if (!row) break;
-        path.unshift(row.title);
-        cursor = row.parentId;
-      }
-      return path;
-    };
+    const paths = new Map<string, string[]>();
+    for (const row of ancestors) {
+      const path = paths.get(row.origin);
+      if (path) path.push(row.title);
+      else paths.set(row.origin, [row.title]);
+    }
+    const pathOf = (rootId: string): string[] => paths.get(rootId) ?? [];
     return roots
       .map((row) => ({ row, stage: ideaStageSchema.parse(row.ideaStage) }))
       .sort((a, b) => STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage] || a.row.createdAt.getTime() - b.row.createdAt.getTime() || a.row.number - b.row.number)
@@ -202,7 +204,7 @@ export class IdeasService {
         key: `${project.key}-${row.number}`,
         title: row.title,
         stage,
-        path: pathOf(row.parentId),
+        path: pathOf(row.id),
         createdAt: row.createdAt.toISOString(),
       }));
   }
