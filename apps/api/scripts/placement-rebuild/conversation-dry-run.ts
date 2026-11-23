@@ -69,8 +69,8 @@ export type Elaboration = {
 export type ElaborationDiagnostics = {
   model: { links: number; suggested: number };
   dropped: { links: Record<string, number>; suggested: Record<string, number> };
-  lookups: { outcome: string; candidates: number; maxSameRequest: number | null }[];
-  timingsMs: { claude: number; lookup: number };
+  lookups: { outcome: string; candidates: number; chosen: boolean }[];
+  timingsMs: { claude: number; lookup: number; secondCall: number };
 };
 
 /** O que uma passada devolve, ainda com os ids da API: quem chama traduz para as chaves que quiser. */

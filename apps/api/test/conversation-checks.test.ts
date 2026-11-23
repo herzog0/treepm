@@ -218,6 +218,38 @@ describe("os casos com relacionados (ADR 0052, fatia 3)", () => {
   });
 });
 
+describe("os casos novos da R6", () => {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), "../scripts/conversation-cases");
+  const load = (id: string) => JSON.parse(readFileSync(join(dir, `${id}.json`), "utf8"));
+  const draft = { title: "Avisar por e-mail a mudança de situação", description: "E-mail ao responsável", children: [] };
+  it("prerequisito-ausente espera exatamente uma sugerida, sobre o pré-requisito que não existe na árvore", async () => {
+    const c = load("prerequisito-ausente");
+    expect([c.minSuggested, c.maxSuggested]).toEqual([1, 1]);
+    expect(c.expectLinkKeys).toEqual([]);
+    const ok = await checkElaborationWithLookup(c, draft, { links: [], suggested: [{ title: "Configurar o envio de e-mail da plataforma", description: "Remetente e serviço de envio", motivo: "sem envio não há aviso" }] });
+    expect(ok).toMatchObject({ suggestedCount: 1, suggestedMissing: [], passes: true, modelSuggestedTitles: ["Configurar o envio de e-mail da plataforma"], convertedKeys: [] });
+  });
+  it("prerequisito-ausente reprova quando o modelo cala (nenhuma sugerida) ou sugere outra coisa", async () => {
+    const c = load("prerequisito-ausente");
+    expect(await checkElaborationWithLookup(c, draft, { links: [], suggested: [] })).toMatchObject({ suggestedOk: false, passes: false });
+    const off = await checkElaborationWithLookup(c, draft, { links: [], suggested: [{ title: "Escrever a documentação", description: "Manual", motivo: "m" }] });
+    expect(off.suggestedMissing).toHaveLength(1);
+    expect(off.passes).toBe(false);
+  });
+  it("defeito-sem-implicacao: pedido que se basta, espera listas vazias; qualquer sugerida reprova", async () => {
+    const c = load("defeito-sem-implicacao");
+    expect(c.messages[0]).toContain("Passos para reproduzir");
+    expect([c.minSuggested, c.maxSuggested, c.expectLinkKeys, c.related]).toEqual([0, 0, [], []]);
+    expect((await checkElaborationWithLookup(c, { title: "t", description: "d", children: [] }, { links: [], suggested: [] })).passes).toBe(true);
+    expect((await checkElaborationWithLookup(c, { title: "t", description: "d", children: [] }, { links: [], suggested: [{ title: "Escrever testes", description: "", motivo: "m" }] })).passes).toBe(false);
+  });
+  it("a medição relata o que o modelo propôs, o que virou ligação e o que ficou sugerido", async () => {
+    const c = load("tarefa-implicada-existe");
+    const r = await checkElaborationWithLookup(c, draft, { links: [], suggested: [{ title: "Guardar o vínculo com o item correspondente na plataforma externa", description: "identificador externo", motivo: "m" }] });
+    expect(r).toMatchObject({ modelLinkKeys: [], convertedKeys: ["DEMO-10"], suggestedCount: 0 });
+  });
+});
+
 describe("a procura das tarefas sugeridas na árvore da medição (R4)", () => {
   const dir = join(dirname(fileURLToPath(import.meta.url)), "../scripts/conversation-cases");
   const testCase = JSON.parse(readFileSync(join(dir, "tarefa-implicada-existe.json"), "utf8"));

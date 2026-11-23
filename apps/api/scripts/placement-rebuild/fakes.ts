@@ -17,6 +17,8 @@ import type {
   ConversationTurnInput,
   ElaborationInput,
   ElaborationResult,
+  ExistingMatchInput,
+  ExistingMatchResult,
   GroupNameInput,
   GroupNamer,
   RelatedInput,
@@ -142,6 +144,10 @@ export class FakeNamer implements GroupNamer {
  * tarefa, para o ensaio exercitar os dois lados. Nunca chama modelo.
  */
 export class FakeElaborator implements TicketElaborator {
+  /** No ensaio, a sugerida "já existe" quando a árvore tem um ticket de mesmo título (o falso nunca chama modelo). */
+  matchExisting(input: ExistingMatchInput): Promise<ExistingMatchResult> {
+    return Promise.resolve({ answers: input.tasks.map((task) => ({ index: task.index, existing: task.candidates.find((candidate) => candidate.title === task.title)?.key ?? null })), model: "fake-model" });
+  }
   elaborate(input: ElaborationInput): Promise<ElaborationResult> {
     const links = input.related.slice(0, 5).map((ticket) => ({ de: "pai" as const, dependeDe: ticket.key, motivo: "Ensaio: o pedido toca neste ticket." }));
     const suggested = input.related.length === 0 ? [{ title: "Tarefa implicada (ensaio)", description: "", motivo: "Ensaio: nada existe sobre o assunto." }] : [];

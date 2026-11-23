@@ -159,6 +159,7 @@
         "invalid_part": "the part was renamed or moved",
         "cycle": "it would close a dependency cycle",
         "self": "a ticket cannot depend on itself",
+        "ancestor": "a ticket does not depend on its own parent or an ancestor",
         "unknown_keys": "it cites a ticket that does not exist",
         "forbidden_text": "the text imitates the request quote"
       },

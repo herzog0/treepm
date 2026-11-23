@@ -1,0 +1,18 @@
+{
+  "id": "defeito-sem-implicacao",
+  "messages": [
+    "O contador de tickets abertos no topo da lista mostra o número errado depois que eu arquivo um ticket. Passos para reproduzir:\n1) abrir um projeto com 3 tickets abertos;\n2) arquivar um deles;\n3) o contador continua em 3, deveria passar a 2."
+  ],
+  "expectChildren": false,
+  "mustMention": [
+    { "label": "contador de abertos", "anyOf": ["contador"] },
+    { "label": "arquivar", "anyOf": ["arquiv"] },
+    { "label": "deveria passar a 2", "anyOf": ["2", "dois"] }
+  ],
+  "mustNotMention": ["critérios de aceite", "fase", "prazo", "sprint"],
+  "related": [],
+  "tree": [],
+  "expectLinkKeys": [],
+  "minSuggested": 0,
+  "maxSuggested": 0
+}
