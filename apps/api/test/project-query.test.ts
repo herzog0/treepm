@@ -472,7 +472,7 @@ describe("cost", () => {
     await grow(80);
     const large = await measure();
     expect(large).toEqual(small);
-    expect(small).toEqual([3, 9, 4, 3]);
+    expect(small).toEqual([3, 9, 4, 5]); // a visão geral passou a contar por `group by` e a calcular o progresso dos tickets do topo no banco (TREEPM-251)
   });
 });
 

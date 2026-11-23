@@ -2,8 +2,8 @@ import { lockProjectStructure } from "./structure-lock.js";
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import type { z } from "zod";
-import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, descriptionExcerpt, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, statusChangeAllowed, ticketProgress, ticketsToReopen } from "@treepm/domain";
-import type { Actor, IdeaStage, TicketNode, TicketStatus } from "@treepm/domain";
+import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, descriptionExcerpt, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
+import type { Actor, IdeaStage, TicketNode, TicketStatus, ticketProgress } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
 import { ACCESS_TOKEN_CLOCK } from "../access-tokens/clock.js";
@@ -15,6 +15,7 @@ import { ideaRootOfTicket } from "./idea-root.js";
 import { ideaStageSchema, ticketDetailSchema, ticketStatusSchema } from "./tickets.schema.js";
 import type { AgentWork, TicketDetail, TicketIdea, TicketPage, TicketSummary, updateTicketSchema } from "./tickets.schema.js";
 import { readContributions } from "./ticket-contributions.read.js";
+import { readProgressOf } from "./ticket-reads.js";
 
 export type ProjectRow = {
   orgId: string;
@@ -173,8 +174,8 @@ export class TicketsService {
       await this.requireParent(tx, project.id, body.parentId);
     }
     if (body.parentId !== undefined && body.parentId !== ticket.parentId) {
-      const all = await tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, parentId: true } });
-      const parents = new Map(all.map((row) => [row.id, row.parentId]));
+      // Só a cadeia do pai novo para cima (uma consulta recursiva), não o projeto inteiro: a conferência só anda por ela.
+      const parents = await this.ancestorLinks(tx, body.parentId);
       if (parentWouldCreateCycle(parents, id, body.parentId)) {
         throw new ConflictException({ code: "ticket_cycle", message: "O pai escolhido é o próprio ticket ou um descendente." });
       }
@@ -401,6 +402,21 @@ export class TicketsService {
     return ideaRootOfTicket(tx, startId);
   }
 
+  /** O pai de cada ticket da cadeia de `startId` até a raiz (ele incluído), para conferir ciclo subindo de pai em pai. Vazio para `null`. */
+  async ancestorLinks(tx: TenantClient, startId: string | null): Promise<Map<string, string | null>> {
+    const links = new Map<string, string | null>();
+    if (startId === null) return links;
+    const rows = await tx.$queryRaw<{ id: string; parent_id: string | null }[]>`
+      with recursive up as (
+        select id, parent_id, 1 as depth from tickets where id = ${startId}::uuid
+        union all
+        select t.id, t.parent_id, up.depth + 1 from tickets t join up on t.id = up.parent_id where up.depth < 10000
+      )
+      select id, parent_id from up`;
+    for (const row of rows) links.set(row.id, row.parent_id);
+    return links;
+  }
+
   /** As situações de todos os descendentes de um ticket (ele não entra), qualquer que seja a profundidade. */
   async descendantStatuses(tx: TenantClient, id: string): Promise<TicketStatus[]> {
     const rows = await tx.$queryRaw<{ status: string }[]>`
@@ -431,9 +447,11 @@ export class TicketsService {
   }
 
   async detail(tx: TenantClient, project: ProjectRow, id: string): Promise<TicketDetail> {
-    const [row, nodes, mentions, dependencies] = await Promise.all([
+    // Progresso e situação de ideia vêm só do ramo do ticket (descendentes e ancestrais), não do projeto inteiro.
+    const [row, progress, ideaRoot, mentions, dependencies] = await Promise.all([
       tx.ticket.findFirstOrThrow({ where: { id }, include: { assignees: { select: { personId: true } } } }),
-      tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, number: true, parentId: true, status: true, ideaStage: true } }),
+      readProgressOf(tx, [id]),
+      ideaRootOfTicket(tx, id),
       tx.ticketRelation.findMany({
         where: { toTicketId: id, kind: "mentions" },
         select: { from: { select: { id: true, number: true, title: true, status: true } } },
@@ -447,7 +465,7 @@ export class TicketsService {
         },
       }),
     ]);
-    const progress = ticketProgress(toNodes(nodes));
+    const idea: TicketIdea = ideaRoot === null ? null : ideaRoot.id === id ? { root: true, stage: ideaRoot.stage } : { root: false, rootId: ideaRoot.id, rootKey: `${project.key}-${ideaRoot.number}` };
     const mentionedBy = mentions.map((relation) => relation.from).sort((a, b) => a.number - b.number);
     const byNumber = (a: MentionedByRow, b: MentionedByRow) => a.number - b.number;
     const dependsOn = dependencies.filter((relation) => relation.fromTicketId === id).map((relation) => relation.to).sort(byNumber);
@@ -456,7 +474,7 @@ export class TicketsService {
     const by = toAgentWork(row, now) && row.agentWorkPersonId
       ? await tx.person.findFirst({ where: { id: row.agentWorkPersonId }, select: { id: true, displayName: true, avatarUrl: true } })
       : null;
-    return toDetail(project, row, progress, ideaViews(project, nodes).get(id) ?? null, mentionedBy, dependsOn, blocks, now, by);
+    return toDetail(project, row, progress, idea, mentionedBy, dependsOn, blocks, now, by);
   }
 
   /**

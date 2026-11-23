@@ -244,6 +244,42 @@ describe("descriptionExcerpt", () => {
     expect(descriptionExcerpt(emoji.repeat(601))).toBe(`${emoji.repeat(600)}…`);
     expect(descriptionExcerpt(`${"a".repeat(599)}${emoji}b`)).toBe(`${"a".repeat(599)}${emoji}…`);
   });
+
+  // A regra antiga (`Array.from` da descrição inteira): o resultado novo tem de ser idêntico, em qualquer texto.
+  const antigo = (description: string): string => {
+    if (description.length <= 600) return description;
+    const points = Array.from(description);
+    if (points.length <= 600) return description;
+    return `${points.slice(0, 600).join("")}…`;
+  };
+
+  it("é idêntico à regra antiga nos casos de borda e em textos aleatórios (pares, substitutos soltos, compostos, quebras)", () => {
+    const pieces = ["a", "é", "e\u0301", "😀", "👨‍👩‍👧‍👦", "日", "\r\n", "\n", " ", "\ud83d", "\ude00", "…", "𝒳"];
+    let seed = 12345;
+    const next = (): number => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    const cases: string[] = [
+      "", "a".repeat(599), "a".repeat(600), "a".repeat(601), "😀".repeat(299), "😀".repeat(300), "😀".repeat(301), "😀".repeat(600), "😀".repeat(601),
+      `${"a".repeat(599)}😀`, `${"a".repeat(598)}😀😀`, `${"a".repeat(599)}😀😀😀`, "e\u0301".repeat(400), "\ud83d".repeat(700), "\ude00".repeat(650), `${"a".repeat(599)}\ud83d`,
+      `${"a".repeat(599)}\ud83dx`, `${"b".repeat(600)}\ud83d`, `${"b".repeat(600)}\ude00`, "👨‍👩‍👧‍👦".repeat(100), "x\r\n".repeat(300),
+    ];
+    for (let i = 0; i < 400; i += 1) {
+      const length = Math.floor(next() * 900);
+      let text = "";
+      while (text.length < length) text += pieces[Math.floor(next() * pieces.length)];
+      cases.push(text);
+    }
+    for (const text of cases) expect(descriptionExcerpt(text)).toBe(antigo(text));
+  });
+
+  it("não percorre o texto inteiro: uma descrição enorme sai no mesmo instante", () => {
+    const enorme = "😀a".repeat(5_000_000);
+    const started = performance.now();
+    expect(descriptionExcerpt(enorme)).toBe(`${"😀a".repeat(300)}…`);
+    expect(performance.now() - started).toBeLessThan(50);
+  });
 });
 
 describe("ticketsToReopen", () => {
