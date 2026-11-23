@@ -28,6 +28,8 @@ export const TEST_CONFIG: AppConfig = {
   CLERK_PUBLISHABLE_KEY: "pk_test_fake",
   APP_ORIGIN: "http://localhost:5173",
   PORT: 4310,
+  SEMANTIC_TRIAGE: "off",
+  SEMANTIC_QUERY_KIND: "query",
 };
 
 /** Verificador falso: a sessão vem do cabeçalho `x-test-session` (JSON); ausente = sem sessão. */

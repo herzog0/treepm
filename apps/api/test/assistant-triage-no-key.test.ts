@@ -5,7 +5,7 @@ import { useHarness } from "./harness.js";
 import { as } from "./world.js";
 
 // ADR 0053, fatia 2: sem chave de vetores (ou sem aceite) nenhuma chamada e nenhum vetor lido; a busca é só por palavras.
-const h = useHarness(AI_CONFIG);
+const h = useHarness({ ...AI_CONFIG, SEMANTIC_TRIAGE: "rrf" });
 const priv = () => h.world().projects.priv;
 
 describe("sem VOYAGE_API_KEY", () => {

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { descriptionExcerpt, fuseRankings, RELATED_SHORTLIST, triageRelated } from "@treepm/domain";
+import { descriptionExcerpt, fuseBy, RELATED_SHORTLIST, triageRelated } from "@treepm/domain";
+import type { FusionRule } from "@treepm/domain";
 import { branchTexts } from "./branch-text.js";
 import { searchPlacement } from "./placement-search.js";
 import type { PlacementDeps, PlacementOutcome } from "./placement-search.js";
@@ -149,7 +150,7 @@ export class PlacementService {
   async findRelated(
     draft: TicketDraft & { partTitles: readonly string[] },
     snapshot: PlacementSnapshot,
-    deps: { related: RelatedJudge; timeoutMs?: number; signal?: AbortSignal; semantic?: SemanticSearch; semanticDeadlineMs?: number },
+    deps: { related: RelatedJudge; timeoutMs?: number; signal?: AbortSignal; semantic?: SemanticSearch; semanticDeadlineMs?: number; fusion?: FusionRule },
   ): Promise<{ judged: JudgedRelated[]; failed: boolean; triage?: TriageNumbers }> {
     const started = Date.now();
     const timeoutMs = deps.timeoutMs ?? RELATED_TIMEOUT_MS;
@@ -184,7 +185,7 @@ export class PlacementService {
         }
       }
 
-      const fused = fuseRankings(wordsIds, vectorIds, RELATED_SHORTLIST);
+      const fused = fuseBy(deps.fusion ?? "rrf", wordsIds, vectorIds, RELATED_SHORTLIST);
       const all = fused.map((hit) => {
         const ticket = byId.get(hit.id) as TreeTicket;
         return { id: ticket.id, title: ticket.title, excerpt: descriptionExcerpt(ticket.description) };

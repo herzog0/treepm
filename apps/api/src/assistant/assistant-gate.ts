@@ -31,6 +31,7 @@ import type {
   RelatedJudge,
   TicketElaborator,
 } from "./ports.js";
+import type { SemanticSettings } from "./semantic-triage.js";
 
 /** Os provedores de IA, entregues só depois de a conferência passar. */
 export type AssistantProviders = {
@@ -46,6 +47,8 @@ export type AssistantProviders = {
   elaborator: TicketElaborator;
   /** Vetores da busca por significado (ADR 0053). `null` sem `VOYAGE_API_KEY`: o assistente segue configurado e a busca usa só palavras. */
   embedder: EmbeddingProvider | null;
+  /** `SEMANTIC_TRIAGE` e `SEMANTIC_QUERY_KIND`: como as rotas usam os vetores (`off` por padrão). */
+  semantic: SemanticSettings;
 };
 
 /**
@@ -94,6 +97,6 @@ export class AssistantGate {
         message: "O assistente não está configurado neste ambiente.",
       });
     }
-    return { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator, embedder: this.embedder ?? null };
+    return { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator, embedder: this.embedder ?? null, semantic: { mode: this.config.SEMANTIC_TRIAGE, queryKind: this.config.SEMANTIC_QUERY_KIND } };
   }
 }

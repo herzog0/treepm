@@ -5,7 +5,7 @@ import type pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FakeEmbeddingProvider } from "../scripts/placement-rebuild/fakes.js";
 import type { EmbeddingKind } from "../src/assistant/ports.js";
-import { boundedSearch, SEMANTIC_MAX_DISTANCE, SEMANTIC_QUERY_RESERVE_MS, SEMANTIC_TRIAGE_DEADLINE_MS, semanticNeighbours } from "../src/assistant/semantic-triage.js";
+import { boundedSearch, SEMANTIC_MAX_DISTANCE, SEMANTIC_QUERY_RESERVE_MS, SEMANTIC_TRIAGE_DEADLINE_MS, semanticNeighbours, semanticSearchOf } from "../src/assistant/semantic-triage.js";
 import type { EmbeddingStore } from "../src/assistant/ticket-embeddings.js";
 import { ownerPoolWithCleanup, openApiTransactions, truncateAll } from "./helpers.js";
 import { ORG, seedWorld } from "./world.js";
@@ -61,6 +61,17 @@ describe("semanticNeighbours", () => {
     const embedder = new FakeEmbeddingProvider();
     await ask(embedder, { queries: [{ title: "  Sincronizar com o Jira ", description: "Receber só o diff." }] });
     expect(embedder.calls.find((call) => call.kind === "query")?.texts).toEqual(["Sincronizar com o Jira\n\nReceber só o diff."]);
+  });
+
+  it("queryKind troca o tipo da consulta ao provedor; sem ele vale `query`", async () => {
+    await ticket("Alvo");
+    const document = new FakeEmbeddingProvider();
+    await ask(document, { queryKind: "document" });
+    expect(document.calls.map((call) => call.kind)).toEqual(["document", "document"]);
+    // Os vetores dos tickets já estão em dia: só a consulta é chamada, agora com o tipo padrão.
+    const plain = new FakeEmbeddingProvider();
+    await ask(plain);
+    expect(plain.calls.map((call) => call.kind)).toEqual(["query"]);
   });
 
   it("sem embedder: nada é lido nem chamado, lista vazia e o código no_embedder", async () => {
@@ -219,5 +230,33 @@ describe("semanticNeighbours", () => {
     expect(a).toMatchObject({ neighbours: [[]], diagnostics: { failure: "timeout" } });
     const b = await boundedSearch(() => Promise.reject(new Error("boom")), [{ title: "x", description: "" }], 5, { deadlineMs: 200 });
     expect(b.diagnostics.failure).toBe("storage");
+  });
+});
+
+describe("semanticSearchOf com SEMANTIC_TRIAGE=off", () => {
+  it("não lê vetores, não sincroniza e não chama o provedor: listas vazias e o código disabled", async () => {
+    await ticket("Guardar a origem de cada ticket");
+    let reads = 0;
+    const counting: EmbeddingStore = { run: (fn) => (reads++, store.run(fn)) };
+    const embedder = new FakeEmbeddingProvider();
+    const search = semanticSearchOf(counting, embedder, world.projects.priv, { mode: "off", queryKind: "query" });
+    const result = await search([{ title: "Guardar a origem de cada ticket", description: "" }, { title: "Outra", description: "" }], 5, {});
+    expect(reads).toBe(0);
+    expect(embedder.calls).toHaveLength(0);
+    expect(result.neighbours).toEqual([[], []]);
+    expect(result.diagnostics).toEqual({ synced: 0, embedded: 0, pending: 0, syncMs: 0, queryMs: 0, failure: "disabled" });
+    expect((await pool.query("select count(*)::int as n from ticket_embeddings")).rows[0].n).toBe(0);
+  });
+
+  it("rrf e interleave usam o provedor, com o tipo de consulta escolhido", async () => {
+    await ticket("Guardar a origem de cada ticket");
+    for (const mode of ["rrf", "interleave"] as const) {
+      const embedder = new FakeEmbeddingProvider();
+      const result = await semanticSearchOf(store, embedder, world.projects.priv, { mode, queryKind: "document" })([{ title: "Guardar a origem de cada ticket", description: "" }], 5, {});
+      expect(result.neighbours[0]).toHaveLength(1);
+      // Na primeira rodada sincroniza (documento) e consulta; na segunda os vetores já estão em dia.
+      expect(embedder.calls.at(-1)?.kind).toBe("document");
+      expect(embedder.calls.length).toBeGreaterThan(0);
+    }
   });
 });

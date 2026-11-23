@@ -106,6 +106,21 @@ describe("findRelated com vizinhos por vetor", () => {
     expect(semantic.calls[0]!.deadlineMs).toBeLessThanOrEqual(5000);
   });
 
+  it("fusion=interleave: palavras 1, vetor 1, palavras 2…; sem fusion vale a soma de posições", async () => {
+    const tickets = [ticket(1, "Webhook de saída"), ticket(2, "Webhook de entrada"), ticket(3, "Zzzz"), ticket(4, "Yyyy")];
+    const run = async (fusion?: "rrf" | "interleave") => {
+      const judge = new FakeRelatedJudge();
+      await service.findRelated(draft, snapshotOf(tickets), { related: judge, semantic: semanticOf(["t3", "t2", "t4"]), ...(fusion ? { fusion } : {}) });
+      return judge.calls[0]!.candidates.map((c) => c.id);
+    };
+    const words = (await run("rrf")).filter((id) => id === "t1" || id === "t2");
+    expect(words).toHaveLength(2);
+    expect(await run()).toEqual(await run("rrf"));
+    const interleaved = await run("interleave");
+    // Palavras: t1, t2 (nesta ordem); vetor: t3, t2, t4 → t1, t3, t2, t4.
+    expect(interleaved).toEqual(["t1", "t3", "t2", "t4"]);
+  });
+
   it("com a união dentro de 30, nenhum achado por palavras some; a ordem é a da fusão", async () => {
     const tickets = [ticket(1, "Webhook"), ticket(2, "Webhook saída"), ticket(3, "Outro assunto"), ticket(4, "Mais um")];
     const judge = new FakeRelatedJudge();

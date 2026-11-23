@@ -6,7 +6,7 @@ import { useHarness } from "./harness.js";
 import { as } from "./world.js";
 
 // ADR 0053, fatia 2: a busca de relacionados funde palavras e significado, na procura e na elaboração.
-const WITH_VOYAGE = { ...AI_CONFIG, VOYAGE_API_KEY: "v-test" };
+const WITH_VOYAGE = { ...AI_CONFIG, VOYAGE_API_KEY: "v-test", SEMANTIC_TRIAGE: "rrf" as const };
 const h = useHarness(WITH_VOYAGE, { timeouts: { relatedMs: 8000, elaborationMs: 3000 } });
 const priv = () => h.world().projects.priv;
 const rows = async (sql: string, params: unknown[] = []) => (await h.pool.query(sql, params)).rows;

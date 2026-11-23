@@ -9,7 +9,8 @@
  * sugerida. Nada aqui lê banco: quem chama entrega a árvore que a rota já leu. Falha, prazo ou sinal abortado devolvem as
  * sugeridas como vieram.
  */
-import { descriptionExcerpt, fuseRankings, triageRelated } from "@treepm/domain";
+import { descriptionExcerpt, fuseBy, triageRelated } from "@treepm/domain";
+import type { FusionRule } from "@treepm/domain";
 import { oneLine } from "./elaboration.js";
 import { ELABORATION_MAX_LINKS } from "./prompts.js";
 import { boundedSearch, SEMANTIC_TRIAGE_DEADLINE_MS } from "./semantic-triage.js";
@@ -42,6 +43,8 @@ export type LinkLookupInput = {
   semantic?: SemanticSearch | undefined;
   /** Prazo do passo de vetor (a rota o limita ao que sobra do prazo da procura). */
   semanticDeadlineMs?: number | undefined;
+  /** A regra de fusão (`rrf` por padrão; `interleave` por `SEMANTIC_TRIAGE`). */
+  fusion?: FusionRule | undefined;
 };
 
 /** O que aconteceu com uma sugerida na procura (só códigos e números). */
@@ -111,7 +114,8 @@ export async function linkExistingSuggestions(input: LinkLookupInput): Promise<L
     );
     // Só vizinho que está na árvore já filtrada (sem duplicado, lugar escolhido nem ancestrais) vira candidato.
     const vectorIds = (vectorByTask[index] ?? []).filter((id) => byId.has(id));
-    const fused = fuseRankings(
+    const fused = fuseBy(
+      input.fusion ?? "rrf",
       hits.map((hit) => hit.id),
       vectorIds,
       SUGGESTED_CANDIDATES,
