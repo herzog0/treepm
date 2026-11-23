@@ -121,3 +121,19 @@ Teodoro cria um token de escrita para o projeto `TREEPM` e o liga à sessão da 
 - **Web:** o contorno é um `<svg>` com um retângulo de cantos arredondados e `stroke-dashoffset` animado por CSS (`map/agent-work.css`), que acompanha o raio do card em todos os níveis de detalhe; no nível de ponto é um halo que pulsa; parado com `prefers-reduced-motion`. A primeira versão, de quatro faixas de degradê, tinha cantos retos (`TREEPM-199`). O mapa se atualiza a cada 30 s (`map/useAutoRefresh.ts`). Em Configurações, o alcance do token e a chave "Permitir escrita por MCP".
 - **Revisão de segurança independente**, feita antes do merge da escrita: todos os achados foram corrigidos antes de entrar no `main`, e o endurecimento que restou entrou no PR #148 (permissões por coluna, limite por pessoa, marcadores encerrados ao arquivar).
 - **Não foi exercitado** com um cliente MCP de verdade escrevendo (`TREEPM-189`, `TREEPM-227`): depende de Teodoro ligar a chave e criar um token de escrita. Só ele cria esse token.
+
+## Adendo de 2026-11-23: a fila de trabalho, a prioridade e a criação de tickets pelo MCP (`TREEPM-258`)
+
+Decisão da coordenação, por delegação de Teodoro em 2026-11-23; reversível. Resolve o item 1 de "Em aberto" desta ADR e o item 1 da ADR 0047.
+
+Um agente hoje consegue ler o projeto, comentar, mudar situação e ligar o marcador, mas não sabe **o que pegar** e não consegue **registrar o que descobre**. Três ferramentas fecham o ciclo "pegar, trabalhar, relatar, registrar":
+
+- **`get_work_queue` (leitura):** a fila "próximos para trabalhar" da ADR 0047, para a pessoa dona do token, no projeto do token e, se pedido, dentro de um ramo. Devolve os tickets na ordem da fila, com a prioridade que vale e o caminho, e, quando vazia, o motivo. É a mesma função do domínio que a tela usa: agente e pessoa veem a mesma fila. Ticket com marcador de outro agente não entra, como na tela.
+- **`set_ticket_priority` (escrita):** muda a prioridade pelo mesmo caminho da tela (`TicketsService.updateTicket`), com o evento de histórico marcado como feito pelo MCP.
+- **`create_ticket` (escrita):** cria um ticket com título, descrição e, opcionalmente, pai e prioridade; pode nascer como ideia (`idea: true`), pelas mesmas regras e permissões da tela. O lugar é escolhido por quem chama: a procura por IA não é acionada pelo MCP. Aceita `requestId`, como `add_comment`, para repetir sem duplicar.
+
+Valem para as três de escrita as regras que já existem: token de alcance de escrita **e** a chave da organização ligada; limite de 40 escritas por minuto por pessoa; autoria "pelo MCP" visível no histórico; nenhuma regra de negócio própria do MCP (tudo passa pelos serviços da tela, inclusive a trava de estrutura da ADR 0045 e a versão do projeto da ADR 0046). Nada novo vai a provedor de IA.
+
+Continuam fora: mover ticket, mudar título e descrição de ticket existente, atribuir pessoas, aceitar ideia, remover. Cada um entra quando houver uso que o peça.
+
+Como é escrita nova por um canal de máquina, passa por revisão de segurança independente antes de entrar.
