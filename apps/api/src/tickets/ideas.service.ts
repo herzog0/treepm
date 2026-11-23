@@ -7,6 +7,7 @@ import type { Principal } from "../access/principal.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { ideaStageSchema, ticketStatusSchema } from "./tickets.schema.js";
 import type { IdeaListItem, TicketPage } from "./tickets.schema.js";
+import { MAX_TREE_DEPTH } from "./ticket-scope.js";
 import { AgentWorkService } from "./agent-work.service.js";
 import { TicketsService } from "./tickets.service.js";
 import type { ProjectRow } from "./tickets.service.js";
@@ -105,7 +106,7 @@ export class IdeasService {
     const { project, ticket } = await this.lockedTicket(tx, principal, id, "triage");
     this.requireTriageable(ticket.ideaStage);
     const key = `${project.key}-${ticket.number}`;
-    if (ticket.parentId !== null && (await this.tickets.ideaRootFor(tx, ticket.parentId)) === null) {
+    if (ticket.parentId !== null && (await this.tickets.ideaRootFor(tx, project, ticket.parentId)) === null) {
       await this.tickets.reopenAncestors(tx, principal, project, ticket.parentId, key);
     }
     const from = await this.lockedStage(tx, id);
@@ -145,10 +146,10 @@ export class IdeasService {
   async transform(tx: TenantClient, principal: Principal, id: string): Promise<TicketPage> {
     const { project, ticket } = await this.lockedTicket(tx, principal, id, "refine");
     if (ticket.ideaStage !== null) throw new ConflictException({ code: "ticket_already_idea", message: "Este ticket já é a raiz de uma ideia." });
-    await this.tickets.lockSubtree(tx, id);
+    await this.tickets.lockSubtree(tx, project, id);
     const fresh = await tx.ticket.findFirstOrThrow({ where: { id }, select: { status: true, ideaStage: true } });
     if (fresh.ideaStage !== null) throw new ConflictException({ code: "ticket_already_idea", message: "Este ticket já é a raiz de uma ideia." });
-    const descendants = await this.tickets.descendantStatuses(tx, id);
+    const descendants = await this.tickets.descendantStatuses(tx, project, id);
     if (!canBecomeIdea(ticketStatusSchema.parse(fresh.status), descendants)) {
       throw new ConflictException({
         code: "idea_has_work",
@@ -157,7 +158,7 @@ export class IdeasService {
     }
     await this.setStage(tx, project, id, "new");
     // Uma ideia não é trabalhada antes do aceite: o marcador do ticket e dos descendentes acaba (ADR 0043).
-    await this.agentWork.clearSubtree(tx, principal, project.key, id, "idea");
+    await this.agentWork.clearSubtree(tx, principal, project, id, "idea");
     await this.activity.record(tx, principal, {
       kind: "ticket.idea_registered",
       subjectType: "ticket",
@@ -181,10 +182,13 @@ export class IdeasService {
       // O caminho de cada ideia, subindo de pai em pai só a partir das ideias: os títulos dos ancestrais, não os do projeto inteiro.
       tx.$queryRaw<{ origin: string; title: string }[]>`
         with recursive up as (
-          select r.id as origin, t.id, t.parent_id, t.title, 1 as depth
-          from tickets r join tickets t on t.id = r.parent_id where r.project_id = ${projectId}::uuid and r.idea_stage is not null
+          select r.id as origin, t.org_id, t.project_id, t.id, t.parent_id, t.title, 1 as depth
+          from tickets r join tickets t on t.org_id = r.org_id and t.project_id = r.project_id and t.id = r.parent_id
+          where r.org_id = ${project.orgId} and r.project_id = ${projectId}::uuid and r.idea_stage is not null
           union all
-          select up.origin, t.id, t.parent_id, t.title, up.depth + 1 from tickets t join up on t.id = up.parent_id where up.depth < 10000
+          select up.origin, t.org_id, t.project_id, t.id, t.parent_id, t.title, up.depth + 1
+          from tickets t join up on t.org_id = up.org_id and t.project_id = up.project_id and t.id = up.parent_id
+          where up.depth < ${MAX_TREE_DEPTH}::int
         )
         select origin, title from up order by origin, depth desc`,
     ]);

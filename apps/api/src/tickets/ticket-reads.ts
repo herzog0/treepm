@@ -1,5 +1,9 @@
 import type { TenantClient } from "@treepm/db";
 import type { TicketProgress } from "@treepm/domain";
+import type { IdeaStage } from "@treepm/domain";
+import { ideaStageSchema } from "./tickets.schema.js";
+import { MAX_TREE_DEPTH } from "./ticket-scope.js";
+import type { TicketScope } from "./ticket-scope.js";
 import type { TicketRow } from "./tickets.service.js";
 
 /**
@@ -61,34 +65,48 @@ export async function readSummaryRows(tx: TenantClient, projectId: string): Prom
   }));
 }
 
+export type IdeaRoot = { id: string; number: number; stage: IdeaStage };
+export type TicketBranch = { progress: TicketProgress | null; ideaRoot: IdeaRoot | null };
+
 /**
- * O progresso (ADR 0034, 0042) de cada ticket de `ids` que tem filhos, calculado pelo banco só sobre o ramo de cada um, no lugar de
- * `ticketProgress` sobre o projeto inteiro. A regra é a mesma, escrita de outra forma:
- *  - `ideas`: quantas raízes de ideia há entre os descendentes, em qualquer nível;
- *  - `done`, `total`, `excluded`: só se o ticket está fora de qualquer ideia (ele e os ancestrais sem estágio), contados entre os
- *    descendentes que também estão fora (nem raiz de ideia nem dentro de uma): `cancelled` é excluído; os outros entram no total e
- *    `done` também em `done`;
- *  - quem não tem filho não entra no resultado (como em `ticketProgress`).
- * Sobe e desce por `parent_id`, no máximo 10 000 níveis (o mesmo limite do gatilho de ciclo).
+ * O ramo de cada ticket de `ids` numa consulta só (um único instantâneo do banco, então progresso e ideia nunca discordam entre si):
+ *  - `ideaRoot`: a raiz de ideia mais próxima, ele incluído (`null` fora de ideia);
+ *  - `progress` (ADR 0034, 0042), calculado só sobre o ramo no lugar de `ticketProgress` sobre o projeto inteiro. A regra é a mesma,
+ *    escrita de outra forma:
+ *      · `ideas`: quantas raízes de ideia há entre os descendentes, em qualquer nível;
+ *      · `done`, `total`, `excluded`: só se o ticket está fora de qualquer ideia (ele e os ancestrais sem estágio), contados entre os
+ *        descendentes que também estão fora (nem raiz de ideia nem dentro de uma): `cancelled` é excluído; os outros entram no total e
+ *        `done` também em `done`;
+ *      · quem não tem filho tem `progress: null` (como em `ticketProgress`).
+ * Sobe e desce por `parent_id` dentro de `scope`, no máximo `MAX_TREE_DEPTH` níveis. A regra também existe em memória no domínio
+ * (`ticketProgress`, `ideaRootOf`); o teste `sql-oracle` garante que concordam: quem mudar uma muda a outra.
  */
-export async function readProgressOf(tx: TenantClient, ids: readonly string[]): Promise<Map<string, TicketProgress>> {
-  const result = new Map<string, TicketProgress>();
+export async function readBranchOf(tx: TenantClient, scope: TicketScope, ids: readonly string[]): Promise<Map<string, TicketBranch>> {
+  const result = new Map<string, TicketBranch>();
   if (ids.length === 0) return result;
-  const rows = await tx.$queryRaw<{ origin: string; done: bigint; total: bigint; excluded: bigint; ideas: bigint }[]>`
+  const rows = await tx.$queryRaw<
+    { origin: string; done: bigint | null; total: bigint | null; excluded: bigint | null; ideas: bigint | null; root_id: string | null; root_number: number | null; root_stage: string | null }[]
+  >`
     with recursive
-    sel as (select id from tickets where id = any(${[...ids]}::uuid[])),
+    sel as (select org_id, project_id, id from tickets where org_id = ${scope.orgId} and project_id = ${scope.projectId}::uuid and id = any(${[...new Set(ids)]}::uuid[])),
     up as (
-      select s.id as origin, t.parent_id, t.idea_stage, 1 as depth from sel s join tickets t on t.id = s.id
+      select s.id as origin, t.org_id, t.project_id, t.id, t.number, t.parent_id, t.idea_stage, 1 as depth
+      from sel s join tickets t on t.org_id = s.org_id and t.project_id = s.project_id and t.id = s.id
       union all
-      select up.origin, t.parent_id, t.idea_stage, up.depth + 1 from tickets t join up on t.id = up.parent_id where up.depth < 10000
+      select up.origin, t.org_id, t.project_id, t.id, t.number, t.parent_id, t.idea_stage, up.depth + 1
+      from tickets t join up on t.org_id = up.org_id and t.project_id = up.project_id and t.id = up.parent_id
+      where up.depth < ${MAX_TREE_DEPTH}::int
     ),
-    outside as (select origin, bool_and(idea_stage is null) as outside from up group by origin),
+    roots as (
+      select distinct on (origin) origin, id, number, idea_stage from up where idea_stage is not null order by origin, depth
+    ),
     down as (
-      select s.id as origin, t.id, t.status, (t.idea_stage is not null) as is_root, (t.idea_stage is not null) as inside, 1 as depth
-      from sel s join tickets t on t.parent_id = s.id
+      select s.id as origin, t.org_id, t.project_id, t.id, t.status, (t.idea_stage is not null) as is_root, (t.idea_stage is not null) as inside, 1 as depth
+      from sel s join tickets t on t.org_id = s.org_id and t.project_id = s.project_id and t.parent_id = s.id
       union all
-      select d.origin, t.id, t.status, (t.idea_stage is not null), (d.inside or t.idea_stage is not null), d.depth + 1
-      from tickets t join down d on t.parent_id = d.id where d.depth < 10000
+      select d.origin, t.org_id, t.project_id, t.id, t.status, (t.idea_stage is not null), (d.inside or t.idea_stage is not null), d.depth + 1
+      from tickets t join down d on t.org_id = d.org_id and t.project_id = d.project_id and t.parent_id = d.id
+      where d.depth < ${MAX_TREE_DEPTH}::int
     ),
     counts as (
       select origin,
@@ -98,14 +116,25 @@ export async function readProgressOf(tx: TenantClient, ids: readonly string[]): 
         count(*) filter (where is_root) as ideas
       from down group by origin
     )
-    select o.origin,
-           case when o.outside then c.done else 0 end as done,
-           case when o.outside then c.total else 0 end as total,
-           case when o.outside then c.excluded else 0 end as excluded,
-           c.ideas
-    from outside o join counts c on c.origin = o.origin`;
+    select s.id as origin,
+           case when r.id is null then c.done else 0 end as done,
+           case when r.id is null then c.total else 0 end as total,
+           case when r.id is null then c.excluded else 0 end as excluded,
+           c.ideas,
+           r.id as root_id, r.number as root_number, r.idea_stage as root_stage
+    from sel s left join counts c on c.origin = s.id left join roots r on r.origin = s.id`;
   for (const row of rows) {
-    result.set(row.origin, { done: Number(row.done), total: Number(row.total), excluded: Number(row.excluded), ideas: Number(row.ideas) });
+    result.set(row.origin, {
+      progress: row.ideas === null ? null : { done: Number(row.done), total: Number(row.total), excluded: Number(row.excluded), ideas: Number(row.ideas) },
+      ideaRoot: row.root_id === null ? null : { id: row.root_id, number: row.root_number as number, stage: ideaStageSchema.parse(row.root_stage) },
+    });
   }
+  return result;
+}
+
+/** O progresso de cada ticket de `ids` que tem filhos (ver `readBranchOf`); quem não tem filho não entra no resultado. */
+export async function readProgressOf(tx: TenantClient, scope: TicketScope, ids: readonly string[]): Promise<Map<string, TicketProgress>> {
+  const result = new Map<string, TicketProgress>();
+  for (const [id, branch] of await readBranchOf(tx, scope, ids)) if (branch.progress !== null) result.set(id, branch.progress);
   return result;
 }

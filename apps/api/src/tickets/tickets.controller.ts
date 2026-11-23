@@ -104,7 +104,7 @@ export class TicketsController {
     await this.tickets.lockStructure(tx, projectId); // ADR 0045: o pai e a ideia que o contém são lidos já com a trava.
     if (body.parentId) await this.tickets.requireParent(tx, projectId, body.parentId);
     // Importar dentro de uma ideia (ADR 0042): os itens fazem parte dela, ficam `todo` e não reabrem o pai concluído.
-    const parentIdea = await this.tickets.ideaRootFor(tx, body.parentId ?? null);
+    const parentIdea = await this.tickets.ideaRootFor(tx, project, body.parentId ?? null);
 
     // Pré-ordem: o pai antes dos filhos, irmãos na ordem recebida. Item com filhos é só um ticket com filhos.
     const flat: { item: ImportItem; parentIndex: number | null }[] = [];

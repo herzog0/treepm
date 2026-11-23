@@ -7,6 +7,7 @@ import { ACCESS_TOKEN_CLOCK } from "../access-tokens/clock.js";
 import type { AccessTokenClock } from "../access-tokens/clock.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { ideaRootOfTicket } from "./idea-root.js";
+import { MAX_TREE_DEPTH, scopeOf } from "./ticket-scope.js";
 import type { AgentWork } from "./tickets.schema.js";
 import { ticketStatusSchema } from "./tickets.schema.js";
 
@@ -58,7 +59,7 @@ export class AgentWorkService {
       select status, idea_stage, parent_id, agent_work_started_at, agent_work_until, agent_work_person_id from tickets where id = ${ticketId}::uuid for update`;
     const row = locked[0];
     if (!row) throw new NotFoundException("Ticket não encontrado.");
-    const outside = row.idea_stage !== null || (await ideaRootOfTicket(tx, row.parent_id)) !== null;
+    const outside = row.idea_stage !== null || (await ideaRootOfTicket(tx, scopeOf(project), row.parent_id)) !== null;
     const refusal = agentWorkRefusal(ticketStatusSchema.parse(row.status), outside);
     if (refusal !== null) {
       throw new ConflictException({
@@ -111,19 +112,21 @@ export class AgentWorkService {
    * Desliga o marcador do ticket e de todos os descendentes (transformar em ideia, mover para dentro de uma). Só os marcadores que
    * ainda valiam gravam `ticket.agent_work_ended`; os vencidos só têm as colunas limpas.
    */
-  async clearSubtree(tx: TenantClient, principal: Principal, projectKey: string, rootId: string, reason: AgentWorkEndReason): Promise<void> {
+  async clearSubtree(tx: TenantClient, principal: Principal, project: { orgId: string; id: string; key: string }, rootId: string, reason: AgentWorkEndReason): Promise<void> {
     const rows = await tx.$queryRaw<{ id: string }[]>`
       with recursive down as (
-        select id, 1 as depth from tickets where id = ${rootId}::uuid
+        select org_id, project_id, id, 1 as depth from tickets where org_id = ${project.orgId} and project_id = ${project.id}::uuid and id = ${rootId}::uuid
         union all
-        select t.id, down.depth + 1 from tickets t join down on t.parent_id = down.id where down.depth < 1000
+        select t.org_id, t.project_id, t.id, down.depth + 1
+        from tickets t join down on t.org_id = down.org_id and t.project_id = down.project_id and t.parent_id = down.id
+        where down.depth < ${MAX_TREE_DEPTH}::int
       )
       select id from down`;
     // Trava a subárvore inteira (em ordem de id) ANTES de olhar os marcadores: um `set` que já leu os ancestrais antigos e ainda não
     // gravou termina primeiro, e a limpeza o enxerga; um que chega depois espera e relê o pai novo. Fecha o risco residual da ADR 0042.
     const ids = rows.map((row) => row.id);
-    await tx.$queryRaw`select id from tickets where id = any(${ids}::uuid[]) order by id for update`;
-    await this.clearMarkers(tx, principal, projectKey, ids, reason);
+    await tx.$queryRaw`select id from tickets where org_id = ${project.orgId} and project_id = ${project.id}::uuid and id = any(${ids}::uuid[]) order by id for update`;
+    await this.clearMarkers(tx, principal, project.key, ids, reason);
   }
 
   /** O ticket concluído ou cancelado já não tem o que sinalizar. */

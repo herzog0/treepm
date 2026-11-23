@@ -12,10 +12,11 @@ import { ActivityService } from "../activity/activity.service.js";
 import { parseOutput } from "../common/zod.js";
 import { AgentWorkService } from "./agent-work.service.js";
 import { ideaRootOfTicket } from "./idea-root.js";
+import { MAX_TREE_DEPTH, scopeOf } from "./ticket-scope.js";
 import { ideaStageSchema, ticketDetailSchema, ticketStatusSchema } from "./tickets.schema.js";
 import type { AgentWork, TicketDetail, TicketIdea, TicketPage, TicketSummary, updateTicketSchema } from "./tickets.schema.js";
 import { readContributions } from "./ticket-contributions.read.js";
-import { readProgressOf } from "./ticket-reads.js";
+import { readBranchOf } from "./ticket-reads.js";
 
 export type ProjectRow = {
   orgId: string;
@@ -175,7 +176,7 @@ export class TicketsService {
     }
     if (body.parentId !== undefined && body.parentId !== ticket.parentId) {
       // Só a cadeia do pai novo para cima (uma consulta recursiva), não o projeto inteiro: a conferência só anda por ela.
-      const parents = await this.ancestorLinks(tx, body.parentId);
+      const parents = await this.ancestorLinks(tx, project, body.parentId);
       if (parentWouldCreateCycle(parents, id, body.parentId)) {
         throw new ConflictException({ code: "ticket_cycle", message: "O pai escolhido é o próprio ticket ou um descendente." });
       }
@@ -208,16 +209,16 @@ export class TicketsService {
     const finalParent = body.parentId !== undefined ? body.parentId : ticket.parentId;
     // Ideias (ADR 0042): a raiz, ou um ticket dentro de uma, está fora do processo. A posição que vale é a final: quem sai da
     // ideia no mesmo pedido já muda de situação como ticket comum, e quem entra não muda.
-    const parentIdea = data.parentId !== undefined || data.status !== undefined ? await this.ideaRootFor(tx, finalParent) : null;
+    const parentIdea = data.parentId !== undefined || data.status !== undefined ? await this.ideaRootFor(tx, project, finalParent) : null;
     const outside = ticket.ideaStage !== null || parentIdea !== null;
     if (data.parentId !== undefined && parentIdea !== null) {
       // Trabalho em andamento não vira ideia por arrasto: o ticket e os descendentes `todo` ou `cancelled`. A subárvore é
       // travada (`for update`) antes de ler as situações: uma mudança de situação ainda não confirmada de um descendente
       // faz esta espera e, ao confirmar, é vista (risco residual da ADR 0042, fechado pela ADR 0045).
-      await this.lockSubtree(tx, id);
+      await this.lockSubtree(tx, project, id);
       // O próprio ticket também é relido depois da trava de linha: a situação da leitura de antes pode já não valer.
       const fresh = await tx.ticket.findFirstOrThrow({ where: { id }, select: { status: true } });
-      if (!canMoveIntoIdea(fresh.status as TicketStatus, await this.descendantStatuses(tx, id))) {
+      if (!canMoveIntoIdea(fresh.status as TicketStatus, await this.descendantStatuses(tx, project, id))) {
         throw new ConflictException({
           code: "move_into_idea_blocked",
           message: "Trabalho em andamento, em revisão ou concluído não entra numa ideia; mova só o que ainda está a fazer.",
@@ -234,7 +235,7 @@ export class TicketsService {
       // O pai e a situação também vêm da linha travada: um movimento para dentro de uma ideia que acabou de confirmar vale a partir daqui.
       const locked = await tx.$queryRaw<{ idea_stage: string | null; parent_id: string | null; status: string }[]>`select idea_stage, parent_id, status from tickets where id = ${id}::uuid for update`;
       const lockedParent = body.parentId !== undefined ? body.parentId : (locked[0]?.parent_id ?? null);
-      const inside = locked[0]?.idea_stage != null || (await this.ideaRootFor(tx, lockedParent)) !== null;
+      const inside = locked[0]?.idea_stage != null || (await this.ideaRootFor(tx, project, lockedParent)) !== null;
       if (!statusChangeAllowed(inside, (locked[0]?.status ?? ticket.status) as TicketStatus, data.status as TicketStatus)) this.throwInIdea();
     }
     if (data.status === "done") await this.requireNoOpenChildren(tx, id);
@@ -250,7 +251,7 @@ export class TicketsService {
       });
     }
     // Entrando numa ideia, o marcador acaba junto, com a subárvore.
-    if (data.parentId !== undefined && parentIdea !== null) await this.agentWork.clearSubtree(tx, principal, project.key, id, "idea");
+    if (data.parentId !== undefined && parentIdea !== null) await this.agentWork.clearSubtree(tx, principal, project, id, "idea");
     if (data.description !== undefined) await this.syncMentions(tx, project, ticket, data.description);
     return this.detailFor(tx, project, id, principal);
   }
@@ -398,19 +399,22 @@ export class TicketsService {
    * A raiz de ideia mais próxima de `startId`, ele incluído (ADR 0042): uma consulta recursiva, qualquer que seja a
    * profundidade. `null` quando `startId` é nulo ou não está dentro de nenhuma ideia.
    */
-  async ideaRootFor(tx: TenantClient, startId: string | null): Promise<{ id: string; number: number; stage: IdeaStage } | null> {
-    return ideaRootOfTicket(tx, startId);
+  async ideaRootFor(tx: TenantClient, project: Pick<ProjectRow, "orgId" | "id">, startId: string | null): Promise<{ id: string; number: number; stage: IdeaStage } | null> {
+    return ideaRootOfTicket(tx, scopeOf(project), startId);
   }
 
   /** O pai de cada ticket da cadeia de `startId` até a raiz (ele incluído), para conferir ciclo subindo de pai em pai. Vazio para `null`. */
-  async ancestorLinks(tx: TenantClient, startId: string | null): Promise<Map<string, string | null>> {
+  async ancestorLinks(tx: TenantClient, project: Pick<ProjectRow, "orgId" | "id">, startId: string | null): Promise<Map<string, string | null>> {
     const links = new Map<string, string | null>();
     if (startId === null) return links;
     const rows = await tx.$queryRaw<{ id: string; parent_id: string | null }[]>`
       with recursive up as (
-        select id, parent_id, 1 as depth from tickets where id = ${startId}::uuid
+        select org_id, project_id, id, parent_id, 1 as depth
+        from tickets where org_id = ${project.orgId} and project_id = ${project.id}::uuid and id = ${startId}::uuid
         union all
-        select t.id, t.parent_id, up.depth + 1 from tickets t join up on t.id = up.parent_id where up.depth < 10000
+        select t.org_id, t.project_id, t.id, t.parent_id, up.depth + 1
+        from tickets t join up on t.org_id = up.org_id and t.project_id = up.project_id and t.id = up.parent_id
+        where up.depth < ${MAX_TREE_DEPTH}::int
       )
       select id, parent_id from up`;
     for (const row of rows) links.set(row.id, row.parent_id);
@@ -418,25 +422,31 @@ export class TicketsService {
   }
 
   /** As situações de todos os descendentes de um ticket (ele não entra), qualquer que seja a profundidade. */
-  async descendantStatuses(tx: TenantClient, id: string): Promise<TicketStatus[]> {
+  async descendantStatuses(tx: TenantClient, project: Pick<ProjectRow, "orgId" | "id">, id: string): Promise<TicketStatus[]> {
     const rows = await tx.$queryRaw<{ status: string }[]>`
       with recursive down as (
-        select id, status, 1 as depth from tickets where parent_id = ${id}::uuid
+        select org_id, project_id, id, status, 1 as depth
+        from tickets where org_id = ${project.orgId} and project_id = ${project.id}::uuid and parent_id = ${id}::uuid
         union all
-        select t.id, t.status, down.depth + 1 from tickets t join down on t.parent_id = down.id where down.depth < 1000
+        select t.org_id, t.project_id, t.id, t.status, down.depth + 1
+        from tickets t join down on t.org_id = down.org_id and t.project_id = down.project_id and t.parent_id = down.id
+        where down.depth < ${MAX_TREE_DEPTH}::int
       )
       select status from down`;
     return rows.map((row) => ticketStatusSchema.parse(row.status));
   }
 
   /** Trava o ticket e todos os descendentes (`for update`) até o fim da transação: ninguém muda a situação deles no meio de uma conferência. */
-  async lockSubtree(tx: TenantClient, id: string): Promise<void> {
+  async lockSubtree(tx: TenantClient, project: Pick<ProjectRow, "orgId" | "id">, id: string): Promise<void> {
     await tx.$queryRaw`
-      select id from tickets where id in (
+      select id from tickets where org_id = ${project.orgId} and project_id = ${project.id}::uuid and id in (
         with recursive down as (
-          select id, 1 as depth from tickets where id = ${id}::uuid
+          select org_id, project_id, id, 1 as depth
+          from tickets where org_id = ${project.orgId} and project_id = ${project.id}::uuid and id = ${id}::uuid
           union all
-          select t.id, down.depth + 1 from tickets t join down on t.parent_id = down.id where down.depth < 1000
+          select t.org_id, t.project_id, t.id, down.depth + 1
+          from tickets t join down on t.org_id = down.org_id and t.project_id = down.project_id and t.parent_id = down.id
+          where down.depth < ${MAX_TREE_DEPTH}::int
         )
         select id from down
       ) order by id for update`;
@@ -448,10 +458,10 @@ export class TicketsService {
 
   async detail(tx: TenantClient, project: ProjectRow, id: string): Promise<TicketDetail> {
     // Progresso e situação de ideia vêm só do ramo do ticket (descendentes e ancestrais), não do projeto inteiro.
-    const [row, progress, ideaRoot, mentions, dependencies] = await Promise.all([
+    // Progresso e ideia vêm da MESMA consulta (`readBranchOf`): um instantâneo só, então uma escrita concorrente não faz um discordar do outro.
+    const [row, branches, mentions, dependencies] = await Promise.all([
       tx.ticket.findFirstOrThrow({ where: { id }, include: { assignees: { select: { personId: true } } } }),
-      readProgressOf(tx, [id]),
-      ideaRootOfTicket(tx, id),
+      readBranchOf(tx, scopeOf(project), [id]),
       tx.ticketRelation.findMany({
         where: { toTicketId: id, kind: "mentions" },
         select: { from: { select: { id: true, number: true, title: true, status: true } } },
@@ -465,6 +475,9 @@ export class TicketsService {
         },
       }),
     ]);
+    const branchProgress = branches.get(id)?.progress ?? null;
+    const progress = new Map(branchProgress ? [[id, branchProgress] as const] : []);
+    const ideaRoot = branches.get(id)?.ideaRoot ?? null;
     const idea: TicketIdea = ideaRoot === null ? null : ideaRoot.id === id ? { root: true, stage: ideaRoot.stage } : { root: false, rootId: ideaRoot.id, rootKey: `${project.key}-${ideaRoot.number}` };
     const mentionedBy = mentions.map((relation) => relation.from).sort((a, b) => a.number - b.number);
     const byNumber = (a: MentionedByRow, b: MentionedByRow) => a.number - b.number;
@@ -587,7 +600,7 @@ export class TicketsService {
       await this.requireParent(tx, project.id, input.parentId);
     }
     // Ideia, ou ticket dentro de uma: fora do processo (ADR 0042). A situação fica em `todo` e o pai concluído não é reaberto.
-    const parentIdea = await this.ideaRootFor(tx, input.parentId);
+    const parentIdea = await this.ideaRootFor(tx, project, input.parentId);
     const outside = input.idea === true || parentIdea !== null;
     if (outside && input.status !== "todo") {
       throw new ConflictException({ code: "ticket_in_idea", message: "Dentro de uma ideia a situação fica em a fazer; aceite a ideia antes." });

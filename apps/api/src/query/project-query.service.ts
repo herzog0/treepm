@@ -8,6 +8,9 @@ import type { AccessTokenClock } from "../access-tokens/clock.js";
 import type { Principal } from "../access/principal.js";
 import { parseOutput } from "../common/zod.js";
 import { EXCERPT_SOURCE_LENGTH, readProgressOf } from "../tickets/ticket-reads.js";
+import { MAX_TREE_DEPTH } from "../tickets/ticket-scope.js";
+import { scopeOf } from "../tickets/ticket-scope.js";
+import type { TicketScope } from "../tickets/ticket-scope.js";
 import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
 import { queryOverviewSchema, queryTicketPageSchema, queryTicketSchema, queryListSchema } from "./query.schema.js";
 import type { QueryIdea, QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "./query.schema.js";
@@ -62,15 +65,17 @@ export class ProjectQueryService {
    * `idea` só dos tickets de `ids`: a raiz de ideia mais próxima de cada um, ele incluído, por uma consulta recursiva que sobe de pai em
    * pai. Ticket comum não entra. Não lê o projeto inteiro: o custo é a profundidade dos tickets pedidos.
    */
-  private async ideasOf(tx: TenantClient, ids: readonly string[]): Promise<IdeaMap> {
+  private async ideasOf(tx: TenantClient, scope: TicketScope, ids: readonly string[]): Promise<IdeaMap> {
     const out = new Map<string, QueryIdea>();
     if (ids.length === 0) return out;
     const rows = await tx.$queryRaw<{ origin: string; root_id: string; root_number: number; idea_stage: string }[]>`
       with recursive up as (
-        select t.id as origin, t.id, t.parent_id, t.number, t.idea_stage, 1 as depth from tickets t where t.id = any(${[...new Set(ids)]}::uuid[])
+        select t.id as origin, t.org_id, t.project_id, t.id, t.parent_id, t.number, t.idea_stage, 1 as depth
+        from tickets t where t.org_id = ${scope.orgId} and t.project_id = ${scope.projectId}::uuid and t.id = any(${[...new Set(ids)]}::uuid[])
         union all
-        select up.origin, p.id, p.parent_id, p.number, p.idea_stage, up.depth + 1
-        from tickets p join up on p.id = up.parent_id where up.idea_stage is null and up.depth < 10000
+        select up.origin, p.org_id, p.project_id, p.id, p.parent_id, p.number, p.idea_stage, up.depth + 1
+        from tickets p join up on p.org_id = up.org_id and p.project_id = up.project_id and p.id = up.parent_id
+        where up.idea_stage is null and up.depth < ${MAX_TREE_DEPTH}::int
       )
       select distinct on (origin) origin, id as root_id, number as root_number, idea_stage from up where idea_stage is not null order by origin, depth`;
     for (const row of rows) {
@@ -92,7 +97,7 @@ export class ProjectQueryService {
       from tickets where project_id = ${projectId}::uuid order by number asc`;
     const searchable = rows.map((row) => ({ key: `${project.key}-${row.number}`, number: row.number, title: row.title, descriptionExcerpt: descriptionExcerpt(row.description), row }));
     const found = cut(searchTickets(text, searchable, limit + 1), limit);
-    const ideas = await this.ideasOf(tx, found.rows.map((entry) => entry.row.id));
+    const ideas = await this.ideasOf(tx, scopeOf(project), found.rows.map((entry) => entry.row.id));
     return parseOutput(queryListSchema, { tickets: found.rows.map((entry) => this.summary(project.key, entry.row, ideas)), truncated: found.truncated });
   }
 
@@ -131,10 +136,10 @@ export class ProjectQueryService {
       dependsOut: cut(await outgoing("depends_on"), RELATED_MAX),
       dependsIn: cut(await incoming("depends_on"), RELATED_MAX),
     };
-    const pathRows = await this.ancestors(tx, row.parentId);
+    const pathRows = await this.ancestors(tx, scopeOf(project), row.parentId);
     // A situação de ideia só dos tickets que a resposta mostra (o próprio, o caminho, os filhos e as ligações), numa consulta.
     const shown = [row, ...pathRows, ...Object.values(parts).flatMap((part) => part.rows)];
-    const ideas = await this.ideasOf(tx, shown.map((entry) => entry.id));
+    const ideas = await this.ideasOf(tx, scopeOf(project), shown.map((entry) => entry.id));
     const summary = (entry: Row): QueryTicketSummary => this.summary(project.key, entry, ideas);
     const list = (part: { rows: Row[]; truncated: boolean }): QueryTicketList => ({ tickets: part.rows.map(summary), truncated: part.truncated });
     const relations = {
@@ -176,16 +181,18 @@ export class ProjectQueryService {
         and (${options.after ?? null}::int is null or number > ${options.after ?? null}::int)
         and (${under}::uuid is null or id in (
           with recursive down as (
-            select id, 1 as depth from tickets where parent_id = ${under}::uuid
+            select org_id, project_id, id, 1 as depth from tickets where org_id = ${project.orgId} and project_id = ${projectId}::uuid and parent_id = ${under}::uuid
             union all
-            select t.id, down.depth + 1 from tickets t join down on t.parent_id = down.id where down.depth < 10000
+            select t.org_id, t.project_id, t.id, down.depth + 1
+            from tickets t join down on t.org_id = down.org_id and t.project_id = down.project_id and t.parent_id = down.id
+            where down.depth < ${MAX_TREE_DEPTH}::int
           )
           select id from down
         ))
       order by number asc
       limit ${limit + 1}::int`;
     const page = cut(rows, limit);
-    const ideas = await this.ideasOf(tx, page.rows.map((row) => row.id));
+    const ideas = await this.ideasOf(tx, scopeOf(project), page.rows.map((row) => row.id));
     return parseOutput(queryTicketPageSchema, {
       tickets: page.rows.map((row) => this.summary(project.key, row, ideas)),
       truncated: page.truncated,
@@ -202,10 +209,12 @@ export class ProjectQueryService {
     // Descendo da raiz, cada ticket sabe se está dentro de uma ideia (ele mesmo ser raiz já conta): ideia não é trabalho aceito.
     const groups = await tx.$queryRaw<{ status: string; idea_stage: string | null; inside: boolean; n: bigint }[]>`
       with recursive down as (
-        select id, status, idea_stage, (idea_stage is not null) as inside from tickets where project_id = ${projectId}::uuid and parent_id is null
+        select org_id, project_id, id, status, idea_stage, (idea_stage is not null) as inside, 1 as depth
+        from tickets where org_id = ${project.orgId} and project_id = ${projectId}::uuid and parent_id is null
         union all
-        select t.id, t.status, t.idea_stage, (down.inside or t.idea_stage is not null)
-        from tickets t join down on t.parent_id = down.id where t.project_id = ${projectId}::uuid
+        select t.org_id, t.project_id, t.id, t.status, t.idea_stage, (down.inside or t.idea_stage is not null), down.depth + 1
+        from tickets t join down on t.org_id = down.org_id and t.project_id = down.project_id and t.parent_id = down.id
+        where down.depth < ${MAX_TREE_DEPTH}::int
       )
       select status, idea_stage, inside, count(*) as n from down group by status, idea_stage, inside`;
     const top = await tx.$queryRaw<Row[]>`
@@ -222,7 +231,7 @@ export class ProjectQueryService {
       byStatus[ticketStatusSchema.parse(group.status)] += count;
     }
     const part = cut(top, RELATED_MAX);
-    const [progress, ideas] = await Promise.all([readProgressOf(tx, part.rows.map((row) => row.id)), this.ideasOf(tx, part.rows.map((row) => row.id))]);
+    const [progress, ideas] = await Promise.all([readProgressOf(tx, scopeOf(project), part.rows.map((row) => row.id)), this.ideasOf(tx, scopeOf(project), part.rows.map((row) => row.id))]);
     return parseOutput(queryOverviewSchema, {
       projectKey: project.key,
       total: work,
@@ -236,21 +245,23 @@ export class ProjectQueryService {
   }
 
   /** Projeto inexistente, de outra organização (RLS) ou que a pessoa não enxerga: o mesmo 404 das rotas. Arquivado pode ser lido. */
-  async requireProject(tx: TenantClient, principal: Principal, projectId: string): Promise<{ id: string; key: string }> {
-    const project = await tx.project.findFirst({ where: { id: projectId }, select: { id: true, key: true, visibility: true } });
+  async requireProject(tx: TenantClient, principal: Principal, projectId: string): Promise<{ id: string; orgId: string; key: string }> {
+    const project = await tx.project.findFirst({ where: { id: projectId }, select: { id: true, orgId: true, key: true, visibility: true } });
     if (!project || !this.authorization.canView(principal.actor, project)) throw new NotFoundException("Projeto não encontrado.");
     return project;
   }
 
   /** Do topo até o pai: uma consulta recursiva, qualquer que seja a profundidade. */
-  private async ancestors(tx: TenantClient, parentId: string | null): Promise<Row[]> {
+  private async ancestors(tx: TenantClient, scope: TicketScope, parentId: string | null): Promise<Row[]> {
     if (parentId === null) return [];
     return tx.$queryRaw<Row[]>`
       with recursive up as (
-        select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id, 1 as depth from tickets where id = ${parentId}::uuid
+        select org_id, project_id, id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id, 1 as depth
+        from tickets where org_id = ${scope.orgId} and project_id = ${scope.projectId}::uuid and id = ${parentId}::uuid
         union all
-        select t.id, t.number, t.title, left(t.description, ${EXCERPT_SOURCE_LENGTH}::int), t.status, t.parent_id, up.depth + 1
-        from tickets t join up on t.id = up.parent_id where up.depth < 1000
+        select t.org_id, t.project_id, t.id, t.number, t.title, left(t.description, ${EXCERPT_SOURCE_LENGTH}::int), t.status, t.parent_id, up.depth + 1
+        from tickets t join up on t.org_id = up.org_id and t.project_id = up.project_id and t.id = up.parent_id
+        where up.depth < ${MAX_TREE_DEPTH}::int
       )
       select id, number, title, description, status, parent_id as "parentId" from up order by depth desc`;
   }

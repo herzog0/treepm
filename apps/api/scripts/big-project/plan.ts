@@ -27,6 +27,15 @@ export interface PlanOptions {
   /** Eventos e comentários do ticket de muito histórico. */
   readonly historyEvents?: number;
   readonly historyComments?: number;
+  /**
+   * Variedade de ideias para o oráculo de equivalência (TREEPM-254). Desligadas, o plano é byte a byte o das sementes já usadas nas
+   * referências: estas opções só mexem depois de tudo o mais ter sido sorteado, com um sorteio próprio (`seed` à parte).
+   * `nestedIdeas`: ideia dentro de ideia; `topIdeas`: raiz de ideia no topo do projeto (sem pai); `closedInIdeas`: `cancelled` dentro de
+   * ideia (o que as regras permitem: dentro de ideia só `todo` e `cancelled`; `done` não existe ali, ADR 0042).
+   */
+  readonly nestedIdeas?: boolean;
+  readonly topIdeas?: boolean;
+  readonly closedInIdeas?: boolean;
 }
 
 export interface PlannedPerson { readonly id: string; readonly clerkUserId: string; readonly name: string; readonly email: string }
@@ -175,7 +184,7 @@ function pickSize(rng: Rng): SizeClass {
 const titleOf = (rng: Rng): string => `${rng.pick(VERBS)} ${rng.pick(OBJECTS)}${rng.pick(QUALIFIERS)}`;
 
 export function planBigProject(input: PlanOptions): BigProjectPlan {
-  const options: Required<PlanOptions> = { people: 24, historyEvents: 1500, historyComments: 400, ...input };
+  const options: Required<PlanOptions> = { people: 24, historyEvents: 1500, historyComments: 400, nestedIdeas: false, topIdeas: false, closedInIdeas: false, ...input };
   const { n, seed, key, now } = options;
   if (!Number.isInteger(n) || n < 100) throw new Error("O projeto grande precisa de pelo menos 100 tickets.");
   const rng = makeRng(seed);
@@ -306,6 +315,54 @@ export function planBigProject(input: PlanOptions): BigProjectPlan {
     const candidate = fixtureCount + rng.int(n - fixtureCount);
     if (locked.has(candidate) || status[candidate] === "done" || status[candidate] === "cancelled") continue;
     agentWork.set(candidate, rng.pick(NOTES));
+  }
+
+  // 4b. Variedade de ideias (só por opção): sorteio próprio, depois de todo o resto, para não mexer no que as sementes já geravam.
+  if (options.nestedIdeas || options.topIdeas || options.closedInIdeas) {
+    const extra = makeRng(seed ^ 0x51ed270b);
+    const stagesExtra: IdeaStage[] = ["new", "refining", "ready", "discarded"];
+    const free = (i: number): boolean => !isFixture(i) && ideaStage[i] === null;
+    const makeRoot = (index: number): void => {
+      ideaStage[index] = extra.pick(stagesExtra);
+      status[index] = "todo";
+      agentWork.delete(index);
+    };
+    const quota = Math.max(2, Math.round(n * 0.004));
+    if (options.topIdeas) {
+      // Raiz do projeto com subárvore pequena, que nenhuma ideia contém ainda: a ideia vai até o topo.
+      const candidates = Array.from({ length: n }, (_, i) => i).filter((i) => free(i) && parent[i] === null && !locked.has(i) && subtree(i).length <= 25 && subtree(i).every((m) => !isFixture(m) && !locked.has(m)));
+      for (let made = 0; made < quota && candidates.length > 0; made += 1) {
+        const [candidate] = candidates.splice(extra.int(candidates.length), 1) as [number];
+        makeRoot(candidate);
+        for (const member of subtree(candidate)) {
+          locked.add(member);
+          if (member !== candidate) {
+            status[member] = "todo";
+            agentWork.delete(member);
+          }
+        }
+      }
+    }
+    if (options.nestedIdeas) {
+      // Uma raiz nova dentro de uma ideia que já existe (a subárvore já está em `todo`, sem marcador).
+      const candidates = Array.from({ length: n }, (_, i) => i).filter((i) => free(i) && locked.has(i) && parent[i] !== null);
+      for (let made = 0; made < quota && candidates.length > 0; made += 1) {
+        const [candidate] = candidates.splice(extra.int(candidates.length), 1) as [number];
+        if (ideaStage[candidate] === null) makeRoot(candidate);
+      }
+    }
+    if (options.closedInIdeas) {
+      // Cancelado dentro de ideia: tickets soltos e ramos inteiros, nunca a raiz.
+      const inside = Array.from({ length: n }, (_, i) => i).filter((i) => locked.has(i) && ideaStage[i] === null && !isFixture(i));
+      for (const index of inside) {
+        if (!extra.chance(0.18)) continue;
+        for (const member of subtree(index)) {
+          if (ideaStage[member] !== null) continue;
+          status[member] = "cancelled";
+          agentWork.delete(member);
+        }
+      }
+    }
   }
 
   // 5. Fixtures que dependem das situações.

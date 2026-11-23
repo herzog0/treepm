@@ -32,6 +32,16 @@ async function tool(name: string, args: Record<string, unknown> = {}): Promise<u
   return { structured: res.body.result.structuredContent, text: res.body.result.content?.[0]?.text };
 }
 
+/** Uma segunda organização com um projeto e dois tickets (pai e filho), semeada pelo papel dono, que a sessão do teste não enxerga. */
+async function foreignTicket(): Promise<{ project: string; parent: string; child: string }> {
+  await pool.query("insert into organizations (org_id, name, slug) values ('org_outra', 'Outra', 'org-outra') on conflict do nothing");
+  const person = (await pool.query<{ id: string }>("insert into people (org_id, clerk_user_id, display_name, email, clerk_role) values ('org_outra', 'u_outra', 'Outra pessoa', 'outra@x.test', 'admin') returning id")).rows[0]!.id;
+  const project = (await pool.query<{ id: string }>("insert into projects (org_id, name, key, visibility) values ('org_outra', 'Outro', 'OUT', 'organization') returning id")).rows[0]!.id;
+  const parent = (await pool.query<{ id: string }>("insert into tickets (org_id, project_id, number, title, description, status, idea_stage, created_by_person_id) values ('org_outra', $1, 1, 'Pai de fora', '', 'todo', 'new', $2) returning id", [project, person])).rows[0]!.id;
+  const child = (await pool.query<{ id: string }>("insert into tickets (org_id, project_id, number, title, description, status, parent_id, created_by_person_id) values ('org_outra', $1, 2, 'Filho de fora', '', 'todo', $2, $3) returning id", [project, parent, person])).rows[0]!.id;
+  return { project, parent, child };
+}
+
 const withoutVolatile = (page: Record<string, unknown>): Record<string, unknown> => {
   const rest = { ...page };
   delete rest["updatedAt"];
@@ -131,6 +141,17 @@ describe("HTTP: respostas idênticas às de antes", () => {
     const res = await get("/api/tickets/00000000-0000-4000-8000-000000000000");
     expect(res.status).toBe(404);
     expectGolden("detail-404", res.body);
+    // De outra organização DE VERDADE: o ticket existe (e tem filhos, dentro de uma ideia), mas pertence a quem a sessão não enxerga.
+    const other = await foreignTicket();
+    const foreign = await get(`/api/tickets/${other.parent}`);
+    expect(foreign.status).toBe(404);
+    expect(foreign.body).toEqual(res.body);
+    expect((await get(`/api/tickets/${other.child}`)).status).toBe(404);
+    expect((await patch(`/api/tickets/${other.child}`, { status: "in_progress" })).status).toBe(404);
+    expect((await get(`/api/projects/${other.project}/tickets`)).status).toBe(404);
+    expect((await get(`/api/projects/${other.project}/ideas`)).status).toBe(404);
+    // E ele segue intacto no banco: a organização de fora não foi tocada.
+    expect((await pool.query("select count(*)::int as n from tickets where org_id = $1", ["org_outra"])).rows[0]).toEqual({ n: 2 });
   });
 });
 
