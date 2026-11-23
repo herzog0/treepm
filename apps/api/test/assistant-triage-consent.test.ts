@@ -5,7 +5,7 @@ import { useHarness } from "./harness.js";
 import { as } from "./world.js";
 
 // ADR 0053, fatia 2: sem aceite em vigor, nenhuma chamada ao provedor de vetores e nenhum vetor gravado.
-const h = useHarness({ ...AI_CONFIG, VOYAGE_API_KEY: "v-test" }, { consent: false });
+const h = useHarness({ ...AI_CONFIG, VOYAGE_API_KEY: "v-test", SEMANTIC_TRIAGE: "rrf" }, { consent: false });
 
 describe("sem aceite da organização", () => {
   it("a procura é recusada e nenhum vetor é gerado nem lido", async () => {

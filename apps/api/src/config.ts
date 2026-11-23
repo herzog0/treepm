@@ -30,6 +30,13 @@ const schema = z.object({
   TYPESAFE_API_KEY: z.string().min(1).optional(),
   /** Chave da Voyage AI (vetores da busca por significado, ADR 0053). Opcional e fora de `assistantEnabled`: sem ela o assistente segue configurado e a busca usa só palavras. */
   VOYAGE_API_KEY: z.string().min(1).optional(),
+  /**
+   * Como a busca de relacionados usa os vetores (ADR 0053): `off` (padrão) = só palavras, sem ler vetores, sincronizar nem
+   * chamar o provedor; `rrf` = soma de posições; `interleave` = intercalação (palavras 1, vetor 1, palavras 2…).
+   */
+  SEMANTIC_TRIAGE: z.enum(["off", "rrf", "interleave"]).default("off"),
+  /** O tipo da consulta ao provedor de vetores nas duas rotas: `query` (padrão) ou `document`. */
+  SEMANTIC_QUERY_KIND: z.enum(["query", "document"]).default("query"),
   /** Identificador numérico do GitHub App. Opcional: sem as cinco variáveis do app, a ligação com o GitHub fica desligada (ADR 0032). */
   GITHUB_APP_ID: z.string().regex(/^\d+$/, "deve ser numérico").optional(),
   GITHUB_APP_SLUG: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/, "deve ser o slug do app").optional(),

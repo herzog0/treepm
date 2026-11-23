@@ -18,6 +18,7 @@ process.env["APP_ORIGIN"] = "http://127.0.0.1:4310";
 delete process.env["ANTHROPIC_API_KEY"];
 delete process.env["TYPESAFE_API_KEY"];
 delete process.env["VOYAGE_API_KEY"];
+process.env["SEMANTIC_TRIAGE"] = "rrf";
 
 // ADR 0053, fatia 2: o ticket certo ("Identidade federada") NÃO tem palavra em comum com o pedido; só os "conceitos" do falso o aproximam.
 const node = (number: number, title: string, parent: number | null, depth: number): GabaritoTicket => ({
@@ -78,6 +79,22 @@ describe("caso de medição com vetores (provedores falsos)", () => {
     await caseRunCommand(ctx(), { caseFile: writeCase(base), repeats: 1 });
     const [repeat] = repeatsOf();
     expect(repeat.relatedHit).toBe(false);
+  });
+
+  it("SEMANTIC_TRIAGE=off pelo ambiente do processo: o mesmo caso com conceitos não usa vetores (sem editar arquivo)", async () => {
+    process.env["SEMANTIC_TRIAGE"] = "off";
+    const off = await bootApp({ org: "org_vec", user: "user_vec", role: "org:admin", fakeProviders: true, fake503First: 0, fake503JudgeAt: 0, needsAi: true });
+    try {
+      lines = [];
+      const offCtx: Context = { ...ctx(), client: new ApiClient(off.baseUrl, off.token), recorder: off.recorder, ...(off.setConcepts ? { setConcepts: off.setConcepts } : {}) };
+      await caseRunCommand(offCtx, { caseFile: writeCase({ ...base, concepts: CONCEPTS }), repeats: 1 });
+      const [repeat] = repeatsOf();
+      expect(repeat.relatedHit).toBe(false);
+      expect(repeat.triage).toMatchObject({ vector: 0, onlyVector: 0, semantic: { failure: "disabled" } });
+    } finally {
+      process.env["SEMANTIC_TRIAGE"] = "rrf";
+      await off.close();
+    }
   });
 
   it("`concepts` é validado", () => {

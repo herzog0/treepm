@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { interleaveRankings } from "@treepm/domain";
 import { linkExistingSuggestions, SUGGESTED_CANDIDATES } from "../src/assistant/suggested-links.js";
 import type { LookupTicket } from "../src/assistant/suggested-links.js";
 import type { ElaborationLink, ElaborationSuggestion, ExistingMatchInput, ExistingMatchResult, ExistingMatcher } from "../src/assistant/ports.js";
@@ -28,7 +29,7 @@ class Scripted implements ExistingMatcher {
 }
 const pick = (key: string) => new Scripted(() => key);
 const base = { tree, projectKey: "P", duplicateKey: null as string | null };
-const run = (matcher: ExistingMatcher, over: { links?: ElaborationLink[]; suggested?: ElaborationSuggestion[]; duplicateKey?: string | null; tree?: LookupTicket[]; excludeIds?: ReadonlySet<string>; signal?: AbortSignal; semantic?: SemanticSearch; semanticDeadlineMs?: number } = {}) =>
+const run = (matcher: ExistingMatcher, over: { links?: ElaborationLink[]; suggested?: ElaborationSuggestion[]; duplicateKey?: string | null; tree?: LookupTicket[]; excludeIds?: ReadonlySet<string>; signal?: AbortSignal; semantic?: SemanticSearch; semanticDeadlineMs?: number; fusion?: "rrf" | "interleave" } = {}) =>
   linkExistingSuggestions({ ...base, links: [], suggested: [task("Guardar o vínculo entre cada ticket e o item na plataforma externa")], matcher, ...over });
 
 describe("tarefa sugerida que já existe", () => {
@@ -222,6 +223,20 @@ describe("candidatos por palavras e por vetor", () => {
     expect(out.links).toEqual([{ de: "pai", dependeDe: "P-1", motivo: "m" }]);
     expect(out.lookups[0]).toMatchObject({ outcome: "converted", candidates: 1, origins: { words: 0, vector: 1, both: 0 } });
     expect(out.semantic).toEqual(diag);
+  });
+
+  it("fusion=interleave intercala palavras e vetor, começando pelas palavras; a origem continua contada", async () => {
+    const onlyWords = new Scripted();
+    await run(onlyWords, { semantic: semanticOf(() => []) });
+    const words = onlyWords.calls[0]!.tasks[0]!.candidates.map((c) => c.key);
+    expect(words.length).toBeGreaterThan(0);
+    const matcher = new Scripted();
+    const out = await run(matcher, { semantic: semanticOf(() => ["t3", "t2"]), fusion: "interleave" });
+    const keys = matcher.calls[0]!.tasks[0]!.candidates.map((c) => c.key);
+    const expected = interleaveRankings(words, ["P-3", "P-2"], SUGGESTED_CANDIDATES).map((hit) => hit.id);
+    expect(keys).toEqual(expected);
+    expect(keys[0]).toBe(words[0]);
+    expect(out.lookups[0]!.origins!.words + out.lookups[0]!.origins!.vector + out.lookups[0]!.origins!.both).toBe(keys.length);
   });
 
   it("todas as sugeridas vão numa única consulta, com título e descrição de cada uma e k = 10", async () => {

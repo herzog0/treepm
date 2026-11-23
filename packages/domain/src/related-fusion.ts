@@ -33,3 +33,43 @@ export function fuseRankings(words: readonly string[], vector: readonly string[]
     .slice(0, limit)
     .map((row) => ({ id: row.id, score: row.score, origin: row.wordsAt !== Infinity && row.vectorAt !== Infinity ? "both" : row.wordsAt !== Infinity ? "words" : "vector" }));
 }
+
+/**
+ * Fusão por intercalação (ADR 0053, ajuste depois da medição): alterna um de cada lista, começando pelas palavras (palavras 1,
+ * vetor 1, palavras 2, vetor 2…), pulando quem já entrou, até `limit`. Quando uma lista acaba, segue com a outra. Ao contrário
+ * da soma de posições, quem está nas duas listas não passa à frente de quem está numa só: o 4º achado das palavras fica, no
+ * pior caso, no 7º lugar. `score` só existe para manter a forma de `FusedHit`: decresce com a posição na saída.
+ */
+export function interleaveRankings(words: readonly string[], vector: readonly string[], limit: number): FusedHit[] {
+  if (limit <= 0) return [];
+  const inWords = new Set(words);
+  const inVector = new Set(vector);
+  const seen = new Set<string>();
+  const out: FusedHit[] = [];
+  let w = 0;
+  let v = 0;
+  const take = (list: readonly string[], at: number): number => {
+    let next = at;
+    while (next < list.length && seen.has(list[next] as string)) next += 1;
+    if (next < list.length) {
+      const id = list[next] as string;
+      seen.add(id);
+      out.push({ id, score: 0, origin: inWords.has(id) && inVector.has(id) ? "both" : inWords.has(id) ? "words" : "vector" });
+      next += 1;
+    }
+    return next;
+  };
+  while (out.length < limit && (w < words.length || v < vector.length)) {
+    w = take(words, w);
+    if (out.length >= limit) break;
+    v = take(vector, v);
+  }
+  return out.map((hit, index) => ({ ...hit, score: 1 / (index + 1) }));
+}
+
+/** A regra de fusão escolhida por `SEMANTIC_TRIAGE` (`off` não funde: o vetor chega vazio). */
+export type FusionRule = "rrf" | "interleave";
+
+export function fuseBy(rule: FusionRule, words: readonly string[], vector: readonly string[], limit: number): FusedHit[] {
+  return rule === "interleave" ? interleaveRankings(words, vector, limit) : fuseRankings(words, vector, limit);
+}

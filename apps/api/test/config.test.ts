@@ -69,6 +69,15 @@ describe("loadConfig", () => {
     expect(assistantEnabled(loadConfig({ ...valid, VOYAGE_API_KEY: "v" }))).toBe(false);
   });
 
+  it("SEMANTIC_TRIAGE vale off por padrão e aceita off, rrf e interleave; SEMANTIC_QUERY_KIND vale query por padrão", () => {
+    expect(loadConfig(valid)).toMatchObject({ SEMANTIC_TRIAGE: "off", SEMANTIC_QUERY_KIND: "query" });
+    expect(loadConfig({ ...valid, SEMANTIC_TRIAGE: "", SEMANTIC_QUERY_KIND: "" })).toMatchObject({ SEMANTIC_TRIAGE: "off", SEMANTIC_QUERY_KIND: "query" });
+    expect(loadConfig({ ...valid, SEMANTIC_TRIAGE: "rrf", SEMANTIC_QUERY_KIND: "document" })).toMatchObject({ SEMANTIC_TRIAGE: "rrf", SEMANTIC_QUERY_KIND: "document" });
+    expect(loadConfig({ ...valid, SEMANTIC_TRIAGE: "interleave" }).SEMANTIC_TRIAGE).toBe("interleave");
+    expect(() => loadConfig({ ...valid, SEMANTIC_TRIAGE: "ligado" })).toThrow(/SEMANTIC_TRIAGE/);
+    expect(() => loadConfig({ ...valid, SEMANTIC_QUERY_KIND: "x" })).toThrow(/SEMANTIC_QUERY_KIND/);
+  });
+
   it("chave vazia vale como ausente", () => {
     const config = loadConfig({ ...valid, ANTHROPIC_API_KEY: "", TYPESAFE_API_KEY: "" });
     expect(assistantEnabled(config)).toBe(false);

@@ -395,6 +395,10 @@ export type CliOptions = {
   jsonFile?: string;
   /** `triage-measure`: o tipo da consulta ao provedor de vetores, `query` (padrão) ou `document`. */
   kinds?: string;
+  /** `triage-measure`: quais fusões medir, `rrf`, `interleave` ou `both` (padrão). */
+  fusion?: string;
+  /** `triage-measure`: inclui os pares por citação na descrição. */
+  mentions?: boolean;
   /** `triage-measure`: limiar de distância do cosseno dos vizinhos por vetor. */
   maxDistance?: number;
   role?: string;
@@ -502,6 +506,8 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--scope": "scope",
   "--kinds": "kinds",
   "--max-distance": "maxDistance",
+  "--fusion": "fusion",
+  "--mentions": "mentions",
   "--role": "role",
   "--retry-delays-ms": "retryDelaysMs",
   "--fake-503-first": "fake503First",
@@ -523,7 +529,7 @@ const usage = `Comandos: ${COMMANDS.join(", ")}.
   summary-regenerate --org --user --project (--number <número> | --subtree <número> | --all) [--dry-run] [--resume] [--dir <pasta do andamento>] [--fake-providers]
   conversation-dry-run --org --user --project --text-file <caminho> [--scope <número>] [--fake-providers]   (não cria ticket)
   embeddings-status  --org --user --project   (só números: tickets vivos, vetores em dia, desatualizados e faltando; ADR 0053)
-  triage-measure --org --user --project [--pairs arquivo.json] [--kinds document|query] [--max-distance N] [--json arquivo] [--fake-providers]   (mede só a triagem de relacionados: posição do esperado só com palavras, só com vetor e na fusão; ADR 0053)
+  triage-measure --org --user --project [--pairs arquivo.json] [--kinds document|query] [--max-distance N] [--fusion rrf|interleave|both] [--limit N (padrão 30)] [--mentions] [--json arquivo] [--fake-providers]   (mede só a triagem de relacionados: posição do esperado só com palavras, só com vetor e em cada fusão; --mentions soma os pares por citação; ADR 0053)
   embeddings-reindex --org --user --project [--dry-run] [--fake-providers]   (põe o projeto inteiro em dia na Voyage, em lotes; --dry-run só diz quantos textos e caracteres iriam, sem chamar o provedor)
   case-run       --org --user --dir <pasta com o gabarito.json> --case <arquivo do caso> [--repeats N (padrão 3)] [--fake-providers]   (cria um projeto de medição sem os tickets de "omit", roda o pedido N vezes e o arquiva)`;
 
@@ -539,7 +545,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     // No `triage-measure`, `--pairs` e `--json` levam um arquivo (nos outros comandos são sinalizadores).
     const key = command === "triage-measure" && flag === "--pairs" ? "pairsFile" : command === "triage-measure" && flag === "--json" ? "jsonFile" : FLAGS[flag];
     if (!key) return fail(`Opção desconhecida: ${flag}.`);
-    if (key === "fakeProviders" || key === "loo" || key === "collect" || key === "pairs" || key === "resume" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root" || key === "idea" || key === "ideaAccept" || key === "ideaDiscard" || key === "ideaMake" || key === "all" || key === "dryRun") {
+    if (key === "fakeProviders" || key === "mentions" || key === "loo" || key === "collect" || key === "pairs" || key === "resume" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root" || key === "idea" || key === "ideaAccept" || key === "ideaDiscard" || key === "ideaMake" || key === "all" || key === "dryRun") {
       options[key] = true;
       continue;
     }
@@ -579,9 +585,11 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
       options[key] = value;
     }
   }
-  for (const key of ["pairsFile", "jsonFile", "kinds", "maxDistance"]) {
+  for (const key of ["pairsFile", "jsonFile", "kinds", "maxDistance", "fusion", "mentions"]) {
     if (options[key] !== undefined && command !== "triage-measure") return fail(`--${key === "pairsFile" ? "pairs" : key === "jsonFile" ? "json" : key === "maxDistance" ? "max-distance" : key} só existe no triage-measure.`);
   }
+  if (options["fusion"] !== undefined && options["fusion"] !== "rrf" && options["fusion"] !== "interleave" && options["fusion"] !== "both") return fail("--fusion é `rrf`, `interleave` ou `both`.");
+  if (command === "triage-measure" && options["limit"] === 0) return fail("--limit deve ser um inteiro maior que zero.");
   if (options["kinds"] !== undefined && options["kinds"] !== "query" && options["kinds"] !== "document") return fail("--kinds é `query` ou `document`.");
   if (options["flat"] !== undefined && command !== "leave-one-out") return fail("--flat só existe no leave-one-out.");
   if (options["flat"] !== undefined && options["scopeCheck"] !== undefined) return fail("--flat não combina com --scope-check.");

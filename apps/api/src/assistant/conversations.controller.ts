@@ -1,4 +1,5 @@
 import { descriptionExcerpt, mentionedKeys, scanTicketKeys } from "@treepm/domain";
+import type { FusionRule } from "@treepm/domain";
 import {
   Body,
   ConflictException,
@@ -272,7 +273,7 @@ export class TicketConversationsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(placementBodySchema.default({}))) body: z.output<typeof placementBodySchema>,
   ): Promise<z.output<typeof placementOutcomeSchema>> {
-    const { judge, affinity, related, namer, embedder } = await this.gate.open(tenant);
+    const { judge, affinity, related, namer, embedder, semantic: settings } = await this.gate.open(tenant);
     const seen = await tenant.run(async (tx, principal) => {
       const { conversation } = await this.requireWritable(tx, principal, id);
       if (conversation.draftTitle === null) throw this.draftRequired();
@@ -312,7 +313,8 @@ export class TicketConversationsController {
           related,
           signal: relatedAbort.signal,
           // O passo de vetor (ADR 0053): o `embedder` é `null` sem chave; o projeto é o da conversa, já conferido por `requireWritable`.
-          semantic: semanticSearchOf(embeddingStoreOf(tenant), embedder, seen.snapshot.projectId),
+          semantic: semanticSearchOf(embeddingStoreOf(tenant), embedder, seen.snapshot.projectId, settings),
+          fusion: settings.mode === "interleave" ? "interleave" : "rrf",
           ...(this.timeouts?.relatedMs ? { timeoutMs: this.timeouts.relatedMs } : {}) }),
       ]);
       const picked = pickRelated(found.judged);
@@ -446,7 +448,7 @@ export class TicketConversationsController {
       });
       // Tarefa sugerida que já existe na árvore vira ligação (ADR 0052, item 4). Falha ou prazo nunca derrubam a elaboração.
       const lookupStarted = Date.now();
-      const found = await this.linkSuggested(providers.elaborator, seen, clean, started, semanticSearchOf(embeddingStoreOf(tenant), providers.embedder, seen.projectId));
+      const found = await this.linkSuggested(providers.elaborator, seen, clean, started, semanticSearchOf(embeddingStoreOf(tenant), providers.embedder, seen.projectId, providers.semantic), providers.semantic.mode === "interleave" ? "interleave" : "rrf");
       const lookupMs = Date.now() - lookupStarted;
       const diagnostics = {
         model: { links: answer.links.length, suggested: answer.suggested.length },
@@ -488,6 +490,7 @@ export class TicketConversationsController {
     clean: { links: ElaborationLink[]; suggested: ElaborationSuggestion[] },
     started: number,
     semantic: SemanticSearch,
+    fusion: FusionRule,
   ): Promise<LinkLookupResult> {
     const untouched = (outcome: LookupOutcome | null): LinkLookupResult => ({
       links: clean.links,
@@ -507,7 +510,7 @@ export class TicketConversationsController {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), budget);
     try {
-      const result = await linkExistingSuggestions({ ...clean, tree: seen.tree, projectKey: seen.projectKey, duplicateKey: seen.duplicateKey, excludeIds: seen.excludeIds, matcher, signal: controller.signal, semantic, semanticDeadlineMs: Math.min(SEMANTIC_TRIAGE_DEADLINE_MS, Math.floor(budget / 4)) });
+      const result = await linkExistingSuggestions({ ...clean, tree: seen.tree, projectKey: seen.projectKey, duplicateKey: seen.duplicateKey, excludeIds: seen.excludeIds, matcher, signal: controller.signal, semantic, fusion, semanticDeadlineMs: Math.min(SEMANTIC_TRIAGE_DEADLINE_MS, Math.floor(budget / 4)) });
       if (result.failed > 0) this.logger.warn(`procura das sugeridas incompleta falhas=${result.failed} de=${clean.suggested.length}`);
       return result;
     } catch (error) {

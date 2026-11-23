@@ -1,6 +1,6 @@
 import { ticketEmbeddingText } from "@treepm/domain";
 import { EMBEDDING_DIMENSIONS, EmbeddingError } from "./ports.js";
-import type { EmbeddingFailure, EmbeddingProvider } from "./ports.js";
+import type { EmbeddingFailure, EmbeddingKind, EmbeddingProvider } from "./ports.js";
 import { EMBEDDING_SYNC_DEADLINE_MS, loadEmbeddableTickets, nearestTickets, syncEmbeddings } from "./ticket-embeddings.js";
 import type { EmbeddingStore, NearestTicket } from "./ticket-embeddings.js";
 
@@ -30,7 +30,10 @@ export const SEMANTIC_MAX_DISTANCE = 1;
 /** Tempo que a consulta sempre tem: a sincronização usa no máximo (prazo do passo − isto) e é pulada se sobrar menos. */
 export const SEMANTIC_QUERY_RESERVE_MS = 1500;
 
-export type SemanticFailure = EmbeddingFailure | "storage" | "no_embedder" | "skipped_no_time";
+export type SemanticFailure = EmbeddingFailure | "storage" | "no_embedder" | "skipped_no_time" | "disabled";
+
+/** Como as duas rotas usam os vetores (`SEMANTIC_TRIAGE` e `SEMANTIC_QUERY_KIND`, ADR 0053). `off` não lê, não sincroniza e não chama o provedor. */
+export type SemanticSettings = { mode: "off" | "rrf" | "interleave"; queryKind: EmbeddingKind };
 
 /** O que o passo de vetor fez, só números e um código. `synced` = tickets com vetor em dia depois da sincronização. */
 export type SemanticDiagnostics = { synced: number; embedded: number; pending: number; syncMs: number; queryMs: number; failure?: SemanticFailure };
@@ -46,6 +49,8 @@ export type SemanticOptions = {
   k: number;
   /** O sinal da requisição de fora; vale junto com o prazo. */
   signal?: AbortSignal | undefined;
+  /** O tipo da consulta ao provedor (`query` por padrão). */
+  queryKind?: EmbeddingKind;
   /** Só os testes trocam. */
   deadlineMs?: number;
   syncDeadlineMs?: number;
@@ -135,7 +140,7 @@ async function neighboursInner(options: SemanticOptions, diagnostics: SemanticDi
   // (b) e (c): UMA chamada de consulta para todas as consultas e uma transação curta com as buscas.
   const queryStarted = performance.now();
   try {
-    const vectors = await withinSignal(embedder.embed(options.queries.map(ticketEmbeddingText), "query", { signal }), signal);
+    const vectors = await withinSignal(embedder.embed(options.queries.map(ticketEmbeddingText), options.queryKind ?? "query", { signal }), signal);
     if (!Array.isArray(vectors) || vectors.length !== options.queries.length || !vectors.every((v) => Array.isArray(v) && v.length === EMBEDDING_DIMENSIONS && v.every(Number.isFinite))) throw new EmbeddingError("malformed");
     const neighbours = await withinSignal(
       options.store.run(async (tx, orgId) => {
@@ -160,11 +165,19 @@ async function neighboursInner(options: SemanticOptions, diagnostics: SemanticDi
  */
 export type SemanticSearch = (queries: readonly SemanticQuery[], k: number, options: { signal?: AbortSignal | undefined; deadlineMs?: number | undefined }) => Promise<SemanticResult>;
 
-/** Liga `semanticNeighbours` ao projeto da conversa. `embedder` é `null` quando não há chave ou o aceite não vale. */
+/** O diagnóstico de `SEMANTIC_TRIAGE=off`: nada foi lido nem chamado. */
+export const SEMANTIC_DISABLED: SemanticDiagnostics = { synced: 0, embedded: 0, pending: 0, syncMs: 0, queryMs: 0, failure: "disabled" };
+
+/**
+ * Liga `semanticNeighbours` ao projeto da conversa. `embedder` é `null` quando não há chave ou o aceite não vale. Com
+ * `settings.mode === "off"` a busca devolve listas vazias e o código `disabled` sem tocar no armazém nem no provedor.
+ */
 export const semanticSearchOf =
-  (store: EmbeddingStore, embedder: EmbeddingProvider | null, projectId: string): SemanticSearch =>
+  (store: EmbeddingStore, embedder: EmbeddingProvider | null, projectId: string, settings: SemanticSettings): SemanticSearch =>
   (queries, k, options) =>
-    semanticNeighbours({ store, embedder, projectId, queries, k, signal: options.signal, ...(options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }) });
+    settings.mode === "off"
+      ? Promise.resolve({ neighbours: queries.map((): NearestTicket[] => []), diagnostics: SEMANTIC_DISABLED })
+      : semanticNeighbours({ store, embedder, projectId, queries, k, queryKind: settings.queryKind, signal: options.signal, ...(options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }) });
 
 /** O diagnóstico de quando a fonte lança (nunca deveria): só o código `storage`. */
 export const SEMANTIC_ERROR: SemanticDiagnostics = { synced: 0, embedded: 0, pending: 0, syncMs: 0, queryMs: 0, failure: "storage" };
