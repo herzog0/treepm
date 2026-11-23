@@ -11,13 +11,13 @@ const h = useMcpHarness();
 const errorOf = (res: { body: any }): string | undefined => res.body?.error?.code;
 
 describe("descoberta e lista de ferramentas (revisão 2026-07-28)", () => {
-  it("responde tools/list em JSON simples, com as quatro ferramentas só de leitura", async () => {
+  it("responde tools/list em JSON simples, com as cinco ferramentas só de leitura", async () => {
     const { token } = await h.issue("contributor");
     const res = await h.rpc(token, "PRIV", "tools/list");
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/^application\/json/);
     const tools = res.body.result.tools as any[];
-    expect(tools.map((tool) => tool.name).sort()).toEqual(["get_project_overview", "get_ticket", "list_tickets", "search_tickets"]);
+    expect(tools.map((tool) => tool.name).sort()).toEqual(["get_project_overview", "get_ticket", "get_work_queue", "list_tickets", "search_tickets"]);
     for (const tool of tools) {
       expect(tool.annotations?.readOnlyHint).toBe(true);
       expect(tool.annotations?.destructiveHint).toBeFalsy();

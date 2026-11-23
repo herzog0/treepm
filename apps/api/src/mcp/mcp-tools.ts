@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Principal } from "../access/principal.js";
 import type { ProjectQueryService } from "../query/project-query.service.js";
 import type { QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "../query/query.schema.js";
+import type { QueueTicket } from "../query/project-query.service.js";
 import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
 
 /**
@@ -42,6 +43,10 @@ export const listTicketsInput = z.strictObject({
   after: keyField.optional().describe("Ticket key returned as `after` by the previous page; returns only tickets that come after it."),
 });
 export const projectOverviewInput = z.strictObject({});
+export const workQueueInput = z.strictObject({
+  under: keyField.optional().describe("Only the queue inside this ticket's branch: the ticket itself and its descendants, at every level."),
+  limit: z.number().int().min(1).max(50).optional().describe("Maximum number of tickets returned (default 20, at most 50). `total` always counts the whole queue."),
+});
 
 const ideaSchema = z
   .union([z.strictObject({ kind: z.literal("root"), stage: ideaStageSchema }), z.strictObject({ kind: z.literal("inside"), root: z.string() })])
@@ -68,6 +73,16 @@ const directionsSchema = z.strictObject({ outgoing: listSchema, incoming: listSc
 const progressSchema = z.strictObject({ done: z.number().int(), total: z.number().int(), excluded: z.number().int(), ideas: z.number().int() });
 
 export const searchTicketsOutput = listSchema;
+const queueTicketSchema = summarySchema.extend({ path: z.array(z.strictObject({ key: z.string(), title: z.string() })).describe("From the top-level ancestor down to the parent: key and title of each; empty for a top-level ticket.") });
+export const workQueueOutput = z.strictObject({
+  tickets: z.array(queueTicketSchema).describe("The queue in working order: the best next ticket first."),
+  total: z.number().int().describe("How many tickets are in the whole queue (more than `tickets` when `truncated`)."),
+  truncated: z.boolean().describe("True when the queue has more tickets than `limit`."),
+  empty_reason: z
+    .enum(["all_blocked", "all_others", "none"])
+    .nullable()
+    .describe("Null when the queue has tickets. When it is empty: all_blocked (everything ready waits for another open ticket), all_others (everything ready is assigned to other people) or none (nothing to do here, or mixed reasons)."),
+});
 export const getTicketOutput = z.strictObject({
   key: z.string(),
   title: z.string(),
@@ -126,6 +141,12 @@ export const TOOL_DEFINITIONS = {
     inputSchema: listTicketsInput,
     outputSchema: listTicketsOutput,
   },
+  get_work_queue: {
+    title: "Get the work queue",
+    description: `The "next to work on" queue of the person who owns the token, in this project (or inside one branch with \`under\`), in working order: highest effective priority first, then tickets assigned to that person before unassigned ones, then ticket number. A ticket is in the queue when it is todo, has no open child ticket, is not an idea nor inside one, does not wait for an open ticket (depends_on), has no agent working mark, and is assigned to that person or to nobody. It is the same queue the TreePM screen shows. It is the queue of the person who owns the token, not of the whole team. Each call reads the whole project (do not call it in a loop; call it when you need to pick work, not per ticket). It does not change anything: it does not start a ticket, assign it or mark it as worked on; use update_ticket_status and set_agent_work for that. When the queue is empty, \`empty_reason\` says why. ${MEANING}`,
+    inputSchema: workQueueInput,
+    outputSchema: workQueueOutput,
+  },
   get_project_overview: {
     title: "Get the project overview",
     description: `Overview of the project: number of tickets in total and per status, and the top-level tickets of the tree with the progress of each. ${MEANING}`,
@@ -181,6 +202,12 @@ export class ProjectTools {
     return fit(ticket, (result) => [result.children, result.relations.mentions.outgoing, result.relations.mentions.incoming, result.relations.depends_on.outgoing, result.relations.depends_on.incoming]);
   }
 
+  /** O resumo de um ticket (como nas listas), lido na transação já aberta: a escrita responde com isto. */
+  async summaryIn(tx: TenantClient, principal: Principal, number: number): Promise<Summary> {
+    const found = await this.query.ticket(tx, principal, this.context.project.id, number);
+    return this.summary(found, await this.parentKeys(tx, [found, ...found.path]));
+  }
+
   async listTickets(input: z.infer<typeof listTicketsInput>): Promise<z.infer<typeof listTicketsOutput>> {
     const under = input.under === undefined ? undefined : this.ticketNumber(input.under);
     const after = input.after === undefined ? undefined : this.ticketNumber(input.after);
@@ -203,6 +230,24 @@ export class ProjectTools {
     const result = fit(page, (value) => [value]);
     // Cortada por tamanho: a página seguinte recomeça logo depois do último ticket que coube.
     return result.tickets.length < before ? { ...result, after: result.tickets.at(-1)?.key ?? null } : result;
+  }
+
+  async getWorkQueue(input: z.infer<typeof workQueueInput>): Promise<z.infer<typeof workQueueOutput>> {
+    const under = input.under === undefined ? undefined : this.ticketNumber(input.under);
+    const queue = await this.read(
+      (tx, principal) =>
+        this.query
+          .workQueue(tx, principal, this.context.project.id, { ...(under === undefined ? {} : { under }), ...(input.limit === undefined ? {} : { limit: input.limit }) })
+          .catch((error: unknown) => {
+            if (error instanceof NotFoundException && error.message === "Ticket não encontrado.") throw new ToolInputError(`Ticket ${this.projectKey}-${under ?? 0} does not exist in this project.`);
+            throw error;
+          }),
+      async (tx, value) => {
+        const keys = await this.parentKeys(tx, value.tickets);
+        return { tickets: value.tickets.map((ticket: QueueTicket) => ({ ...this.summary(ticket, keys), path: ticket.path })), total: value.total, truncated: value.truncated, empty_reason: value.emptyReason };
+      },
+    );
+    return fit(queue, (value) => [value]);
   }
 
   async getProjectOverview(): Promise<z.infer<typeof projectOverviewOutput>> {
