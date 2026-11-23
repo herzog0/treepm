@@ -27,6 +27,9 @@ export const querySummarySchema = z.strictObject({
   parentId: z.string().nullable(),
   idea: queryIdeaSchema,
   agentWork: queryAgentWorkSchema,
+  /** Prioridade própria (ADR 0047) e a que vale, com a herança do ancestral mais próximo diferente de 0. */
+  priority: z.number().int(),
+  effectivePriority: z.number().int(),
 });
 export type QueryTicketSummary = z.infer<typeof querySummarySchema>;
 

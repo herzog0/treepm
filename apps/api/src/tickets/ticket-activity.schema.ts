@@ -45,6 +45,7 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
     automatic: z.boolean(),
     causedBy: ticketRefSchema.nullable(),
   }),
+  z.object({ ...base, type: z.literal("priority_changed"), from: z.number().int(), to: z.number().int() }),
   z.object({ ...base, type: z.literal("parent_changed"), from: ticketRefSchema.nullable(), to: ticketRefSchema.nullable() }),
   z.object({ ...base, type: z.literal("assignee_added"), person: personSchema.nullable() }),
   z.object({ ...base, type: z.literal("assignee_removed"), person: personSchema.nullable() }),

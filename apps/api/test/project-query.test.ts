@@ -91,6 +91,8 @@ describe("search", () => {
       parentId: null,
       idea: null,
       agentWork: null,
+      priority: 0,
+      effectivePriority: 0,
     });
   });
 
@@ -472,7 +474,7 @@ describe("cost", () => {
     await grow(80);
     const large = await measure();
     expect(large).toEqual(small);
-    expect(small).toEqual([3, 9, 4, 5]); // a visão geral passou a contar por `group by` e a calcular o progresso dos tickets do topo no banco (TREEPM-251)
+    expect(small).toEqual([4, 10, 5, 6]); // +1 em cada: a prioridade que vale (ADR 0047) é uma consulta a mais, fixa; a visão geral passou a contar por `group by` e a calcular o progresso dos tickets do topo no banco (TREEPM-251)
   });
 });
 

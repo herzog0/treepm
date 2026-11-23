@@ -7,7 +7,7 @@ import type { ApiClient, ApiResponse } from "./client.js";
  */
 export type TicketContext = { client: ApiClient; project: string; log: (line: string) => void };
 export type TicketCreateInput = { title: string; descriptionFile?: string; parent?: number; status?: string; idea?: boolean };
-export type TicketUpdateInput = { number: number; status?: string; title?: string; descriptionFile?: string; parent?: number; root?: boolean; ideaStage?: "new" | "refining" | "ready"; ideaAccept?: boolean; ideaDiscard?: boolean; ideaMake?: boolean };
+export type TicketUpdateInput = { number: number; status?: string; title?: string; descriptionFile?: string; parent?: number; root?: boolean; ideaStage?: "new" | "refining" | "ready"; priority?: number; ideaAccept?: boolean; ideaDiscard?: boolean; ideaMake?: boolean };
 
 /** Erro esperado de um comando de ticket: a mensagem é o que o terminal mostra, sem rastro de pilha. */
 export class TicketCommandError extends Error {
@@ -24,6 +24,8 @@ type Row = {
   progress: { done: number; total: number; excluded: number; ideas?: number } | null;
   /** ADR 0042: `null` ticket comum; raiz com o estágio; ou ticket dentro de uma ideia. */
   idea?: { root: true; stage: string } | { root: false; rootId: string; rootKey: string } | null;
+  /** ADR 0047: prioridade própria (inteiro de -999 a 999); ausente é 0. */
+  priority?: number;
 };
 
 function failure(what: string, response: ApiResponse): TicketCommandError {
@@ -103,6 +105,7 @@ export async function ticketListCommand(ctx: TicketContext, json: boolean): Prom
           title: row.title,
           progress: row.progress,
           idea: row.idea ?? null,
+          ...((row.priority ?? 0) === 0 ? {} : { priority: row.priority }),
         })),
       ),
     );
@@ -117,7 +120,7 @@ export async function ticketListCommand(ctx: TicketContext, json: boolean): Prom
         ? ""
         : `  (${row.progress.done} de ${row.progress.total}${ideas > 0 ? `; ${ideas} ${ideas === 1 ? "ideia" : "ideias"}` : ""})`;
     const state = idea?.root ? `ideia: ${idea.stage}` : row.status;
-    ctx.log(`${"  ".repeat(depth)}${row.key}  [${state}]  ${row.title}${idea && !idea.root ? "  (ideia)" : ""}${progress}`);
+    ctx.log(`${"  ".repeat(depth)}${row.key}  [${state}]  ${row.title}${idea && !idea.root ? "  (ideia)" : ""}${progress}${(row.priority ?? 0) === 0 ? "" : `  {prioridade ${row.priority}}`}`);
   }
 }
 
@@ -158,13 +161,13 @@ export async function ticketUpdateCommand(ctx: TicketContext, input: TicketUpdat
     input.ideaDiscard ? "--idea-discard" : null,
     input.ideaMake ? "--idea-make" : null,
   ].filter((value) => value !== null);
-  const others = [input.status, input.title, input.descriptionFile, input.parent, input.root, input.ideaStage].some((value) => value !== undefined);
-  if (actions.length > 1 || (actions.length === 1 && others)) {
+  const changes = [input.status, input.title, input.descriptionFile, input.parent, input.root, input.ideaStage, input.priority];
+  if (actions.length > 1 || (actions.length === 1 && changes.some((value) => value !== undefined))) {
     throw new TicketCommandError(`${actions.join(", ")} valem sozinhos: uma coisa por comando.`);
   }
   if (actions.length === 1) return ideaActionCommand(ctx, input);
-  const hasChange = [input.status, input.title, input.descriptionFile, input.parent, input.root, input.ideaStage].some((value) => value !== undefined);
-  if (!hasChange) throw new TicketCommandError("Informe ao menos um de --status, --title, --description-file, --parent, --root ou --idea-stage.");
+  const hasChange = changes.some((value) => value !== undefined);
+  if (!hasChange) throw new TicketCommandError("Informe ao menos um de --status, --title, --description-file, --parent, --root, --idea-stage ou --priority.");
   if (input.parent !== undefined && input.root) throw new TicketCommandError("--parent não combina com --root.");
   const description = input.descriptionFile === undefined ? undefined : readText(input.descriptionFile);
   const before = await listRows(ctx);
@@ -176,6 +179,7 @@ export async function ticketUpdateCommand(ctx: TicketContext, input: TicketUpdat
     ...(description === undefined ? {} : { description }),
     ...(parent ? { parentId: parent.id } : {}),
     ...(input.root ? { parentId: null } : {}),
+    ...(input.priority === undefined ? {} : { priority: input.priority }),
   };
   const onlyStage = Object.keys(body).length === 0;
   const updated = onlyStage ? ticket : await call<Row>("mudar ticket", ctx, "PATCH", `/tickets/${ticket.id}`, body);
@@ -187,6 +191,7 @@ export async function ticketUpdateCommand(ctx: TicketContext, input: TicketUpdat
   }
   if (input.status !== undefined) ctx.log(`${ticket.key}: situação ${ticket.status} → ${updated.status}`);
   if (input.title !== undefined) ctx.log(`${ticket.key}: título alterado`);
+  if (input.priority !== undefined) ctx.log(`${ticket.key}: prioridade ${ticket.priority ?? 0} → ${updated.priority ?? input.priority}`);
   if (description !== undefined) ctx.log(`${ticket.key}: descrição substituída (${description.length} caracteres)`);
   if (parent) ctx.log(`${ticket.key}: pai → ${parent.key}`);
   if (input.root) ctx.log(`${ticket.key}: pai → nenhum (raiz)`);

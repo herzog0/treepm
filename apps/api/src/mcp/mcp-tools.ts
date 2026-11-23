@@ -57,6 +57,8 @@ const summarySchema = z.strictObject({
   parent: z.string().nullable().describe("Key of the parent ticket, or null for a top-level ticket."),
   idea: ideaSchema,
   agentWork: agentWorkSchema,
+  priority: z.number().int().describe("The ticket's own priority: an integer from -999 to 999, 0 by default. A higher number comes first; negative goes last."),
+  effective_priority: z.number().int().describe("The priority that counts: `priority` when it is not 0, otherwise the one of the nearest ancestor whose priority is not 0, otherwise 0."),
 });
 const listSchema = z.strictObject({
   tickets: z.array(summarySchema),
@@ -72,6 +74,8 @@ export const getTicketOutput = z.strictObject({
   status: ticketStatusSchema,
   idea: ideaSchema,
   agentWork: agentWorkSchema,
+  priority: summarySchema.shape.priority,
+  effective_priority: summarySchema.shape.effective_priority,
   description: z.string().describe("Full description, never cut."),
   parent: z.string().nullable().describe("Key of the parent ticket (the ticket this one is part of), or null."),
   path: z.array(summarySchema).describe("From the top-level ancestor down to the parent; empty for a top-level ticket."),
@@ -99,6 +103,7 @@ type TicketList = z.infer<typeof listSchema>;
 const MEANING =
   "Tickets form a tree: the parent is the ticket a ticket is part of. " +
   "An idea is not accepted work yet: `idea` says whether a ticket is the root of an idea or inside one. " +
+  "Priority: `priority` is the ticket's own number (-999 to 999, 0 by default, higher comes first) and `effective_priority` the one that counts, inherited from the nearest ancestor with a non-zero priority. " +
   "Relations: `mentions` means one ticket cites the other in its text; `depends_on` means the first ticket needs the other to be finished before it. " +
   `Statuses: ${STATUSES}.`;
 
@@ -251,6 +256,8 @@ export class ProjectTools {
       status: self.status,
       idea: self.idea,
       agentWork: self.agentWork,
+      priority: self.priority,
+      effective_priority: self.effective_priority,
       description: ticket.description,
       parent: self.parent,
       path: ticket.path.map((entry) => this.summary(entry, keys)),
@@ -280,6 +287,8 @@ export class ProjectTools {
       parent: entry.parentId === null ? null : (keys.get(entry.parentId) ?? null),
       idea: entry.idea === null ? null : entry.idea.kind === "root" ? { kind: "root", stage: entry.idea.stage } : { kind: "inside", root: `${this.projectKey}-${entry.idea.rootNumber}` },
       agentWork: entry.agentWork,
+      priority: entry.priority,
+      effective_priority: entry.effectivePriority,
     };
   }
 }

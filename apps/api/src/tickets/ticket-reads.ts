@@ -25,6 +25,8 @@ type RawRow = {
   agent_work_started_at: Date | null;
   agent_work_until: Date | null;
   agent_work_note: string | null;
+  priority: number;
+  blocked: boolean;
 };
 
 /**
@@ -36,7 +38,11 @@ export async function readSummaryRows(tx: TenantClient, projectId: string): Prom
   const [rows, people] = await Promise.all([
     tx.$queryRaw<RawRow[]>`
       select id, project_id, number, parent_id, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, idea_stage,
-             agent_work_started_at, agent_work_until, agent_work_note
+             agent_work_started_at, agent_work_until, agent_work_note, priority,
+             exists (
+               select 1 from ticket_relations r join tickets d on d.org_id = r.org_id and d.id = r.to_ticket_id
+               where r.org_id = tickets.org_id and r.from_ticket_id = tickets.id and r.kind = 'depends_on' and d.status not in ('done', 'cancelled')
+             ) as blocked
       from tickets where project_id = ${projectId}::uuid order by number asc`,
     tx.$queryRaw<{ ticket_id: string; person_id: string }[]>`
       select a.ticket_id, a.person_id from ticket_assignees a
@@ -62,11 +68,15 @@ export async function readSummaryRows(tx: TenantClient, projectId: string): Prom
     agentWorkStartedAt: row.agent_work_started_at,
     agentWorkUntil: row.agent_work_until,
     agentWorkNote: row.agent_work_note,
+    priority: row.priority,
+    blocked: row.blocked,
   }));
 }
 
 export type IdeaRoot = { id: string; number: number; stage: IdeaStage };
-export type TicketBranch = { progress: TicketProgress | null; ideaRoot: IdeaRoot | null };
+/** O ancestral mais próximo (ele incluído) com prioridade diferente de 0 (ADR 0047); `null` quando a cadeia toda é 0. */
+export type PrioritySource = { id: string; number: number; value: number };
+export type TicketBranch = { progress: TicketProgress | null; ideaRoot: IdeaRoot | null; prioritySource: PrioritySource | null };
 
 /**
  * O ramo de cada ticket de `ids` numa consulta só (um único instantâneo do banco, então progresso e ideia nunca discordam entre si):
@@ -85,20 +95,23 @@ export async function readBranchOf(tx: TenantClient, scope: TicketScope, ids: re
   const result = new Map<string, TicketBranch>();
   if (ids.length === 0) return result;
   const rows = await tx.$queryRaw<
-    { origin: string; done: bigint | null; total: bigint | null; excluded: bigint | null; ideas: bigint | null; root_id: string | null; root_number: number | null; root_stage: string | null }[]
+    { origin: string; done: bigint | null; total: bigint | null; excluded: bigint | null; ideas: bigint | null; root_id: string | null; root_number: number | null; root_stage: string | null; prio_id: string | null; prio_number: number | null; prio_value: number | null }[]
   >`
     with recursive
     sel as (select org_id, project_id, id from tickets where org_id = ${scope.orgId} and project_id = ${scope.projectId}::uuid and id = any(${[...new Set(ids)]}::uuid[])),
     up as (
-      select s.id as origin, t.org_id, t.project_id, t.id, t.number, t.parent_id, t.idea_stage, 1 as depth
+      select s.id as origin, t.org_id, t.project_id, t.id, t.number, t.parent_id, t.idea_stage, t.priority, 1 as depth
       from sel s join tickets t on t.org_id = s.org_id and t.project_id = s.project_id and t.id = s.id
       union all
-      select up.origin, t.org_id, t.project_id, t.id, t.number, t.parent_id, t.idea_stage, up.depth + 1
+      select up.origin, t.org_id, t.project_id, t.id, t.number, t.parent_id, t.idea_stage, t.priority, up.depth + 1
       from tickets t join up on t.org_id = up.org_id and t.project_id = up.project_id and t.id = up.parent_id
       where up.depth < ${MAX_TREE_DEPTH}::int
     ),
     roots as (
       select distinct on (origin) origin, id, number, idea_stage from up where idea_stage is not null order by origin, depth
+    ),
+    prio as (
+      select distinct on (origin) origin, id, number, priority from up where priority <> 0 order by origin, depth
     ),
     down as (
       select s.id as origin, t.org_id, t.project_id, t.id, t.status, (t.idea_stage is not null) as is_root, (t.idea_stage is not null) as inside, 1 as depth
@@ -121,12 +134,14 @@ export async function readBranchOf(tx: TenantClient, scope: TicketScope, ids: re
            case when r.id is null then c.total else 0 end as total,
            case when r.id is null then c.excluded else 0 end as excluded,
            c.ideas,
-           r.id as root_id, r.number as root_number, r.idea_stage as root_stage
-    from sel s left join counts c on c.origin = s.id left join roots r on r.origin = s.id`;
+           r.id as root_id, r.number as root_number, r.idea_stage as root_stage,
+           pr.id as prio_id, pr.number as prio_number, pr.priority as prio_value
+    from sel s left join counts c on c.origin = s.id left join roots r on r.origin = s.id left join prio pr on pr.origin = s.id`;
   for (const row of rows) {
     result.set(row.origin, {
       progress: row.ideas === null ? null : { done: Number(row.done), total: Number(row.total), excluded: Number(row.excluded), ideas: Number(row.ideas) },
       ideaRoot: row.root_id === null ? null : { id: row.root_id, number: row.root_number as number, stage: ideaStageSchema.parse(row.root_stage) },
+      prioritySource: row.prio_id === null ? null : { id: row.prio_id, number: row.prio_number as number, value: row.prio_value as number },
     });
   }
   return result;
