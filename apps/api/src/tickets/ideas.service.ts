@@ -45,6 +45,19 @@ export class IdeasService {
     if (project.archivedAt) throw new ConflictException({ code: "project_archived", message: "Projeto arquivado é somente leitura." });
   }
 
+  /**
+   * Aceitar, descartar e transformar mudam a estrutura (ADR 0045): conferida a permissão, a trava do projeto vem antes de qualquer
+   * leitura da árvore, e o ticket é lido de novo com ela (o pai e o estágio de agora, não os de antes da espera).
+   */
+  private async lockedTicket(tx: TenantClient, principal: Principal, id: string, permission: "triage" | "refine") {
+    const first = await this.visibleTicket(tx, principal.actor, id);
+    if (permission === "triage") this.authorization.triageIdea(principal.actor, first.project.id);
+    else this.authorization.refineIdea(principal.actor, first.project.id);
+    this.requireActive(first.project);
+    await this.tickets.lockStructure(tx, first.project.id);
+    return this.visibleTicket(tx, principal.actor, id);
+  }
+
   private notRoot(): ConflictException {
     return new ConflictException({ code: "ticket_not_idea_root", message: "Este ticket não é a raiz de uma ideia." });
   }
@@ -89,9 +102,7 @@ export class IdeasService {
    * continua fora do processo). A reabertura vem antes de gravar a raiz, como nos outros pontos de entrada (ordem das travas).
    */
   async accept(tx: TenantClient, principal: Principal, id: string): Promise<TicketPage> {
-    const { project, ticket } = await this.visibleTicket(tx, principal.actor, id);
-    this.authorization.triageIdea(principal.actor, project.id);
-    this.requireActive(project);
+    const { project, ticket } = await this.lockedTicket(tx, principal, id, "triage");
     this.requireTriageable(ticket.ideaStage);
     const key = `${project.key}-${ticket.number}`;
     if (ticket.parentId !== null && (await this.tickets.ideaRootFor(tx, ticket.parentId)) === null) {
@@ -106,9 +117,7 @@ export class IdeasService {
 
   /** `POST tickets/:id/idea/discard`: estágio `discarded`; nada mais muda. */
   async discard(tx: TenantClient, principal: Principal, id: string): Promise<TicketPage> {
-    const { project, ticket } = await this.visibleTicket(tx, principal.actor, id);
-    this.authorization.triageIdea(principal.actor, project.id);
-    this.requireActive(project);
+    const { project, ticket } = await this.lockedTicket(tx, principal, id, "triage");
     this.requireTriageable(ticket.ideaStage);
     const from = await this.lockedStage(tx, id);
     this.requireTriageable(from);
@@ -134,9 +143,7 @@ export class IdeasService {
    * continua cancelado) e passam a fazer parte da ideia. Trava a subárvore para ninguém mudar uma situação no meio.
    */
   async transform(tx: TenantClient, principal: Principal, id: string): Promise<TicketPage> {
-    const { project, ticket } = await this.visibleTicket(tx, principal.actor, id);
-    this.authorization.refineIdea(principal.actor, project.id);
-    this.requireActive(project);
+    const { project, ticket } = await this.lockedTicket(tx, principal, id, "refine");
     if (ticket.ideaStage !== null) throw new ConflictException({ code: "ticket_already_idea", message: "Este ticket já é a raiz de uma ideia." });
     await this.tickets.lockSubtree(tx, id);
     const fresh = await tx.ticket.findFirstOrThrow({ where: { id }, select: { status: true, ideaStage: true } });

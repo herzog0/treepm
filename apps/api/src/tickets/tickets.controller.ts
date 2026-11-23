@@ -119,6 +119,7 @@ export class TicketsController {
     const project = await this.findVisibleProject(tx, principal.actor, projectId);
     this.authorization.importTickets(principal.actor, projectId);
     this.requireActive(project);
+    await this.tickets.lockStructure(tx, projectId); // ADR 0045: o pai e a ideia que o contém são lidos já com a trava.
     if (body.parentId) await this.tickets.requireParent(tx, projectId, body.parentId);
     // Importar dentro de uma ideia (ADR 0042): os itens fazem parte dela, ficam `todo` e não reabrem o pai concluído.
     const parentIdea = await this.tickets.ideaRootFor(tx, body.parentId ?? null);
@@ -264,6 +265,8 @@ export class TicketsController {
     const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
     this.authorization.removeTicket(principal.actor, project.id);
     this.requireActive(project);
+    await this.tickets.lockStructure(tx, project.id); // ADR 0045: remover muda a estrutura; os filhos são contados já com a trava.
+    await this.findVisibleTicket(tx, principal.actor, id); // removido por outra requisição enquanto esperava: 404.
     if (await this.hasChildren(tx, id)) {
       throw new ConflictException({ code: "ticket_has_children", message: "Remova ou mova os filhos antes." });
     }

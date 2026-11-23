@@ -13,6 +13,7 @@ const CODES_PT: Record<string, string> = {
   person_inactive: "A pessoa não está mais na organização.",
   ticket_has_open_children: "Este ticket tem itens abertos. Conclua ou cancele os itens antes de concluí-lo.",
   ticket_cycle: "Um ticket não pode ser pai de si mesmo nem de um ancestral.",
+  structure_busy: "Outra mudança na estrutura deste projeto está em andamento. Tente de novo em instantes.",
   project_archived: "O projeto está arquivado e só aceita leitura.",
   assistant_not_configured: "O assistente não está configurado neste ambiente. Crie o ticket manualmente.",
   assistant_unavailable: "O assistente não respondeu. Tente de novo; se continuar, crie o ticket manualmente.",

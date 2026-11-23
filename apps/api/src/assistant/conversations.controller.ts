@@ -334,6 +334,8 @@ export class TicketConversationsController {
       throw new ConflictException({ code: "conversation_closed", message: "A conversa já foi encerrada." });
     }
     if (conversation.draftTitle === null) throw this.draftRequired();
+    // ADR 0045: criar pai, filhos e agrupador muda a estrutura. A trava vem antes de ler a ideia que contém o lugar escolhido.
+    await this.tickets.lockStructure(tx, project.id);
     // Ideia (ADR 0044, adendo): o pai nasce como ideia pelo mesmo caminho da tela, com a mesma permissão. Num lugar que já está
     // dentro de uma ideia, o que nasce faz parte dela, sem estágio próprio, e a opção não pede permissão nenhuma.
     const asIdea = conversation.draftIdea && (await this.tickets.ideaRootFor(tx, body.parentId)) === null;

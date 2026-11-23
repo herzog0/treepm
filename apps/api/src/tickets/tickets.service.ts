@@ -1,3 +1,4 @@
+import { lockProjectStructure } from "./structure-lock.js";
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import type { z } from "zod";
@@ -156,9 +157,17 @@ export class TicketsService {
    * outro bloqueio), a regra 5 das ideias com a linha travada, concluir com filho aberto e, por fim, a gravação e o evento.
    */
   async updateTicket(tx: TenantClient, principal: Principal, id: string, body: UpdateTicketInput): Promise<TicketPage> {
-    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
+    const found = await this.findVisibleTicket(tx, principal.actor, id);
+    const { project } = found;
+    let { ticket } = found;
     this.authorization.editTicket(principal.actor, project.id);
     this.requireActive(project);
+    if (body.parentId !== undefined) {
+      // Mudança de estrutura (ADR 0045): a trava vem antes de qualquer conferência que leia a árvore, e o ticket é lido de novo
+      // com ela (o pai atual pode ter mudado enquanto esperávamos).
+      await this.lockStructure(tx, project.id);
+      ticket = (await this.findVisibleTicket(tx, principal.actor, id)).ticket;
+    }
 
     if (body.parentId !== undefined && body.parentId !== null) {
       await this.requireParent(tx, project.id, body.parentId);
@@ -201,7 +210,10 @@ export class TicketsService {
     const parentIdea = data.parentId !== undefined || data.status !== undefined ? await this.ideaRootFor(tx, finalParent) : null;
     const outside = ticket.ideaStage !== null || parentIdea !== null;
     if (data.parentId !== undefined && parentIdea !== null) {
-      // Trabalho em andamento não vira ideia por arrasto: o ticket e os descendentes `todo` ou `cancelled`.
+      // Trabalho em andamento não vira ideia por arrasto: o ticket e os descendentes `todo` ou `cancelled`. A subárvore é
+      // travada (`for update`) antes de ler as situações: uma mudança de situação ainda não confirmada de um descendente
+      // faz esta espera e, ao confirmar, é vista (risco residual da ADR 0042, fechado pela ADR 0045).
+      await this.lockSubtree(tx, id);
       if (!canMoveIntoIdea(ticket.status as TicketStatus, await this.descendantStatuses(tx, id))) {
         throw new ConflictException({
           code: "move_into_idea_blocked",
@@ -236,6 +248,11 @@ export class TicketsService {
     if (data.parentId !== undefined && parentIdea !== null) await this.agentWork.clearSubtree(tx, principal, project.key, id, "idea");
     if (data.description !== undefined) await this.syncMentions(tx, project, ticket, data.description);
     return this.detailFor(tx, project, id, principal);
+  }
+
+  /** Pega a trava de estrutura do projeto (ADR 0045); os controladores a alcançam por aqui, nunca direto. */
+  lockStructure(tx: TenantClient, projectId: string): Promise<void> {
+    return lockProjectStructure(tx, projectId);
   }
 
   /** Inexistente, de outra organização (RLS) ou privado sem papel: todos viram o mesmo 404. */
@@ -543,7 +560,10 @@ export class TicketsService {
     },
     extraPayload: Record<string, string> = {},
   ): Promise<TicketDetail> {
-    if (input.parentId) await this.requireParent(tx, project.id, input.parentId);
+    if (input.parentId) {
+      await this.lockStructure(tx, project.id); // ADR 0045: antes de conferir que o pai existe e de ler a ideia que o contém.
+      await this.requireParent(tx, project.id, input.parentId);
+    }
     // Ideia, ou ticket dentro de uma: fora do processo (ADR 0042). A situação fica em `todo` e o pai concluído não é reaberto.
     const parentIdea = await this.ideaRootFor(tx, input.parentId);
     const outside = input.idea === true || parentIdea !== null;
@@ -615,6 +635,7 @@ export class TicketsService {
     group: { title: string; description: string; ticketIds: string[] },
     origin: Record<string, string>,
   ): Promise<string> {
+    await this.lockStructure(tx, project.id); // ADR 0045: o lugar, os tickets e o agrupamento são conferidos já com a trava.
     if (parentId) await this.requireParent(tx, project.id, parentId);
     // Trava os tickets até o fim da transação: ninguém os move nem os remove entre a conferência e a mudança.
     await tx.$queryRaw`select id from tickets where id = any(${group.ticketIds}::uuid[]) order by id for update`;

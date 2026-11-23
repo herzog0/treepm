@@ -32,3 +32,15 @@ Toda transação que **muda a estrutura** da árvore de um projeto pega, logo no
 
 1. Se a espera limitada precisa de repetição automática no servidor antes de devolver o conflito.
 2. Medir o custo da trava com muitos agentes escrevendo no mesmo projeto (`TREEPM-191`).
+
+## Como ficou (2026-11-22)
+
+- **Função única:** `lockProjectStructure(tx, projectId)` em `apps/api/src/tickets/structure-lock.ts`, com `pg_advisory_xact_lock(hashtextextended('ticket-structure:' || projeto, 0))`. Chamada antes de qualquer conferência que leia a árvore; o ticket é relido depois da trava.
+- **Onde entra:** trocar pai (só quando o pedido traz pai; título, situação e pessoas não esperam), criar com pai, criar pai e mover, importar, remover, transformar em ideia, aceitar e descartar, e a criação pela conversa (pai, filhos e agrupador). O MCP hoje só escreve situação, comentário e marcador, que não mudam estrutura. A procura só lê.
+- **Mover entre projetos não existe** no produto, então não há trava dupla.
+- **Espera limitada:** 5 s (`lock_timeout` só durante a espera pela trava). Estourou: 409 `structure_busy`, com frase própria na web nos três idiomas.
+- **Risco da ADR 0042 fechado:** mover para dentro de uma ideia trava as linhas da subárvore antes de ler as situações.
+- **Reprodução:** com duas conexões e ordem forçada, A para dentro de B e B para dentro de A respondiam 200 e 200 e gravavam o ciclo; agora respondem 200 e 409 `ticket_cycle`.
+- **Guarda de cobertura:** `apps/api/test/structure-lock-coverage.test.ts` falha se um arquivo grava pai ou estágio de ideia, cria ou remove ticket sem chamar a trava. A conferência é por arquivo, não por função; a ordem dentro do arquivo é coberta pelos testes de corrida.
+- **Gatilho no banco (migration `0023`):** `tickets_no_parent_cycle`, antes de `UPDATE` de `parent_id`, sobe de pai em pai e recusa ciclo; o custo é a profundidade. Sozinho não pega a corrida (cada transação só vê dados confirmados); protege de quem escreve fora da trava. A API não traduz o erro do gatilho, porque a conferência e a trava vêm antes; se ele disparar, é defeito e aparece como erro do servidor.
+- **Continua em aberto:** repetição automática no servidor e a medição com muitos agentes escrevendo no mesmo projeto.
