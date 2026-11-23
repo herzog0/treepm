@@ -10,7 +10,7 @@ import { parseCliArgs } from "../scripts/placement-rebuild/core.js";
 import { ticketCreateCommand, ticketListCommand, ticketUpdateCommand } from "../scripts/placement-rebuild/ticket-commands.js";
 import type { TicketContext } from "../scripts/placement-rebuild/ticket-commands.js";
 
-// ADR 0042, fatia 1: a linha de comando sabe criar ideia, mudar o estágio e mostrar ideias. Aceitar e descartar não entram.
+// ADR 0042, fatia 1: a linha de comando sabe criar ideia, mudar o estágio e mostrar ideias. Aceitar, descartar e transformar são opções do ticket-update.
 process.env["DATABASE_URL"] = APP_URL;
 process.env["CLERK_SECRET_KEY"] = "fake";
 process.env["CLERK_PUBLISHABLE_KEY"] = "fake";
@@ -69,9 +69,16 @@ describe("argumentos", () => {
     const both = parseCliArgs(["ticket-create", ...base, "--title", "T", "--idea", "--status", "done"]);
     expect(both.ok).toBe(false);
   });
-  it("não há comando nem opção de aceitar ou descartar", () => {
+  it("aceitar, descartar e transformar são opções do ticket-update, sozinhas", () => {
+    for (const [flag, key] of [["--idea-accept", "ideaAccept"], ["--idea-discard", "ideaDiscard"], ["--idea-make", "ideaMake"]] as const) {
+      expect(parseCliArgs(["ticket-update", ...base, "--number", "1", flag])).toMatchObject({ ok: true, options: { number: 1, [key]: true } });
+      expect(parseCliArgs(["ticket-update", ...base, "--number", "1", flag, "--title", "X"]).ok).toBe(false);
+      expect(parseCliArgs(["ticket-update", ...base, "--number", "1", flag, "--status", "done"]).ok).toBe(false);
+      expect(parseCliArgs(["ticket-update", ...base, "--number", "1", flag, "--idea-stage", "ready"]).ok).toBe(false);
+      expect(parseCliArgs(["ticket-create", ...base, "--title", "T", flag]).ok).toBe(false);
+    }
+    expect(parseCliArgs(["ticket-update", ...base, "--number", "1", "--idea-accept", "--idea-discard"]).ok).toBe(false);
     expect(parseCliArgs(["ticket-update", ...base, "--number", "1", "--accept"]).ok).toBe(false);
-    expect(parseCliArgs(["ticket-update", ...base, "--number", "1", "--discard"]).ok).toBe(false);
     expect(parseCliArgs(["idea-accept", ...base]).ok).toBe(false);
   });
   it("--idea-stage conta como mudança do ticket-update", () => {
@@ -169,5 +176,69 @@ describe("ticket-list com ideias", () => {
     expect(idea(1)).toEqual({ root: true, stage: "new" });
     expect(idea(2)).toMatchObject({ root: false });
     expect(idea(3)).toBeNull();
+  });
+});
+
+describe("ticket-update --idea-accept, --idea-discard e --idea-make", () => {
+  it("--idea-accept tira o estágio e imprime", async () => {
+    await ticketCreateCommand(ctx, { title: "I", idea: true });
+    lines.length = 0;
+    await ticketUpdateCommand(ctx, { number: 1, ideaAccept: true });
+    const row = await byNumber(1);
+    expect(row.idea).toBeNull();
+    expect(lines).toEqual([`${row.key}: ideia aceita`]);
+  });
+
+  it("--idea-accept dentro de um pai concluído reabre o pai, como a rota", async () => {
+    await ticketCreateCommand(ctx, { title: "Pai" });
+    await ticketCreateCommand(ctx, { title: "I", parent: 1, idea: true });
+    await ticketUpdateCommand(ctx, { number: 1, status: "done" });
+    lines.length = 0;
+    await ticketUpdateCommand(ctx, { number: 2, ideaAccept: true });
+    expect((await byNumber(1)).status).not.toBe("done");
+    expect(lines.join("\n")).toContain("Reabertos");
+  });
+
+  it("--idea-discard descarta, e --idea-stage refining reabre", async () => {
+    await ticketCreateCommand(ctx, { title: "I", idea: true });
+    lines.length = 0;
+    await ticketUpdateCommand(ctx, { number: 1, ideaDiscard: true });
+    const row = await byNumber(1);
+    expect(row.idea).toEqual({ root: true, stage: "discarded" });
+    expect(lines).toEqual([`${row.key}: ideia descartada`]);
+    await expect(ticketUpdateCommand(ctx, { number: 1, ideaDiscard: true })).rejects.toThrow(/idea_discarded/);
+    await expect(ticketUpdateCommand(ctx, { number: 1, ideaAccept: true })).rejects.toThrow(/idea_discarded/);
+    lines.length = 0;
+    await ticketUpdateCommand(ctx, { number: 1, ideaStage: "refining" });
+    expect((await byNumber(1)).idea).toEqual({ root: true, stage: "refining" });
+    expect(lines).toEqual([`${row.key}: estágio da ideia discarded → refining`]);
+  });
+
+  it("--idea-make transforma um ticket comum em ideia", async () => {
+    await ticketCreateCommand(ctx, { title: "Comum" });
+    lines.length = 0;
+    await ticketUpdateCommand(ctx, { number: 1, ideaMake: true });
+    const row = await byNumber(1);
+    expect(row.idea).toEqual({ root: true, stage: "new" });
+    expect(lines).toEqual([`${row.key}: transformado em ideia`]);
+  });
+
+  it("erros do serviço saem com o código: não é raiz, já é ideia, ideia com trabalho", async () => {
+    await ticketCreateCommand(ctx, { title: "Comum" });
+    await expect(ticketUpdateCommand(ctx, { number: 1, ideaAccept: true })).rejects.toThrow(/ticket_not_idea_root/);
+    await expect(ticketUpdateCommand(ctx, { number: 1, ideaDiscard: true })).rejects.toThrow(/ticket_not_idea_root/);
+    await ticketUpdateCommand(ctx, { number: 1, ideaMake: true });
+    await expect(ticketUpdateCommand(ctx, { number: 1, ideaMake: true })).rejects.toThrow(/ticket_already_idea/);
+    await ticketCreateCommand(ctx, { title: "Outro" });
+    await ticketUpdateCommand(ctx, { number: 2, status: "in_progress" });
+    await expect(ticketUpdateCommand(ctx, { number: 2, ideaMake: true })).rejects.toThrow(/idea_has_work/);
+  });
+
+  it("junto de outra mudança ou de outra ação de ideia é recusado e nada muda", async () => {
+    await ticketCreateCommand(ctx, { title: "I", idea: true });
+    await expect(ticketUpdateCommand(ctx, { number: 1, ideaAccept: true, title: "X" })).rejects.toThrow(/uma coisa por comando/);
+    await expect(ticketUpdateCommand(ctx, { number: 1, ideaDiscard: true, ideaStage: "ready" })).rejects.toThrow(/uma coisa por comando/);
+    await expect(ticketUpdateCommand(ctx, { number: 1, ideaAccept: true, ideaDiscard: true })).rejects.toThrow(/uma coisa por comando/);
+    expect(await byNumber(1)).toMatchObject({ title: "I", idea: { root: true, stage: "new" } });
   });
 });

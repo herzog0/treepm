@@ -355,6 +355,12 @@ export type CliOptions = {
   idea?: boolean;
   /** `ticket-update`: estágio da ideia (`new`, `refining` ou `ready`). */
   ideaStage?: "new" | "refining" | "ready";
+  /** `ticket-update`: aceita a ideia (a raiz). */
+  ideaAccept?: boolean;
+  /** `ticket-update`: descarta a ideia. */
+  ideaDiscard?: boolean;
+  /** `ticket-update`: transforma um ticket comum em ideia. */
+  ideaMake?: boolean;
   role?: string;
   retryDelaysMs?: number[];
   fake503First?: number;
@@ -393,10 +399,10 @@ export const TICKET_STATUSES: readonly TicketStatus[] = ["todo", "in_progress", 
 const TICKET_OPTIONS: Record<string, readonly string[]> = {
   "ticket-list": ["json"],
   "ticket-create": ["title", "descriptionFile", "parent", "status", "idea"],
-  "ticket-update": ["number", "title", "descriptionFile", "parent", "status", "root", "ideaStage"],
+  "ticket-update": ["number", "title", "descriptionFile", "parent", "status", "root", "ideaStage", "ideaAccept", "ideaDiscard", "ideaMake"],
   "relations-rebuild": [],
 };
-const TICKET_ONLY = ["json", "title", "descriptionFile", "parent", "status", "number", "root", "idea", "ideaStage"] as const;
+const TICKET_ONLY = ["json", "title", "descriptionFile", "parent", "status", "number", "root", "idea", "ideaStage", "ideaAccept", "ideaDiscard", "ideaMake"] as const;
 const IDEA_STAGES_CLI = ["new", "refining", "ready"] as const;
 
 const FLAGS: Record<string, keyof CliOptions> = {
@@ -432,6 +438,9 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--root": "root",
   "--idea": "idea",
   "--idea-stage": "ideaStage",
+  "--idea-accept": "ideaAccept",
+  "--idea-discard": "ideaDiscard",
+  "--idea-make": "ideaMake",
   "--role": "role",
   "--retry-delays-ms": "retryDelaysMs",
   "--fake-503-first": "fake503First",
@@ -446,6 +455,7 @@ const usage = `Comandos: ${COMMANDS.join(", ")}.
   ticket-list    --org --user --project [--json]
   ticket-create  --org --user --project --title <texto> [--description-file <caminho>] [--parent <número>] [--status <situação> | --idea]
   ticket-update  --org --user --project --number <número> [--status <situação>] [--title <texto>] [--description-file <caminho>] [--parent <número> | --root] [--idea-stage <new|refining|ready>]
+                 ou, sozinho no comando (uma coisa por vez): --idea-accept | --idea-discard | --idea-make
   relations-rebuild --org --user --project`;
 
 export function parseCliArgs(argv: readonly string[]): ParsedArgs {
@@ -459,7 +469,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     const flag = rest[i] as string;
     const key = FLAGS[flag];
     if (!key) return fail(`Opção desconhecida: ${flag}.`);
-    if (key === "fakeProviders" || key === "loo" || key === "collect" || key === "pairs" || key === "resume" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root" || key === "idea") {
+    if (key === "fakeProviders" || key === "loo" || key === "collect" || key === "pairs" || key === "resume" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root" || key === "idea" || key === "ideaAccept" || key === "ideaDiscard" || key === "ideaMake") {
       options[key] = true;
       continue;
     }
@@ -535,8 +545,12 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   if (options["idea"] !== undefined && options["status"] !== undefined) return fail("--idea não combina com --status: a situação de uma ideia é sempre todo.");
   if (command === "ticket-update" && options["number"] !== undefined) {
     const changes = ["status", "title", "descriptionFile", "parent", "root", "ideaStage"];
-    if (!changes.some((key) => options[key] !== undefined)) {
-      return fail("ticket-update pede ao menos um de --status, --title, --description-file, --parent, --root ou --idea-stage.");
+    const actions = ["ideaAccept", "ideaDiscard", "ideaMake"].filter((key) => options[key] !== undefined);
+    if (actions.length > 0 && (actions.length > 1 || changes.some((key) => options[key] !== undefined))) {
+      return fail("--idea-accept, --idea-discard e --idea-make valem sozinhos: uma coisa por comando.");
+    }
+    if (actions.length === 0 && !changes.some((key) => options[key] !== undefined)) {
+      return fail("ticket-update pede ao menos um de --status, --title, --description-file, --parent, --root, --idea-stage, --idea-accept, --idea-discard ou --idea-make.");
     }
   }
   // `report --pairs` lê só os arquivos de `--dir`: o projeto vem do gabarito.

@@ -2,12 +2,12 @@ import { readFileSync } from "node:fs";
 import type { ApiClient, ApiResponse } from "./client.js";
 
 /**
- * Comandos de ticket da ferramenta (`ticket-list`, `ticket-create`, `ticket-update`). Só usam as rotas da API, não
+ * Comandos de ticket da ferramenta (`ticket-list`, `ticket-create`, `ticket-update`; este também aceita, descarta e transforma ideia). Só usam as rotas da API, não
  * chamam IA e nunca imprimem descrição de ticket nem dados de pessoas.
  */
 export type TicketContext = { client: ApiClient; project: string; log: (line: string) => void };
 export type TicketCreateInput = { title: string; descriptionFile?: string; parent?: number; status?: string; idea?: boolean };
-export type TicketUpdateInput = { number: number; status?: string; title?: string; descriptionFile?: string; parent?: number; root?: boolean; ideaStage?: "new" | "refining" | "ready" };
+export type TicketUpdateInput = { number: number; status?: string; title?: string; descriptionFile?: string; parent?: number; root?: boolean; ideaStage?: "new" | "refining" | "ready"; ideaAccept?: boolean; ideaDiscard?: boolean; ideaMake?: boolean };
 
 /** Erro esperado de um comando de ticket: a mensagem é o que o terminal mostra, sem rastro de pilha. */
 export class TicketCommandError extends Error {
@@ -138,7 +138,31 @@ export async function ticketCreateCommand(ctx: TicketContext, input: TicketCreat
   reportReopened(ctx, reopened(before, await listRows(ctx)));
 }
 
+/** `--idea-accept`, `--idea-discard` e `--idea-make`: as mesmas rotas e regras da interface; o erro da API sai com código e mensagem. */
+async function ideaActionCommand(ctx: TicketContext, input: TicketUpdateInput): Promise<void> {
+  const before = await listRows(ctx);
+  const ticket = await resolveNumber(ctx, before, input.number);
+  const [what, path, done] = input.ideaAccept
+    ? (["aceitar ideia", `/tickets/${ticket.id}/idea/accept`, "ideia aceita"] as const)
+    : input.ideaDiscard
+      ? (["descartar ideia", `/tickets/${ticket.id}/idea/discard`, "ideia descartada"] as const)
+      : (["transformar em ideia", `/tickets/${ticket.id}/idea`, "transformado em ideia"] as const);
+  await call<unknown>(what, ctx, "POST", path);
+  ctx.log(`${ticket.key}: ${done}`);
+  reportReopened(ctx, reopened(before, await listRows(ctx), ticket.id));
+}
+
 export async function ticketUpdateCommand(ctx: TicketContext, input: TicketUpdateInput): Promise<void> {
+  const actions = [
+    input.ideaAccept ? "--idea-accept" : null,
+    input.ideaDiscard ? "--idea-discard" : null,
+    input.ideaMake ? "--idea-make" : null,
+  ].filter((value) => value !== null);
+  const others = [input.status, input.title, input.descriptionFile, input.parent, input.root, input.ideaStage].some((value) => value !== undefined);
+  if (actions.length > 1 || (actions.length === 1 && others)) {
+    throw new TicketCommandError(`${actions.join(", ")} valem sozinhos: uma coisa por comando.`);
+  }
+  if (actions.length === 1) return ideaActionCommand(ctx, input);
   const hasChange = [input.status, input.title, input.descriptionFile, input.parent, input.root, input.ideaStage].some((value) => value !== undefined);
   if (!hasChange) throw new TicketCommandError("Informe ao menos um de --status, --title, --description-file, --parent, --root ou --idea-stage.");
   if (input.parent !== undefined && input.root) throw new TicketCommandError("--parent não combina com --root.");

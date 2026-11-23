@@ -4,7 +4,7 @@
  *
  *   pnpm --filter @treepm/api placement:rebuild <comando> [opções]
  *
- * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update, relations-rebuild.
+ * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update (com --idea-stage, --idea-accept, --idea-discard e --idea-make para ideias), relations-rebuild.
  * Sobe a API real em processo (só a sessão é trocada), em 127.0.0.1 e porta efêmera, e fala com ela por HTTP.
  * O terminal mostra só progresso e contagens; todo texto de ticket fica nos arquivos de `--dir`.
  */
@@ -69,6 +69,9 @@ async function runTicketCommand(command: "ticket-list" | "ticket-create" | "tick
         ...(options.parent ? { parent: options.parent } : {}),
         ...(options.root ? { root: true } : {}),
         ...(options.ideaStage ? { ideaStage: options.ideaStage } : {}),
+        ...(options.ideaAccept ? { ideaAccept: true } : {}),
+        ...(options.ideaDiscard ? { ideaDiscard: true } : {}),
+        ...(options.ideaMake ? { ideaMake: true } : {}),
       });
     }
     return 0;
