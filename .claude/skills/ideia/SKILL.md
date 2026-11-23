@@ -15,7 +15,7 @@ A mesma da skill `/task`: `~/.local/share/treepm-ops/tk.sh` (fora do repositóri
 
 - `tk.sh ticket-list --json`: a árvore, com `idea` em cada ticket.
 - `tk.sh ticket-create --title "…" --parent N --description-file arquivo.md --idea`: cria a ideia (estágio "Nova"). Um filho criado dentro de uma ideia já faz parte dela: não leva `--idea`.
-- `tk.sh ticket-update --number N --idea-stage new|refining|ready`: muda o estágio. Aceitar e descartar são do gestor, pela interface.
+- `tk.sh ticket-update --number N --idea-stage new|refining|ready`: muda o estágio. Aceitar (`--idea-accept`), descartar (`--idea-discard`) e transformar um ticket em ideia (`--idea-make`) existem na ferramenta, mas a decisão é do gestor: só use quando Teodoro pedir ou quando a coordenação estiver corrigindo a situação de um ticket.
 
 ## Passos
 

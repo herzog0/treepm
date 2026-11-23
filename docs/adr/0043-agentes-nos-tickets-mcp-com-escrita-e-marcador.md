@@ -137,3 +137,11 @@ Valem para as três de escrita as regras que já existem: token de alcance de es
 Continuam fora: mover ticket, mudar título e descrição de ticket existente, atribuir pessoas, aceitar ideia, remover. Cada um entra quando houver uso que o peça.
 
 Como é escrita nova por um canal de máquina, passa por revisão de segurança independente antes de entrar.
+
+### Como ficou o adendo (PR #177, 2026-11-23)
+
+- As três ferramentas existem: `get_work_queue`, `set_ticket_priority` e `create_ticket`. A fila vem da mesma função do domínio que a tela usa (`workQueue`).
+- `create_ticket` passa por `TicketsService.createChecked`, o mesmo caminho da tela. Com `requestId`, repetir o chamado do mesmo token em até 10 minutos devolve o ticket já criado: o evento de criação guarda um resumo do pedido (`requestDigest`), e o mesmo `requestId` com conteúdo diferente é recusado com 409 `request_id_reused`.
+- Token só de leitura deixou de gastar o limite de escritas da pessoa.
+- A revisão de segurança independente foi feita antes do merge e os achados, todos menores, foram corrigidos no mesmo PR.
+- Não foi exercitado com um cliente MCP de verdade: depende do token de escrita, que só Teodoro cria (`TREEPM-189`).
