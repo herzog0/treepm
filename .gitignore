@@ -16,3 +16,6 @@ coverage/
 
 # saída de relatórios do Vitest
 .vitest/
+
+# Medições locais (dados e resultados das ferramentas de medição, TREEPM-191)
+.measure/
