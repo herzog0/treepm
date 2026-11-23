@@ -25,8 +25,9 @@ import { ClaudeTicketElaborator } from "./claude-ticket-elaborator.js";
 import { JevAffinityJudge } from "./jev-affinity-judge.js";
 import { JevBranchJudge, sdkSystemOne } from "./jev-branch-judge.js";
 import { JevRelatedJudge } from "./jev-related-judge.js";
+import { VoyageEmbeddingProvider } from "./voyage-embedding-provider.js";
 import { PlacementService } from "./placement.service.js";
-import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER, RELATED_JUDGE, TICKET_ELABORATOR } from "./ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, EMBEDDING_PROVIDER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER, RELATED_JUDGE, TICKET_ELABORATOR } from "./ports.js";
 
 @Module({
   imports: [AccessModule, AccessTokensModule, TicketsModule, QueryModule],
@@ -117,6 +118,12 @@ import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERS
         assistantEnabled(config) && config.ANTHROPIC_API_KEY
           ? new ClaudeTicketElaborator(sdkStreamer(new Anthropic({ apiKey: config.ANTHROPIC_API_KEY, maxRetries: 0 })))
           : null,
+    },
+    {
+      provide: EMBEDDING_PROVIDER,
+      inject: [CONFIG],
+      // Sem `VOYAGE_API_KEY` não há provedor de vetores, e o assistente continua configurado (ADR 0053).
+      useFactory: (config: AppConfig) => (assistantEnabled(config) && config.VOYAGE_API_KEY ? new VoyageEmbeddingProvider({ apiKey: config.VOYAGE_API_KEY }) : null),
     },
     // Os prazos da ADR (30 s a descida, 20 s a proposta) valem quando nada os troca; os testes trocam.
     { provide: PLACEMENT_TIMEOUTS, useValue: {} },

@@ -11,12 +11,13 @@ import type { DirectoryProvider } from "../src/auth/directory-provider.js";
 import { DIRECTORY_PROVIDER } from "../src/auth/directory-provider.js";
 import type { SessionVerifier, VerifiedSession } from "../src/auth/session-verifier.js";
 import { SESSION_VERIFIER } from "../src/auth/session-verifier.js";
-import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER, RELATED_JUDGE, TICKET_ELABORATOR } from "../src/assistant/ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, EMBEDDING_PROVIDER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER, RELATED_JUDGE, TICKET_ELABORATOR } from "../src/assistant/ports.js";
 import type { PlacementTimeouts } from "../src/assistant/ports.js";
 import { ACCESS_TOKEN_CLOCK } from "../src/access-tokens/clock.js";
 import type { AccessTokenClock } from "../src/access-tokens/clock.js";
 import { REPOSITORY_PROVIDER } from "../src/github/ports.js";
 import { APP_ID, FakeRepositoryProvider } from "./github-fakes.js";
+import { FakeEmbeddingProvider } from "../scripts/placement-rebuild/fakes.js";
 import { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeChatProvider, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer, FakeProjectAnswerer, FakeRelatedJudge, FakeTicketElaborator } from "./assistant-fakes.js";
 
 export { OWNER_URL };
@@ -124,6 +125,7 @@ export async function createTestApp(
   answerer: FakeProjectAnswerer;
   chat: FakeChatProvider;
   elaborator: FakeTicketElaborator;
+  embedder: FakeEmbeddingProvider;
   github: FakeRepositoryProvider;
 }> {
   const directory = new FakeDirectory();
@@ -138,6 +140,7 @@ export async function createTestApp(
   const answerer = new FakeProjectAnswerer();
   const chat = new FakeChatProvider();
   const elaborator = new FakeTicketElaborator();
+  const embedder = new FakeEmbeddingProvider();
   const github = new FakeRepositoryProvider();
   let builder = Test.createTestingModule({
     imports: [AppModule],
@@ -164,7 +167,10 @@ export async function createTestApp(
       .overrideProvider(CHAT_PROVIDER)
       .useValue(chat)
       .overrideProvider(TICKET_ELABORATOR)
-      .useValue(elaborator);
+      .useValue(elaborator)
+      // Com `VOYAGE_API_KEY` na configuração do teste há provedor de vetores (o falso); sem ela, `null`, como no módulo real.
+      .overrideProvider(EMBEDDING_PROVIDER)
+      .useFactory({ inject: [CONFIG], factory: (c: AppConfig) => (c.VOYAGE_API_KEY ? embedder : null) });
   }
   if (!options.realGithub) builder = builder.overrideProvider(REPOSITORY_PROVIDER).useValue(github);
   if (options.clock) builder = builder.overrideProvider(ACCESS_TOKEN_CLOCK).useValue(options.clock);
@@ -180,7 +186,7 @@ export async function createTestApp(
   const app = moduleRef.createNestApplication({ logger: false });
   configureApp(app, config);
   await app.init();
-  return { app, directory, verifier, conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator, github };
+  return { app, directory, verifier, conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator, embedder, github };
 }
 
 /**

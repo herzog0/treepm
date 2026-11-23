@@ -132,7 +132,7 @@
     "withdraw": "Retirar o aceite",
     "assistant": {
       "heading": "Assistente de IA",
-      "explain": "Ao aceitar, o texto dos tickets e das conversas com o assistente é enviado à Anthropic e à TypeSafe para as funções de IA. Nomes, e-mails e identificadores de pessoas não são enviados.",
+      "explain": "Ao aceitar, o texto dos tickets e das conversas com o assistente é enviado à Anthropic e à TypeSafe para as funções de IA, e o título e a descrição dos tickets vão também à Voyage AI, que gera os vetores da busca por significado. Nomes, e-mails e identificadores de pessoas não são enviados.",
       "on": "O assistente está ligado.",
       "off": "O assistente está desligado.",
       "accept": "Aceitar e ligar o assistente",

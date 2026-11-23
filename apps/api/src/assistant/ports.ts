@@ -259,3 +259,32 @@ export interface TicketElaborator extends ExistingMatcher {
 }
 
 export const TICKET_ELABORATOR = Symbol("TICKET_ELABORATOR");
+
+// ---- Busca por significado: um vetor por ticket (ADR 0053) -------------------------------------------------------
+
+/** O modelo e o tamanho do vetor guardado; mudar qualquer um dos dois é reindexar (a linha de outro modelo ou tamanho conta como desatualizada). */
+export const EMBEDDING_MODEL = "voyage-4-lite";
+export const EMBEDDING_DIMENSIONS = 512;
+
+/** `document`: o texto de um ticket guardado; `query`: o texto de uma consulta (rascunho ou tarefa sugerida). */
+export type EmbeddingKind = "document" | "query";
+
+/** Motivos curtos de falha do provedor de vetores: nunca levam texto enviado, corpo de resposta nem chave. */
+export type EmbeddingFailure = "unauthorized" | "bad_request" | "rate_limited" | "server_error" | "timeout" | "network" | "malformed";
+
+/** Falha do provedor de vetores: só um código curto (para o diagnóstico e a saída da ferramenta), nunca texto. */
+export class EmbeddingError extends Error {
+  constructor(readonly code: EmbeddingFailure) {
+    super(`Falha no provedor de vetores: ${code}.`);
+    this.name = "EmbeddingError";
+  }
+}
+
+/** Voyage: um vetor de `EMBEDDING_DIMENSIONS` números por texto, na mesma ordem dos textos. Só texto de ticket chega aqui. */
+export interface EmbeddingProvider {
+  /** O modelo que gera os vetores; fica gravado em cada linha. O falso grava `fake`, que conta como desatualizado para o de verdade. */
+  readonly model: string;
+  embed(texts: readonly string[], kind: EmbeddingKind, options?: { signal?: AbortSignal }): Promise<number[][]>;
+}
+
+export const EMBEDDING_PROVIDER = Symbol("EMBEDDING_PROVIDER");

@@ -301,6 +301,8 @@ export const COMMANDS = [
   "summary-show",
   "summary-regenerate",
   "conversation-dry-run",
+  "embeddings-status",
+  "embeddings-reindex",
   "case-run",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
@@ -420,6 +422,8 @@ const REQUIRED: Record<Command, readonly (keyof CliOptions)[]> = {
   "summary-show": ["org", "user", "project", "number"],
   "summary-regenerate": ["org", "user", "project"],
   "conversation-dry-run": ["org", "user", "project", "textFile"],
+  "embeddings-status": ["org", "user", "project"],
+  "embeddings-reindex": ["org", "user", "project"],
   "case-run": [...APP_REQUIRED, "caseFile"],
 };
 
@@ -435,6 +439,8 @@ const TICKET_OPTIONS: Record<string, readonly string[]> = {
   "summary-show": ["number"],
   "summary-regenerate": ["number", "subtree", "all", "dryRun"],
   "conversation-dry-run": ["textFile", "scope"],
+  "embeddings-status": [],
+  "embeddings-reindex": ["dryRun"],
 };
 const TICKET_ONLY = ["json", "title", "descriptionFile", "parent", "status", "number", "root", "idea", "ideaStage", "priority", "ideaAccept", "ideaDiscard", "ideaMake", "dependsOn", "noDependsOn", "subtree", "all", "dryRun", "textFile", "scope"] as const;
 const IDEA_STAGES_CLI = ["new", "refining", "ready"] as const;
@@ -504,6 +510,8 @@ const usage = `Comandos: ${COMMANDS.join(", ")}.
   summary-show   --org --user --project --number <número>
   summary-regenerate --org --user --project (--number <número> | --subtree <número> | --all) [--dry-run] [--resume] [--dir <pasta do andamento>] [--fake-providers]
   conversation-dry-run --org --user --project --text-file <caminho> [--scope <número>] [--fake-providers]   (não cria ticket)
+  embeddings-status  --org --user --project   (só números: tickets vivos, vetores em dia, desatualizados e faltando; ADR 0053)
+  embeddings-reindex --org --user --project [--dry-run] [--fake-providers]   (põe o projeto inteiro em dia na Voyage, em lotes; --dry-run só diz quantos textos e caracteres iriam, sem chamar o provedor)
   case-run       --org --user --dir <pasta com o gabarito.json> --case <arquivo do caso> [--repeats N (padrão 3)] [--fake-providers]   (cria um projeto de medição sem os tickets de "omit", roda o pedido N vezes e o arquiva)`;
 
 export function parseCliArgs(argv: readonly string[]): ParsedArgs {
