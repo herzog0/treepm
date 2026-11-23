@@ -19,7 +19,7 @@ import { Contributions } from "./Contributions.js";
 import { CreateTicket } from "./CreateTicket.js";
 import { ItemsSummary } from "./ItemsSummary.js";
 import { TicketActivity } from "./TicketActivity.js";
-import { DependsOnField, DescriptionField, IdeaField, InsideIdeaValue, ParentField, PeopleField, StatusField, StatusValue, TitleField } from "./fields.js";
+import { DependsOnField, DescriptionField, IdeaField, InsideIdeaValue, ParentField, PeopleField, PriorityField, StatusField, StatusValue, TitleField } from "./fields.js";
 import { ActionsMenu } from "./menu.js";
 import { ancestorsOf } from "./tree.js";
 import { ticketHref } from "../nav/navigation.js";
@@ -313,6 +313,8 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
   const [openArea, setOpenArea] = useState<{ id: string; n: number } | null>(null);
 
   useEffect(() => {
+    // No modo play o foco fica na barra do play (ADR 0048): a página não o toma de quem avança pelo teclado.
+    if (document.activeElement?.closest("[data-keeps-focus]")) return;
     title.current?.focus();
   }, []);
 
@@ -452,6 +454,12 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
               </dd>
             </div>
             <div className="ticket-row">
+              <dt>{t("fields.priority")}</dt>
+              <dd>
+                <PriorityField client={client} detail={detail} canEdit={canEdit} onOpen={onOpenTicket} onSaved={refresh} />
+              </dd>
+            </div>
+            <div className="ticket-row">
               <dt>{t("fields.parent")}</dt>
               <dd>
                 <ParentField client={client} detail={detail} parent={parent} tickets={list} canEdit={canEdit} onOpen={onOpenTicket} onSaved={refresh} />
@@ -503,7 +511,10 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
                         <span className="ticket-key">{child.key}</span>
                         <span className="ticket-child-title">{child.title}</span>
                       </span>
-                      <span className="ticket-child-state">{ticketStateText(tMap, child)}</span>
+                      <span className="ticket-child-state">
+                        {(child.priority ?? 0) !== 0 && <span className="ticket-child-priority" role="img" aria-label={t("items.priority", { value: child.priority })}>{child.priority}</span>}
+                        {ticketStateText(tMap, child)}
+                      </span>
                     </button>
                   </li>
                 ))}

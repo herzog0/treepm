@@ -547,13 +547,20 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
     canTriageIdea: data.canTriageIdea ?? true,
     ...(entry.agentWork ? { agentWork: { by: data.agentWorkBy ?? { id: "person-1", displayName: "Ana", avatarUrl: null }, ...entry.agentWork }, canEndAgentWork: data.canEndAgentWork ?? true } : {}),
     description: descriptions.get(entry.id) ?? "",
-    effectivePriority: (entry.priority ?? 0) === 0 ? { value: 0, from: null } : { value: entry.priority ?? 0, from: { id: entry.id, key: entry.key } },
+    effectivePriority: effectiveOf(entry),
     mentionedBy: [], dependsOn: [], blocks: [],
     contributions: [], canEditContributions: true,
     createdByPersonId: "person-1",
     createdAt: "2026-11-20T10:00:00.000Z",
     updatedAt: "2026-11-20T10:00:00.000Z",
   });
+  /** A prioridade que vale (ADR 0047): a própria, ou a do ancestral mais próximo diferente de 0. */
+  const effectiveOf = (entry: TicketSummary): NonNullable<TicketDetail["effectivePriority"]> => {
+    for (let at: TicketSummary | undefined = entry; at; at = at.parentId === null ? undefined : find(at.parentId)) {
+      if ((at.priority ?? 0) !== 0) return { value: at.priority ?? 0, from: { id: at.id, key: at.key } };
+    }
+    return { value: 0, from: null };
+  };
   const conflict = (code: string) => failed("conflict", code);
   /**
    * Reabertura (ADR 0034): quem recebe um filho direto aberto e está concluído volta para "a fazer", e a subida segue até
@@ -623,6 +630,7 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
       if (body.description !== undefined) descriptions.set(id, body.description);
       if (body.parentId !== undefined) entry.parentId = body.parentId;
       if (body.status !== undefined) entry.status = body.status;
+      if (body.priority !== undefined) entry.priority = body.priority;
       if ((body.status !== undefined || body.parentId !== undefined) && open(entry)) reopenFrom(entry.parentId);
       return ok(detail(entry));
     }),

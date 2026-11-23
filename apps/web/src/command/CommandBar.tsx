@@ -3,11 +3,27 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TicketSummary } from "../api/client.js";
 import { TicketMark, ticketStateText } from "../map/ticketState.js";
-import { AiIcon, IdeaIcon, PlusIcon } from "./icons.js";
-import { searchTickets } from "./search.js";
+import type { EmptyQueueReason, PlayTemplate, PlayTemplateId } from "@treepm/domain";
+import { PlayMenu } from "../play/PlayMenu.js";
+import { AiIcon, IdeaIcon, PlayIcon, PlusIcon } from "./icons.js";
+import { fold, searchTickets } from "./search.js";
 import "./command.css";
+import "../play/play.css";
 
 export type CommandAside = "none" | "ticket" | "areas";
+
+/** O botão play e a barra do play que mora no lugar do campo (ADR 0048). */
+export interface CommandPlay {
+  /** O alcance e os modelos de agora, lidos cada vez que o menu abre (as contagens são as de agora). */
+  menu: () => { scopeText: string; templates: readonly PlayTemplate[] };
+  onStart: (id: PlayTemplateId) => void;
+  /** A barra do play enquanto o modo dura: toma o lugar do campo da barra de pedidos. */
+  bar: ReactNode | null;
+  /** Cresce quando o foco deve voltar ao botão play (a pessoa saiu do modo). */
+  focusRequest: number;
+  /** Frase de aviso (por exemplo, o play terminou), mostrada junto da barra. */
+  notice: string | null;
+}
 
 export interface CommandBarProps {
   tickets: Readonly<Record<string, readonly TicketSummary[]>>;
@@ -24,6 +40,10 @@ export interface CommandBarProps {
    * `null` quando deu certo; com erro a folha continua à vista, com o texto preservado.
    */
   onRegisterIdea: (text: string) => Promise<string | null>;
+  /** "Próximo ticket para trabalhar" (ADR 0047): leva ao primeiro da fila e devolve `null`, ou o motivo de a fila estar vazia. Sem ela, a linha não existe. */
+  onNextTicket?: () => EmptyQueueReason | null;
+  /** O botão play (ADR 0048). Sem ele, a barra é só a de pedidos. */
+  play?: CommandPlay;
   /** Devolve o foco ao palco do mapa. */
   returnFocus: () => void;
   /** A conversa de novo ticket mora na barra (ADR 0036): sem conversa, à vista ou recolhida (em andamento). */
@@ -49,12 +69,14 @@ export interface CommandBarProps {
   children?: ReactNode;
 }
 
-type Option = { kind: "ticket"; ticket: TicketSummary } | { kind: "create" } | { kind: "idea" } | { kind: "ask" };
+type Option = { kind: "ticket"; ticket: TicketSummary } | { kind: "create" } | { kind: "idea" } | { kind: "ask" } | { kind: "next" };
+type EmptyKind = "resume" | "new" | "next";
 
 /** Barra de pedidos no topo do mapa (ADR 0036, fatia 1): busca de tickets e a ação "Criar ticket". */
-export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTicket, onCreate, onRegisterIdea, returnFocus, conversation, assistantAvailable, loadResumable, onNewConversation, onResumeConversation, onReopenConversation, onCollapseConversation, ask, canAsk, onAsk, onReopenAsk, onCollapseAsk, focusRequest, children }: CommandBarProps) {
+export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTicket, onCreate, onRegisterIdea, onNextTicket, play, returnFocus, conversation, assistantAvailable, loadResumable, onNewConversation, onResumeConversation, onReopenConversation, onCollapseConversation, ask, canAsk, onAsk, onReopenAsk, onCollapseAsk, focusRequest, children }: CommandBarProps) {
   const { t } = useTranslation("command");
   const { t: tMap } = useTranslation("map");
+  const { t: tPlay } = useTranslation("play");
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
   const zone = useRef<HTMLElement>(null);
@@ -67,20 +89,36 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
   // "Registrar ideia" espera a API: enquanto isso a linha não dispara de novo, e um erro fica na folha.
   const [registering, setRegistering] = useState(false);
   const [registerError, setRegisterError] = useState<string | null>(null);
+  // "Próximo ticket para trabalhar" sem nenhum ticket pronto: o motivo fica na folha.
+  const [nextReason, setNextReason] = useState<EmptyQueueReason | null>(null);
+  // O menu do botão play (ADR 0048): os modelos e o alcance são lidos ao abrir.
+  const [menu, setMenu] = useState<ReturnType<CommandPlay["menu"]> | null>(null);
+  const playButton = useRef<HTMLButtonElement>(null);
+  const playing = play?.bar != null;
+  const nextAvailable = onNextTicket !== undefined;
+  const nextLabel = t("action.next");
 
   const trimmed = text.trim();
   const found = useMemo(() => searchTickets(text, tickets), [text, tickets]);
+  const nextMatches = nextAvailable && trimmed !== "" && fold(nextLabel).includes(fold(trimmed));
   const options = useMemo<Option[]>(() => {
     const list: Option[] = found.map((ticket) => ({ kind: "ticket", ticket }));
     if (canCreate && trimmed !== "") list.push({ kind: "create" }, { kind: "idea" });
     if (canAsk && trimmed !== "") list.push({ kind: "ask" });
+    if (nextMatches) list.push({ kind: "next" });
     return list;
-  }, [found, canCreate, canAsk, trimmed]);
+  }, [found, canCreate, canAsk, trimmed, nextMatches]);
   const ideaIndex = found.length + 1;
   const askIndex = found.length + (canCreate ? 2 : 0);
-  const sheetOpen = open && trimmed !== "";
-  const emptyOpen = open && trimmed === "" && assistantAvailable && canCreate && conversation === "none";
-  const emptyOptions = useMemo(() => (resumeTitle === null ? (["new"] as const) : (["resume", "new"] as const)), [resumeTitle]);
+  const nextIndex = found.length + (canCreate ? 2 : 0) + (canAsk ? 1 : 0);
+  const sheetOpen = open && trimmed !== "" && !playing;
+  const conversationAvailable = assistantAvailable && canCreate;
+  const emptyOpen = open && trimmed === "" && (conversationAvailable || nextAvailable) && conversation === "none" && !playing;
+  const menuOpen = menu !== null && !playing;
+  const emptyOptions = useMemo<readonly EmptyKind[]>(
+    () => [...(conversationAvailable ? (resumeTitle === null ? (["new"] as const) : (["resume", "new"] as const)) : []), ...(nextAvailable ? (["next"] as const) : [])],
+    [resumeTitle, conversationAvailable, nextAvailable],
+  );
   const emptyIndex = Math.min(emptyActive, emptyOptions.length - 1);
   const optionId = (index: number) => `${id}-option-${index}`;
   const activeIndex = Math.min(active, Math.max(options.length - 1, 0));
@@ -89,7 +127,16 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
   conversationRef.current = conversation;
   const askRef = useRef(ask);
   askRef.current = ask;
-  const folded = conversation === "expanded" || ask === "expanded";
+  const folded = conversation === "expanded" || ask === "expanded" || playing;
+  // Sair do play devolve o foco ao botão que o abriu.
+  const playFocus = play?.focusRequest ?? 0;
+  useEffect(() => {
+    if (playFocus > 0) playButton.current?.focus();
+  }, [playFocus]);
+  // Começar o play fecha o menu.
+  useEffect(() => {
+    if (playing) setMenu(null);
+  }, [playing]);
   // "Nova pergunta" encerra a folha: o campo da barra volta e recebe o foco.
   useEffect(() => {
     if (focusRequest > 0) input.current?.focus();
@@ -109,7 +156,8 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
   useEffect(() => {
     setResumeTitle(null);
     setEmptyActive(-1);
-    if (!emptyOpen) return;
+    setNextReason(null);
+    if (!emptyOpen || !conversationAvailable) return;
     let current = true;
     void loadRef.current().then((title) => {
       if (current) setResumeTitle(title);
@@ -117,7 +165,7 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
     return () => {
       current = false;
     };
-  }, [emptyOpen]);
+  }, [emptyOpen, conversationAvailable]);
 
   // Ctrl+K e ⌘K levam o foco à barra de qualquer lugar da tela do mapa. Em fase de captura, porque a página do ticket e os
   // painéis param a propagação das teclas.
@@ -145,7 +193,16 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
     setActive(0);
     input.current?.blur();
   };
-  const chooseConversation = (kind: "resume" | "new") => {
+  const chooseNext = () => {
+    const reason = onNextTicket?.() ?? null;
+    if (reason === null) finish();
+    else setNextReason(reason);
+  };
+  const chooseEmpty = (kind: EmptyKind) => {
+    if (kind === "next") {
+      chooseNext();
+      return;
+    }
     finish();
     if (kind === "resume") onResumeConversation();
     else onNewConversation();
@@ -168,6 +225,8 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
         },
         () => setRegistering(false),
       );
+    } else if (option.kind === "next") {
+      chooseNext();
     } else if (option.kind === "ask") {
       const question = trimmed;
       finish();
@@ -182,6 +241,8 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
   const onKeyDown = (event: ReactKeyboardEvent) => {
     // Ctrl+K segue para o ouvinte da janela; qualquer outra tecla daqui não chega aos atalhos do mapa.
     if (event.key.toLowerCase() === "k" && (event.ctrlKey || event.metaKey)) return;
+    // As teclas da barra do play (setas, J, K, Esc) são do mapa, que as trata na janela.
+    if (event.target instanceof Element && event.target.closest(".play-bar")) return;
     if (event.key === "Escape" && pickerActive()) return;
     event.stopPropagation();
     // As setas e o Enter do campo não valem para o que se digita dentro da folha da conversa.
@@ -228,7 +289,7 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
         const chosen = emptyOpen && emptyIndex >= 0 ? emptyOptions[emptyIndex] : undefined;
         if (chosen) {
           event.preventDefault();
-          chooseConversation(chosen);
+          chooseEmpty(chosen);
           return;
         }
         const option = sheetOpen ? options[activeIndex] : undefined;
@@ -250,10 +311,14 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
       onKeyDown={onKeyDown}
       onPointerDown={(event) => event.stopPropagation()}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setOpen(false);
+          setMenu(null);
+        }
       }}
     >
-      <div className={`command-bar ${sheetOpen || emptyOpen || folded ? "is-open" : ""}`}>
+      <div className={`command-bar ${sheetOpen || emptyOpen || folded || menuOpen ? "is-open" : ""}`}>
+        {play?.bar}
         <div className="command-field" hidden={folded}>
           <span className="command-icon"><AiIcon /></span>
           <input
@@ -272,10 +337,15 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
             onChange={(event) => {
               setText(event.target.value);
               setRegisterError(null);
+              setNextReason(null);
+              setMenu(null);
               setOpen(true);
               setActive(0);
             }}
-            onFocus={() => setOpen(true)}
+            onFocus={() => {
+              setOpen(true);
+              setMenu(null);
+            }}
           />
           {conversation === "collapsed" && (
             <button type="button" className="command-progress" onClick={onReopenConversation}>{t("conversation.inProgress")}</button>
@@ -284,36 +354,98 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
             <button type="button" className="command-progress" onClick={onReopenAsk}>{t("ask.inProgress")}</button>
           )}
           <kbd>{sheetOpen ? t("bar.escape") : t("bar.shortcut")}</kbd>
+          {play && (
+            <button
+              ref={playButton}
+              type="button"
+              className="command-play"
+              aria-label={tPlay("button")}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-controls={menuOpen ? `${id}-play` : undefined}
+              onClick={() => {
+                setOpen(false);
+                setMenu(menuOpen ? null : play.menu());
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowDown" || menuOpen) return;
+                event.preventDefault();
+                setOpen(false);
+                setMenu(play.menu());
+              }}
+            >
+              <PlayIcon />
+            </button>
+          )}
         </div>
+        {play?.notice && !playing && <p className="command-notice" role="status">{play.notice}</p>}
+        {menuOpen && play && menu && (
+          <div id={`${id}-play`}>
+            <PlayMenu
+              scopeText={menu.scopeText}
+              templates={menu.templates}
+              onChoose={(templateId) => {
+                setMenu(null);
+                play.onStart(templateId);
+              }}
+              onEscape={() => {
+                setMenu(null);
+                playButton.current?.focus();
+              }}
+              onTab={() => setMenu(null)}
+            />
+          </div>
+        )}
         {emptyOpen && (
           <div className="command-sheet" onMouseDown={(event) => event.preventDefault()}>
             <div id={`${id}-list`} role="listbox" aria-label={t("sheet.label")}>
-              <div role="group" aria-labelledby={`${id}-conversation`}>
-                <div id={`${id}-conversation`} className="command-heading">{t("sheet.conversation")}</div>
-                {emptyOptions.map((kind, index) => (
+              {emptyOptions.some((kind) => kind !== "next") && (
+                <div role="group" aria-labelledby={`${id}-conversation`}>
+                  <div id={`${id}-conversation`} className="command-heading">{t("sheet.conversation")}</div>
+                  {emptyOptions.map((kind, index) =>
+                    kind === "next" ? null : (
+                      <div
+                        key={kind}
+                        id={optionId(index)}
+                        role="option"
+                        aria-selected={index === emptyIndex}
+                        className={`command-option ${index === emptyIndex ? "is-active" : ""}`}
+                        onMouseMove={() => setEmptyActive(index)}
+                        onClick={() => chooseEmpty(kind)}
+                      >
+                        <span className="command-action-icon">{kind === "resume" ? <AiIcon /> : <PlusIcon />}</span>
+                        <span className="command-title">
+                          {kind === "resume" ? (
+                            <>
+                              {t("conversation.resume")} <span className="command-resume-title">{resumeTitle}</span>
+                            </>
+                          ) : (
+                            t("conversation.new")
+                          )}
+                        </span>
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
+              {nextAvailable && (
+                <div role="group" aria-labelledby={`${id}-empty-actions`}>
+                  <div id={`${id}-empty-actions`} className="command-heading">{t("sheet.actions")}</div>
                   <div
-                    key={kind}
-                    id={optionId(index)}
+                    id={optionId(emptyOptions.indexOf("next"))}
                     role="option"
-                    aria-selected={index === emptyIndex}
-                    className={`command-option ${index === emptyIndex ? "is-active" : ""}`}
-                    onMouseMove={() => setEmptyActive(index)}
-                    onClick={() => chooseConversation(kind)}
+                    aria-selected={emptyOptions.indexOf("next") === emptyIndex}
+                    className={`command-option ${emptyOptions.indexOf("next") === emptyIndex ? "is-active" : ""}`}
+                    onMouseMove={() => setEmptyActive(emptyOptions.indexOf("next"))}
+                    onClick={() => chooseNext()}
                   >
-                    <span className="command-action-icon">{kind === "resume" ? <AiIcon /> : <PlusIcon />}</span>
-                    <span className="command-title">
-                      {kind === "resume" ? (
-                        <>
-                          {t("conversation.resume")} <span className="command-resume-title">{resumeTitle}</span>
-                        </>
-                      ) : (
-                        t("conversation.new")
-                      )}
-                    </span>
+                    <span className="command-action-icon"><PlayIcon /></span>
+                    <span className="command-title">{nextLabel}</span>
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
             </div>
+            {nextReason !== null && <p className="command-error" role="status">{t(`next.${nextReason}`)}</p>}
           </div>
         )}
         {sheetOpen && (
@@ -340,7 +472,7 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
                   ))}
                 </div>
               )}
-              {(canCreate || canAsk) && (
+              {(canCreate || canAsk || nextMatches) && (
                 <div role="group" aria-labelledby={`${id}-actions`}>
                   <div id={`${id}-actions`} className="command-heading">{t("sheet.actions")}</div>
                   {canCreate && <div
@@ -383,10 +515,24 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
                       <span className="command-hint">{t("action.askShortcut")}</span>
                     </div>
                   )}
+                  {nextMatches && (
+                    <div
+                      id={optionId(nextIndex)}
+                      role="option"
+                      aria-selected={activeIndex === nextIndex}
+                      className={`command-option ${activeIndex === nextIndex ? "is-active" : ""}`}
+                      onMouseMove={() => setActive(nextIndex)}
+                      onClick={() => choose({ kind: "next" })}
+                    >
+                      <span className="command-action-icon"><PlayIcon /></span>
+                      <span className="command-title">{nextLabel}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
             {registerError !== null && <p className="command-error" role="alert">{registerError}</p>}
+            {nextReason !== null && <p className="command-error" role="status">{t(`next.${nextReason}`)}</p>}
             {found.length === 0 && <p className="command-empty" role="status">{t("sheet.noTickets")}</p>}
             <div className="command-footer">
               <span>{t("sheet.keys.navigate")}</span>

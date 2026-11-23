@@ -239,6 +239,7 @@ const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("parent_changed"), from: activityTicketSchema.nullable(), to: activityTicketSchema.nullable() }),
   z.object({ ...activityBase, type: z.literal("agent_work_started"), until: z.string() }),
   z.object({ ...activityBase, type: z.literal("agent_work_ended"), reason: z.enum(["agent", "person", "finished", "idea", "archived"]) }),
+  z.object({ ...activityBase, type: z.literal("priority_changed"), from: z.number().int(), to: z.number().int() }),
   z.object({ ...activityBase, type: z.literal("idea_registered") }),
   z.object({ ...activityBase, type: z.literal("idea_stage_changed"), from: ideaStage, to: ideaStage }),
   z.object({ ...activityBase, type: z.literal("idea_accepted") }),
@@ -411,6 +412,8 @@ export interface UpdateTicketBody {
   description?: string;
   status?: TicketStatus;
   parentId?: string | null;
+  /** Prioridade própria (ADR 0047): inteiro de -999 a 999. */
+  priority?: number;
 }
 
 export type ApiErrorKind =

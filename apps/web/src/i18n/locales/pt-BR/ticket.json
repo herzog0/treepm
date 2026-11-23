@@ -25,7 +25,8 @@
     "people": "Pessoas",
     "parent": "Ticket pai",
     "dependsOn": "Depende de",
-    "idea": "Ideia"
+    "idea": "Ideia",
+    "priority": "Prioridade"
   },
   "create": {
     "heading": "Novo ticket",
@@ -93,7 +94,8 @@
     "heading": "Itens",
     "newHere": "Novo ticket aqui dentro",
     "empty": "Nenhum ticket aqui dentro.",
-    "newIdeaHere": "Nova ideia aqui dentro"
+    "newIdeaHere": "Nova ideia aqui dentro",
+    "priority": "Prioridade {{value}}"
   },
   "mentionedBy": {
     "heading": "Mencionado em"
@@ -232,7 +234,9 @@
     "agentWorkEnded_idea": "O trabalho pela IA foi encerrado porque o ticket virou ideia",
     "agentWorkEnded_archived": "O trabalho pela IA foi encerrado porque o projeto foi arquivado",
     "via": "pelo MCP",
-    "viaTitle": "Feito por uma chamada MCP, com o token da pessoa"
+    "viaTitle": "Feito por uma chamada MCP, com o token da pessoa",
+    "priorityChanged": "<who>{{actor}}</who> mudou a prioridade de <name>{{from}}</name> para <name>{{to}}</name>",
+    "priorityChanged_noActor": "Prioridade mudada de <name>{{from}}</name> para <name>{{to}}</name>"
   },
   "contributions": {
     "heading": "Áreas",
@@ -281,5 +285,11 @@
     "label": "Em trabalho pela IA",
     "until": "até {{time}}",
     "end": "Encerrar"
+  },
+  "priority": {
+    "increase": "Aumentar a prioridade",
+    "decrease": "Diminuir a prioridade",
+    "invalid": "A prioridade é um número inteiro de -999 a 999.",
+    "inherited": "vale {{value}}, de"
   }
 }

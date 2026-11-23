@@ -183,7 +183,8 @@ describe("the proposal", () => {
     await askAssistant(screen, "Texto");
     await userEvent.keyboard("Escreva{Enter}");
     await expect.element(screen.getByRole("button", { name: "Inserir" })).toBeVisible();
-    await screen.getByText("Texto", { exact: true }).click();
+    // Foco por programa, não por clique: neste quadro a folha do assistente (fixa) cobre a linha do texto, e o clique cairia nela.
+    editor(screen).element().focus();
     await userEvent.keyboard("{Control>}{Home}{/Control}Antes ");
     await screen.getByRole("button", { name: "Inserir" }).click();
     await userEvent.keyboard("{Control>}{Enter}{/Control}");

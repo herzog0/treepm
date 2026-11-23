@@ -22,7 +22,8 @@
     "createShortcut": "Ctrl Enter",
     "registerIdea": "Registrar ideia «{{text}}»",
     "ask": "Perguntar ao assistente sobre «{{text}}»",
-    "askShortcut": "Shift Enter"
+    "askShortcut": "Shift Enter",
+    "next": "Próximo ticket para trabalhar"
   },
   "conversation": {
     "inProgress": "Conversa em andamento",
@@ -51,5 +52,10 @@
       "within": "{{length}} de {{max}} caracteres"
     },
     "unanswered": "Não respondida"
+  },
+  "next": {
+    "all_blocked": "Tudo o que está pronto depende de outro ticket.",
+    "all_others": "Tudo o que está pronto é de outra pessoa.",
+    "none": "Não há ticket pronto para trabalhar nesse alcance."
   }
 }

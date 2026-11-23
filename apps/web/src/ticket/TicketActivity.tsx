@@ -221,6 +221,8 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
         components: cause === null ? {} : { ticket: ref(cause) },
       });
     }
+    case "priority_changed":
+      return render("priorityChanged", { values: { from: String(entry.from), to: String(entry.to) } });
     case "parent_changed": {
       const { from, to } = entry;
       const key = from !== null && to !== null ? "parentChanged" : to !== null ? "parentMoved" : "parentRemoved";

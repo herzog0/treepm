@@ -172,8 +172,9 @@ describe("an empty field with the focus in the bar", () => {
     const reader = withAssistant(makePanelMe("member", [{ projectId: "p1", role: "reader" }]));
     render(<Host client={makeFullClient()} me={reader} />);
     await userEvent.click(await bar());
-    expect(screen.queryByRole("option")).not.toBeInTheDocument();
-    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    // Nenhuma ação de criar: só a navegação "Próximo ticket para trabalhar" (ADR 0047), que quem só lê também usa.
+    expect(screen.queryByRole("option", { name: /conversa/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["Próximo ticket para trabalhar"]);
   }, SLOW);
 
   it("does not highlight anything by default, so Enter does not start a conversation by accident", async () => {

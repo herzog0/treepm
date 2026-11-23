@@ -1,0 +1,50 @@
+/*
+ * Botão play, menu de modelos e barra do play (ADR 0048). Moram dentro da barra de pedidos (`.command-bar`), com as mesmas medidas e
+ * os tokens `--tp-*`. Em tela estreita ou de toque os alvos têm 44 px e a barra continua numa linha só.
+ */
+.play-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+
+.command-play { display: grid; flex: none; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--tp-border-strong); border-radius: 8px; background: var(--tp-raised); color: var(--tp-accent-soft); cursor: pointer; }
+.command-play:hover, .command-play[aria-expanded="true"] { background: var(--tp-selected); }
+.command-play:focus-visible, .play-button:focus-visible, .play-item:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
+
+.play-menu-sheet { padding: 0 0 8px; }
+.play-scope-line { margin: 0; padding: 8px 16px 4px; color: var(--tp-text-3); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.play-menu { display: flex; flex-direction: column; padding: 0 8px; }
+.play-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 48px; box-sizing: border-box; padding: 6px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--tp-text); font: 400 13px/1.3 var(--tp-font); text-align: left; cursor: pointer; }
+.play-item:hover, .play-item:focus-visible { background: var(--tp-selected); }
+.play-item[aria-disabled="true"] { color: var(--tp-text-3); cursor: not-allowed; }
+.play-item[aria-disabled="true"]:hover { background: transparent; }
+.play-item-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.play-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.play-item-hint { overflow: hidden; color: var(--tp-text-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.play-item-count { flex: none; color: var(--tp-text-2); font: 400 11.5px/1.3 var(--tp-font-mono); }
+
+.play-bar { display: flex; flex: none; align-items: center; gap: 10px; box-sizing: border-box; min-height: 56px; padding: 6px 10px 6px 14px; }
+.play-info { display: flex; flex: 1; flex-direction: column; gap: 1px; min-width: 0; }
+.play-name { overflow: hidden; font-weight: 600; font-size: 13.5px; text-overflow: ellipsis; white-space: nowrap; }
+.play-sub { display: flex; gap: 8px; min-width: 0; color: var(--tp-text-3); font-size: 12px; }
+.play-person { flex: none; color: var(--tp-accent-soft); white-space: nowrap; }
+.play-scope, .play-missing { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.play-missing { color: var(--tp-danger-text); }
+.play-position { flex: none; color: var(--tp-text-2); font: 400 12px/1.3 var(--tp-font-mono); white-space: nowrap; }
+.play-controls { display: flex; flex: none; align-items: center; gap: 4px; }
+.play-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 32px; height: 32px; padding: 0 6px; border: 1px solid var(--tp-border-strong); border-radius: 8px; background: var(--tp-raised); color: var(--tp-text); font: 400 12px/1 var(--tp-font); cursor: pointer; }
+.play-button:hover:not(:disabled) { background: var(--tp-selected); }
+.play-button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+@media (max-width: 720px), (pointer: coarse) {
+  .command-play { width: 44px; height: 44px; }
+  .play-item { min-height: 56px; }
+  .play-bar { gap: 6px; padding: 6px 6px 6px 12px; }
+  .play-button { min-width: 44px; height: 44px; }
+  /* "Recomeçar" vira só o ícone (com o nome acessível): a posição e os botões nunca somem. */
+  .play-restart-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+.command-notice { margin: 0; padding: 8px 16px; border-top: 1px solid var(--tp-border); color: var(--tp-text-2); font-size: 12px; }
+@media (max-width: 999px) {
+  /* Abaixo de 1000 px a página do ticket ocupa toda a largura e cobre a barra de pedidos: durante o play a barra desce para o pé, por cima dela, e o corpo da página deixa o espaço livre. */
+  .map-workspace.has-play.has-ticket-page .command-zone { z-index: 31; top: auto; align-items: flex-end; }
+  .map-workspace.has-play.has-ticket-page .command-bar { margin-top: 0; }
+  .map-workspace.has-play.has-ticket-page .ticket-scroll { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+}

@@ -4,6 +4,10 @@ import react from "@vitejs/plugin-react";
 import { playwright } from "@vitest/browser-playwright";
 
 // Perfil do quadro do mapa com projeto grande (TREEPM-247): `pnpm measure:map-frame`. Mesmas regras de `vitest.measure.browser.config.ts`.
+// Se TREEPM_PLAYWRIGHT_WS estiver definida, conecta a um Chromium já rodando (contêiner) em vez de abrir o Chrome da máquina, cujo driver de vídeo trava.
+const wsEndpoint = process.env["TREEPM_PLAYWRIGHT_WS"];
+const launchOptions = { executablePath: process.env.TREEPM_CHROME ?? "/usr/bin/google-chrome" };
+const providerOptions = wsEndpoint ? { connectOptions: { wsEndpoint } } : { launchOptions };
 const measureDir = process.env["MEASURE_DIR"] ?? fileURLToPath(new URL("../../.measure/big-project/", import.meta.url));
 // MEASURE_REACT=development usa o React de desenvolvimento (jsxDEV, validações: custo bem maior que o de produção); o padrão é o React de produção com
 // `react-dom/profiling` (o `<Profiler>` só reporta nele), que é o que o usuário roda.
@@ -32,7 +36,7 @@ export default defineConfig({
       enabled: true,
       headless: true,
       screenshotFailures: false,
-      provider: playwright({ launchOptions: { executablePath: process.env.TREEPM_CHROME ?? "/usr/bin/google-chrome" } }),
+      provider: playwright(providerOptions),
       instances: [{ browser: "chromium" }],
     },
   },
