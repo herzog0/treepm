@@ -12,6 +12,7 @@
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "measure:big-project": "vitest run --config vitest.measure.config.ts",
     "measure:big-project:browser": "vitest run --config vitest.measure.browser.config.ts",
+    "measure:map-frame": "vitest run --config vitest.measure.frame.config.ts",
     "clean": "rm -rf dist"
   },
   "dependencies": {
