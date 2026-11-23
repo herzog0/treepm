@@ -2,7 +2,8 @@
  * Conferências puras da medição da conversa de novo ticket (ADR 0044, TREEPM-211). Sem rede, sem banco, sem provedor:
  * recebem o que o provedor devolveu e dizem o que se perdeu, o que foi inventado e o que a IA afirmou que fez.
  */
-import type { ConversationDraft } from "../src/assistant/ports.js";
+import { sanitizeElaboration } from "../src/assistant/elaboration.js";
+import type { ConversationDraft, ElaborationLink, ElaborationRelated, ElaborationSuggestion } from "../src/assistant/ports.js";
 
 export type MustMention = { label: string; anyOf: readonly string[] };
 
@@ -16,6 +17,16 @@ export type ConversationCase = {
   maxChildren?: number | undefined;
   mustMention: readonly MustMention[];
   mustNotMention: readonly string[];
+  /**
+   * Opcional (ADR 0052, fatia 3): a árvore pequena e inventada que o caso leva consigo. Presente (mesmo vazia), o caso também
+   * mede a elaboração: ligações e tarefas sugeridas, à parte do que a conversa pode inventar.
+   */
+  related?: readonly ElaborationRelated[] | undefined;
+  /** As chaves que a elaboração tem de propor como "depende de" (todas). */
+  expectLinkKeys?: readonly string[] | undefined;
+  /** Quantas tarefas sugeridas, depois do descarte do servidor, são aceitas. */
+  minSuggested?: number | undefined;
+  maxSuggested?: number | undefined;
 };
 
 /** O que importa de um turno do provedor para a conferência. */
@@ -175,5 +186,51 @@ export function checkDraft(testCase: ConversationCase, turn: TurnLike): DraftChe
     idea,
     ideaOk,
     passes: draft !== null && childrenOk && ideaOk && missed.length === 0 && invented.length === 0 && ticketKeys.length === 0 && claims.length === 0,
+  };
+}
+
+export type ElaborationCheck = {
+  /** As chaves ligadas e os títulos sugeridos DEPOIS do descarte que o servidor faz (o que a pessoa veria). */
+  linkKeys: string[];
+  links: ElaborationLink[];
+  suggestedTitles: string[];
+  suggested: ElaborationSuggestion[];
+  suggestedCount: number;
+  linksMissing: string[];
+  suggestedOk: boolean;
+  passes: boolean;
+};
+
+/**
+ * Confere a elaboração contra um caso. As tarefas sugeridas são contadas À PARTE de "inventadas": sugestão marcada não é
+ * invenção (o texto dela nunca passa por `checkMustNotMention`); afirmação posta na boca da pessoa continua sendo, e quem
+ * a mede é `checkDraft`. A saída do modelo passa pelo mesmo descarte da rota.
+ */
+export function checkElaboration(
+  testCase: ConversationCase,
+  draft: ConversationDraft,
+  raw: { links: readonly ElaborationLink[]; suggested: readonly ElaborationSuggestion[] },
+): ElaborationCheck {
+  const related = testCase.related ?? [];
+  const clean = sanitizeElaboration(raw, {
+    draftTitle: draft.title,
+    partTitles: (draft.children ?? []).map((child) => child.title),
+    related,
+    duplicateKey: null,
+    projectKey: "DEMO",
+  });
+  const linkKeys = clean.links.map((link) => link.dependeDe);
+  const linksMissing = (testCase.expectLinkKeys ?? []).filter((key) => !linkKeys.includes(key));
+  const count = clean.suggested.length;
+  const suggestedOk = (testCase.minSuggested === undefined || count >= testCase.minSuggested) && (testCase.maxSuggested === undefined || count <= testCase.maxSuggested);
+  return {
+    linkKeys,
+    links: clean.links,
+    suggestedTitles: clean.suggested.map((task) => task.title),
+    suggested: clean.suggested,
+    suggestedCount: count,
+    linksMissing,
+    suggestedOk,
+    passes: linksMissing.length === 0 && suggestedOk,
   };
 }

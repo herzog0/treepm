@@ -190,7 +190,26 @@ const placementOutcomeSchema = z.object({
     .nullable()
     .default(null),
 });
-const createdFromConversationSchema = z.object({ conversation: conversationDetailSchema, ticket: ticketDetailSchema, children: z.array(ticketDetailSchema).default([]) });
+const createdFromConversationSchema = z.object({
+  conversation: conversationDetailSchema,
+  ticket: ticketDetailSchema,
+  children: z.array(ticketDetailSchema).default([]),
+  /** Ligações pedidas que a API descartou na validação (a criação seguiu). */
+  warnings: z
+    .array(
+      z.discriminatedUnion("code", [
+        z.object({ code: z.literal("link_discarded"), de: z.union([z.literal("pai"), z.number().int()]), dependeDe: z.string(), reason: z.string() }),
+        z.object({ code: z.literal("suggested_discarded"), title: z.string(), reason: z.string() }),
+      ]),
+    )
+    .default([]),
+});
+/** A elaboração (ADR 0052, item 4): ligações com tickets que existem e tarefas que o pedido implica; `unavailable` diz por que vieram vazias. */
+const elaborationOutcomeSchema = z.object({
+  links: z.array(z.object({ de: z.union([z.literal("pai"), z.number().int()]), deTitle: z.string().optional(), dependeDe: z.string(), dependeDeTitle: z.string(), motivo: z.string() })),
+  suggested: z.array(z.object({ title: z.string(), description: z.string(), motivo: z.string() })),
+  unavailable: z.enum(["not_configured", "consent_required", "unavailable"]).nullable().default(null),
+});
 const githubInstallationSchema = z.object({
   accountLogin: z.string(),
   accountType: z.string(),
@@ -420,6 +439,15 @@ export type ConversationSummary = z.output<typeof conversationSummarySchema>;
 export type ConversationDetail = z.output<typeof conversationDetailSchema>;
 export type PlacementTarget = z.output<typeof placementTargetSchema>;
 export type PlacementOutcome = z.output<typeof placementOutcomeSchema>;
+export type ElaborationOutcome = z.output<typeof elaborationOutcomeSchema>;
+export type CreatedFromConversation = z.output<typeof createdFromConversationSchema>;
+export type SuggestedTask = ElaborationOutcome["suggested"][number];
+export type ProposedLink = ElaborationOutcome["links"][number];
+/** O que a criação leva da elaboração: as tarefas que ficaram e as ligações marcadas. */
+export interface ElaborationChoice {
+  suggested?: SuggestedTask[];
+  links?: { de: "pai" | number; deTitle?: string; dependeDe: string }[];
+}
 export type GroupProposal = NonNullable<PlacementOutcome["groupProposal"]>;
 /** O ticket pai novo que a pessoa confirmou: criado no destino escolhido, com estes tickets movidos para ele. */
 export interface NewGroup {
@@ -451,7 +479,6 @@ export interface CreateAccessTokenBody {
   /** Padrão da API: leitura (ADR 0043). */
   scope?: "read" | "write";
 }
-export type CreatedFromConversation = z.output<typeof createdFromConversationSchema>;
 
 export interface ImportItem {
   title: string;
@@ -689,7 +716,8 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     /** `scopeId`: procura só dentro desse ticket (ADR 0031, ADR 0034); sem ele, no projeto inteiro. */
     findPlacement: (id: string, scopeId?: string) =>
       request("POST", `${conversation(id)}/placement`, placementOutcomeSchema, scopeId === undefined ? undefined : { scopeId }),
-    createTicketFromConversation: (id: string, body: { parentId: string | null; group?: NewGroup }) =>
+    getElaboration: (id: string) => request("POST", `${conversation(id)}/elaboration`, elaborationOutcomeSchema),
+    createTicketFromConversation: (id: string, body: { parentId: string | null; group?: NewGroup } & ElaborationChoice) =>
       request("POST", `${conversation(id)}/ticket`, createdFromConversationSchema, body),
     listConversations: (projectId: string) =>
       request("GET", `/api/ticket-conversations?projectId=${encodeURIComponent(projectId)}`, z.array(conversationSummarySchema)),

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import type { ApiClient, ApiError, ApiResult, ConversationDetail, DraftPreview, NewGroup, PlacementOutcome, Project, TicketSummary } from "../api/client.js";
+import type { ApiClient, ApiError, ApiResult, ConversationDetail, CreatedFromConversation, DraftPreview, ElaborationOutcome, NewGroup, PlacementOutcome, Project, TicketSummary } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { AiIcon } from "../command/icons.js";
 import { LoadError } from "../LoadError.js";
@@ -14,6 +14,8 @@ import { formatNumber } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { reopensOnReceiving } from "../ticket/reopen.js";
 import { DraftParts, OriginalRequest, samePartList, toPartEdits } from "./DraftPreview.js";
+import { CreatedNotice, ElaborationAnnouncement, ElaborationLoading, LinksGroup, SuggestedGroup, linkId, normalizeTitle } from "./Elaboration.js";
+import type { LinkRow } from "./Elaboration.js";
 import { DuplicateNotice, RelatedList } from "./RelatedTickets.js";
 import type { PartEdit } from "./DraftPreview.js";
 import { PathCard } from "./PathCard.js";
@@ -243,6 +245,15 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   // A proposta de ticket pai novo (ADR 0031) vale só para o destino da procura: trocar o destino, procurar de novo ou o 409 a descartam.
   const [proposalDropped, setProposalDropped] = useState(false);
   const [unchecked, setUnchecked] = useState<string[]>([]);
+  // A elaboração (ADR 0052, item 4): chega depois da procura, sem bloquear a prévia. O que a pessoa tirou fica guardado na conversa.
+  const [elaboration, setElaboration] = useState<ElaborationOutcome | null>(null);
+  const [elaborationLoading, setElaborationLoading] = useState(false);
+  /** O rascunho (salvo) para o qual a elaboração foi pedida: se ele mudou desde então, a elaboração é velha e não vale. */
+  const [elaboratedFor, setElaboratedFor] = useState<string | null>(null);
+  /** A criação seguiu, mas a API descartou ligações ou sugeridas: a tela diz o que ficou de fora antes de abrir o ticket. */
+  const [createdNotice, setCreatedNotice] = useState<{ ticketId: string; warnings: CreatedFromConversation["warnings"] } | null>(null);
+  const [removedSuggested, setRemovedSuggested] = useState<string[]>([]);
+  const [uncheckedLinks, setUncheckedLinks] = useState<string[]>([]);
   const sendingRef = useRef(false);
   const initialSent = useRef(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -274,6 +285,47 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
       active = false;
     };
   }, [previewKey]);
+
+  // Uma elaboração por procura: só depois de a procura terminar (há resultado na tela), e não de novo quando o rascunho é salvo.
+  // Rascunho que mudou depois dela deixa a elaboração velha: ela some e a pessoa procura de novo.
+  const draftKey = draft ? JSON.stringify(draft) : null;
+  const elaborationKey = outcome ? searchCount : null;
+  const draftKeyNow = useRef(draftKey);
+  draftKeyNow.current = draftKey;
+  useEffect(() => {
+    setElaboration(null);
+    if (elaborationKey === null || !conversation) {
+      setElaborationLoading(false);
+      return;
+    }
+    let live = true;
+    setElaborationLoading(true);
+    const asked = draftKeyNow.current;
+    void safe(() => client.getElaboration(conversation.id)).then((result) => {
+      if (!live) return;
+      setElaboration(result.ok ? result.data : null);
+      setElaboratedFor(asked);
+      setElaborationLoading(false);
+    });
+    return () => {
+      live = false;
+    };
+  }, [elaborationKey]);
+
+  const stale = elaboration !== null && (dirty || elaboratedFor !== draftKey);
+  const shown = stale ? null : elaboration;
+  const hadSuggestions = elaboration !== null && elaboration.suggested.length + elaboration.links.length > 0;
+  const keptSuggested = (shown?.suggested ?? []).filter((task) => !removedSuggested.includes(normalizeTitle(task.title)));
+  const linkRows: LinkRow[] = (shown?.links ?? []).flatMap((link) => {
+    // A parte de origem é achada pelo título (o índice da elaboração pode estar velho); sem parte com esse título, a ligação não vale.
+    const index = link.de === "pai" ? "pai" : (draft?.children ?? []).findIndex((child) => normalizeTitle(child.title) === normalizeTitle(link.deTitle ?? ""));
+    if (index === -1) return [];
+    const part = index === "pai" ? null : draft!.children[index]!.title;
+    const ticketId = outcome?.related.find((item) => item.key === link.dependeDe)?.id ?? list.find((item) => item.key === link.dependeDe)?.id ?? null;
+    return [{ link, index, part, ticketId, checked: !uncheckedLinks.includes(linkId(link)) }];
+  });
+  const keptLinks = linkRows.filter((row) => row.checked).map((row) => ({ de: row.index, ...(row.part === null ? {} : { deTitle: row.part }), dependeDe: row.link.dependeDe }));
+  const waitingElaboration = outcome !== null && elaborationLoading;
 
   // O card tracejado do mapa segue o destino e o título salvo do rascunho.
   const onDraftChange = useRef(props.onDraftChange);
@@ -327,6 +379,8 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
 
   const clearPlacement = () => {
     setOutcome(null);
+    setElaboration(null);
+    setCreatedNotice(null);
     setDuplicateAccepted(false);
     setTarget(null);
     setChoosing(false);
@@ -341,6 +395,8 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     setText("");
     setSendError(null);
     setEdit(null);
+    setRemovedSuggested([]);
+    setUncheckedLinks([]);
     clearPlacement();
     save.clear();
     removal.clear();
@@ -446,7 +502,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   };
 
   /** `group`: a proposta confirmada; sem ele, o ticket nasce solto no destino. */
-  const createHere = async (group?: NewGroup) => {
+  const createHere = async (group?: NewGroup, withoutElaboration = false) => {
     if (!conversation || !target || busy || duplicatePending) return;
     let current = conversation;
     if (dirty) {
@@ -454,13 +510,23 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
       if (!saved) return;
       current = saved;
     }
-    const result = await create.run(() => client.createTicketFromConversation(current.id, group ? { parentId: target.parentId, group } : { parentId: target.parentId }));
+    const result = await create.run(() => client.createTicketFromConversation(current.id, {
+        parentId: target.parentId,
+        ...(group ? { group } : {}),
+        ...(!withoutElaboration && keptSuggested.length > 0 ? { suggested: keptSuggested } : {}),
+        ...(!withoutElaboration && keptLinks.length > 0 ? { links: keptLinks } : {}),
+      }),
+    );
     if (!result.ok) {
       // Algum ticket da proposta mudou de lugar: a proposta sai, o resto do card fica.
       if (result.error.code === "grouping_changed") setProposalDropped(true);
       return;
     }
     onChanged();
+    if (result.data.warnings.length > 0) {
+      setCreatedNotice({ ticketId: result.data.ticket.id, warnings: result.data.warnings });
+      return;
+    }
     onCreated(result.data.ticket.id);
   };
 
@@ -609,10 +675,11 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 </button>
               </div>
             </section>
-            {outcome?.duplicate && !duplicateAccepted && (
+            {createdNotice && <CreatedNotice notice={createdNotice} onOpen={() => onCreated(createdNotice.ticketId)} />}
+            {!createdNotice && outcome?.duplicate && !duplicateAccepted && (
               <DuplicateNotice duplicate={outcome.duplicate} announceKey={searchCount} onOpen={() => (onOpenExisting ?? onCreated)(outcome.duplicate!.id)} onCreateAnyway={() => { setDuplicateAccepted(true); setFocusCreate(true); }} />
             )}
-            {outcome && target && (
+            {!createdNotice && outcome && target && (
               <PathCard
                 project={project}
                 target={target}
@@ -640,12 +707,33 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 }}
                 onChoose={() => setChoosing(true)}
                 onCreate={() => void createHere()}
+                waiting={waitingElaboration}
+                onCreateNow={() => void createHere(undefined, true)}
                 parts={partCount}
                 idea={asIdea}
                 createBlocked={createBlocked}
               />
             )}
-            {outcome && <RelatedList related={outcome.related} onOpen={onOpenExisting ?? onCreated} />}
+            {!createdNotice && outcome && <ElaborationAnnouncement suggested={shown?.suggested.length ?? 0} links={shown?.links.length ?? 0} />}
+            {!createdNotice && waitingElaboration && <ElaborationLoading />}
+            {!createdNotice && outcome && stale && hadSuggestions && <p className="assistant-hint assistant-elaboration-stale">{t("elaboration.stale")}</p>}
+            <SuggestedGroup
+              tasks={createdNotice ? [] : keptSuggested}
+              onRemove={(task) => {
+                if (keptSuggested.length === 1) setFocusCreate(true);
+                setRemovedSuggested((current) => [...current, normalizeTitle(task.title)]);
+              }}
+              onRemoveAll={() => {
+                setRemovedSuggested((current) => [...current, ...keptSuggested.map((task) => normalizeTitle(task.title))]);
+                setFocusCreate(true);
+              }}
+            />
+            <LinksGroup
+              rows={createdNotice ? [] : linkRows}
+              onToggle={(link) => setUncheckedLinks((current) => (current.includes(linkId(link)) ? current.filter((id) => id !== linkId(link)) : [...current, linkId(link)]))}
+              onOpen={onOpenExisting ?? onCreated}
+            />
+            {!createdNotice && outcome && <RelatedList related={outcome.related} onOpen={onOpenExisting ?? onCreated} />}
           </div>
         )}
       </div>

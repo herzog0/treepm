@@ -2,7 +2,7 @@ import { lockProjectStructure } from "./structure-lock.js";
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import type { z } from "zod";
-import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, descriptionExcerpt, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
+import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, createsDependencyCycle, descriptionExcerpt, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
 import type { Actor, IdeaStage, TicketNode, TicketStatus, ticketProgress } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
@@ -803,6 +803,43 @@ export class TicketsService {
       });
     }
     return this.detail(tx, project, created.id);
+  }
+
+  /**
+   * A trava de aviso das dependências do projeto (`ticket-dependencies:`). Ordem das travas (ADR 0046): consultivas do projeto
+   * (estrutura, depois dependências) → linhas de ticket → linha do projeto por último. Quem vai ligar dependências pega esta
+   * logo depois da de estrutura, antes de qualquer escrita que reserve número (linha do projeto).
+   */
+  async lockDependencies(tx: TenantClient, projectId: string): Promise<void> {
+    await tx.$executeRaw`select pg_advisory_xact_lock(hashtextextended(${`ticket-dependencies:${projectId}`}, 0))`;
+  }
+
+  /**
+   * "`fromId` depende de `toId`" (ADR 0037), dentro da transação de quem chama; as permissões e o projeto já foram conferidos.
+   * Serializa por projeto (trava de aviso, só entre quem altera dependências), recusa a ligação a si mesmo e o ciclo, e é
+   * idempotente (`exists`, sem novo evento). Os dois tickets são do projeto: confira antes.
+   */
+  async linkDependency(
+    tx: TenantClient,
+    principal: Principal,
+    project: ProjectRow,
+    from: { id: string; number: number },
+    to: { id: string; number: number },
+  ): Promise<"created" | "exists" | "cycle" | "self"> {
+    if (from.id === to.id) return "self";
+    await this.lockDependencies(tx, project.id);
+    const edges = await tx.ticketRelation.findMany({ where: { projectId: project.id, kind: "depends_on" }, select: { fromTicketId: true, toTicketId: true } });
+    if (edges.some((edge) => edge.fromTicketId === from.id && edge.toTicketId === to.id)) return "exists";
+    if (createsDependencyCycle(edges.map((edge) => [edge.fromTicketId, edge.toTicketId] as const), from.id, to.id)) return "cycle";
+    await touchProjectVersion(tx, project.id); // ADR 0046 (rev. 3): `blocked` do dependente muda; decidido depois da trava e da leitura das ligações.
+    await tx.ticketRelation.create({ data: { orgId: project.orgId, projectId: project.id, fromTicketId: from.id, toTicketId: to.id, kind: "depends_on" } });
+    await this.activity.record(tx, principal, {
+      kind: "ticket.dependency_added",
+      subjectType: "ticket",
+      subjectId: from.id,
+      payload: { key: `${project.key}-${from.number}`, dependsOnKey: `${project.key}-${to.number}`, dependsOnTicketId: to.id },
+    });
+    return "created";
   }
 
   /**

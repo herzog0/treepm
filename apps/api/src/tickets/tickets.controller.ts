@@ -17,7 +17,7 @@ import {
 } from "@nestjs/common";
 import type { Response } from "express";
 import type { TenantClient } from "@treepm/db";
-import { createsDependencyCycle, isFinished, ticketProgress } from "@treepm/domain";
+import { isFinished, ticketProgress } from "@treepm/domain";
 import type { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { CurrentPrincipal } from "../access/principal.js";
@@ -349,20 +349,9 @@ export class TicketsController {
     if (other.id === id) {
       throw new ConflictException({ code: "dependency_self", message: "Um ticket não pode depender de si mesmo." });
     }
-    await tx.$executeRaw`select pg_advisory_xact_lock(hashtextextended(${`ticket-dependencies:${project.id}`}, 0))`;
-    const edges = await tx.ticketRelation.findMany({ where: { projectId: project.id, kind: "depends_on" }, select: { fromTicketId: true, toTicketId: true } });
-    if (!edges.some((edge) => edge.fromTicketId === id && edge.toTicketId === other.id)) {
-      if (createsDependencyCycle(edges.map((edge) => [edge.fromTicketId, edge.toTicketId] as const), id, other.id)) {
-        throw new ConflictException({ code: "dependency_cycle", message: "Isso fecharia um ciclo de dependências.", details: { key: `${project.key}-${other.number}` } });
-      }
-      await touchProjectVersion(tx, project.id); // ADR 0046 (rev. 3): `blocked` do dependente muda; decidido depois da trava e da leitura das ligações.
-      await tx.ticketRelation.create({ data: { orgId: project.orgId, projectId: project.id, fromTicketId: id, toTicketId: other.id, kind: "depends_on" } });
-      await this.activity.record(tx, principal, {
-        kind: "ticket.dependency_added",
-        subjectType: "ticket",
-        subjectId: id,
-        payload: { key: `${project.key}-${ticket.number}`, dependsOnKey: `${project.key}-${other.number}`, dependsOnTicketId: other.id },
-      });
+    const outcome = await this.tickets.linkDependency(tx, principal, project, ticket, other);
+    if (outcome === "cycle") {
+      throw new ConflictException({ code: "dependency_cycle", message: "Isso fecharia um ciclo de dependências.", details: { key: `${project.key}-${other.number}` } });
     }
     return this.tickets.detailFor(tx, project, id, principal);
   }

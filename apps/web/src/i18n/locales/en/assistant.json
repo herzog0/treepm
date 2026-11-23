@@ -120,5 +120,50 @@
       "open": "Open the ticket",
       "anyway": "Create anyway"
     }
+  },
+  "elaboration": {
+    "loading": "Looking for links and tasks",
+    "suggested": {
+      "heading": "Suggested by the assistant",
+      "hint": "Work the request seems to need and you did not mention. They are included when you create; remove what you do not want.",
+      "remove": "Remove the suggested task: {{title}}",
+      "removeAll": "Remove all",
+      "description": "Show the description"
+    },
+    "links": {
+      "heading": "Proposed links",
+      "hint": "Dependencies on tickets that already exist. They are included when you create; uncheck what you do not want.",
+      "parent": "This ticket depends on",
+      "part": "The part \"{{part}}\" depends on"
+    },
+    "waiting": "Waiting for the suggestions…",
+    "createNow": "Create without waiting",
+    "stale": "The draft changed: search again to refresh the suggestions and links.",
+    "announce": {
+      "region": "Assistant suggestions",
+      "both": "{{first}} and {{second}}.",
+      "single": "{{only}}.",
+      "suggested_one": "{{count}} suggested task",
+      "suggested_other": "{{count}} suggested tasks",
+      "links_one": "{{count}} proposed link",
+      "links_other": "{{count}} proposed links"
+    },
+    "created": {
+      "heading": "Ticket created",
+      "open": "Open the ticket",
+      "link": "Link to {{key}}: {{reason}}",
+      "suggested": "Suggested task \"{{title}}\": {{reason}}",
+      "reasons": {
+        "unknown_ticket": "the ticket does not exist in this project",
+        "inactive_ticket": "the ticket is an idea or was cancelled",
+        "invalid_part": "the part was renamed or moved",
+        "cycle": "it would close a dependency cycle",
+        "self": "a ticket cannot depend on itself",
+        "unknown_keys": "it cites a ticket that does not exist",
+        "forbidden_text": "the text imitates the request quote"
+      },
+      "summary_one": "{{count}} assistant item was left out",
+      "summary_other": "{{count}} assistant items were left out"
+    }
   }
 }

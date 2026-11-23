@@ -149,8 +149,8 @@ export interface RelatedJudge {
 
 export const RELATED_JUDGE = Symbol("RELATED_JUDGE");
 
-/** Prazos da procura em milissegundos (a descida, a proposta e os relacionados); sem valor, valem os da ADR (30 s, 20 s e 20 s). Os testes trocam. */
-export type PlacementTimeouts = { descentMs?: number; proposalMs?: number; relatedMs?: number };
+/** Prazos da procura em milissegundos (a descida, a proposta, os relacionados e a elaboração); sem valor, valem os da ADR (30 s, 20 s, 20 s e 20 s). Os testes trocam. */
+export type PlacementTimeouts = { descentMs?: number; proposalMs?: number; relatedMs?: number; elaborationMs?: number };
 export const PLACEMENT_TIMEOUTS = Symbol("PLACEMENT_TIMEOUTS");
 
 // ---- Escrever na descrição (ADR 0036, fatia 5) -----------------------------------------------------------------
@@ -222,3 +222,27 @@ export interface ChatProvider {
 }
 
 export const CHAT_PROVIDER = Symbol("CHAT_PROVIDER");
+
+// ---- Elaboração: ligações e tarefas sugeridas (ADR 0052, item 4; fatia 3) ----------------------------------------
+
+/** Um relacionado como o Claude o vê na elaboração: chave, título, trecho da descrição e situação. Nenhum id, pessoa, comentário ou área. */
+export type ElaborationRelated = { key: string; title: string; excerpt: string; status: string };
+
+/** O rascunho (título, descrição e partes) e os relacionados (até oito). */
+export type ElaborationInput = {
+  draft: { title: string; description: string; parts: readonly DraftChild[] };
+  related: readonly ElaborationRelated[];
+};
+
+/** Uma ligação "depende de" como o modelo a devolve: `de` é `"pai"` ou o índice (a partir de 0) da parte. O servidor valida tudo. */
+export type ElaborationLink = { de: "pai" | number; dependeDe: string; motivo: string };
+/** Uma tarefa que o pedido implica e a pessoa não disse, com a frase que diz por que é necessária. */
+export type ElaborationSuggestion = { title: string; description: string; motivo: string };
+export type ElaborationResult = { links: readonly ElaborationLink[]; suggested: readonly ElaborationSuggestion[]; model: string };
+
+/** Claude: lê o rascunho e os relacionados e propõe ligações com tickets que existem e tarefas que o pedido implica. Só propõe. */
+export interface TicketElaborator {
+  elaborate(input: ElaborationInput, options?: { signal?: AbortSignal }): Promise<ElaborationResult>;
+}
+
+export const TICKET_ELABORATOR = Symbol("TICKET_ELABORATOR");

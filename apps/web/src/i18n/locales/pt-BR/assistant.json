@@ -124,5 +124,53 @@
       "open": "Abrir o ticket",
       "anyway": "Criar mesmo assim"
     }
+  },
+  "elaboration": {
+    "loading": "Procurando ligações e tarefas",
+    "suggested": {
+      "heading": "Sugeridas pelo assistente",
+      "hint": "Trabalho que o pedido parece precisar e que você não citou. Já entram na criação; tire o que não quiser.",
+      "remove": "Tirar a tarefa sugerida: {{title}}",
+      "removeAll": "Tirar todas",
+      "description": "Ver a descrição"
+    },
+    "links": {
+      "heading": "Ligações propostas",
+      "hint": "Dependências com tickets que já existem. Já entram na criação; desmarque o que não quiser.",
+      "parent": "Este ticket depende de",
+      "part": "A parte \"{{part}}\" depende de"
+    },
+    "waiting": "Aguardando as sugestões…",
+    "createNow": "Criar sem esperar",
+    "stale": "O rascunho mudou: procure de novo para atualizar as sugestões e as ligações.",
+    "announce": {
+      "region": "Sugestões do assistente",
+      "both": "{{first}} e {{second}}.",
+      "single": "{{only}}.",
+      "suggested_one": "{{count}} tarefa sugerida",
+      "suggested_many": "{{count}} tarefas sugeridas",
+      "suggested_other": "{{count}} tarefas sugeridas",
+      "links_one": "{{count}} ligação proposta",
+      "links_many": "{{count}} ligações propostas",
+      "links_other": "{{count}} ligações propostas"
+    },
+    "created": {
+      "heading": "Ticket criado",
+      "open": "Abrir o ticket",
+      "link": "Ligação a {{key}}: {{reason}}",
+      "suggested": "Tarefa sugerida \"{{title}}\": {{reason}}",
+      "reasons": {
+        "unknown_ticket": "o ticket não existe neste projeto",
+        "inactive_ticket": "o ticket é uma ideia ou foi cancelado",
+        "invalid_part": "a parte mudou de nome ou de lugar",
+        "cycle": "fecharia um ciclo de dependências",
+        "self": "um ticket não depende de si mesmo",
+        "unknown_keys": "cita um ticket que não existe",
+        "forbidden_text": "o texto imita a citação do pedido"
+      },
+      "summary_one": "{{count}} item do assistente ficou de fora",
+      "summary_many": "{{count}} itens do assistente ficaram de fora",
+      "summary_other": "{{count}} itens do assistente ficaram de fora"
+    }
   }
 }

@@ -124,5 +124,53 @@
       "open": "Abrir el ticket",
       "anyway": "Crear de todos modos"
     }
+  },
+  "elaboration": {
+    "loading": "Buscando vínculos y tareas",
+    "suggested": {
+      "heading": "Sugeridas por el asistente",
+      "hint": "Trabajo que el pedido parece necesitar y que no mencionaste. Entran al crear; quita lo que no quieras.",
+      "remove": "Quitar la tarea sugerida: {{title}}",
+      "removeAll": "Quitar todas",
+      "description": "Ver la descripción"
+    },
+    "links": {
+      "heading": "Vínculos propuestos",
+      "hint": "Dependencias con tickets que ya existen. Entran al crear; desmarca lo que no quieras.",
+      "parent": "Este ticket depende de",
+      "part": "La parte \"{{part}}\" depende de"
+    },
+    "waiting": "Esperando las sugerencias…",
+    "createNow": "Crear sin esperar",
+    "stale": "El borrador cambió: busca de nuevo para actualizar las sugerencias y los vínculos.",
+    "announce": {
+      "region": "Sugerencias del asistente",
+      "both": "{{first}} y {{second}}.",
+      "single": "{{only}}.",
+      "suggested_one": "{{count}} tarea sugerida",
+      "suggested_many": "{{count}} tareas sugeridas",
+      "suggested_other": "{{count}} tareas sugeridas",
+      "links_one": "{{count}} vínculo propuesto",
+      "links_many": "{{count}} vínculos propuestos",
+      "links_other": "{{count}} vínculos propuestos"
+    },
+    "created": {
+      "heading": "Ticket creado",
+      "open": "Abrir el ticket",
+      "link": "Vínculo con {{key}}: {{reason}}",
+      "suggested": "Tarea sugerida \"{{title}}\": {{reason}}",
+      "reasons": {
+        "unknown_ticket": "el ticket no existe en este proyecto",
+        "inactive_ticket": "el ticket es una idea o fue cancelado",
+        "invalid_part": "la parte cambió de nombre o de lugar",
+        "cycle": "cerraría un ciclo de dependencias",
+        "self": "un ticket no depende de sí mismo",
+        "unknown_keys": "cita un ticket que no existe",
+        "forbidden_text": "el texto imita la cita del pedido"
+      },
+      "summary_one": "{{count}} elemento del asistente quedó fuera",
+      "summary_many": "{{count}} elementos del asistente quedaron fuera",
+      "summary_other": "{{count}} elementos del asistente quedaron fuera"
+    }
   }
 }
