@@ -86,18 +86,7 @@ export class TicketsController {
     @Param("projectId", new ZodPipe(idSchema)) projectId: string,
     @Body(new ZodPipe(createTicketSchema)) body: z.output<typeof createTicketSchema>,
   ): Promise<TicketPage> {
-    const project = await this.findVisibleProject(tx, principal.actor, projectId);
-    if (body.idea) this.authorization.registerIdea(principal.actor, projectId);
-    else this.authorization.createTicket(principal.actor, projectId);
-    this.requireActive(project);
-    const created = await this.tickets.create(tx, principal, project, {
-      title: body.title,
-      description: body.description ?? "",
-      parentId: body.parentId ?? null,
-      status: body.status ?? "todo",
-      assigneeIds: body.assigneeIds ?? [],
-      ...(body.idea ? { idea: true } : {}),
-    });
+    const { project, created } = await this.tickets.createChecked(tx, principal, projectId, body);
     return {
       ...created,
       contributions: [],

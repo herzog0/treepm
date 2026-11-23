@@ -134,10 +134,10 @@ export class McpGateway {
 
   /** Escrita: conta no limite do token e no da pessoa (a recusa devolve o maior `Retry-After` entre os dois). */
   private writeHit(tokenId: string, personKey: string): ReturnType<RateLimiter["hit"]> {
+    // O que o limite do token já recusou não gasta a cota da pessoa.
     const byToken = this.writeLimiter.hit(tokenId);
-    const byPerson = this.personWriteLimiter.hit(personKey);
-    if (byToken.allowed && byPerson.allowed) return { allowed: true };
-    return { allowed: false, retryAfterMs: Math.max(byToken.allowed ? 0 : byToken.retryAfterMs, byPerson.allowed ? 0 : byPerson.retryAfterMs) };
+    if (!byToken.allowed) return byToken;
+    return this.personWriteLimiter.hit(personKey);
   }
 
   /** Balde do limite por IP: o cabeçalho configurado (se vier e for um IP válido) ou o IP da conexão. Nunca uma chave vazia. */

@@ -1,18 +1,19 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { agentWorkIsValid, descriptionExcerpt, searchTickets } from "@treepm/domain";
-import type { TicketStatus } from "@treepm/domain";
+import { agentWorkIsValid, descriptionExcerpt, effectivePriorities, emptyQueueReason, searchTickets, ticketProgress, workQueue } from "@treepm/domain";
+import type { EmptyQueueReason, TicketStatus, WorkTicket } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { ACCESS_TOKEN_CLOCK } from "../access-tokens/clock.js";
 import type { AccessTokenClock } from "../access-tokens/clock.js";
 import type { Principal } from "../access/principal.js";
 import { parseOutput } from "../common/zod.js";
 import { readEffectivePriorities } from "../tickets/ticket-priority.read.js";
-import { EXCERPT_SOURCE_LENGTH, readProgressOf } from "../tickets/ticket-reads.js";
+import { EXCERPT_SOURCE_LENGTH, readProgressOf, readSummaryRows } from "../tickets/ticket-reads.js";
 import { MAX_TREE_DEPTH } from "../tickets/ticket-scope.js";
 import { scopeOf } from "../tickets/ticket-scope.js";
 import type { TicketScope } from "../tickets/ticket-scope.js";
 import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
+import { ideaViews, toNodes } from "../tickets/tickets.service.js";
 import { queryOverviewSchema, queryTicketPageSchema, queryTicketSchema, queryListSchema } from "./query.schema.js";
 import type { QueryIdea, QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "./query.schema.js";
 
@@ -22,6 +23,13 @@ export const LIST_DEFAULT_LIMIT = 50;
 export const LIST_MAX_LIMIT = 200;
 /** Teto de filhos, de cada lista de ligações de um ticket e dos tickets do topo no resumo. */
 export const RELATED_MAX = 200;
+
+export const WORK_QUEUE_DEFAULT_LIMIT = 20;
+export const WORK_QUEUE_MAX_LIMIT = 50;
+
+/** Um ticket da fila: o resumo de sempre mais o caminho (do topo até o pai, só chave e título). */
+export type QueueTicket = QueryTicketSummary & { path: { key: string; title: string }[] };
+export type QueryWorkQueue = { tickets: QueueTicket[]; total: number; truncated: boolean; emptyReason: EmptyQueueReason | null };
 
 export type SearchOptions = { limit?: number };
 export type ListOptions = {
@@ -250,6 +258,68 @@ export class ProjectQueryService {
         truncated: part.truncated,
       },
     });
+  }
+
+  /**
+   * A fila "próximos para trabalhar" (ADR 0047) da pessoa do token, no projeto e, se pedido, no ramo de `under` (número). Toda a regra
+   * é do domínio (`workQueue`, `emptyQueueReason`): aqui só se monta o que elas leem. Custo: as 2 consultas de `readSummaryRows`
+   * (os tickets do projeto com 601 caracteres de descrição, e as pessoas), a mesma leitura que a lista do mapa faz; nenhuma consulta
+   * por ticket e nenhuma outra. O que sai é cortado em `limit` depois de ordenado.
+   */
+  async workQueue(tx: TenantClient, principal: Principal, projectId: string, options: { under?: number; limit?: number } = {}): Promise<QueryWorkQueue> {
+    const project = await this.requireProject(tx, principal, projectId);
+    const rows = await readSummaryRows(tx, projectId);
+    let scopeId: string | null = null;
+    if (options.under !== undefined) {
+      const found = rows.find((row) => row.number === options.under);
+      if (!found) throw new NotFoundException("Ticket não encontrado.");
+      scopeId = found.id;
+    }
+    const now = this.clock.now();
+    const progress = ticketProgress(toNodes(rows));
+    const ideas = ideaViews(project, rows);
+    const tickets: WorkTicket[] = rows.map((row) => ({
+      id: row.id,
+      projectId: row.projectId,
+      parentId: row.parentId,
+      number: row.number,
+      status: ticketStatusSchema.parse(row.status),
+      priority: row.priority ?? 0,
+      assigneeIds: row.assignees.map((assignee) => assignee.personId),
+      blocked: row.blocked ?? false,
+      progress: progress.get(row.id) ?? null,
+      idea: ideas.get(row.id) ?? null,
+      agentWork: row.agentWorkUntil && agentWorkIsValid(row.agentWorkUntil, now) ? { until: row.agentWorkUntil.toISOString() } : null,
+    }));
+    const me = principal.person.id;
+    const scope = { ticketId: scopeId };
+    const ids = workQueue(tickets, me, scope);
+    const limit = clamp(options.limit, WORK_QUEUE_DEFAULT_LIMIT, WORK_QUEUE_MAX_LIMIT);
+    const effective = effectivePriorities(tickets);
+    const byId = new Map(rows.map((row) => [row.id, row] as const));
+    const queue = ids.slice(0, limit).map((id): QueueTicket => {
+      const row = byId.get(id) as (typeof rows)[number];
+      const path: { key: string; title: string }[] = [];
+      for (let up = row.parentId === null ? undefined : byId.get(row.parentId); up && path.length < MAX_TREE_DEPTH; up = up.parentId === null ? undefined : byId.get(up.parentId)) {
+        path.unshift({ key: `${project.key}-${up.number}`, title: up.title });
+      }
+      const idea = ideas.get(id) ?? null;
+      return {
+        id,
+        key: `${project.key}-${row.number}`,
+        number: row.number,
+        title: row.title,
+        descriptionExcerpt: descriptionExcerpt(row.description),
+        status: ticketStatusSchema.parse(row.status),
+        parentId: row.parentId,
+        idea: idea === null ? null : idea.root ? { kind: "root", stage: idea.stage } : { kind: "inside", rootNumber: byId.get(idea.rootId)?.number ?? 0 },
+        agentWork: null,
+        priority: row.priority ?? 0,
+        effectivePriority: effective.get(id)?.value ?? 0,
+        path,
+      };
+    });
+    return { tickets: queue, total: ids.length, truncated: ids.length > queue.length, emptyReason: ids.length === 0 ? emptyQueueReason(tickets, me, scope) : null };
   }
 
   /** Projeto inexistente, de outra organização (RLS) ou que a pessoa não enxerga: o mesmo 404 das rotas. Arquivado pode ser lido. */

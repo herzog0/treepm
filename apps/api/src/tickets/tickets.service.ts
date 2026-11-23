@@ -60,6 +60,12 @@ const MANY = 20;
 export type MentionSource = { id: string; number: number; description: string };
 export type MentionCounts = { created: number; removed: number };
 
+/** Janela em que o mesmo `requestId` do mesmo token vale como repetição (ADR 0043) e quantos tickets recentes o projeto olha. */
+const REQUEST_REPEAT_WINDOW_MS = 10 * 60_000;
+/** Teto da busca: 10 lotes de 500 = os 5 000 tickets mais novos do projeto. */
+const REQUEST_LOOKBACK_BATCH_SIZE = 500;
+const REQUEST_LOOKBACK_BATCHES = 10;
+
 export type Progress = ReturnType<typeof ticketProgress>;
 
 /** O que mudar num ticket (corpo do `PATCH tickets/:id`, já validado). */
@@ -631,6 +637,88 @@ export class TicketsService {
   async rebuildMentions(tx: TenantClient, project: ProjectRow): Promise<{ read: number } & MentionCounts> {
     const sources = await tx.ticket.findMany({ where: { projectId: project.id }, select: { id: true, number: true, description: true } });
     return { read: sources.length, ...(await this.reconcileMentions(tx, project, sources)) };
+  }
+
+  /**
+   * Criar um ticket como a tela cria (`POST projects/:projectId/tickets`) e como o MCP cria (ADR 0043): projeto visível (404),
+   * permissão de criar ou de registrar ideia (403), projeto arquivado (409) e então `create`. O caminho ÚNICO dessas conferências.
+   */
+  async createChecked(
+    tx: TenantClient,
+    principal: Principal,
+    projectId: string,
+    body: { title: string; description?: string | undefined; parentId?: string | null | undefined; status?: TicketStatus | undefined; assigneeIds?: string[] | undefined; idea?: boolean | undefined },
+    extraPayload: Record<string, string> = {},
+    /** Só MCP (ADR 0043): repetir com o mesmo `requestId`, do mesmo token, em até 10 minutos, devolve o ticket já criado. */
+    request?: { id: string; digest: string },
+  ): Promise<{ project: ProjectRow; created: TicketDetail; repeated: boolean }> {
+    const project = await tx.project.findFirst({ where: { id: projectId } });
+    if (!project || !this.authorization.canView(principal.actor, project)) throw new NotFoundException("Projeto não encontrado.");
+    if (body.idea) this.authorization.registerIdea(principal.actor, projectId);
+    else this.authorization.createTicket(principal.actor, projectId);
+    this.requireActive(project);
+    const tokenId = principal.via?.tokenId;
+    if (request !== undefined && tokenId !== undefined) {
+      // Serializa as chamadas com o mesmo pedido (a trava dura até o fim da transação); sem migration, a marca fica no evento de criação.
+      await tx.$executeRaw`select pg_advisory_xact_lock(hashtextextended(${`ticket-request:${projectId}:${tokenId}:${request.id}`}, 0))`;
+      const again = await this.findCreatedByRequest(tx, project, principal.person.id, tokenId, request.id);
+      if (again) {
+        // O mesmo requestId com outros argumentos não é repetição: erro claro, nada devolvido nem gravado.
+        if (again.digest !== request.digest) throw new ConflictException({ code: "request_id_reused", message: "O requestId já foi usado com outro pedido." });
+        return { project, created: await this.detail(tx, project, again.id), repeated: true };
+      }
+      extraPayload = { ...extraPayload, requestId: request.id, requestDigest: request.digest };
+    }
+    const created = await this.create(
+      tx,
+      principal,
+      project,
+      {
+        title: body.title,
+        description: body.description ?? "",
+        parentId: body.parentId ?? null,
+        status: body.status ?? "todo",
+        assigneeIds: body.assigneeIds ?? [],
+        ...(body.idea ? { idea: true } : {}),
+      },
+      extraPayload,
+    );
+    return { project, created, repeated: false };
+  }
+
+  /**
+   * O ticket que este token já criou com este `requestId` nos últimos 10 minutos, se ainda existir, com o resumo dos argumentos da
+   * criação. Sem índice novo: anda pelos tickets do projeto do maior número para o menor (índice `org, projeto, número`; o número
+   * cresce com o tempo), em lotes, e para no primeiro lote que já chega a tickets mais velhos que a janela, ou no teto de
+   * `REQUEST_LOOKBACK_BATCHES` lotes. Só então lê os eventos de criação dos tickets da pessoa dentro da janela (índice de assunto).
+   */
+  private async findCreatedByRequest(tx: TenantClient, project: ProjectRow, personId: string, tokenId: string, requestId: string): Promise<{ id: string; digest: string | null } | null> {
+    const cutoff = new Date(this.now() - REQUEST_REPEAT_WINDOW_MS);
+    const mine: string[] = [];
+    let below = 2_147_483_647; // o maior `integer` do banco
+    for (let batch = 0; batch < REQUEST_LOOKBACK_BATCHES; batch += 1) {
+      const rows = await tx.ticket.findMany({
+        where: { projectId: project.id, number: { lt: below } },
+        orderBy: { number: "desc" },
+        take: REQUEST_LOOKBACK_BATCH_SIZE,
+        select: { id: true, number: true, createdAt: true, createdByPersonId: true },
+      });
+      for (const row of rows) if (row.createdByPersonId === personId && row.createdAt >= cutoff) mine.push(row.id);
+      const last = rows.at(-1);
+      if (rows.length < REQUEST_LOOKBACK_BATCH_SIZE || !last || last.createdAt < cutoff) break;
+      below = last.number;
+    }
+    if (mine.length === 0) return null;
+    const events = await tx.activityEvent.findMany({
+      where: { subjectType: "ticket", subjectId: { in: mine }, kind: "ticket.created" },
+      select: { subjectId: true, payload: true },
+    });
+    for (const event of events) {
+      const payload = event.payload as Record<string, unknown> | null;
+      if (payload?.["requestId"] !== requestId || payload["tokenId"] !== tokenId) continue;
+      return { id: event.subjectId, digest: typeof payload["requestDigest"] === "string" ? payload["requestDigest"] : null };
+    }
+    return null;
   }
 
   /**

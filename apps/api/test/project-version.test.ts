@@ -282,6 +282,22 @@ const CASES: Case[] = [
     },
   },
   {
+    name: "MCP create_ticket",
+    prepare: mcpToken,
+    act: async (token: string) => {
+      const res = await h.tool(token, "PRIV", "create_ticket", { title: "Criado pelo MCP", parent: "PRIV-1" });
+      expect(res.isError, res.text).toBe(false);
+    },
+  },
+  {
+    name: "MCP set_ticket_priority",
+    prepare: mcpToken,
+    act: async (token: string) => {
+      const res = await h.tool(token, "PRIV", "set_ticket_priority", { key: "PRIV-3", priority: 5 });
+      expect(res.isError, res.text).toBe(false);
+    },
+  },
+  {
     name: "MCP set_agent_work (ligar)",
     prepare: mcpToken,
     act: async (token: string) => {

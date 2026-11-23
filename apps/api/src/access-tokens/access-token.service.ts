@@ -123,11 +123,12 @@ export class AccessTokenService {
       }
       if (!row.organization.mcpEnabled) return this.reject(row.id, "disabled");
       if (!row.person.active) return this.reject(row.id, "invalid");
-      if (wantsFresh) {
-        // O limite de escritas conta a tentativa ANTES de qualquer ida ao Clerk (inclusive de token sem alcance de escrita).
+      if (wantsFresh && row.scope === "write" && row.organization.mcpWriteEnabled) {
+        // Só quem PODE escrever gasta o limite de escrita (token de leitura ou chave desligada não o esgotam para os outros tokens da
+        // pessoa; a recusa fica por conta do limite geral de requisições do token e do IP, acima). A tentativa conta ANTES de ir ao Clerk.
         const writes = options.onWriteAttempt?.(row.id, `${orgId}:${row.person.id}`);
         if (writes && !writes.allowed) return { ok: false, reason: "rate_limited", retryAfterSeconds: Math.ceil(writes.retryAfterMs / 1000) };
-        fresh = row.scope === "write" && row.organization.mcpWriteEnabled;
+        fresh = true;
       }
       return { tokenId: row.id, projectId: row.projectId, personId: row.person.id, clerkUserId: row.person.clerkUserId, lastUsedAt: row.lastUsedAt };
     });

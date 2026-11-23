@@ -64,12 +64,15 @@ export function createProjectServer(run: RunInTenant, query: ProjectQueryService
   server.registerTool("search_tickets", { ...register.search_tickets, annotations: ANNOTATIONS }, (input) => guarded("search_tickets", () => tools.searchTickets(input)));
   server.registerTool("get_ticket", { ...register.get_ticket, annotations: ANNOTATIONS }, (input) => guarded("get_ticket", () => tools.getTicket(input)));
   server.registerTool("list_tickets", { ...register.list_tickets, annotations: ANNOTATIONS }, (input) => guarded("list_tickets", () => tools.listTickets(input)));
+  server.registerTool("get_work_queue", { ...register.get_work_queue, annotations: ANNOTATIONS }, (input) => guarded("get_work_queue", () => tools.getWorkQueue(input)));
   server.registerTool("get_project_overview", { ...register.get_project_overview, annotations: ANNOTATIONS }, () => guarded("get_project_overview", () => tools.getProjectOverview()));
   // Escrita (ADR 0043): só para token de escrita com a chave da organização ligada. Fora disso as ferramentas nem existem.
   if (write) {
     const writer = new WriteTools(run, write.services, tools, write.context);
     server.registerTool("update_ticket_status", { ...WRITE_TOOL_DEFINITIONS.update_ticket_status, annotations: WRITE_ANNOTATIONS }, (input) => guarded("update_ticket_status", () => writer.updateTicketStatus(input)));
     server.registerTool("add_comment", { ...WRITE_TOOL_DEFINITIONS.add_comment, annotations: WRITE_ANNOTATIONS }, (input) => guarded("add_comment", () => writer.addComment(input)));
+    server.registerTool("set_ticket_priority", { ...WRITE_TOOL_DEFINITIONS.set_ticket_priority, annotations: WRITE_ANNOTATIONS }, (input) => guarded("set_ticket_priority", () => writer.setTicketPriority(input)));
+    server.registerTool("create_ticket", { ...WRITE_TOOL_DEFINITIONS.create_ticket, annotations: WRITE_ANNOTATIONS }, (input) => guarded("create_ticket", () => writer.createTicket(input)));
     server.registerTool("set_agent_work", { ...WRITE_TOOL_DEFINITIONS.set_agent_work, annotations: WRITE_ANNOTATIONS }, (input) => guarded("set_agent_work", () => writer.setAgentWork(input)));
   }
   return server;
