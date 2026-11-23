@@ -29,7 +29,7 @@ O ticket `TREEPM-127` ("Busca semântica que navega até o contexto") pede a mes
 ### 2. O que vai à Voyage, e o que não vai
 
 - **Vai:** o título e a descrição de tickets do projeto (para o vetor guardado), e o título e a descrição do rascunho da conversa e das tarefas sugeridas (para a consulta). Rascunho e tarefa sugerida são texto de ticket que ainda não foi criado; o texto cru da conversa **não** vai.
-- **Não vai:** nomes, e-mails e identificadores de pessoas; ids internos; comentários, histórico, texto das áreas e nota de trabalho; código. O texto passa pela mesma limpeza que já vale para o que vai ao Claude e ao Jev (menções a pessoas saem). Nada do conteúdo entra em log.
+- **Não vai:** nomes, e-mails e identificadores de pessoas; ids internos; comentários, histórico, texto das áreas e nota de trabalho; código. Nada do conteúdo entra em log. **Correção de 2026-11-23:** esta ADR dizia que o texto passava por uma limpeza de menções a pessoas; essa limpeza não existe, nem aqui nem no que vai ao Claude e ao Jev. Os campos de pessoas não são enviados, mas o que alguém digitar no título ou na descrição vai como foi escrito (`TREEPM-354`, decisão de Teodoro).
 - **Tamanho:** título, linha em branco, descrição, cortado em 8 000 caracteres.
 - **Outros dados ou outro provedor pedem nova pergunta a Teodoro.**
 
@@ -57,7 +57,7 @@ O ticket `TREEPM-127` ("Busca semântica que navega até o contexto") pede a mes
 
 ### 6. A porta e a falha
 
-- Oitava porta de provedor, `EmbeddingProvider` (`embed(textos, tipo)`), injetada só pelo `AssistantGate`, com adaptador da Voyage e um falso determinístico para os testes. O teste que enumera as portas passa a incluí-la.
+- Décima primeira porta de provedor, `EmbeddingProvider` (`embed(textos, tipo)`), injetada só pelo `AssistantGate`, com adaptador da Voyage e um falso determinístico para os testes. O teste que enumera as portas passa a incluí-la.
 - Chave em `VOYAGE_API_KEY`. Sem a chave, o assistente continua configurado e a busca usa só palavras.
 - **Falha, prazo ou resposta malformada da Voyage nunca falham a requisição:** a busca cai para só palavras e o diagnóstico registra o motivo, em números e códigos, sem texto.
 - Tickets são enviados com `input_type` `document`; a consulta, com `query`. A medição da triagem compara com as outras combinações antes de fixar.
@@ -91,3 +91,20 @@ Os vetores são determinísticos; então a triagem é medida à parte do resto, 
 - Todo aceite de IA existente precisa ser dado de novo quando esta mudança entrar. Até lá, as funções de IA ficam desligadas para a organização.
 - O banco de desenvolvimento, o de produção e o de teste passam a depender da extensão `vector`.
 - A primeira busca num projeto nunca indexado é mais lenta (um lote à Voyage); as seguintes só pagam pelo que mudou.
+
+## Como ficou (2026-11-23)
+
+Fatia 1 no PR #204 (migration `0030_ticket_embeddings`) e fatia 2 no PR #205 (migration `0031_placement_decisions_triage`). **Nenhuma chamada à Voyage foi feita até aqui:** a conta ainda não saiu do uso para treino, e a medição do item 8 espera por isso.
+
+- **Tabela:** chave `(org_id, ticket_id)`, chave estrangeira `(org_id, project_id, ticket_id)` para o ticket, com cascata; o papel da aplicação só altera modelo, dimensões, resumo, vetor e data.
+- **Porta:** expõe o nome do modelo, que é gravado em cada linha. O provedor falso dos testes grava `fake`, que conta como desatualizado para o de verdade; na ferramenta local, um provedor falso se recusa a gravar num projeto que já tenha vetores de outro modelo.
+- **Sincronização:** lotes de 128; em `bad_request` ou `timeout` o lote é dividido ao meio, e um texto que falha sozinho é pulado; erros de autorização, limite de taxa, servidor e rede param na hora. O adaptador recusa redirecionamento.
+- **Vivo:** todas as ideias ficam fora dos vizinhos, não só as descartadas, como na procura.
+- **Prazos:** na procura, o passo de vetor fica com até 5 s e no máximo metade do que sobra da etapa de 20 s; a sincronização fica com o prazo do passo menos 1,5 s, reservado à consulta. Na elaboração, o passo de vetor fica com até um quarto do orçamento da procura das sugeridas (na prática, só a consulta).
+- **Limiar de distância:** `SEMANTIC_MAX_DISTANCE`, hoje 1, a ajustar pela medição. Sem candidato por palavras nem por vetor, nenhuma chamada ao Jev ou ao Claude, como antes.
+- **Corte:** quando a união das duas listas passa do limite, o corte é pela nota da fusão; quando a lista precisa encolher para caber na requisição ao Jev, saem primeiro os achados só por vetor.
+- **Diagnóstico:** coluna `triage` na decisão guardada e `diagnostics.semantic` na elaboração, só números e códigos. A API tolera a ausência da coluna, e só trata como coluna ausente o erro `42703` do PostgreSQL.
+- **Ferramenta:** `embeddings-status`, `embeddings-reindex` e `triage-measure` (posições e distâncias em pares fixos; opções `--kinds` e `--max-distance`).
+- **Banco de teste:** imagem `pgvector/pgvector:pg17` com `--locale=C`, igual à ordenação do Neon de desenvolvimento (`C.UTF-8`).
+
+Em aberto: a medição com a Voyage (`TREEPM-350`, `TREEPM-351`); gerar o vetor também ao criar ou editar, pedido de Teodoro (`TREEPM-355`); tela de importação com etapas (`TREEPM-356`); a frase do aceite sobre texto livre (`TREEPM-354`).
