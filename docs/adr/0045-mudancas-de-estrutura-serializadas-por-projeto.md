@@ -45,3 +45,21 @@ Toda transação que **muda a estrutura** da árvore de um projeto pega, logo no
 - **Guarda de cobertura:** `apps/api/test/structure-lock-coverage.test.ts` falha se um arquivo grava pai ou estágio de ideia, cria ou remove ticket sem chamar a trava. Sem comentários, por arquivo e, nos quatro arquivos principais, por método (cada método que grava estrutura trava ou chama um auxiliar do mesmo arquivo que trava); os limites estão no cabeçalho do teste. A ordem dentro do método é coberta pelos testes de corrida.
 - **Gatilho no banco (migration `0023`):** `tickets_no_parent_cycle`, antes de `UPDATE` de `parent_id`, sobe de pai em pai e recusa ciclo; o custo é a profundidade (limite de 10 000 saltos). A mesma migration acrescenta o CHECK `parent_id <> id` (auto-pai, também no INSERT). Não cobre par mútuo ou ciclo inserido no mesmo comando com ids explícitos. Sozinho não pega a corrida (cada transação só vê dados confirmados); protege de quem escreve fora da trava. A API não traduz o erro do gatilho, porque a conferência e a trava vêm antes; se ele disparar, é defeito e aparece como erro do servidor.
 - **Continua em aberto:** repetição automática no servidor e a medição com muitos agentes escrevendo no mesmo projeto.
+
+## Adendo 1 (2026-11-23): quem espera a trava não segura conexão, e fila cheia vira "tente de novo"
+
+Decisão da coordenação, reversível. Fonte: a medição de escrita concorrente ([docs/medicoes/2026-11-23-escrita-concorrente.md](../medicoes/2026-11-23-escrita-concorrente.md), `TREEPM-249`), que fecha o item 2 de "Em aberto".
+
+**O que a medição mostrou.** A trava não deixou passar nenhum dado errado em 37 rodadas com até 64 escritores (nenhum ciclo, nenhum impasse). Dois problemas apareceram no caminho até ela:
+
+1. A transação abre, ocupa uma das 10 conexões do pool e só então espera a trava. Com dezenas de mudanças de estrutura no mesmo projeto, 9 das 10 conexões ficam paradas esperando, e todo o resto da API (leituras e edições de outros projetos e de outras organizações) entra na fila do pool.
+2. Quem fica mais de 2 s nessa fila (o padrão do Prisma, que o código não definia) recebe 500 "erro interno", porque a espera de 3 s pela trava nem chega a começar. Aconteceu com 64 escritores de estrutura em 20 000 tickets (`TREEPM-259`).
+
+**Decisão.**
+
+- **Fila em memória antes da transação (`TREEPM-260`).** Toda requisição que vai mudar a estrutura passa por uma fila do processo antes de abrir a transação. A chave é o projeto quando o chamador o conhece antes de abrir a transação, e a organização quando só conhece o ticket. No máximo **2** requisições por chave ficam com transação aberta ao mesmo tempo: uma com a trava e uma esperando por ela. As demais esperam na memória, sem conexão. Quem espera mais de 3 s na fila recebe 409 `structure_busy`, a mesma resposta de hoje.
+- **A trava consultiva do banco continua sendo a regra.** A fila só limita quantas conexões um projeto ocupa; ela não substitui a trava, não é condição de correção e vale por instância da API. Com mais de uma instância, cada uma tem a sua fila e a trava do banco continua valendo entre elas.
+- **Fila do pool cheia vira "tente de novo" (`TREEPM-259`).** A espera por conexão passa a ser definida no código (5 s). Estourou, em qualquer rota: 503 `server_busy` com `Retry-After: 1`, não 500. A tela e o MCP tratam como "tente de novo".
+- **Tamanho do pool.** Fica em 10 nesta mudança. Com a fila, um projeto disputado ocupa 2 conexões em vez de 10; o tamanho só muda depois de medir com o banco remoto.
+
+**Fora deste adendo.** A leitura do projeto inteiro dentro da trava (`TREEPM-261`), que limita o projeto a cerca de 50 mudanças de estrutura por segundo com 5 000 tickets e 18 com 20 000, e a repetição automática no servidor (item 1 de "Em aberto"), que continua em aberto.
