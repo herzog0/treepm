@@ -1,0 +1,93 @@
+{
+  "button": {
+    "label": "Chats",
+    "withUnread": "Chats, sin leer: {{count}}"
+  },
+  "panel": {
+    "label": "Chats",
+    "close": "Cerrar el panel de chats",
+    "back": "Volver a la lista de chats"
+  },
+  "list": {
+    "title": "Mis chats",
+    "loading": "Cargando los chats…",
+    "loadFailed": "No se pudieron cargar los chats.",
+    "retry": "Intentar de nuevo",
+    "empty": "Los chats de los tickets de los que eres responsable aparecen aquí.",
+    "assigned": "Responsable",
+    "unread_one": "{{count}} sin leer",
+    "unread_many": "{{count}} sin leer",
+    "unread_other": "{{count}} sin leer"
+  },
+  "chat": {
+    "openTicket": "Abrir el ticket {{key}}, {{title}}",
+    "loading": "Cargando el chat…",
+    "loadFailed": "No se pudo cargar el chat.",
+    "options": "Opciones del chat",
+    "clear": "Borrar mi conversación",
+    "clearMessage": "Borra solo tu conversación con el asistente. Los hilos se quedan.",
+    "cleared": "Conversación con el asistente borrada."
+  },
+  "tabs": {
+    "label": "Partes del chat",
+    "conversation": "Conversación",
+    "mentions": "Menciones"
+  },
+  "notice": {
+    "assistant": "El asistente ve el texto del ticket y esta conversación. No ejecuta ni cambia nada.",
+    "noProvider": "La IA no está configurada en este servidor. Aún puedes abrir hilos con otras personas."
+  },
+  "log": {
+    "label": "Mensajes",
+    "older": "Cargar mensajes anteriores",
+    "empty": "Aún no hay mensajes. Escribe abajo para hablar con el asistente.",
+    "mentionsEmpty": "Por ahora no hay menciones."
+  },
+  "message": {
+    "you": "Tú"
+  },
+  "assistant": {
+    "reply": "Respuesta del asistente",
+    "waiting": "El asistente está respondiendo…",
+    "unanswered": "Sin respuesta",
+    "retry": "Intentar de nuevo"
+  },
+  "thread": {
+    "label": "Hilo",
+    "messages": "Mensajes del hilo",
+    "fromOther": "de {{name}}, en un hilo",
+    "fromMe": "tú, para {{names}}",
+    "replies_one": "{{count}} respuesta",
+    "replies_many": "{{count}} respuestas",
+    "replies_other": "{{count}} respuestas",
+    "unread_one": "{{count}} sin leer",
+    "unread_many": "{{count}} sin leer",
+    "unread_other": "{{count}} sin leer",
+    "open": "Abrir hilo",
+    "back": "Volver a la conversación",
+    "reply": "Responder en el hilo",
+    "replyPlaceholder": "Responde a quienes participan en el hilo",
+    "loadFailed": "No se pudo cargar el hilo.",
+    "opened": "Hilo abierto."
+  },
+  "composer": {
+    "label": "Mensaje",
+    "placeholder": "Habla con el asistente, o usa Mencionar para abrir un hilo",
+    "placeholderThreads": "Usa Mencionar para abrir un hilo con otras personas",
+    "send": "Enviar",
+    "sendThread": "Abrir hilo (no va al asistente)",
+    "mention": "Mencionar",
+    "pills": "Personas mencionadas",
+    "removeMention": "Quitar la mención a {{name}}",
+    "refused": "no ve este ticket",
+    "count": "{{length}} de {{max}}",
+    "over": "{{length}} de {{max}}: pasó del límite"
+  },
+  "picker": {
+    "label": "Mencionar personas",
+    "search": "Buscar persona",
+    "none": "No hay a quién mencionar.",
+    "loading": "Cargando las personas…",
+    "failed": "No se pudieron cargar las personas."
+  }
+}

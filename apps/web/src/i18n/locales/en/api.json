@@ -31,7 +31,16 @@
       "ticket_in_idea": "This ticket is part of an idea: its status can only change after the idea is accepted.",
       "unknown_ticket_keys": "The draft mentions tickets that do not exist: {{keys}}.",
       "description_too_long": "The description went over the limit together with the original request. Ask the assistant to shorten the parent ticket's description.",
-      "request_too_long": "The original request went over the limit of a description. Split the request into smaller conversations."
+      "request_too_long": "The original request went over the limit of a description. Split the request into smaller conversations.",
+      "chat_busy": "A message of yours is already waiting for the assistant's reply in this chat. Wait for the reply, then send again.",
+      "chat_changed": "The conversation changed on another device while the assistant was replying. We reloaded it; send the message again.",
+      "mention_not_allowed": "Someone you mentioned cannot see this ticket (or is no longer in the organization). Remove that person from the mention and send again.",
+      "cannot_mention_self": "You cannot mention yourself.",
+      "too_many_mentions": "Mention at most 10 people per message.",
+      "thread_full": "This thread already has the maximum of 25 participants.",
+      "chat_thread_rate_limited": "You sent too many thread messages in a short time. Wait a moment and try again.",
+      "chat_rate_limited": "You sent too many messages to the assistant in a short time. Wait a moment and try again.",
+      "invalid_cursor": "Those messages could not be loaded. Reload the conversation."
     },
     "kind": {
       "unauthenticated": "Your session has expired. Sign in again.",

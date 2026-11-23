@@ -1,0 +1,93 @@
+{
+  "button": {
+    "label": "Chats",
+    "withUnread": "Chats, não lidas: {{count}}"
+  },
+  "panel": {
+    "label": "Chats",
+    "close": "Fechar o painel de chats",
+    "back": "Voltar para a lista de chats"
+  },
+  "list": {
+    "title": "Meus chats",
+    "loading": "Carregando os chats…",
+    "loadFailed": "Não foi possível carregar os chats.",
+    "retry": "Tentar de novo",
+    "empty": "Os chats dos tickets de que você é responsável aparecem aqui.",
+    "assigned": "Responsável",
+    "unread_one": "{{count}} não lida",
+    "unread_many": "{{count}} não lidas",
+    "unread_other": "{{count}} não lidas"
+  },
+  "chat": {
+    "openTicket": "Abrir o ticket {{key}}, {{title}}",
+    "loading": "Carregando o chat…",
+    "loadFailed": "Não foi possível carregar o chat.",
+    "options": "Opções do chat",
+    "clear": "Limpar a minha conversa",
+    "clearMessage": "Apaga só a sua conversa com o assistente. As threads ficam.",
+    "cleared": "Conversa com o assistente limpa."
+  },
+  "tabs": {
+    "label": "Partes do chat",
+    "conversation": "Conversa",
+    "mentions": "Menções"
+  },
+  "notice": {
+    "assistant": "O assistente vê o texto do ticket e esta conversa. Ele não executa nem altera nada.",
+    "noProvider": "A IA não está configurada neste servidor. Você ainda pode abrir threads com outras pessoas."
+  },
+  "log": {
+    "label": "Mensagens",
+    "older": "Carregar mensagens anteriores",
+    "empty": "Nenhuma mensagem ainda. Escreva abaixo para falar com o assistente.",
+    "mentionsEmpty": "Nenhuma menção por enquanto."
+  },
+  "message": {
+    "you": "Você"
+  },
+  "assistant": {
+    "reply": "Resposta do assistente",
+    "waiting": "O assistente está respondendo…",
+    "unanswered": "Não respondida",
+    "retry": "Tentar de novo"
+  },
+  "thread": {
+    "label": "Thread",
+    "messages": "Mensagens da thread",
+    "fromOther": "de {{name}}, numa thread",
+    "fromMe": "você, para {{names}}",
+    "replies_one": "{{count}} resposta",
+    "replies_many": "{{count}} respostas",
+    "replies_other": "{{count}} respostas",
+    "unread_one": "{{count}} não lida",
+    "unread_many": "{{count}} não lidas",
+    "unread_other": "{{count}} não lidas",
+    "open": "Abrir thread",
+    "back": "Voltar à conversa",
+    "reply": "Responder na thread",
+    "replyPlaceholder": "Responda para quem participa da thread",
+    "loadFailed": "Não foi possível carregar a thread.",
+    "opened": "Thread aberta."
+  },
+  "composer": {
+    "label": "Mensagem",
+    "placeholder": "Fale com o assistente, ou use Mencionar para abrir uma thread",
+    "placeholderThreads": "Use Mencionar para abrir uma thread com outras pessoas",
+    "send": "Enviar",
+    "sendThread": "Abrir thread (não vai ao assistente)",
+    "mention": "Mencionar",
+    "pills": "Pessoas mencionadas",
+    "removeMention": "Remover menção a {{name}}",
+    "refused": "não enxerga este ticket",
+    "count": "{{length}} de {{max}}",
+    "over": "{{length}} de {{max}}: passou do limite"
+  },
+  "picker": {
+    "label": "Mencionar pessoas",
+    "search": "Buscar pessoa",
+    "none": "Ninguém para mencionar.",
+    "loading": "Carregando as pessoas…",
+    "failed": "Não foi possível carregar as pessoas."
+  }
+}

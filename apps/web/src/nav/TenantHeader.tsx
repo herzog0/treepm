@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { ChatsButton } from "../chat/ChatsButton.js";
 import { AppNav } from "./navigation.js";
 import type { View } from "./navigation.js";
 
@@ -12,6 +13,8 @@ export function TenantHeader({ view, onNavigate, children }: { view: View; onNav
         <strong>{t("brand")}</strong>
         <AppNav view={view} onNavigate={onNavigate} />
       </div>
+      {/* Só existe com o painel de chats montado (ChatsProvider): sem ele o cabeçalho é o de antes. */}
+      <ChatsButton />
       <div className="tenant-controls">{children}</div>
     </header>
   );

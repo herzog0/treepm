@@ -1,0 +1,90 @@
+{
+  "button": {
+    "label": "Chats",
+    "withUnread": "Chats, unread: {{count}}"
+  },
+  "panel": {
+    "label": "Chats",
+    "close": "Close the chats panel",
+    "back": "Back to the chat list"
+  },
+  "list": {
+    "title": "My chats",
+    "loading": "Loading chats…",
+    "loadFailed": "Could not load the chats.",
+    "retry": "Try again",
+    "empty": "Chats for the tickets you are responsible for appear here.",
+    "assigned": "Assignee",
+    "unread_one": "{{count}} unread",
+    "unread_other": "{{count}} unread"
+  },
+  "chat": {
+    "openTicket": "Open ticket {{key}}, {{title}}",
+    "loading": "Loading the chat…",
+    "loadFailed": "Could not load the chat.",
+    "options": "Chat options",
+    "clear": "Clear my conversation",
+    "clearMessage": "Deletes only your conversation with the assistant. Threads stay.",
+    "cleared": "Conversation with the assistant cleared."
+  },
+  "tabs": {
+    "label": "Chat sections",
+    "conversation": "Conversation",
+    "mentions": "Mentions"
+  },
+  "notice": {
+    "assistant": "The assistant sees the ticket text and this conversation. It does not run or change anything.",
+    "noProvider": "AI is not configured on this server. You can still open threads with other people."
+  },
+  "log": {
+    "label": "Messages",
+    "older": "Load earlier messages",
+    "empty": "No messages yet. Write below to talk to the assistant.",
+    "mentionsEmpty": "No mentions for now."
+  },
+  "message": {
+    "you": "You"
+  },
+  "assistant": {
+    "reply": "Assistant's reply",
+    "waiting": "The assistant is replying…",
+    "unanswered": "Unanswered",
+    "retry": "Try again"
+  },
+  "thread": {
+    "label": "Thread",
+    "messages": "Thread messages",
+    "fromOther": "from {{name}}, in a thread",
+    "fromMe": "you, to {{names}}",
+    "replies_one": "{{count}} reply",
+    "replies_other": "{{count}} replies",
+    "unread_one": "{{count}} unread",
+    "unread_other": "{{count}} unread",
+    "open": "Open thread",
+    "back": "Back to the conversation",
+    "reply": "Reply in the thread",
+    "replyPlaceholder": "Reply to everyone in the thread",
+    "loadFailed": "Could not load the thread.",
+    "opened": "Thread opened."
+  },
+  "composer": {
+    "label": "Message",
+    "placeholder": "Talk to the assistant, or use Mention to open a thread",
+    "placeholderThreads": "Use Mention to open a thread with other people",
+    "send": "Send",
+    "sendThread": "Open thread (does not go to the assistant)",
+    "mention": "Mention",
+    "pills": "People mentioned",
+    "removeMention": "Remove mention of {{name}}",
+    "refused": "cannot see this ticket",
+    "count": "{{length}} of {{max}}",
+    "over": "{{length}} of {{max}}: over the limit"
+  },
+  "picker": {
+    "label": "Mention people",
+    "search": "Search people",
+    "none": "No one to mention.",
+    "loading": "Loading people…",
+    "failed": "Could not load the people."
+  }
+}

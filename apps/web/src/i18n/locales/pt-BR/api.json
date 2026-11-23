@@ -31,7 +31,16 @@
       "ticket_in_idea": "Este ticket faz parte de uma ideia: a situação só muda depois que a ideia for aceita.",
       "unknown_ticket_keys": "O rascunho cita tickets que não existem: {{keys}}.",
       "description_too_long": "A descrição passou do limite com o pedido original. Peça ao assistente para encurtar a descrição do ticket pai.",
-      "request_too_long": "O pedido original passou do limite de uma descrição. Divida o pedido em conversas menores."
+      "request_too_long": "O pedido original passou do limite de uma descrição. Divida o pedido em conversas menores.",
+      "chat_busy": "Já há uma mensagem sua esperando a resposta do assistente neste chat. Espere a resposta chegar e envie de novo.",
+      "chat_changed": "A conversa mudou em outro aparelho enquanto o assistente respondia. Recarregamos a conversa; envie a mensagem de novo.",
+      "mention_not_allowed": "Alguém mencionado não enxerga este ticket (ou não está mais na organização). Tire essa pessoa da menção e envie de novo.",
+      "cannot_mention_self": "Uma menção precisa ser de outra pessoa, não de você.",
+      "too_many_mentions": "Mencione no máximo 10 pessoas por mensagem.",
+      "thread_full": "Esta thread já tem o máximo de 25 participantes.",
+      "chat_thread_rate_limited": "Você enviou mensagens de thread demais em pouco tempo. Espere um instante e tente de novo.",
+      "chat_rate_limited": "Você enviou mensagens demais ao assistente em pouco tempo. Espere um instante e tente de novo.",
+      "invalid_cursor": "Não foi possível carregar essas mensagens. Recarregue a conversa."
     },
     "kind": {
       "unauthenticated": "Sua sessão expirou. Entre novamente.",

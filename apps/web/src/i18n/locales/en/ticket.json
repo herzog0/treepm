@@ -9,7 +9,8 @@
     "copyLink": "Copy link",
     "more": "More actions",
     "linkCopied": "Link copied",
-    "copyFailed": "Could not copy the link"
+    "copyFailed": "Could not copy the link",
+    "openChat": "Open chat"
   },
   "readOnly": {
     "archived": "This project is archived: this page is read-only.",

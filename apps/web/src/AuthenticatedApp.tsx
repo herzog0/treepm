@@ -20,6 +20,8 @@ import { LanguageSync } from "./i18n/LanguageSync.js";
 import type { Language } from "./i18n/languages.js";
 import { Loading } from "./Loading.js";
 import { ClerkPreferencesProvider } from "./preferences/ClerkPreferences.js";
+import { ChatShell } from "./chat/ChatShell.js";
+import { ChatsProvider } from "./chat/ChatsContext.js";
 import { useView } from "./nav/navigation.js";
 import { TenantHeader } from "./nav/TenantHeader.js";
 import { Workspace } from "./Workspace.js";
@@ -108,26 +110,32 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
   }
 
   return (
-    <div className="tenant-shell">
-      <TenantHeader view={view} onNavigate={navigate}>
-        <OrganizationSwitcher hidePersonal />
-        <MeIndicator key={orgId} getToken={getToken} />
-        <UserButton />
-      </TenantHeader>
-      {onGithubCallback ? (
-        <main className="tenant-settings">
-          <GithubCallback
-            client={callbackClient}
-            onOpenSettings={() => {
-              setOnGithubCallback(false);
-              navigate("settings");
-            }}
-          />
-        </main>
-      ) : (
-        <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} ticketId={ticketId} onOpenTicket={openTicket} focusTicketId={focusId} onFocusHandled={clearFocus} getToken={getToken} />
-      )}
-    </div>
+    // Trocar de organização descarta o painel de chats (e o que ele guarda): os chats são da organização.
+    <ChatsProvider key={orgId} client={callbackClient} onShowTicket={(id) => navigate("map", null, { ticketId: id })}>
+      <ChatShell
+        header={
+          <TenantHeader view={view} onNavigate={navigate}>
+            <OrganizationSwitcher hidePersonal />
+            <MeIndicator key={orgId} getToken={getToken} />
+            <UserButton />
+          </TenantHeader>
+        }
+      >
+        {onGithubCallback ? (
+          <main className="tenant-settings">
+            <GithubCallback
+              client={callbackClient}
+              onOpenSettings={() => {
+                setOnGithubCallback(false);
+                navigate("settings");
+              }}
+            />
+          </main>
+        ) : (
+          <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} ticketId={ticketId} onOpenTicket={openTicket} focusTicketId={focusId} onFocusHandled={clearFocus} getToken={getToken} />
+        )}
+      </ChatShell>
+    </ChatsProvider>
   );
 }
 
