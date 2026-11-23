@@ -112,7 +112,7 @@ const { app } = await createTestApp();
 await app.listen(0, "127.0.0.1");
 const base = (await app.getUrl()).replace("[::1]", "127.0.0.1");
 
-interface Shot { ms: number; bytes: number; status: number; queries: Query[]; body: string }
+interface Shot { ms: number; bytes: number; status: number; queries: Query[]; body: string; etag?: string | null }
 async function http(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Shot> {
   const sink: Query[] = [];
   recording = sink;
@@ -121,7 +121,7 @@ async function http(method: string, path: string, body?: unknown, headers: Recor
   const buffer = Buffer.from(await res.arrayBuffer());
   const ms = performance.now() - started;
   recording = null;
-  return { ms, bytes: buffer.byteLength, status: res.status, queries: sink, body: buffer.toString("utf8") };
+  return { ms, bytes: buffer.byteLength, status: res.status, queries: sink, body: buffer.toString("utf8"), etag: res.headers.get("etag") };
 }
 
 type Prepare = (rep: number) => Promise<void>;
@@ -262,6 +262,17 @@ for (const n of sizes) {
   await measure(n, "mapa", "GET lista de tickets do projeto", () => http("GET", `/api/projects/${pid}/tickets`));
   await measure(n, "mapa", "carga do mapa (projetos+pessoas, depois a lista)", mapLoad);
   await measure(n, "mapa", "refresh de 30 s (mesma carga, useAutoRefresh)", mapLoad);
+  // ADR 0046: o refresh condicional sem mudança, como o `useAutoRefresh` faz hoje: projetos e pessoas de novo, e a lista com
+  // `If-None-Match` da versão que a tela tem (304, sem corpo). É o caso de quase todas as atualizações de 30 s.
+  const version = listShot.etag ?? "";
+  const conditionalLoad = async (): Promise<Shot> => {
+    const started = performance.now();
+    const [p, q] = await Promise.all([http("GET", "/api/projects"), http("GET", "/api/people")]);
+    const t = await http("GET", `/api/projects/${pid}/tickets`, undefined, { "if-none-match": version });
+    return { ms: performance.now() - started, bytes: p.bytes + q.bytes + t.bytes, status: t.status === 304 ? 200 : t.status, queries: [...p.queries, ...q.queries, ...t.queries], body: t.body };
+  };
+  await measure(n, "mapa", "GET lista de tickets com If-None-Match igual (304)", () => http("GET", `/api/projects/${pid}/tickets`, undefined, { "if-none-match": version }), undefined, [304]);
+  await measure(n, "mapa", "refresh de 30 s sem mudança (condicional: projetos+pessoas + lista 304)", conditionalLoad);
 
   console.log("  -- ticket");
   await measure(n, "ticket", "GET detalhe raso (raiz)", () => http("GET", `/api/tickets/${T(f.shallow).id}`));
@@ -339,6 +350,8 @@ for (const n of sizes) {
     plans.push(`\n## ${row.op} — mediana ${row.medianMs} ms, ${row.queries} consultas\n`);
     for (const query of queries) plans.push(`\n-- ${r1(query.ms)} ms medidos na requisição\n${query.text}\n-- parâmetros: ${JSON.stringify(query.values).slice(0, 300)}\n${await explain(query)}\n`);
   }
+  // ADR 0046: a versão do projeto é a leitura da linha do projeto por chave primária (a mesma da conferência de permissão).
+  plans.push(`\n## Versão do projeto (ADR 0046): a linha do projeto por chave primária, lida com a permissão\n\n${await explain({ text: "select * from projects where id = $1::uuid limit 1", values: [pid], ms: 0 })}\n`);
   writeFileSync(resolve(outDir, `explain-${n}.txt`), plans.join("\n"));
 
   const indexes = (await owner.query("select tablename, indexname, indexdef from pg_indexes where schemaname = 'public' and tablename in ('tickets','activity_events','ticket_comments','ticket_relations','ticket_contributions') order by 1, 2")).rows;

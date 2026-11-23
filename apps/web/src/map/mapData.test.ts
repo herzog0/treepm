@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { makePerson, makeProject, makeTicket } from "../test/fakes.js";
-import { mergeMapData } from "./mapData.js";
+import { loadMapData, mergeMapData } from "./mapData.js";
 import type { Person, Project, TicketSummary } from "../api/client.js";
+import type { MapData } from "./mapData.js";
+import { makeClient, ok } from "../test/fakes.js";
 
 type Draft = { projects: Project[]; people: Person[]; ticketsByProject: Record<string, TicketSummary[]> };
 
@@ -49,5 +51,67 @@ describe("mergeMapData", () => {
     const merged = mergeMapData(current, archived);
     expect(merged.projects[1]!.archivedAt).not.toBeNull();
     expect(merged.ticketsByProject.p2).toBeUndefined();
+  });
+});
+
+describe("loadMapData with versions (ADR 0046)", () => {
+  const projects = [makeProject("p1", "ALFA", "Alfa"), makeProject("p2", "BETA", "Beta")];
+  const lists = { p1: [makeTicket("t1", "p1", 1, "Um")], p2: [makeTicket("t2", "p2", 1, "Dois")] };
+  const clientWith = (answer: (projectId: string, version: string | null) => ReturnType<typeof ok>) => {
+    const client = makeClient({ projects, tickets: lists, people: [makePerson("a", "Ana")] });
+    client.listTicketsIfChanged = vi.fn(async (projectId: string, version: string | null) => answer(projectId, version)) as typeof client.listTicketsIfChanged;
+    return client;
+  };
+
+  it("the first load sends no version and keeps the version each project came with", async () => {
+    const client = clientWith((projectId, version) => {
+      expect(version).toBeNull();
+      return ok({ changed: true, tickets: lists[projectId as "p1" | "p2"], version: `W/"v1.${projectId}"` });
+    });
+    const result = await loadMapData(client);
+    expect(result.ok && result.data.versions).toEqual({ p1: 'W/"v1.p1"', p2: 'W/"v1.p2"' });
+    expect(result.ok && result.data.ticketsByProject.p1).toBe(lists.p1);
+  });
+
+  it("a refresh sends the version it has; a 304 reuses the very same list object", async () => {
+    const first = await loadMapData(clientWith((projectId) => ok({ changed: true, tickets: lists[projectId as "p1" | "p2"], version: `W/"v1.${projectId}"` })));
+    if (!first.ok) throw new Error("falhou");
+    const sent: Record<string, string | null> = {};
+    const client = clientWith((projectId, version) => {
+      sent[projectId] = version;
+      return ok({ changed: false });
+    });
+    const again = await loadMapData(client, first.data);
+    expect(sent).toEqual({ p1: 'W/"v1.p1"', p2: 'W/"v1.p2"' });
+    if (!again.ok) throw new Error("falhou");
+    expect(again.data.ticketsByProject.p1).toBe(first.data.ticketsByProject.p1);
+    expect(again.data.ticketsByProject.p2).toBe(first.data.ticketsByProject.p2);
+    // Nada mudou: o resultado do merge é o próprio objeto da tela, então nada se redesenha.
+    expect(mergeMapData(first.data, again.data)).toBe(first.data);
+  });
+
+  it("only the project that changed is replaced; a project without a version is fetched whole", async () => {
+    const first = await loadMapData(clientWith((projectId) => ok({ changed: true, tickets: lists[projectId as "p1" | "p2"], version: projectId === "p1" ? 'W/"v1.p1"' : null })));
+    if (!first.ok) throw new Error("falhou");
+    const changedP1 = [makeTicket("t1", "p1", 1, "Um, editado")];
+    const sent: Record<string, string | null> = {};
+    const again = await loadMapData(
+      clientWith((projectId, version) => {
+        sent[projectId] = version;
+        return projectId === "p1" ? ok({ changed: true, tickets: changedP1, version: 'W/"v1.p1b"' }) : ok({ changed: true, tickets: structuredClone(lists.p2), version: null });
+      }),
+      first.data,
+    );
+    expect(sent).toEqual({ p1: 'W/"v1.p1"', p2: null });
+    if (!again.ok) throw new Error("falhou");
+    const merged: MapData = mergeMapData(first.data, again.data);
+    expect(merged.ticketsByProject.p1).toBe(changedP1);
+    expect(merged.ticketsByProject.p2).toBe(first.data.ticketsByProject.p2);
+    expect(merged.versions?.p1).toBe('W/"v1.p1b"');
+  });
+
+  it("an error in any project fails the load, as before", async () => {
+    const client = clientWith((projectId) => (projectId === "p2" ? ({ ok: false, error: { kind: "unavailable" } } as never) : ok({ changed: false })));
+    expect(await loadMapData(client)).toEqual({ ok: false, error: { kind: "unavailable" } });
   });
 });

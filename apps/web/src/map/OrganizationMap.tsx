@@ -665,7 +665,8 @@ export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTick
   // O mapa se atualiza sozinho (ADR 0043): só troca os dados se a resposta difere do que está na tela.
   useAutoRefresh(async (isActive) => {
     const startedAt = version;
-    const result = await loadMapData(client);
+    if (state.status !== "ready") return;
+    const result = await loadMapData(client, state.data); // com as versões que a tela tem: o servidor responde 304 se nada mudou (ADR 0046)
     if (!isActive() || !result.ok) return;
     update((current: MapData) => mergeMapData(current, result.data), startedAt);
   });

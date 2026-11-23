@@ -7,6 +7,7 @@ import type { Principal } from "../access/principal.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { ideaStageSchema, ticketStatusSchema } from "./tickets.schema.js";
 import type { IdeaListItem, TicketPage } from "./tickets.schema.js";
+import { touchProjectVersion } from "./project-version.js";
 import { MAX_TREE_DEPTH } from "./ticket-scope.js";
 import { AgentWorkService } from "./agent-work.service.js";
 import { TicketsService } from "./tickets.service.js";
@@ -56,6 +57,7 @@ export class IdeasService {
     else this.authorization.refineIdea(principal.actor, first.project.id);
     this.requireActive(first.project);
     await this.tickets.lockStructure(tx, first.project.id);
+    await touchProjectVersion(tx, first.project.id); // ADR 0046: só marca; o toque sai no fim da transação.
     return this.visibleTicket(tx, principal.actor, id);
   }
 
@@ -71,6 +73,7 @@ export class IdeasService {
   }
 
   private async setStage(tx: TenantClient, project: ProjectRow, id: string, stage: IdeaStage | null): Promise<void> {
+    await touchProjectVersion(tx, project.id); // ADR 0046: marca em TODA gravação do estágio (a decisão não usa leitura anterior à trava).
     await tx.ticket.update({ where: { orgId_id: { orgId: project.orgId, id } }, data: { ideaStage: stage } });
   }
 

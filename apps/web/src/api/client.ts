@@ -320,6 +320,12 @@ export type IdeaStage = z.output<typeof ideaStage>;
 export type IdeaListItem = z.output<typeof ideaListItemSchema>;
 export type TicketIdea = NonNullable<z.output<typeof ideaSchema>>;
 export type TicketSummary = z.output<typeof ticketSummarySchema>;
+
+/**
+ * A lista de tickets de um projeto, pedida com a versão que já se tem (ADR 0046): `changed: false` é o `304` ("nada mudou", sem
+ * lista); `changed: true` traz a lista inteira e a versão (o `ETag`) a guardar, ou `null` se o servidor não mandou.
+ */
+export type TicketListUpdate = { changed: false } | { changed: true; tickets: TicketSummary[]; version: string | null };
 export type TicketDetail = z.output<typeof ticketDetailSchema>;
 export type Contribution = z.output<typeof contributionSchema>;
 export type ContributionStatus = z.output<typeof contributionStatus>;
@@ -500,6 +506,28 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     }
   }
 
+  /** `GET` da lista de tickets com `If-None-Match` (ADR 0046). O `304` não tem corpo e não é erro. */
+  async function listTicketsIfChanged(projectId: string, version: string | null, signal?: AbortSignal): Promise<ApiResult<TicketListUpdate>> {
+    try {
+      const token = await getToken();
+      if (!token) return fail("unauthenticated");
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      if (version !== null) headers["If-None-Match"] = version;
+      const init: RequestInit = { headers };
+      if (signal) init.signal = signal;
+      const response = await (fetchImpl ?? globalThis.fetch)(`/api/projects/${projectId}/tickets`, init);
+      if (response.status === 304) return { ok: true, data: { changed: false } };
+      if (!response.ok) {
+        const parsed = errorBodySchema.safeParse(await response.json().catch(() => null));
+        return fail(KIND_BY_STATUS[response.status] ?? "unavailable", parsed.success ? parsed.data.error.code : undefined);
+      }
+      const parsed = z.array(ticketSummarySchema).safeParse(await response.json());
+      return parsed.success ? { ok: true, data: { changed: true, tickets: parsed.data, version: response.headers.get("ETag") } } : fail("unavailable");
+    } catch {
+      return fail("unavailable");
+    }
+  }
+
   const team = (id: string) => `/api/teams/${id}`;
   const project = (id: string) => `/api/projects/${id}`;
   const ticket = (id: string) => `/api/tickets/${id}`;
@@ -537,6 +565,7 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       request("DELETE", `${project(projectId)}/teams/${teamId}`, null),
 
     listTickets: (projectId: string) => request("GET", `${project(projectId)}/tickets`, z.array(ticketSummarySchema)),
+    listTicketsIfChanged,
     getTicket: (id: string) => request("GET", ticket(id), ticketDetailSchema),
     createTicket: (projectId: string, body: CreateTicketBody) =>
       request("POST", `${project(projectId)}/tickets`, ticketDetailSchema, body),

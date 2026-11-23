@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   Inject,
   NotFoundException,
@@ -12,7 +13,9 @@ import {
   Post,
   Put,
   Query,
+  Res,
 } from "@nestjs/common";
+import type { Response } from "express";
 import type { TenantClient } from "@treepm/db";
 import { createsDependencyCycle, isFinished, ticketProgress } from "@treepm/domain";
 import type { z } from "zod";
@@ -35,6 +38,7 @@ import { activityQuerySchema } from "./ticket-activity.schema.js";
 import type { ActivityPage } from "./ticket-activity.schema.js";
 import { TicketActivityService } from "./ticket-activity.service.js";
 import { AgentWorkService } from "./agent-work.service.js";
+import { ifNoneMatchHits, projectEtag, touchProjectVersion } from "./project-version.js";
 import { readSummaryRows } from "./ticket-reads.js";
 import { TicketsService, ideaViews, toNodes, toSummary } from "./tickets.service.js";
 import type { ProjectRow, TicketRow } from "./tickets.service.js";
@@ -54,8 +58,20 @@ export class TicketsController {
     @Tx() tx: TenantClient,
     @CurrentPrincipal() { actor }: Principal,
     @Param("projectId", new ZodPipe(idSchema)) projectId: string,
-  ): Promise<TicketSummary[]> {
+    @Headers("if-none-match") ifNoneMatch: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<TicketSummary[] | undefined> {
+    // Permissão primeiro (quem não vê recebe o 404 de sempre, nunca um 304); só então a versão (ADR 0046). A versão vem da mesma
+    // linha do projeto que a conferência acabou de ler, e ANTES da lista: se uma escrita confirmar no meio, a lista pode ser mais
+    // nova que o ETag (o cliente pede de novo uma vez), nunca mais velha.
     const project = await this.findVisibleProject(tx, actor, projectId);
+    const etag = projectEtag(project.ticketsVersion);
+    res.setHeader("ETag", etag);
+    res.setHeader("Cache-Control", "private, no-cache");
+    if (ifNoneMatchHits(ifNoneMatch, etag)) {
+      res.status(304);
+      return undefined;
+    }
     const rows = await readSummaryRows(tx, projectId); // trecho da descrição e pessoas em uma consulta por projeto
     const progress = ticketProgress(toNodes(rows));
     const ideas = ideaViews(project, rows);
@@ -124,10 +140,14 @@ export class TicketsController {
     flat.forEach(({ item, parentIndex }) => {
       if (parentIndex !== null && !isFinished(item.status ?? "todo")) hasOpenChild.add(parentIndex);
     });
-    const first = await this.tickets.allocateNumbers(tx, project, flat.length);
+    await this.tickets.lockLinkedTickets(tx, project, body.parentId ?? null, flat.map(({ item }) => item.description ?? ""));
+    // Ordem das travas (ADR 0046): as linhas dos pais primeiro, a linha do projeto (reserva de números) depois. O número que a
+    // reserva vai devolver entra só no texto do evento de reabertura (`causedBy`): lê-se sem trava, então numa corrida com uma
+    // criação sem pai pode diferir por um número no texto do evento; o número do ticket é sempre o da reserva.
     if (body.parentId && !parentIdea && flat.some(({ item, parentIndex }) => parentIndex === null && !isFinished(item.status ?? "todo"))) {
-      await this.tickets.reopenAncestors(tx, principal, project, body.parentId, `${project.key}-${first}`);
+      await this.tickets.reopenAncestors(tx, principal, project, body.parentId, `${project.key}-${await this.tickets.peekNextNumber(tx, project)}`);
     }
+    const first = await this.tickets.allocateNumbers(tx, project, flat.length);
     // IDs gerados pelo banco (`app_uuid_v7()`, o mesmo padrão da coluna) em UMA consulta; com eles, pais e filhos
     // entram na mesma inserção em lote (a FK do pai é verificada no fim do comando). Total de idas ao banco
     // da importação: constante, independente da quantidade de itens.
@@ -248,6 +268,7 @@ export class TicketsController {
     this.authorization.removeTicket(principal.actor, project.id);
     this.requireActive(project);
     await this.tickets.lockStructure(tx, project.id); // ADR 0045: remover muda a estrutura; os filhos são contados já com a trava.
+    await touchProjectVersion(tx, project.id); // ADR 0046
     await this.findVisibleTicket(tx, principal.actor, id); // removido por outra requisição enquanto esperava: 404.
     if (await this.hasChildren(tx, id)) {
       throw new ConflictException({ code: "ticket_has_children", message: "Remova ou mova os filhos antes." });
@@ -274,6 +295,7 @@ export class TicketsController {
     await this.tickets.requireAssignable(tx, project, personId);
     const key = { orgId_ticketId_personId: { orgId: project.orgId, ticketId: id, personId } };
     if (!(await tx.ticketAssignee.findUnique({ where: key }))) {
+      await touchProjectVersion(tx, project.id); // ADR 0046: as pessoas aparecem no resumo.
       await tx.ticketAssignee.create({ data: { orgId: project.orgId, ticketId: id, personId } });
       await this.activity.record(tx, principal, {
         kind: "ticket.assignee_added",
@@ -300,6 +322,7 @@ export class TicketsController {
     if (!(await tx.ticketAssignee.findUnique({ where: key }))) {
       throw new NotFoundException("Pessoa não atribuída ao ticket.");
     }
+    await touchProjectVersion(tx, project.id); // ADR 0046
     await tx.ticketAssignee.delete({ where: key });
     await this.activity.record(tx, principal, {
       kind: "ticket.assignee_removed",
@@ -336,6 +359,7 @@ export class TicketsController {
       if (createsDependencyCycle(edges.map((edge) => [edge.fromTicketId, edge.toTicketId] as const), id, other.id)) {
         throw new ConflictException({ code: "dependency_cycle", message: "Isso fecharia um ciclo de dependências.", details: { key: `${project.key}-${other.number}` } });
       }
+      await touchProjectVersion(tx, project.id); // ADR 0046 (rev. 3): `blocked` do dependente muda; decidido depois da trava e da leitura das ligações.
       await tx.ticketRelation.create({ data: { orgId: project.orgId, projectId: project.id, fromTicketId: id, toTicketId: other.id, kind: "depends_on" } });
       await this.activity.record(tx, principal, {
         kind: "ticket.dependency_added",
@@ -361,6 +385,7 @@ export class TicketsController {
     const other = await this.requireSameProjectTicket(tx, project.id, otherId);
     const removed = await tx.ticketRelation.deleteMany({ where: { fromTicketId: id, toTicketId: other.id, kind: "depends_on" } });
     if (removed.count === 0) throw new NotFoundException("Dependência não encontrada.");
+    await touchProjectVersion(tx, project.id); // ADR 0046 (rev. 3): marca porque a linha foi de fato apagada (`removed.count > 0`).
     await this.activity.record(tx, principal, {
       kind: "ticket.dependency_removed",
       subjectType: "ticket",
@@ -377,7 +402,7 @@ export class TicketsController {
   }
 
   /** Inexistente, de outra organização (RLS) ou privado sem papel: todos viram o mesmo 404. */
-  private async findVisibleProject(tx: TenantClient, actor: Principal["actor"], projectId: string): Promise<ProjectRow> {
+  private async findVisibleProject(tx: TenantClient, actor: Principal["actor"], projectId: string): Promise<ProjectRow & { ticketsVersion: bigint }> {
     const project = await tx.project.findFirst({ where: { id: projectId } });
     if (!project || !this.authorization.canView(actor, project)) {
       throw new NotFoundException("Projeto não encontrado.");

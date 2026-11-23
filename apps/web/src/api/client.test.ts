@@ -234,6 +234,46 @@ describe("describeApiError", () => {
   });
 });
 
+describe("listTicketsIfChanged (ADR 0046)", () => {
+  const withTag = (tag: string | null) => () => {
+    const headers = new Headers(tag === null ? {} : { ETag: tag });
+    return Response.json([ticketSummary], { headers });
+  };
+
+  it("without a version it asks for the whole list and returns the version the server sent", async () => {
+    const { client, fetchImpl } = setup(withTag('W/"v1.100"'));
+    expect(await client.listTicketsIfChanged(ID, null)).toEqual({ ok: true, data: { changed: true, tickets: [expect.objectContaining({ id: ID })], version: 'W/"v1.100"' } });
+    expect(new Headers((fetchImpl.mock.calls[0]![1] as RequestInit).headers).has("If-None-Match")).toBe(false);
+  });
+
+  it("with a version it sends If-None-Match, and a 304 means nothing changed (not an error, not an empty list)", async () => {
+    const { client, fetchImpl } = setup(() => new Response(null, { status: 304 }));
+    const result = await client.listTicketsIfChanged(ID, 'W/"v1.100"');
+    expect(result).toEqual({ ok: true, data: { changed: false } });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe(`/api/projects/${ID}/tickets`);
+    expect(new Headers((init as RequestInit).headers).get("If-None-Match")).toBe('W/"v1.100"');
+  });
+
+  it("a 200 after a stale version brings the new list and the new version; a response without ETag has no version", async () => {
+    expect(await setup(withTag('W/"v1.200"')).client.listTicketsIfChanged(ID, 'W/"v1.100"')).toMatchObject({ ok: true, data: { changed: true, version: 'W/"v1.200"' } });
+    expect(await setup(withTag(null)).client.listTicketsIfChanged(ID, 'W/"v1.100"')).toMatchObject({ ok: true, data: { changed: true, version: null } });
+  });
+
+  it("errors stay errors: 404, an invalid list and a network failure", async () => {
+    expect(await setup(() => Response.json({ error: { code: "not_found", message: "x" } }, { status: 404 })).client.listTicketsIfChanged(ID, 'W/"v1.1"')).toEqual({ ok: false, error: { kind: "not_found", code: "not_found" } });
+    expect(await setup(() => Response.json([{ ...ticketSummary, descriptionExcerpt: undefined }])).client.listTicketsIfChanged(ID, null)).toEqual({ ok: false, error: { kind: "unavailable" } });
+    const offline = createApiClient({ getToken: async () => "tok", fetch: vi.fn<typeof fetch>().mockRejectedValue(new TypeError("offline")) });
+    expect(await offline.listTicketsIfChanged(ID, null)).toEqual({ ok: false, error: { kind: "unavailable" } });
+  });
+
+  it("listTickets itself is unchanged: no conditional header, a plain list", async () => {
+    const { client, fetchImpl } = setup(withTag('W/"v1.5"'));
+    expect(await client.listTickets(ID)).toEqual({ ok: true, data: [expect.objectContaining({ id: ID })] });
+    expect(new Headers((fetchImpl.mock.calls[0]![1] as RequestInit).headers).has("If-None-Match")).toBe(false);
+  });
+});
+
 describe("ticket responses", () => {
   it("keeps descriptionExcerpt from the ticket listing", async () => {
     const { client } = setup(() => Response.json([ticketSummary]));

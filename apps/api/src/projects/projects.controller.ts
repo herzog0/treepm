@@ -135,6 +135,8 @@ export class ProjectsController {
     this.authorization.manageProject(principal.actor, id);
     const archivedAt =
       body.archived === undefined ? undefined : body.archived ? (current.archivedAt ?? new Date()) : null;
+    // Ordem das travas (ADR 0046): os tickets (marcadores) antes da linha do projeto, que é sempre a última.
+    if (archivedAt && !current.archivedAt) await this.agentWork.endForArchivedProject(tx, principal, id);
     const project = await tx.project.update({
       where: { orgId_id: { orgId: current.orgId, id } },
       data: {
@@ -144,8 +146,6 @@ export class ProjectsController {
       },
       include: withRelations,
     });
-    // Arquivar (só na passagem de ativo para arquivado) encerra os marcadores de trabalho pela IA dos tickets, na mesma transação.
-    if (archivedAt && !current.archivedAt) await this.agentWork.endForArchivedProject(tx, principal, id);
     await this.activity.record(tx, principal, {
       kind: "project.updated",
       subjectType: "project",

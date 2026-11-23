@@ -126,6 +126,33 @@ describe("map auto-refresh", () => {
   });
 });
 
+describe("map auto-refresh is conditional (ADR 0046)", () => {
+  it("asks with the version it got, treats a 304 as nothing changed (no re-render), and takes the new list when it changed", async () => {
+    const { client } = setup();
+    const asked: (string | null)[] = [];
+    let answer: "same" | "new" = "same";
+    vi.mocked(client.listTicketsIfChanged).mockImplementation(async (_projectId: string, version: string | null) => {
+      asked.push(version);
+      if (version === null) return ok({ changed: true as const, tickets: listed(), version: 'W/"v1.1"' });
+      return answer === "same"
+        ? ok({ changed: false as const })
+        : ok({ changed: true as const, tickets: listed({ title: "Fechar a fase (novo)" }), version: 'W/"v1.2"' });
+    });
+    // A carga inicial já aconteceu com o fake padrão (sem versão); uma recarga pega a versão do servidor.
+    await tick(30_000);
+    expect(asked).toEqual([null]);
+    const before = screen.getByRole("button", { name: /ALFA · Projeto Alfa/ });
+    await tick(30_000);
+    expect(asked).toEqual([null, 'W/"v1.1"']);
+    expect(screen.getByRole("button", { name: /ALFA · Projeto Alfa/ })).toBe(before);
+    answer = "new";
+    await tick(30_000);
+    expect(asked).toEqual([null, 'W/"v1.1"', 'W/"v1.1"']);
+    await tick(30_000);
+    expect(asked[3]).toBe('W/"v1.2"');
+  });
+});
+
 describe("map auto-refresh and the open ticket page", () => {
   it("shows the marker on the open page when the refreshed list brings one, without closing the page", async () => {
     const since = new Date(Date.now() - 60_000).toISOString();
