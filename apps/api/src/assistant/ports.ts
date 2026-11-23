@@ -149,8 +149,8 @@ export interface RelatedJudge {
 
 export const RELATED_JUDGE = Symbol("RELATED_JUDGE");
 
-/** Prazos da procura em milissegundos (a descida, a proposta, os relacionados e a elaboração); sem valor, valem os da ADR (30 s, 20 s, 20 s e 20 s). Os testes trocam. */
-export type PlacementTimeouts = { descentMs?: number; proposalMs?: number; relatedMs?: number; elaborationMs?: number };
+/** Prazos da procura em milissegundos (a descida, a proposta, os relacionados, a elaboração e a procura das tarefas sugeridas na árvore); sem valor, valem os da ADR (30 s, 20 s, 20 s e 20 s). Os testes trocam. */
+export type PlacementTimeouts = { descentMs?: number; proposalMs?: number; relatedMs?: number; elaborationMs?: number; suggestedLookupMs?: number };
 export const PLACEMENT_TIMEOUTS = Symbol("PLACEMENT_TIMEOUTS");
 
 // ---- Escrever na descrição (ADR 0036, fatia 5) -----------------------------------------------------------------

@@ -35,7 +35,7 @@ import { sdkStreamer } from "../src/assistant/claude-call.js";
 import { ClaudeConversationProvider } from "../src/assistant/claude-conversation-provider.js";
 import { ClaudeTicketElaborator } from "../src/assistant/claude-ticket-elaborator.js";
 import type { ConversationMessage, ConversationTurn } from "../src/assistant/ports.js";
-import { checkDraft, checkElaboration } from "./conversation-checks.js";
+import { checkDraft, checkElaborationWithLookup } from "./conversation-checks.js";
 import type { ConversationCase, DraftCheck, ElaborationCheck } from "./conversation-checks.js";
 
 const FOLLOW_UP = "Pode seguir com o que eu já disse, sem inventar nada.";
@@ -54,6 +54,10 @@ const caseSchema = z.object({
   expectLinkKeys: z.array(z.string().min(1)).optional(),
   minSuggested: z.number().int().min(0).optional(),
   maxSuggested: z.number().int().min(0).optional(),
+  // R4: a árvore inteira do caso (inclui tickets que o modelo não recebeu), o Jev falso por título e o que não pode sobrar como sugerida.
+  tree: z.array(z.object({ key: z.string().min(1), title: z.string().min(1), excerpt: z.string().default(""), status: z.string().min(1) })).optional(),
+  sameRequestByTitle: z.array(z.object({ ticketTitle: z.string().min(1), whenSuggestedMentions: z.array(z.string().min(1)).min(1) })).optional(),
+  noSuggestedMention: z.array(z.string().min(1)).optional(),
 });
 
 type RunResult = {
@@ -126,7 +130,7 @@ async function runCase(testCase: ConversationCase, run: number): Promise<RunResu
   let elaboration: ElaborationCheck | undefined;
   if (testCase.related !== undefined && turn.draft !== null) {
     const answer = await elaborator.elaborate({ draft: { title: turn.draft.title, description: turn.draft.description, parts: turn.draft.children ?? [] }, related: testCase.related });
-    elaboration = checkElaboration(testCase, turn.draft, answer);
+    elaboration = await checkElaborationWithLookup(testCase, turn.draft, answer);
   }
   return {
     caseId: testCase.id,
@@ -167,6 +171,7 @@ function printRun(result: RunResult, testCase: ConversationCase): void {
   if (e) {
     console.log(`ligações propostas: ${e.linkKeys.length === 0 ? "nenhuma" : e.links.map((l) => `${l.de === "pai" ? "pai" : `parte ${l.de}`} → ${l.dependeDe}`).join(", ")} (${flag(e.linksMissing.length === 0)}${e.linksMissing.length > 0 ? `; faltou ${e.linksMissing.join(", ")}` : ""})`);
     console.log(`sugeridas pelo assistente (à parte de "inventados"): ${e.suggestedCount} (${flag(e.suggestedOk)}; esperado ${testCase.minSuggested ?? 0} a ${testCase.maxSuggested ?? "∞"})`);
+    for (const hit of e.equivalentSuggested) console.log(`  SUGERIDA EQUIVALENTE A TICKET DA ÁRVORE "${hit.phrase}": …${hit.context}…`);
     e.suggested.forEach((task, index) => console.log(`  sugerida ${index + 1}: ${clip(task.title)} — ${clip(task.motivo, 120)}`));
   }
   console.log(`resultado: ${c.passes && (e?.passes ?? true) ? "PASSA em tudo" : "NÃO passa"}`);

@@ -111,6 +111,9 @@ export class FakeAffinity implements AffinityJudge {
 
 /** Relacionados falsos do ensaio: "mesmo assunto" 0,9 quando o ticket divide alguma palavra com o rascunho, senão 0,1; "mesma coisa" 0,9 só com título igual. */
 export class FakeRelated implements RelatedJudge {
+  /** Modo opcional: `sameRequest` por título do candidato (o que vale para as sugeridas procuradas na árvore); o que não está no mapa cai na regra de palavras. */
+  constructor(private readonly sameRequestByTitle: Readonly<Record<string, number>> = {}) {}
+
   judge(input: RelatedInput): Promise<Record<string, RelatedJudgment>> {
     const draftWords = words(`${input.draft.title} ${input.draft.description}`);
     const norm = (text: string) => text.trim().toLowerCase();
@@ -120,7 +123,7 @@ export class FakeRelated implements RelatedJudge {
           c.id,
           {
             sameSubject: [...words(`${c.title} ${c.excerpt}`)].some((w) => draftWords.has(w)) ? 0.9 : 0.1,
-            sameRequest: norm(c.title) === norm(input.draft.title) ? 0.9 : 0.1,
+            sameRequest: this.sameRequestByTitle[c.title] ?? (norm(c.title) === norm(input.draft.title) ? 0.9 : 0.1),
           },
         ]),
       ),
