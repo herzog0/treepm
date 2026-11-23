@@ -108,6 +108,8 @@ export type EmbeddingSyncOptions = {
   max?: number;
   deadlineMs?: number;
   batchSize?: number;
+  /** Sinal de quem chamou (a requisição que foi cancelada ou o prazo maior da busca): vale junto com o prazo da chamada. */
+  signal?: AbortSignal;
 };
 
 /**
@@ -142,7 +144,7 @@ export async function syncEmbeddings(store: EmbeddingStore, options: EmbeddingSy
   }
   result.upToDate = options.tickets.length - stale.length;
   result.pending = stale.length;
-  const signal = AbortSignal.timeout(deadlineMs);
+  const signal = options.signal ? AbortSignal.any([AbortSignal.timeout(deadlineMs), options.signal]) : AbortSignal.timeout(deadlineMs);
   /** Um código que para tudo (não adianta insistir) ou, no texto sozinho, um que só pula aquele texto. */
   class Stop extends Error {}
   const note = (code: NonNullable<EmbeddingSyncResult["failure"]>): void => {

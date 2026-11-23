@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { descriptionExcerpt, triageRelated } from "@treepm/domain";
+import { descriptionExcerpt, fuseRankings, RELATED_SHORTLIST, triageRelated } from "@treepm/domain";
 import { branchTexts } from "./branch-text.js";
 import { searchPlacement } from "./placement-search.js";
 import type { PlacementDeps, PlacementOutcome } from "./placement-search.js";
@@ -10,6 +10,9 @@ import type { JudgedRelated, PlacementRule } from "./related-placement.js";
 import { proposeGroup } from "./group-proposal.js";
 import type { GroupProposalResult } from "./group-proposal.js";
 import { AssistantUnavailableError } from "./ports.js";
+import type { TriageNumbers } from "./placement-decision.js";
+import { boundedSearch, SEMANTIC_TRIAGE_DEADLINE_MS } from "./semantic-triage.js";
+import type { SemanticSearch } from "./semantic-triage.js";
 import type { AffinityJudge, BranchCandidate, BranchJudge, GroupNamer, RelatedJudge, TicketDraft } from "./ports.js";
 
 /** Prazo da etapa dos relacionados (a requisição ao Jev), em milissegundos. */
@@ -133,20 +136,28 @@ export class PlacementService {
   }
 
   /**
-   * Os tickets relacionados ao rascunho, de baixo para cima (ADR 0052, item 2): a triagem por palavras sobre a árvore que a
-   * procura já leu (em memória, nenhuma leitura a mais) e uma requisição ao Jev com as duas perguntas de cada candidato.
-   * Se a requisição não couber, corta os candidatos de menor pontuação. Falha ou prazo estourado NUNCA derrubam a procura:
-   * devolve `failed` e nenhum julgamento (o aviso vai ao registro sem texto).
+   * Os tickets relacionados ao rascunho, de baixo para cima (ADR 0052, item 2; ADR 0053, item 7). Os candidatos são a FUSÃO da
+   * triagem por palavras (sobre a árvore que a procura já leu, em memória) com os `RELATED_SHORTLIST` vizinhos por vetor do
+   * título e da descrição do rascunho (nunca dos títulos das partes nem da conversa), até `RELATED_SHORTLIST` no total;
+   * depois uma requisição ao Jev com as duas perguntas de cada candidato. Se a requisição não couber, corta os últimos da
+   * lista fundida. O passo de vetor (sincronização, consulta) roda dentro do mesmo prazo da etapa, com no máximo
+   * `SEMANTIC_TRIAGE_DEADLINE_MS`: o que ele consome sai do tempo do Jev, então o total da etapa não passa de `timeoutMs`.
+   * Sem tempo, sem provedor ou com falha, a busca segue só com palavras (idêntica à de antes). Falha ou prazo estourado do Jev
+   * NUNCA derrubam a procura: devolve `failed` e nenhum julgamento (o aviso vai ao registro sem texto). `triage` (só números e
+   * códigos) vem quando há `semantic`.
    */
   async findRelated(
     draft: TicketDraft & { partTitles: readonly string[] },
     snapshot: PlacementSnapshot,
-    deps: { related: RelatedJudge; timeoutMs?: number; signal?: AbortSignal },
-  ): Promise<{ judged: JudgedRelated[]; failed: boolean }> {
+    deps: { related: RelatedJudge; timeoutMs?: number; signal?: AbortSignal; semantic?: SemanticSearch; semanticDeadlineMs?: number },
+  ): Promise<{ judged: JudgedRelated[]; failed: boolean; triage?: TriageNumbers }> {
+    const started = Date.now();
+    const timeoutMs = deps.timeoutMs ?? RELATED_TIMEOUT_MS;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), deps.timeoutMs ?? RELATED_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     const onOutside = () => controller.abort();
     deps.signal?.addEventListener("abort", onOutside);
+    let triageOut: TriageNumbers | undefined;
     try {
       // A consulta da árvore não tem ORDER BY: a triagem lê os tickets por número, para o resultado não variar entre execuções.
       const ordered = [...snapshot.tickets].sort((a, b) => a.number - b.number);
@@ -155,23 +166,65 @@ export class PlacementService {
         draft,
         ordered.map((ticket) => ({ id: ticket.id, title: ticket.title, excerpt: descriptionExcerpt(ticket.description) })),
       );
-      const all = shortlist.map((hit) => {
+      const wordsIds = shortlist.map((hit) => hit.id);
+      const asked = { title: draft.title, description: draft.description };
+
+      // O passo de vetor: nunca lança. Só pede o que a fonte souber fazer dentro do que sobrou do prazo da etapa.
+      let vectorIds: string[] = [];
+      let semantic: TriageNumbers["semantic"] | undefined;
+      if (deps.semantic) {
+        const left = timeoutMs - (Date.now() - started);
+        if (left <= 0) {
+          semantic = { synced: 0, embedded: 0, pending: 0, syncMs: 0, queryMs: 0, failure: "skipped_no_time" };
+        } else {
+          // Corre contra o prazo do passo: fonte lenta, travada ou que lança vira só palavras (nunca derruba a busca).
+          const result = await boundedSearch(deps.semantic, [asked], RELATED_SHORTLIST, { signal: controller.signal, deadlineMs: Math.min(deps.semanticDeadlineMs ?? SEMANTIC_TRIAGE_DEADLINE_MS, Math.floor(left / 2)) });
+          vectorIds = (result.neighbours[0] ?? []).map((neighbour) => neighbour.ticketId).filter((id) => byId.has(id));
+          semantic = result.diagnostics;
+        }
+      }
+
+      const fused = fuseRankings(wordsIds, vectorIds, RELATED_SHORTLIST);
+      const all = fused.map((hit) => {
         const ticket = byId.get(hit.id) as TreeTicket;
         return { id: ticket.id, title: ticket.title, excerpt: descriptionExcerpt(ticket.description) };
       });
-      const asked = { title: draft.title, description: draft.description };
       let candidates = all;
-      while (candidates.length > 0 && !relatedInputFits({ draft: asked, candidates })) candidates = candidates.slice(0, -1);
+      // Corte por tamanho: saem primeiro os que vieram SÓ do vetor (do fim para o começo), depois os demais, do fim.
+      const vectorOnly = new Set(fused.filter((hit) => hit.origin === "vector").map((hit) => hit.id));
+      while (candidates.length > 0 && !relatedInputFits({ draft: asked, candidates })) {
+        let drop = candidates.length - 1;
+        for (let i = candidates.length - 1; i >= 0; i -= 1) {
+          if (vectorOnly.has((candidates[i] as { id: string }).id)) {
+            drop = i;
+            break;
+          }
+        }
+        candidates = candidates.filter((_, i) => i !== drop);
+      }
       if (candidates.length < all.length) this.logger.warn(`relacionados cortados por tamanho enviados=${candidates.length} de=${all.length}`);
-      if (candidates.length === 0) return { judged: [], failed: false };
+      if (semantic) {
+        const inWords = new Set(wordsIds);
+        triageOut = {
+          words: wordsIds.length,
+          vector: vectorIds.length,
+          both: vectorIds.filter((id) => inWords.has(id)).length,
+          onlyVector: candidates.filter((c) => vectorOnly.has(c.id)).length,
+          sent: candidates.length,
+          semantic,
+        };
+      }
+      if (candidates.length === 0) return { judged: [], failed: false, ...(triageOut ? { triage: triageOut } : {}) };
+      // O passo de vetor pode ter consumido o prazo inteiro: abortado antes de pedir, o evento já passou e não dispararia de novo.
+      if (controller.signal.aborted) throw new Error("related_timeout");
       const timedOut = new Promise<never>((_, reject) => controller.signal.addEventListener("abort", () => reject(new Error("related_timeout"))));
       const answers = await Promise.race([deps.related.judge({ draft: asked, candidates }, { signal: controller.signal }), timedOut]);
-      return { judged: candidates.map((candidate) => ({ id: candidate.id, sameSubject: answers[candidate.id]?.sameSubject ?? 0, sameRequest: answers[candidate.id]?.sameRequest ?? 0 })), failed: false };
+      return { judged: candidates.map((candidate) => ({ id: candidate.id, sameSubject: answers[candidate.id]?.sameSubject ?? 0, sameRequest: answers[candidate.id]?.sameRequest ?? 0 })), failed: false, ...(triageOut ? { triage: triageOut } : {}) };
     } catch (error) {
       // Só o motivo vai ao registro: nunca texto do rascunho nem dos tickets.
       const reason = error instanceof AssistantUnavailableError ? error.reason : error instanceof Error && error.message === "related_timeout" ? "timeout" : "error";
       this.logger.warn(`relacionados indisponíveis motivo=${reason}`);
-      return { judged: [], failed: true };
+      return { judged: [], failed: true, ...(triageOut ? { triage: triageOut } : {}) };
     } finally {
       clearTimeout(timer);
       deps.signal?.removeEventListener("abort", onOutside);

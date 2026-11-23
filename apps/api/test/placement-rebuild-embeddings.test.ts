@@ -189,3 +189,16 @@ describe("argumentos", () => {
     expect(parseCliArgs(["embeddings-reindex", "--org", "o", "--user", "u"]).ok).toBe(false);
   });
 });
+
+describe("provedor falso nunca sobrescreve vetor de verdade", () => {
+  it("embeddings-reindex com o falso recusa se há linha de outro modelo, sem gravar nada", async () => {
+    await seed(2);
+    await embeddingsReindexCommand(ctx(new FakeEmbeddingProvider()));
+    await pool.query("update ticket_embeddings set model = 'voyage-4-lite'");
+    const before = (await pool.query("select ticket_id, model from ticket_embeddings order by ticket_id")).rows;
+    const fake = new FakeEmbeddingProvider();
+    await expect(embeddingsReindexCommand(ctx(fake))).rejects.toThrow(/Recusado/);
+    expect(fake.calls).toHaveLength(0);
+    expect((await pool.query("select ticket_id, model from ticket_embeddings order by ticket_id")).rows).toEqual(before);
+  });
+});

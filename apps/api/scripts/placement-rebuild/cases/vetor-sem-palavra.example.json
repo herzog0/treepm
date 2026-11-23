@@ -1,0 +1,11 @@
+{
+  "name": "vetor sem palavra em comum (exemplo com dados inventados, só com --fake-providers)",
+  "request": "Entrar pela conta da empresa, sem criar outra senha.",
+  "expectParentKey": "DEMO-1",
+  "acceptKeys": [],
+  "omit": [],
+  "expectRelatedKeys": ["DEMO-3"],
+  "expectDuplicateKey": null,
+  "expectLinkKeys": [],
+  "concepts": { "entrar": "acesso-federado", "empresa": "acesso-federado", "senha": "acesso-federado", "federada": "acesso-federado", "identidade": "acesso-federado" }
+}

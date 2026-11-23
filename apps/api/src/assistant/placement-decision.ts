@@ -25,6 +25,35 @@ export const decisionLevelSchema = z
 /** Um relacionado da decisão (ADR 0052, fatia 2): só o id, o número e as duas probabilidades do Jev. */
 export const decisionRelatedSchema = z.object({ ticketId: id, number: z.number().int(), sameSubject: probability, sameRequest: probability }).strict();
 
+/** O diagnóstico do passo de vetor (ADR 0053): só números e um código curto. */
+export const semanticDiagnosticsSchema = z
+  .object({
+    synced: z.number().int().min(0),
+    embedded: z.number().int().min(0),
+    pending: z.number().int().min(0),
+    syncMs: z.number().int().min(0),
+    queryMs: z.number().int().min(0),
+    failure: z.string().regex(/^[a-z_]{1,32}$/).optional(),
+  })
+  .strict();
+
+/**
+ * A triagem da procura guardada (migration 0031): quantos candidatos cada lista deu e o que o passo de vetor fez. `words` e `vector`
+ * são os tamanhos das duas listas, `both` o que está nas duas, `onlyVector` quantos dos candidatos enviados só o vetor achou e
+ * `sent` quantos foram ao Jev (depois do corte por tamanho). Só números e códigos.
+ */
+export const triageSchema = z
+  .object({
+    words: z.number().int().min(0),
+    vector: z.number().int().min(0),
+    both: z.number().int().min(0),
+    onlyVector: z.number().int().min(0),
+    sent: z.number().int().min(0),
+    semantic: semanticDiagnosticsSchema,
+  })
+  .strict();
+export type TriageNumbers = z.output<typeof triageSchema>;
+
 export const decisionSchema = z
   .object({
     uncertain: z.boolean(),
@@ -39,6 +68,8 @@ export const decisionSchema = z
     duplicateTicketId: id.nullable().default(null),
     /** Qual regra decidiu o lugar (`descent` sem relacionado que gere destino); `null` em decisão antiga. */
     rule: z.enum(["descent", "related_within", "related_ancestor", "related_choice", "choice_unavailable"]).nullable().default(null),
+    /** A triagem de relacionados (palavras e vetor); `null` em decisão guardada antes da migration 0031 ou sem triagem. */
+    triage: triageSchema.nullable().default(null),
   })
   .strict();
 export type PlacementDecisionRecord = z.output<typeof decisionSchema>;
@@ -47,6 +78,7 @@ export type DecisionExtras = {
   related: readonly { id: string; sameSubject: number; sameRequest: number }[];
   duplicateId: string | null;
   rule: PlacementRule;
+  triage?: TriageNumbers | null;
 };
 
 /** Do resultado da procura para o registro: `numberOf` dá o número de cada ticket (ids que não estão no mapa viram erro). */
@@ -74,6 +106,7 @@ export function decisionOf(outcome: Pick<PlacementOutcome, "uncertain" | "trace"
     related: (extras?.related ?? []).map((entry) => ({ ticketId: entry.id, number: number(entry.id), sameSubject: entry.sameSubject, sameRequest: entry.sameRequest })),
     duplicateTicketId: extras?.duplicateId ?? null,
     rule: extras?.rule ?? null,
+    triage: extras?.triage ?? null,
   });
 }
 
@@ -84,8 +117,10 @@ export async function saveDecision(
 ): Promise<void> {
   const { record } = input;
   await tx.placementDecision.deleteMany({ where: { orgId: input.orgId, conversationId: input.conversationId } });
-  // Com a migration 0029 a decisão leva também os relacionados; sem ela (ambiente ainda na 0028), grava como antes. O recuo é em
-  // SQL: o Prisma poria as colunas novas no INSERT (o padrão delas é do cliente), e elas não existem no banco da 0028.
+  // Três degraus, do mais novo ao mais antigo, para o servidor não quebrar antes de a migration ser aplicada: com a 0031 a decisão
+  // leva também a triagem; só com a 0029, os relacionados; só com a 0028, o que havia. O recuo é em SQL: o Prisma poria as colunas
+  // novas no INSERT (o padrão delas é do cliente), e elas não existem no banco anterior. Só coluna ausente (P2022 do Prisma,
+  // 42703 do PostgreSQL) faz recuar; qualquer outro erro sobe e vira o aviso de decisão não guardada.
   const full = await guarded(tx, () =>
     tx.placementDecision.create({
       select: { id: true },
@@ -103,16 +138,40 @@ export async function saveDecision(
         related: record.related,
         duplicateTicketId: record.duplicateTicketId,
         placementRule: record.rule,
+        triage: record.triage ?? {},
       },
     }),
   );
-  // O recuo só vale para coluna ausente (P2022 do Prisma, 42703 do PostgreSQL); qualquer outro erro sobe e vira o aviso de decisão não guardada.
-  if (!full.ok && !["P2022", "42703"].includes(full.code)) throw new Error(`decisão não gravada código=${full.code}`);
-  if (!full.ok) {
-    await tx.$executeRaw`insert into placement_decisions (org_id, project_id, conversation_id, chosen_path, alternatives, uncertain, stop_reason, scope_ticket_id, scope_fit, levels)
+  if (full.ok) return;
+  if (!MISSING_COLUMN.includes(full.code)) throw new Error(`decisão não gravada código=${full.code}`);
+  const mid = await guarded(
+    tx,
+    () =>
+      tx.$executeRaw`insert into placement_decisions (org_id, project_id, conversation_id, chosen_path, alternatives, uncertain, stop_reason, scope_ticket_id, scope_fit, levels, related, duplicate_ticket_id, placement_rule)
       values (${input.orgId}, ${input.projectId}::uuid, ${input.conversationId}::uuid, ${record.chosenPath}::uuid[], ${JSON.stringify(record.alternatives)}::jsonb, ${record.uncertain}, ${record.stopReason},
-        ${record.scope?.ticketId ?? null}::uuid, ${record.scope?.fit ?? null}::double precision, ${JSON.stringify(record.levels)}::jsonb)`;
-  }
+        ${record.scope?.ticketId ?? null}::uuid, ${record.scope?.fit ?? null}::double precision, ${JSON.stringify(record.levels)}::jsonb,
+        ${JSON.stringify(record.related)}::jsonb, ${record.duplicateTicketId}::uuid, ${record.rule})`,
+  );
+  if (mid.ok) return;
+  if (!MISSING_COLUMN.includes(mid.code)) throw new Error(`decisão não gravada código=${mid.code}`);
+  await tx.$executeRaw`insert into placement_decisions (org_id, project_id, conversation_id, chosen_path, alternatives, uncertain, stop_reason, scope_ticket_id, scope_fit, levels)
+    values (${input.orgId}, ${input.projectId}::uuid, ${input.conversationId}::uuid, ${record.chosenPath}::uuid[], ${JSON.stringify(record.alternatives)}::jsonb, ${record.uncertain}, ${record.stopReason},
+      ${record.scope?.ticketId ?? null}::uuid, ${record.scope?.fit ?? null}::double precision, ${JSON.stringify(record.levels)}::jsonb)`;
+}
+
+/** Códigos de coluna ausente: P2022 (Prisma) e 42703 (PostgreSQL). */
+const MISSING_COLUMN = ["P2022", "42703"];
+
+/**
+ * O código para decidir o recuo: SQL cru no Prisma 7 vira `P2010` para QUALQUER falha; só vale como coluna ausente quando o
+ * PostgreSQL disse `42703` (em `meta.driverAdapterError.cause.originalCode`). Os demais erros mantêm o código deles.
+ */
+export function guardCode(error: unknown): string {
+  const code = errorCode(error);
+  if (code !== "P2010") return code;
+  const meta = (error as { meta?: { driverAdapterError?: { cause?: { originalCode?: unknown; code?: unknown } } } }).meta;
+  const original = meta?.driverAdapterError?.cause?.originalCode ?? meta?.driverAdapterError?.cause?.code;
+  return original === "42703" ? "42703" : code;
 }
 
 /** O código do erro (Prisma `code` ou `code` da exceção), nunca o texto: a mensagem pode trazer valores. */
@@ -133,7 +192,7 @@ async function guarded<T>(tx: TenantClient, work: () => Promise<T>): Promise<{ o
     return { ok: true, value };
   } catch (error) {
     await tx.$executeRaw`rollback to savepoint placement_decision_guard`;
-    return { ok: false, code: errorCode(error) };
+    return { ok: false, code: guardCode(error) };
   }
 }
 
@@ -158,20 +217,28 @@ export async function readDecisionSafely(tx: TenantClient, conversationId: strin
 }
 
 export async function readDecisionOfConversation(tx: TenantClient, conversationId: string): Promise<PlacementDecisionRecord | null> {
-  // Sem as colunas da migration 0029, lê só as da 0028 (o registro sai sem relacionados).
+  // Do mais novo ao mais antigo: todas as colunas (0031); sem a triagem (0029); só as da 0028 (o registro sai sem relacionados).
   const attempt = await guarded(tx, () => tx.placementDecision.findFirst({ where: { conversationId } }));
-  if (!attempt.ok && !["P2022", "42703"].includes(attempt.code)) throw new Error(`decisão não lida código=${attempt.code}`);
-  // Sem decisão não há segunda consulta: a de recuo só roda quando as colunas da 0029 não existem.
+  if (!attempt.ok && !MISSING_COLUMN.includes(attempt.code)) throw new Error(`decisão não lida código=${attempt.code}`);
+  // Sem decisão não há segunda consulta: o recuo só roda quando alguma coluna não existe.
   const full = attempt.ok ? attempt.value : null;
   if (attempt.ok && full === null) return null;
-  const row =
-    full ??
-    (await tx.placementDecision.findFirst({
-      where: { conversationId },
-      select: { uncertain: true, stopReason: true, chosenPath: true, alternatives: true, scopeTicketId: true, scopeFit: true, levels: true },
-    }));
+  const common = { uncertain: true, stopReason: true, chosenPath: true, alternatives: true, scopeTicketId: true, scopeFit: true, levels: true } as const;
+  let mid: { related: unknown; duplicateTicketId: string | null; placementRule: string | null } | null = null;
+  let row: { uncertain: boolean; stopReason: string | null; chosenPath: string[]; alternatives: unknown; scopeTicketId: string | null; scopeFit: number | null; levels: unknown } | null = full;
+  if (!full) {
+    const second = await guarded(tx, () => tx.placementDecision.findFirst({ where: { conversationId }, select: { ...common, related: true, duplicateTicketId: true, placementRule: true } }));
+    if (second.ok) {
+      row = second.value;
+      mid = second.value;
+    } else if (MISSING_COLUMN.includes(second.code)) {
+      row = await tx.placementDecision.findFirst({ where: { conversationId }, select: common });
+    } else {
+      throw new Error(`decisão não lida código=${second.code}`);
+    }
+  }
   if (!row) return null;
-  const extra = full;
+  const extra = full ?? mid;
   return decisionSchema.parse({
     uncertain: row.uncertain,
     stopReason: row.stopReason,
@@ -180,5 +247,9 @@ export async function readDecisionOfConversation(tx: TenantClient, conversationI
     scope: row.scopeTicketId ? { ticketId: row.scopeTicketId, fit: row.scopeFit } : null,
     levels: row.levels,
     ...(extra ? { related: extra.related, duplicateTicketId: extra.duplicateTicketId, rule: extra.placementRule } : {}),
+    // `{}` (sem triagem por vetor) e coluna ausente são o mesmo: sem triagem.
+    ...(full && isFilled(full.triage) ? { triage: full.triage } : {}),
   });
 }
+
+const isFilled = (value: unknown): boolean => typeof value === "object" && value !== null && Object.keys(value).length > 0;

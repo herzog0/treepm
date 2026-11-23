@@ -303,6 +303,7 @@ export const COMMANDS = [
   "conversation-dry-run",
   "embeddings-status",
   "embeddings-reindex",
+  "triage-measure",
   "case-run",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
@@ -388,6 +389,14 @@ export type CliOptions = {
   caseFile?: string;
   /** `conversation-dry-run`: número do ticket usado como escopo da procura. */
   scope?: number;
+  /** `triage-measure`: arquivo com os pares extras (`--pairs arquivo.json`). */
+  pairsFile?: string;
+  /** `triage-measure`: arquivo onde gravar tudo (`--json arquivo`). */
+  jsonFile?: string;
+  /** `triage-measure`: o tipo da consulta ao provedor de vetores, `query` (padrão) ou `document`. */
+  kinds?: string;
+  /** `triage-measure`: limiar de distância do cosseno dos vizinhos por vetor. */
+  maxDistance?: number;
   role?: string;
   retryDelaysMs?: number[];
   fake503First?: number;
@@ -424,6 +433,7 @@ const REQUIRED: Record<Command, readonly (keyof CliOptions)[]> = {
   "conversation-dry-run": ["org", "user", "project", "textFile"],
   "embeddings-status": ["org", "user", "project"],
   "embeddings-reindex": ["org", "user", "project"],
+  "triage-measure": ["org", "user", "project"],
   "case-run": [...APP_REQUIRED, "caseFile"],
 };
 
@@ -490,6 +500,8 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--text-file": "textFile",
   "--case": "caseFile",
   "--scope": "scope",
+  "--kinds": "kinds",
+  "--max-distance": "maxDistance",
   "--role": "role",
   "--retry-delays-ms": "retryDelaysMs",
   "--fake-503-first": "fake503First",
@@ -511,6 +523,7 @@ const usage = `Comandos: ${COMMANDS.join(", ")}.
   summary-regenerate --org --user --project (--number <número> | --subtree <número> | --all) [--dry-run] [--resume] [--dir <pasta do andamento>] [--fake-providers]
   conversation-dry-run --org --user --project --text-file <caminho> [--scope <número>] [--fake-providers]   (não cria ticket)
   embeddings-status  --org --user --project   (só números: tickets vivos, vetores em dia, desatualizados e faltando; ADR 0053)
+  triage-measure --org --user --project [--pairs arquivo.json] [--kinds document|query] [--max-distance N] [--json arquivo] [--fake-providers]   (mede só a triagem de relacionados: posição do esperado só com palavras, só com vetor e na fusão; ADR 0053)
   embeddings-reindex --org --user --project [--dry-run] [--fake-providers]   (põe o projeto inteiro em dia na Voyage, em lotes; --dry-run só diz quantos textos e caracteres iriam, sem chamar o provedor)
   case-run       --org --user --dir <pasta com o gabarito.json> --case <arquivo do caso> [--repeats N (padrão 3)] [--fake-providers]   (cria um projeto de medição sem os tickets de "omit", roda o pedido N vezes e o arquiva)`;
 
@@ -523,7 +536,8 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   const options: Record<string, unknown> = {};
   for (let i = 0; i < rest.length; i++) {
     const flag = rest[i] as string;
-    const key = FLAGS[flag];
+    // No `triage-measure`, `--pairs` e `--json` levam um arquivo (nos outros comandos são sinalizadores).
+    const key = command === "triage-measure" && flag === "--pairs" ? "pairsFile" : command === "triage-measure" && flag === "--json" ? "jsonFile" : FLAGS[flag];
     if (!key) return fail(`Opção desconhecida: ${flag}.`);
     if (key === "fakeProviders" || key === "loo" || key === "collect" || key === "pairs" || key === "resume" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root" || key === "idea" || key === "ideaAccept" || key === "ideaDiscard" || key === "ideaMake" || key === "all" || key === "dryRun") {
       options[key] = true;
@@ -549,6 +563,10 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
       const parsed = Number(value);
       if (!Number.isInteger(parsed) || parsed < 1) return fail(`${flag} deve ser o número de um ticket (inteiro maior que zero).`);
       options[key] = parsed;
+    } else if (key === "maxDistance") {
+      const parsed = Number(value);
+      if (value.trim() === "" || !Number.isFinite(parsed) || parsed < 0) return fail(`${flag} deve ser um número maior ou igual a zero.`);
+      options[key] = parsed;
     } else if (key === "priority") {
       const parsed = Number(value);
       if (value.trim() === "" || !isValidPriority(parsed)) return fail(`${flag} deve ser um número inteiro de ${PRIORITY_MIN} a ${PRIORITY_MAX}.`);
@@ -561,6 +579,10 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
       options[key] = value;
     }
   }
+  for (const key of ["pairsFile", "jsonFile", "kinds", "maxDistance"]) {
+    if (options[key] !== undefined && command !== "triage-measure") return fail(`--${key === "pairsFile" ? "pairs" : key === "jsonFile" ? "json" : key === "maxDistance" ? "max-distance" : key} só existe no triage-measure.`);
+  }
+  if (options["kinds"] !== undefined && options["kinds"] !== "query" && options["kinds"] !== "document") return fail("--kinds é `query` ou `document`.");
   if (options["flat"] !== undefined && command !== "leave-one-out") return fail("--flat só existe no leave-one-out.");
   if (options["flat"] !== undefined && options["scopeCheck"] !== undefined) return fail("--flat não combina com --scope-check.");
   const variantOk = (name: unknown): boolean => typeof name === "string" && /^[a-z0-9-]+$/.test(name);

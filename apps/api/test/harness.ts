@@ -111,6 +111,7 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     embedder.fail = null;
     embedder.failCall = 0;
     embedder.delayMs = 0;
+    embedder.concepts = {};
     namer.calls.length = 0;
     namer.onCall = null;
     namer.reply = null;

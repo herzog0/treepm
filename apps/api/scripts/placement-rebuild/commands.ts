@@ -86,6 +86,8 @@ export type Context = {
   ticketDescriptionsPath?: string;
   /** `leave-one-out --flat`: mede a proposta de agrupador na árvore achatada; nunca confirma a proposta. */
   flat?: boolean;
+  /** `case-run --fake-providers`: configura os conceitos dos falsos de vetores e de relacionados (ADR 0053). */
+  setConcepts?: (concepts: Record<string, string>) => void;
 };
 
 const MAX_MESSAGE = 4000;

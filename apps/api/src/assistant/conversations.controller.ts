@@ -48,6 +48,9 @@ import { decisionOf, errorCode, handDecisionToTicket, readDecisionSafely, saveDe
 import type { DecisionExtras, PlacementDecisionRecord } from "./placement-decision.js";
 import { pickRelated, relatedListing } from "./related-placement.js";
 import { linkExistingSuggestions, SUGGESTED_LOOKUP_TIMEOUT_MAX_MS } from "./suggested-links.js";
+import { SEMANTIC_TRIAGE_DEADLINE_MS, semanticSearchOf } from "./semantic-triage.js";
+import type { SemanticSearch } from "./semantic-triage.js";
+import { embeddingStoreOf } from "./ticket-embeddings.js";
 import type { LookupOutcome } from "./suggested-links.js";
 import type { LinkLookupResult, LookupTicket } from "./suggested-links.js";
 import type { PlacementOutcome } from "./placement-search.js";
@@ -269,7 +272,7 @@ export class TicketConversationsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(placementBodySchema.default({}))) body: z.output<typeof placementBodySchema>,
   ): Promise<z.output<typeof placementOutcomeSchema>> {
-    const { judge, affinity, related, namer } = await this.gate.open(tenant);
+    const { judge, affinity, related, namer, embedder } = await this.gate.open(tenant);
     const seen = await tenant.run(async (tx, principal) => {
       const { conversation } = await this.requireWritable(tx, principal, id);
       if (conversation.draftTitle === null) throw this.draftRequired();
@@ -305,7 +308,12 @@ export class TicketConversationsController {
           relatedAbort.abort();
           throw error;
         }),
-        this.placementService.findRelated(seen.triage, seen.snapshot, { related, signal: relatedAbort.signal, ...(this.timeouts?.relatedMs ? { timeoutMs: this.timeouts.relatedMs } : {}) }),
+        this.placementService.findRelated(seen.triage, seen.snapshot, {
+          related,
+          signal: relatedAbort.signal,
+          // O passo de vetor (ADR 0053): o `embedder` é `null` sem chave; o projeto é o da conversa, já conferido por `requireWritable`.
+          semantic: semanticSearchOf(embeddingStoreOf(tenant), embedder, seen.snapshot.projectId),
+          ...(this.timeouts?.relatedMs ? { timeoutMs: this.timeouts.relatedMs } : {}) }),
       ]);
       const picked = pickRelated(found.judged);
       const { outcome, rule } = await this.placementService.place(descent, seen.snapshot, {
@@ -326,7 +334,7 @@ export class TicketConversationsController {
         ...(this.timeouts?.proposalMs ? { timeoutMs: this.timeouts.proposalMs } : {}),
       });
       const { trace, ...shown } = outcome;
-      await this.keepDecision(tenant, id, seen.snapshot, { ...shown, trace }, { related: picked.related, duplicateId: picked.duplicate?.id ?? null, rule });
+      await this.keepDecision(tenant, id, seen.snapshot, { ...shown, trace }, { related: picked.related, duplicateId: picked.duplicate?.id ?? null, rule, triage: found.triage ?? null });
       return parseOutput(placementOutcomeSchema, { ...shown, ...proposal, ...listing });
     } catch (error) {
       if (error instanceof AssistantUnavailableError) {
@@ -414,6 +422,7 @@ export class TicketConversationsController {
         related,
         duplicateKey: duplicate ? `${project.key}-${duplicate.number}` : null,
         projectKey: project.key,
+        projectId: conversation.projectId,
         // A mesma leitura da árvore viva: a procura das tarefas sugeridas não lê mais nada do banco.
         tree: liveTree.map(({ id: ticketId, number, title, description, status }) => ({ id: ticketId, number, title, description, status })),
       };
@@ -437,20 +446,21 @@ export class TicketConversationsController {
       });
       // Tarefa sugerida que já existe na árvore vira ligação (ADR 0052, item 4). Falha ou prazo nunca derrubam a elaboração.
       const lookupStarted = Date.now();
-      const found = await this.linkSuggested(providers.elaborator, seen, clean, started);
+      const found = await this.linkSuggested(providers.elaborator, seen, clean, started, semanticSearchOf(embeddingStoreOf(tenant), providers.embedder, seen.projectId));
       const lookupMs = Date.now() - lookupStarted;
       const diagnostics = {
         model: { links: answer.links.length, suggested: answer.suggested.length },
         dropped: clean.dropped,
         lookups: found.lookups,
         timingsMs: { claude: claudeMs, lookup: lookupMs, secondCall: found.matchMs },
+        ...(found.semantic ? { semantic: found.semantic } : {}),
       };
       // Só contagens e códigos: nunca texto do rascunho, de ticket nem do modelo.
       const tally = (counts: Record<string, number>): string => Object.entries(counts).map(([name, n]) => `${name}=${n}`).join(",");
       const outcomes: Record<string, number> = {};
       for (const lookup of found.lookups) outcomes[lookup.outcome] = (outcomes[lookup.outcome] ?? 0) + 1;
       this.logger.log(
-        `elaboração diagnóstico modelo_ligacoes=${diagnostics.model.links} modelo_sugeridas=${diagnostics.model.suggested} descartes_ligacoes=${tally(clean.dropped.links)} descartes_sugeridas=${tally(clean.dropped.suggested)} procura=${tally(outcomes) || "nenhuma"} ms_claude=${claudeMs} ms_procura=${lookupMs} ms_segunda=${found.matchMs}`,
+        `elaboração diagnóstico modelo_ligacoes=${diagnostics.model.links} modelo_sugeridas=${diagnostics.model.suggested} descartes_ligacoes=${tally(clean.dropped.links)} descartes_sugeridas=${tally(clean.dropped.suggested)} procura=${tally(outcomes) || "nenhuma"} ms_claude=${claudeMs} ms_procura=${lookupMs} ms_segunda=${found.matchMs}${found.semantic ? ` vetor_sincronizados=${found.semantic.synced} vetor_gravados=${found.semantic.embedded} vetor_pendentes=${found.semantic.pending} ms_vetor=${found.semantic.syncMs + found.semantic.queryMs} vetor_falha=${found.semantic.failure ?? "nenhuma"}` : ""}`,
       );
       const titleOf = new Map([...sent.map((entry) => [entry.key, entry.title] as const), ...found.titles]);
       return parseOutput(elaborationOutcomeSchema, {
@@ -477,6 +487,7 @@ export class TicketConversationsController {
     seen: { draft: { title: string }; related: readonly { key: string }[]; duplicateKey: string | null; projectKey: string; tree: readonly LookupTicket[]; excludeIds: ReadonlySet<string> },
     clean: { links: ElaborationLink[]; suggested: ElaborationSuggestion[] },
     started: number,
+    semantic: SemanticSearch,
   ): Promise<LinkLookupResult> {
     const untouched = (outcome: LookupOutcome | null): LinkLookupResult => ({
       links: clean.links,
@@ -496,7 +507,7 @@ export class TicketConversationsController {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), budget);
     try {
-      const result = await linkExistingSuggestions({ ...clean, tree: seen.tree, projectKey: seen.projectKey, duplicateKey: seen.duplicateKey, excludeIds: seen.excludeIds, matcher, signal: controller.signal });
+      const result = await linkExistingSuggestions({ ...clean, tree: seen.tree, projectKey: seen.projectKey, duplicateKey: seen.duplicateKey, excludeIds: seen.excludeIds, matcher, signal: controller.signal, semantic, semanticDeadlineMs: Math.min(SEMANTIC_TRIAGE_DEADLINE_MS, Math.floor(budget / 4)) });
       if (result.failed > 0) this.logger.warn(`procura das sugeridas incompleta falhas=${result.failed} de=${clean.suggested.length}`);
       return result;
     } catch (error) {

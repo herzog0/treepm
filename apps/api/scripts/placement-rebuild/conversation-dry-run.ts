@@ -35,7 +35,11 @@ export type Decision = {
   related?: { ticketId: string; number: number; sameSubject: number; sameRequest: number }[];
   duplicateTicketId?: string | null;
   rule?: string | null;
+  /** Só números e códigos (ADR 0053): quantos candidatos vieram das palavras, do vetor e das duas listas, e o que o passo de vetor fez. */
+  triage?: Triage | null;
 };
+export type SemanticNumbers = { synced: number; embedded: number; pending: number; syncMs: number; queryMs: number; failure?: string };
+export type Triage = { words: number; vector: number; both: number; onlyVector: number; sent: number; semantic: SemanticNumbers };
 
 /** A decisão com as chaves dos tickets (as que a pessoa lê) no lugar dos ids. */
 export function probabilitiesOf(decision: Decision, keyOf: (id: string | null) => string | null) {
@@ -46,6 +50,7 @@ export function probabilitiesOf(decision: Decision, keyOf: (id: string | null) =
     alternatives: decision.alternatives.map((path) => path.map(keyOf)),
     scope: decision.scope ? { key: keyOf(decision.scope.ticketId), fit: decision.scope.fit } : null,
     rule: decision.rule ?? null,
+    triage: decision.triage ?? null,
     related: (decision.related ?? []).map((entry) => ({ key: keyOf(entry.ticketId), sameSubject: entry.sameSubject, sameRequest: entry.sameRequest })),
     duplicateKey: decision.duplicateTicketId ? keyOf(decision.duplicateTicketId) : null,
     levels: decision.levels.map((level) => ({
@@ -69,8 +74,9 @@ export type Elaboration = {
 export type ElaborationDiagnostics = {
   model: { links: number; suggested: number };
   dropped: { links: Record<string, number>; suggested: Record<string, number> };
-  lookups: { outcome: string; candidates: number; chosen: boolean }[];
+  lookups: { outcome: string; candidates: number; chosen: boolean; origins?: { words: number; vector: number; both: number } }[];
   timingsMs: { claude: number; lookup: number; secondCall: number };
+  semantic?: SemanticNumbers;
 };
 
 /** O que uma passada devolve, ainda com os ids da API: quem chama traduz para as chaves que quiser. */
