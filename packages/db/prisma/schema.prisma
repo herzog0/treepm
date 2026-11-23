@@ -69,6 +69,9 @@ model Organization {
   repositorySyncPages        RepositorySyncPage[]
   accessTokens               AccessToken[]
   ticketComments             TicketComment[]
+  ticketChats                TicketChat[]
+  ticketChatMessages         TicketChatMessage[]
+  ticketChatThreadMembers    TicketChatThreadMember[]
   ticketContributions        TicketContribution[]
   ticketContributionPeople   TicketContributionPerson[]
   organizationConsents       OrganizationConsent[]
@@ -102,6 +105,9 @@ model Person {
   accessTokens           AccessToken[]
   commentsWritten        TicketComment[]            @relation("CommentAuthor")
   commentsRemoved        TicketComment[]            @relation("CommentRemovedBy")
+  chats                  TicketChat[]               @relation("ChatOwner")
+  chatMessages           TicketChatMessage[]        @relation("ChatMessageAuthor")
+  chatThreadMemberships  TicketChatThreadMember[]   @relation("ChatThreadMember")
   contributionsCreated   TicketContribution[]       @relation("ContributionCreatedBy")
   contributionPeople     TicketContributionPerson[]
   consentsAccepted       OrganizationConsent[]      @relation("ConsentAcceptedBy")
@@ -240,20 +246,23 @@ model Ticket {
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization         Organization         @relation(fields: [orgId], references: [orgId])
-  project              Project              @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
-  parent               Ticket?              @relation("TicketTree", fields: [orgId, projectId, parentId], references: [orgId, projectId, id], onDelete: Restrict, onUpdate: Restrict)
-  children             Ticket[]             @relation("TicketTree")
-  createdBy            Person               @relation("TicketCreatedBy", fields: [orgId, createdByPersonId], references: [orgId, id])
-  agentWorkPerson      Person?              @relation("TicketAgentWorkPerson", fields: [orgId, agentWorkPersonId], references: [orgId, id])
+  organization         Organization             @relation(fields: [orgId], references: [orgId])
+  project              Project                  @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
+  parent               Ticket?                  @relation("TicketTree", fields: [orgId, projectId, parentId], references: [orgId, projectId, id], onDelete: Restrict, onUpdate: Restrict)
+  children             Ticket[]                 @relation("TicketTree")
+  createdBy            Person                   @relation("TicketCreatedBy", fields: [orgId, createdByPersonId], references: [orgId, id])
+  agentWorkPerson      Person?                  @relation("TicketAgentWorkPerson", fields: [orgId, agentWorkPersonId], references: [orgId, id])
   assignees            TicketAssignee[]
   conversationsCreated TicketConversation[]
   branchSummaries      BranchSummary[]
   codeLinks            TicketCodeLink[]
-  relationsFrom        TicketRelation[]     @relation("RelationFrom")
-  relationsTo          TicketRelation[]     @relation("RelationTo")
+  relationsFrom        TicketRelation[]         @relation("RelationFrom")
+  relationsTo          TicketRelation[]         @relation("RelationTo")
   comments             TicketComment[]
   contributions        TicketContribution[]
+  chats                TicketChat[]
+  chatMessages         TicketChatMessage[]
+  chatThreadMembers    TicketChatThreadMember[]
 
   @@id([orgId, id])
   @@unique([orgId, projectId, id])
@@ -296,6 +305,7 @@ model TicketAssignee {
   person       Person       @relation(fields: [orgId, personId], references: [orgId, id], onDelete: Cascade)
 
   @@id([orgId, ticketId, personId])
+  @@index([orgId, personId, ticketId])
   @@map("ticket_assignees")
 }
 
@@ -627,4 +637,80 @@ model TicketContributionPerson {
 
   @@id([orgId, contributionId, personId])
   @@map("ticket_contribution_people")
+}
+
+/// O chat de uma pessoa em um ticket (ADR 0049, migration 0027): privado, com o ponto de leitura dela.
+model TicketChat {
+  orgId          String    @map("org_id")
+  id             String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId      String    @map("project_id") @db.Uuid
+  ticketId       String    @map("ticket_id") @db.Uuid
+  personId       String    @map("person_id") @db.Uuid
+  /// Tudo com `seq` até aqui já foi lido pela dona do chat
+  lastReadSeq    BigInt    @default(0) @map("last_read_seq")
+  lastActivityAt DateTime  @default(now()) @map("last_activity_at") @db.Timestamptz(3)
+  /// A vez do assistente (uma conversa por vez por chat); nulo = livre
+  turnStartedAt  DateTime? @map("turn_started_at") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization        @relation(fields: [orgId], references: [orgId])
+  ticket       Ticket              @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+  person       Person              @relation("ChatOwner", fields: [orgId, personId], references: [orgId, id], onDelete: Cascade)
+  messages     TicketChatMessage[]
+
+  @@id([orgId, id])
+  @@unique([orgId, ticketId, personId])
+  @@unique([orgId, id, personId])
+  @@unique([orgId, projectId, ticketId, id])
+  @@index([orgId, personId, lastActivityAt(sort: Desc)])
+  @@map("ticket_chats")
+}
+
+/// Mensagem do chat (ADR 0049): a conversa com o assistente (`chatId`) ou a mensagem entre pessoas (`threadId`, a raiz da thread).
+/// A raiz aponta para si. Os índices parciais e as chaves estrangeiras compostas estão na migration 0027.
+model TicketChatMessage {
+  orgId          String   @map("org_id")
+  id             String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  /// Ordem total; ordenação, cursor e ponto de leitura
+  seq            BigInt   @default(autoincrement())
+  projectId      String   @map("project_id") @db.Uuid
+  ticketId       String   @map("ticket_id") @db.Uuid
+  chatId         String?  @map("chat_id") @db.Uuid
+  threadId       String?  @map("thread_id") @db.Uuid
+  /// Nulo = o assistente
+  authorPersonId String?  @map("author_person_id") @db.Uuid
+  body           String
+  model          String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization             @relation(fields: [orgId], references: [orgId])
+  ticket       Ticket                   @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+  chat         TicketChat?              @relation(fields: [orgId, projectId, ticketId, chatId], references: [orgId, projectId, ticketId, id], onDelete: Cascade, map: "ticket_chat_messages_chat_fkey")
+  author       Person?                  @relation("ChatMessageAuthor", fields: [orgId, authorPersonId], references: [orgId, id])
+  thread       TicketChatMessage?       @relation("ChatThread", fields: [orgId, threadId], references: [orgId, id], onDelete: Cascade, map: "ticket_chat_messages_thread_fkey")
+  replies      TicketChatMessage[]      @relation("ChatThread")
+  members      TicketChatThreadMember[]
+
+  @@id([orgId, id])
+  @@unique([orgId, id, ticketId])
+  @@map("ticket_chat_messages")
+}
+
+/// Quem participa de uma thread (ADR 0049): quem a abriu e quem foi mencionado; só entra, nunca sai.
+model TicketChatThreadMember {
+  orgId     String   @map("org_id")
+  threadId  String   @map("thread_id") @db.Uuid
+  personId  String   @map("person_id") @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  ticketId  String   @map("ticket_id") @db.Uuid
+  addedAt   DateTime @default(now()) @map("added_at") @db.Timestamptz(3)
+
+  organization Organization      @relation(fields: [orgId], references: [orgId])
+  ticket       Ticket            @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+  thread       TicketChatMessage @relation(fields: [orgId, threadId, ticketId], references: [orgId, id, ticketId], onDelete: Cascade, map: "ticket_chat_thread_members_thread_fkey")
+  person       Person            @relation("ChatThreadMember", fields: [orgId, personId], references: [orgId, id], onDelete: Cascade)
+
+  @@id([orgId, threadId, personId])
+  @@index([orgId, personId, ticketId], map: "ticket_chat_thread_members_person_idx")
+  @@map("ticket_chat_thread_members")
 }

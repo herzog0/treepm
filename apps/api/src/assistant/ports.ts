@@ -173,3 +173,35 @@ export interface ProjectAnswerer {
 }
 
 export const PROJECT_ANSWERER = Symbol("PROJECT_ANSWERER");
+
+// ---- Chat de trabalho por ticket (ADR 0049) --------------------------------------------------------------------
+
+/** Um ticket vizinho do ticket do chat: a chave, o título e a situação. Nenhum id, nenhuma pessoa. */
+export type ChatTicketRef = { key: string; title: string; status: string };
+
+/**
+ * O que o provedor do chat sabe do ticket, e NADA além disso (ADR 0049): título, descrição, situação, a prioridade que vale, o
+ * caminho até a raiz (do topo até o pai), os filhos diretos e as dependências nos dois sentidos. Nunca comentários, histórico,
+ * texto de áreas, nota do marcador de trabalho, nem nomes, e-mails ou identificadores de pessoas, nem threads.
+ */
+export type ChatTicketContext = {
+  key: string;
+  title: string;
+  description: string;
+  status: string;
+  priority: number;
+  path: readonly { key: string; title: string }[];
+  children: readonly ChatTicketRef[];
+  dependsOn: readonly ChatTicketRef[];
+  blocks: readonly ChatTicketRef[];
+};
+
+/** O histórico termina na mensagem nova da pessoa e só tem a conversa DELA com o assistente, já com o teto de tamanho. */
+export type ChatTurnInput = { ticket: ChatTicketContext; history: readonly ConversationMessage[] };
+
+/** Claude: ajuda a pessoa a pensar sobre o ticket. Só conversa: não tem ferramentas e nunca altera nada. */
+export interface ChatProvider {
+  reply(input: ChatTurnInput): Promise<{ message: string; model: string }>;
+}
+
+export const CHAT_PROVIDER = Symbol("CHAT_PROVIDER");

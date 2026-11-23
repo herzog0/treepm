@@ -11,13 +11,13 @@ import type { DirectoryProvider } from "../src/auth/directory-provider.js";
 import { DIRECTORY_PROVIDER } from "../src/auth/directory-provider.js";
 import type { SessionVerifier, VerifiedSession } from "../src/auth/session-verifier.js";
 import { SESSION_VERIFIER } from "../src/auth/session-verifier.js";
-import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER } from "../src/assistant/ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER } from "../src/assistant/ports.js";
 import type { PlacementTimeouts } from "../src/assistant/ports.js";
 import { ACCESS_TOKEN_CLOCK } from "../src/access-tokens/clock.js";
 import type { AccessTokenClock } from "../src/access-tokens/clock.js";
 import { REPOSITORY_PROVIDER } from "../src/github/ports.js";
 import { APP_ID, FakeRepositoryProvider } from "./github-fakes.js";
-import { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer, FakeProjectAnswerer } from "./assistant-fakes.js";
+import { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeChatProvider, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer, FakeProjectAnswerer } from "./assistant-fakes.js";
 
 export { OWNER_URL };
 
@@ -121,6 +121,7 @@ export async function createTestApp(
   namer: FakeGroupNamer;
   writer: FakeDescriptionWriter;
   answerer: FakeProjectAnswerer;
+  chat: FakeChatProvider;
   github: FakeRepositoryProvider;
 }> {
   const directory = new FakeDirectory();
@@ -132,6 +133,7 @@ export async function createTestApp(
   const namer = new FakeGroupNamer();
   const writer = new FakeDescriptionWriter();
   const answerer = new FakeProjectAnswerer();
+  const chat = new FakeChatProvider();
   const github = new FakeRepositoryProvider();
   let builder = Test.createTestingModule({
     imports: [AppModule],
@@ -152,7 +154,9 @@ export async function createTestApp(
       .overrideProvider(DESCRIPTION_WRITER)
       .useValue(writer)
       .overrideProvider(PROJECT_ANSWERER)
-      .useValue(answerer);
+      .useValue(answerer)
+      .overrideProvider(CHAT_PROVIDER)
+      .useValue(chat);
   }
   if (!options.realGithub) builder = builder.overrideProvider(REPOSITORY_PROVIDER).useValue(github);
   if (options.clock) builder = builder.overrideProvider(ACCESS_TOKEN_CLOCK).useValue(options.clock);
@@ -168,7 +172,7 @@ export async function createTestApp(
   const app = moduleRef.createNestApplication({ logger: false });
   configureApp(app, config);
   await app.init();
-  return { app, directory, verifier, conversation, judge, summarizer, affinity, namer, writer, answerer, github };
+  return { app, directory, verifier, conversation, judge, summarizer, affinity, namer, writer, answerer, chat, github };
 }
 
 /**
