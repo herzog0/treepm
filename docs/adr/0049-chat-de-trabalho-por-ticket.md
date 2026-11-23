@@ -48,3 +48,17 @@ Tabelas novas para chat, mensagem, participantes de thread e leitura, com isolam
 2. Se comentários e áreas entram no contexto do assistente (`TREEPM-93`).
 3. Notificação fora da plataforma para menções.
 4. Trazer para o chat o resultado do trabalho de um agente que usa o MCP (o comentário de progresso aparecer na conversa de quem pediu).
+
+## Como ficou o banco e a API (2026-11-23)
+
+- **Banco (migration `0027`):** `ticket_chats` (um por pessoa e ticket, com o ponto de leitura e a vez do assistente reservada), `ticket_chat_messages` (mora num chat **ou** numa thread, nunca nos dois; a raiz da thread aponta para si) e `ticket_chat_thread_members`. Isolamento por organização como nas demais tabelas. O banco recusa apagar mensagem de thread, recusa participante em mensagem que não é raiz e garante que a mensagem de pessoa num chat é da dona dele.
+- **Privacidade:** a regra de leitura é uma função do domínio (`canReadChatMessage`), que nem recebe o papel da pessoa, aplicada como filtro final em toda leitura, além de a consulta já ser restrita ao chat de quem pede. Testada rota a rota, com cada papel.
+- **O que vai ao provedor:** chave, título, descrição, situação e prioridade que vale do ticket; caminho, filhos e dependências (chave, título, situação; até 50 de cada); e as últimas 20 mensagens (até 24 000 caracteres) da própria conversa. Nenhum identificador. Passa pela porta de aceite da organização antes de qualquer leitura.
+- **Menção** é uma lista de pessoas escolhidas (`mentions`), não um nome procurado no texto: sem ambiguidade e sem nome em mensagem de erro. Mensagem com menção não passa pelo aceite nem exige provedor: é conversa entre pessoas.
+- **Limites:** mensagem de até 4 000 caracteres; 10 menções por mensagem; 25 participantes por thread; 10 mensagens ao assistente e 30 de thread por pessoa por minuto; uma resposta do assistente por vez em cada chat (a segunda requisição recebe conflito sem gastar chamada de IA).
+- **Posições opacas:** a API devolve cursores cifrados, não o número global da mensagem, para ninguém inferir a atividade dos outros.
+- **Sem aceite, sem provedor ou com falha do provedor**, a mensagem da pessoa não é guardada; a tela mantém o texto e oferece tentar de novo.
+- **Quem perde o acesso ao ticket** deixa de ler e de escrever, mas continua podendo apagar a própria conversa com o assistente.
+- **Revisão independente de privacidade** antes do merge: nenhum achado grave; os menores (número global exposto, threads sem limite, proteções só no serviço, limpar sem acesso) foram corrigidos.
+- **Para a tela:** a resposta do assistente é mostrada no subconjunto de formatação da descrição, sem imagem e sem carregar nada remoto, com links só por clique. Uma descrição de ticket maliciosa pode tentar induzir o modelo a montar um endereço que leve trechos da conversa para fora.
+- **Não foi exercitado** com provedor de verdade nem com sessão real; a tela é a fatia seguinte.
