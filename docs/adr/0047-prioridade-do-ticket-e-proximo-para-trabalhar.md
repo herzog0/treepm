@@ -55,3 +55,10 @@ As leituras do MCP passam a trazer a prioridade de cada ticket. Mudar prioridade
 1. Mudar prioridade e pedir o próximo pelo MCP.
 2. Mostrar a prioridade no card do mapa.
 3. Prioridade por pessoa (a minha ordem), diferente da do time.
+
+## Como ficou (PRs #172 e #174, 2026-11-23)
+
+- **Banco e API (PR #172, migration `0025`):** `tickets.priority`; o resumo do ticket traz `priority` e `blocked`; o detalhe traz `effectivePriority { value, from }`; `PATCH { priority }`; o histórico ganhou `priority_changed`. As regras ficam no domínio: `effectivePriority`/`effectivePriorities` (`packages/domain/src/priority.ts`) e `workQueue`/`emptyQueueReason` (`work-queue.ts`).
+- **Tela (PR #174):** linha "Prioridade" na página do ticket, com menos, mais e o número; quando o valor que vale vem de um ancestral, a linha diz de qual ("vale 5, de ALFA-1"). "Próximo ticket para trabalhar" é uma opção da barra de pedidos: abre o primeiro da fila sem mudar nada, e com a fila vazia diz o motivo.
+- **MCP (PR #177):** `get_work_queue` e `set_ticket_priority`, pela mesma função e pelo mesmo serviço da tela.
+- **Conferência:** suíte de navegador rodada (254 testes) e capturas olhadas pela coordenação. Não foi usada por Teodoro com sessão real.

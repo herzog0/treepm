@@ -59,3 +59,11 @@ Os modelos são funções puras do domínio (`packages/domain`), sobre os resumo
 2. Stand-up completo: participantes, roteiros por área e por subárvore, tempo de fala (`TREEPM-117`).
 3. "Concluídos desde a última reunião", que pede a data da mudança de situação no resumo do ticket.
 4. Link que abre o play num modelo e numa posição.
+
+## Como ficou (PRs #172 e #174, 2026-11-23)
+
+- **Regras (PR #172):** os cinco modelos são funções puras em `packages/domain/src/play.ts` (`playTemplates`, `playTemplate`).
+- **Tela (PR #174, `apps/web/src/play/`):** o botão play fica **dentro do campo da barra de pedidos**, à direita, e não ao lado dela: assim nenhum elemento do cabeçalho muda de lugar (o campo de texto ficou 40 px mais estreito). O menu mostra a contagem de cada modelo e desabilita o vazio. A barra do play toma o lugar da barra de pedidos, com posição, voltar, avançar, sair e, no fim, "Recomeçar"; no stand-up mostra a pessoa da vez.
+- **Tela estreita:** abaixo de 1000 px a página do ticket ocupa a tela e cobria a barra do play. A barra passou a ficar no pé da tela, por cima da página, e a página ganhou folga embaixo. Achado olhando as capturas; tem teste em 360, 390, 430 e 800 px.
+- **Câmera:** o teste de navegador confere que a câmera chega no ticket de cada passo.
+- **Conferência:** suíte de navegador rodada (254 testes) e capturas olhadas pela coordenação. Não foi usado por Teodoro com sessão real.
