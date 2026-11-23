@@ -58,3 +58,13 @@ Layout, cards, níveis de detalhe, zoom, gestos, marcador de situação (forma e
 
 1. Impedimento marcado pela pessoa entrar como bloqueado (`TREEPM-95`).
 2. Sinal de forma, além da cor, no nível de ponto do mapa.
+
+## Como ficou (PR #192, 2026-11-23)
+
+- **Paleta numa fonte só:** `apps/web/src/map/situation.ts` e os tokens de `theme.css` (`--tp-blocked`, `--tp-doing`, `--tp-review`, `--tp-todo`, `--tp-done`, `--tp-cancelled`, `--tp-idea`); um teste trava cada token contra a constante. Mapa, marcador, página do ticket, importação e telas de MCP e GitHub usam os mesmos valores.
+- **Regra:** `effectiveSituation` e `mostWorryingColor` em `situation.ts`; `paintBranches` continua de uma passagem só e pinta ticket com filhos, projeto e organização. O adaptador de mistura do pacote do mapa devolve a cor mais preocupante, nunca uma média. Um ticket com filhos que está ele mesmo bloqueado é vermelho e sobe vermelho.
+- **Bloqueado por escrito:** "Bloqueado" no texto de estado do card e das listas e uma etiqueta na linha "Situação" da página do ticket, nos três idiomas. A situação gravada e o menu de situação não mudaram.
+- **Legenda:** botão "Situações" no mapa, fechado por padrão, com as cinco situações na ordem de precedência.
+- **Medida guardada em teste:** pior par entre as cinco situações em 35,8 (protanopia), 35,0 (deuteranopia) e 30,7 (tritanopia); o teste exige 30 ou mais. Cancelado e ideia descartada, que são escuros, passaram a usar texto claro.
+- **Não mudou:** a base de layout de desktop não foi regravada.
+- **Em aberto, para Teodoro ver no mapa de verdade:** os tons (`TREEPM-309`), o marcador de progresso do pai, que continua verde (`TREEPM-310`), projeto e organização inteiros na cor mais preocupante (`TREEPM-311`), e a cor verde do pai com texto de situação própria diferente (`TREEPM-312`).
