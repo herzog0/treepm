@@ -142,3 +142,13 @@ Uma depois da outra, porque mexem na mesma rota e na mesma seção da página. A
 - **Web:** comentário desenhado como bloco, com o mesmo componente de leitura da descrição; o campo de escrever usa o mesmo editor, sem o item de IA, envia pelo botão "Comentar" ou por `Ctrl+Enter` e não salva sozinho. O editor continua em um pedaço baixado sob demanda; o pedaço que o mapa baixa não mudou.
 - **Fronteira:** nenhum arquivo da camada de consulta, do MCP ou do assistente foi alterado, e há um teste em cada um que semeia um comentário reconhecível e confere que ele não sai. Esses dois testes passaram desde o início, e ninguém provou por mutação que falhariam num vazamento.
 - **Não foi exercitado** com sessão real no navegador. Cada comentário na tela cria uma instância do leitor de markdown; com listas muito longas isso pode pesar e não foi medido.
+
+## Adendo de 2026-11-23: quem só lê o projeto também comenta (`TREEPM-92`)
+
+Decisão da coordenação, por delegação de Teodoro em 2026-11-23; reversível. Resolve a pergunta que esta ADR deixou em aberto.
+
+Quem tem papel de leitura num projeto passa a poder **comentar** nos tickets que enxerga, e a editar e apagar os próprios comentários, pelas mesmas regras de todo mundo. Continua sem poder mudar o ticket: título, descrição, situação, pessoas, prioridade, áreas e estrutura seguem fechados para ela.
+
+Motivo: comentário é conversa, não edição. Quem acompanha um projeto sem trabalhar nele (um cliente, uma pessoa de outra área, a liderança) é justamente quem mais tem pergunta a fazer, e hoje precisa pedir a alguém que escreva por ela ou sair da plataforma. O risco é ruído, e ele é do mesmo tamanho do de qualquer pessoa do projeto; o histórico mostra quem escreveu.
+
+O que não muda: comentário por área continua exigindo fazer parte da contribuição daquela área, como já era; projeto arquivado não recebe comentário; o chat de trabalho por ticket (ADR 0049) já vale para qualquer pessoa que enxerga o ticket; pelo MCP, comentar continua exigindo token de escrita e a chave da organização, e passa a valer também para quem só lê o projeto.
