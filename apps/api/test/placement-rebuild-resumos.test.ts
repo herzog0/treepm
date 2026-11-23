@@ -277,6 +277,29 @@ describe("conversation-dry-run", () => {
     expect(JSON.stringify(probabilities)).not.toContain("Pagamentos");
   });
 
+  it("imprime os relacionados e o duplicado com chaves, e as probabilidades deles, sem texto (ADR 0052, fatia 2)", async () => {
+    await pagamentosTree();
+    const out = (await run({ textFile: textFile("Cobrar no cartão\n\nCobrança mensal no cartão dos clientes") })) as unknown as {
+      related: { key: string; title: string; status: string; path: { key: string | null; title: string }[] }[];
+      duplicate: { key: string; title: string } | null;
+      probabilities: { related: { key: string; sameSubject: number; sameRequest: number }[]; duplicateKey: string | null; rule: string };
+    };
+    expect(out.related.map((r) => r.key)).toEqual(expect.arrayContaining([`${prefix}-2`]));
+    expect(out.related.find((r) => r.key === `${prefix}-2`)).toMatchObject({ title: "Cobrar no cartão", path: [{ key: `${prefix}-1`, title: "Pagamentos" }] });
+    expect(out.duplicate).toEqual({ key: `${prefix}-2`, title: "Cobrar no cartão" });
+    expect(out.probabilities.duplicateKey).toBe(`${prefix}-2`);
+    expect(out.probabilities.related.find((r) => r.key === `${prefix}-2`)).toEqual({ key: `${prefix}-2`, sameSubject: 0.9, sameRequest: 0.9 });
+    expect(out.probabilities.rule).toMatch(/^(descent|related_within|related_ancestor|related_choice|choice_unavailable)$/);
+    expect(JSON.stringify(out.probabilities)).not.toContain("Cobrar no cartão");
+  });
+
+  it("sem relacionado: related vazio e duplicate nulo", async () => {
+    await pagamentosTree();
+    const out = (await run({ textFile: textFile("Zzzzz\n\nQqqqq wwww") })) as unknown as { related: unknown[]; duplicate: unknown };
+    expect(out.related).toEqual([]);
+    expect(out.duplicate).toBeNull();
+  });
+
   it("se a leitura da decisão falha, a procura sai mesmo assim com probabilities nulo e a conversa é descartada", async () => {
     await pagamentosTree();
     intercept = (method, path) => (method === "GET" && path.endsWith("/placement-decision") ? { status: 500, body: {} } : null);

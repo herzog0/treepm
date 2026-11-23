@@ -41,10 +41,12 @@ import type { ConversationDetail, ConversationSummary } from "./conversations.sc
 import { buildRequestQuote, withRequestQuote } from "./request-quote.js";
 import { loadPlacementTree } from "./branch-tree.js";
 import { decisionOf, errorCode, handDecisionToTicket, readDecisionSafely, saveDecision } from "./placement-decision.js";
-import type { PlacementDecisionRecord } from "./placement-decision.js";
+import type { DecisionExtras, PlacementDecisionRecord } from "./placement-decision.js";
+import { pickRelated, relatedListing } from "./related-placement.js";
 import type { PlacementOutcome } from "./placement-search.js";
 import { PlacementService } from "./placement.service.js";
 import { AssistantGate } from "./assistant-gate.js";
+import { PLACEMENT_TIMEOUT_MS } from "./placement-search.js";
 import { AssistantUnavailableError, PLACEMENT_TIMEOUTS } from "./ports.js";
 import type { ConversationDraft, ConversationProvider, ConversationTurn, DraftChild, PlacementTimeouts } from "./ports.js";
 import { QueuesStructure } from "../tickets/structure-queue.js";
@@ -260,18 +262,20 @@ export class TicketConversationsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(placementBodySchema.default({}))) body: z.output<typeof placementBodySchema>,
   ): Promise<z.output<typeof placementOutcomeSchema>> {
-    const { judge, affinity, namer } = await this.gate.open(tenant);
+    const { judge, affinity, related, namer } = await this.gate.open(tenant);
     const seen = await tenant.run(async (tx, principal) => {
       const { conversation } = await this.requireWritable(tx, principal, id);
       if (conversation.draftTitle === null) throw this.draftRequired();
       const [project, tree] = await Promise.all([
-        tx.project.findFirstOrThrow({ where: { id: conversation.projectId }, select: { name: true } }),
+        tx.project.findFirstOrThrow({ where: { id: conversation.projectId }, select: { name: true, key: true } }),
         loadPlacementTree(tx, conversation.projectId),
       ]);
       const { tickets } = tree;
       if (body.scopeId) this.requireScope(tickets.find((ticket) => ticket.id === body.scopeId));
       return {
         draft: placementDraft(conversation),
+        triage: { title: conversation.draftTitle, description: conversation.draftDescription ?? "", partTitles: childrenOf(conversation).map((child) => child.title) },
+        projectKey: project.key,
         snapshot: {
           projectId: conversation.projectId,
           projectName: project.name,
@@ -281,20 +285,42 @@ export class TicketConversationsController {
       };
     });
     try {
-      const outcome = await this.placementService.search(seen.draft, seen.snapshot, {
+      // Os relacionados (de baixo para cima) e a descida (de cima para baixo) andam juntos; só a descida pode derrubar a procura.
+      const startedAt = Date.now();
+      const relatedAbort = new AbortController();
+      const [descent, found] = await Promise.all([
+        this.placementService.search(seen.draft, seen.snapshot, {
+          judge,
+          ...(body.scopeId ? { scopeId: body.scopeId } : {}),
+          ...(this.timeouts?.descentMs ? { timeoutMs: this.timeouts.descentMs } : {}),
+        }).catch((error: unknown) => {
+          // Se a descida falha, a requisição dos relacionados não fica rodando (e sendo paga).
+          relatedAbort.abort();
+          throw error;
+        }),
+        this.placementService.findRelated(seen.triage, seen.snapshot, { related, signal: relatedAbort.signal, ...(this.timeouts?.relatedMs ? { timeoutMs: this.timeouts.relatedMs } : {}) }),
+      ]);
+      const picked = pickRelated(found.judged);
+      const { outcome, rule } = await this.placementService.place(descent, seen.snapshot, {
+        related: picked.related,
+        duplicateId: picked.duplicate?.id ?? null,
+        scopeId: body.scopeId ?? null,
+        draft: seen.draft,
         judge,
-        ...(body.scopeId ? { scopeId: body.scopeId } : {}),
-        ...(this.timeouts?.descentMs ? { timeoutMs: this.timeouts.descentMs } : {}),
+        // A escolha usa o que sobrou do prazo da descida (teto de 10 s): descida + escolha nunca passam do prazo da descida.
+        timeoutMs: Math.max(1, (this.timeouts?.descentMs ?? PLACEMENT_TIMEOUT_MS) - (Date.now() - startedAt)),
       });
+      const listing = relatedListing(seen.snapshot.tickets, seen.projectKey, picked.related, picked.duplicate?.id ?? null);
       // A proposta tem prazo próprio e nunca derruba a procura: falha do provedor vira `unavailable` no resultado.
       const proposal = await this.placementService.propose(seen.draft, seen.snapshot, outcome, {
         affinity,
         namer,
+        ...(picked.duplicate ? { excludeIds: [picked.duplicate.id] } : {}),
         ...(this.timeouts?.proposalMs ? { timeoutMs: this.timeouts.proposalMs } : {}),
       });
       const { trace, ...shown } = outcome;
-      await this.keepDecision(tenant, id, seen.snapshot, { ...shown, trace });
-      return parseOutput(placementOutcomeSchema, { ...shown, ...proposal });
+      await this.keepDecision(tenant, id, seen.snapshot, { ...shown, trace }, { related: picked.related, duplicateId: picked.duplicate?.id ?? null, rule });
+      return parseOutput(placementOutcomeSchema, { ...shown, ...proposal, ...listing });
     } catch (error) {
       if (error instanceof AssistantUnavailableError) {
         this.logger.warn(`assistente indisponível motivo=${error.reason}`);
@@ -308,9 +334,9 @@ export class TicketConversationsController {
    * Guarda a decisão da procura (ADR 0052, item 5): só ids e números. É diagnóstico, nunca derruba a procura: se a conversa
    * mudou durante a descida (fechada, apagada, permissão perdida) ou a gravação falha, a resposta sai igual e o aviso vai ao registro.
    */
-  private async keepDecision(tenant: TenantRunner, id: string, snapshot: { projectId: string; tickets: readonly { id: string; number: number }[] }, outcome: Pick<PlacementOutcome, "uncertain" | "trace">): Promise<void> {
+  private async keepDecision(tenant: TenantRunner, id: string, snapshot: { projectId: string; tickets: readonly { id: string; number: number }[] }, outcome: Pick<PlacementOutcome, "uncertain" | "trace">, extras: DecisionExtras): Promise<void> {
     try {
-      const record = decisionOf(outcome, new Map(snapshot.tickets.map((t) => [t.id, t.number])));
+      const record = decisionOf(outcome, new Map(snapshot.tickets.map((t) => [t.id, t.number])), extras);
       await tenant.run(async (tx, principal) => {
         await this.requireWritable(tx, principal, id);
         await saveDecision(tx, { orgId: principal.organization.orgId, projectId: snapshot.projectId, conversationId: id, record });

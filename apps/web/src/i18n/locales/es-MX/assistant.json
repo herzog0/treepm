@@ -114,5 +114,15 @@
     "line": "Este ticket parece formar un grupo con otros de aquí.",
     "list": "Tickets que van al ticket padre nuevo",
     "create": "Crear ticket padre y mover"
+  },
+  "related": {
+    "heading": "Relacionados",
+    "hint": "Tickets que tratan del mismo tema. Abre uno para revisarlo antes de crear.",
+    "open": "Abrir {{key}} {{title}}",
+    "duplicate": {
+      "warning": "Ya existe un ticket que parece ser este pedido: {{key}} {{title}}",
+      "open": "Abrir el ticket",
+      "anyway": "Crear de todos modos"
+    }
   }
 }

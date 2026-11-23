@@ -15,9 +15,20 @@ import { probabilitiesOf } from "./conversation-dry-run.js";
  *
  * Formato do arquivo de caso (exemplo em `cases/sincronizar.example.json`):
  *   { "name": "…", "request": "texto do pedido, como a pessoa o digitaria",
- *     "expectParentKey": "chave do pai esperado", "acceptKeys": ["outras chaves que também valem"], "omit": ["chaves a tirar da árvore"] }
+ *     "expectParentKey": "chave do pai esperado", "acceptKeys": ["outras chaves que também valem"], "omit": ["chaves a tirar da árvore"],
+ *     "expectRelatedKeys": ["opcional: chaves que têm de aparecer entre os relacionados"], "expectDuplicateKey": "opcional: chave do duplicado esperado" }
  */
-export type CaseFile = { name: string; request: string; expectParentKey: string; acceptKeys: string[]; omit: string[] };
+export type CaseFile = {
+  name: string;
+  request: string;
+  expectParentKey: string;
+  acceptKeys: string[];
+  omit: string[];
+  /** Opcional (ADR 0052, fatia 2): passa se todas estas chaves aparecem entre os relacionados. */
+  expectRelatedKeys: string[];
+  /** Opcional: o duplicado apontado tem de ser este. */
+  expectDuplicateKey: string | null;
+};
 
 export class CaseError extends Error {
   override name = "CaseError";
@@ -42,12 +53,20 @@ export function parseCase(raw: string): CaseFile {
     if (!Array.isArray(field) || field.some((item) => typeof item !== "string")) throw new CaseError(`"${name}" deve ser uma lista de chaves.`);
     return field as string[];
   };
+  const optionalKey = (name: string): string | null => {
+    const field = record[name];
+    if (field === undefined || field === null) return null;
+    if (typeof field !== "string" || field.trim() === "") throw new CaseError(`"${name}" deve ser uma chave de ticket.`);
+    return field;
+  };
   return {
     name: typeof record["name"] === "string" ? record["name"] : "caso",
     request: text("request"),
     expectParentKey: text("expectParentKey"),
     acceptKeys: list("acceptKeys"),
     omit: list("omit"),
+    expectRelatedKeys: list("expectRelatedKeys"),
+    expectDuplicateKey: optionalKey("expectDuplicateKey"),
   };
 }
 
@@ -77,7 +96,13 @@ export function withoutOmitted(tickets: readonly GabaritoTicket[], omitKeys: rea
 export type CaseRepeat = {
   repeat: number;
   destinationKey: string | null;
+  /** O caso passou nesta repetição: destino, relacionados e duplicado esperados (os que o caso pede). */
   hit: boolean;
+  destinationHit: boolean;
+  relatedHit: boolean;
+  duplicateHit: boolean;
+  related: (string | null)[];
+  duplicate: string | null;
   uncertain: boolean;
   stopReason: string | null;
   probabilities: ReturnType<typeof probabilitiesOf> | null;
@@ -102,6 +127,10 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
     return ticket;
   });
 
+  for (const key of [...spec.expectRelatedKeys, ...(spec.expectDuplicateKey === null ? [] : [spec.expectDuplicateKey])]) {
+    if (!byKey.has(key)) throw new CaseError(`${key} (relacionado ou duplicado esperado) não está na árvore depois de tirar o que o caso omite.`);
+  }
+
   const project = expectOk<{ id: string; key: string }>(
     "criar projeto de medição",
     await ctx.client.request("POST", "/projects", { key: randomKey(), name: `Caso ${spec.name}`.slice(0, 80) }),
@@ -121,11 +150,20 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
     for (let repeat = 1; repeat <= input.repeats; repeat++) {
       const run = await runDryRun(measured, spec.request);
       const destinationId = run.outcome.destination.parentId;
-      const hit = destinationId !== null && acceptedNewIds.has(destinationId);
+      const destinationHit = destinationId !== null && acceptedNewIds.has(destinationId);
+      const related = (run.outcome.related ?? []).map((item) => keyOf(item.id));
+      const duplicate = run.outcome.duplicate ? keyOf(run.outcome.duplicate.id) : null;
+      const relatedHit = spec.expectRelatedKeys.every((key) => related.includes(key));
+      const duplicateHit = spec.expectDuplicateKey === null || duplicate === spec.expectDuplicateKey;
       const record: CaseRepeat = {
         repeat,
         destinationKey: keyOf(destinationId),
-        hit,
+        hit: destinationHit && relatedHit && duplicateHit,
+        destinationHit,
+        relatedHit,
+        duplicateHit,
+        related,
+        duplicate,
         uncertain: run.outcome.uncertain as boolean,
         stopReason: run.decision?.stopReason ?? null,
         probabilities: run.decision ? probabilitiesOf(run.decision as Decision, keyOf) : null,
@@ -139,6 +177,7 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
     ctx.log(
       JSON.stringify({
         summary: true,
+        destinationHits: results.filter((r) => r.destinationHit).length,
         case: spec.name,
         expect: spec.expectParentKey,
         accepted: accepted.map((t) => t.key),

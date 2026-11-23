@@ -727,6 +727,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
                   closeAssistant();
                   openTicket(ticketId);
                 }}
+                onOpenExisting={openTicket}
                 onManualCreate={(request) => {
                   closeAssistant();
                   setCreating(request);

@@ -14,6 +14,7 @@ import { formatNumber } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { reopensOnReceiving } from "../ticket/reopen.js";
 import { DraftParts, OriginalRequest, samePartList, toPartEdits } from "./DraftPreview.js";
+import { DuplicateNotice, RelatedList } from "./RelatedTickets.js";
 import type { PartEdit } from "./DraftPreview.js";
 import { PathCard } from "./PathCard.js";
 import { Reveal } from "./Reveal.js";
@@ -52,6 +53,8 @@ export interface AssistantPanelProps {
   onProgress: (active: boolean) => void;
   /** Depois de criar: o mapa recarrega (`onChanged`) e abre a página do ticket novo. */
   onCreated: (ticketId: string) => void;
+  /** Abre a página de um ticket que já existe e leva a câmera, SEM fechar o assistente: a prévia fica onde estava. */
+  onOpenExisting?: (ticketId: string) => void;
   /** Caminho de saída quando a IA falha: o modo de criação manual da página do ticket. */
   onManualCreate: (request: { projectId: string; parentId: string | null; draft?: { title: string; description: string } }) => void;
   /** Onde o mapa mostra o card tracejado; `null` quando não há destino. */
@@ -217,7 +220,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const describeError = useDescribeApiError();
   const { t, i18n } = useTranslation("assistant");
   const language = i18n.language as Language;
-  const { client, project, tickets, choosing, setChoosing, setPickNotice, onChanged, onCreated, onManualCreate, scope, expanded, onProgress } = props;
+  const { client, project, tickets, choosing, setChoosing, setPickNotice, onChanged, onCreated, onOpenExisting, onManualCreate, scope, expanded, onProgress } = props;
   const registerPicker = props.registerPicker;
   const list = tickets[project.id] ?? [];
   const [conversation, setConversation] = useState(props.initial);
@@ -232,6 +235,10 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   // O que a criação vai gravar, como a API monta; fica o anterior enquanto a nova leitura não volta (a tela não pisca).
   const [preview, setPreview] = useState<DraftPreview | null>(null);
   const [outcome, setOutcome] = useState<PlacementOutcome | null>(null);
+  /** A pessoa escolheu "Criar mesmo assim" diante do aviso de duplicado (ADR 0052); vale só para a procura atual. */
+  const [duplicateAccepted, setDuplicateAccepted] = useState(false);
+  const [searchCount, setSearchCount] = useState(0);
+  const [focusCreate, setFocusCreate] = useState(false);
   const [target, setTarget] = useState<Destination | null>(null);
   // A proposta de ticket pai novo (ADR 0031) vale só para o destino da procura: trocar o destino, procurar de novo ou o 409 a descartam.
   const [proposalDropped, setProposalDropped] = useState(false);
@@ -320,6 +327,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
 
   const clearPlacement = () => {
     setOutcome(null);
+    setDuplicateAccepted(false);
     setTarget(null);
     setChoosing(false);
     search.clear();
@@ -420,6 +428,8 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     if (!result.ok) return false;
     setProposalDropped(false);
     setUnchecked([]);
+    setDuplicateAccepted(false);
+    setSearchCount((count) => count + 1);
     setOutcome(result.data);
     setTarget(result.data.destination);
     return true;
@@ -437,7 +447,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
 
   /** `group`: a proposta confirmada; sem ele, o ticket nasce solto no destino. */
   const createHere = async (group?: NewGroup) => {
-    if (!conversation || !target || busy) return;
+    if (!conversation || !target || busy || duplicatePending) return;
     let current = conversation;
     if (dirty) {
       const saved = await saveDraft();
@@ -480,7 +490,13 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const canRetry = retryable || sendError?.code === "conversation_changed";
   const canCreateManually = retryable || sendError?.code === "assistant_not_configured" || isConsentRequired(sendError);
   // A prévia recusa a criação (chave que não existe, descrição longa demais): o botão fica desabilitado até o rascunho mudar.
-  const createBlocked = preview !== null && (preview.unknownKeys.length > 0 || preview.descriptionTooLong);
+  const duplicatePending = outcome?.duplicate != null && !duplicateAccepted;
+  useEffect(() => {
+    if (!focusCreate || duplicatePending) return;
+    document.querySelector<HTMLButtonElement>("[data-assistant-create]")?.focus();
+    setFocusCreate(false);
+  }, [focusCreate, duplicatePending]);
+  const createBlocked = duplicatePending || (preview !== null && (preview.unknownKeys.length > 0 || preview.descriptionTooLong));
   const up = target ? oneLevelUp(target) : null;
   const options = outcome ? [outcome.destination, ...outcome.alternatives] : [];
   const proposal = outcome && target && !proposalDropped && target.parentId === outcome.destination.parentId ? outcome.groupProposal : null;
@@ -593,6 +609,9 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 </button>
               </div>
             </section>
+            {outcome?.duplicate && !duplicateAccepted && (
+              <DuplicateNotice duplicate={outcome.duplicate} announceKey={searchCount} onOpen={() => (onOpenExisting ?? onCreated)(outcome.duplicate!.id)} onCreateAnyway={() => { setDuplicateAccepted(true); setFocusCreate(true); }} />
+            )}
             {outcome && target && (
               <PathCard
                 project={project}
@@ -626,6 +645,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 createBlocked={createBlocked}
               />
             )}
+            {outcome && <RelatedList related={outcome.related} onOpen={onOpenExisting ?? onCreated} />}
           </div>
         )}
       </div>

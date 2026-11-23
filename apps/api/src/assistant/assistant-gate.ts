@@ -14,6 +14,7 @@ import {
   DESCRIPTION_WRITER,
   GROUP_NAMER,
   PROJECT_ANSWERER,
+  RELATED_JUDGE,
 } from "./ports.js";
 import type {
   AffinityJudge,
@@ -24,6 +25,7 @@ import type {
   DescriptionWriter,
   GroupNamer,
   ProjectAnswerer,
+  RelatedJudge,
 } from "./ports.js";
 
 /** Os provedores de IA, entregues só depois de a conferência passar. */
@@ -32,6 +34,7 @@ export type AssistantProviders = {
   judge: BranchJudge;
   summarizer: BranchSummarizer;
   affinity: AffinityJudge;
+  related: RelatedJudge;
   namer: GroupNamer;
   writer: DescriptionWriter;
   answerer: ProjectAnswerer;
@@ -53,6 +56,7 @@ export class AssistantGate {
     @Optional() @Inject(BRANCH_JUDGE) private readonly judge: BranchJudge | null,
     @Optional() @Inject(BRANCH_SUMMARIZER) private readonly summarizer: BranchSummarizer | null,
     @Optional() @Inject(AFFINITY_JUDGE) private readonly affinity: AffinityJudge | null,
+    @Optional() @Inject(RELATED_JUDGE) private readonly related: RelatedJudge | null,
     @Optional() @Inject(GROUP_NAMER) private readonly namer: GroupNamer | null,
     @Optional() @Inject(DESCRIPTION_WRITER) private readonly writer: DescriptionWriter | null,
     @Optional() @Inject(PROJECT_ANSWERER) private readonly answerer: ProjectAnswerer | null,
@@ -74,13 +78,13 @@ export class AssistantGate {
   }
 
   private configured(): AssistantProviders {
-    const { conversation, judge, summarizer, affinity, namer, writer, answerer, chat } = this;
-    if (!assistantEnabled(this.config) || !conversation || !judge || !summarizer || !affinity || !namer || !writer || !answerer || !chat) {
+    const { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat } = this;
+    if (!assistantEnabled(this.config) || !conversation || !judge || !summarizer || !affinity || !related || !namer || !writer || !answerer || !chat) {
       throw new ServiceUnavailableException({
         code: "assistant_not_configured",
         message: "O assistente não está configurado neste ambiente.",
       });
     }
-    return { conversation, judge, summarizer, affinity, namer, writer, answerer, chat };
+    return { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat };
   }
 }

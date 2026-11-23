@@ -13,7 +13,16 @@ export type ConversationDryRunInput = { textFile: string; scope?: number };
 type Draft = { title: string; description: string; children: { title: string; description: string }[]; idea: boolean } | null;
 type Conversation = { id: string; draft: Draft; ready: boolean };
 type Target = { parentId: string | null; path: { id: string; title: string }[] };
-export type Outcome = { destination: Target; alternatives: Target[]; discarded: unknown[]; [rest: string]: unknown };
+/** Um relacionado como a rota o devolve (ADR 0052, fatia 2): sem probabilidades, `path` do topo até o pai. */
+export type RelatedItem = { id: string; key: string; title: string; status: string; path: { id: string; title: string }[] };
+export type Outcome = {
+  destination: Target;
+  alternatives: Target[];
+  discarded: unknown[];
+  related?: RelatedItem[];
+  duplicate?: { id: string; key: string; title: string } | null;
+  [rest: string]: unknown;
+};
 
 /** A decisão guardada da procura (ADR 0052): só ids e números. */
 export type Decision = {
@@ -23,6 +32,9 @@ export type Decision = {
   alternatives: string[][];
   scope: { ticketId: string; fit: number | null } | null;
   levels: { level: number; parentId: string | null; result: string; belongs: number | null; candidates: { ticketId: string; probability: number }[] }[];
+  related?: { ticketId: string; number: number; sameSubject: number; sameRequest: number }[];
+  duplicateTicketId?: string | null;
+  rule?: string | null;
 };
 
 /** A decisão com as chaves dos tickets (as que a pessoa lê) no lugar dos ids. */
@@ -33,6 +45,9 @@ export function probabilitiesOf(decision: Decision, keyOf: (id: string | null) =
     chosenPath: decision.chosenPath.map(keyOf),
     alternatives: decision.alternatives.map((path) => path.map(keyOf)),
     scope: decision.scope ? { key: keyOf(decision.scope.ticketId), fit: decision.scope.fit } : null,
+    rule: decision.rule ?? null,
+    related: (decision.related ?? []).map((entry) => ({ key: keyOf(entry.ticketId), sameSubject: entry.sameSubject, sameRequest: entry.sameRequest })),
+    duplicateKey: decision.duplicateTicketId ? keyOf(decision.duplicateTicketId) : null,
     levels: decision.levels.map((level) => ({
       level: level.level,
       parentKey: keyOf(level.parentId),
@@ -85,13 +100,15 @@ export async function conversationDryRunCommand(ctx: TicketContext, input: Conve
     parentKey: keyOf(value.parentId),
     path: value.path.map((step) => ({ key: keyOf(step.id), title: step.title })),
   });
-  const { destination, alternatives, ...decision } = run.outcome;
+  const { destination, alternatives, related, duplicate, ...decision } = run.outcome;
   ctx.log(
     JSON.stringify({
       draft: run.draft,
       ready: run.ready,
       destination: target(destination),
       alternatives: alternatives.map(target),
+      related: (related ?? []).map((item) => ({ key: item.key, title: item.title, status: item.status, path: item.path.map((step) => ({ key: keyOf(step.id), title: step.title })) })),
+      duplicate: duplicate ? { key: duplicate.key, title: duplicate.title } : null,
       decision,
       probabilities: run.decision ? probabilitiesOf(run.decision, keyOf) : null,
       conversationDiscarded: run.conversationDiscarded,
