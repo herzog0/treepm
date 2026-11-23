@@ -72,6 +72,7 @@ async function runTicketCommand(command: "ticket-list" | "ticket-create" | "tick
         ...(options.ideaAccept ? { ideaAccept: true } : {}),
         ...(options.ideaDiscard ? { ideaDiscard: true } : {}),
         ...(options.ideaMake ? { ideaMake: true } : {}),
+        ...(options.priority !== undefined ? { priority: options.priority } : {}),
       });
     }
     return 0;

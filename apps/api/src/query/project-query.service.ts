@@ -7,6 +7,7 @@ import { ACCESS_TOKEN_CLOCK } from "../access-tokens/clock.js";
 import type { AccessTokenClock } from "../access-tokens/clock.js";
 import type { Principal } from "../access/principal.js";
 import { parseOutput } from "../common/zod.js";
+import { readEffectivePriorities } from "../tickets/ticket-priority.read.js";
 import { EXCERPT_SOURCE_LENGTH, readProgressOf } from "../tickets/ticket-reads.js";
 import { MAX_TREE_DEPTH } from "../tickets/ticket-scope.js";
 import { scopeOf } from "../tickets/ticket-scope.js";
@@ -33,10 +34,12 @@ export type ListOptions = {
   after?: number;
 };
 
-type Row = { id: string; number: number; title: string; description: string; status: string; parentId: string | null; agentWorkUntil?: Date | null };
-const SUMMARY_SELECT = { id: true, number: true, title: true, description: true, status: true, parentId: true, agentWorkUntil: true } as const;
+type Row = { id: string; number: number; title: string; description: string; status: string; parentId: string | null; agentWorkUntil?: Date | null; priority?: number };
+const SUMMARY_SELECT = { id: true, number: true, title: true, description: true, status: true, parentId: true, agentWorkUntil: true, priority: true } as const;
 /** Como cada ticket do projeto aparece em relação às ideias, por id (uma consulta para o projeto todo, nunca uma por ticket). */
 type IdeaMap = ReadonlyMap<string, QueryIdea>;
+/** O que cada resumo precisa além da própria linha: a situação de ideia e a prioridade que vale (ADR 0047), ambas por id. */
+type Annex = { ideas: IdeaMap; effective: ReadonlyMap<string, number> };
 const RELATED_ORDER = { number: "asc" } as const;
 
 function clamp(value: number | undefined, fallback: number, max: number): number {
@@ -65,6 +68,11 @@ export class ProjectQueryService {
    * `idea` só dos tickets de `ids`: a raiz de ideia mais próxima de cada um, ele incluído, por uma consulta recursiva que sobe de pai em
    * pai. Ticket comum não entra. Não lê o projeto inteiro: o custo é a profundidade dos tickets pedidos.
    */
+  private async annexOf(tx: TenantClient, scope: TicketScope, ids: readonly string[]): Promise<Annex> {
+    const [ideas, effective] = await Promise.all([this.ideasOf(tx, scope, ids), readEffectivePriorities(tx, scope, ids)]);
+    return { ideas, effective };
+  }
+
   private async ideasOf(tx: TenantClient, scope: TicketScope, ids: readonly string[]): Promise<IdeaMap> {
     const out = new Map<string, QueryIdea>();
     if (ids.length === 0) return out;
@@ -93,11 +101,11 @@ export class ProjectQueryService {
     const project = await this.requireProject(tx, principal, projectId);
     const limit = clamp(options.limit, SEARCH_DEFAULT_LIMIT, SEARCH_MAX_LIMIT);
     const rows = await tx.$queryRaw<Row[]>`
-      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil"
+      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil", priority
       from tickets where project_id = ${projectId}::uuid order by number asc`;
     const searchable = rows.map((row) => ({ key: `${project.key}-${row.number}`, number: row.number, title: row.title, descriptionExcerpt: descriptionExcerpt(row.description), row }));
     const found = cut(searchTickets(text, searchable, limit + 1), limit);
-    const ideas = await this.ideasOf(tx, scopeOf(project), found.rows.map((entry) => entry.row.id));
+    const ideas = await this.annexOf(tx, scopeOf(project), found.rows.map((entry) => entry.row.id));
     return parseOutput(queryListSchema, { tickets: found.rows.map((entry) => this.summary(project.key, entry.row, ideas)), truncated: found.truncated });
   }
 
@@ -139,7 +147,7 @@ export class ProjectQueryService {
     const pathRows = await this.ancestors(tx, scopeOf(project), row.parentId);
     // A situação de ideia só dos tickets que a resposta mostra (o próprio, o caminho, os filhos e as ligações), numa consulta.
     const shown = [row, ...pathRows, ...Object.values(parts).flatMap((part) => part.rows)];
-    const ideas = await this.ideasOf(tx, scopeOf(project), shown.map((entry) => entry.id));
+    const ideas = await this.annexOf(tx, scopeOf(project), shown.map((entry) => entry.id));
     const summary = (entry: Row): QueryTicketSummary => this.summary(project.key, entry, ideas);
     const list = (part: { rows: Row[]; truncated: boolean }): QueryTicketList => ({ tickets: part.rows.map(summary), truncated: part.truncated });
     const relations = {
@@ -174,7 +182,7 @@ export class ProjectQueryService {
       under = start.id;
     }
     const rows = await tx.$queryRaw<Row[]>`
-      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil"
+      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil", priority
       from tickets
       where project_id = ${projectId}::uuid
         and (${statuses.length > 0 ? statuses : null}::text[] is null or status = any(${statuses.length > 0 ? statuses : null}::text[]))
@@ -192,7 +200,7 @@ export class ProjectQueryService {
       order by number asc
       limit ${limit + 1}::int`;
     const page = cut(rows, limit);
-    const ideas = await this.ideasOf(tx, scopeOf(project), page.rows.map((row) => row.id));
+    const ideas = await this.annexOf(tx, scopeOf(project), page.rows.map((row) => row.id));
     return parseOutput(queryTicketPageSchema, {
       tickets: page.rows.map((row) => this.summary(project.key, row, ideas)),
       truncated: page.truncated,
@@ -218,7 +226,7 @@ export class ProjectQueryService {
       )
       select status, idea_stage, inside, count(*) as n from down group by status, idea_stage, inside`;
     const top = await tx.$queryRaw<Row[]>`
-      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil"
+      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil", priority
       from tickets where project_id = ${projectId}::uuid and parent_id is null order by number asc limit ${RELATED_MAX + 1}::int`;
     const byStatus: Record<TicketStatus, number> = { todo: 0, in_progress: 0, in_review: 0, done: 0, cancelled: 0 };
     const ideaCounts = { new: 0, refining: 0, ready: 0, discarded: 0 };
@@ -231,7 +239,7 @@ export class ProjectQueryService {
       byStatus[ticketStatusSchema.parse(group.status)] += count;
     }
     const part = cut(top, RELATED_MAX);
-    const [progress, ideas] = await Promise.all([readProgressOf(tx, scopeOf(project), part.rows.map((row) => row.id)), this.ideasOf(tx, scopeOf(project), part.rows.map((row) => row.id))]);
+    const [progress, ideas] = await Promise.all([readProgressOf(tx, scopeOf(project), part.rows.map((row) => row.id)), this.annexOf(tx, scopeOf(project), part.rows.map((row) => row.id))]);
     return parseOutput(queryOverviewSchema, {
       projectKey: project.key,
       total: work,
@@ -256,22 +264,24 @@ export class ProjectQueryService {
     if (parentId === null) return [];
     return tx.$queryRaw<Row[]>`
       with recursive up as (
-        select org_id, project_id, id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id, 1 as depth
+        select org_id, project_id, id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id, priority, 1 as depth
         from tickets where org_id = ${scope.orgId} and project_id = ${scope.projectId}::uuid and id = ${parentId}::uuid
         union all
-        select t.org_id, t.project_id, t.id, t.number, t.title, left(t.description, ${EXCERPT_SOURCE_LENGTH}::int), t.status, t.parent_id, up.depth + 1
+        select t.org_id, t.project_id, t.id, t.number, t.title, left(t.description, ${EXCERPT_SOURCE_LENGTH}::int), t.status, t.parent_id, t.priority, up.depth + 1
         from tickets t join up on t.org_id = up.org_id and t.project_id = up.project_id and t.id = up.parent_id
         where up.depth < ${MAX_TREE_DEPTH}::int
       )
-      select id, number, title, description, status, parent_id as "parentId" from up order by depth desc`;
+      select id, number, title, description, status, parent_id as "parentId", priority from up order by depth desc`;
   }
 
-  private summary(projectKey: string, row: Row, ideas: IdeaMap): QueryTicketSummary {
+  private summary(projectKey: string, row: Row, annex: Annex): QueryTicketSummary {
     const now = this.clock.now();
     const marker = row.agentWorkUntil && agentWorkIsValid(row.agentWorkUntil, now) ? { until: row.agentWorkUntil.toISOString() } : null;
     return {
-      idea: ideas.get(row.id) ?? null,
+      idea: annex.ideas.get(row.id) ?? null,
       agentWork: marker,
+      priority: row.priority ?? 0,
+      effectivePriority: annex.effective.get(row.id) ?? row.priority ?? 0,
       id: row.id,
       key: `${projectKey}-${row.number}`,
       number: row.number,

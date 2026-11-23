@@ -1,4 +1,4 @@
-import { CONTRIBUTION_STATUSES, CONTRIBUTION_TEXT_MAX, IDEA_STAGES } from "@treepm/domain";
+import { CONTRIBUTION_STATUSES, CONTRIBUTION_TEXT_MAX, IDEA_STAGES, PRIORITY_MAX, PRIORITY_MIN } from "@treepm/domain";
 import { z } from "zod";
 import { idSchema } from "../common/schemas.js";
 
@@ -12,6 +12,8 @@ export const ticketTitleSchema = z.string().trim().min(1).max(200);
 /** Tamanho máximo da descrição de um ticket, em caracteres (ADR 0024). */
 export const MAX_TICKET_DESCRIPTION = 20_000;
 export const ticketDescriptionSchema = z.string().max(MAX_TICKET_DESCRIPTION);
+/** Prioridade (ADR 0047): inteiro de -999 a 999; maior primeiro. */
+export const ticketPrioritySchema = z.number().int().min(PRIORITY_MIN).max(PRIORITY_MAX);
 const titleSchema = ticketTitleSchema;
 const descriptionSchema = ticketDescriptionSchema;
 
@@ -37,6 +39,7 @@ export const updateTicketSchema = z
     description: descriptionSchema,
     status: ticketStatusSchema,
     parentId: idSchema.nullable(),
+    priority: ticketPrioritySchema,
   })
   .partial()
   .strict()
@@ -111,6 +114,10 @@ export const ticketSummarySchema = z.object({
   assigneeIds: z.array(z.string()),
   idea: ticketIdeaSchema,
   agentWork: agentWorkSchema,
+  /** Prioridade PRÓPRIA (ADR 0047); a que vale, com a herança, está no detalhe e é calculada pelo domínio na lista. */
+  priority: ticketPrioritySchema,
+  /** Depende de algum ticket ainda aberto (ADR 0037); a fila "próximos para trabalhar" (ADR 0047) não inclui o ticket. */
+  blocked: z.boolean(),
 });
 
 /** Uma ideia da lista de ideias do projeto (ADR 0042): a raiz, o caminho (títulos dos ancestrais, do topo para baixo) e a criação. */
@@ -134,8 +141,13 @@ export const dependencyLinkSchema = mentionedBySchema;
 
 export const addDependencySchema = z.object({ ticketId: idSchema });
 
+/** A prioridade que vale (ADR 0047) e o ticket de onde veio: ele mesmo quando a própria não é 0; `from` é nulo quando a cadeia toda é 0. */
+export const effectivePrioritySchema = z.object({ value: ticketPrioritySchema, from: z.object({ id: z.string(), key: z.string() }).nullable() });
+export type EffectivePriorityView = z.output<typeof effectivePrioritySchema>;
+
 export const ticketDetailSchema = ticketSummarySchema.extend({
   agentWork: agentWorkDetailSchema,
+  effectivePriority: effectivePrioritySchema,
   description: z.string(),
   mentionedBy: z.array(mentionedBySchema),
   /** Tickets de que este depende, em ordem de número. */

@@ -14,7 +14,7 @@ import { AgentWorkService } from "./agent-work.service.js";
 import { ideaRootOfTicket } from "./idea-root.js";
 import { MAX_TREE_DEPTH, scopeOf } from "./ticket-scope.js";
 import { ideaStageSchema, ticketDetailSchema, ticketStatusSchema } from "./tickets.schema.js";
-import type { AgentWork, TicketDetail, TicketIdea, TicketPage, TicketSummary, updateTicketSchema } from "./tickets.schema.js";
+import type { AgentWork, EffectivePriorityView, TicketDetail, TicketIdea, TicketPage, TicketSummary, updateTicketSchema } from "./tickets.schema.js";
 import { readContributions } from "./ticket-contributions.read.js";
 import { readBranchOf } from "./ticket-reads.js";
 
@@ -41,6 +41,10 @@ export type TicketRow = {
   agentWorkStartedAt?: Date | null;
   agentWorkUntil?: Date | null;
   agentWorkNote?: string | null;
+  /** Prioridade própria (ADR 0047); ausente = 0. */
+  priority?: number;
+  /** Depende de algum ticket ainda aberto; ausente = não (quem monta a linha sem a ligação, como a criação). */
+  blocked?: boolean;
 };
 export type TicketDetailRow = TicketRow & {
   agentWorkPersonId?: string | null;
@@ -110,6 +114,8 @@ export function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, prog
     assigneeIds: row.assignees.map((assignee) => assignee.personId).sort(),
     idea,
     agentWork: toAgentWork(row, now),
+    priority: row.priority ?? 0,
+    blocked: row.blocked ?? false,
   };
 }
 
@@ -122,10 +128,12 @@ export function toDetail(project: Pick<ProjectRow, "key">, row: TicketDetailRow,
   blocks: readonly MentionedByRow[] = [],
   now: number = Date.now(),
   agentWorkBy: { id: string; displayName: string; avatarUrl: string | null } | null = null,
+  effectivePriority: EffectivePriorityView = { value: row.priority ?? 0, from: null },
 ): TicketDetail {
   const link = (from: MentionedByRow) => ({ id: from.id, key: `${project.key}-${from.number}`, title: from.title, status: from.status });
   return parseOutput(ticketDetailSchema, {
-    ...toSummary(project, row, progress, idea, now),
+    ...toSummary(project, { ...row, blocked: dependsOn.some((link) => !isFinished(statusOf(link))) }, progress, idea, now),
+    effectivePriority,
     agentWork: toAgentWork(row, now) && agentWorkBy ? { ...(toAgentWork(row, now) as AgentWork), by: agentWorkBy } : null,
     description: row.description,
     mentionedBy: mentionedBy.map(link),
@@ -188,6 +196,7 @@ export class TicketsService {
       description?: string;
       status?: string;
       parentId?: string | null;
+      priority?: number;
     } = {};
     if (body.title !== undefined && body.title !== ticket.title) {
       data.title = body.title;
@@ -203,6 +212,11 @@ export class TicketsService {
     if (body.parentId !== undefined && body.parentId !== ticket.parentId) {
       data.parentId = body.parentId;
       changes["parentId"] = { from: ticket.parentId, to: body.parentId };
+    }
+    // Prioridade (ADR 0047): não é mudança de estrutura (sem a trava da ADR 0045) e o `updated_at` anda com a gravação.
+    if (body.priority !== undefined && body.priority !== ticket.priority) {
+      data.priority = body.priority;
+      changes["priority"] = { from: ticket.priority, to: body.priority };
     }
     const fields = Object.keys(data);
     const finalStatus = (data.status ?? ticket.status) as TicketStatus;
@@ -487,7 +501,10 @@ export class TicketsService {
     const by = toAgentWork(row, now) && row.agentWorkPersonId
       ? await tx.person.findFirst({ where: { id: row.agentWorkPersonId }, select: { id: true, displayName: true, avatarUrl: true } })
       : null;
-    return toDetail(project, row, progress, idea, mentionedBy, dependsOn, blocks, now, by);
+    // A prioridade que vale sai da MESMA consulta recursiva do ramo (a subida pelos ancestrais já está nela): um instantâneo só.
+    const source = branches.get(id)?.prioritySource ?? null;
+    const effective = source ? { value: source.value, from: { id: source.id, key: `${project.key}-${source.number}` } } : { value: 0, from: null };
+    return toDetail(project, row, progress, idea, mentionedBy, dependsOn, blocks, now, by, effective);
   }
 
   /**

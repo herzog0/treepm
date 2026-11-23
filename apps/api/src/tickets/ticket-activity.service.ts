@@ -35,7 +35,7 @@ const READ_KINDS = [
 ];
 
 /** Ordem fixa das entradas de um `ticket.updated`, da mais antiga para a mais nova. */
-const FIELD_ORDER = ["title", "description", "status", "parentId"] as const;
+const FIELD_ORDER = ["title", "description", "status", "parentId", "priority"] as const;
 /** Ordem fixa das entradas de um `ticket.contribution_updated`, da mais antiga para a mais nova. */
 const CONTRIBUTION_FIELD_ORDER = ["text", "status"] as const;
 const contributionRef = z.object({ contributionId: z.uuid(), areaId: z.uuid() });
@@ -51,6 +51,7 @@ type Data =
   | { type: "title_changed"; from: string; to: string }
   | { type: "description_changed" }
   | { type: "status_changed"; from: z.output<typeof ticketStatusSchema>; to: z.output<typeof ticketStatusSchema>; automatic: boolean; causedBy: RefDraft | null }
+  | { type: "priority_changed"; from: number; to: number }
   | { type: "parent_changed"; from: RefDraft | null; to: RefDraft | null }
   | { type: "assignee_added" | "assignee_removed"; personId: string }
   | { type: "dependency_added" | "dependency_removed"; ticket: RefDraft }
@@ -128,6 +129,9 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
           const number = key === null ? null : Number(issueKey.exec(key)?.[1] ?? NaN);
           const causedBy = key === null ? null : { id: null, key, number: Number.isSafeInteger(number) ? number : null };
           out.push(make(index, id, { type: "status_changed", from: v.data.from, to: v.data.to, automatic: automatic.data ?? false, causedBy }));
+        } else if (field === "priority") {
+          const v = fromTo(z.number().int()).safeParse(p["priority"]);
+          if (v.success) out.push(make(index, id, { type: "priority_changed", from: v.data.from, to: v.data.to }));
         } else {
           const v = fromTo(idOrNull).safeParse(p["parentId"]);
           if (v.success) out.push(make(index, id, { type: "parent_changed", from: refOf(v.data.from), to: refOf(v.data.to) }));
@@ -390,6 +394,8 @@ export class TicketActivityService {
         case "idea_stage_changed":
           return { ...common, type: data.type, from: data.from, to: data.to };
         case "title_changed":
+          return { ...common, type: data.type, from: data.from, to: data.to };
+        case "priority_changed":
           return { ...common, type: data.type, from: data.from, to: data.to };
         case "status_changed":
           return { ...common, type: data.type, from: data.from, to: data.to, automatic: data.automatic, causedBy: data.causedBy ? ticketRef(data.causedBy) : null };

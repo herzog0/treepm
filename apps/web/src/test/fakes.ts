@@ -30,7 +30,7 @@ export function makeProject(id: string, key: string, name: string, extra: Partia
 
 export function makeTicket(id: string, projectId: string, number: number, title: string, extra: Partial<TicketSummary> = {}): TicketSummary {
   const key = extra.key ?? `${projectId.toUpperCase()}-${number}`;
-  return { id, projectId, number, key, parentId: null, title, status: "todo", progress: null, assigneeIds: [], descriptionExcerpt: "", ...extra };
+  return { id, projectId, number, key, parentId: null, title, status: "todo", progress: null, assigneeIds: [], descriptionExcerpt: "", priority: 0, blocked: false, ...extra };
 }
 
 /** Conversa de criação com a IA (ADR 0029): uma troca de mensagens e, por padrão, um rascunho. */
@@ -538,6 +538,7 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
     canTriageIdea: data.canTriageIdea ?? true,
     ...(entry.agentWork ? { agentWork: { by: data.agentWorkBy ?? { id: "person-1", displayName: "Ana", avatarUrl: null }, ...entry.agentWork }, canEndAgentWork: data.canEndAgentWork ?? true } : {}),
     description: descriptions.get(entry.id) ?? "",
+    effectivePriority: (entry.priority ?? 0) === 0 ? { value: 0, from: null } : { value: entry.priority ?? 0, from: { id: entry.id, key: entry.key } },
     mentionedBy: [], dependsOn: [], blocks: [],
     contributions: [], canEditContributions: true,
     createdByPersonId: "person-1",

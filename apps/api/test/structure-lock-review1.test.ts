@@ -148,10 +148,11 @@ describe("item 4: impasse entre travas de linha vira 409 concurrent_update", () 
       await owner.query(`select pg_advisory_xact_lock(${HOLD})`);
       // A: situação do filho. Trava o pai (reabertura) e para na gravação do pai, segurando-o.
       const a = h.call("PATCH", `/api/tickets/${d}`, as("admin"), { status: "in_progress" }).then((r) => r);
-      await until(async () => (await waiting()) >= 1, "A parada na gravação do pai");
+      await until(async () => Number((await h.pool.query("select count(*)::int as n from pg_locks where not granted and locktype = 'advisory' and objid = $1", [HOLD])).rows[0].n) >= 1, "A parada na gravação do pai");
       // B: move o pai para a ideia. Trava a subárvore por id: pega o filho e espera o pai, que A segura.
       const b = h.call("PATCH", `/api/tickets/${x}`, as("admin"), { parentId: idea }).then((r) => r);
-      await until(async () => (await waiting()) >= 2, "B esperando o pai");
+      // Barreira: B parado NA LINHA do pai (espera a transação de A), não "duas esperas quaisquer": só então B já segura o filho.
+      await until(async () => Number((await h.pool.query("select count(*)::int as n from pg_locks where not granted and locktype = 'transactionid'")).rows[0].n) >= 1, "B esperando o pai");
       await owner.query("commit"); // A segue e quer o filho, que B segura: impasse; o PostgreSQL aborta uma das duas.
       const [ra, rb] = await Promise.all([a, b]);
       const all = [ra, rb];

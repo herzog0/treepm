@@ -88,6 +88,13 @@ const ticketSummarySchema = z.object({
   /** Primeiros caracteres da descrição, para o card em "detalhe" do mapa (ADR 0027). */
   descriptionExcerpt: z.string(),
   agentWork: agentWorkSchema,
+  /**
+   * Prioridade PRÓPRIA (ADR 0047): inteiro de -999 a 999; maior primeiro. A API sempre manda; é opcional aqui só para os ~30 dados
+   * de teste literais compilarem sem mudança (ausente = 0). Quem monta a interface pode apertar para obrigatório.
+   */
+  priority: z.number().int().optional(),
+  /** Depende de ticket ainda aberto (ADR 0037); a fila "próximos para trabalhar" deixa o ticket de fora. A API sempre manda; ausente = não. */
+  blocked: z.boolean().optional(),
 });
 const ticketLinkSchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatus });
 const contributionStatus = z.enum(["todo", "in_progress", "done"]);
@@ -101,6 +108,8 @@ const contributionSchema = z.object({
   commentCount: z.number(),
 });
 const ticketDetailSchema = ticketSummarySchema.extend({
+  /** A prioridade que vale (ADR 0047): a própria, ou a do ancestral mais próximo diferente de 0; `from` é o ticket de onde veio (nulo quando tudo é 0). */
+  effectivePriority: z.object({ value: z.number().int(), from: z.object({ id: z.string(), key: z.string() }).nullable() }).optional(),
   /** As contribuições por área, na ordem de criação (ADR 0041). Ausente (ticket devolvido pela conversa com a IA): nenhuma. */
   contributions: z.array(contributionSchema).optional(),
   /** Quem lê pode mexer nelas (falso em projeto arquivado). */

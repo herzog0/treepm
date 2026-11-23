@@ -271,3 +271,38 @@ describe("relations-rebuild", () => {
     expect(await countRelations()).toBe(1);
   });
 });
+
+describe("prioridade (ADR 0047)", () => {
+  it("ticket-update --priority muda o número (negativo também) e imprime de → para", async () => {
+    const id = await add(project, "A");
+    await ticketUpdateCommand(ctx, { number: 1, priority: 5 });
+    expect(((await detail(id)) as unknown as { priority: number }).priority).toBe(5);
+    expect(lines.join("\n")).toMatch(/prioridade 0 → 5/);
+    lines = [];
+    await ticketUpdateCommand(ctx, { number: 1, priority: -4 });
+    expect(((await detail(id)) as unknown as { priority: number }).priority).toBe(-4);
+    expect(lines.join("\n")).toMatch(/prioridade 5 → -4/);
+  });
+
+  it("combina com outras mudanças no mesmo pedido", async () => {
+    const id = await add(project, "A");
+    await ticketUpdateCommand(ctx, { number: 1, priority: 2, title: "Novo" });
+    expect(await detail(id)).toMatchObject({ title: "Novo", priority: 2 });
+  });
+
+  it("ticket-list mostra a prioridade só quando diferente de 0, no texto e no JSON", async () => {
+    await add(project, "Zero");
+    await add(project, "Alta");
+    await add(project, "Baixa");
+    await ticketUpdateCommand(ctx, { number: 2, priority: 7 });
+    await ticketUpdateCommand(ctx, { number: 3, priority: -1 });
+    lines = [];
+    await ticketListCommand(ctx, false);
+    const key = (await rows(project))[0]?.key.split("-")[0] as string;
+    expect(lines).toEqual([`${key}-1  [todo]  Zero`, `${key}-2  [todo]  Alta  {prioridade 7}`, `${key}-3  [todo]  Baixa  {prioridade -1}`]);
+    lines = [];
+    await ticketListCommand(ctx, true);
+    const parsed = JSON.parse(lines[0] as string) as Record<string, unknown>[];
+    expect(parsed.map((entry) => entry["priority"])).toEqual([undefined, 7, -1]);
+  });
+});

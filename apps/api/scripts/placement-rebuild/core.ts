@@ -4,6 +4,8 @@
  * e números do relatório. Nada aqui fala com rede, banco ou disco.
  */
 
+import { PRIORITY_MAX, PRIORITY_MIN, isValidPriority } from "@treepm/domain";
+
 // ---- tipos -----------------------------------------------------------------------------------------------------
 
 export type TicketStatus = "todo" | "in_progress" | "in_review" | "done" | "cancelled";
@@ -361,6 +363,8 @@ export type CliOptions = {
   ideaDiscard?: boolean;
   /** `ticket-update`: transforma um ticket comum em ideia. */
   ideaMake?: boolean;
+  /** `ticket-update`: prioridade do ticket, inteiro de -999 a 999 (ADR 0047). */
+  priority?: number;
   role?: string;
   retryDelaysMs?: number[];
   fake503First?: number;
@@ -399,10 +403,10 @@ export const TICKET_STATUSES: readonly TicketStatus[] = ["todo", "in_progress", 
 const TICKET_OPTIONS: Record<string, readonly string[]> = {
   "ticket-list": ["json"],
   "ticket-create": ["title", "descriptionFile", "parent", "status", "idea"],
-  "ticket-update": ["number", "title", "descriptionFile", "parent", "status", "root", "ideaStage", "ideaAccept", "ideaDiscard", "ideaMake"],
+  "ticket-update": ["number", "title", "descriptionFile", "parent", "status", "root", "ideaStage", "priority", "ideaAccept", "ideaDiscard", "ideaMake"],
   "relations-rebuild": [],
 };
-const TICKET_ONLY = ["json", "title", "descriptionFile", "parent", "status", "number", "root", "idea", "ideaStage", "ideaAccept", "ideaDiscard", "ideaMake"] as const;
+const TICKET_ONLY = ["json", "title", "descriptionFile", "parent", "status", "number", "root", "idea", "ideaStage", "priority", "ideaAccept", "ideaDiscard", "ideaMake"] as const;
 const IDEA_STAGES_CLI = ["new", "refining", "ready"] as const;
 
 const FLAGS: Record<string, keyof CliOptions> = {
@@ -441,6 +445,7 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--idea-accept": "ideaAccept",
   "--idea-discard": "ideaDiscard",
   "--idea-make": "ideaMake",
+  "--priority": "priority",
   "--role": "role",
   "--retry-delays-ms": "retryDelaysMs",
   "--fake-503-first": "fake503First",
@@ -454,7 +459,7 @@ const usage = `Comandos: ${COMMANDS.join(", ")}.
   report --pairs --dir [--variant <nome>]
   ticket-list    --org --user --project [--json]
   ticket-create  --org --user --project --title <texto> [--description-file <caminho>] [--parent <número>] [--status <situação> | --idea]
-  ticket-update  --org --user --project --number <número> [--status <situação>] [--title <texto>] [--description-file <caminho>] [--parent <número> | --root] [--idea-stage <new|refining|ready>]
+  ticket-update  --org --user --project --number <número> [--status <situação>] [--title <texto>] [--description-file <caminho>] [--parent <número> | --root] [--idea-stage <new|refining|ready>] [--priority <-999 a 999>]
                  ou, sozinho no comando (uma coisa por vez): --idea-accept | --idea-discard | --idea-make
   relations-rebuild --org --user --project`;
 
@@ -492,6 +497,10 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     } else if (key === "parent" || key === "number") {
       const parsed = Number(value);
       if (!Number.isInteger(parsed) || parsed < 1) return fail(`${flag} deve ser o número de um ticket (inteiro maior que zero).`);
+      options[key] = parsed;
+    } else if (key === "priority") {
+      const parsed = Number(value);
+      if (value.trim() === "" || !isValidPriority(parsed)) return fail(`${flag} deve ser um número inteiro de ${PRIORITY_MIN} a ${PRIORITY_MAX}.`);
       options[key] = parsed;
     } else if (key === "retryDelaysMs") {
       const delays = value.split(",").map(Number);
@@ -544,13 +553,13 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   }
   if (options["idea"] !== undefined && options["status"] !== undefined) return fail("--idea não combina com --status: a situação de uma ideia é sempre todo.");
   if (command === "ticket-update" && options["number"] !== undefined) {
-    const changes = ["status", "title", "descriptionFile", "parent", "root", "ideaStage"];
+    const changes = ["status", "title", "descriptionFile", "parent", "root", "ideaStage", "priority"];
     const actions = ["ideaAccept", "ideaDiscard", "ideaMake"].filter((key) => options[key] !== undefined);
     if (actions.length > 0 && (actions.length > 1 || changes.some((key) => options[key] !== undefined))) {
       return fail("--idea-accept, --idea-discard e --idea-make valem sozinhos: uma coisa por comando.");
     }
     if (actions.length === 0 && !changes.some((key) => options[key] !== undefined)) {
-      return fail("ticket-update pede ao menos um de --status, --title, --description-file, --parent, --root, --idea-stage, --idea-accept, --idea-discard ou --idea-make.");
+      return fail("ticket-update pede ao menos um de --status, --title, --description-file, --parent, --root, --idea-stage, --priority, --idea-accept, --idea-discard ou --idea-make.");
     }
   }
   // `report --pairs` lê só os arquivos de `--dir`: o projeto vem do gabarito.
