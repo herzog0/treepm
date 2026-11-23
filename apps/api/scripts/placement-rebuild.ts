@@ -4,7 +4,7 @@
  *
  *   pnpm --filter @treepm/api placement:rebuild <comando> [opções]
  *
- * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update (com --idea-stage, --idea-accept, --idea-discard e --idea-make para ideias), relations-rebuild.
+ * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update (com --idea-stage, --idea-accept, --idea-discard e --idea-make para ideias, e --depends-on e --no-depends-on para dependências), ticket-show, relations-rebuild, summary-show, summary-regenerate, conversation-dry-run.
  * Sobe a API real em processo (só a sessão é trocada), em 127.0.0.1 e porta efêmera, e fala com ela por HTTP.
  * O terminal mostra só progresso e contagens; todo texto de ticket fica nos arquivos de `--dir`.
  */
@@ -33,25 +33,47 @@ import {
 import type { Context } from "./placement-rebuild/commands.js";
 import { parseCliArgs } from "./placement-rebuild/core.js";
 import type { CliOptions } from "./placement-rebuild/core.js";
-import { TicketCommandError, relationsRebuildCommand, ticketCreateCommand, ticketListCommand, ticketUpdateCommand } from "./placement-rebuild/ticket-commands.js";
-
-const log = (line: string): void => console.log(line);
+import { conversationDryRunCommand } from "./placement-rebuild/conversation-dry-run.js";
+import { exitAfterFlush, log } from "./placement-rebuild/output.js";
+import { summaryRegenerateCommand, summaryShowCommand } from "./placement-rebuild/summary-commands.js";
+import { TicketCommandError, relationsRebuildCommand, ticketCreateCommand, ticketListCommand, ticketShowCommand, ticketUpdateCommand } from "./placement-rebuild/ticket-commands.js";
 
 /** Comandos de ticket: só as rotas da API, sem IA e sem arquivos de `--dir`. Recusa da API: código e mensagem, sem pilha, saída 1. */
-async function runTicketCommand(command: "ticket-list" | "ticket-create" | "ticket-update" | "relations-rebuild", options: CliOptions): Promise<number> {
+const TICKET_ROUTE_COMMANDS = ["ticket-list", "ticket-create", "ticket-update", "relations-rebuild", "ticket-show", "summary-show", "summary-regenerate", "conversation-dry-run"] as const;
+type TicketRouteCommand = (typeof TICKET_ROUTE_COMMANDS)[number];
+/** Estes passam pelas rotas do assistente: conferem o aceite da organização e a IA ligada (com `--fake-providers`, só para ensaio, usam os provedores falsos). */
+const ASSISTANT_COMMANDS: readonly TicketRouteCommand[] = ["summary-show", "summary-regenerate", "conversation-dry-run"];
+
+async function runTicketCommand(command: TicketRouteCommand, options: CliOptions): Promise<number> {
+  const needsAi = ASSISTANT_COMMANDS.includes(command) && !(command === "summary-regenerate" && options.dryRun);
   const booted = await bootApp({
     org: options.org as string,
     user: options.user as string,
     role: options.role ?? "org:admin",
-    fakeProviders: false,
+    fakeProviders: options.fakeProviders ?? false,
     fake503First: 0,
     fake503JudgeAt: 0,
-    needsAi: false,
+    needsAi,
   });
   try {
     const ctx = { client: new ApiClient(booted.baseUrl, booted.token), project: options.project as string, log };
     if (command === "ticket-list") await ticketListCommand(ctx, options.json ?? false);
-    else if (command === "relations-rebuild") await relationsRebuildCommand(ctx);
+    else if (command === "ticket-show") await ticketShowCommand(ctx, options.number as number);
+    else if (command === "summary-show") await summaryShowCommand({ ...ctx, sleep: (ms) => sleep(ms) }, options.number as number);
+    else if (command === "summary-regenerate") {
+      await summaryRegenerateCommand(
+        { ...ctx, sleep: (ms) => sleep(ms), ...(options.dir ? { dir: resolve(options.dir) } : {}) },
+        {
+          ...(options.number !== undefined ? { number: options.number } : {}),
+          ...(options.subtree !== undefined ? { subtree: options.subtree } : {}),
+          ...(options.all ? { all: true } : {}),
+          ...(options.dryRun ? { dryRun: true } : {}),
+          ...(options.resume ? { resume: true } : {}),
+        },
+      );
+    } else if (command === "conversation-dry-run") {
+      await conversationDryRunCommand(ctx, { textFile: options.textFile as string, ...(options.scope !== undefined ? { scope: options.scope } : {}) });
+    } else if (command === "relations-rebuild") await relationsRebuildCommand(ctx);
     else if (command === "ticket-create") {
       await ticketCreateCommand(ctx, {
         title: options.title as string,
@@ -73,6 +95,8 @@ async function runTicketCommand(command: "ticket-list" | "ticket-create" | "tick
         ...(options.ideaDiscard ? { ideaDiscard: true } : {}),
         ...(options.ideaMake ? { ideaMake: true } : {}),
         ...(options.priority !== undefined ? { priority: options.priority } : {}),
+        ...(options.dependsOn !== undefined ? { dependsOn: options.dependsOn } : {}),
+        ...(options.noDependsOn !== undefined ? { noDependsOn: options.noDependsOn } : {}),
       });
     }
     return 0;
@@ -94,7 +118,7 @@ async function main(): Promise<number> {
     return 2;
   }
   const { command, options } = parsed;
-  if (command === "ticket-list" || command === "ticket-create" || command === "ticket-update" || command === "relations-rebuild") return runTicketCommand(command, options);
+  if ((TICKET_ROUTE_COMMANDS as readonly string[]).includes(command)) return runTicketCommand(command as TicketRouteCommand, options);
   const dir = resolve(options.dir as string);
   ensureDir(dir);
 
@@ -212,10 +236,11 @@ async function main(): Promise<number> {
   }
 }
 
+// `exitAfterFlush`: com a saída num pipe, `process.exit` direto cortava a saída em 64 KB (TREEPM-325).
 main().then(
-  (code) => process.exit(code),
+  (code) => exitAfterFlush(code),
   (error: unknown) => {
     console.error(error instanceof Error ? error.message : "Erro inesperado.");
-    process.exit(1);
+    return exitAfterFlush(1);
   },
 );

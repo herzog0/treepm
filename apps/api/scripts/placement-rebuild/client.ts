@@ -1,7 +1,8 @@
 import { TOKEN_HEADER } from "./app.js";
 import type { HttpResult } from "./core.js";
 
-export type ApiResponse = HttpResult;
+/** `retryAfterMs`: o `Retry-After` da resposta (429 e 503), quando veio. */
+export type ApiResponse = HttpResult & { retryAfterMs?: number };
 
 /** Cliente HTTP da própria API em processo. Nunca imprime cabeçalhos nem corpos. */
 export class ApiClient {
@@ -25,7 +26,8 @@ export class ApiClient {
         parsed = null;
       }
     }
-    return { status: response.status, body: parsed };
+    const retryAfter = Number(response.headers.get("retry-after"));
+    return { status: response.status, body: parsed, ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterMs: retryAfter * 1000 } : {}) };
   }
 }
 
