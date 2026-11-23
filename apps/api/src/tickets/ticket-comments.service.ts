@@ -97,6 +97,8 @@ export class TicketCommentsService {
   async add(tx: TenantClient, principal: Principal, ticketId: string, body: string, contributionId?: string, requestId?: string): Promise<CommentEntry> {
     const { project, ticket } = await this.visibleTicket(tx, principal.actor, ticketId);
     this.authorization.commentTicket(principal.actor, project.id);
+    // Comentário por área continua exigindo participar da contribuição (ADR 0040, adendo): o leitor comenta só no ticket.
+    if (contributionId !== undefined) this.authorization.editContributions(principal.actor, project.id);
     this.requireActive(project);
     // Contribuição de outro ticket, inexistente ou de outra organização (RLS): o mesmo 404. O banco também garante
     // que a contribuição é do mesmo ticket (chave estrangeira composta).

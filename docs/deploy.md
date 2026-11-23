@@ -28,6 +28,14 @@ Contrato em `docs/adr/0022-api-nestjs-e-hospedagem-na-fly.md`. Um app serve `tre
 
 **Se a migração falhar:** não publique. A versão em produção segue rodando contra o schema anterior (o `prisma migrate deploy` aplica cada migração em transação e para na primeira que falha). Leia o erro, corrija com uma nova migração versionada (não edite uma já aplicada) e rode de novo. Se uma migração ficou marcada como falha, o `prisma migrate status` mostra qual; resolva com `prisma migrate resolve` só depois de entender o estado do banco. Migrações devem ser compatíveis com a versão anterior da API (expandir antes de contrair), porque a API antiga continua servindo até o deploy terminar.
 
+## Compressão das respostas (TREEPM-255)
+
+O próprio servidor comprime (`apps/api/src/compression.ts`, registrada em `configureApp`): brotli (qualidade 4) ou gzip (nível 4), conforme o `Accept-Encoding`, para respostas de texto/JSON acima de 1 KB, inclusive os arquivos estáticos do web. A lista de um projeto de 20 000 tickets cai de 13,4 MB para cerca de 1,0 MB (brotli) ou 1,5 MB (gzip). Sempre com `Vary: Accept-Encoding`; o `ETag` fraco da lista e o `304` sem corpo seguem como estavam.
+
+Ficam **sem compressão**: o servidor MCP (`/api/mcp/…`), qualquer fluxo `text/event-stream`, respostas com `Cache-Control: no-transform`, respostas parciais (`206`), imagens e fontes, e as respostas que carregam segredo (criação do token de acesso e a conexão com o GitHub; ataque do tipo BREACH).
+
+O `fly.toml` não pede compressão ao proxy da Fly. Se ele (ou um CDN à frente) comprimir por conta própria, não recomprime o que já chega com `Content-Encoding`; por isso nada precisa ser desligado. Conferir em produção, depois do primeiro deploy com esta mudança: `curl -sI -H 'Accept-Encoding: br' https://treepm.ai/assets/<arquivo>.js` deve trazer `content-encoding: br`.
+
 ## Build local da imagem
 
 ```sh

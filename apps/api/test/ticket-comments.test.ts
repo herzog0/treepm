@@ -78,9 +78,8 @@ describe("comentar: POST tickets/:id/comments", () => {
     }
   });
 
-  it("leitor recebe 403; sem acesso ao projeto, ticket inexistente e outra organização recebem 404, sem gravar", async () => {
+  it("sem acesso ao projeto, ticket inexistente e outra organização recebem 404, sem gravar", async () => {
     const t = await add();
-    expect((await post(t.id, { body: "x" }, "reader")).status).toBe(403);
     const denied = await post(t.id, { body: "x" }, "plain");
     const unknown = await post(UNKNOWN_ID, { body: "x" });
     const other = await post(t.id, { body: "x" }, "outsider", "org_B");
@@ -150,11 +149,12 @@ describe("editar: PATCH comments/:id", () => {
     expect((await row(made.id)).body).toBe("meu");
   });
 
-  it("quem escreveu e deixou de poder comentar (virou leitor) não edita mais", async () => {
+  it("quem escreveu e virou leitor continua editando o próprio comentário (ADR 0040, adendo de 2026-11-23)", async () => {
     const t = await add();
     const made = await say(t.id, "meu");
     await h.pool.query("update project_memberships set role = 'reader' where person_id = $1", [personId("contributor")]);
-    expect((await edit(made.id, { body: "x" })).status).toBe(403);
+    expect((await edit(made.id, { body: "x" })).status).toBe(200);
+    expect((await row(made.id)).body).toBe("x");
   });
 
   it("corpo igual ao atual não grava nada, nem evento", async () => {
@@ -300,7 +300,7 @@ describe("a atividade intercala comentários e mudanças", () => {
       admin: { canComment: true, mine: [false, true], theirs: [false, true] },
       manager: { canComment: true, mine: [false, true], theirs: [true, true] },
       contributor: { canComment: true, mine: [true, true], theirs: [false, false] },
-      reader: { canComment: false, mine: [false, false], theirs: [false, false] },
+      reader: { canComment: true, mine: [false, false], theirs: [false, false] },
     };
     for (const [who, want] of Object.entries(expected)) {
       const p = await page(t.id, "", who as Who);
@@ -461,5 +461,82 @@ describe("custo da leitura", () => {
     expect(many.entries).toBe(30);
     expect(many.queries).toBe(few.queries);
     expect(many.queries).toBeLessThanOrEqual(4);
+  });
+});
+
+describe("quem só lê o projeto comenta (ADR 0040, adendo de 2026-11-23, TREEPM-92)", () => {
+  it("cria, edita e apaga o próprio comentário, com a mesma resposta e os mesmos eventos de todo mundo", async () => {
+    const t = await add();
+    const made = await say(t.id, "pergunta do leitor", "reader");
+    expect(made).toMatchObject({ type: "comment", body: "pergunta do leitor", canEdit: true, canRemove: true, actor: { id: personId("reader") } });
+    expect((await row(made.id)).author_person_id).toBe(personId("reader"));
+    const edited = await edit(made.id, { body: "pergunta corrigida" }, "reader");
+    expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+    expect((await row(made.id)).body).toBe("pergunta corrigida");
+    expect((await remove(made.id, "reader")).status).toBe(204);
+    expect((await row(made.id)).removed_at).not.toBeNull();
+    expect((await commentEvents()).map((e) => e.kind).sort()).toEqual(["ticket.comment_added", "ticket.comment_edited", "ticket.comment_removed"]);
+  });
+
+  it("a página de atividade do leitor traz canComment verdadeiro e os controles só do comentário dele", async () => {
+    const t = await add();
+    const mine = await say(t.id, "meu", "reader");
+    const theirs = await say(t.id, "da colaboradora", "contributor");
+    const p = await page(t.id, "", "reader");
+    expect(p.canComment).toBe(true);
+    expect(p.entries.find((e) => e.id === mine.id)).toMatchObject({ canEdit: true, canRemove: true });
+    expect(p.entries.find((e) => e.id === theirs.id)).toMatchObject({ canEdit: false, canRemove: false });
+  });
+
+  it("não edita nem apaga comentário alheio, e quem não tem papel nenhum continua sem comentar", async () => {
+    const t = await add();
+    const theirs = await say(t.id, "da colaboradora", "contributor");
+    expect((await edit(theirs.id, { body: "x" }, "reader")).status).toBe(403);
+    expect((await remove(theirs.id, "reader")).status).toBe(403);
+    expect((await row(theirs.id)).body).toBe("da colaboradora");
+    expect((await post(t.id, { body: "x" }, "plain")).status).toBe(404);
+  });
+
+  it("projeto arquivado continua recusando o leitor (409), sem gravar", async () => {
+    const t = await add();
+    await h.pool.query("update projects set archived_at = now() where id = $1", [priv()]);
+    const res = await post(t.id, { body: "x" }, "reader");
+    expect(res.status).toBe(409);
+    expect(await count("select count(*) from ticket_comments")).toBe(0);
+  });
+
+  it("tudo o mais continua fechado para o leitor: título, descrição, situação, pessoas, prioridade, áreas, dependências, estrutura e ideia", async () => {
+    const t = await add();
+    const other = await add({ title: "Outro" });
+    const area = await h.call("POST", "/api/areas", as("admin"), { name: "Área do leitor" });
+    const contribution = await h.call("POST", `/api/tickets/${t.id}/contributions`, as("contributor"), { areaId: (area.body as { id: string }).id });
+    expect(contribution.status, JSON.stringify(contribution.body)).toBe(201);
+    const cid = (contribution.body as { id: string }).id;
+    const attempts: [string, string, string, unknown][] = [
+      ["título", "PATCH", `/api/tickets/${t.id}`, { title: "Novo" }],
+      ["descrição", "PATCH", `/api/tickets/${t.id}`, { description: "Nova" }],
+      ["situação", "PATCH", `/api/tickets/${t.id}`, { status: "in_progress" }],
+      ["prioridade", "PATCH", `/api/tickets/${t.id}`, { priority: 5 }],
+      ["pai (estrutura)", "PATCH", `/api/tickets/${t.id}`, { parentId: other.id }],
+      ["excluir ticket", "DELETE", `/api/tickets/${t.id}`, undefined],
+      ["criar ticket", "POST", `/api/projects/${priv()}/tickets`, { title: "Filho" }],
+      ["importar", "POST", `/api/projects/${priv()}/tickets/import`, { items: [{ title: "I" }] }],
+      ["pessoa responsável", "PUT", `/api/tickets/${t.id}/assignees/${personId("contributor")}`, undefined],
+      ["dependência", "POST", `/api/tickets/${t.id}/dependencies`, { ticketId: other.id }],
+      ["área (criar)", "POST", `/api/tickets/${other.id}/contributions`, { areaId: (area.body as { id: string }).id }],
+      ["área (editar)", "PATCH", `/api/contributions/${cid}`, { status: "done" }],
+      ["área (apagar)", "DELETE", `/api/contributions/${cid}`, undefined],
+      ["ideia (registrar)", "POST", `/api/tickets/${t.id}/idea`, {}],
+      ["ideia (estágio)", "PUT", `/api/tickets/${t.id}/idea-stage`, { stage: "refining" }],
+      ["comentário por área", "POST", `/api/tickets/${t.id}/comments`, { body: "x", contributionId: cid }],
+    ];
+    for (const [what, method, path, body] of attempts) {
+      const res = await h.call(method, path, as("reader"), body);
+      expect(res.status, `${what}: ${JSON.stringify(res.body)}`).toBe(403);
+    }
+    const saved = await h.pool.query("select title, description, status, priority, parent_id from tickets where id = $1", [t.id]);
+    expect(saved.rows[0]).toMatchObject({ title: "T", status: "todo", parent_id: null });
+    expect(await count("select count(*) from ticket_comments")).toBe(0);
+    expect(await count("select count(*) from ticket_contributions")).toBe(1);
   });
 });

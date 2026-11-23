@@ -30,12 +30,13 @@ const roles = [
 ] as const;
 
 describe("canCommentTicket", () => {
-  it.each(roles)("follows canEditTicket for %s", (_name, actor) => {
-    expect(canCommentTicket(actor, project)).toBe(canEditTicket(actor, project));
+  it("is true for admin, manager, contributor and reader (ADR 0040 addendum), false for the rest", () => {
+    expect(roles.map(([, actor]) => canCommentTicket(actor, project))).toEqual([true, true, true, true, false, false]);
   });
 
-  it("is true for admin, manager and contributor, false for reader and the rest", () => {
-    expect(roles.map(([, actor]) => canCommentTicket(actor, project))).toEqual([true, true, true, false, false, false]);
+  it("is its own permission: the reader comments but still cannot edit the ticket", () => {
+    expect(canCommentTicket(reader, project)).toBe(true);
+    expect(canEditTicket(reader, project)).toBe(false);
   });
 });
 
@@ -51,9 +52,14 @@ describe("canEditComment", () => {
     expect(canEditComment(orgAdmin, project, "bia", "ana")).toBe(false);
   });
 
-  it("denies an author who lost the right to comment (reader, no role)", () => {
-    expect(canEditComment(reader, project, "ana", "ana")).toBe(false);
+  it("lets a reader edit their own comment, never someone else's", () => {
+    expect(canEditComment(reader, project, "ana", "ana")).toBe(true);
+    expect(canEditComment(reader, project, "bia", "ana")).toBe(false);
+  });
+
+  it("denies an author who lost the right to comment (no role)", () => {
     expect(canEditComment(noRole, project, "ana", "ana")).toBe(false);
+    expect(canEditComment(elsewhere, project, "ana", "ana")).toBe(false);
   });
 });
 

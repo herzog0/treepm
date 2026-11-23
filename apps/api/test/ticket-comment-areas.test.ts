@@ -238,7 +238,7 @@ describe("GET tickets/:id/activity?contribution=<id>", () => {
     const c = await made(t.id);
     await say(t.id, "lido", c.id);
     const asReader = await page(t.id, `?contribution=${c.id}`, "reader");
-    expect(asReader.canComment).toBe(false);
+    expect(asReader.canComment).toBe(false); // ADR 0040, adendo: o leitor comenta no ticket, não na área
     expect(asReader.entries[0]).toMatchObject({ body: "lido", canEdit: false, canRemove: false });
     await h.pool.query("update projects set archived_at = now() where id = $1", [priv()]);
     expect((await page(t.id, `?contribution=${c.id}`, "manager")).entries[0]).toMatchObject({ canEdit: false, canRemove: false });

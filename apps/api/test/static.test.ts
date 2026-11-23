@@ -12,6 +12,9 @@ const webDir = mkdtempSync(join(tmpdir(), "treepm-web-"));
 mkdirSync(join(webDir, "assets"));
 writeFileSync(join(webDir, "index.html"), INDEX);
 writeFileSync(join(webDir, "assets", "x.js"), "console.log('x');");
+const BIG_JS = "console.log('grande');\n".repeat(400);
+writeFileSync(join(webDir, "assets", "big.js"), BIG_JS);
+writeFileSync(join(webDir, "assets", "p.png"), Buffer.alloc(5000, 7));
 
 let withWeb: INestApplication;
 let withoutWeb: INestApplication;
@@ -36,6 +39,36 @@ describe("WEB_DIST_DIR na configuração", () => {
     };
     expect(loadConfig(base).WEB_DIST_DIR).toBeUndefined();
     expect(loadConfig({ ...base, WEB_DIST_DIR: "/srv/web" }).WEB_DIST_DIR).toBe("/srv/web");
+  });
+});
+
+describe("com WEB_DIST_DIR: compressão negociada (TREEPM-255)", () => {
+  it("arquivo grande do web vem comprimido, com Vary, o mesmo cache e o mesmo conteúdo", async () => {
+    const res = await request(withWeb.getHttpServer()).get("/assets/big.js").set("Accept-Encoding", "gzip");
+    expect(res.headers["content-encoding"]).toBe("gzip");
+    expect(res.headers["vary"]).toMatch(/Accept-Encoding/i);
+    expect(res.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+    expect(res.text).toBe(BIG_JS);
+    const plain = await request(withWeb.getHttpServer()).get("/assets/big.js").set("Accept-Encoding", "identity");
+    expect(plain.headers["content-encoding"]).toBeUndefined();
+    expect(plain.headers["content-length"]).toBe(String(BIG_JS.length));
+  });
+
+  it("o index.html continua sem cache e a imagem não é comprimida", async () => {
+    const res = await request(withWeb.getHttpServer()).get("/qualquer").set("Accept-Encoding", "gzip, br");
+    expect(res.headers["cache-control"]).toBe("no-cache");
+    const png = await request(withWeb.getHttpServer()).get("/assets/p.png").set("Accept-Encoding", "gzip, br");
+    expect(png.status).toBe(200);
+    expect(png.headers["content-encoding"]).toBeUndefined();
+  });
+
+  it("If-None-Match no arquivo comprimido continua dando 304 sem corpo", async () => {
+    const first = await request(withWeb.getHttpServer()).get("/assets/big.js").set("Accept-Encoding", "gzip");
+    const tag = first.headers["etag"] as string;
+    expect(tag).toBeTruthy();
+    const res = await request(withWeb.getHttpServer()).get("/assets/big.js").set("Accept-Encoding", "gzip").set("If-None-Match", tag);
+    expect(res.status).toBe(304);
+    expect(res.text).toBe("");
   });
 });
 

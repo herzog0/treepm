@@ -1,6 +1,5 @@
 import type { Actor } from "./index.js";
 import { canManageProject } from "./index.js";
-import { canEditTicket } from "./tickets.js";
 
 /** Tamanho do corpo de um comentário, depois de aparado (ADR 0040). */
 export const COMMENT_BODY_MIN = 1;
@@ -12,9 +11,13 @@ export function commentBodyOf(raw: string): string | null {
   return body.length >= COMMENT_BODY_MIN && body.length <= COMMENT_BODY_MAX ? body : null;
 }
 
-/** Comenta quem pode editar o ticket (ADR 0040): gestor, colaborador e administrador da organização. */
+/**
+ * Comenta quem tem papel no projeto (ADR 0040, adendo de 2026-11-23): gestor, colaborador e leitor, mais o administrador da
+ * organização. Permissão própria, que não segue a de editar ticket: o leitor comenta e continua sem mudar o ticket. Quem só
+ * enxerga o projeto por ele ser da organização, sem papel, não comenta.
+ */
 export function canCommentTicket(actor: Actor, projectId: string): boolean {
-  return canEditTicket(actor, projectId);
+  return actor.clerkRole === "admin" || actor.projectRoles.has(projectId);
 }
 
 /** Edita só o autor, e só enquanto ainda pode comentar; gestor e administrador não editam texto alheio. */
