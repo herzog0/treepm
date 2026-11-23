@@ -42,3 +42,9 @@
   .play-restart-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 .command-notice { margin: 0; padding: 8px 16px; border-top: 1px solid var(--tp-border); color: var(--tp-text-2); font-size: 12px; }
+@media (max-width: 999px) {
+  /* Abaixo de 1000 px a página do ticket ocupa toda a largura e cobre a barra de pedidos: durante o play a barra desce para o pé, por cima dela, e o corpo da página deixa o espaço livre. */
+  .map-workspace.has-play.has-ticket-page .command-zone { z-index: 31; top: auto; align-items: flex-end; }
+  .map-workspace.has-play.has-ticket-page .command-bar { margin-top: 0; }
+  .map-workspace.has-play.has-ticket-page .ticket-scroll { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+}

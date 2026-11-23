@@ -53,8 +53,7 @@ async function start(name: string) {
 afterEach(() => document.body.replaceChildren());
 
 describe("play em 1440×900", () => {
-  // NÃO VERIFICADO: neste ambiente o clique por locator (Playwright) trava esperando estabilidade e o card do passo não foi encontrado; ver REPORT.local.md.
-  it.skip("a câmera chega no ticket de cada passo e a barra cabe", async () => {
+  it("a câmera chega no ticket de cada passo e a barra cabe", async () => {
     await page.viewport(1440, 900);
     const screen = await render(<Host />);
     await settle(1200);
@@ -110,7 +109,7 @@ describe("play em 1440×900", () => {
   });
 });
 
-describe.each([[360, 740], [390, 844], [430, 932]] as const)("play em %i×%i com toque", (width, height) => {
+describe.each([[360, 740], [390, 844], [430, 932], [800, 900]] as const)("play em %i×%i com toque", (width, height) => {
   beforeAll(async () => {
     await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
   });
@@ -160,6 +159,25 @@ describe.each([[360, 740], [390, 844], [430, 932]] as const)("play em %i×%i com
     expect(position.right).toBeLessThanOrEqual(size(buttons[0]!).left + 0.5);
     expect(barRect.height).toBeLessThanOrEqual(76);
     if (model === "Stand-up") expect(size(q(".play-person")!).width).toBeGreaterThan(20);
+    noSideScroll();
+  });
+
+  it("com a página do ticket aberta (ela cobre a tela), a barra do play fica à vista e os botões recebem o toque", async () => {
+    await page.viewport(width, height);
+    await render(<Host />);
+    await settle(1200);
+    await start("Meu trabalho");
+    expect(q("[aria-label='Página do ticket']")).not.toBeNull();
+    for (const label of ["Voltar", "Avançar", "Sair do play"]) {
+      const r = size(byLabel(label));
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      expect(byLabel(label).contains(hit), `${label} coberto por ${hit?.className}`).toBe(true);
+    }
+    const bar = size(q(".play-bar")!);
+    expect(bar.bottom).toBeLessThanOrEqual(window.innerHeight + 0.5);
+    // A página deixa o fim do corpo livre: o último conteúdo rola até acima da barra.
+    const scroll = q(".ticket-scroll")!;
+    expect(parseFloat(getComputedStyle(scroll).paddingBottom)).toBeGreaterThanOrEqual(bar.height);
     noSideScroll();
   });
 

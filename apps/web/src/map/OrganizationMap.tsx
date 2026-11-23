@@ -604,7 +604,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   const showCreateFirst = items.length === 1 && canCreateProject;
 
   return (
-    <div className={`map-workspace ${pageOpen ? "has-ticket-page" : ""}`}>
+    <div className={`map-workspace ${pageOpen ? "has-ticket-page" : ""} ${play !== null ? "has-play" : ""}`}>
     <MapDetailProvider store={scaleStore} data={detailData}>
     <SpatialCanvasView
       controller={canvas}

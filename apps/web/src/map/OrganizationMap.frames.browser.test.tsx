@@ -1,5 +1,5 @@
 import { Profiler } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { cdp, page } from "vitest/browser";
 import "@fontsource-variable/inter";
@@ -107,6 +107,10 @@ const FRAME_DIGESTS: string[] = [
 ];
 
 describe("quadros do mapa em árvore gerada", () => {
+  // A emulação vale para o navegador inteiro (no Chromium compartilhado, também para os outros arquivos): devolve ao padrão.
+  afterAll(async () => {
+    await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
+  });
   it("o DOM da cena depois de cada quadro é o de antes das correções, e o quadro de arraste não refaz nem o conteúdo dos nós nem a escala máxima", async () => {
     await page.viewport(1440, 900);
     // Sem movimento suave o zoom da roda salta direto ao destino: a sequência não depende do relógio.
