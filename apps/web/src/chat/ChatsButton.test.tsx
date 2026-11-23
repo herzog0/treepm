@@ -101,4 +101,22 @@ describe("Chats refresh", () => {
     await tick(30_000);
     expect(screen.getByRole("button", { name: "Chats, não lidas: 1" })).toBeInTheDocument();
   });
+  it("updates an open thread at the same 30 s trigger, without closing and reopening it", async () => {
+    const { chat } = renderChats();
+    const threadId = chat.receiveThread("t1", { from: "person-2", body: "Raiz da thread" });
+    await tick(0);
+    fireEvent.click(screen.getByRole("button", { name: /^Chats/ }));
+    await tick(0);
+    fireEvent.click(screen.getByRole("button", { name: /ALFA-1/ }));
+    await tick(0);
+    fireEvent.click(screen.getByRole("button", { name: "Abrir thread" }));
+    await tick(0);
+    expect(screen.getByText("Raiz da thread")).toBeInTheDocument();
+    chat.receiveReply(threadId, { from: "person-2", body: "Resposta que chegou depois" });
+    await tick(29_000);
+    expect(screen.queryByText("Resposta que chegou depois")).toBeNull();
+    await tick(1_000);
+    expect(screen.getByText("Resposta que chegou depois")).toBeInTheDocument();
+    expect(screen.getByText("Raiz da thread")).toBeInTheDocument();
+  });
 });

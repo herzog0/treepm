@@ -11,6 +11,8 @@ import { IdeasScreen } from "../ideas/IdeasScreen.js";
 import { resetIdeasSession } from "../ideas/session.js";
 import { ImportScreen } from "../import/ImportScreen.js";
 import { OrganizationMap } from "../map/OrganizationMap.js";
+import { ChatShell } from "../chat/ChatShell.js";
+import { ChatsProvider } from "../chat/ChatsContext.js";
 import { TenantHeader } from "../nav/TenantHeader.js";
 import type { View } from "../nav/navigation.js";
 import { makePanelMe, makePerson, makeTeam } from "../panel/testing.js";
@@ -98,8 +100,11 @@ function ideasClient(): ApiClient {
 
 function Shell({ view, children }: { view: View; children: ReactNode }) {
   const [current, setCurrent] = useState(view);
+  // Como a aplicação: o provedor e a casca do painel de chats (ADR 0049), que põem o botão "Chats" no cabeçalho e o "Abrir chat" na página do ticket.
+  const [chatClient] = useState(() => makeClient({}));
   return (
-    <div className="tenant-shell">
+    <ChatsProvider client={chatClient} onShowTicket={vi.fn()}>
+      <ChatShell header={
       <TenantHeader view={current} onNavigate={setCurrent}>
         <button type="button" className="cl-organizationSwitcherTrigger" style={{ display: "flex", alignItems: "center", gap: 8, height: 36, padding: "0 10px", border: 0, borderRadius: 6, background: "transparent", color: "inherit", font: "500 14px var(--tp-font)" }}>
           <span aria-hidden style={{ flex: "none", width: 24, height: 24, borderRadius: 6, background: "#7c5cff" }} />
@@ -108,8 +113,10 @@ function Shell({ view, children }: { view: View; children: ReactNode }) {
         <span className="tenant-api-status" role="status">{STUB.status}</span>
         <button type="button" className="cl-userButtonTrigger" aria-label={STUB.account} style={{ width: 28, height: 28, padding: 0, border: 0, borderRadius: "50%", background: "#3a4767" }} />
       </TenantHeader>
-      {children}
-    </div>
+      }>
+        {children}
+      </ChatShell>
+    </ChatsProvider>
   );
 }
 

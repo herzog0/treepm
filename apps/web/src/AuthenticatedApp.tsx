@@ -22,7 +22,7 @@ import { Loading } from "./Loading.js";
 import { ClerkPreferencesProvider } from "./preferences/ClerkPreferences.js";
 import { ChatShell } from "./chat/ChatShell.js";
 import { ChatsProvider } from "./chat/ChatsContext.js";
-import { useView } from "./nav/navigation.js";
+import { chatTicketTarget, useView } from "./nav/navigation.js";
 import { TenantHeader } from "./nav/TenantHeader.js";
 import { Workspace } from "./Workspace.js";
 
@@ -111,7 +111,7 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
 
   return (
     // Trocar de organização descarta o painel de chats (e o que ele guarda): os chats são da organização.
-    <ChatsProvider key={orgId} client={callbackClient} onShowTicket={(id) => navigate("map", null, { ticketId: id })}>
+    <ChatsProvider key={orgId} client={callbackClient} onShowTicket={(id) => navigate("map", null, chatTicketTarget(ticketId, id))}>
       <ChatShell
         header={
           <TenantHeader view={view} onNavigate={navigate}>

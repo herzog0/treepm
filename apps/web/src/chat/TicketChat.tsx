@@ -358,6 +358,8 @@ export function TicketChat({ ticketId, active }: TicketChatProps) {
           peopleStatus={peopleStatus}
           names={names}
           selfId={selfId}
+          version={version}
+          active={active}
           onBack={() => setThreadId(null)}
           onThread={onThread}
           onRead={threadRead}
@@ -378,7 +380,7 @@ export function TicketChat({ ticketId, active }: TicketChatProps) {
             {tab === "conversation" && (
               <>
                 <p className="chat-notice">{t("notice.assistant")}</p>
-                {assistantOff === "consent" && <ConsentRequiredNotice className="chat-alert" />}
+                {assistantOff === "consent" && <ConsentRequiredNotice className="chat-alert" text={t("notice.noConsent")} />}
                 {assistantOff === "provider" && <p role="alert" className="chat-alert">{t("notice.noProvider")}</p>}
                 {archived && <p role="status" className="chat-alert">{describe({ kind: "conflict", code: "project_archived" })}</p>}
               </>

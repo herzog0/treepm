@@ -35,6 +35,7 @@
   },
   "notice": {
     "assistant": "O assistente vê o texto do ticket e esta conversa. Ele não executa nem altera nada.",
+    "noConsent": "A IA está desligada nesta organização. Um administrador precisa ativá-la em Configurações. As threads com outras pessoas continuam funcionando.",
     "noProvider": "A IA não está configurada neste servidor. Você ainda pode abrir threads com outras pessoas."
   },
   "log": {

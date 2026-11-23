@@ -143,7 +143,8 @@ describe("talking to the assistant", () => {
 
   it("without the organization's consent shows the usual phrase, blocks the assistant but keeps threads working", async () => {
     const { chat, user } = await openChat({ assistant: "no_consent", me: makeMe({ assistant: true, consent: false }) });
-    expect(screen.getByRole("alert")).toHaveTextContent("A IA está desligada nesta organização.");
+    expect(screen.getByRole("alert")).toHaveTextContent("A IA está desligada nesta organização. Um administrador precisa ativá-la em Configurações. As threads com outras pessoas continuam funcionando.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Crie o ticket manualmente");
     await user.type(field(), "Oi assistente");
     expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Mencionar" }));
@@ -157,7 +158,7 @@ describe("talking to the assistant", () => {
   it("learns that the consent is missing from the server's answer and shows the phrase", async () => {
     const { user } = await openChat({ assistant: "no_consent" });
     await user.type(field(), "Oi{Enter}");
-    expect(await screen.findByRole("alert")).toHaveTextContent("A IA está desligada nesta organização.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("As threads com outras pessoas continuam funcionando.");
     expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
   });
 
@@ -452,6 +453,19 @@ describe("archived project and languages", () => {
     expect(await screen.findByRole("tab", { name: "Conversation" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Mentions" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["en", "AI is off for this organization. An administrator needs to turn it on in Settings. Threads with other people keep working."],
+    ["es-MX", "La IA está desactivada en esta organización. Un administrador debe activarla en Configuración. Los hilos con otras personas siguen funcionando."],
+  ])("says in %s that threads keep working when the organization has not accepted", async (language, phrase) => {
+    const { setTestLanguage } = await import("../test/i18n.js");
+    await setTestLanguage(language as "en" | "es-MX");
+    const user = userEvent.setup();
+    renderChats({ assistant: "no_consent", me: makeMe({ assistant: true, consent: false }) });
+    await user.click(await screen.findByRole("button", { name: /^Chats/ }));
+    await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(phrase);
   });
 
   it("renders in Mexican Spanish", async () => {

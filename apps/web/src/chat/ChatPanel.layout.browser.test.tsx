@@ -11,17 +11,17 @@ import { makeClient, makeMe, makePerson, makeProject, createFakeChat } from "../
 import { ChatShell } from "./ChatShell.js";
 import { ChatsProvider } from "./ChatsContext.js";
 
-// ADR 0049: o painel de chats no navegador real. ESCRITO, NÃO RODADO (a suíte de navegador desta máquina está fora do ar): a coordenação roda.
+// ADR 0049: o painel de chats no navegador real. Roda no Chromium do contêiner (TREEPM_PLAYWRIGHT_WS).
 const WIDE = [1440, 900] as const;
 const NARROW = [[360, 740], [390, 844], [430, 932]] as const;
 const TOUCH = 44;
 
-function mount() {
+async function mount() {
   const people = [makePerson("person-1", "Ana"), makePerson("person-2", "Bia")];
   const chat = createFakeChat({ tickets: [{ id: "t1", key: "ALFA-1", title: "Corrigir o login", projectId: "p1", assignedToMe: true }], people });
   chat.seedConversation("t1", Array.from({ length: 12 }, (_, index) => ({ person: `pergunta ${index + 1}`, assistant: `resposta ${index + 1}` })));
   const client = makeClient({ me: makeMe({ assistant: true }), people, projects: [makeProject("p1", "ALFA", "Projeto Alfa")], chat });
-  return render(
+  return await render(
     <div id="root" style={{ height: "100dvh" }}>
       <ChatsProvider client={client} onShowTicket={() => {}}>
         <ChatShell header={<TenantHeader view="map" onNavigate={() => {}}><span /></TenantHeader>}>
@@ -39,12 +39,15 @@ async function openChat() {
   await settle();
 }
 
-afterEach(() => document.getElementById("root")?.remove());
+afterEach(async () => {
+  document.body.replaceChildren();
+  await page.viewport(...WIDE);
+});
 
 describe("chats panel, wide screen", () => {
   it("splits the space with the map at 1440: the panel is fixed and the map shrinks instead of being covered", async () => {
     await page.viewport(...WIDE);
-    mount();
+    await mount();
     const before = rect("#stand-in-map").width;
     await page.getByRole("button", { name: /^Chats/ }).click();
     await settle();
@@ -60,7 +63,7 @@ describe("chats panel, wide screen", () => {
 
   it("moves the focus into the panel when it opens and back to the button when Esc closes it", async () => {
     await page.viewport(...WIDE);
-    mount();
+    await mount();
     await page.getByRole("button", { name: /^Chats/ }).click();
     await settle();
     expect(q(".chat-panel")!.contains(document.activeElement)).toBe(true);
@@ -74,13 +77,13 @@ describe("chats panel, wide screen", () => {
 describe.each(NARROW)("chats panel at %ix%i", (width, height) => {
   it("takes the whole screen, has no sideways scroll and 44 px targets", async () => {
     await page.viewport(width, height);
-    mount();
+    await mount();
     await openChat();
     const panel = rect(".chat-panel");
     expect(Math.round(panel.width)).toBe(width);
     expect(Math.round(panel.height)).toBe(height);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
-    for (const selector of [".chat-header .chat-icon-button", ".chat-tabs button", ".chat-mention-button", ".chat-send"]) {
+    for (const selector of [".chat-header .chat-icon-button", ".chat-header .ticket-icon-button", ".chat-tabs button", ".chat-mention-button", ".chat-send"]) {
       for (const element of document.querySelectorAll(`.chat-panel ${selector}`)) {
         const box = element.getBoundingClientRect();
         expect(box.height, selector).toBeGreaterThanOrEqual(TOUCH - 1);
@@ -91,7 +94,7 @@ describe.each(NARROW)("chats panel at %ix%i", (width, height) => {
 
   it("keeps the composer stuck to the bottom of the visible area", async () => {
     await page.viewport(width, height);
-    mount();
+    await mount();
     await openChat();
     const composer = rect(".chat-composer");
     expect(Math.round(composer.bottom)).toBeLessThanOrEqual(height);

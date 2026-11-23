@@ -35,6 +35,7 @@
   },
   "notice": {
     "assistant": "El asistente ve el texto del ticket y esta conversación. No ejecuta ni cambia nada.",
+    "noConsent": "La IA está desactivada en esta organización. Un administrador debe activarla en Configuración. Los hilos con otras personas siguen funcionando.",
     "noProvider": "La IA no está configurada en este servidor. Aún puedes abrir hilos con otras personas."
   },
   "log": {
