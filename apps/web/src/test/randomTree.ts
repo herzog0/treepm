@@ -19,6 +19,8 @@ export interface RandomTreeOptions {
   readonly ideas?: number;
   readonly discardedIdeas?: number;
   readonly done?: number;
+  /** Probabilidade de um ticket vir com `blocked: true` (o padrão, zero, não sorteia nada). */
+  readonly blocked?: number;
 }
 
 const STATUSES = ["todo", "in_progress", "in_review", "done", "cancelled"] as const;
@@ -26,7 +28,7 @@ const STATUSES = ["todo", "in_progress", "in_review", "done", "cancelled"] as co
 /** Árvore de tickets com progresso coerente com a regra do servidor (`done`, `total`, `excluded`, `ideas`), ideias e descartadas. */
 export function randomTickets(count: number, seed: number, projectId = "p", options: RandomTreeOptions = {}): TicketSummary[] {
   const random = seeded(seed);
-  const { chain = 0.2, ideas = 0.05, discardedIdeas = 0.4, done = 0.2 } = options;
+  const { chain = 0.2, ideas = 0.05, discardedIdeas = 0.4, done = 0.2, blocked = 0 } = options;
   const parents: (number | null)[] = [];
   const raw: TicketSummary[] = [];
   for (let at = 0; at < count; at += 1) {
@@ -37,7 +39,7 @@ export function randomTickets(count: number, seed: number, projectId = "p", opti
     if (parentRaw?.idea) idea = { root: false, rootId: parentRaw.idea.root ? parentRaw.id : parentRaw.idea.rootId, rootKey: parentRaw.idea.root ? parentRaw.key : parentRaw.idea.rootKey };
     else if (random() < ideas) idea = { root: true, stage: random() < discardedIdeas ? "discarded" : "new" };
     const status = idea ? "todo" : random() < done ? "done" : STATUSES[Math.floor(random() * STATUSES.length)]!;
-    raw.push(makeTicket(`t${at}`, projectId, at + 1, `Ticket ${at} ${random() < 0.5 ? "relatório" : "fila"}`, { parentId: parent === null ? null : `t${parent}`, status, idea }));
+    raw.push(makeTicket(`t${at}`, projectId, at + 1, `Ticket ${at} ${random() < 0.5 ? "relatório" : "fila"}`, { parentId: parent === null ? null : `t${parent}`, status, idea, ...(blocked > 0 && random() < blocked ? { blocked: true } : {}) }));
   }
   // Progresso sobre todos os descendentes (sem as ideias, contadas à parte; os cancelados ficam de fora da base).
   const done$ = new Array<number>(count).fill(0);

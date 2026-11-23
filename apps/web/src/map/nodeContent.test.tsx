@@ -3,6 +3,7 @@ import type { SpatialNodeContent } from "@treepm/react";
 import { describe, expect, it } from "vitest";
 import { makeTicket } from "../test/fakes.js";
 import type { MapNode } from "./items.js";
+import { CANCELLED_COLOR, IDEA_DISCARDED_COLOR } from "./situation.js";
 import { renderNodeContent } from "./nodeContent.js";
 
 const ticketNode = (ticket = makeTicket("t1", "alfa", 3, "Publicar")): MapNode => ({
@@ -152,5 +153,20 @@ describe("renderNodeContent for the assistant draft", () => {
   it("compact and chip keep the draft marker so the dashed style can apply", () => {
     expect(content(draftNode, "compact").querySelector(".node-draft")).not.toBeNull();
     expect(content(draftNode, "chip").querySelector(".node-draft")).not.toBeNull();
+  });
+});
+
+describe("text on a muted card (ADR 0051)", () => {
+  const cancelled: MapNode = { ...ticketNode(makeTicket("t1", "alfa", 3, "Publicar", { status: "cancelled" })), color: CANCELLED_COLOR };
+  const lit = (container: HTMLElement) => [...container.querySelectorAll(".spatial-key, strong, .node-state")].map((element) => (element as HTMLElement).style.color);
+
+  it("uses the light text token on the muted grey of a cancelled ticket, where the dark one would not read", () => {
+    expect(lit(content(cancelled, "full"))).toEqual(["var(--tp-text)", "var(--tp-text)", "var(--tp-text)"]);
+  });
+
+  it("does the same for a discarded idea, and leaves the other cards alone", () => {
+    const idea: MapNode = { ...cancelled, color: IDEA_DISCARDED_COLOR, ideaDiscarded: true };
+    expect(lit(content(idea, "full")).every((color) => color === "var(--tp-text)")).toBe(true);
+    expect(lit(content(ticketNode(), "full")).every((color) => color === "")).toBe(true);
   });
 });

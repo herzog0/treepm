@@ -5,13 +5,14 @@ import { makeMe, makeProject, makeTicket } from "../test/fakes.js";
 import { randomTickets } from "../test/randomTree.js";
 import { buildMapItems, paintBranches } from "./items.js";
 import type { MapNode } from "./items.js";
+import { ACCENT_COLOR, SITUATION_COLORS, STATUS_COLORS, effectiveSituation, mostWorryingColor } from "./situation.js";
 import { hasOpenDescendants } from "./ticketState.js";
 
 const org = makeMe().organization;
 const project = makeProject("p", "ALFA", "Alfa");
 const isInIdea = (ticket: Pick<TicketSummary, "idea">) => ticket.idea !== null && ticket.idea !== undefined;
 
-/** A implementação de antes (quadrática), guardada aqui como referência de equivalência. */
+/** A regra da ADR 0051 escrita do jeito óbvio e quadrático: a cor é a mais preocupante entre as folhas (e os bloqueados) abaixo. */
 function paintBranchesReference(nodes: readonly MapNode[]): readonly MapNode[] {
   const childrenOf = new Map<string, MapNode[]>();
   for (const node of nodes) {
@@ -20,18 +21,28 @@ function paintBranchesReference(nodes: readonly MapNode[]): readonly MapNode[] {
     if (siblings) siblings.push(node);
     else childrenOf.set(node.parentId, [node]);
   }
+  const counted = (node: MapNode) => node.ticket !== null && !isInIdea(node.ticket);
   const descendants = (node: MapNode): MapNode[] => (childrenOf.get(node.id) ?? []).flatMap((child) => [child, ...descendants(child)]);
+  const isLeaf = (node: MapNode) => !(childrenOf.get(node.id) ?? []).some(counted);
   return nodes.map((node) => {
-    if (!node.ticket || isInIdea(node.ticket) || !hasOpenDescendants(node.ticket)) return node;
-    const found = descendants(node).filter((entry) => entry.ticket !== null && !isInIdea(entry.ticket));
+    if (node.ticket && isInIdea(node.ticket)) return node;
+    const found = descendants(node).filter(counted);
     if (found.length === 0) return node;
-    return { ...node, leafCount: found.length, color: mixIndicatorColors(found.map((entry) => ({ color: entry.color, weight: 1 }))) };
+    const colors = found.filter((entry) => isLeaf(entry) || effectiveSituation(entry.ticket!) === "blocked").map((entry) => (effectiveSituation(entry.ticket!) === "blocked" ? SITUATION_COLORS.blocked : entry.color));
+    if (counted(node) && effectiveSituation(node.ticket!) === "blocked") colors.push(SITUATION_COLORS.blocked);
+    const color = mostWorryingColor(colors);
+    return node.ticket && hasOpenDescendants(node.ticket) ? { ...node, leafCount: found.length, color } : { ...node, color };
   });
 }
 
-/** Os nós antes da pintura (cor própria de cada situação), como `buildMapItems` os monta. */
+/** Os nós antes da pintura: a cor própria de cada situação (bloqueado incluído) nos tickets, o lilás na organização e nos projetos. */
 function unpainted(tickets: TicketSummary[]): MapNode[] {
-  return buildMapItems(org, [project], { p: tickets.map((ticket) => ({ ...ticket, progress: null })) }).map((node) => ({ ...node }));
+  return buildMapItems(org, [project], { p: tickets.map((ticket) => ({ ...ticket, progress: null })) }).map((node) => {
+    if (!node.ticket) return { ...node, color: ACCENT_COLOR };
+    if (isInIdea(node.ticket)) return { ...node };
+    const own = effectiveSituation(node.ticket);
+    return { ...node, color: own === "blocked" ? SITUATION_COLORS.blocked : STATUS_COLORS[own] };
+  });
 }
 function withProgress(tickets: TicketSummary[]): MapNode[] {
   const base = unpainted(tickets);
@@ -43,6 +54,7 @@ describe("paintBranches: same result as the quadratic version", () => {
   const cases: [string, number, number, Parameters<typeof randomTickets>[3]?][] = [];
   for (let seed = 1; seed <= 30; seed += 1) cases.push([`random tree, seed ${seed}`, 40 + seed * 17, seed]);
   for (let seed = 1; seed <= 4; seed += 1) cases.push([`deep chains, seed ${seed}`, 300, seed, { chain: 0.97 }]);
+  for (let seed = 1; seed <= 12; seed += 1) cases.push([`with blocked tickets, seed ${seed}`, 60 + seed * 23, seed, { blocked: 0.08 }]);
   cases.push(["only ideas", 80, 5, { ideas: 0.9 }], ["no ideas", 200, 6, { ideas: 0 }], ["everything done", 200, 7, { done: 1, ideas: 0 }], ["almost nothing done", 200, 8, { done: 0, ideas: 0.02 }]);
   for (const [label, count, seed, options] of cases) {
     it(label, () => {
@@ -60,11 +72,11 @@ describe("paintBranches: same result as the quadratic version", () => {
     expect(paintBranches([])).toEqual([]);
   });
 
-  it("a branch whose descendants are all concluded keeps its own color", () => {
+  it("a branch whose descendants are all concluded is green, whatever its own status", () => {
     const tickets = [makeTicket("a", "p", 1, "A", { status: "in_progress", progress: { done: 2, total: 2, excluded: 0 } }), makeTicket("b", "p", 2, "B", { parentId: "a", status: "done" }), makeTicket("c", "p", 3, "C", { parentId: "b", status: "done" })];
     const nodes = withProgress(tickets);
     expect(paintBranches(nodes)).toEqual(paintBranchesReference(nodes));
-    expect(paintBranches(nodes).find((node) => node.id === "a")!.color).toBe(nodes.find((node) => node.id === "a")!.color);
+    expect(paintBranches(nodes).find((node) => node.id === "a")!.color).toBe(SITUATION_COLORS.done);
   });
 
   it("a deep chain (400 levels) matches", () => {

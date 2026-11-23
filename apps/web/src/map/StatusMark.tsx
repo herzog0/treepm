@@ -21,7 +21,10 @@ export interface IdeaMark {
   readonly discarded: boolean;
 }
 
-export type StatusMarkProps = { readonly status: TicketStatus } | { readonly progress: Progress } | { readonly idea: IdeaMark };
+export type StatusMarkProps =
+  | { readonly status: TicketStatus; readonly blocked?: boolean }
+  | { readonly progress: Progress; readonly blocked?: boolean }
+  | { readonly idea: IdeaMark };
 
 /**
  * Quadrado com borda que se enche de baixo para cima (ADR 0025). Decorativo: o texto da situação
@@ -35,5 +38,7 @@ export function StatusMark(props: StatusMarkProps) {
         ? ([props.idea.discarded ? "idea-discarded" : "idea", 1] as const)
         : (["progress", progressFraction(props.progress)] as const);
   const style = { "--fill": String(fill) } as CSSProperties;
-  return <span className="status-mark" aria-hidden="true" data-state={state} data-fill={String(fill)} style={style} />;
+  // Bloqueado (ADR 0051): o marcador fica vermelho e mantém o enchimento da situação gravada.
+  const blocked = !("idea" in props) && props.blocked === true;
+  return <span className="status-mark" aria-hidden="true" data-state={state} data-fill={String(fill)} {...(blocked ? { "data-blocked": "true" } : {})} style={style} />;
 }

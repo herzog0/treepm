@@ -8,6 +8,10 @@
     "zoomIn": "Zoom in",
     "colors": "Colors"
   },
+  "legend": {
+    "title": "Statuses",
+    "hint": "A branch shows the most worrying status below it."
+  },
   "breadcrumb": "Focus path",
   "panelToggle": "Areas and projects",
   "organizationKey": "Organization",
@@ -35,6 +39,7 @@
     "items_other": "{{count}} items grouped: {{members}}. Zoom in to reveal."
   },
   "status": {
+    "blocked": "Blocked",
     "todo": "To do",
     "in_progress": "In progress",
     "in_review": "In review",

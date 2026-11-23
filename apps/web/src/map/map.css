@@ -50,7 +50,7 @@
 .org-map .node-state > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .org-map .node-state .status-mark { --mark-size: 9px; }
 /* Card cheio: o marcador usa o escuro do token, porque a cor da situação já é a do fundo. */
-.org-map.is-color-mode .spatial-card-button .status-mark { --mark: var(--tp-on-accent); }
+.org-map.is-color-mode .spatial-card-button .status-mark { --mark: currentColor; }
 /* Card completo é largo o bastante para o tamanho de texto da ADR (13 na interface, 11,5 na chave). */
 .org-map .spatial-lod-full .spatial-lod-content > strong { font-size: 13px; }
 .org-map .spatial-lod-full .spatial-key { font-size: 11.5px; }
@@ -134,4 +134,20 @@
   .org-map .spatial-selection button { min-width: 44px; min-height: 44px; }
   .map-create-first { min-height: 44px; bottom: max(64px, calc(54px + env(safe-area-inset-bottom))); }
   .map-state { padding: 0 16px; text-align: center; }
+}
+
+/* Legenda de situações (ADR 0051): fechada, no canto de baixo à esquerda, acima da dica de atalhos. */
+.org-map .map-legend { position: absolute; z-index: 20; bottom: 48px; left: 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; font-size: 12px; }
+.org-map .map-legend-toggle { min-height: 28px; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-raised); color: var(--tp-text); font: 400 12px/1.2 var(--tp-font); cursor: pointer; }
+.org-map .map-legend-toggle:hover { background: var(--tp-selected); }
+.org-map .map-legend-toggle:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
+.org-map .map-legend-body { max-width: 240px; padding: 10px 12px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-bar); color: var(--tp-text); }
+.org-map .map-legend-body ul { display: grid; margin: 0 0 8px; padding: 0; gap: 6px; list-style: none; }
+.org-map .map-legend-body li { display: flex; align-items: center; gap: 8px; }
+.org-map .map-legend-body p { margin: 0; color: var(--tp-text-2); font-size: 11px; line-height: 1.35; }
+.org-map .map-legend-swatch { flex: none; width: 12px; height: 12px; border-radius: 2px; }
+/* Celular: embaixo ficam a folha de seleção e os pedidos; a legenda vai para o alto, à esquerda dos controles de zoom, e abre por cima do que houver. */
+@media (max-width: 720px), (pointer: coarse) {
+  .org-map .map-legend { top: 62px; bottom: auto; left: max(10px, env(safe-area-inset-left)); }
+  .org-map .map-legend-toggle { min-height: 44px; }
 }

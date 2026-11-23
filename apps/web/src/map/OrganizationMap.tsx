@@ -33,6 +33,7 @@ import type { MapDraft } from "./items.js";
 import { mapGeometry } from "./mapGeometry.js";
 import { computeMapMaxScale } from "./zoom.js";
 import type { MapNode } from "./items.js";
+import { StatusLegend } from "./StatusLegend.js";
 import { renderNodeContent } from "./nodeContent.js";
 import "@treepm/react/styles.css";
 import "../demo/Demo.css";
@@ -785,6 +786,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               }}
             />
           )}
+          <StatusLegend />
           <div className="spatial-help">{t("help")}</div>
         </>
       )}

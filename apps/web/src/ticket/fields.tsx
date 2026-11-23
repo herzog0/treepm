@@ -6,6 +6,7 @@ import type { ApiClient, IdeaStage, Person, TicketDetail, TicketStatus, TicketSu
 import { useDescribeApiError } from "../api/errorText.js";
 import { useStatusText } from "../map/nodeContent.js";
 import { StatusMark } from "../map/StatusMark.js";
+import { isBlocked } from "../map/ticketState.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { OptionMenu } from "./menu.js";
 import { useAction } from "../panel/useAction.js";
@@ -237,7 +238,7 @@ export function StatusField({ client, detail, openItems, onSaved }: FieldBase & 
     <>
       <OptionMenu
         label={t("status.group")}
-        trigger={<StatusValue status={detail.status} />}
+        trigger={<StatusValue status={detail.status} blocked={isBlocked(detail)} />}
         options={STATUSES.map((status) => ({ value: status, label: statusText(status), mark: <StatusMark status={status} /> }))}
         value={detail.status}
         disabled={action.busy}
@@ -440,12 +441,14 @@ export function InsideIdeaValue({ rootId, rootKey, discarded, onOpen }: { rootId
 }
 
 /** Marcador e texto da situação: o valor da linha, com ou sem menu. */
-export function StatusValue({ status }: { status: TicketStatus }) {
+export function StatusValue({ status, blocked = false }: { status: TicketStatus; blocked?: boolean }) {
   const statusText = useStatusText();
+  const { t: tMap } = useTranslation("map");
   return (
     <>
-      <StatusMark status={status} />
+      <StatusMark status={status} blocked={blocked} />
       {statusText(status)}
+      {blocked && <span className="ticket-blocked-tag">{tMap("status.blocked")}</span>}
     </>
   );
 }

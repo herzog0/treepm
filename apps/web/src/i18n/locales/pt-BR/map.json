@@ -8,6 +8,10 @@
     "zoomIn": "Ampliar zoom",
     "colors": "Cores"
   },
+  "legend": {
+    "title": "Situações",
+    "hint": "O ramo mostra a situação mais preocupante que há abaixo dele."
+  },
   "breadcrumb": "Caminho do foco",
   "panelToggle": "Áreas e projetos",
   "organizationKey": "Organização",
@@ -43,6 +47,7 @@
     "items_other": "{{count}} itens agrupados: {{members}}. Amplie para revelar."
   },
   "status": {
+    "blocked": "Bloqueado",
     "todo": "A fazer",
     "in_progress": "Em andamento",
     "in_review": "Em revisão",
