@@ -47,12 +47,14 @@ import { loadPlacementTree } from "./branch-tree.js";
 import { decisionOf, errorCode, handDecisionToTicket, readDecisionSafely, saveDecision } from "./placement-decision.js";
 import type { DecisionExtras, PlacementDecisionRecord } from "./placement-decision.js";
 import { pickRelated, relatedListing } from "./related-placement.js";
+import { linkExistingSuggestions, SUGGESTED_LOOKUP_TIMEOUT_MAX_MS } from "./suggested-links.js";
+import type { LinkLookupResult, LookupTicket } from "./suggested-links.js";
 import type { PlacementOutcome } from "./placement-search.js";
 import { PlacementService } from "./placement.service.js";
 import { AssistantGate } from "./assistant-gate.js";
 import { PLACEMENT_TIMEOUT_MS } from "./placement-search.js";
 import { AssistantUnavailableError, PLACEMENT_TIMEOUTS } from "./ports.js";
-import type { ConversationDraft, ConversationProvider, ConversationTurn, DraftChild, PlacementTimeouts } from "./ports.js";
+import type { ConversationDraft, ConversationProvider, ConversationTurn, DraftChild, ElaborationLink, ElaborationSuggestion, PlacementTimeouts, RelatedJudge } from "./ports.js";
 import { QueuesStructure } from "../tickets/structure-queue.js";
 import { TicketsService } from "../tickets/tickets.service.js";
 import { MAX_TICKET_DESCRIPTION } from "../tickets/tickets.schema.js";
@@ -390,7 +392,8 @@ export class TicketConversationsController {
       if (conversation.draftTitle === null) throw this.draftRequired();
       const decision = await readDecisionSafely(tx, id);
       // O que mudou depois da procura (virou ideia, foi cancelado, com a subárvore) não vai ao modelo nem vira ligação.
-      const live = new Set((await loadPlacementTree(tx, conversation.projectId)).tickets.map((ticket) => ticket.id));
+      const liveTree = (await loadPlacementTree(tx, conversation.projectId)).tickets;
+      const live = new Set(liveTree.map((ticket) => ticket.id));
       const ids = (decision?.related ?? []).map((entry) => entry.ticketId).filter((ticketId) => live.has(ticketId));
       const rows = ids.length === 0 ? [] : await tx.ticket.findMany({ where: { id: { in: ids }, projectId: conversation.projectId }, select: { id: true, number: true, title: true, description: true, status: true } });
       const byId = new Map(rows.map((row) => [row.id, row]));
@@ -398,14 +401,18 @@ export class TicketConversationsController {
         const row = byId.get(ticketId);
         return row ? [{ id: row.id, key: `${project.key}-${row.number}`, title: row.title, excerpt: descriptionExcerpt(row.description), status: row.status }] : [];
       });
-      const duplicate = decision?.duplicateTicketId ? byId.get(decision.duplicateTicketId) : undefined;
+      // O duplicado sai da árvore viva (já lida), não só dos relacionados: a procura das sugeridas também o evita.
+      const duplicate = decision?.duplicateTicketId ? liveTree.find((ticket) => ticket.id === decision.duplicateTicketId) : undefined;
       return {
         draft: { title: conversation.draftTitle, description: conversation.draftDescription ?? "", parts: childrenOf(conversation) },
         related,
         duplicateKey: duplicate ? `${project.key}-${duplicate.number}` : null,
         projectKey: project.key,
+        // A mesma leitura da árvore viva: a procura das tarefas sugeridas não lê mais nada do banco.
+        tree: liveTree.map(({ id: ticketId, number, title, description }) => ({ id: ticketId, number, title, description })),
       };
     });
+    const started = Date.now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeouts?.elaborationMs ?? ELABORATION_TIMEOUT_MS);
     try {
@@ -420,16 +427,50 @@ export class TicketConversationsController {
         duplicateKey: seen.duplicateKey,
         projectKey: seen.projectKey,
       });
-      const titleOf = new Map(sent.map((entry) => [entry.key, entry.title]));
+      // Tarefa sugerida que já existe na árvore vira ligação (ADR 0052, item 4). Falha ou prazo nunca derrubam a elaboração.
+      const found = await this.linkSuggested(providers.related, seen, clean, started);
+      const titleOf = new Map([...sent.map((entry) => [entry.key, entry.title] as const), ...found.titles]);
       return parseOutput(elaborationOutcomeSchema, {
-        links: clean.links.map((link) => ({ ...link, ...(link.de === "pai" ? {} : { deTitle: seen.draft.parts[link.de]?.title ?? "" }), dependeDeTitle: titleOf.get(link.dependeDe) ?? "" })),
-        suggested: clean.suggested,
+        links: found.links.map((link) => ({ ...link, ...(link.de === "pai" ? {} : { deTitle: seen.draft.parts[link.de]?.title ?? "" }), dependeDeTitle: titleOf.get(link.dependeDe) ?? "" })),
+        suggested: found.suggested,
         unavailable: null,
       });
     } catch (error) {
       // Só o motivo vai ao registro: nunca texto do rascunho nem do modelo.
       this.logger.warn(`elaboração indisponível motivo=${error instanceof AssistantUnavailableError ? error.reason : errorCode(error)}`);
       return empty("unavailable");
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * A procura das tarefas sugeridas na árvore (`linkExistingSuggestions`) com o prazo que sobrou da elaboração, limitado a
+   * `SUGGESTED_LOOKUP_TIMEOUT_MAX_MS`. Nunca lança: qualquer falha devolve o que veio, com o motivo (sem texto) no registro.
+   */
+  private async linkSuggested(
+    judge: RelatedJudge,
+    seen: { draft: { title: string }; related: readonly { key: string }[]; duplicateKey: string | null; projectKey: string; tree: readonly LookupTicket[] },
+    clean: { links: ElaborationLink[]; suggested: ElaborationSuggestion[] },
+    started: number,
+  ): Promise<LinkLookupResult> {
+    const untouched: LinkLookupResult = { links: clean.links, suggested: clean.suggested, titles: new Map(), failed: 0 };
+    if (clean.suggested.length === 0) return untouched;
+    const left = (this.timeouts?.elaborationMs ?? ELABORATION_TIMEOUT_MS) - (Date.now() - started);
+    const budget = Math.min(this.timeouts?.suggestedLookupMs ?? SUGGESTED_LOOKUP_TIMEOUT_MAX_MS, left);
+    if (budget <= 0) {
+      this.logger.warn("procura das sugeridas sem prazo motivo=no_time_left");
+      return untouched;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budget);
+    try {
+      const result = await linkExistingSuggestions({ ...clean, tree: seen.tree, projectKey: seen.projectKey, duplicateKey: seen.duplicateKey, judge, signal: controller.signal });
+      if (result.failed > 0) this.logger.warn(`procura das sugeridas incompleta falhas=${result.failed} de=${clean.suggested.length}`);
+      return result;
+    } catch (error) {
+      this.logger.warn(`procura das sugeridas indisponível motivo=${error instanceof AssistantUnavailableError ? error.reason : errorCode(error)}`);
+      return untouched;
     } finally {
       clearTimeout(timer);
     }

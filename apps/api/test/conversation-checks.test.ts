@@ -11,6 +11,7 @@ import {
   checkMustNotMention,
   checkDraft,
   checkElaboration,
+  checkElaborationWithLookup,
 } from "../scripts/conversation-checks.js";
 
 describe("normalizeText", () => {
@@ -214,5 +215,34 @@ describe("os casos com relacionados (ADR 0052, fatia 3)", () => {
     expect(c.expectLinkKeys).toEqual([]);
     expect(c.maxSuggested).toBe(0);
     expect(c.related).toEqual([]);
+  });
+});
+
+describe("a procura das tarefas sugeridas na árvore da medição (R4)", () => {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), "../scripts/conversation-cases");
+  const testCase = JSON.parse(readFileSync(join(dir, "tarefa-implicada-existe.json"), "utf8"));
+  const draft = { title: "Sincronizar tickets com Jira, GitHub e Linear", description: "Só o diff", children: [] };
+  const vinculo = { title: "Guardar o vínculo entre cada ticket daqui e o item correspondente na plataforma externa", description: "Registrar o identificador externo", motivo: "sem vínculo não há diff" };
+  const cursor = { title: "Guardar o cursor da última sincronização", description: "Para saber o que mudou", motivo: "sem cursor não há diff" };
+
+  it("o caso leva a tarefa implicada na árvore, fora da lista de relacionados, com título diferente do que o modelo escreve", () => {
+    const keys = (testCase.related as { key: string }[]).map((r) => r.key);
+    expect(keys).not.toContain("DEMO-10");
+    expect((testCase.tree as { key: string }[]).map((r) => r.key)).toContain("DEMO-10");
+    expect(testCase.expectLinkKeys).toEqual(["DEMO-10"]);
+  });
+  it("a sugerida equivalente vira ligação e a conferência passa", async () => {
+    const r = await checkElaborationWithLookup(testCase, draft, { links: [], suggested: [vinculo] });
+    expect(r).toMatchObject({ linkKeys: ["DEMO-10"], suggestedCount: 0, equivalentSuggested: [], passes: true });
+  });
+  it("sem a procura (o modelo sugerindo e nada convertido), o caso reprova: faltou a ligação e sobrou a equivalente", async () => {
+    const r = checkElaboration(testCase, draft, { links: [], suggested: [vinculo] });
+    expect(r).toMatchObject({ linksMissing: ["DEMO-10"], passes: false });
+    expect(r.equivalentSuggested.length).toBeGreaterThan(0);
+  });
+  it("uma sugerida que não é a mesma coisa continua sugerida", async () => {
+    const r = await checkElaborationWithLookup(testCase, draft, { links: [], suggested: [vinculo, cursor] });
+    expect(r.suggestedTitles).toEqual([cursor.title]);
+    expect(r.linkKeys).toEqual(["DEMO-10"]);
   });
 });

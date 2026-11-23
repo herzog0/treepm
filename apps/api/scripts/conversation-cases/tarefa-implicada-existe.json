@@ -1,0 +1,28 @@
+{
+  "id": "tarefa-implicada-existe",
+  "messages": [
+    "Quero sincronizar os tickets daqui com o Jira, o GitHub e o Linear, recebendo só o diff (o que mudou desde a última vez), e não importar tudo de novo."
+  ],
+  "expectChildren": "either",
+  "mustMention": [
+    { "label": "sincronizar com as plataformas", "anyOf": ["jira", "github", "linear"] },
+    { "label": "só o que mudou", "anyOf": ["diff", "mudou"] }
+  ],
+  "mustNotMention": ["critérios de aceite", "fase", "prazo", "sprint"],
+  "related": [
+    { "key": "DEMO-11", "title": "Importar tickets de GitHub, Jira e Linear", "excerpt": "Importar por lista, uma vez só.", "status": "done" },
+    { "key": "DEMO-12", "title": "Tela de ajustes do projeto", "excerpt": "", "status": "todo" }
+  ],
+  "tree": [
+    { "key": "DEMO-10", "title": "Reimportar sem duplicar: guardar a origem de cada ticket", "excerpt": "Guardar de qual plataforma e de qual item externo cada ticket veio, para a reimportação não duplicar.", "status": "todo" },
+    { "key": "DEMO-11", "title": "Importar tickets de GitHub, Jira e Linear", "excerpt": "Importar por lista, uma vez só.", "status": "done" },
+    { "key": "DEMO-12", "title": "Tela de ajustes do projeto", "excerpt": "", "status": "todo" }
+  ],
+  "sameRequestByTitle": [
+    { "ticketTitle": "Reimportar sem duplicar: guardar a origem de cada ticket", "whenSuggestedMentions": ["vínculo", "vinculo", "origem", "identificador externo", "item externo", "id externo", "correspondente"] }
+  ],
+  "expectLinkKeys": ["DEMO-10"],
+  "noSuggestedMention": ["vínculo", "vinculo", "origem", "identificador externo", "item externo"],
+  "minSuggested": 0,
+  "maxSuggested": 3
+}

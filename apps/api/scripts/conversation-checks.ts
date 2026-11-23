@@ -3,7 +3,8 @@
  * recebem o que o provedor devolveu e dizem o que se perdeu, o que foi inventado e o que a IA afirmou que fez.
  */
 import { sanitizeElaboration } from "../src/assistant/elaboration.js";
-import type { ConversationDraft, ElaborationLink, ElaborationRelated, ElaborationSuggestion } from "../src/assistant/ports.js";
+import type { ConversationDraft, ElaborationLink, ElaborationRelated, ElaborationSuggestion, RelatedInput, RelatedJudge, RelatedJudgment } from "../src/assistant/ports.js";
+import { linkExistingSuggestions } from "../src/assistant/suggested-links.js";
 
 export type MustMention = { label: string; anyOf: readonly string[] };
 
@@ -27,6 +28,15 @@ export type ConversationCase = {
   /** Quantas tarefas sugeridas, depois do descarte do servidor, são aceitas. */
   minSuggested?: number | undefined;
   maxSuggested?: number | undefined;
+  /**
+   * Opcional (R4): a árvore inteira do caso, com tickets que o modelo NÃO recebeu como relacionados (`related`). A procura das
+   * tarefas sugeridas roda sobre ela, com o Jev falso `sameRequestByTitle`.
+   */
+  tree?: readonly { key: string; title: string; excerpt: string; status: string }[] | undefined;
+  /** O Jev falso da medição: o ticket (por título) "pede a mesma coisa" que a sugerida cujo texto cita pelo menos um dos trechos. */
+  sameRequestByTitle?: readonly { ticketTitle: string; whenSuggestedMentions: readonly string[] }[] | undefined;
+  /** Trechos que NÃO podem aparecer nos títulos das tarefas sugeridas que sobraram (a equivalente tem de virar ligação). */
+  noSuggestedMention?: readonly string[] | undefined;
 };
 
 /** O que importa de um turno do provedor para a conferência. */
@@ -198,8 +208,38 @@ export type ElaborationCheck = {
   suggestedCount: number;
   linksMissing: string[];
   suggestedOk: boolean;
+  /** Trechos proibidos (`noSuggestedMention`) que apareceram nas sugeridas que sobraram. */
+  equivalentSuggested: InventedHit[];
   passes: boolean;
 };
+
+const sanitize = (testCase: ConversationCase, draft: ConversationDraft, raw: { links: readonly ElaborationLink[]; suggested: readonly ElaborationSuggestion[] }) =>
+  sanitizeElaboration(raw, {
+    draftTitle: draft.title,
+    partTitles: (draft.children ?? []).map((child) => child.title),
+    related: testCase.related ?? [],
+    duplicateKey: null,
+    projectKey: "DEMO",
+  });
+
+function evaluate(testCase: ConversationCase, clean: { links: ElaborationLink[]; suggested: ElaborationSuggestion[] }): ElaborationCheck {
+  const linkKeys = clean.links.map((link) => link.dependeDe);
+  const linksMissing = (testCase.expectLinkKeys ?? []).filter((key) => !linkKeys.includes(key));
+  const count = clean.suggested.length;
+  const suggestedOk = (testCase.minSuggested === undefined || count >= testCase.minSuggested) && (testCase.maxSuggested === undefined || count <= testCase.maxSuggested);
+  const equivalentSuggested = checkMustNotMention(clean.suggested.map((task) => task.title).join("\n"), testCase.noSuggestedMention ?? []);
+  return {
+    linkKeys,
+    links: clean.links,
+    suggestedTitles: clean.suggested.map((task) => task.title),
+    suggested: clean.suggested,
+    suggestedCount: count,
+    linksMissing,
+    suggestedOk,
+    equivalentSuggested,
+    passes: linksMissing.length === 0 && suggestedOk && equivalentSuggested.length === 0,
+  };
+}
 
 /**
  * Confere a elaboração contra um caso. As tarefas sugeridas são contadas À PARTE de "inventadas": sugestão marcada não é
@@ -211,26 +251,37 @@ export function checkElaboration(
   draft: ConversationDraft,
   raw: { links: readonly ElaborationLink[]; suggested: readonly ElaborationSuggestion[] },
 ): ElaborationCheck {
-  const related = testCase.related ?? [];
-  const clean = sanitizeElaboration(raw, {
-    draftTitle: draft.title,
-    partTitles: (draft.children ?? []).map((child) => child.title),
-    related,
-    duplicateKey: null,
-    projectKey: "DEMO",
-  });
-  const linkKeys = clean.links.map((link) => link.dependeDe);
-  const linksMissing = (testCase.expectLinkKeys ?? []).filter((key) => !linkKeys.includes(key));
-  const count = clean.suggested.length;
-  const suggestedOk = (testCase.minSuggested === undefined || count >= testCase.minSuggested) && (testCase.maxSuggested === undefined || count <= testCase.maxSuggested);
+  return evaluate(testCase, sanitize(testCase, draft, raw));
+}
+
+/** O Jev falso da medição: responde `sameRequest` por título do ticket, quando a sugerida cita um dos trechos do caso. Nunca chama provedor. */
+export function titleKeyedJudge(testCase: ConversationCase): RelatedJudge {
   return {
-    linkKeys,
-    links: clean.links,
-    suggestedTitles: clean.suggested.map((task) => task.title),
-    suggested: clean.suggested,
-    suggestedCount: count,
-    linksMissing,
-    suggestedOk,
-    passes: linksMissing.length === 0 && suggestedOk,
+    judge(input: RelatedInput): Promise<Record<string, RelatedJudgment>> {
+      const text = normalizeText(`${input.draft.title}\n${input.draft.description}`);
+      return Promise.resolve(
+        Object.fromEntries(
+          input.candidates.map((candidate) => {
+            const rule = (testCase.sameRequestByTitle ?? []).find((entry) => entry.ticketTitle === candidate.title);
+            const hit = rule?.whenSuggestedMentions.some((phrase) => text.includes(normalizeText(phrase))) ?? false;
+            return [candidate.id, { sameSubject: hit ? 0.9 : 0.1, sameRequest: hit ? 0.9 : 0.1 }];
+          }),
+        ),
+      );
+    },
   };
+}
+
+/** Como `checkElaboration`, mas depois do descarte roda a procura das sugeridas na árvore do caso (`tree`), como a rota faz. */
+export async function checkElaborationWithLookup(
+  testCase: ConversationCase,
+  draft: ConversationDraft,
+  raw: { links: readonly ElaborationLink[]; suggested: readonly ElaborationSuggestion[] },
+): Promise<ElaborationCheck> {
+  const clean = sanitize(testCase, draft, raw);
+  const tree = testCase.tree ?? [];
+  if (tree.length === 0) return evaluate(testCase, clean);
+  const numbered = tree.map((entry) => ({ id: entry.key, number: Number(entry.key.split("-").pop()), title: entry.title, description: entry.excerpt }));
+  const found = await linkExistingSuggestions({ ...clean, tree: numbered, projectKey: "DEMO", duplicateKey: null, judge: titleKeyedJudge(testCase) });
+  return evaluate(testCase, found);
 }
