@@ -108,3 +108,13 @@ Fatia 1 no PR #204 (migration `0030_ticket_embeddings`) e fatia 2 no PR #205 (mi
 - **Banco de teste:** imagem `pgvector/pgvector:pg17` com `--locale=C`, igual à ordenação do Neon de desenvolvimento (`C.UTF-8`).
 
 Em aberto: a medição com a Voyage (`TREEPM-350`, `TREEPM-351`); gerar o vetor também ao criar ou editar, pedido de Teodoro (`TREEPM-355`); tela de importação com etapas (`TREEPM-356`); a frase do aceite sobre texto livre (`TREEPM-354`).
+
+## Adendo de 2026-11-23: medição com a Voyage e fusão desligada por padrão
+
+A conta saiu do uso para treino antes de a chave existir (confirmado pelo canal), o administrador aceitou o texto novo, e o projeto `TREEPM` foi indexado (304 tickets, cerca de 4 s).
+
+- **Triagem, 7 pares** (4 ligações "depende de" e 3 do caso de Teodoro). Entre os 30: palavras 4, vetor 4, fusão 6, nenhum achado por palavras perdido. Entre os 10: palavras 4, fusão 2: a soma de posições rebaixa achados por palavras (4º para 18º, 6º para 13º), porque quem está nas duas listas sempre passa quem está em uma só. O par do caso de Teodoro ficou entre a 19ª e a 27ª posição; o critério pedia entre os 10 e **não passou**. O limiar de distância não separa (esperados de 0,42 a 0,55; 10º vizinho em 0,53).
+- **Fim a fim:** caso de Teodoro em 6 repetições, lugar certo em 6 e ligação com `TREEPM-144` em 4; `measure:conversation`, 11 de 13 passam, nenhum perdido, nenhum inventado. Igual à base. Custo: cerca de 0,6 s por busca com os vetores em dia.
+- **O critério "entre os 10" foi mal escolhido:** na busca de relacionados os 30 vão ao Jev. Fica o registro de que fixar limiar antes de medir não ajudou.
+- **Decisão:** a fusão fica **desligada por padrão** (`SEMANTIC_TRIAGE=off`; `rrf` e `interleave` ligam a soma de posições ou a intercalação; `SEMANTIC_QUERY_KIND` escolhe o tipo da consulta). A tabela, os vetores e a ferramenta continuam, para a barra de busca e para duplicados. O comando de medição ganhou pares por citação entre tickets, para a amostra deixar de ser de 7.
+- A [ADR 0054](0054-na-duvida-sobre-o-lugar-a-conversa-pergunta.md) explica por que semelhança não resolve o lugar do ticket.
