@@ -16,6 +16,7 @@ Contrato em `docs/adr/0022-api-nestjs-e-hospedagem-na-fly.md`. Um app serve `tre
 | `DATABASE_MIGRATION_URL` | **nunca na Fly**; só no ambiente do mantenedor ou do CI | Papel dono, conexão direta. Usada só por `prisma migrate deploy`, fora da Fly. |
 | `CLERK_JWT_KEY` | secret da Fly | Opcional (verificação sem rede). |
 | `ANTHROPIC_API_KEY`, `TYPESAFE_API_KEY` | secrets da Fly | Opcionais, mas só valem juntas: sem as duas, a IA fica desligada e o resto funciona (ADR 0029). |
+| `VOYAGE_API_KEY` | secret da Fly | Opcional: sem ela a busca por significado fica desligada e a procura usa só palavras (ADR 0053). A conta da Voyage precisa estar fora do treino (opt-out) **antes** de a chave ser criada na Fly. |
 | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY` | secrets da Fly | Opcionais, as cinco juntas: sem elas, a ligação com o GitHub fica desligada (ADR 0032). O app de desenvolvimento (`treepm-dev`) aponta para `localhost`; produção precisa de um app próprio, com a Callback URL de `treepm.ai`. |
 
 **Por que migrar fora da Fly.** Na Fly, secrets são variáveis de ambiente de todas as máquinas do app (e da máquina temporária do `release_command`); não existe secret restrito. Para cumprir a ADR 0021 (a URL do papel dono nunca fica no processo da API), o `fly.toml` não tem `release_command`, a imagem não traz o CLI do prisma nem as migrações, e `DATABASE_MIGRATION_URL` nunca é criado na Fly.
@@ -68,8 +69,8 @@ O banco de produção é separado do Neon de desenvolvimento.
 **Cadastro restrito no começo** *(escolha da coordenação)*: a instância de produção do Clerk começa com lista de permitidos ou convite. Com cadastro aberto, texto de ticket de outras organizações iria à Anthropic e à TypeSafe sem termo de aceite, que ainda não existe (`TREEPM-81`). Abrir o cadastro espera esse aceite.
 
 1. Decidir o nome do app (`treepm` é provisório) e criar o app na Fly.
-2. Criar os secrets: `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `DATABASE_URL` e, se quiser, `CLERK_JWT_KEY`; para a IA, `ANTHROPIC_API_KEY` e `TYPESAFE_API_KEY`; para o GitHub, as cinco `GITHUB_APP_*`, quando existir o app de produção. Nunca `DATABASE_MIGRATION_URL`.
-3. Rodar a primeira migração fora da Fly (ver a ordem acima).
+2. Criar os secrets: `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `DATABASE_URL` e, se quiser, `CLERK_JWT_KEY`; para a IA, `ANTHROPIC_API_KEY` e `TYPESAFE_API_KEY` e, para a busca por significado, `VOYAGE_API_KEY` (conta fora do treino); para o GitHub, as cinco `GITHUB_APP_*`, quando existir o app de produção. Nunca `DATABASE_MIGRATION_URL`.
+3. Rodar a primeira migração fora da Fly (ver a ordem acima). O banco de produção precisa de PostgreSQL 15 ou mais e da extensão `vector` (pgvector) disponível para o papel dono: a migration `0030` roda `CREATE EXTENSION IF NOT EXISTS vector`.
 4. Criar a instância de produção do Clerk para `treepm.ai`, com os registros DNS que ela exigir.
 5. Apontar o DNS de `treepm.ai` para o app e emitir o certificado na Fly.
 6. `fly deploy --build-arg VITE_CLERK_PUBLISHABLE_KEY=<chave pública de produção>`.
