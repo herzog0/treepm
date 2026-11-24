@@ -1,11 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import type { ApiClient, ApiError, ApiResult, ConversationDetail, CreatedFromConversation, DraftPreview, ElaborationOutcome, NewGroup, PlacedBy, PlacementOutcome, Project, TicketSummary } from "../api/client.js";
-import { useApiResource } from "../api/useApiResource.js";
-import { AiIcon } from "../command/icons.js";
-import { LoadError } from "../LoadError.js";
-import type { MapDraft, MapNode } from "../map/items.js";
+import type { ApiError, ConversationDetail, CreatedFromConversation, DraftPreview, ElaborationOutcome, NewGroup, PlacedBy, PlacementOutcome } from "../api/client.js";
+import type { MapNode } from "../map/items.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
@@ -25,146 +22,36 @@ import { Reveal } from "./Reveal.js";
 import { Skeleton } from "./Skeleton.js";
 import { destinationUnder, oneLevelUp, recentChoices } from "./placement.js";
 import type { Destination, PlaceChoice } from "./placement.js";
-import type { MapPicker } from "./types.js";
 import { RichDescription } from "../ticket/description/RichDescription.js";
 import "./assistant.css";
 import { ConsentRequiredNotice, isConsentRequired } from "../api/ConsentRequired.js";
 import { useDescribeApiError } from "../api/errorText.js";
+import type { ApiClient, Project, TicketSummary } from "../api/client.js";
+import type { MapDraft } from "../map/items.js";
+import type { MapPicker } from "./types.js";
 
-/** Limite da API para uma mensagem da pessoa (`MAX_PERSON_MESSAGE`). */
-export const MAX_MESSAGE = 4000;
-const WARN_AT = 3600;
-
-export interface AssistantPanelProps {
+export interface ConversationProps {
   client: ApiClient;
   /** Projetos em que a pessoa pode criar ticket (não arquivados). */
   projects: readonly Project[];
-  /** Projeto do ticket ou projeto selecionado; `null` pede a escolha antes da primeira mensagem. */
-  initialProjectId: string | null;
-  /** Ticket selecionado no mapa ao abrir: a procura começa dentro dele (ADR 0031, ADR 0034). Ignorado se não for ticket do projeto da conversa. */
-  initialScopeId?: string | null;
-  /** Texto vindo da barra de pedidos (ADR 0036): vai como a primeira mensagem assim que a conversa carrega. */
-  initialMessage?: string | null;
-  /** Tickets de cada projeto, como o mapa os tem: o painel deriva daqui os caminhos que ele mesmo monta. */
+  project: Project;
+  /** Tickets de cada projeto, como o mapa os tem: a conversa deriva daqui os caminhos que ela mesma monta. */
   tickets: Readonly<Record<string, readonly TicketSummary[]>>;
-  /** A folha está à vista; falso quando recolhida: a conversa continua montada, só some da barra (ADR 0036). */
-  expanded: boolean;
-  /** Retoma a conversa aberta mais recente do projeto (`true`) ou começa uma vazia (`false`). */
-  resume: boolean;
-  /** Recolhe a folha sem encerrar a conversa. */
-  onCollapse: () => void;
-  /** Diz se há conversa em andamento (mensagem, resposta a caminho ou texto digitado): recolher uma vazia a encerra. */
-  onProgress: (active: boolean) => void;
   /** Depois de criar: o mapa recarrega (`onChanged`) e abre a página do ticket novo. */
   onCreated: (ticketId: string) => void;
-  /** Abre a página de um ticket que já existe e leva a câmera, SEM fechar o assistente: a prévia fica onde estava. */
+  /** Abre a página de um ticket que já existe e leva a câmera, SEM sair da conversa. */
   onOpenExisting?: (ticketId: string) => void;
   /** Caminho de saída quando a IA falha: o modo de criação manual da página do ticket. */
+  /** Há onde abrir a criação manual (a página do ticket, no mapa); sem isso o botão "Criar manualmente" não aparece. */
+  canManualCreate?: boolean;
   onManualCreate: (request: { projectId: string; parentId: string | null; draft?: { title: string; description: string } }) => void;
   /** Onde o mapa mostra o card tracejado; `null` quando não há destino. */
   onDraftChange: (draft: MapDraft | null) => void;
   onChanged: () => void;
   /** Enquanto a pessoa "escolhe no mapa", o mapa envia os cliques em nós a este objeto. */
   registerPicker: (picker: MapPicker | null) => void;
-}
-
-const CloseIcon = () => (
-  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-    <path d="m3 3 8 8M11 3l-8 8" />
-  </svg>
-);
-const SendIcon = () => (
-  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
-  </svg>
-);
-
-/** Folha de conversa para criar ticket com a IA (ADR 0029, ADR 0036): mora dentro da barra de pedidos, com a linha de cima e o corpo. */
-export function AssistantPanel(props: AssistantPanelProps) {
-  const { projects, initialProjectId, expanded, onCollapse, onProgress } = props;
-  const { t } = useTranslation("assistant");
-  const body = useRef<HTMLElement>(null);
-  const [projectId, setProjectId] = useState(initialProjectId);
-  const [choosing, setChoosing] = useState(false);
-  const [pickNotice, setPickNotice] = useState("");
-  // Lugares da linha de cima que só a conversa sabe preencher (o escopo e as ações dela): ela os alcança por portal.
-  const [chipSlot, setChipSlot] = useState<HTMLElement | null>(null);
-  const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
-  // O escopo vive só no estado da folha: não é gravado na conversa, e uma conversa retomada depois começa sem ele.
-  const [scopeId, setScopeId] = useState<string | null>(props.initialScopeId ?? null);
-  const project = projects.find((entry) => entry.id === projectId) ?? null;
-  const scopeTicket = project && scopeId !== null ? (props.tickets[project.id] ?? []).find((entry) => entry.id === scopeId) : undefined;
-  const scope = scopeTicket ? { id: scopeTicket.id, key: scopeTicket.key, title: scopeTicket.title } : null;
-
-  useEffect(() => {
-    if (project === null) onProgress(false);
-  }, [project, onProgress]);
-
-  // O foco entra na folha quando ela abre ou reabre, e volta a ela quando a escolha no mapa termina (o campo de mensagem toma o foco quando existe).
-  useEffect(() => {
-    if (!expanded || choosing) return;
-    const field = body.current?.querySelector<HTMLElement>("#assistant-message");
-    (field ?? body.current)?.focus();
-  }, [expanded, choosing]);
-
-  return (
-    <div className="assistant-sheet" hidden={!expanded}>
-      <div className="assistant-top" hidden={choosing}>
-        <span className="command-icon"><AiIcon /></span>
-        <span ref={setChipSlot} className="assistant-chip-slot" />
-        <div className="assistant-title">
-          <h2>{t("panel.title")}</h2>
-          <p>{project ? t("panel.project", { key: project.key, name: project.name }) : t("panel.subtitle")}</p>
-        </div>
-        <div ref={setActionsSlot} className="assistant-header-actions" />
-        <button type="button" className="assistant-close" aria-label={t("panel.collapse")} onClick={onCollapse}>
-          <CloseIcon />
-        </button>
-      </div>
-      {choosing && (
-        <div className="assistant-top assistant-pick">
-          <span className="command-icon"><AiIcon /></span>
-          <div className="assistant-pick-text">
-            <p role="status">{t("pick.instruction")}</p>
-            {pickNotice !== "" && <p role="alert">{pickNotice}</p>}
-          </div>
-          <button type="button" className="text" onClick={() => setChoosing(false)}>{t("pick.cancel")}</button>
-        </div>
-      )}
-      <section ref={body} className="assistant-body" aria-label={t("panel.label")} tabIndex={-1} hidden={choosing}>
-        {project === null ? (
-          <div className="assistant-scroll">
-            <h3>{t("project.question")}</h3>
-            <ul className="assistant-projects">
-              {projects.map((entry) => (
-                <li key={entry.id}>
-                  <button type="button" onClick={() => setProjectId(entry.id)}>{t("project.option", { key: entry.key, name: entry.name })}</button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : (
-          <ProjectConversation
-            key={project.id}
-            {...props}
-            project={project}
-            choosing={choosing}
-            setChoosing={setChoosing}
-            pickNotice={pickNotice}
-            setPickNotice={setPickNotice}
-            scope={scope}
-            onRemoveScope={() => setScopeId(null)}
-            chipSlot={chipSlot}
-            actionsSlot={actionsSlot}
-          />
-        )}
-      </section>
-    </div>
-  );
-}
-
-interface ConversationProps extends AssistantPanelProps {
-  project: Project;
+  /** Há um mapa montado onde escolher o lugar; falso em outra tela, e o botão "Escolher no mapa" não aparece. */
+  canPickOnMap: boolean;
   choosing: boolean;
   setChoosing: (choosing: boolean) => void;
   pickNotice: string;
@@ -174,36 +61,46 @@ interface ConversationProps extends AssistantPanelProps {
   onRemoveScope: () => void;
   chipSlot: HTMLElement | null;
   actionsSlot: HTMLElement | null;
+  /** A thread some depois de descartar; quem hospeda decide para onde ir. */
+  onRemoved: () => void;
+  /** A conversa mudou de estado (mensagem, procura, resposta, rascunho salvo); a barra lateral relê o selo. */
+  onActivity?: () => void;
+  /** O que a tela guardou da última vez que esta thread esteve aberta (memória da sessão), e quem o guarda ao sair. */
+  memory?: ChatScreenState;
+  onRemember?: (screen: ChatScreenState) => void;
+  /** O resultado da última procura, remontado do que o servidor guarda; a tela volta a ele ao reabrir. */
+  initialOutcome?: PlacementOutcome | null;
+  /** A criação seguiu mas a API descartou ligações ou sugeridas: quem hospeda guarda o aviso, porque a thread vira "criada" e este miolo desmonta. */
+  onNotice?: (notice: { ticketId: string; warnings: CreatedFromConversation["warnings"] }) => void;
 }
 
-/** Com `resume`, a conversa aberta mais recente da pessoa no projeto continua de onde parou; sem ele, começa vazia. */
-function ProjectConversation(props: ConversationProps) {
-  if (!props.resume) return <Chat {...props} initial={null} />;
-  return <ResumedConversation {...props} />;
+/** O que só a tela sabe de uma thread de criação (o servidor não guarda): vive na memória da sessão e volta quando a thread reabre. */
+export interface ChatScreenState {
+  text: string;
+  edit: Edit | null;
+  target: Destination | null;
+  placedBy: PlacedBy;
+  trail: Trail;
+  limitReached: boolean;
+  proposalDropped: boolean;
+  unchecked: string[];
+  duplicateAccepted: boolean;
+  removedSuggested: string[];
+  uncheckedLinks: string[];
+  scopeRemoved: boolean;
 }
 
-function ResumedConversation(props: ConversationProps) {
-  const { t } = useTranslation("assistant");
-  const { client, project } = props;
-  const loaded = useApiResource(() =>
-    safe(async (): Promise<ApiResult<ConversationDetail | null>> => {
-      const list = await client.listConversations(project.id);
-      if (!list.ok) return list;
-      const latest = list.data.filter((entry) => entry.status === "open").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-      return latest ? client.getConversation(latest.id) : { ok: true, data: null };
-    }),
-  );
+/** Limite da API para uma mensagem da pessoa (`MAX_PERSON_MESSAGE`). */
+export const MAX_MESSAGE = 4000;
+const WARN_AT = 3600;
 
-  if (loaded.state.status === "loading") {
-    return <div className="assistant-scroll"><p role="status" className="assistant-hint">{t("loading")}</p></div>;
-  }
-  if (loaded.state.status === "error") {
-    return <div className="assistant-scroll"><LoadError error={loaded.state.error} onRetry={loaded.retry} /></div>;
-  }
-  return <Chat {...props} initial={loaded.state.data} />;
-}
+const SendIcon = () => (
+  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
+  </svg>
+);
 
-interface Edit {
+export interface Edit {
   title: string;
   description: string;
   /** Os filhos do rascunho com as edições à mão; vazia quando o rascunho é de um ticket só. */
@@ -216,7 +113,7 @@ interface Edit {
 export const MAX_ANSWERS = 3;
 
 /** As respostas da pessoa nesta procura: quantas, o último ramo que ela confirmou e de que tipo foi a primeira. */
-interface Trail {
+export interface Trail {
   answers: number;
   branch: string | null;
   first: "option" | "recent" | null;
@@ -226,24 +123,23 @@ const NO_TRAIL: Trail = { answers: 0, branch: null, first: null };
 /** A mensagem que a pessoa acabou de enviar: aparece na conversa antes de a resposta chegar e, se falhar, fica como não respondida. */
 interface Outbox {
   text: string;
-  /** Abre uma conversa nova (texto da barra) em vez de continuar a que está na folha. */
-  fresh: boolean;
   failed: boolean;
 }
 
-function Chat(props: ConversationProps & { initial: ConversationDetail | null }) {
+export function Chat(props: ConversationProps & { initial: ConversationDetail | null }) {
   const describeError = useDescribeApiError();
   const { t, i18n } = useTranslation("assistant");
   const language = i18n.language as Language;
-  const { client, project, tickets, choosing, setChoosing, setPickNotice, onChanged, onCreated, onOpenExisting, onManualCreate, scope, expanded, onProgress } = props;
+  const { client, project, tickets, choosing, setChoosing, setPickNotice, onChanged, onCreated, onOpenExisting, onManualCreate, scope } = props;
   const registerPicker = props.registerPicker;
   const list = tickets[project.id] ?? [];
   const [conversation, setConversation] = useState(props.initial);
-  const [text, setText] = useState("");
+  const memory = props.memory;
+  const [text, setText] = useState(memory?.text ?? "");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<ApiError | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const [edit, setEdit] = useState<Edit | null>(null);
+  const [edit, setEdit] = useState<Edit | null>(memory?.edit ?? null);
   const [outbox, setOutbox] = useState<Outbox | null>(null);
   // A resposta que acabou de chegar e ainda está sendo revelada.
   const [revealingId, setRevealingId] = useState<string | null>(null);
@@ -259,9 +155,12 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   // aberta não há destino nem criação; um resultado sem pergunta e sem confirmação (decisão não guardada) vale como opção.
   const [placedBy, setPlacedBy] = useState<PlacedBy>("search");
   // As respostas da pessoa à pergunta nesta procura; recomeçam a cada procura nova. O teto de três vale na tela.
-  const trail = useRef<Trail>(NO_TRAIL);
+  const trail = useRef<Trail>(memory?.trail ?? NO_TRAIL);
   // Cada procura leva um número; o resultado de uma procura superada (a pessoa agiu depois de ela sair) é descartado.
   const searchSeq = useRef(0);
+  // A pessoa tirou o escopo: as procuras seguintes vão com `scopeId: null` explícito (ausente, o servidor reaplicaria o ticket de origem da thread).
+  const scopeRemoved = useRef(memory?.scopeRemoved ?? false);
+  const scopeArg = (): string | null | undefined => (scope ? scope.id : scopeRemoved.current ? null : undefined);
   const inFlight = useRef(false);
   const [limitReached, setLimitReached] = useState(false);
   const recents = useRecentPlaces();
@@ -275,12 +174,10 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const [elaboratedFor, setElaboratedFor] = useState<string | null>(null);
   /** A criação seguiu, mas a API descartou ligações ou sugeridas: a tela diz o que ficou de fora antes de abrir o ticket. */
   const [createdNotice, setCreatedNotice] = useState<{ ticketId: string; warnings: CreatedFromConversation["warnings"] } | null>(null);
-  const [removedSuggested, setRemovedSuggested] = useState<string[]>([]);
-  const [uncheckedLinks, setUncheckedLinks] = useState<string[]>([]);
+  const [removedSuggested, setRemovedSuggested] = useState<string[]>(memory?.removedSuggested ?? []);
+  const [uncheckedLinks, setUncheckedLinks] = useState<string[]>(memory?.uncheckedLinks ?? []);
   const sendingRef = useRef(false);
-  const initialSent = useRef(false);
   const scroller = useRef<HTMLDivElement>(null);
-  const scrolled = useRef(0);
   const save = useAction();
   const search = useAction();
   const create = useAction();
@@ -292,6 +189,27 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const blankTitle = fields !== null && (fields.title.trim() === "" || fields.children.some((part) => part.title.trim() === ""));
   const busy = save.busy || search.busy || create.busy || removal.busy;
   const partCount = draft?.children.length ?? 0;
+
+  // Trocar de conversa desmonta esta tela: o que só ela sabe fica na memória da sessão, por thread, e volta ao reabrir.
+  const latest = useRef<ChatScreenState | null>(null);
+  latest.current = { text, edit, target, placedBy, trail: trail.current, limitReached, proposalDropped, unchecked, duplicateAccepted, removedSuggested, uncheckedLinks, scopeRemoved: scopeRemoved.current };
+  const onRemember = useRef(props.onRemember);
+  onRemember.current = props.onRemember;
+  useEffect(() => () => void (latest.current && onRemember.current?.(latest.current)), []);
+  // A pergunta aberta (ou o destino confirmado) vem do servidor; o que a pessoa fez depois dela, da memória.
+  useEffect(() => {
+    const restored = props.initialOutcome;
+    if (!restored) return;
+    showOutcome(restored, trail.current);
+    if (memory) {
+      setTarget(memory.target);
+      setPlacedBy(memory.placedBy);
+      setLimitReached(memory.limitReached);
+      setProposalDropped(memory.proposalDropped);
+      setUnchecked(memory.unchecked);
+      setDuplicateAccepted(memory.duplicateAccepted);
+    }
+  }, []);
 
   // A prévia é lida de novo quando o rascunho muda (outra resposta da IA, rascunho salvo à mão).
   const previewKey = conversation && draft ? `${conversation.id}|${conversation.updatedAt}|${JSON.stringify(draft)}` : null;
@@ -358,24 +276,14 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const ghostParent = target === null ? undefined : target.parentId;
   useEffect(() => {
     onDraftChange.current(ghostParent === undefined || ghostTitle === null ? null : { projectId: project.id, parentId: ghostParent, title: ghostTitle });
-  }, [ghostParent, ghostTitle, project.id]);
+    // O mapa que remonta traz outro `onDraftChange`: o card tracejado volta nele.
+  }, [ghostParent, ghostTitle, project.id, props.onDraftChange]);
   useEffect(() => () => onDraftChange.current(null), []);
 
   useEffect(() => {
     const element = scroller.current;
     if (element) element.scrollTop = element.scrollHeight;
   }, [conversation?.messages.length, outcome, sendError, outbox, sending, revealingId]);
-
-  // Recolhida, a folha some do layout e a rolagem se perde: ao reabrir, ela volta onde estava.
-  useLayoutEffect(() => {
-    if (expanded && scroller.current) scroller.current.scrollTop = scrolled.current;
-  }, [expanded]);
-
-  // Recolher uma conversa vazia a encerra; com mensagem, resposta a caminho ou texto digitado, ela fica em andamento.
-  const active = conversation !== null || sending || outbox !== null || text.trim() !== "";
-  useEffect(() => {
-    onProgress(active);
-  }, [active, onProgress]);
 
   // "Escolher no mapa": o próximo clique em um ticket ou no projeto do mesmo projeto vira o destino (ADR 0034: qualquer
   // ticket recebe filhos, então o ticket clicado é o destino).
@@ -418,33 +326,19 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     create.clear();
   };
 
-  const reset = () => {
-    setConversation(null);
-    setOutbox(null);
-    setRevealingId(null);
-    setText("");
-    setSendError(null);
-    setEdit(null);
-    setRemovedSuggested([]);
-    setUncheckedLinks([]);
-    clearPlacement();
-    save.clear();
-    removal.clear();
-  };
-
-  const send = async (override?: string, fresh = false) => {
+  const send = async (override?: string) => {
     const message = (override ?? text).trim();
     if (message === "" || message.length > MAX_MESSAGE || sendingRef.current) return;
     sendingRef.current = true;
     // A mensagem entra na conversa e o campo esvazia antes de a requisição voltar (TREEPM-194).
-    setOutbox({ text: message, fresh, failed: false });
+    setOutbox({ text: message, failed: false });
     setRevealingId(null);
     if (override === undefined) setText("");
     setSending(true);
     setSendError(null);
     // O escopo vai com a abertura e com cada mensagem (ADR 0033): a IA recebe os tickets com filhos do lugar da procura.
     const scopeId = scope?.id ?? null;
-    const result = await safe(() => (conversation && !fresh ? client.sendConversationMessage(conversation.id, { message, scopeId }) : client.openConversation(project.id, { message, scopeId })));
+    const result = await safe(() => (conversation ? client.sendConversationMessage(conversation.id, { message, scopeId }) : client.openConversation(project.id, { message, scopeId })));
     sendingRef.current = false;
     setSending(false);
     if (result.ok) {
@@ -452,32 +346,24 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
       setOutbox(null);
       setEdit(null);
       clearPlacement();
+      props.onActivity?.();
       const last = result.data.messages.at(-1);
       setAnnouncement(last?.author === "assistant" ? last.body : "");
       setRevealingId(last?.author === "assistant" ? last.id : null);
       return;
     }
     // O erro não apaga o que a pessoa enviou: a mensagem fica na conversa, como não respondida, e "Tentar de novo" a reenvia.
-    setOutbox({ text: message, fresh, failed: true });
+    setOutbox({ text: message, failed: true });
     setSendError(result.error);
     if (result.error.code === "conversation_changed" && conversation) {
-      const fresh = await safe(() => client.getConversation(conversation.id));
-      if (fresh.ok) {
-        setConversation(fresh.data);
+      const reloaded = await safe(() => client.getConversation(conversation.id));
+      if (reloaded.ok) {
+        setConversation(reloaded.data);
         setEdit(null);
         clearPlacement();
       }
     }
   };
-
-  // Texto da barra de pedidos: enviado uma vez, como a primeira mensagem de uma conversa nova.
-  const initialMessage = props.initialMessage ?? null;
-  useEffect(() => {
-    if (initialMessage === null || initialSent.current) return;
-    initialSent.current = true;
-    // Pedido vindo da barra: sempre uma conversa nova; a anterior continua guardada.
-    void send(initialMessage, true);
-  }, []);
 
   /** Grava a edição à mão do rascunho; devolve a conversa atualizada, ou `null` se falhou. */
   const saveDraft = async (): Promise<ConversationDetail | null> => {
@@ -497,6 +383,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     const saved = { ...result.data, ready: conversation.ready };
     setConversation(saved);
     setEdit(null);
+    props.onActivity?.();
     return saved;
   };
 
@@ -523,7 +410,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const chosenPlace = target !== null && placedBy !== "search";
 
   /** `scopeId`: o escopo desta procura (`null`: o projeto inteiro). Procura nova: as respostas recomeçam. Devolve se deu resultado. */
-  const searchPlace = async (scopeId: string | null = scope?.id ?? null): Promise<boolean> => {
+  const searchPlace = async (scopeId: string | null | undefined = scopeArg()): Promise<boolean> => {
     if (!conversation || busy) return false;
     let current = conversation;
     if (dirty) {
@@ -535,13 +422,14 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   };
 
   /** A procura nova de um rascunho já salvo. */
-  const searchFrom = async (current: ConversationDetail, scopeId: string | null): Promise<boolean> => {
+  const searchFrom = async (current: ConversationDetail, scopeId: string | null | undefined): Promise<boolean> => {
     setProposalDropped(true);
     const seq = ++searchSeq.current;
-    const result = await search.run(() => (scopeId === null ? client.findPlacement(current.id) : client.findPlacement(current.id, scopeId)));
+    const result = await search.run(() => (scopeId === undefined ? client.findPlacement(current.id) : client.findPlacement(current.id, scopeId)));
     if (!result.ok || seq !== searchSeq.current) return false;
     trail.current = NO_TRAIL;
     showOutcome(result.data, NO_TRAIL);
+    props.onActivity?.();
     return true;
   };
 
@@ -549,7 +437,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const saveAndSearchAgain = async () => {
     if (!conversation || busy) return;
     const saved = await saveDraft();
-    if (saved && outcome !== null && !chosenPlace) await searchFrom(saved, scope?.id ?? null);
+    if (saved && outcome !== null && !chosenPlace) await searchFrom(saved, scopeArg());
   };
 
   /** A pessoa respondeu à pergunta com um ramo ou um lugar recente: a procura continua a partir dele. */
@@ -558,7 +446,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     // Rascunho com edição não salva: o lugar de antes já não vale; salvar procura de novo, do zero.
     if (dirty) return void (await saveAndSearchAgain());
     const answered: Trail = { answers: trail.current.answers + 1, branch: choice.id, first: trail.current.first ?? kind };
-    const scopeId = scope?.id;
+    const scopeId = scopeArg();
     const seq = ++searchSeq.current;
     inFlight.current = true;
     const result = await search.run(() => client.findPlacement(conversation.id, scopeId, choice.id));
@@ -567,6 +455,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     if (!result.ok || seq !== searchSeq.current) return;
     trail.current = answered;
     showOutcome(result.data, answered);
+    props.onActivity?.();
   };
 
   /** "Fica aqui" (na raiz: solto): o destino é o nó da pergunta, com o caminho que o servidor mandou. */
@@ -583,6 +472,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
 
   /** Tira o escopo; com um resultado na tela, refaz a procura no projeto inteiro. Se ela falhar, o resultado de escopo sai da tela. */
   const searchWholeProject = async () => {
+    scopeRemoved.current = true;
     props.onRemoveScope();
     if (!outcome) return;
     if (!(await searchPlace(null))) {
@@ -620,18 +510,22 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     }
     // O pai real do ticket criado (com agrupador, é o agrupador), não o destino pedido.
     if (result.data.ticket.parentId !== null) recents.record(project.id, result.data.ticket.parentId);
-    onChanged();
     if (result.data.warnings.length > 0) {
-      setCreatedNotice({ ticketId: result.data.ticket.id, warnings: result.data.warnings });
+      const notice = { ticketId: result.data.ticket.id, warnings: result.data.warnings };
+      setCreatedNotice(notice);
+      props.onNotice?.(notice);
+      onChanged();
       return;
     }
+    onChanged();
     onCreated(result.data.ticket.id);
   };
 
   const remove = async () => {
     if (!conversation) return;
     const result = await removal.run(() => client.removeConversation(conversation.id));
-    if (result.ok) reset();
+    if (!result.ok) return;
+    props.onRemoved();
   };
 
   const onTextKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -653,6 +547,8 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   // Também "a conversa mudou": a mensagem não entrou, e a conversa já foi relida; reenviá-la é o próximo passo natural.
   const canRetry = retryable || sendError?.code === "conversation_changed";
   const canCreateManually = retryable || sendError?.code === "assistant_not_configured" || isConsentRequired(sendError);
+  /** Sem mapa montado não há onde abrir a criação manual. */
+  const manualAvailable = props.canManualCreate !== false;
   // A prévia recusa a criação (chave que não existe, descrição longa demais): o botão fica desabilitado até o rascunho mudar.
   const duplicatePending = outcome?.duplicate != null && !duplicateAccepted;
   useEffect(() => {
@@ -697,12 +593,11 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
       )}
       {props.actionsSlot && conversation && createPortal(
         <>
-          <button type="button" className="text" onClick={reset}>{t("conversation.new")}</button>
-          <ConfirmAction label={t("conversation.delete")} disabled={removal.busy} onConfirm={() => void remove()} />
+          <ConfirmAction label={t("conversation.discard")} disabled={removal.busy} onConfirm={() => void remove()} />
         </>,
         props.actionsSlot,
       )}
-      <div ref={scroller} className="assistant-scroll" onScroll={(event) => { if (expanded) scrolled.current = event.currentTarget.scrollTop; }}>
+      <div ref={scroller} className="assistant-scroll">
         {removal.error && <p role="alert">{describeError(removal.error)}</p>}
         {!conversation && !outbox && <p className="assistant-hint">{t("conversation.hint")}</p>}
         {conversation?.messages.map((message) =>
@@ -729,10 +624,10 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
         {sendError && (
           <div className="assistant-error">
             {isConsentRequired(sendError) ? <ConsentRequiredNotice /> : <p role="alert">{describeError(sendError)}</p>}
-            {(canRetry || canCreateManually) && (
+            {(canRetry || (canCreateManually && manualAvailable)) && (
               <div>
-                {canRetry && <button type="button" onClick={() => void (outbox ? send(outbox.text, outbox.fresh) : send())} disabled={sending}>{t("error.retry")}</button>}
-                <button type="button" onClick={() => onManualCreate({ projectId: project.id, parentId: manualParent, ...(fields ? { draft: { title: fields.title, description: fields.description } } : {}) })}>{t("error.manual")}</button>
+                {canRetry && <button type="button" onClick={() => void (outbox ? send(outbox.text) : send())} disabled={sending}>{t("error.retry")}</button>}
+                {manualAvailable && <button type="button" onClick={() => onManualCreate({ projectId: project.id, parentId: manualParent, ...(fields ? { draft: { title: fields.title, description: fields.description } } : {}) })}>{t("error.manual")}</button>}
               </div>
             )}
           </div>
@@ -740,7 +635,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
         {draft && fields && (
           <div className="assistant-cards">
             {preview && preview.quote !== "" && <OriginalRequest quote={preview.quote} mentions={{ projectId: project.id, tickets: list }} />}
-            <section className="assistant-card" aria-label={t("draft.region")}>
+            <section className="assistant-card is-draft" aria-label={t("draft.region")}>
               <h3>{t("draft.heading")}</h3>
               <label>
                 {t("draft.title")}
@@ -790,6 +685,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
             {!createdNotice && outcome && (target || questionView) && (
               <PathCard
                 project={project}
+                ticketOf={(id) => list.find((entry) => entry.id === id)}
                 target={target}
                 question={questionView}
                 questionKey={searchCount}
@@ -824,7 +720,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                   if (up) setTarget(up);
                   setPlacedBy("option");
                 }}
-                onChoose={() => setChoosing(true)}
+                onChoose={props.canPickOnMap ? () => setChoosing(true) : undefined}
                 onCreate={() => void createHere()}
                 waiting={waitingElaboration}
                 onCreateNow={() => void createHere(undefined, true)}

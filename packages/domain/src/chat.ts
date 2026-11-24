@@ -41,6 +41,20 @@ export function chatTitleOf(raw: unknown): string | null {
   return title;
 }
 
+/**
+ * O título de uma thread de criação (ADR 0056, item 5): o começo do pedido ou o título do rascunho, que não são do tamanho de um título.
+ * Diferente de `chatTitleOf`, que recusa, este conserta: junta em uma linha, tira caractere proibido, corta em 60 caracteres e tira
+ * espaço e ponto do fim. `null` só quando não sobra nada.
+ */
+export function creationTitleOf(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  // eslint-disable-next-line no-control-regex
+  const cleaned = Array.from(raw.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")).join("").replace(/\s+/g, " ").trim();
+  // Corta por pontos de código, para nunca partir um emoji ao meio (substituto solto é caractere proibido).
+  const cut = Array.from(cleaned).slice(0, CHAT_TITLE_MAX).join("").replace(/[\s.]+$/, "");
+  return chatTitleOf(cut);
+}
+
 export type ChatTurn = { author: "person" | "assistant"; body: string };
 
 /**

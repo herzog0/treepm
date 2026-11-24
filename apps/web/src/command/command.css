@@ -32,7 +32,7 @@
 .command-footer { display: flex; gap: 16px; margin-top: 8px; padding: 8px 16px; border-top: 1px solid var(--tp-border); color: var(--tp-text-3); font-size: 11.5px; }
 
 /* Conversa de novo ticket dentro da barra (ADR 0036, fatia 3): o botão ao lado do campo, o chip de escopo e a folha. */
-.command-field[hidden], .assistant-sheet[hidden], .assistant-top[hidden], .assistant-body[hidden] { display: none; }
+.command-field[hidden], .assistant-top[hidden], .assistant-body[hidden] { display: none; }
 .command-progress { display: inline-flex; flex: none; align-items: center; height: 26px; padding: 0 10px; border: 1px solid var(--tp-border-strong); border-radius: 6px; background: var(--tp-raised); color: var(--tp-accent-soft); font: 400 12px/1 var(--tp-font); cursor: pointer; }
 .command-progress:hover { background: var(--tp-selected); }
 .command-progress:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }

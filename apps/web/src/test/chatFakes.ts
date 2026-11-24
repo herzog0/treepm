@@ -1,3 +1,4 @@
+import type { CreationBlock } from "../api/conversations.js";
 import { vi } from "vitest";
 import type { ApiClient, ApiError, ApiErrorKind, ApiResult } from "../api/client.js";
 import { conversationTreeSchema, conversationViewSchema, sendResultSchema } from "../api/conversations.js";
@@ -22,6 +23,8 @@ interface StoredMessage {
   model: string | null;
   /** A conversa (thread) que esta mensagem abriu. */
   opened: string | null;
+  /** `creation_opened`: a resposta fixa de "abri um rascunho". */
+  marker?: "creation_opened";
 }
 interface StoredConversation {
   id: string;
@@ -33,8 +36,10 @@ interface StoredConversation {
   participants: string[];
   messages: StoredMessage[];
   /** Só nas threads: entre pessoas (`people`) ou assunto com o assistente (`topic`). */
-  purpose: "people" | "topic" | null;
+  purpose: "people" | "topic" | "creation" | null;
   title: string | null;
+  /** Só nas threads de criação: o bloco que a API manda (estado, projeto, ticket criado). */
+  creation?: CreationBlock | null;
 }
 export interface FakeChatTicket {
   id: string;
@@ -62,6 +67,10 @@ export interface FakeChatOptions {
   topicTitle?: (body: string) => string | null;
   /** Quem é responsável por cada ticket além de `assignedToMe` (que vale para `me`). */
   assignees?: Record<string, string[]>;
+  /** Projetos (id → chave) em que a pessoa pode criar ticket; padrão: só `p1`/ALFA. A chave dos tickets vem de `projectId` (padrão `p1`). */
+  creatable?: Record<string, string>;
+  /** Quando o assistente abre um rascunho: devolve o pedido que ele passa à ferramenta para esta mensagem, ou `null` (responde normalmente). */
+  assistantOpens?: (body: string) => string | null;
 }
 
 export type FakeChatMethods = Pick<ApiClient, "listConversationTree" | "getConversationView" | "getTicketConversationView" | "openTicketConversation" | "openGeneralConversation" | "sendChatMessage" | "addConversationParticipants" | "markConversationRead" | "clearConversationMessages">;
@@ -80,6 +89,10 @@ export interface FakeChat {
   seedGeneral(turns: { person: string; assistant: string }[]): string;
   /** Uma thread de assunto da pessoa do cliente, já existente, dentro de `parentId` (principal ou chat geral): a abertura mora em cima, a resposta na thread. Devolve o id. */
   seedTopic(parentId: string, input: { body: string; reply?: string; title?: string | null }): string;
+  /** O estado da thread de criação, como o servidor o deriva da conversa de novo ticket (o teste o muda quando a conversa muda). */
+  setCreation(threadId: string, patch: Partial<NonNullable<StoredConversation["creation"]>>): void;
+  /** O bloco `creation` da thread (ou `null`). */
+  creationOf(threadId: string): StoredConversation["creation"] | null;
   /** Dá a conversa como lida até o fim (a de `conversationId`, ou todas as da pessoa). */
   readAll(conversationId?: string): void;
   /** Mensagens guardadas hoje na principal do ticket (mais antigas primeiro). */
@@ -118,7 +131,7 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
   const generalOf = (who: string) => all().find((entry) => entry.kind === "general" && entry.ownerId === who);
   const sees = (who: string, entry: StoredConversation) => entry.participants.includes(who);
   const canSeeTicket = (ticket: FakeChatTicket, who: string) => ticket.visibleTo === undefined || ticket.visibleTo.includes(who);
-  const create = (input: Omit<StoredConversation, "id" | "messages" | "depth" | "purpose" | "title"> & { messages?: StoredMessage[]; purpose?: "people" | "topic"; title?: string | null }): StoredConversation => {
+  const create = (input: Omit<StoredConversation, "id" | "messages" | "depth" | "purpose" | "title"> & { messages?: StoredMessage[]; purpose?: "people" | "topic" | "creation"; title?: string | null }): StoredConversation => {
     const parent = input.parentId === null ? null : conversations.get(input.parentId)!;
     const entry: StoredConversation = { ...input, purpose: input.kind === "thread" ? (input.purpose ?? "people") : null, title: input.title ?? null, id: `conv-${++counter}`, depth: parent === null ? 0 : parent.depth + 1, messages: input.messages ?? [] };
     conversations.set(entry.id, entry);
@@ -143,6 +156,7 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
       body: stored.body,
       createdAt: at(stored.seq),
       model: stored.model,
+      marker: stored.marker ?? null,
       thread: withCard && opened && sees(who, opened) ? cardOf(who, opened) : null,
     };
   };
@@ -160,10 +174,12 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
       startedByMe: entry.ownerId === who,
       purpose: entry.purpose ?? "people",
       title: entry.title,
+      creation: entry.creation ?? null,
     };
   };
 
-  const kidsOf = (who: string, entry: StoredConversation) => all().filter((child) => child.parentId === entry.id && sees(who, child));
+  const openCreation = (child: StoredConversation) => child.purpose !== "creation" || (child.creation?.state !== "created" && child.creation?.state !== "discarded");
+  const kidsOf = (who: string, entry: StoredConversation) => all().filter((child) => child.parentId === entry.id && sees(who, child) && openCreation(child));
 
   /** A trilha: só as conversas de cima que a pessoa lê, em sequência a partir da conversa. */
   const trailOf = (who: string, entry: StoredConversation) => {
@@ -197,6 +213,7 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
       ...(entry?.purpose === "topic" ? { label: entry.messages[0]!.body.slice(0, 40) } : {}),
       purpose: entry?.purpose ?? null,
       title: entry?.title ?? null,
+      creation: entry?.creation ?? null,
       children: kids.map((child) => nodeOf(who, child, { kind: "thread", ticket: null })),
     };
   };
@@ -265,6 +282,7 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
               kind: entry.kind,
               purpose: entry.purpose,
               title: entry.title,
+              creation: entry.creation ?? null,
               ownedByMe: entry.ownerId === who,
               participants: entry.participants.map((id) => person(id)!),
               canAddParticipants: entry.kind === "thread" && entry.purpose === "people" && entry.ownerId === who,
@@ -326,6 +344,12 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
       if (!thread) throw new Error(`thread desconhecida: ${threadId}`);
       thread.messages.push({ seq: nextSeq(), authorId: from, body, model: null, opened: null });
     },
+    setCreation(threadId, patch) {
+      const thread = conversations.get(threadId);
+      if (!thread?.creation) throw new Error(`thread de criação desconhecida: ${threadId}`);
+      thread.creation = { ...thread.creation, ...patch };
+    },
+    creationOf: (threadId) => conversations.get(threadId)?.creation ?? null,
     seedConversation(ticketId, turns) {
       const entry = ensurePrincipal(ticketId, defaultMe);
       for (const turn of turns) {
@@ -381,7 +405,7 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
           return ok({ id: ensurePrincipal(ticketId, who).id });
         }),
         openGeneralConversation: vi.fn(async () => ok({ id: ensureGeneral(who).id })),
-        sendChatMessage: vi.fn(async (id: string, body: { body: string; mentions?: string[]; ticketId?: string; topic?: boolean }): Promise<ApiResult<SendResult>> => {
+        sendChatMessage: vi.fn(async (id: string, body: { body: string; mentions?: string[]; ticketId?: string; topic?: boolean; creation?: boolean; projectId?: string }): Promise<ApiResult<SendResult>> => {
           const entry = known(id);
           if (!entry) return failed("not_found", "not_found");
           if (!validBody(body.body)) return failed("invalid", "validation_error");
@@ -389,12 +413,47 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
           if (ticket?.archived === true) return failed("conflict", "project_archived");
           const text = body.body.trim();
           const mentions = body.mentions ?? [];
+          const creatable = options.creatable ?? { p1: "ALFA" };
+          /** Abre a thread de criação (pedido direto ou pelo assistente): a abertura mora em cima, a conversa de novo ticket é a de `ticketConversationId`. */
+          const openCreationThread = (projectId: string, request: string, openedBy: "person" | "assistant") => {
+            const opening: StoredMessage = { seq: nextSeq(), authorId: who, body: text, model: null, opened: null };
+            const thread = create({ kind: "thread", purpose: "creation", title: request.slice(0, 60), ticketId: entry.ticketId, ownerId: who, parentId: entry.id, participants: [who], messages: [opening] });
+            thread.creation = { ticketConversationId: `tc-${thread.id}`, projectId, projectKey: creatable[projectId] ?? null, state: "draft", openedBy, ticket: null };
+            opening.opened = thread.id;
+            entry.messages.push(opening);
+            return { opening, thread };
+          };
+          if (entry.purpose === "creation") return failed("invalid", "creation_thread");
+          if (body.creation === true) {
+            if (mentions.length > 0 || body.topic === true || body.ticketId !== undefined) return failed("invalid", "creation_with_other");
+            if (entry.kind === "thread" && entry.purpose === "people") return failed("invalid", "creation_in_thread");
+            if (options.assistant === "no_consent") return failed("forbidden", "assistant_consent_required");
+            if (options.assistant === "not_configured") return failed("unavailable", "assistant_not_configured");
+            const ids = Object.keys(creatable);
+            const projectId = body.projectId ?? ticket?.projectId ?? (ids.length === 1 ? ids[0] : undefined);
+            if (projectId === undefined) return failed("invalid", "project_required");
+            if (!ids.includes(projectId)) return failed("invalid", "project_unavailable");
+            if (ticket !== undefined && (ticket.projectId ?? "p1") !== projectId) return failed("invalid", "project_mismatch");
+            const { opening, thread } = openCreationThread(projectId, text, "person");
+            const sent = { kind: "creation" as const, message: toMessage(who, entry, opening), thread: cardOf(who, thread), reply: null, ticketConversationId: thread.creation!.ticketConversationId };
+            return ok(sendResultSchema.parse(JSON.parse(JSON.stringify(sent))));
+          }
           if (body.topic === true) {
             if (mentions.length > 0) return failed("unavailable", "topic_with_mentions");
             if (body.ticketId !== undefined) return failed("unavailable", "topic_with_ticket");
             if (entry.kind === "thread") return failed("unavailable", "topic_in_thread");
             if (options.assistant === "no_consent") return failed("forbidden", "assistant_consent_required");
             if (options.assistant === "not_configured") return failed("unavailable", "assistant_not_configured");
+            // O assistente pode abrir um rascunho já na primeira mensagem do assunto (`open_ticket_draft`): o servidor responde `creation`.
+            const draftRequest = options.assistantOpens?.(text) ?? null;
+            const draftProject = body.projectId ?? ticket?.projectId ?? (Object.keys(creatable).length === 1 ? Object.keys(creatable)[0] : undefined);
+            if (draftRequest !== null && draftProject !== undefined && draftProject in creatable) {
+              const { opening, thread } = openCreationThread(draftProject, draftRequest, "assistant");
+              const fixed: StoredMessage = { seq: nextSeq(), authorId: null, body: "Abri um rascunho de ticket (reserva).", model: "claude-opus-5-5", opened: null, marker: "creation_opened" };
+              entry.messages.push(fixed);
+              const sent = { kind: "creation" as const, message: toMessage(who, entry, opening), thread: cardOf(who, thread), reply: toMessage(who, entry, fixed), ticketConversationId: thread.creation!.ticketConversationId };
+              return ok(sendResultSchema.parse(JSON.parse(JSON.stringify(sent))));
+            }
             const opening: StoredMessage = { seq: nextSeq(), authorId: who, body: text, model: null, opened: null };
             const thread = create({ kind: "thread", purpose: "topic", title: options.topicTitle?.(text) ?? null, ticketId: entry.ticketId, ownerId: who, parentId: entry.id, participants: [who], messages: [opening] });
             opening.opened = thread.id;
@@ -417,6 +476,15 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
           }
           if (options.assistant === "no_consent") return failed("forbidden", "assistant_consent_required");
           if (options.assistant === "not_configured") return failed("unavailable", "assistant_not_configured");
+          const request = options.assistantOpens?.(text) ?? null;
+          const projectOf = body.projectId ?? ticket?.projectId ?? (Object.keys(creatable).length === 1 ? Object.keys(creatable)[0] : undefined);
+          if (request !== null && projectOf !== undefined && projectOf in creatable) {
+            const { opening, thread } = openCreationThread(projectOf, request, "assistant");
+            const fixed: StoredMessage = { seq: nextSeq(), authorId: null, body: "Abri um rascunho de ticket (reserva).", model: "claude-opus-5-5", opened: null, marker: "creation_opened" };
+            entry.messages.push(fixed);
+            const sent = { kind: "creation" as const, message: toMessage(who, entry, opening), thread: cardOf(who, thread), reply: toMessage(who, entry, fixed), ticketConversationId: thread.creation!.ticketConversationId };
+            return ok(sendResultSchema.parse(JSON.parse(JSON.stringify(sent))));
+          }
           const sent: StoredMessage = { seq: nextSeq(), authorId: who, body: text, model: null, opened: null };
           const answer: StoredMessage = { seq: nextSeq(), authorId: null, body: options.reply?.(text) ?? "Resposta do assistente.", model: "claude-opus-5-5", opened: null };
           entry.messages.push(sent, answer);

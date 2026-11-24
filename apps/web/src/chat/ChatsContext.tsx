@@ -1,6 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { ApiClient, ConversationNode, Me, Person, Project, Team, TicketSummary } from "../api/client.js";
+import type { ApiClient, ConversationNode, CreatedFromConversation, Me, Person, Project, Team, TicketSummary } from "../api/client.js";
+import type { ChatScreenState } from "../assistant/CreationChat.js";
+import type { MapPicker } from "../assistant/types.js";
+import type { MapDraft } from "../map/items.js";
 import { useAutoRefresh } from "../map/useAutoRefresh.js";
 import { safe } from "../panel/safe.js";
 import { useDescribeApiError } from "../api/errorText.js";
@@ -48,6 +51,8 @@ export interface Handoff {
   send?: boolean;
   /** O código do erro da API (sem aceite, sem provedor…): a conversa mostra o mesmo aviso, com o elo, que mostraria se o envio tivesse sido feito nela. */
   code?: string;
+  /** O texto era um pedido de ticket novo (`creation: true`): o Meu chat mostra a escolha do projeto quando o código é `project_required`. */
+  creation?: boolean;
 }
 
 /** Quanto se espera pela resposta de um assunto novo antes de soltar a barra e devolver o texto. */
@@ -81,12 +86,39 @@ function withUnread(nodes: ConversationNode[], id: string, unread: number): Conv
   return nodes.map((node) => ({ ...node, unread: node.id === id ? unread : node.unread, children: withUnread(node.children, id, unread) }));
 }
 
+/** O que a sessão guarda de uma thread de criação enquanto ela está fora da tela: o que só a tela sabia e o aviso de ligações descartadas. */
+export interface CreationMemory {
+  screen?: ChatScreenState;
+  notice?: { ticketId: string; warnings: CreatedFromConversation["warnings"] };
+}
+
 /** O assunto que a barra de pedidos mandou ao Meu chat e que ainda espera a resposta: a thread só existe quando ela chega. */
 export interface TopicRun {
   run: number;
   text: string;
   /** `sending`: espera a resposta; `failed`: não respondida (o texto espera no Meu chat). */
   status: "sending" | "failed";
+  /** O pedido é de um ticket novo (a thread de criação), não de um assunto. */
+  creation?: boolean;
+}
+
+/**
+ * O que o mapa aberto empresta à thread de criação (ADR 0056, item 6): o projeto aberto, o que a conversa de novo ticket precisa do mapa
+ * (escolher o lugar nele, o card tracejado, recarregar) e para onde ir depois de criar. O mapa o registra ao abrir e o tira ao sair;
+ * sem mapa a thread funciona do mesmo jeito, só sem "escolher no mapa".
+ */
+export interface MapHost {
+  /** O projeto aberto no mapa (o selecionado ou o do ticket selecionado, ou o único em que a pessoa cria); `null` se não há. */
+  projectId: () => string | null;
+  /** Os projetos em que a pessoa pode criar ticket (não arquivados). */
+  creatable: readonly Project[];
+  /** O ticket aberto ou selecionado no mapa: onde a procura do lugar começa; `null` se não há. */
+  scopeTicketId: () => string | null;
+  registerPicker: (picker: MapPicker | null) => void;
+  onDraftChange: (draft: MapDraft | null) => void;
+  /** O ticket foi criado: o mapa recarrega e mostra o ticket como sempre. */
+  onChanged: () => void;
+  onManualCreate: (request: { projectId: string; parentId: string | null; draft?: { title: string; description: string } }) => void;
 }
 
 /** O rótulo de uma thread de assunto: o título, senão o começo da abertura, senão `fallback` ("Assunto"). Uma função só, para toda a tela. */
@@ -148,6 +180,26 @@ export interface ChatsApi {
    * erro de sempre. Devolve a frase da recusa (já há um assunto esperando a resposta, ou o texto não vale), sem fazer nada: o texto fica com quem chamou; `null` se aceitou.
    */
   startTopic: (text: string) => string | null;
+  /**
+   * Abre uma thread de criação no Meu chat com o texto (`creation: true`, ADR 0056, item 5): a barra de pedidos e o "+ Novo ticket" chamam isto.
+   * Mesma corrida do `startTopic` (uma por vez, o texto volta ao campo se falhar). Sem `projectId` leva o projeto aberto no mapa; sem projeto e
+   * com vários, o Meu chat abre com a pergunta de qual. Devolve a frase da recusa ou `null`.
+   */
+  startCreation: (text: string, projectId?: string) => string | null;
+  /** "+ Novo ticket" sem texto: o Meu chat abre com o campo em modo "novo ticket" (o que a pessoa escrever vai com `creation: true`). */
+  creationMode: boolean;
+  startNewTicket: () => void;
+  setCreationMode: (on: boolean) => void;
+  /** Tickets criados por conversa nesta sessão que a pessoa ainda não reabriu: a barra lateral os marca "novo". */
+  newTickets: ReadonlySet<string>;
+  markNewTicket: (ticketId: string) => void;
+  /** A seleção de agora (não a do último render): quem termina uma tarefa longa depois de a pessoa ter ido para outra conversa precisa saber onde ela está. */
+  selectionNow: () => ConversationRef | null;
+  /** A memória da sessão das threads de criação, por thread (nada vai ao servidor nem ao navegador). */
+  creationMemory: { read: (threadId: string) => CreationMemory | undefined; write: (threadId: string, patch: CreationMemory) => void };
+  /** O mapa aberto empresta o projeto e as ações à thread de criação; `null` fora do mapa. */
+  mapHost: MapHost | null;
+  setMapHost: (host: MapHost | null) => void;
   /** Abre o Meu chat na coluna (o chat geral que ainda não existe abre só a leitura, sem criar nada). */
   openGeneral: () => void;
   /** "Abrir chat" da página do ticket: a leitura da conversa da pessoa nesse ticket. */
@@ -324,6 +376,9 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
       current !== null && current.kind !== "conversation" && requested.kind === "conversation" &&
       flatten(treeRef.current ?? []).some((node) => node.id === requested.id && nodeIsRef(node, current));
     const next = same && current !== null ? current : requested;
+    // Reabrir um ticket que nasceu de uma conversa tira o selo "novo".
+    const opens = requested.kind === "ticket" ? requested.ticketId : requested.kind === "conversation" ? (flatten(treeRef.current ?? []).find((node) => node.id === requested.id)?.ticket?.id ?? null) : null;
+    if (opens !== null) setNewTickets((tickets) => (tickets.has(opens) ? new Set([...tickets].filter((id) => id !== opens)) : tickets));
     setSelection(next);
     setOpened(true);
     setOpen(true);
@@ -356,11 +411,12 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
   const peekHandoff = useCallback((ref: ConversationRef) => handoffs.current.get(refKey(canon(ref))), []);
   const dropHandoff = useCallback((ref: ConversationRef) => void handoffs.current.delete(refKey(canon(ref))), []);
 
-  const startTopic = useCallback(
-    (typed: string): string | null => {
+  const runInGeneral = useCallback(
+    (typed: string, extra: { topic: true } | { creation: true; projectId?: string }): string | null => {
+      const creation = "creation" in extra;
       // A barra de pedidos escreve texto puro: um elo de pessoa colado nela vira o `@Nome` simples, nunca uma menção (a API recusaria).
       const text = withoutPersonLinksDeep(typed);
-      if (topicBusy.current) return tChatRef.current("topic.busy");
+      if (topicBusy.current) return tChatRef.current(creation ? "creation.busy" : "topic.busy");
       if (text.trim().length > CHAT_BODY_MAX) return tChatRef.current("composer.over", { length: formatNumber(i18n.language as Language, text.trim().length), max: formatNumber(i18n.language as Language, CHAT_BODY_MAX) });
       if (hasForbidden(text)) return describeRef.current({ kind: "invalid", code: "validation_error" });
       topicBusy.current = true;
@@ -369,7 +425,7 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
       const mine: ConversationRef = { kind: "topic", run };
       const control = new AbortController();
       aborter.current = control;
-      setTopicRun({ run, text, status: "sending" });
+      setTopicRun({ run, text, status: "sending", ...(creation ? { creation: true } : {}) });
       openPanel(mine);
       const timer = setTimeout(() => control.abort(), TOPIC_TIMEOUT_MS);
       const stillHere = () => selectionRef.current !== null && refKey(selectionRef.current) === refKey(mine);
@@ -384,10 +440,10 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
         }
         if (generalId !== null && !control.signal.aborted) {
           const sent = await Promise.race([
-            safe(() => client.sendChatMessage(generalId!, { body: text.trim(), topic: true }, { signal: control.signal })),
+            safe(() => client.sendChatMessage(generalId!, { body: text.trim(), ...extra }, { signal: control.signal })),
             new Promise<null>((resolve) => control.signal.addEventListener("abort", () => resolve(null))),
           ]);
-          if (sent !== null && sent.ok && sent.data.kind === "topic" && !control.signal.aborted) {
+          if (sent !== null && sent.ok && (sent.data.kind === "creation" || (!creation && sent.data.kind === "topic")) && !control.signal.aborted) {
             if (mounted.current && stillHere()) {
               setSelection({ kind: "conversation", id: sent.data.thread.id });
               setOpened(true);
@@ -411,17 +467,49 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
         }
         // O texto volta ao Meu chat (a chave é uma só, com ou sem id), e a linha ✦ da barra lateral vira "não respondida".
         await refresh();
-        stashHandoffCanon({ kind: "general" }, { text, mentions: [], error: failure.error, ...(failure.code ? { code: failure.code } : {}) });
+        stashHandoffCanon({ kind: "general" }, { text, mentions: [], error: failure.error, ...(failure.code ? { code: failure.code } : {}), ...(creation ? { creation: true } : {}) });
         if (cancelled.current || (stillHere() && openRef.current)) {
           setTopicRun(null);
           if (stillHere()) setSelection(generalId === null ? { kind: "general" } : { kind: "conversation", id: generalId });
         } else {
-          setTopicRun({ run, text, status: "failed" });
+          setTopicRun({ run, text, status: "failed", ...(creation ? { creation: true } : {}) });
         }
       })();
       return null;
     },
     [client, openPanel, refresh, stashHandoffCanon, i18n.language],
+  );
+  const startTopic = useCallback((typed: string) => runInGeneral(typed, { topic: true }), [runInGeneral]);
+  const mapHostRef = useRef<MapHost | null>(null);
+  const [mapHost, setMapHostState] = useState<MapHost | null>(null);
+  const setMapHost = useCallback((host: MapHost | null) => {
+    mapHostRef.current = host;
+    setMapHostState(host);
+  }, []);
+  const [creationMode, setCreationMode] = useState(false);
+  const [newTickets, setNewTickets] = useState<ReadonlySet<string>>(() => new Set());
+  const memories = useRef(new Map<string, CreationMemory>());
+  const creationMemory = useMemo(
+    () => ({
+      read: (threadId: string) => memories.current.get(threadId),
+      write: (threadId: string, patch: CreationMemory) => void memories.current.set(threadId, { ...memories.current.get(threadId), ...patch }),
+    }),
+    [],
+  );
+  // O selo "novo" é de um ticket cuja conversa a pessoa ainda não abriu: se ela já é a aberta, não há o que marcar.
+  const markNewTicket = useCallback((ticketId: string) => {
+    const current = selectionRef.current;
+    const open = current !== null && (current.kind === "ticket" ? current.ticketId === ticketId : current.kind === "conversation" && flatten(treeRef.current ?? []).some((node) => node.id === current.id && node.ticket?.id === ticketId));
+    if (!open) setNewTickets((tickets) => new Set(tickets).add(ticketId));
+  }, []);
+  const selectionNow = useCallback(() => selectionRef.current, []);
+  const startCreation = useCallback(
+    (typed: string, projectId?: string): string | null => {
+      const chosen = projectId ?? mapHostRef.current?.projectId() ?? undefined;
+      setCreationMode(false);
+      return runInGeneral(typed, { creation: true, ...(chosen === undefined ? {} : { projectId: chosen }) });
+    },
+    [runInGeneral],
   );
   const cancelTopic = useCallback(() => {
     cancelled.current = true;
@@ -437,6 +525,11 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
     setTopicRun(null);
     openGeneral();
   }, [openPanel, openGeneral]);
+
+  const startNewTicket = useCallback(() => {
+    openGeneral();
+    setCreationMode(true);
+  }, [openGeneral]);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -473,6 +566,16 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
       openTopicRun,
       handoffTick,
       startTopic,
+      startCreation,
+      creationMode,
+      newTickets,
+      markNewTicket,
+      selectionNow,
+      creationMemory,
+      startNewTicket,
+      setCreationMode,
+      mapHost,
+      setMapHost,
       openGeneral,
       openTicket: (ticketId) => openPanel({ kind: "ticket", ticketId }),
       close,
@@ -480,7 +583,7 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
       setConversationUnread: (id, unread) => setTree((current) => (current === null ? current : withUnread(current, id, unread))),
       showTicket: (id) => showTicketRef.current(id),
     }),
-    [client, opened, open, selection, tree, listFailed, selfId, unreadChats, version, directory, loadDirectory, tickets, loadTickets, shareTickets, stashHandoff, peekHandoff, dropHandoff, close, openPanel, refresh, topicRun, cancelTopic, openTopicRun, handoffTick, startTopic, openGeneral],
+    [startCreation, creationMode, newTickets, markNewTicket, selectionNow, creationMemory, startNewTicket, mapHost, setMapHost, client, opened, open, selection, tree, listFailed, selfId, unreadChats, version, directory, loadDirectory, tickets, loadTickets, shareTickets, stashHandoff, peekHandoff, dropHandoff, close, openPanel, refresh, topicRun, cancelTopic, openTopicRun, handoffTick, startTopic, openGeneral],
   );
   return <ChatsContext.Provider value={api}>{children}</ChatsContext.Provider>;
 }

@@ -1,13 +1,8 @@
 {
   "panel": {
-    "label": "New ticket with the assistant",
-    "title": "New ticket",
-    "subtitle": "The assistant knows the tree and remembers earlier conversations",
-    "project": "{{key}} · {{name}}",
-    "collapse": "Collapse"
+    "label": "New ticket with the assistant"
   },
   "project": {
-    "question": "Which project?",
     "option": "{{key}} · {{name}}"
   },
   "loading": "Loading the conversation…",
@@ -17,12 +12,11 @@
     "remove": "Remove the scope"
   },
   "conversation": {
-    "new": "New conversation",
-    "delete": "Delete conversation",
     "hint": "Describe the task. The assistant asks what is missing, writes the ticket and looks for its place in the tree.",
     "waiting": "The assistant is replying…",
     "reply": "Assistant reply",
-    "unanswered": "Not answered"
+    "unanswered": "Not answered",
+    "discard": "Discard draft"
   },
   "error": {
     "retry": "Try again",

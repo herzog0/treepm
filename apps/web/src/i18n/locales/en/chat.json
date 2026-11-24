@@ -128,5 +128,42 @@
     "cancel": "Cancel",
     "pending": "answering…",
     "failed": "Not answered"
+  },
+  "creation": {
+    "busy": "A new ticket is already being opened: wait for it or cancel before asking for another.",
+    "waiting": "Opening the draft…",
+    "state": {
+      "draft": "draft",
+      "waiting": "your turn",
+      "created": "created",
+      "discarded": "discarded"
+    },
+    "private": "Only you see this. The ticket only exists when you press Create.",
+    "openedByAssistant": "The assistant opened this draft at your request.",
+    "project": "Project {{key}}",
+    "newTicket": "New ticket",
+    "newTicketHint": "Creates a ticket draft from what you wrote",
+    "modeNotice": "New ticket: what you write becomes a draft. Only you see it.",
+    "modeCancel": "Back to chatting",
+    "opened": "I opened a ticket draft",
+    "goTo": "Open the draft",
+    "cardCreated": "{{key}} · {{title}}",
+    "cardOpenTicket": "Open the conversation of ticket {{key}}",
+    "cardTitle": "Ticket draft",
+    "pickProject": "Which project?",
+    "pickProjectHint": "You create tickets in more than one project. Choose where this draft is born.",
+    "pickProjectOption": "{{key}} · {{name}}",
+    "projectUnavailable": "You cannot create tickets in that project, or it is not available. Choose another.",
+    "projectMismatch": "This conversation is about a ticket from another project: the draft is born in its project.",
+    "changeProject": "Change project",
+    "changeProjectConfirm": "Discards this draft and opens another in the chosen project, with the same request.",
+    "changeProjectTo": "Open in {{key}}",
+    "noAccess": "You cannot see this draft's project.",
+    "loading": "Loading the draft…",
+    "createdBody": "Ticket created: {{key}} · {{title}}",
+    "openTicketChat": "Open the ticket's conversation",
+    "discardedBody": "Draft discarded. Nothing was created.",
+    "fallbackTitle": "New ticket",
+    "newBadge": "new"
   }
 }

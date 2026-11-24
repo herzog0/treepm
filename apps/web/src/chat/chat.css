@@ -44,7 +44,7 @@
 .chat-avatars > * + * { margin-left: -2px; }
 .chat-avatars .chat-initials { width: 24px; height: 24px; font-size: 9px; letter-spacing: -0.2px; box-shadow: 0 0 0 2px var(--tp-conv-bg); }
 .chat-avatars-more { align-self: center; margin-left: 6px !important; color: var(--tp-text-3); font-size: 11px; }
-.chat-context { flex: none; display: grid; gap: 6px; padding: 8px 20px; border-bottom: 1px solid var(--tp-side-border); }
+.chat-context { flex: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px 20px; border-bottom: 1px solid var(--tp-side-border); }
 .chat-context .chat-notice { padding: 0; border: 0; }
 .chat-trail ol { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; }
 .chat-trail li + li::before { content: "›"; margin-right: 6px; color: var(--tp-text-3); }
@@ -108,9 +108,53 @@
   .chat-panel .ticket-menu button { min-height: 44px; }
   .chat-thread-footer, .chat-text-button, .chat-picker li button, .chat-ticket-title { min-height: 44px; }
   .chat-log { padding: 14px 12px; }
+  .creation-project-pick button { min-height: 44px; }
   .chat-composer { margin: 0 12px 12px; }
   .chat-composer .description.chat-composer-editor .tiptap { font-size: 16px; }
   .chat-pills button { width: 44px; height: 44px; margin: -11px -4px -11px 0; }
 }
 
 /* A bolinha da situação na lista de tickets: a mesma da barra lateral (`.conv-dot`), não a marca do mapa, que parece uma caixa de seleção. */
+
+/* A thread de criação de ticket (ADR 0056): selo do estado, cabeçalho e o rascunho em cartão tracejado dentro da coluna. */
+.creation-badge { display: inline-block; padding: 0 7px; border-radius: 8px; border: 1px dashed var(--tp-warn-text); background: var(--tp-warn-bg); color: var(--tp-warn-text); font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+.creation-mark { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-right: 6px; border: 1.5px dashed var(--tp-warn-text); border-radius: 4px; color: var(--tp-warn-text); font-size: 13px; font-weight: 700; line-height: 1; vertical-align: -2px; }
+.creation-thread { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; color: var(--tp-text); font: 400 13px/1.5 var(--tp-font); cursor: default; user-select: text; }
+.creation-head { display: flex; flex: none; flex-direction: column; gap: 4px; padding: 10px 20px; border-bottom: 1px solid var(--tp-side-border); }
+.creation-meta { display: flex; align-items: center; gap: 8px; margin: 0; }
+.creation-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.creation-change { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.creation-meta code { color: var(--tp-text-2); font: 500 12px var(--tp-font-mono); }
+.creation-head .chat-notice { padding: 0; border: 0; color: var(--tp-text-2); font-size: 12.5px; }
+.creation-head .chat-alert { padding: 0; }
+/* "Descartar rascunho": uma ação discreta de perigo, não um botão no meio do cabeçalho. */
+.creation-thread .creation-actions { gap: 4px; }
+.creation-thread .creation-actions button.destructive { min-height: 24px; padding: 0 6px; margin-left: -6px; border-color: transparent; background: transparent; color: var(--tp-danger-text); font-size: 12px; text-decoration: underline; }
+.creation-thread .creation-actions button.destructive:hover:not(:disabled) { background: var(--tp-danger-surface); }
+.creation-thread .creation-actions .confirm-action { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+.creation-thread .creation-change button { min-height: 24px; padding: 0 8px; font-size: 12px; }
+/* O título da thread numa linha só, com reticências; o nome inteiro fica no `title` e na linha da barra. */
+.chat-trail li.is-creation { display: flex; flex: 1 1 100%; align-items: center; min-width: 0; max-width: 100%; }
+.chat-trail .creation-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.creation-body { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+/* O rascunho: cartão de contorno tracejado na cor do selo, como o desenho aprovado; o corpo rola por baixo do cabeçalho. */
+.creation-body .assistant-scroll { padding: 18px 20px; overflow-x: hidden; }
+.creation-thread .assistant-card.is-draft { border: 1.5px dashed var(--tp-warn-text); border-radius: 12px; background: color-mix(in srgb, var(--tp-warn-bg) 35%, var(--tp-conv-bg)); }
+.creation-thread .assistant-card.is-draft > h3 { color: var(--tp-warn-text); font-size: 11px; font-weight: 700; }
+.creation-thread .assistant-card.is-draft input:not([type="checkbox"]) { min-height: 34px; border-color: var(--tp-conv-field-border); background: var(--tp-conv-bg); font-weight: 600; }
+.creation-thread .assistant-card.is-draft input:not([type="checkbox"]):focus-visible { border-color: var(--tp-accent); }
+.creation-thread .assistant-card.is-draft textarea { border-color: var(--tp-conv-field-border); background: var(--tp-conv-bg); }
+.creation-thread .assistant-card.is-path { border-radius: 12px; border: 1px solid var(--tp-conv-field-border); background: var(--tp-conv-field); }
+.creation-body .assistant-scroll { overflow-x: hidden; }
+.creation-done { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.creation-card { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; padding: 8px 10px; border: 1.5px dashed var(--tp-warn-text); border-radius: 10px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; max-width: 100%; }
+.creation-card.is-created { border-style: solid; }
+.creation-card .creation-title { min-width: 0; overflow-wrap: anywhere; }
+.creation-project-pick { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; }
+.creation-project-pick ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.creation-project-pick strong { color: var(--tp-text); font-size: 13px; }
+.creation-project-pick .chat-notice { padding: 0; border: 0; color: var(--tp-text-2); }
+.creation-project-pick button { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; border: 1px solid var(--tp-conv-field-border); border-radius: 9px; background: var(--tp-conv-field); color: var(--tp-text); font: 500 13px var(--tp-font); cursor: pointer; }
+.creation-project-pick button:hover { border-color: var(--tp-border-strong); background: var(--tp-selected); }
+.creation-mode { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 16px; font-size: 12px; }
+.chat-new-ticket { margin-left: 8px; }

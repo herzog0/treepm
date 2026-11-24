@@ -8,7 +8,7 @@ import "../controls.css";
 import "../command/command.css";
 import type { ApiClient } from "../api/client.js";
 import { makeClient, makeConversation, makePlacement, makeProject, makeTicket, ok } from "../test/fakes.js";
-import { AssistantPanel } from "./AssistantPanel.js";
+import { ChatHarness } from "../test/mountChat.js";
 
 // ADR 0052, fatia 3, em navegador real: as tarefas sugeridas e as ligações propostas, em 1440 e 390.
 const SIZES = [{ size: "1440x900", width: 1440, height: 900 }, { size: "390x844", width: 390, height: 844 }];
@@ -41,8 +41,8 @@ async function mount() {
   return render(
     <main className="tenant-map" style={{ position: "fixed", inset: 0, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "12px 0" }}>
       <div className="command-bar is-open">
-        <AssistantPanel client={clientWith()} projects={[project]} initialProjectId="p1" tickets={{ p1: [makeTicket("t1", "p1", 1, "Tickets no mapa", { key: "TREEPM-1" })] }} expanded resume
-          onCollapse={() => undefined} onProgress={() => undefined} onCreated={() => undefined} onOpenExisting={() => undefined} onManualCreate={() => undefined} onDraftChange={() => undefined} onChanged={() => undefined} registerPicker={() => undefined} />
+        <ChatHarness client={clientWith()} projects={[project]} initialProjectId="p1" tickets={{ p1: [makeTicket("t1", "p1", 1, "Tickets no mapa", { key: "TREEPM-1" })] }} resume
+          onCreated={() => undefined} onOpenExisting={() => undefined} onManualCreate={() => undefined} onDraftChange={() => undefined} onChanged={() => undefined} registerPicker={() => undefined} />
       </div>
     </main>,
   );

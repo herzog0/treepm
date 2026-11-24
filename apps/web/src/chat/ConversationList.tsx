@@ -5,6 +5,7 @@ import type { ConversationNode } from "../api/client.js";
 import { formatActivityTime } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { nodeIsRef, refOfNode, topicLabel, useChats } from "./ChatsContext.js";
+import { CreationStateBadge } from "./CreationThread.js";
 import { situationColor } from "./situation.js";
 import { threadColor, threadTitle } from "./thread.js";
 
@@ -25,8 +26,12 @@ function ConversationRow({ node, depth, parent }: { node: ConversationNode; dept
   const level = Math.min(depth, MAX_INDENT_LEVEL);
   const thread = node.kind === "thread";
   const topic = thread && node.purpose === "topic";
+  const creation = thread && node.purpose === "creation" ? node.creation : null;
   const title =
-    topic ? (
+    creation !== null || (thread && node.purpose === "creation") ? (
+      // O rascunho se diz pelo título dele; sem título, "Novo ticket".
+      node.title?.trim() || t("creation.fallbackTitle")
+    ) : topic ? (
       // O assunto se diz pelo título que o assistente deu; sem ele, pelo começo da abertura; sem os dois, "Assunto". Nunca "Thread com…".
       topicLabel(node.title, node.label ? withoutPersonLinksDeep(node.label) : node.label, t("row.topic"))
     ) :
@@ -38,6 +43,7 @@ function ConversationRow({ node, depth, parent }: { node: ConversationNode; dept
         {/* O espaço entre a chave e o título é parte do nome acessível da linha. */}
         {" "}
         {node.ticket.title}
+        {chats.newTickets.has(node.ticket.id) && <span className="conv-new">{t("creation.newBadge")}</span>}
       </>
     ) : node.label && parent !== undefined && sameParticipants(node, parent) ? (
       withoutPersonLinksDeep(node.label)
@@ -49,12 +55,14 @@ function ConversationRow({ node, depth, parent }: { node: ConversationNode; dept
     <li className="conv-item">
       <button
         type="button"
-        className={`conv-row is-${node.kind} ${node.unread > 0 ? "is-unread" : ""}`}
+        className={`conv-row is-${node.kind} ${creation !== null ? "is-creation" : ""} ${node.unread > 0 ? "is-unread" : ""}`}
         style={{ "--conv-level": level } as CSSProperties}
         aria-current={current ? "true" : undefined}
         onClick={() => chats.select(refOfNode(node))}
       >
-        {topic ? (
+        {creation !== null ? (
+          <span className="conv-creation-mark" aria-hidden="true">+</span>
+        ) : topic ? (
           <span className="conv-topic-mark" aria-hidden="true">✦</span>
         ) : thread && node.id !== null ? (
           <span className="conv-thread-mark" aria-hidden="true" style={{ background: threadColor(node.id) }} />
@@ -65,7 +73,7 @@ function ConversationRow({ node, depth, parent }: { node: ConversationNode; dept
         )}
         <span className="conv-text">
           <span className="conv-title">{title}</span>
-          {sub !== null && <span className="conv-preview">{sub}</span>}
+          {creation !== null ? <span className="conv-preview"><CreationStateBadge state={creation.state} /></span> : sub !== null && <span className="conv-preview">{sub}</span>}
         </span>
         {node.lastActivityAt !== null && <time className="conv-time" dateTime={node.lastActivityAt}>{formatActivityTime(i18n.language as Language, node.lastActivityAt, new Date())}</time>}
         {(node.assignedToMe || node.unread > 0) && (

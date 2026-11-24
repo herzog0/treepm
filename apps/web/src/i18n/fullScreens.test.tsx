@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient, Me, PlacementOutcome, Project, TicketDetail, TicketSummary } from "../api/client.js";
-import { AssistantPanel } from "../assistant/AssistantPanel.js";
+import { ChatHarness } from "../test/mountChat.js";
 import { Demo } from "../demo/Demo.js";
 import { GithubCallback } from "../github/GithubCallback.js";
 import { IdeasScreen } from "../ideas/IdeasScreen.js";
@@ -166,7 +166,7 @@ describe.each(["en", "es-MX"] as const)("full screens in %s", (language) => {
     const client = appClient();
     client.findPlacement = vi.fn(async () => ok(makePlacement({ destination: target("t4"), alternatives: [target("t1")], uncertain: true, groupProposal: proposal, scope: { id: "t1", title: "Login flow", outOfScope: true }, stoppedEarly: { reason: "max_levels", level: 2, parentId: "t1" } }) as PlacementOutcome));
     const { container } = render(
-      <AssistantPanel client={client} projects={[alpha]} initialProjectId="p1" initialScopeId="t1" tickets={{ p1: summaries }} expanded resume onCollapse={vi.fn()} onProgress={vi.fn()} onCreated={vi.fn()} onManualCreate={vi.fn()} onDraftChange={vi.fn()} onChanged={vi.fn()} registerPicker={vi.fn()} />,
+      <ChatHarness client={client} projects={[alpha]} initialProjectId="p1" initialScopeId="t1" tickets={{ p1: summaries }} resume onCreated={vi.fn()} onManualCreate={vi.fn()} onDraftChange={vi.fn()} onChanged={vi.fn()} registerPicker={vi.fn()} />,
     );
     await userEvent.click(await screen.findByRole("button", { name: resources[language].assistant.draft.search }));
     await screen.findByRole("region", { name: resources[language].assistant.path.region });

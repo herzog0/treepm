@@ -98,13 +98,13 @@ describe("a barra de pedidos e o Meu chat", () => {
     expect(sendCalls(client)[0]![1]).toEqual({ body: "login outra vez", topic: true });
   }, SLOW);
 
-  it("Ctrl+Enter continua criando ticket e não fala com o chat", async () => {
+  it("Ctrl+Enter abre uma thread de criação no Meu chat (`creation: true`), não uma conversa comum", async () => {
     const { client } = setup();
     render(<Host client={client} />);
     await typed("zzz criar isto");
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
-    expect(sendCalls(client)).toHaveLength(0);
-    expect(client.openGeneralConversation).not.toHaveBeenCalled();
+    await waitFor(() => expect(sendCalls(client)).toHaveLength(1));
+    expect(sendCalls(client)[0]![1]).toMatchObject({ creation: true });
   }, SLOW);
 
   it("campo vazio: 'Abrir o Meu chat' é a primeira linha e abre a coluna no chat geral, sem criar nada", async () => {
@@ -279,7 +279,7 @@ describe("a barra de pedidos e o Meu chat", () => {
     expect(field).not.toHaveValue("");
   }, SLOW);
 
-  it("Ctrl+Enter de quem não pode criar ticket não faz nada; de quem pode, cria (limpa a barra) sem falar com o chat", async () => {
+  it("Ctrl+Enter de quem não pode criar ticket não faz nada; de quem pode, abre a thread de criação (limpa a barra)", async () => {
     const { client } = setup();
     const reader = { ...makePanelMe("member", [{ projectId: "p1", role: "reader" }]), assistant: { enabled: true } };
     const view = render(<Host client={client} me={reader} />);
@@ -292,7 +292,7 @@ describe("a barra de pedidos e o Meu chat", () => {
     const admin = await typed("zzz cria");
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
     await waitFor(() => expect(admin).toHaveValue(""));
-    expect(sendCalls(client)).toHaveLength(0);
+    await waitFor(() => expect(sendCalls(client)).toHaveLength(1));
   }, SLOW);
 
   it("o rodapé diz o que o Enter faz: 'Enter conversar' no Meu chat, 'Enter abrir' num ticket", async () => {

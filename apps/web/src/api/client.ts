@@ -167,6 +167,28 @@ const conversationDetailSchema = conversationSummarySchema.extend({
 });
 const placementTargetSchema = z.object({ parentId: z.string().nullable(), path: z.array(z.object({ id: z.string(), title: z.string() })) });
 const questionPathSchema = z.array(z.object({ id: z.string(), title: z.string() }));
+/**
+ * A decisão que o servidor guarda da última procura da conversa (só ids e números): a tela a usa para remontar a pergunta aberta ou o
+ * destino confirmado quando a thread reabre. Só os campos que a tela lê.
+ */
+const placementDecisionSchema = z.object({
+  decision: z
+    .object({
+      chosenPath: z.array(z.string()),
+      related: z.array(z.object({ ticketId: z.string() }).passthrough()).default([]),
+      duplicateTicketId: z.string().nullable().default(null),
+      doubt: z
+        .object({
+          confirmed: z.boolean(),
+          question: z.object({ level: z.number(), kind: z.enum(["fit", "which", "root", "related", "interrupted"]), parentId: z.string().nullable(), options: z.array(z.object({ ticketId: z.string() }).passthrough()) }).passthrough().nullable(),
+        })
+        .passthrough()
+        .nullable()
+        .default(null),
+    })
+    .passthrough()
+    .nullable(),
+});
 const placementOutcomeSchema = z.object({
   /** Há dúvida sobre o lugar (ADR 0054): a pergunta montada pelo servidor; `null` sem dúvida. */
   question: z
@@ -394,6 +416,7 @@ export type ConversationSummary = z.output<typeof conversationSummarySchema>;
 export type ConversationDetail = z.output<typeof conversationDetailSchema>;
 export type PlacementTarget = z.output<typeof placementTargetSchema>;
 export type PlacementOutcome = z.output<typeof placementOutcomeSchema>;
+export type PlacementDecision = NonNullable<z.output<typeof placementDecisionSchema>["decision"]>;
 export type ElaborationOutcome = z.output<typeof elaborationOutcomeSchema>;
 export type CreatedFromConversation = z.output<typeof createdFromConversationSchema>;
 export type SuggestedTask = ElaborationOutcome["suggested"][number];
@@ -684,11 +707,14 @@ export function createApiClient({ getToken, fetch: fetchImpl, actAsId = null }: 
       request("PATCH", `${conversation(id)}/draft`, conversationDetailSchema, body),
     getConversationPreview: (id: string) => request("GET", `${conversation(id)}/preview`, draftPreviewSchema),
     /**
-     * `scopeId`: procura só dentro desse ticket (ADR 0031, ADR 0034); sem ele, no projeto inteiro. `startId`: o ramo que a pessoa
+     * `scopeId`: procura só dentro desse ticket (ADR 0031, ADR 0034); `null`, o projeto inteiro (sem isso, numa thread nascida no chat de um
+     * ticket, o servidor parte desse ticket); ausente, o servidor decide. `startId`: o ramo que a pessoa
      * confirmou por último na pergunta (ADR 0054, adendo); a procura parte dele. Campo ausente não vai no corpo.
      */
-    findPlacement: (id: string, scopeId?: string, startId?: string) =>
+    findPlacement: (id: string, scopeId?: string | null, startId?: string) =>
       request("POST", `${conversation(id)}/placement`, placementOutcomeSchema, scopeId === undefined && startId === undefined ? undefined : { ...(scopeId === undefined ? {} : { scopeId }), ...(startId === undefined ? {} : { startId }) }),
+    /** A decisão guardada da última procura (`null` se ainda não houve): a thread reaberta remonta a pergunta por ela. */
+    getPlacementDecision: (id: string) => request("GET", `${conversation(id)}/placement-decision`, placementDecisionSchema),
     getElaboration: (id: string) => request("POST", `${conversation(id)}/elaboration`, elaborationOutcomeSchema),
     createTicketFromConversation: (id: string, body: { parentId: string | null; placedBy: PlacedBy; group?: NewGroup } & ElaborationChoice) =>
       request("POST", `${conversation(id)}/ticket`, createdFromConversationSchema, body),

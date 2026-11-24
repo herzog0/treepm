@@ -8,7 +8,7 @@ import "../controls.css";
 import "../command/command.css";
 import type { ApiClient, DraftPreview } from "../api/client.js";
 import { makeClient, makeConversation, makeProject, makeTicket, ok } from "../test/fakes.js";
-import { AssistantPanel } from "./AssistantPanel.js";
+import { ChatHarness } from "../test/mountChat.js";
 
 // ADR 0044, fatia 2, em navegador real: a folha da conversa com a citação, o pai e os filhos, o esqueleto e o aviso.
 // As capturas de conferência visual só saem com VITE_TREEPM_CAPTURES definida (a pasta de destino).
@@ -51,8 +51,8 @@ async function mount(client: ApiClient, resume: boolean) {
   return render(
     <main className="tenant-map" style={{ position: "fixed", inset: 0, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "12px 0" }}>
       <div className="command-bar is-open">
-        <AssistantPanel client={client} projects={[project]} initialProjectId="p1" tickets={{ p1: [makeTicket("t1", "p1", 1, "Design da plataforma", { key: "TREEPM-12" })] }} expanded resume={resume}
-          onCollapse={() => undefined} onProgress={() => undefined} onCreated={() => undefined} onManualCreate={() => undefined} onDraftChange={() => undefined} onChanged={() => undefined} registerPicker={() => undefined} />
+        <ChatHarness client={client} projects={[project]} initialProjectId="p1" tickets={{ p1: [makeTicket("t1", "p1", 1, "Design da plataforma", { key: "TREEPM-12" })] }} resume={resume}
+          onCreated={() => undefined} onManualCreate={() => undefined} onDraftChange={() => undefined} onChanged={() => undefined} registerPicker={() => undefined} />
       </div>
     </main>,
   );

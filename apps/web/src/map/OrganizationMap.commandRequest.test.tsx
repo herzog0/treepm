@@ -21,17 +21,9 @@ describe("requests from the sidebar to the command bar", () => {
     expect(handled).toHaveBeenCalledTimes(1);
   }, SLOW);
 
-  it("'new' opens the new ticket conversation of the bar", async () => {
-    const handled = vi.fn();
-    render(<OrganizationMap client={client()} me={withAssistant(makePanelMe("admin"))} commandRequest={{ kind: "new", id: 1 }} onCommandHandled={handled} />);
-    expect(await screen.findByRole("region", { name: "Novo ticket com o assistente" }, { timeout: SLOW })).toBeInTheDocument();
-    expect(handled).toHaveBeenCalledTimes(1);
-  }, SLOW);
-
   it("'new' without the assistant only takes the focus to the field", async () => {
     render(<OrganizationMap client={client()} me={withAssistant(makePanelMe("admin"), false)} commandRequest={{ kind: "new", id: 1 }} onCommandHandled={vi.fn()} />);
     const field = await screen.findByRole("combobox", { name: "Peça qualquer coisa" }, { timeout: SLOW });
     await waitFor(() => expect(field).toHaveFocus(), { timeout: SLOW });
-    expect(screen.queryByRole("region", { name: "Novo ticket com o assistente" })).toBeNull();
   }, SLOW);
 });

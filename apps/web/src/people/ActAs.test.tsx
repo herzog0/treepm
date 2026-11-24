@@ -4,6 +4,8 @@ import { StrictMode, useEffect, useMemo, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { notifyActAsRejected, readActAs, writeActAs } from "../api/actAs.js";
 import { createApiClient } from "../api/client.js";
+import type { ApiClient } from "../api/client.js";
+import { ChatsProvider, useChats } from "../chat/ChatsContext.js";
 import { lastIdeasProject, rememberIdeasProject } from "../ideas/session.js";
 import { ActAsProvider, useActAs } from "./ActAs.js";
 
@@ -191,5 +193,39 @@ describe("uma fonte só: o cliente da árvore", () => {
     off();
     expect(result.ok).toBe(false);
     expect(rejected).toHaveBeenCalledExactlyOnceWith("p-bia");
+  });
+});
+
+describe("ActAsProvider e as conversas", () => {
+  const client = { listConversationTree: async () => ({ ok: true, data: { items: [] } }), getMe: async () => ({ ok: false, error: { kind: "unavailable" } }) } as unknown as ApiClient;
+  function Probe() {
+    const chats = useChats()!;
+    const { enter, leave } = useActAs();
+    return (
+      <div>
+        <button type="button" onClick={() => { chats.setCreationMode(true); chats.markNewTicket("t1"); chats.creationMemory.write("thread-1", { notice: { ticketId: "t1", warnings: [] } }); }}>marcar</button>
+        <button type="button" onClick={() => enter({ id: "p-bia", displayName: "Bia" })}>entrar</button>
+        <button type="button" onClick={leave}>sair</button>
+        <p data-testid="estado">{`${chats.creationMode}|${chats.newTickets.size}|${chats.creationMemory.read("thread-1") === undefined ? "sem memória" : "com memória"}`}</p>
+      </div>
+    );
+  }
+
+  it("entrar como outra pessoa, e voltar, zera o modo 'novo ticket', os tickets 'novos' e a memória das threads de criação", async () => {
+    const user = userEvent.setup();
+    render(
+      <ActAsProvider>
+        <ChatsProvider client={client} onShowTicket={() => undefined}>
+          <Probe />
+        </ChatsProvider>
+      </ActAsProvider>,
+    );
+    await user.click(screen.getByText("marcar"));
+    expect(screen.getByTestId("estado")).toHaveTextContent("true|1|com memória");
+    await user.click(screen.getByText("entrar"));
+    expect(screen.getByTestId("estado")).toHaveTextContent("false|0|sem memória");
+    await user.click(screen.getByText("marcar"));
+    await user.click(screen.getByText("sair"));
+    expect(screen.getByTestId("estado")).toHaveTextContent("false|0|sem memória");
   });
 });

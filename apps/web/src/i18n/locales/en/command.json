@@ -27,9 +27,6 @@
     "chatShortcut": "Shift Enter"
   },
   "conversation": {
-    "inProgress": "Conversation in progress",
-    "resume": "Continue conversation",
-    "new": "New conversation",
     "openChat": "Open My chat"
   },
   "next": {

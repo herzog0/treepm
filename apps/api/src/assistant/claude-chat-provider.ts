@@ -40,21 +40,26 @@ export class ClaudeChatProvider implements ChatProvider {
     this.options = { timeoutMs: options.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS, totalTimeoutMs: options.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS, maxToolRounds: options.maxToolRounds ?? MAX_TOOL_ROUNDS };
   }
 
-  async reply(input: ChatTurnInput): Promise<{ message: string; model: string; title?: string | null }> {
+  async reply(input: ChatTurnInput): Promise<{ message: string; model: string; title?: string | null; openDraft?: string }> {
     const outcome = await runToolLoop({
       stream: this.stream,
       logger: this.logger,
       tools: input.tools,
       messages: this.messages(input),
-      params: (messages, closing) => this.params(messages, closing, input.wantTitle),
+      params: (messages, closing) => this.params(messages, closing, input.wantTitle, input.draftTool !== null),
       options: this.options,
     });
-    const parsed = replyLimits.safeParse(outcome.final.parsed_output);
+    // Uma ferramenta pediu o rascunho de um ticket: a vez termina aqui, sem resposta do modelo (quem chama grava a mensagem fixa).
+    if (outcome.openDraft !== undefined) {
+      this.logger.log(`chat model=${outcome.model} ms=${outcome.ms} rounds=${outcome.rounds} executions=${outcome.executions} tools=${toolsSummary(outcome.perTool)} draft=open`);
+      return { message: "", model: outcome.model, openDraft: outcome.openDraft };
+    }
+    const parsed = replyLimits.safeParse(outcome.final?.parsed_output);
     if (!parsed.success) throw new AssistantUnavailableError("invalid_output");
-    this.logger.log(`chat model=${outcome.final.model} ms=${outcome.ms} rounds=${outcome.rounds} executions=${outcome.executions} tools=${toolsSummary(outcome.perTool)} chars=${parsed.data.message.length}`);
+    this.logger.log(`chat model=${outcome.model} ms=${outcome.ms} rounds=${outcome.rounds} executions=${outcome.executions} tools=${toolsSummary(outcome.perTool)} chars=${parsed.data.message.length}`);
     // O título é um extra: inválido ou ausente, a resposta vale e a thread fica sem título (quem grava confere de novo).
-    const title = input.wantTitle ? chatTitleOf((outcome.final.parsed_output as { title?: unknown } | null | undefined)?.title) : null;
-    return { message: parsed.data.message, model: outcome.final.model, ...(title !== null ? { title } : {}) };
+    const title = input.wantTitle ? chatTitleOf((outcome.final?.parsed_output as { title?: unknown } | null | undefined)?.title) : null;
+    return { message: parsed.data.message, model: outcome.model, ...(title !== null ? { title } : {}) };
   }
 
   private messages(input: ChatTurnInput): Anthropic.Beta.BetaMessageParam[] {
@@ -68,7 +73,7 @@ export class ClaudeChatProvider implements ChatProvider {
     );
   }
 
-  private params(messages: Anthropic.Beta.BetaMessageParam[], closing: boolean, wantTitle: boolean): StreamParams {
+  private params(messages: Anthropic.Beta.BetaMessageParam[], closing: boolean, wantTitle: boolean, draftTool: boolean): StreamParams {
     return {
       model: CLAUDE_MODEL,
       max_tokens: MAX_TOKENS,
@@ -76,7 +81,7 @@ export class ClaudeChatProvider implements ChatProvider {
       fallbacks: "default",
       output_config: { effort: EFFORT, format: zodOutputFormat(wantTitle ? replyWithTitleFormat : replyFormat) },
       system: [{ type: "text", text: CHAT_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-      tools: chatToolDefinitions(),
+      tools: chatToolDefinitions(draftTool),
       // Sem ferramentas na última chamada: a lista fica (a API a exige com tool_result no histórico), mas é proibida.
       ...(closing ? { tool_choice: { type: "none" as const } } : {}),
       messages,

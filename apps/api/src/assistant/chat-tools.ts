@@ -5,8 +5,9 @@ import type { ProjectQueryService } from "../query/project-query.service.js";
 import { ProjectToolExecutor, ToolInputError, parseToolInput } from "./ask-executor.js";
 import type { Labeler } from "./ask-executor.js";
 import { listTicketsInput, searchTicketsInput } from "./ask-tools.js";
-import type { ToolExecutor, ToolOutcome } from "./ports.js";
-import { TOOL_DATA_HEADER } from "./prompts.js";
+import { hasForbiddenChatChars } from "@treepm/domain";
+import type { DraftToolState, ToolExecutor, ToolOutcome } from "./ports.js";
+import { DRAFT_BLOCKED, TOOL_DATA_HEADER } from "./prompts.js";
 
 /**
  * As ferramentas de consulta das conversas (ADR 0056, item 2): as quatro da pergunta sobre o projeto, agora sobre todos os projetos
@@ -38,6 +39,18 @@ export const chatListInput = listTicketsInput.extend({
 });
 export const chatOverviewInput = z.strictObject({ project });
 
+/** O pedido que abre o rascunho: uma ou duas frases. A ferramenta não aceita projeto, lugar nem nada além disto (ADR 0056, item 5). */
+export const DRAFT_REQUEST_MAX = 600;
+export const openDraftInput = z.strictObject({
+  request: z
+    .string()
+    .trim()
+    .min(1)
+    .max(DRAFT_REQUEST_MAX)
+    .refine((text) => !hasForbiddenChatChars(text), "caractere inválido")
+    .describe("O que a pessoa quer que o ticket novo seja, em uma ou duas frases, nas palavras dela."),
+});
+
 export const CHAT_TOOLS = [
   {
     name: "search_tickets",
@@ -64,9 +77,20 @@ export const CHAT_TOOLS = [
   },
 ] as const;
 
-/** As definições no formato do SDK, geradas do mesmo esquema que valida a entrada. */
-export function chatToolDefinitions(): { name: string; description: string; input_schema: { type: "object"; [key: string]: unknown } }[] {
-  return CHAT_TOOLS.map((tool) => {
+/**
+ * A única ferramenta que não consulta: abre a thread de criação de ticket (ADR 0056, item 5). Ela NÃO cria ticket: o rascunho nasce com a
+ * pessoa, que o confirma ou descarta, e a vez do assistente termina na chamada. Só é oferecida onde o assistente fala sozinho com a pessoa.
+ */
+export const OPEN_DRAFT_TOOL = {
+  name: "open_ticket_draft",
+  description:
+    "Abre um rascunho de ticket novo para a pessoa revisar, quando ela pedir para criar um ticket. Você NÃO cria o ticket: o rascunho abre numa thread própria, onde ela confirma ou descarta. Ao chamar, a sua vez termina; não escreva resposta. Argumento: só o pedido dela, em uma ou duas frases.",
+  schema: openDraftInput,
+} as const;
+
+/** As definições no formato do SDK, geradas do mesmo esquema que valida a entrada. `withDraft`: inclui a ferramenta que abre o rascunho. */
+export function chatToolDefinitions(withDraft = false): { name: string; description: string; input_schema: { type: "object"; [key: string]: unknown } }[] {
+  return [...CHAT_TOOLS, ...(withDraft ? [OPEN_DRAFT_TOOL] : [])].map((tool) => {
     const schema: { type: "object"; [key: string]: unknown } = { ...(z.toJSONSchema(tool.schema, { io: "input" }) as Record<string, unknown>), type: "object" };
     delete schema["$schema"];
     return { name: tool.name, description: tool.description, input_schema: schema };
@@ -120,6 +144,7 @@ export class ChatToolExecutor implements ToolExecutor {
     tenant: TenantRunner,
     query: ProjectQueryService,
     private readonly projects: readonly ChatProject[],
+    private readonly draftTool: DraftToolState | null = null,
   ) {
     for (const entry of projects) {
       this.byKey.set(entry.key.toUpperCase(), entry);
@@ -129,6 +154,12 @@ export class ChatToolExecutor implements ToolExecutor {
 
   async execute(name: string, input: unknown): Promise<ToolOutcome> {
     try {
+      if (name === OPEN_DRAFT_TOOL.name && this.draftTool !== null) {
+        const { request } = parseToolInput([OPEN_DRAFT_TOOL], name, input) as { request: string };
+        // Bloqueada (vários projetos possíveis, rascunho já aberto): o motivo volta ao modelo, que o diz à pessoa; nada é aberto.
+        if (this.draftTool.kind === "blocked") return { content: DRAFT_BLOCKED[this.draftTool.reason], isError: true };
+        return { content: "Rascunho aberto.", isError: false, openDraft: request };
+      }
       const args = parseToolInput(CHAT_TOOLS, name, input);
       // O resultado é dado, cercado como dado: o cabeçalho diz isso, e o JSON escapa quebras de linha do texto dos tickets.
       return { content: `${TOOL_DATA_HEADER}\n${capped(JSON.stringify(await this.run(name, args)))}`, isError: false };

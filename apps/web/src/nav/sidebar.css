@@ -71,3 +71,7 @@
   .sidebar-account .cl-userButtonTrigger { min-width: 44px; min-height: 44px; }
   .sidebar-org .cl-organizationSwitcherTrigger { min-height: 44px; }
 }
+
+/* A thread de criação (ADR 0056): "+" em contorno tracejado amarelo e o selo do estado, sempre dito por palavra (não só por cor). */
+.conv-creation-mark { grid-area: mark; justify-self: center; display: grid; place-items: center; width: 16px; height: 16px; border: 1.5px dashed var(--tp-warn-text); border-radius: 4px; color: var(--tp-warn-text); font-size: 13px; font-weight: 700; line-height: 1; }
+.conv-new { margin-left: 6px; padding: 0 6px; border-radius: 8px; background: var(--tp-warn-bg); color: var(--tp-warn-text); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }

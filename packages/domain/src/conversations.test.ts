@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CONVERSATION_MAX_DEPTH,
+  assistantSpeaksIn,
   canOpenThreadBelow,
   canReadConversation,
   descendantIds,
@@ -74,5 +75,18 @@ describe("a invariante e os limites", () => {
   });
   it("conta só quem é novo", () => {
     expect(participantCountAfter(new Set(["a", "b"]), ["b", "c"])).toBe(3);
+  });
+});
+
+describe("onde o assistente fala (e, por isso, onde ele pode abrir um rascunho de ticket)", () => {
+  it("nas conversas principais e nas threads de assunto, que são só de quem as abriu", () => {
+    expect(assistantSpeaksIn({ kind: "general", purpose: null })).toBe(true);
+    expect(assistantSpeaksIn({ kind: "ticket", purpose: null })).toBe(true);
+    expect(assistantSpeaksIn({ kind: "thread", purpose: "topic" })).toBe(true);
+  });
+  it("nunca numa thread com pessoas nem na thread de criação", () => {
+    expect(assistantSpeaksIn({ kind: "thread", purpose: "people" })).toBe(false);
+    expect(assistantSpeaksIn({ kind: "thread", purpose: "creation" })).toBe(false);
+    expect(assistantSpeaksIn({ kind: "thread", purpose: null })).toBe(false);
   });
 });

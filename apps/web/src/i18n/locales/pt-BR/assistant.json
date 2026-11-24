@@ -1,13 +1,8 @@
 {
   "panel": {
-    "label": "Novo ticket com o assistente",
-    "title": "Novo ticket",
-    "subtitle": "O assistente conhece a árvore e lembra das conversas anteriores",
-    "project": "{{key}} · {{name}}",
-    "collapse": "Recolher"
+    "label": "Novo ticket com o assistente"
   },
   "project": {
-    "question": "Em qual projeto?",
     "option": "{{key}} · {{name}}"
   },
   "loading": "Carregando a conversa…",
@@ -17,12 +12,11 @@
     "remove": "Tirar o escopo"
   },
   "conversation": {
-    "new": "Nova conversa",
-    "delete": "Apagar conversa",
     "hint": "Descreva a tarefa. O assistente pergunta o que faltar, escreve o ticket e procura o lugar dele na árvore.",
     "waiting": "O assistente está respondendo…",
     "reply": "Resposta do assistente",
-    "unanswered": "Não respondida"
+    "unanswered": "Não respondida",
+    "discard": "Descartar rascunho"
   },
   "error": {
     "retry": "Tentar de novo",

@@ -60,6 +60,8 @@ interface ComposerProps {
   refused: readonly string[];
   fieldRef: RefObject<ComposerHandle | null>;
   onSend: (draft: Draft) => void;
+  /** "Novo ticket": manda o que está escrito como pedido de um ticket novo (só onde o assistente fala e sem pessoas marcadas). */
+  onNewTicket?: (draft: Draft) => void;
 }
 
 /** Os ancestrais mais próximos do ticket, do mais alto para o mais baixo, e a raiz do caminho (ou o nome do projeto, quando ele é raiz). */
@@ -74,7 +76,7 @@ function pathOf(ticket: TicketSummary, byId: ReadonlyMap<string, TicketSummary>,
  * colados ao ponto do texto (ADR 0056); a pessoa marcada fica no meio do texto como item indivisível (ADR 0058), e a faixa "vai participar"
  * mostra as mesmas pessoas: o documento é a fonte única.
  */
-export function Composer({ label, placeholder, draft, onDraft, people, peopleStatus, tickets, projectNames, onNeedTickets, onRetryTickets, names, canAssistant, thread, canOpenThread, notice, assistantBusy, threadBusy, readOnly, refused, fieldRef, onSend }: ComposerProps) {
+export function Composer({ label, placeholder, draft, onDraft, people, peopleStatus, tickets, projectNames, onNeedTickets, onRetryTickets, names, canAssistant, thread, canOpenThread, notice, assistantBusy, threadBusy, readOnly, refused, fieldRef, onNewTicket, onSend }: ComposerProps) {
   const { t, i18n } = useTranslation("chat");
   const language = i18n.language as Language;
   const id = useId();
@@ -87,6 +89,7 @@ export function Composer({ label, placeholder, draft, onDraft, people, peopleSta
   const byId = useMemo(() => new Map(tickets.status === "ready" ? Object.values(tickets.byProject).flat().map((ticket) => [ticket.id, ticket] as const) : []), [tickets]);
   const pathOfTicket = (ticket: TicketSummary) => pathOf(ticket, byId, projectNames.get(ticket.projectId) ?? "", t("picker.pathSeparator"));
 
+  const canNewTicket = onNewTicket !== undefined && !mentioning && !readOnly && draft.text.trim() !== "" && !over && !assistantBusy;
   const submit = () => {
     if (canSend) onSend(draft);
   };
@@ -143,6 +146,11 @@ export function Composer({ label, placeholder, draft, onDraft, people, peopleSta
           )}
         </div>
         <div className="chat-composer-actions">
+          {onNewTicket !== undefined && !mentioning && (
+            <button type="button" className="chat-text-button chat-new-ticket" title={t("creation.newTicketHint")} disabled={!canNewTicket} onClick={() => onNewTicket(draft)}>
+              {t("creation.newTicket")}
+            </button>
+          )}
           {mentioning ? (
             <button type="submit" className="chat-send is-thread" disabled={!canSend}>{t("composer.sendThread")}</button>
           ) : (

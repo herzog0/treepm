@@ -20,7 +20,6 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { createHash } from "node:crypto";
 import type { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { CurrentPrincipal } from "../access/principal.js";
@@ -61,38 +60,19 @@ import type { LookupOutcome } from "./suggested-links.js";
 import type { LinkLookupResult, LookupTicket } from "./suggested-links.js";
 import type { PlacementOutcome } from "./placement-search.js";
 import { PlacementService } from "./placement.service.js";
+import { CreationThreads } from "./creation-threads.js";
+import { TicketDraftService, childrenOf, draftMarkOf, requireScope } from "./ticket-draft.service.js";
+import type { ConversationRow } from "./ticket-draft.service.js";
 import { AssistantGate } from "./assistant-gate.js";
 import { PLACEMENT_TIMEOUT_MS } from "./placement-search.js";
 import { AssistantUnavailableError, PLACEMENT_TIMEOUTS } from "./ports.js";
-import type { ConversationDraft, ConversationProvider, ConversationTurn, DraftChild, ElaborationLink, ElaborationSuggestion, ExistingMatcher, PlacementTimeouts } from "./ports.js";
+import type { ConversationDraft, DraftChild, ElaborationLink, ElaborationSuggestion, ExistingMatcher, PlacementTimeouts } from "./ports.js";
 import { QueuesStructure } from "../tickets/structure-queue.js";
 import { TicketsService } from "../tickets/tickets.service.js";
 import { MAX_TICKET_DESCRIPTION } from "../tickets/tickets.schema.js";
 import type { TicketDetail } from "../tickets/tickets.schema.js";
 import type { ProjectRow } from "../tickets/tickets.service.js";
 
-/** Teto dos títulos de agrupadores que vão ao Claude em cada turno (ADR 0033). */
-const MAX_GROUP_TITLES = 30;
-
-type ConversationRow = {
-  orgId: string;
-  id: string;
-  projectId: string;
-  authorPersonId: string;
-  status: string;
-  draftTitle: string | null;
-  draftDescription: string | null;
-  draftChildren: unknown;
-  draftIdea: boolean;
-  ready: boolean;
-  createdTicketId: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-/** Os filhos guardados do rascunho (JSON validado pelo banco e por quem grava); ausente = nenhum. */
-const childrenOf = (row: { draftChildren: unknown }): DraftChild[] =>
-  Array.isArray(row.draftChildren) ? (row.draftChildren as DraftChild[]).map(({ title, description }) => ({ title, description })) : [];
 
 /**
  * O texto que a procura do lugar usa (ADR 0044): a descrição do pai e, com filhos, a lista dos títulos deles. A citação do
@@ -105,9 +85,6 @@ const placementDraft = (row: ConversationRow): { title: string; description: str
   const parts = `Partes:\n${titles.join("\n")}`;
   return { title: row.draftTitle ?? "", description: description === "" ? parts : `${description}\n\n${parts}` };
 };
-
-/** Só o hash do rascunho (título, descrição, filhos e se é ideia): diz se a procura guardada ainda vale para o rascunho de agora; nunca guarda o texto. */
-const draftMarkOf = (row: ConversationRow): string => createHash("sha256").update(JSON.stringify([row.draftTitle, row.draftDescription ?? "", childrenOf(row), row.draftIdea])).digest("hex").slice(0, 16);
 
 /** O rascunho da conversa, ou `null` se ainda não há. */
 const draftOf = (row: ConversationRow): { title: string; description: string; children: DraftChild[]; idea: boolean } | null =>
@@ -155,6 +132,8 @@ export class TicketConversationsController {
     @Optional() @Inject(PLACEMENT_TIMEOUTS) private readonly timeouts: PlacementTimeouts | null,
     @Inject(PlacementService) private readonly placementService: PlacementService,
     @Inject(TicketsService) private readonly tickets: TicketsService,
+    @Inject(TicketDraftService) private readonly drafts: TicketDraftService,
+    @Inject(CreationThreads) private readonly threads: CreationThreads,
   ) {}
 
   @Post("projects/:projectId/ticket-conversations")
@@ -166,24 +145,13 @@ export class TicketConversationsController {
   ): Promise<ConversationDetail> {
     const { conversation: provider } = await this.gate.open(tenant);
     const groups = await tenant.run(async (tx, principal) => {
-      await this.requireWritableProject(tx, principal, projectId);
-      return this.scopeGroupTitles(tx, projectId, body.scopeId);
+      await this.drafts.requireWritableProject(tx, principal, projectId);
+      return this.drafts.scopeGroupTitles(tx, projectId, body.scopeId);
     });
-    const turn = await this.ask(provider, { history: [{ author: "person", body: body.message }], draft: null, groups });
+    const turn = await this.drafts.ask(provider, { history: [{ author: "person", body: body.message }], draft: null, groups });
     return tenant.run(async (tx, principal) => {
-      const project = await this.requireWritableProject(tx, principal, projectId);
-      const created = await tx.ticketConversation.create({
-        data: {
-          orgId: project.orgId,
-          projectId,
-          authorPersonId: principal.person.id,
-          draftTitle: turn.draft?.title ?? null,
-          draftDescription: turn.draft?.description ?? null,
-          ...(turn.draft ? { draftChildren: [...(turn.draft.children ?? [])], draftIdea: turn.draft.idea === true } : {}),
-          ready: turn.ready,
-        },
-      });
-      await this.appendMessages(tx, created, 0, body.message, turn);
+      const project = await this.drafts.requireWritableProject(tx, principal, projectId);
+      const created = await this.drafts.create(tx, principal, project, body.message, turn);
       return this.detail(tx, created.id);
     });
   }
@@ -203,7 +171,7 @@ export class TicketConversationsController {
         orderBy: { position: "asc" },
         select: { author: true, body: true },
       });
-      const groups = await this.scopeGroupTitles(tx, conversation.projectId, body.scopeId);
+      const groups = await this.drafts.scopeGroupTitles(tx, conversation.projectId, body.scopeId);
       return { conversation, messages, groups };
     });
     const history = [
@@ -211,7 +179,7 @@ export class TicketConversationsController {
       { author: "person" as const, body: body.message },
     ];
     const current = draftForProvider(seen.conversation);
-    const turn = await this.ask(provider, { history, draft: current, groups: seen.groups });
+    const turn = await this.drafts.ask(provider, { history, draft: current, groups: seen.groups });
     return tenant.run(async (tx, principal) => {
       await tx.$queryRaw`select 1 from ticket_conversations where id = ${id}::uuid for update`; // serializa turnos concorrentes
       const { conversation } = await this.requireWritable(tx, principal, id);
@@ -222,7 +190,7 @@ export class TicketConversationsController {
           message: "A conversa mudou enquanto o assistente respondia. Recarregue e envie de novo.",
         });
       }
-      await this.appendMessages(tx, conversation, count, body.message, turn);
+      await this.drafts.appendMessages(tx, conversation, count, body.message, turn);
       return this.detail(tx, id);
     });
   }
@@ -260,7 +228,7 @@ export class TicketConversationsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
   ): Promise<z.output<typeof previewSchema>> {
     const conversation = await this.findOwn(tx, principal, id);
-    const project = await this.findVisibleProject(tx, principal, conversation.projectId);
+    const project = await this.drafts.findVisibleProject(tx, principal, conversation.projectId);
     if (conversation.draftTitle === null) throw this.draftRequired();
     const built = await this.assemble(tx, project, conversation);
     return parseOutput(previewSchema, {
@@ -290,9 +258,16 @@ export class TicketConversationsController {
         loadPlacementTree(tx, conversation.projectId),
       ]);
       const { tickets } = tree;
-      if (body.scopeId) this.requireScope(tickets.find((ticket) => ticket.id === body.scopeId));
-      this.requireStart(tickets, body.startId, body.scopeId ?? null);
+      // Conversa que nasceu no chat de um ticket (ADR 0056, item 5): sem escopo nem ponto de partida no corpo, a procura começa por esse ticket
+      // (`scopeId`: ela julga se o pedido cabe ali e, se não cabe, procura no projeto todo). `scopeId: null` no corpo continua sendo o projeto inteiro.
+      // A origem só vale como ponto de partida se estiver na árvore viva (ideia, cancelado ou embaixo de um: projeto inteiro).
+      const found = body.scopeId === undefined && body.startId === undefined ? await this.threads.origin(tx, id) : null;
+      const origin = found !== null && tickets.some((ticket) => ticket.id === found) ? found : null;
+      const scopeId = origin ?? body.scopeId ?? null;
+      if (scopeId) requireScope(tickets.find((ticket) => ticket.id === scopeId));
+      this.requireStart(tickets, body.startId, scopeId);
       return {
+        scopeId,
         draft: placementDraft(conversation),
         triage: { title: conversation.draftTitle, description: conversation.draftDescription ?? "", partTitles: childrenOf(conversation).map((child) => child.title) },
         projectKey: project.key,
@@ -315,7 +290,7 @@ export class TicketConversationsController {
         this.placementService
           .search(seen.draft, seen.snapshot, {
             judge,
-            ...(body.scopeId ? { scopeId: body.scopeId } : {}),
+            ...(seen.scopeId ? { scopeId: seen.scopeId } : {}),
             ...(startId ? { startId } : {}),
             ...(this.timeouts?.descentMs ? { timeoutMs: this.timeouts.descentMs } : {}),
           })
@@ -337,7 +312,7 @@ export class TicketConversationsController {
       const placed = await this.placementService.place(descent, seen.snapshot, {
         related: picked.related,
         duplicateId: picked.duplicate?.id ?? null,
-        scopeId: startId ?? body.scopeId ?? null,
+        scopeId: startId ?? seen.scopeId,
         draft: seen.draft,
         judge,
         // A escolha usa o que sobrou do prazo da descida (teto de 10 s): descida + escolha nunca passam do prazo da descida.
@@ -350,7 +325,7 @@ export class TicketConversationsController {
       const listing = relatedListing(seen.snapshot.tickets, seen.projectKey, picked.related, picked.duplicate?.id ?? null);
 
       // A dúvida mais rasa do caminho mantido (ADR 0054, item 1).
-      const origin = startId ?? body.scopeId ?? null;
+      const origin = startId ?? seen.scopeId;
       const chosen = outcome.trace.chosen;
       const after = origin === null ? chosen : chosen.slice(chosen.indexOf(origin) + 1);
       const relatedAt = (rule === "related_choice" || rule === "choice_unavailable") && choice ? commonAncestor(choice.options.map((o) => o.id), nodes) : null;
@@ -456,7 +431,7 @@ export class TicketConversationsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
   ): Promise<{ decision: PlacementDecisionRecord | null }> {
     const conversation = await this.findOwn(tx, principal, id);
-    await this.findVisibleProject(tx, principal, conversation.projectId);
+    await this.drafts.findVisibleProject(tx, principal, conversation.projectId);
     return { decision: await readDecisionSafely(tx, id) };
   }
 
@@ -618,7 +593,7 @@ export class TicketConversationsController {
     // Serializa chamadas simultâneas: a segunda espera a primeira terminar e então vê o ticket criado.
     await tx.$queryRaw`select 1 from ticket_conversations where id = ${id}::uuid for update`;
     const conversation = await this.findOwn(tx, principal, id);
-    const project = await this.requireWritableProject(tx, principal, conversation.projectId);
+    const project = await this.drafts.requireWritableProject(tx, principal, conversation.projectId);
     if (conversation.status === "ticket_created" && conversation.createdTicketId) {
       return parseOutput(createdTicketSchema, {
         conversation: await this.detail(tx, id),
@@ -707,6 +682,8 @@ export class TicketConversationsController {
     // A decisão da procura passa a ser do ticket criado (ADR 0052): a conversa pode ser apagada depois sem levá-la.
     const handed = await handDecisionToTicket(tx, { orgId: conversation.orgId, conversationId: id, ticketId: ticket.id });
     if (handed !== null) this.logger.warn(`decisão da procura não passou ao ticket codigo=${handed}`);
+    // Ticket criado a partir de uma thread de criação (ADR 0056, item 5): a conversa vai, copiada, para a conversa principal do ticket novo (na mesma transação).
+    await this.threads.copyToTicket(tx, principal, { ticketConversationId: id, ticketId: ticket.id });
     return parseOutput(createdTicketSchema, {
       conversation: await this.detail(tx, id),
       // Com filhos, o pai é lido de novo: o progresso e a contagem dele mudam quando os filhos nascem.
@@ -722,9 +699,11 @@ export class TicketConversationsController {
     @CurrentPrincipal() principal: Principal,
     @Query("projectId", new ZodPipe(idSchema)) projectId: string,
   ): Promise<ConversationSummary[]> {
-    await this.findVisibleProject(tx, principal, projectId);
+    await this.drafts.findVisibleProject(tx, principal, projectId);
+    // As que nasceram numa thread de criação aparecem pela thread (ADR 0056), não nesta lista.
+    const inThreads = await this.threads.linkedIds(tx, principal);
     const rows = await tx.ticketConversation.findMany({
-      where: { projectId, authorPersonId: principal.person.id },
+      where: { projectId, authorPersonId: principal.person.id, ...(inThreads.length > 0 ? { id: { notIn: inThreads } } : {}) },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     });
     return rows.map(toSummary);
@@ -737,7 +716,7 @@ export class TicketConversationsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
   ): Promise<ConversationDetail> {
     const conversation = await this.findOwn(tx, principal, id);
-    await this.findVisibleProject(tx, principal, conversation.projectId);
+    await this.drafts.findVisibleProject(tx, principal, conversation.projectId);
     return this.detail(tx, id);
   }
 
@@ -749,33 +728,15 @@ export class TicketConversationsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
   ): Promise<void> {
     const conversation = await this.findOwn(tx, principal, id);
-    await this.findVisibleProject(tx, principal, conversation.projectId);
+    await this.drafts.findVisibleProject(tx, principal, conversation.projectId);
+    // Descartar é para rascunho: a conversa que já virou ticket e tem thread de criação fica (o cartão da thread diz `created` e leva ao ticket).
+    if (conversation.status === "ticket_created" && (await this.threads.hasThread(tx, id))) {
+      throw new ConflictException({ code: "creation_created", message: "O ticket desta conversa já foi criado: não há rascunho a descartar." });
+    }
     await tx.ticketConversation.delete({ where: { orgId_id: { orgId: conversation.orgId, id } } });
   }
 
   // ---- regras ---------------------------------------------------------------------------------------------
-
-  /** Qualquer ticket do projeto da conversa serve de escopo (ADR 0034); de outro projeto ou organização (pela RLS): o mesmo 404. */
-  private requireScope(scope: unknown): void {
-    if (!scope) throw new NotFoundException("Ticket de escopo não encontrado.");
-  }
-
-  /**
-   * Os títulos dos filhos que têm filhos do lugar da procura (ADR 0033, 0034): filhos diretos do escopo, ou da raiz do
-   * projeto sem escopo; no máximo 30, na ordem do número. Confere o escopo como a procura. Só títulos, nenhum id.
-   */
-  private async scopeGroupTitles(tx: TenantClient, projectId: string, scopeId: string | null | undefined): Promise<string[]> {
-    if (scopeId) {
-      this.requireScope(await tx.ticket.findFirst({ where: { id: scopeId, projectId }, select: { id: true } }));
-    }
-    const rows = await tx.ticket.findMany({
-      where: { projectId, parentId: scopeId ?? null, children: { some: {} } },
-      orderBy: { number: "asc" },
-      take: MAX_GROUP_TITLES,
-      select: { title: true },
-    });
-    return rows.map((row) => row.title);
-  }
 
   /**
    * O que será gravado (ADR 0044): o título e a descrição do pai com a citação do pedido na frente (as mensagens da pessoa
@@ -914,18 +875,6 @@ export class TicketConversationsController {
     return new ConflictException({ code: "draft_required", message: "A conversa ainda não tem rascunho." });
   }
 
-  private async ask(provider: ConversationProvider, input: Parameters<ConversationProvider["turn"]>[0]): Promise<ConversationTurn> {
-    try {
-      return await provider.turn(input);
-    } catch (error) {
-      if (error instanceof AssistantUnavailableError) {
-        this.logger.warn(`assistente indisponível motivo=${error.reason}`);
-        throw new ServiceUnavailableException({ code: "assistant_unavailable", message: error.message });
-      }
-      throw error;
-    }
-  }
-
   /** Inexistente, de outra pessoa ou de outra organização (RLS): o mesmo 404. */
   private async findOwn(tx: TenantClient, { person }: Principal, id: string): Promise<ConversationRow> {
     const conversation = await tx.ticketConversation.findFirst({ where: { id, authorPersonId: person.id } });
@@ -933,62 +882,14 @@ export class TicketConversationsController {
     return conversation;
   }
 
-  private async findVisibleProject(tx: TenantClient, { actor }: Principal, projectId: string): Promise<ProjectRow> {
-    const project = await tx.project.findFirst({ where: { id: projectId } });
-    if (!project || !this.authorization.canView(actor, project)) throw new NotFoundException("Projeto não encontrado.");
-    return project;
-  }
-
-  /** Visível (404), pode criar ticket (403) e não arquivado (409). */
-  private async requireWritableProject(tx: TenantClient, principal: Principal, projectId: string): Promise<ProjectRow> {
-    const project = await this.findVisibleProject(tx, principal, projectId);
-    this.authorization.createTicket(principal.actor, projectId);
-    if (project.archivedAt) {
-      throw new ConflictException({ code: "project_archived", message: "Projeto arquivado é somente leitura." });
-    }
-    return project;
-  }
-
   /** Conversa própria, projeto visível e liberado para escrita, e conversa ainda aberta. */
   private async requireWritable(tx: TenantClient, principal: Principal, id: string) {
     const conversation = await this.findOwn(tx, principal, id);
-    const project = await this.requireWritableProject(tx, principal, conversation.projectId);
+    const project = await this.drafts.requireWritableProject(tx, principal, conversation.projectId);
     if (conversation.status !== "open") {
       throw new ConflictException({ code: "conversation_closed", message: "A conversa já foi encerrada." });
     }
     return { conversation, project };
-  }
-
-  private async appendMessages(
-    tx: TenantClient,
-    conversation: Pick<ConversationRow, "orgId" | "id">,
-    existing: number,
-    personText: string,
-    turn: ConversationTurn,
-  ): Promise<void> {
-    const { orgId, id: conversationId } = conversation;
-    await tx.ticketConversationMessage.createMany({
-      data: [
-        { orgId, conversationId, position: existing + 1, author: "person", body: personText },
-        { orgId, conversationId, position: existing + 2, author: "assistant", body: turn.message, model: turn.model },
-      ],
-    });
-    await tx.ticketConversation.update({
-      where: { orgId_id: { orgId, id: conversationId } },
-      data: {
-        ready: turn.ready,
-        // `null` da IA mantém o rascunho anterior (inclusive o editado à mão pela pessoa).
-        ...(turn.draft
-          ? {
-              draftTitle: turn.draft.title,
-              draftDescription: turn.draft.description,
-              draftChildren: [...(turn.draft.children ?? [])],
-              // Uma IA que não manda `idea` mantém a opção como está.
-              ...(turn.draft.idea !== undefined ? { draftIdea: turn.draft.idea } : {}),
-            }
-          : {}),
-      },
-    });
   }
 
   private async detail(tx: TenantClient, id: string): Promise<ConversationDetail> {

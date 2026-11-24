@@ -489,7 +489,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "createArea", "renameArea", "removeArea", "getProject", "createProject", "updateProject",
     "putProjectMember", "removeProjectMember", "putProjectTeam", "removeProjectTeam",
     "getTicket", "endAgentWork", "createTicket", "updateTicket", "removeTicket", "listIdeas", "putIdeaStage", "acceptIdea", "discardIdea", "makeIdea", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency",
-    "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement", "getElaboration",
+    "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement", "getPlacementDecision", "getElaboration",
     "createTicketFromConversation", "listConversations", "getConversation", "removeConversation", "getConversationPreview",
     ...GITHUB_NAMES,
     ...MCP_NAMES,

@@ -178,7 +178,7 @@ async function askStep(name: string, options: { maxToolRounds?: number }, expect
     name,
     { message: ASK_QUESTION, tickets: FAKE_TICKETS.length, options },
     async () => {
-      const out = await new ClaudeChatProvider(counting, options).reply({ ticket: null, history: [{ author: "person", body: ASK_QUESTION }], projects: ["TREEPM"], tools, wantTitle: true });
+      const out = await new ClaudeChatProvider(counting, options).reply({ ticket: null, history: [{ author: "person", body: ASK_QUESTION }], projects: ["TREEPM"], tools, wantTitle: true, draftTool: null });
       if (out.message.trim().length < 1) throw new Error("texto vazio");
       if (tools.executions < 1) throw new Error("nenhuma ferramenta foi executada");
       if (!expectTools && calls < 2) throw new Error("a chamada final, sem ferramentas, não aconteceu");

@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApiClient, PlacementOutcome } from "../api/client.js";
 import type { MapNode } from "../map/items.js";
 import { failed, makeClient, makeConversation, makePlacement, makeProject, makeTicket, ok } from "../test/fakes.js";
-import { AssistantPanel } from "./AssistantPanel.js";
-import type { AssistantPanelProps } from "./AssistantPanel.js";
+import { ChatHarness } from "../test/mountChat.js";
+import type { MountProps } from "../test/mountChat.js";
 import type { MapPicker } from "./types.js";
 
 const alfa = makeProject("p1", "ALFA", "Projeto Alfa");
@@ -38,16 +38,13 @@ function clientWith(extra: Partial<Record<keyof ApiClient, unknown>> = {}): ApiC
   return client;
 }
 
-function setup(client: ApiClient, extra: Partial<AssistantPanelProps> = {}) {
-  const props: AssistantPanelProps = {
+function setup(client: ApiClient, extra: Partial<MountProps> = {}) {
+  const props: MountProps = {
     client,
     projects: [alfa],
     initialProjectId: "p1",
     tickets,
-    expanded: true,
     resume: true,
-    onCollapse: vi.fn(),
-    onProgress: vi.fn(),
     onCreated: vi.fn(),
     onManualCreate: vi.fn(),
     onDraftChange: vi.fn(),
@@ -55,14 +52,14 @@ function setup(client: ApiClient, extra: Partial<AssistantPanelProps> = {}) {
     registerPicker: vi.fn(),
     ...extra,
   };
-  render(<AssistantPanel {...props} />);
+  render(<ChatHarness {...props} />);
   return props;
 }
 /** O texto da resposta também vai para a região viva; as buscas de mensagem olham só a lista. */
 const thread = () => within(panel().querySelector<HTMLElement>(".assistant-scroll")!);
 const panel = () => screen.getByRole("region", { name: "Novo ticket com o assistente" });
 const box = () => screen.getByRole("textbox", { name: "Mensagem para o assistente" });
-const lastPicker = (props: AssistantPanelProps) => vi.mocked(props.registerPicker).mock.calls.filter(([picker]) => picker !== null).at(-1)![0] as MapPicker;
+const lastPicker = (props: MountProps) => vi.mocked(props.registerPicker).mock.calls.filter(([picker]) => picker !== null).at(-1)![0] as MapPicker;
 const projectNode = (id: string): MapNode => ({ id, parentId: "org", kind: "project", label: id, color: "#fff", key: id, ticket: null, leafCount: 1 });
 const ticketNode = (id: string): MapNode => {
   const ticket = tickets.p1.find((t) => t.id === id) ?? makeTicket(id, "p2", 1, "De outro projeto");
@@ -70,15 +67,6 @@ const ticketNode = (id: string): MapNode => {
 };
 
 describe("project and resumed conversation", () => {
-  it("asks which project when none was given and there are several", async () => {
-    const client = clientWith();
-    setup(client, { projects: [alfa, beta], initialProjectId: null });
-    expect(await screen.findByRole("heading", { name: "Em qual projeto?" })).toBeInTheDocument();
-    expect(client.listConversations).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: /BETA · Projeto Beta/ }));
-    await waitFor(() => expect(client.listConversations).toHaveBeenCalledWith("p2"));
-    expect(box()).toBeInTheDocument();
-  });
 
   it("goes straight to the conversation of the only project", async () => {
     const client = clientWith();
@@ -86,8 +74,6 @@ describe("project and resumed conversation", () => {
     await waitFor(() => expect(client.listConversations).toHaveBeenCalledWith("p1"));
     expect(screen.queryByRole("heading", { name: "Em qual projeto?" })).not.toBeInTheDocument();
     expect(box()).toBeInTheDocument();
-    // O nome do projeto está na linha de cima da barra, ao lado da folha.
-    expect(panel().closest(".assistant-sheet")).toHaveTextContent("ALFA · Projeto Alfa");
   });
 
   it("resumes the most recent open conversation, with its messages and draft", async () => {
@@ -104,13 +90,6 @@ describe("project and resumed conversation", () => {
     expect(screen.getByRole("textbox", { name: "Título" })).toHaveValue("Corrigir o login");
   });
 
-  it("shows a retryable error when the conversations cannot be loaded", async () => {
-    const listConversations = vi.fn().mockResolvedValueOnce(failed("unavailable")).mockResolvedValue(ok([]));
-    setup(clientWith({ listConversations }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("indisponível");
-    await userEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
-    expect(await screen.findByRole("textbox", { name: "Mensagem para o assistente" })).toBeInTheDocument();
-  });
 });
 
 describe("sending messages", () => {
@@ -247,7 +226,7 @@ describe("failures", () => {
     expect(screen.getByRole("button", { name: "Tentar de novo" })).toBeInTheDocument();
   });
 
-  it("conversation_closed explains it and the new-conversation button starts over", async () => {
+  it("conversation_closed explains it, and the draft can still be discarded", async () => {
     const client = clientWith({
       listConversations: vi.fn(async () => ok([{ ...makeConversation("c1", "p1"), messages: undefined }])),
       sendConversationMessage: vi.fn(async () => failed("conflict", "conversation_closed")),
@@ -256,35 +235,24 @@ describe("failures", () => {
     await screen.findByText("O login quebra no Safari");
     await userEvent.type(box(), "Oi{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent("já foi encerrada");
-    await userEvent.click(screen.getByRole("button", { name: "Nova conversa" }));
-    expect(screen.queryByText("O login quebra no Safari")).not.toBeInTheDocument();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Descartar rascunho" })).toBeInTheDocument();
   });
 });
 
 describe("memory", () => {
   const resumed = () => clientWith({ listConversations: vi.fn(async () => ok([{ ...makeConversation("c1", "p1"), messages: undefined }])) });
 
-  it("Nova conversa clears the panel without deleting the old conversation", async () => {
-    const client = resumed();
-    setup(client);
-    await screen.findByText("O login quebra no Safari");
-    await userEvent.click(screen.getByRole("button", { name: "Nova conversa" }));
-    expect(screen.queryByText("O login quebra no Safari")).not.toBeInTheDocument();
-    expect(client.removeConversation).not.toHaveBeenCalled();
-    await userEvent.type(box(), "Outro assunto{Enter}");
-    await waitFor(() => expect(client.openConversation).toHaveBeenCalledWith("p1", { message: "Outro assunto", scopeId: null }));
-  });
 
-  it("Apagar conversa needs the second click on the same place", async () => {
+  it("Descartar rascunho needs the second click on the same place, removes the conversation and hands over to the host", async () => {
     const client = resumed();
-    setup(client);
+    const onRemoved = vi.fn();
+    setup(client, { onRemoved });
     await screen.findByText("O login quebra no Safari");
-    await userEvent.click(screen.getByRole("button", { name: "Apagar conversa" }));
+    await userEvent.click(screen.getByRole("button", { name: "Descartar rascunho" }));
     expect(client.removeConversation).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: /Confirmar/ }));
     await waitFor(() => expect(client.removeConversation).toHaveBeenCalledWith("c1"));
-    await waitFor(() => expect(screen.queryByText("O login quebra no Safari")).not.toBeInTheDocument());
+    await waitFor(() => expect(onRemoved).toHaveBeenCalledTimes(1));
   });
 });
 
@@ -573,25 +541,8 @@ describe("path found", () => {
   });
 });
 
-describe("collapsing", () => {
-  it("the collapse button folds the sheet through onCollapse, without ending anything", async () => {
-    const props = setup(clientWith());
-    await screen.findByRole("textbox", { name: "Mensagem para o assistente" });
-    await userEvent.click(screen.getByRole("button", { name: "Recolher" }));
-    expect(props.onCollapse).toHaveBeenCalledTimes(1);
-    expect(props.onCreated).not.toHaveBeenCalled();
-  });
+describe("the conversation under way", () => {
 
-  it("tells the map whether there is a conversation under way", async () => {
-    const props = setup(clientWith());
-    await screen.findByRole("textbox", { name: "Mensagem para o assistente" });
-    // `onProgress` é chamado por um efeito, depois da renderização: esperar o último valor, não afirmar na hora.
-    await waitFor(() => expect(props.onProgress).toHaveBeenLastCalledWith(false));
-    await userEvent.type(box(), "O login");
-    await waitFor(() => expect(props.onProgress).toHaveBeenLastCalledWith(true));
-    await userEvent.clear(box());
-    await waitFor(() => expect(props.onProgress).toHaveBeenLastCalledWith(false));
-  });
 
   it("starts empty, without looking for an earlier conversation, when it does not resume", async () => {
     const client = clientWith();
@@ -601,17 +552,6 @@ describe("collapsing", () => {
     expect(panel()).toHaveTextContent("Descreva a tarefa.");
   });
 
-  it("hides the whole sheet from the accessibility tree when folded, but keeps the conversation", async () => {
-    const client = clientWith();
-    const props: AssistantPanelProps = { client, projects: [alfa], initialProjectId: "p1", tickets, expanded: true, resume: true, onCollapse: vi.fn(), onProgress: vi.fn(), onCreated: vi.fn(), onManualCreate: vi.fn(), onDraftChange: vi.fn(), onChanged: vi.fn(), registerPicker: vi.fn() };
-    const { rerender } = render(<AssistantPanel {...props} />);
-    await userEvent.type(await screen.findByRole("textbox", { name: "Mensagem para o assistente" }), "meio digitado");
-    rerender(<AssistantPanel {...props} expanded={false} />);
-    expect(screen.queryByRole("region", { name: "Novo ticket com o assistente" })).not.toBeInTheDocument();
-    rerender(<AssistantPanel {...props} expanded />);
-    expect(screen.getByRole("textbox", { name: "Mensagem para o assistente" })).toHaveValue("meio digitado");
-    expect(client.listConversations).toHaveBeenCalledTimes(1);
-  });
 
   it("reports no draft to the map when it closes", async () => {
     const props = setup(clientWith());
@@ -687,7 +627,7 @@ describe("scope from the selection (ADR 0031)", () => {
     expect(line()).not.toBeInTheDocument();
     expect(client.findPlacement).not.toHaveBeenCalled();
     await search();
-    await waitFor(() => expect(client.findPlacement).toHaveBeenCalledWith("c1"));
+    await waitFor(() => expect(client.findPlacement).toHaveBeenCalledWith("c1", null));
   });
 
   it("with a result already on screen, removing the scope with the × searches again without it", async () => {
@@ -697,7 +637,7 @@ describe("scope from the selection (ADR 0031)", () => {
     await screen.findByRole("region", { name: "Caminho encontrado" });
     await userEvent.click(screen.getByRole("button", { name: "Tirar o escopo" }));
     await waitFor(() => expect(client.findPlacement).toHaveBeenCalledTimes(2));
-    expect(client.findPlacement).toHaveBeenLastCalledWith("c1");
+    expect(client.findPlacement).toHaveBeenLastCalledWith("c1", null);
     expect(line()).not.toBeInTheDocument();
     await waitFor(() => expect(within(screen.getByRole("region", { name: "Caminho encontrado" })).getByText("Relatórios")).toBeInTheDocument());
   });
@@ -709,7 +649,7 @@ describe("scope from the selection (ADR 0031)", () => {
     const card = await screen.findByRole("region", { name: "Caminho encontrado" });
     expect(card).toHaveTextContent("Este ticket talvez não caiba em «Acesso».");
     await userEvent.click(within(card).getByRole("button", { name: "Procurar no projeto inteiro" }));
-    await waitFor(() => expect(client.findPlacement).toHaveBeenLastCalledWith("c1"));
+    await waitFor(() => expect(client.findPlacement).toHaveBeenLastCalledWith("c1", null));
     await waitFor(() => expect(screen.getByRole("region", { name: "Caminho encontrado" })).not.toHaveTextContent("talvez não caiba"));
     expect(line()).not.toBeInTheDocument();
   });

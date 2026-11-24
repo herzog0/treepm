@@ -2,11 +2,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { CSSProperties } from "react";
 import { withoutPersonLinksDeep } from "@treepm/domain";
 import { useTranslation } from "react-i18next";
-import type { ApiResult, ChatMessage, ConversationNode, ConversationView as ConversationData, Person, ThreadCard, TicketSummary } from "../api/client.js";
+import type { ApiResult, ChatMessage, ConversationNode, ConversationView as ConversationData, Person, Project, ThreadCard, TicketSummary } from "../api/client.js";
 import { assistantEnabled, assistantNeedsConsent } from "../api/client.js";
 import { ConsentRequiredNotice, isConsentRequired } from "../api/ConsentRequired.js";
 import { useDescribeApiError } from "../api/errorText.js";
 import { Reveal } from "../assistant/Reveal.js";
+import { canCreateTickets } from "../import/permissions.js";
 import { Skeleton } from "../assistant/Skeleton.js";
 import { formatActivityTime } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
@@ -16,6 +17,7 @@ import { ActionsMenu } from "../ticket/menu.js";
 import { AddPeople } from "./AddPeople.js";
 import type { ConversationRef } from "./ChatsContext.js";
 import { topicLabel, useChats } from "./ChatsContext.js";
+import { CreationCard, CreationThread } from "./CreationThread.js";
 import { Composer } from "./Composer.js";
 import type { Draft } from "./Composer.js";
 import type { ComposerHandle } from "./ComposerEditor.js";
@@ -45,6 +47,8 @@ interface Pending {
   body: string;
   status: "sending" | "failed";
   error: string | null;
+  /** O pedido é de um ticket novo (`creation: true`): a espera diz "abrindo o rascunho" e tem "Cancelar". */
+  creation?: boolean;
 }
 
 /**
@@ -57,7 +61,7 @@ type Entry = { kind: "message"; message: ChatMessage } | { kind: "card"; card: C
 const timeOf = (entry: Entry) => (entry.kind === "message" ? entry.message.createdAt : (entry.card.opening?.createdAt ?? entry.card.lastActivityAt));
 const cardOfNode = (node: ConversationNode): Card | null =>
   node.kind === "thread" && node.id !== null
-    ? { id: node.id, opening: null, participants: node.participants, participantCount: node.participantCount, replyCount: null, lastActivityAt: node.lastActivityAt ?? "", unread: node.unread, startedByMe: node.ownedByMe, purpose: node.purpose ?? "people", title: node.title }
+    ? { id: node.id, opening: null, participants: node.participants, participantCount: node.participantCount, replyCount: null, lastActivityAt: node.lastActivityAt ?? "", unread: node.unread, startedByMe: node.ownedByMe, purpose: node.purpose ?? "people", title: node.title, creation: node.creation }
     : null;
 
 /** Junta duas listas de mensagens sem repetir nenhuma (por id), na ordem em que foram escritas. */
@@ -79,6 +83,7 @@ function ThreadFooter({ card, selfId, onOpen }: { card: Card; selfId: string | u
   const { t, i18n } = useTranslation("chat");
   const shown = card.participants.slice(0, 3);
   const topic = card.purpose === "topic";
+  if (card.purpose === "creation" && card.creation !== null) return <CreationCard title={card.title} creation={card.creation} onOpen={onOpen} />;
   return (
     <button type="button" className={`chat-thread-footer ${topic ? "is-topic" : ""}`} onClick={onOpen}>
       {topic ? (
@@ -145,6 +150,11 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   const goneRef = useRef(false);
   const shownCount = useRef(0);
   const creating = useRef<Promise<ApiResult<string>> | null>(null);
+  const creationBusy = useRef(false);
+  const creationAbort = useRef<AbortController | null>(null);
+  const creationCancelled = useRef(false);
+  /** Pedido direto sem projeto, com vários possíveis: a pergunta "qual?" com o texto que espera. */
+  const [needProject, setNeedProject] = useState<{ text: string } | null>(null);
   /** A conversa em que se escreve: a do alvo, a que a leitura devolveu ou a que o primeiro envio criou (criada uma vez só). */
   const conversationId = useRef<string | null>(target.kind === "conversation" ? target.id : null);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -160,7 +170,11 @@ export function ConversationView({ target, active }: ConversationViewProps) {
     }
     chats.dropHandoff(target);
     setDraft((current) => (current.text === "" ? { text: pending.text, mentions: pending.mentions } : current));
-    setError(pending.error);
+    setError(pending.creation === true && pending.code === "project_unavailable" ? t("creation.projectUnavailable") : pending.creation === true && pending.code === "project_mismatch" ? t("creation.projectMismatch") : pending.error);
+    if (pending.code === "project_required" && pending.creation === true) {
+      setNeedProject({ text: pending.text.trim() });
+      setError(null);
+    }
     if (pending.code === "assistant_not_configured") setOff("provider");
     else if (pending.code === "assistant_consent_required") setOff("consent");
   }, [chats.dropHandoff, chats.peekHandoff, chats.handoffTick, target]);
@@ -248,7 +262,8 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   /** Thread de assunto (ADR 0056): só da pessoa e do assistente. Fala com o assistente como a conversa principal; marcar alguém abre uma thread com pessoas. */
   const isTopic = isThread && info?.purpose === "topic";
   /** Thread entre pessoas: não tem assistente. */
-  const isPeopleThread = isThread && !isTopic;
+  const isCreation = isThread && info?.purpose === "creation";
+  const isPeopleThread = isThread && !isTopic && !isCreation;
   const hasTicket = ticket !== null;
   const mentioning = draft.mentions.length > 0;
   const project = directory.status === "ready" && hasTicket ? directory.projects.find((entry) => entry.id === ticket.projectId) : undefined;
@@ -415,14 +430,80 @@ export function ConversationView({ target, active }: ConversationViewProps) {
     if (view?.conversation === null) void load("merge");
   };
 
+  /** Por que o pedido de ticket novo não abriu: o texto fica no campo e a frase diz o que fazer. */
+  const creationRefusal = (code: string | undefined): string | null =>
+    code === "project_unavailable" ? t("creation.projectUnavailable") : code === "project_mismatch" ? t("creation.projectMismatch") : null;
+  /** O projeto onde um pedido nasce: o do ticket quando a conversa é de um ticket (o servidor o decide), senão o aberto no mapa. */
+  const openProjectId = (): string | undefined => (hasTicket ? undefined : (chats.mapHost?.projectId() ?? undefined));
+
+  /** Cancela o pedido de ticket novo que espera a resposta: o campo volta a ser da pessoa, com o texto de antes. */
+  const cancelCreation = () => {
+    creationCancelled.current = true;
+    creationAbort.current?.abort();
+  };
+
+  /**
+   * "Novo ticket": o texto abre uma thread de criação aqui dentro (`creation: true`). Um envio por vez, com a mesma espera do assunto: o pedido
+   * aparece pendente desde o clique, o campo fica travado e há "Cancelar"; o painel vai para a thread nova quando ela nasce.
+   */
+  const sendCreation = async ({ text }: Draft, chosenProject?: string) => {
+    if (creationBusy.current) return void setError(t("creation.busy"));
+    creationBusy.current = true;
+    creationCancelled.current = false;
+    const control = new AbortController();
+    creationAbort.current = control;
+    setError(null);
+    setNeedProject(null);
+    const body = text.trim();
+    const id = nextId.current++;
+    setPending({ id, body, status: "sending", error: null, creation: true });
+    const projectId = chosenProject ?? openProjectId();
+    const wasNew = conversationId.current === null;
+    const created = await safe(ensureConversation);
+    const result = !created.ok ? created : await safe(() => client.sendChatMessage(created.data, { body, creation: true, ...(projectId === undefined ? {} : { projectId }) }, { signal: control.signal }));
+    creationBusy.current = false;
+    creationAbort.current = null;
+    if (!alive.current) return;
+    setPending(null);
+    // Cancelado: nada do que voltou vale; o texto continua no campo.
+    if (creationCancelled.current) return afterFailedFirstSend(wasNew);
+    if (result.ok && result.data.kind === "creation") {
+      resetDraft();
+      chats.setCreationMode(false);
+      chats.select({ kind: "conversation", id: result.data.thread.id });
+      void load("replace");
+      afterWrite();
+      return;
+    }
+    afterFailedFirstSend(wasNew);
+    if (result.ok) return;
+    const code = result.error.code;
+    if (isConsentRequired(result.error) || code === "assistant_not_configured") {
+      setOff(code === "assistant_not_configured" ? "provider" : "consent");
+      return;
+    }
+    // Vários projetos e nenhum aberto: a tela pergunta qual e reenvia (o texto continua no campo).
+    if (code === "project_required") return setNeedProject({ text: body });
+    setError(creationRefusal(code) ?? describe(result.error));
+  };
+
   const sendToAssistant = async (body: string) => {
     const id = nextId.current++;
     setError(null);
     setPending({ id, body, status: "sending", error: null });
     const wasNew = conversationId.current === null;
     const created = await safe(ensureConversation);
-    const result = !created.ok ? created : await safe(() => client.sendChatMessage(created.data, { body }, { signal: new AbortController().signal }));
+    const projectId = openProjectId();
+    const result = !created.ok ? created : await safe(() => client.sendChatMessage(created.data, { body, ...(projectId === undefined ? {} : { projectId }) }, { signal: new AbortController().signal }));
     if (!alive.current) return;
+    if (result.ok && result.data.kind === "creation") {
+      // O assistente abriu um rascunho: a thread nasceu no servidor (a abertura e a resposta fixa moram na conversa de cima), e o painel vai para ela.
+      setPending(null);
+      void load("replace");
+      chats.select({ kind: "conversation", id: result.data.thread.id });
+      afterWrite();
+      return;
+    }
     if (result.ok && result.data.kind === "assistant") {
       const { message, reply } = result.data;
       setPending(null);
@@ -564,11 +645,16 @@ export function ConversationView({ target, active }: ConversationViewProps) {
 
   const send = (next: Draft) => {
     if (routing) return;
+    // "+ Novo ticket" da barra lateral: o campo está em modo "novo ticket" e o que se escreve vai com `creation: true`.
+    if (creationMode && assistantSpeaks && next.mentions.length === 0) return void sendCreation(next);
     // Só `#CHAVE` (a chave com o `#` colado, fora de código e de endereço) decide o destino; sem ela nada espera.
     if (kind !== "general" || isThread || !ticketKeyRefs(next.text).some((ref) => ref.hashed)) return sendHere(next);
     void routeByTickets(next);
   };
 
+  const assistantSpeaks = !isPeopleThread && !isCreation && assistantOff === null;
+  const creationMode = chats.creationMode && kind === "general" && !isThread;
+  const projectChoices: readonly Project[] = chats.mapHost?.creatable ?? (directory.status === "ready" ? directory.projects.filter((entry) => canCreateTickets(directory.me, entry)) : []);
   const retry = () => {
     if (pending === null || pending.status !== "failed") return;
     void sendToAssistant(pending.body);
@@ -603,7 +689,7 @@ export function ConversationView({ target, active }: ConversationViewProps) {
 
   const openCard = (card: Card) => chats.select({ kind: "conversation", id: card.id });
 
-  const renderMessage = (message: Omit<ChatMessage, "thread">, card: Card | null) => {
+  const renderMessage = (message: Omit<ChatMessage, "thread">, card: Card | null, markerFor: Card | null = null) => {
     const assistant = message.authorKind === "assistant";
     const mine = !assistant && message.author?.id === selfId;
     const name = assistant ? t("assistant.name") : mine ? t("message.you") : (message.author?.displayName ?? "");
@@ -613,7 +699,13 @@ export function ConversationView({ target, active }: ConversationViewProps) {
         {assistant ? <span className="chat-initials is-assistant" aria-hidden="true">✦</span> : <Initials name={message.author?.displayName ?? ""} />}
         <div className="chat-message-main">
           <span className="chat-author">{name}</span>
-          {assistant ? (
+          {message.marker === "creation_opened" ? (
+            // A frase vem do catálogo, no idioma da pessoa; o `body` do servidor é só reserva.
+            <div className="chat-assistant">
+              <p>{t("creation.opened")}</p>
+              {markerFor !== null && <button type="button" className="chat-text-button" onClick={() => openCard(markerFor)}>{t("creation.goTo")}</button>}
+            </div>
+          ) : assistant ? (
             <Reveal text={message.body} active={message.id === revealingId} onDone={() => setRevealingId((current) => (current === message.id ? null : current))} onStep={() => { const element = scroller.current; if (element) element.scrollTop = element.scrollHeight; }}>
               {(shown, revealing) => (
                 <div className="chat-assistant" aria-hidden={revealing ? true : undefined}>
@@ -640,7 +732,7 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   );
 
   const currentLabel =
-    isTopic ? topicLabel(info?.title, info?.opening ? withoutPersonLinksDeep(info.opening.body).slice(0, 40) : undefined, t("row.topic")) : kind === "thread" ? threadTitle(t, info?.participants ?? [], info?.participants.length ?? 0, selfId) : kind === "general" ? t("row.general") : (ticket?.key ?? "");
+    isCreation ? (info?.title?.trim() || t("creation.fallbackTitle")) : isTopic ? topicLabel(info?.title, info?.opening ? withoutPersonLinksDeep(info.opening.body).slice(0, 40) : undefined, t("row.topic")) : kind === "thread" ? threadTitle(t, info?.participants ?? [], info?.participants.length ?? 0, selfId) : kind === "general" ? t("row.general") : (ticket?.key ?? "");
   const trailLabel = (item: { kind: "ticket" | "general" | "thread"; label: string | null; title: string | null }) =>
     item.kind === "general" ? t("row.general") : item.kind === "ticket" ? (ticket?.key ?? t("row.main")) : (item.title !== null ? topicLabel(item.title, item.label, t("row.topic")) : (item.label ? withoutPersonLinksDeep(item.label) : t("row.thread")));
   const mentionNames = new Intl.ListFormat(i18n.language, { style: "long", type: "conjunction" }).format(draft.mentions.map((personId) => names.get(personId) ?? personId));
@@ -702,10 +794,13 @@ export function ConversationView({ target, active }: ConversationViewProps) {
                       <button type="button" className="chat-text-button" onClick={() => chats.select({ kind: "conversation", id: item.id })}>{trailLabel(item)}</button>
                     </li>
                   ))}
-                  <li aria-current="page" style={{ "--thread-color": threadColor(info.id) } as CSSProperties}>{currentLabel}</li>
+                  <li aria-current="page" className={isCreation ? "is-creation" : undefined} style={{ "--thread-color": threadColor(info.id) } as CSSProperties}>
+                    {isCreation && <span className="creation-mark" aria-hidden="true">+</span>}
+                    {isCreation ? <span className="creation-title-text" title={currentLabel}>{currentLabel}</span> : currentLabel}
+                  </li>
                 </ol>
               </nav>
-              {isTopic ? (
+              {isCreation ? null : isTopic ? (
                 <div className="chat-people">
                   <p className="chat-notice">{t("notice.topic")}</p>
                 </div>
@@ -736,11 +831,23 @@ export function ConversationView({ target, active }: ConversationViewProps) {
               {archived && <p role="status" className="chat-alert">{describe({ kind: "conflict", code: "project_archived" })}</p>}
             </div>
           )}
+          {isCreation && info !== null && <CreationThread info={info} hasTicket={hasTicket} />}
+          {!isCreation && (
+          <>
           <ul ref={scroller} className="chat-log" role="log" aria-label={t("log.label")} aria-live="polite" aria-relevant="additions" aria-busy={older !== null && keepScroll.current !== null ? true : undefined} onScroll={onScroll}>
             {older !== null && <li><button type="button" className="chat-text-button" onClick={() => void loadOlder()}>{t("log.older")}</button></li>}
             {isThread && info?.opening && renderMessage(info.opening, null)}
             {!isThread && entries.length === 0 && pending === null && <li className="chat-hint">{t("log.empty")}</li>}
-            {entries.map((entry) => (entry.kind === "message" ? renderMessage(entry.message, entry.message.thread) : entry.card.opening ? renderMessage(entry.card.opening, entry.card) : renderCardOnly(entry.card)))}
+            {(() => {
+              // A resposta fixa "abri um rascunho" leva à thread de criação da mensagem de cima mais próxima.
+              let lastCreation: Card | null = view?.threads.find((card) => card.purpose === "creation" && card.opening.id === info?.openingMessageId) ?? null;
+              return entries.map((entry) => {
+                const card = entry.kind === "message" ? entry.message.thread : entry.card;
+                if (card !== null && card.purpose === "creation") lastCreation = card;
+                if (entry.kind === "card") return entry.card.opening ? renderMessage(entry.card.opening, entry.card) : renderCardOnly(entry.card);
+                return renderMessage(entry.message, entry.message.thread, entry.message.marker === "creation_opened" ? lastCreation : null);
+              });
+            })()}
             {pending !== null && (
               <li className={`chat-message is-mine ${pending.status === "failed" ? "is-unanswered" : ""}`}>
                 <Initials name={me?.person.displayName ?? ""} />
@@ -758,13 +865,33 @@ export function ConversationView({ target, active }: ConversationViewProps) {
             )}
             {pending?.status === "sending" && (
               <li className="chat-waiting">
-                <p role="status">{t("assistant.waiting")}</p>
+                <p role="status">{pending.creation ? t("creation.waiting") : t("assistant.waiting")}</p>
                 <Skeleton />
+                {pending.creation && <button type="button" className="chat-text-button" onClick={cancelCreation}>{t("topic.cancel")}</button>}
               </li>
             )}
           </ul>
           <div className="chat-visually-hidden" role="status" aria-live="polite" aria-label={t("assistant.reply")}>{announcement}</div>
           {error && <p role="alert" className="chat-composer-alert">{error}</p>}
+          {needProject !== null && (
+            <div className="creation-project-pick" role="group" aria-label={t("creation.pickProject")}>
+              <strong>{t("creation.pickProject")}</strong>
+              <p className="chat-notice">{t("creation.pickProjectHint")}</p>
+              <ul>
+                {projectChoices.map((entry) => (
+                  <li key={entry.id}>
+                    <button type="button" onClick={() => void sendCreation({ text: needProject.text, mentions: [] }, entry.id)}>{t("creation.pickProjectOption", { key: entry.key, name: entry.name })}</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {creationMode && (
+            <p className="creation-mode" role="status">
+              {t("creation.modeNotice")}
+              <button type="button" className="chat-text-button" onClick={() => chats.setCreationMode(false)}>{t("creation.modeCancel")}</button>
+            </p>
+          )}
           <Composer
             label={isPeopleThread ? t("thread.reply") : t("composer.label")}
             placeholder={isPeopleThread ? t("thread.replyPlaceholder") : assistantOff === null ? t("composer.placeholder") : t("composer.placeholderThreads")}
@@ -787,7 +914,10 @@ export function ConversationView({ target, active }: ConversationViewProps) {
             refused={refused}
             fieldRef={field}
             onSend={send}
+            {...(assistantSpeaks && !creationMode ? { onNewTicket: (next: Draft) => void sendCreation(next) } : {})}
           />
+          </>
+          )}
         </>
       )}
     </div>

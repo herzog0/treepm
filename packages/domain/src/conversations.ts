@@ -29,6 +29,14 @@ export interface ConversationNode {
 }
 
 /** Lê a conversa quem participa dela. Nenhum papel entra aqui, de propósito: administrador e gestor não leem conversa de ninguém. */
+/**
+ * Onde o assistente fala (ADR 0056): nas conversas principais e nas threads de assunto, que só têm quem as abriu. Em thread com
+ * pessoas e na de criação ele não fala. UMA regra: o serviço recusa o turno com ela e a ferramenta que abre um rascunho de ticket só
+ * é oferecida ao provedor onde ela vale.
+ */
+export const assistantSpeaksIn = (conversation: { kind: ConversationKind; purpose: "people" | "topic" | "creation" | null }): boolean =>
+  conversation.kind !== "thread" || conversation.purpose === "topic";
+
 export const canReadConversation = (viewerPersonId: string, node: Pick<ConversationNode, "participantIds">): boolean => node.participantIds.has(viewerPersonId);
 
 /** O pai de `node` para esta pessoa: o id do pai só se ela participa dele; senão `null` (ela não sabe que o pai existe). */
