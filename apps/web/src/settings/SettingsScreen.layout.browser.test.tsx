@@ -233,6 +233,41 @@ describe("Configurações em navegador real: tela estreita", () => {
   });
 });
 
+/** Geometria da bolinha (`::before`, posicionada em relação à borda de dentro do interruptor), em px a partir da borda de fora. */
+function knob(sw: HTMLElement) {
+  const style = getComputedStyle(sw, "::before");
+  const border = sw.clientTop;
+  const shift = new DOMMatrixReadOnly(style.transform === "none" ? undefined : style.transform).m41;
+  const size = parseFloat(style.width);
+  const left = border + parseFloat(style.left) + shift;
+  const top = border + parseFloat(style.top);
+  return { size, left, centerY: top + size / 2 };
+}
+
+describe("Configurações em navegador real: interruptores", () => {
+  it.each([1440 - 296, 390])("com %i px de largura útil todo interruptor mede 40×22, com a bolinha de 16 px centrada", async (width) => {
+    await open("admin", "mcp", width);
+    const switches = [...document.querySelectorAll<HTMLInputElement>("input[role='switch']")];
+    expect(switches.length).toBeGreaterThanOrEqual(2);
+    for (const sw of switches) {
+      await expect.poll(() => sw.getBoundingClientRect().width).toBeCloseTo(40, 0);
+      await expect.poll(() => sw.getBoundingClientRect().height).toBeCloseTo(22, 0);
+      const rect = sw.getBoundingClientRect();
+      expect(Math.abs(rect.height - 22)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(rect.width - 40)).toBeLessThanOrEqual(0.5);
+      expect(parseFloat(getComputedStyle(sw).borderTopLeftRadius)).toBeGreaterThanOrEqual(11);
+      const ball = knob(sw);
+      expect(ball.size).toBe(16);
+      expect(Math.abs(ball.centerY - rect.height / 2)).toBeLessThan(1);
+      // À esquerda quando desligado (3 px da borda), à direita quando ligado (3 px da outra borda).
+      const expectedLeft = sw.checked ? rect.width - 3 - 16 : 3;
+      expect(Math.abs(ball.left - expectedLeft)).toBeLessThan(1);
+      // A área de toque (a linha) continua com 44 px ou mais, sem esticar o desenho.
+      expect(sw.closest(".settings-row")!.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    }
+  });
+});
+
 describe("Configurações em navegador real: contraste (WCAG AA, 4,5:1)", () => {
   it("os textos secundários, a navegação e a marca admin passam", async () => {
     await open("admin", "mcp", 1440 - 296);
