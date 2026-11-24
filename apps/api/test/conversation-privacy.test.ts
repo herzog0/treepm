@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { AI_CONFIG, TEST_CONFIG } from "./helpers.js";
 import { useHarness } from "./harness.js";
 import type { Harness } from "./harness.js";
-import { errorCode, openTicket, post, reply, seedChatTickets, send, view } from "./chat-support.js";
+import { errorCode, openTicket, post, reply, seedChatTickets, send, topic, view } from "./chat-support.js";
 import { ConversationAccess } from "../src/assistant/conversation-access.js";
 import { ConversationService } from "../src/assistant/conversation.service.js";
 import { as } from "./world.js";
@@ -246,6 +246,32 @@ describe("rotas de conversa: enumeração", () => {
     const deeper = await post(h, bob, s.d2, "mais um nível", [s.world.people.target]);
     expect(deeper.status).toBe(201);
     expect(JSON.stringify(deeper.body)).not.toMatch(/SEGREDO-(PRINCIPAL|D1|OUTRA)/);
+  });
+
+  it("thread de assunto da principal: quem participa de threads filhas não lê a de assunto, nem o título, nem a contagem, por rota nenhuma", async () => {
+    const s = await scenario(h);
+    h.chat().title_ = () => "SEGREDO-TITULO-c4d";
+    const opened = await topic(h, "manager", s.main, "SEGREDO-ASSUNTO-e61");
+    expect(opened.status).toBe(201);
+    const secretThread = opened.body.thread.id as string;
+    for (const who of ["reader", "contributor"] as const) {
+      const missing = await view(h, who, "00000000-0000-4000-8000-000000000000");
+      for (const [name, probe] of Object.entries(PROBES)) {
+        const res = await probe(h, secretThread, who, s.world.people.target);
+        expect(res.status, `${who} ${name}`).toBe(404);
+        expect(res.body, `${who} ${name}`).toEqual(missing.body);
+      }
+      const everything = JSON.stringify([
+        await h.call("GET", "/api/conversations", as(who)),
+        await view(h, who, s.d1),
+        await view(h, who, s.d2),
+        await h.call("GET", `/api/tickets/${s.t.ticket}/conversation`, as(who)),
+      ]);
+      expect(everything, who).not.toMatch(/SEGREDO-(TITULO-c4d|ASSUNTO-e61)/);
+      expect(everything, who).not.toContain(secretThread);
+    }
+    // A thread filha da Alice continua com as duas pessoas de antes: a de assunto não mexeu em contagem nenhuma.
+    expect((await view(h, "reader", s.d1)).body.conversation.participants).toHaveLength(2);
   });
 
   it("a trilha da Alice começa na D1 (ela entrou ali): a principal do gestor não aparece para ela", async () => {

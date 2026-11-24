@@ -729,6 +729,12 @@ model Conversation {
   lastActivityAt   DateTime  @default(now()) @map("last_activity_at") @db.Timestamptz(3)
   /// A vez do assistente (uma conversa por vez por principal); nulo = livre
   turnStartedAt    DateTime? @map("turn_started_at") @db.Timestamptz(3)
+  /// Para que a thread existe: people (entre pessoas), topic (assunto com o assistente, só de quem abriu) ou creation (novo ticket); nulo nas principais. Imutável
+  purpose          String?
+  /// O título curto da thread de assunto (até 60 caracteres); nulo até a primeira resposta
+  title            String?
+  /// A conversa de novo ticket de uma thread `creation` (fatia 3)
+  ticketConversationId String? @map("ticket_conversation_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   organization   Organization              @relation(fields: [orgId], references: [orgId])

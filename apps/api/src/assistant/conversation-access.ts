@@ -12,6 +12,9 @@ export type Visible = { project: ProjectRow; ticket: Ticket };
 export type ConversationRow = {
   id: string;
   kind: "ticket" | "general" | "thread";
+  /** Só nas threads: `people`, `topic` ou `creation` (ADR 0056); nulo nas principais. */
+  purpose: "people" | "topic" | "creation" | null;
+  title: string | null;
   ownerPersonId: string;
   projectId: string | null;
   ticketId: string | null;
@@ -33,7 +36,7 @@ export type Resolved = {
   seen: Visible | null;
 };
 
-const CONV_SELECT = { id: true, kind: true, ownerPersonId: true, projectId: true, ticketId: true, parentId: true, rootId: true, depth: true, openingMessageId: true, lastActivityAt: true } as const;
+const CONV_SELECT = { id: true, kind: true, purpose: true, title: true, ownerPersonId: true, projectId: true, ticketId: true, parentId: true, rootId: true, depth: true, openingMessageId: true, lastActivityAt: true } as const;
 export const notFound = (): NotFoundException => new NotFoundException("Conversa não encontrada.");
 
 /**
@@ -89,17 +92,17 @@ export class ConversationAccess {
    * A trilha: as conversas acima que a PESSOA lê (a regra de `@treepm/domain`), do ponto em que ela entra até a de cima. Os
    * ancestrais que ela não lê nem são carregados além do que decide parar.
    */
-  async trail(tx: TenantClient, principal: Principal, id: string): Promise<{ id: string; kind: "ticket" | "general" | "thread"; openingMessageId: string | null }[]> {
+  async trail(tx: TenantClient, principal: Principal, id: string): Promise<{ id: string; kind: "ticket" | "general" | "thread"; openingMessageId: string | null; title: string | null }[]> {
     const me = principal.person.id;
-    const chain = await tx.$queryRaw<{ id: string; parent_id: string | null; kind: "ticket" | "general" | "thread"; opening_message_id: string | null; mine: boolean }[]>`
+    const chain = await tx.$queryRaw<{ id: string; parent_id: string | null; kind: "ticket" | "general" | "thread"; opening_message_id: string | null; title: string | null; mine: boolean }[]>`
       with recursive up as (
-        select c.org_id, c.id, c.parent_id, c.kind, c.opening_message_id, 0 as lvl from conversations c where c.id = ${id}::uuid
+        select c.org_id, c.id, c.parent_id, c.kind, c.opening_message_id, c.title, 0 as lvl from conversations c where c.id = ${id}::uuid
         union all
-        select p.org_id, p.id, p.parent_id, p.kind, p.opening_message_id, up.lvl + 1
+        select p.org_id, p.id, p.parent_id, p.kind, p.opening_message_id, p.title, up.lvl + 1
         from conversations p join up on p.org_id = up.org_id and p.id = up.parent_id
         where up.lvl < ${CONVERSATION_TECHNICAL_MAX_DEPTH + 1}::int
       )
-      select up.id, up.parent_id, up.kind, up.opening_message_id,
+      select up.id, up.parent_id, up.kind, up.opening_message_id, up.title,
              exists (select 1 from conversation_participants cp where cp.org_id = up.org_id and cp.conversation_id = up.id and cp.person_id = ${me}::uuid) as mine
       from up order by up.lvl asc`;
     const nodes: ConversationNode[] = chain.map((c) => ({ id: c.id, parentId: c.parent_id, participantIds: new Set(c.mine ? [me] : []) }));
@@ -107,7 +110,7 @@ export class ConversationAccess {
     const info = new Map(chain.map((c) => [c.id, c]));
     return visibleTrail(me, id, byId).flatMap((trailId) => {
       const row = info.get(trailId);
-      return row ? [{ id: row.id, kind: row.kind, openingMessageId: row.opening_message_id }] : [];
+      return row ? [{ id: row.id, kind: row.kind, openingMessageId: row.opening_message_id, title: row.title }] : [];
     });
   }
 

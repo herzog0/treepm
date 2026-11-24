@@ -74,7 +74,6 @@ function mapClient(): ApiClient {
     tickets: { p1: [makeTicket("t1", "p1", 1, "Acesso e conta", { key: "ALFA-1", status: "in_progress" }), makeTicket("t2", "p1", 2, "Publicação", { key: "ALFA-2" })] },
     people: [makePerson("person-1", "Ana")],
   });
-  Object.assign(client, { askProject: vi.fn(async () => ok({ text: "Faltam dois itens: ALFA-2 e ALFA-3, com uma resposta um pouco comprida para ocupar a folha toda no celular.", model: "claude-opus-5-5" })) });
   return client;
 }
 

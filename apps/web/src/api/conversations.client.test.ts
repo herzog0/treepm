@@ -6,9 +6,9 @@ const ID = "11111111-1111-4111-8111-111111111111";
 const TICKET = "22222222-2222-4222-8222-222222222222";
 const ana = { id: ID, displayName: "Ana", avatarUrl: null };
 const msg = (extra: Record<string, unknown> = {}) => ({ id: "m1", cursor: "c1", unread: false, authorKind: "person", author: ana, body: "Oi", createdAt: "2026-11-24T10:00:00.000Z", model: null, ...extra });
-const card = { id: "t1", opening: msg({ id: "m9", cursor: "c9" }), participants: [ana], participantCount: 2, replyCount: 2, lastActivityAt: "2026-11-24T10:05:00.000Z", unread: 1, startedByMe: true };
+const card = { id: "t1", opening: msg({ id: "m9", cursor: "c9" }), participants: [ana], participantCount: 2, replyCount: 2, lastActivityAt: "2026-11-24T10:05:00.000Z", unread: 1, startedByMe: true, purpose: "people", title: null };
 const ticket = { id: TICKET, key: "ALFA-1", title: "Login", projectId: ID, archived: false, status: "todo", blocked: false };
-const info = { id: "c1", kind: "ticket", ownedByMe: true, participants: [ana], canAddParticipants: false, canOpenThread: true, openingMessageId: null, opening: null, replyCount: 0, lastActivityAt: "2026-11-24T10:00:00.000Z", trail: [] };
+const info = { id: "c1", kind: "ticket", purpose: null, title: null, ownedByMe: true, participants: [ana], canAddParticipants: false, canOpenThread: true, openingMessageId: null, opening: null, replyCount: 0, lastActivityAt: "2026-11-24T10:00:00.000Z", trail: [] };
 const view = { conversation: info, ticket, assignedToMe: true, lastRead: null, unread: 2, messages: { items: [{ ...msg(), thread: null }, { ...msg({ id: "m2" }), thread: card }], nextBefore: null }, threads: [card] };
 
 function setup(responses: unknown[], status = 200) {
@@ -20,12 +20,12 @@ const calls = (fetchImpl: ReturnType<typeof setup>["fetchImpl"]) => fetchImpl.mo
 
 describe("conversation calls", () => {
   it("lists the tree as the server sends it, children included, with no write", async () => {
-    const thread = { id: "t1", kind: "thread", ticket: null, ownedByMe: true, assignedToMe: false, participants: [ana], participantCount: 3, lastActivityAt: "2026-11-24T10:00:00.000Z", unread: 0, preview: "oi", children: [] };
-    const principal = { id: null, kind: "ticket", ticket, ownedByMe: false, assignedToMe: true, participants: [], participantCount: 0, lastActivityAt: null, unread: 0, preview: null, children: [thread] };
+    const thread = { id: "t1", kind: "thread", ticket: null, ownedByMe: true, assignedToMe: false, participants: [ana], participantCount: 3, lastActivityAt: "2026-11-24T10:00:00.000Z", unread: 0, preview: "oi", purpose: "topic", title: "Planejar a release", children: [] };
+    const principal = { id: null, kind: "ticket", ticket, ownedByMe: false, assignedToMe: true, participants: [], participantCount: 0, lastActivityAt: null, unread: 0, preview: null, purpose: null, title: null, children: [thread] };
     const { client, fetchImpl } = setup([{ items: [principal] }]);
     const result = await client.listConversationTree();
     expect(calls(fetchImpl)).toEqual(["GET /api/conversations"]);
-    expect(result).toMatchObject({ ok: true, data: { items: [{ id: null, children: [{ id: "t1", participantCount: 3 }] }] } });
+    expect(result).toMatchObject({ ok: true, data: { items: [{ id: null, children: [{ id: "t1", participantCount: 3, purpose: "topic", title: "Planejar a release" }] }] } });
   });
 
   it("reads a conversation by id and a ticket's conversation without creating anything", async () => {
@@ -52,6 +52,25 @@ describe("conversation calls", () => {
     expect(result).toMatchObject({ ok: true, data: { kind: "thread", thread: { id: "t1" } } });
     expect(calls(fetchImpl)).toEqual([`POST /api/tickets/${TICKET}/conversation`, "POST /api/conversations/general", "POST /api/conversations/g1/messages"]);
     expect(JSON.parse(String(fetchImpl.mock.calls[2]?.[1]?.body))).toEqual({ body: "Oi", mentions: [ID], ticketId: TICKET });
+  });
+
+  it("opens a topic thread with `topic: true`: the body is exactly what the server expects and the answer keeps message, thread and reply", async () => {
+    const topicCard = { ...card, participants: [ana], participantCount: 1, purpose: "topic", title: "Planejar a release" };
+    const sent = { kind: "topic", message: { ...msg(), thread: topicCard }, thread: topicCard, reply: { ...msg({ id: "m3", authorKind: "assistant", author: null, model: "claude-opus-5-5" }), thread: null } };
+    const { client, fetchImpl } = setup([sent]);
+    const result = await client.sendChatMessage("g1", { body: "Como divido a migração?", topic: true });
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toEqual({ body: "Como divido a migração?", topic: true });
+    expect(result).toMatchObject({ ok: true, data: { kind: "topic", thread: { id: "t1", purpose: "topic", title: "Planejar a release" }, reply: { authorKind: "assistant" } } });
+  });
+
+  it("tolerates an answer without the new fields (absent means null; a thread without purpose is between people)", async () => {
+    const { purpose: _purpose, title: _title, ...old } = card;
+    void _purpose; void _title;
+    const { purpose: _p, title: _t, ...oldInfo } = info;
+    void _p; void _t;
+    const { client } = setup([{ ...view, conversation: oldInfo, threads: [old] }]);
+    const result = await client.getConversationView("c1");
+    expect(result).toMatchObject({ ok: true, data: { conversation: { purpose: null, title: null }, threads: [{ purpose: "people", title: null }] } });
   });
 
   it("includes people, marks as read and clears the main conversation", async () => {

@@ -3,7 +3,7 @@ import { callClaude } from "./claude-call.js";
 import type { ClaudeContentBlock, ClaudeStreamer, FinalMessage, StreamParams } from "./claude-call.js";
 import { AssistantUnavailableError } from "./ports.js";
 import type { ToolExecutor } from "./ports.js";
-import { ASK_LIMIT_NOTICE } from "./prompts.js";
+import { TOOL_LIMIT_NOTICE } from "./prompts.js";
 
 /** Prazo de cada chamada ao provedor (o mesmo dos outros adaptadores), prazo total da vez e limites de rodadas e de consultas. */
 export const DEFAULT_CALL_TIMEOUT_MS = 30_000;
@@ -19,7 +19,7 @@ export type LoopOptions = { timeoutMs?: number; totalTimeoutMs?: number; maxTool
 export type LoopOutcome = { final: FinalMessage; rounds: number; executions: number; perTool: ReadonlyMap<string, number>; ms: number };
 
 /**
- * O laço manual de ferramentas, comum à pergunta sobre o projeto e ao chat (ADR 0037 e 0056): `stop_reason: "tool_use"` → executa
+ * O laço manual de ferramentas, do chat (ADR 0037 e 0056): `stop_reason: "tool_use"` → executa
  * → devolve os `tool_result` numa única mensagem da pessoa → repete. Ao atingir o limite de rodadas ou de consultas a última chamada
  * vai sem ferramenta e tem de responder. Devolve a mensagem final (`end_turn`); quem chamou valida o conteúdo dela. Não conhece o
  * banco (as ferramentas são de quem chamou) e não registra texto algum: nada do conteúdo vai para log.
@@ -71,7 +71,7 @@ export async function runToolLoop(input: {
     // O conteúdo da resposta volta como veio (inclui o raciocínio, que a API exige inalterado).
     messages.push({ role: "assistant", content: content as never });
     const willClose = rounds >= options.maxToolRounds || executions >= MAX_TOOL_EXECUTIONS;
-    messages.push({ role: "user", content: willClose ? [...results, { type: "text", text: ASK_LIMIT_NOTICE }] : results });
+    messages.push({ role: "user", content: willClose ? [...results, { type: "text", text: TOOL_LIMIT_NOTICE }] : results });
   }
 }
 

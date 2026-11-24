@@ -253,7 +253,7 @@ describe("the create action", () => {
     expect(screen.getByRole("listbox")).toContainElement(action);
   }, SLOW);
 
-  // Com o assistente ligado, quem só lê ainda vê a ação "Perguntar ao assistente" (ADR 0037): ver `OrganizationMap.ask.test.tsx`.
+  // Com o assistente ligado, quem só lê ainda vê "Conversar no Meu chat" (ADR 0056): ver `CommandBar.chat.test.tsx`.
   it("is not offered when the person cannot create in any project, but the search stays", async () => {
     const reader = withAssistant(makePanelMe("member", [{ projectId: "p1", role: "reader" }]), false);
     render(<Host client={makeFullClient()} me={reader} />);

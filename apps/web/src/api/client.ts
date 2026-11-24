@@ -262,7 +262,6 @@ const codeLinkSchema = z.object({
 });
 const ticketCodeSchema = z.object({ repositories: z.number(), syncedAt: z.string().nullable(), links: z.array(codeLinkSchema) });
 const descriptionDraftSchema = z.object({ text: z.string(), model: z.string() });
-const askAnswerSchema = z.object({ text: z.string(), model: z.string() });
 const ticketSummaryTextSchema = z.object({
   summary: z.object({ text: z.string(), source: z.enum(["assistant", "person", "built"]), updatedAt: z.string().optional(), built: z.boolean().optional() }).nullable(),
 });
@@ -346,7 +345,7 @@ const mcpStateSchema = z.object({ mcp: z.object({ enabled: z.boolean(), writeEna
 const errorBodySchema = z.object({ error: z.object({ code: z.string(), details: z.unknown().optional() }) });
 
 export type Me = z.output<typeof meSchema>;
-export type { ChatMessage, ChatPerson, ChatRead, ChatWriteBody, ConversationInfo, ConversationNode, ConversationTicket, ConversationTree, ConversationView, SendResult, ThreadCard, TrailItem } from "./conversations.js";
+export type { ChatMessage, ChatPerson, ChatRead, ChatWriteBody, ConversationInfo, ConversationPurpose, ConversationNode, ConversationTicket, ConversationTree, ConversationView, SendResult, ThreadCard, TrailItem } from "./conversations.js";
 export type AiConsent = z.output<typeof aiConsentSchema>;
 export type AiConsentKind = "assistant" | "code_reading";
 export type Person = z.output<typeof personSchema>;
@@ -391,11 +390,6 @@ export interface ConversationDraftBody {
   /** Registrar como ideia ao criar (ADR 0044, adendo); ausente mantém a opção como está. */
   idea?: boolean;
 }
-export interface AskBody {
-  question: string;
-  history?: { author: "person" | "assistant"; body: string }[];
-}
-export type AskAnswer = z.output<typeof askAnswerSchema>;
 export type ConversationSummary = z.output<typeof conversationSummarySchema>;
 export type ConversationDetail = z.output<typeof conversationDetailSchema>;
 export type PlacementTarget = z.output<typeof placementTargetSchema>;
@@ -764,9 +758,6 @@ export function createApiClient({ getToken, fetch: fetchImpl, actAsId = null }: 
     /** Pede à IA um trecho em markdown para a descrição (ADR 0036). Não grava nada; `description` é o texto atual do editor. */
     draftTicketDescription: (id: string, body: { request: string; description: string }, options: { signal?: AbortSignal } = {}) =>
       request("POST", `${ticket(id)}/description/draft`, descriptionDraftSchema, body, options.signal),
-    /** Pergunta sobre o projeto (ADR 0037): `history` leva as mensagens anteriores da folha, que a API não guarda. Não grava nada. */
-    askProject: (projectId: string, body: AskBody, options: { signal?: AbortSignal } = {}) =>
-      request("POST", `${project(projectId)}/assistant/ask`, askAnswerSchema, body, options.signal),
 
     /** O aceite da organização para a IA (ADR 0039): qualquer membro lê; só administrador aceita e retira. */
     getAiConsent: () => request("GET", "/api/organization/ai-consent", aiConsentSchema),

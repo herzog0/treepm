@@ -2,6 +2,7 @@ import type { KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { refKey, useChats } from "./ChatsContext.js";
 import { ConversationView } from "./ConversationView.js";
+import { TopicPending } from "./TopicPending.js";
 import "./chat.css";
 
 /**
@@ -22,7 +23,7 @@ export function ChatPanel() {
   };
   return (
     <aside id="chat-panel" className="chat-panel" aria-label={t("panel.label")} hidden={!chats.open} onKeyDown={onKeyDown}>
-      <ConversationView key={refKey(chats.selection)} target={chats.selection} active={chats.open} />
+      {chats.selection.kind === "topic" ? <TopicPending key={refKey(chats.selection)} /> : <ConversationView key={refKey(chats.selection)} target={chats.selection} active={chats.open} />}
     </aside>
   );
 }

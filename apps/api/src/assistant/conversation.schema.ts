@@ -18,10 +18,11 @@ const cursorSchema = z.string().min(1).max(64);
  * pessoas). Com `mentions` (ids de pessoas, escolhidos na tela): a mensagem abre uma thread dentro desta conversa. O texto fica como a
  * pessoa o escreveu; quem é marcado é só o que está em `mentions`, nunca lido do texto. A lista pode vir maior que o limite (a API a
  * recusa com erro claro, não com 400 genérico). `ticketId` só vale ao abrir thread numa conversa que não trata de ticket (o chat
- * geral): o ticket de que a thread trata.
+ * geral): o ticket de que a thread trata. `topic: true` (ADR 0056): o texto livre vira uma thread de assunto com o assistente, só da pessoa,
+ * dentro da conversa principal dela; não combina com `mentions`, `ticketId` nem com uma thread como destino (422).
  */
 export const sendMessageBodySchema = z
-  .object({ body: chatBodySchema, mentions: z.array(idSchema).max(200).optional(), ticketId: idSchema.optional() })
+  .object({ body: chatBodySchema, mentions: z.array(idSchema).max(200).optional(), ticketId: idSchema.optional(), topic: z.boolean().optional() })
   .strict();
 
 /** Incluir pessoas numa thread (só quem a abriu). */
@@ -56,6 +57,9 @@ const messageBase = z.object({
   model: z.string().nullable(),
 });
 
+/** Para que a thread existe (ADR 0056): entre pessoas, assunto com o assistente (só de quem a abriu) ou conversa de novo ticket. */
+export const purposeSchema = z.enum(["people", "topic", "creation"]);
+
 /** O cartão de uma thread, para quem participa dela. */
 export const threadCardSchema = z.object({
   /** O id da conversa da thread. */
@@ -70,6 +74,9 @@ export const threadCardSchema = z.object({
   /** Mensagens de outras pessoas, nesta thread (a de abertura inclusive), depois do ponto de leitura de quem pede. */
   unread: z.number(),
   startedByMe: z.boolean(),
+  purpose: purposeSchema,
+  /** O título curto da thread de assunto; `null` até o assistente dar um (a tela usa o começo da abertura). */
+  title: z.string().nullable(),
 });
 
 export const chatMessageSchema = messageBase.extend({
@@ -98,11 +105,16 @@ export const trailItemSchema = z.object({
   kind: z.enum(["ticket", "general", "thread"]),
   /** A primeira mensagem da thread, resumida; `null` nas principais. */
   label: z.string().nullable(),
+  /** O título, nas threads de assunto. */
+  title: z.string().nullable(),
 });
 
 export const conversationInfoSchema = z.object({
   id: z.string(),
   kind: z.enum(["ticket", "general", "thread"]),
+  /** Só nas threads; `null` nas principais. */
+  purpose: purposeSchema.nullable(),
+  title: z.string().nullable(),
   /** Foi a pessoa quem abriu. */
   ownedByMe: z.boolean(),
   participants: z.array(personRefSchema),
@@ -137,6 +149,8 @@ export const sendResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("assistant"), message: chatMessageSchema, reply: chatMessageSchema }),
   z.object({ kind: z.literal("message"), message: chatMessageSchema }),
   z.object({ kind: z.literal("thread"), message: chatMessageSchema, thread: threadCardSchema }),
+  /** O texto livre virou thread de assunto: a abertura (na conversa de cima), a thread e a resposta do assistente, dentro dela. */
+  z.object({ kind: z.literal("topic"), message: chatMessageSchema, thread: threadCardSchema, reply: chatMessageSchema }),
 ]);
 
 export const readResultSchema = z.object({ lastRead: z.string().nullable(), unread: z.number() });
@@ -160,6 +174,10 @@ export interface ConversationNodeShape {
   preview: string | null;
   /** Só nos nós de thread: o começo da mensagem que a abriu, o mesmo texto de `trail[].label`; `null` nos demais. */
   label: string | null;
+  /** Só nas threads (ADR 0056); `null` nas principais. */
+  purpose: z.output<typeof purposeSchema> | null;
+  /** O título da thread de assunto; `null` nas demais e até o assistente dar um. */
+  title: string | null;
   children: ConversationNodeShape[];
 }
 export const conversationNodeSchema: z.ZodType<ConversationNodeShape> = z.lazy(() =>
@@ -175,6 +193,8 @@ export const conversationNodeSchema: z.ZodType<ConversationNodeShape> = z.lazy((
     unread: z.number(),
     preview: z.string().nullable(),
     label: z.string().nullable(),
+    purpose: purposeSchema.nullable(),
+    title: z.string().nullable(),
     children: z.array(conversationNodeSchema),
   }),
 );

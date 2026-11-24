@@ -19,8 +19,6 @@ import type {
   ExistingMatchResult,
   GroupNameInput,
   GroupNamer,
-  ProjectAnswerInput,
-  ProjectAnswerer,
   RelatedInput,
   RelatedJudge,
   RelatedJudgment,
@@ -169,28 +167,8 @@ export class FakeDescriptionWriter implements DescriptionWriter {
 }
 
 /**
- * Respondedor falso: devolve `Resposta: <pergunta>` a menos que `script` mande outra coisa. O `script` recebe a entrada
- * (em rótulos neutros) e pode chamar `input.tools.execute`, como o adaptador do Claude faria. `delegate` entrega a
- * chamada a outro respondedor (o real, com um provedor roteirizado).
- */
-export class FakeProjectAnswerer implements ProjectAnswerer {
-  readonly calls: { question: string; history: { author: "person" | "assistant"; body: string }[] }[] = [];
-  onCall: (() => Promise<void>) | null = null;
-  script: ((input: ProjectAnswerInput) => Promise<string>) | null = null;
-  delegate: ProjectAnswerer | null = null;
-  fail = false;
-  async answer(input: ProjectAnswerInput): Promise<{ text: string; model: string }> {
-    this.calls.push({ question: input.question, history: structuredClone([...input.history]) });
-    await this.onCall?.();
-    if (this.fail) throw new AssistantUnavailableError("fake");
-    if (this.delegate) return this.delegate.answer(input);
-    return { text: this.script ? await this.script(input) : `Resposta: ${input.question}`, model: "fake-model" };
-  }
-}
-
-/**
  * Chat de trabalho falso (ADR 0049 e 0056): grava EXATAMENTE o que recebeu (sem as ferramentas, que não se clonam) e responde um texto
- * previsível. `delegate` entrega a vez a outro provedor (o real, com um provedor de IA roteirizado), como o respondedor falso.
+ * previsível. `delegate` entrega a vez a outro provedor (o real, com um provedor de IA roteirizado).
  */
 export type RecordedChatInput = Omit<ChatTurnInput, "tools">;
 export class FakeChatProvider implements ChatProvider {
@@ -201,7 +179,9 @@ export class FakeChatProvider implements ChatProvider {
   reply_: ((input: ChatTurnInput) => string) | null = null;
   delegate: ChatProvider | null = null;
   fail = false;
-  async reply(input: ChatTurnInput): Promise<{ message: string; model: string }> {
+  /** O título que o "modelo" dá à thread de assunto (só pedido na primeira resposta); `undefined` = título previsível; `null` = nenhum. */
+  title_: ((input: ChatTurnInput) => string | null) | null = null;
+  async reply(input: ChatTurnInput): Promise<{ message: string; model: string; title?: string | null }> {
     const { tools, ...recorded } = input;
     this.calls.push(structuredClone(recorded) as RecordedChatInput);
     this.tools.push(tools);
@@ -209,7 +189,8 @@ export class FakeChatProvider implements ChatProvider {
     if (this.fail) throw new AssistantUnavailableError("fake");
     if (this.delegate) return this.delegate.reply(input);
     const last = input.history[input.history.length - 1]?.body ?? "";
-    return { message: this.reply_ ? this.reply_(input) : `Resposta sobre ${input.ticket?.key ?? "chat geral"}: ${last.slice(0, 40)}`, model: "claude-opus-5-5" };
+    const title = this.title_ ? this.title_(input) : input.wantTitle ? "Assunto de teste" : null;
+    return { message: this.reply_ ? this.reply_(input) : `Resposta sobre ${input.ticket?.key ?? "chat geral"}: ${last.slice(0, 40)}`, model: "claude-opus-5-5", ...(title !== null ? { title } : {}) };
   }
 }
 

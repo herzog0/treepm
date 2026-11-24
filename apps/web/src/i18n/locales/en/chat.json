@@ -26,7 +26,8 @@
     "assistant": "The assistant sees this ticket and looks up the others you can see. It doesn't create or change anything.",
     "noConsent": "AI is off for this organization. An administrator needs to turn it on in Settings. Threads with other people keep working.",
     "noProvider": "AI is not configured on this server. You can still open threads with other people.",
-    "general": "The assistant looks up the tickets in the projects you can see. It doesn't create or change anything."
+    "general": "The assistant looks up the tickets in the projects you can see. It doesn't create or change anything.",
+    "topic": "Just you and the assistant"
   },
   "log": {
     "label": "Messages",
@@ -73,7 +74,9 @@
     "main": "Main conversation",
     "thread": "Thread",
     "threadWith": "Thread with {{name}}",
-    "threadWithMore": "Thread with {{name}} +{{count}}"
+    "threadWithMore": "Thread with {{name}} +{{count}}",
+    "topic": "Topic",
+    "topicNew": "New topic"
   },
   "trail": {
     "label": "Where you are"
@@ -118,5 +121,12 @@
   },
   "link": {
     "ticket": "{{key}} {{title}}, {{status}}"
+  },
+  "topic": {
+    "busy": "The assistant is still answering the previous topic.",
+    "timeout": "The assistant did not answer in time. Your text is back in the field.",
+    "cancel": "Cancel",
+    "pending": "answering…",
+    "failed": "Not answered"
   }
 }

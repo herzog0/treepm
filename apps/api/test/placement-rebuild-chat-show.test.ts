@@ -76,6 +76,19 @@ describe("chat-show", () => {
     expect(inThread.indexOf("(abertura)")).toBeLessThan(inThread.indexOf("Resposta na thread"));
   });
 
+  it("thread de assunto: mostra o propósito e o título, na lista de threads e na própria thread", async () => {
+    const me = (await sql("select id from people where clerk_user_id = 'user_cs'"))[0].id as string;
+    const general = (await sql("select id from conversations where kind = 'general' and owner_person_id = $1", [me]))[0].id as string;
+    const opening = (await sql("insert into conversation_messages (org_id, conversation_id, author_person_id, body) values ('org_cs',$1,$2,'Como planejo a release?') returning id", [general, me]))[0].id as string;
+    const thread = (await sql("with t as (insert into conversations (org_id, id, kind, purpose, title, owner_person_id, parent_id, root_id, depth, opening_message_id) values ('org_cs', app_uuid_v7(), 'thread','topic','Plano da release',$1,$2,$2,1,$3) returning id, org_id), p as (insert into conversation_participants (org_id, conversation_id, person_id) select org_id, id, $1::uuid from t) select id from t", [me, general, opening]))[0].id as string;
+    await sql("insert into conversation_messages (org_id, conversation_id, body, model) values ('org_cs',$1,'Comece pelo escopo','m')", [thread]);
+    const list = (await run("", { general: true })).join("\n");
+    expect(list).toContain(`- ${thread} [assunto] «Plano da release» 1 resposta`);
+    const inside = (await run("", { thread })).join("\n");
+    expect(inside).toContain("Propósito: assunto; título: «Plano da release»");
+    expect(inside).toContain("assistente: Comece pelo escopo");
+  });
+
   it("--thread só aceita uuid (o id vai no caminho da rota)", async () => {
     for (const bad of ["../tickets", "abc", "x?y=1"]) await expect(run("", { thread: bad })).rejects.toThrow("uuid");
   });

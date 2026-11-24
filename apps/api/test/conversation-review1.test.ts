@@ -96,16 +96,23 @@ describe("revisão 1: limpar e o caminho do assistente (itens 5 e 6)", () => {
     expect((await h.call("DELETE", `/api/conversations/${main}/messages`, as("reader"))).status).toBe(204);
   });
 
-  it("o serviço recusa thread antes de ler qualquer histórico (prepareAssistantTurn e recordAssistantTurn)", async () => {
+  it("o serviço recusa thread que não é de assunto antes de ler qualquer histórico (prepareAssistantTurn e recordAssistantTurn)", async () => {
     const service = h.app().get(ConversationService);
     const access = (service as unknown as { access: { resolve: unknown } }).access;
-    const resolve = vi.spyOn(access as { resolve: () => Promise<unknown> }, "resolve").mockResolvedValue({ conv: { kind: "thread", id: "x" }, participantIds: new Set(), lastReadSeq: 0n, seen: null });
-    const tx = new Proxy({}, { get: () => { throw new Error("leu o banco"); } });
     const principal = { person: { id: "p" }, organization: { orgId: "o" } };
+    const tx = new Proxy({}, { get: () => { throw new Error("leu o banco"); } });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const call = (fn: "prepareAssistantTurn" | "recordAssistantTurn") => (service as any)[fn](tx, principal, "x", "oi", { message: "r", model: "m" }, 0);
-    await expect(call("prepareAssistantTurn")).rejects.toMatchObject({ response: { code: "not_principal" } });
-    await expect(call("recordAssistantTurn")).rejects.toMatchObject({ response: { code: "not_principal" } });
+    for (const purpose of ["people", "creation", null]) {
+      const resolve = vi.spyOn(access as { resolve: () => Promise<unknown> }, "resolve").mockResolvedValue({ conv: { kind: "thread", purpose, id: "x" }, participantIds: new Set(), lastReadSeq: 0n, seen: null });
+      await expect(call("prepareAssistantTurn"), `${purpose}`).rejects.toMatchObject({ response: { code: "not_principal" } });
+      await expect(call("recordAssistantTurn"), `${purpose}`).rejects.toMatchObject({ response: { code: "not_principal" } });
+      resolve.mockRestore();
+    }
+    // A thread de assunto passa da recusa (e só então toca o banco).
+    const resolve = vi.spyOn(access as { resolve: () => Promise<unknown> }, "resolve").mockResolvedValue({ conv: { kind: "thread", purpose: "topic", id: "x", openingMessageId: null }, participantIds: new Set(), lastReadSeq: 0n, seen: null });
+    await expect(call("prepareAssistantTurn")).rejects.toThrow("leu o banco");
+    await expect(call("recordAssistantTurn")).rejects.toThrow("leu o banco");
     resolve.mockRestore();
   });
 });

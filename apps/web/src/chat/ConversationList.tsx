@@ -3,7 +3,7 @@ import type { CSSProperties, KeyboardEvent } from "react";
 import type { ConversationNode } from "../api/client.js";
 import { formatActivityTime } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
-import { nodeIsRef, refOfNode, useChats } from "./ChatsContext.js";
+import { nodeIsRef, refOfNode, topicLabel, useChats } from "./ChatsContext.js";
 import { situationColor } from "./situation.js";
 import { threadColor, threadTitle } from "./thread.js";
 
@@ -23,7 +23,12 @@ function ConversationRow({ node, depth, parent }: { node: ConversationNode; dept
   const current = chats.open && chats.selection !== null && nodeIsRef(node, chats.selection);
   const level = Math.min(depth, MAX_INDENT_LEVEL);
   const thread = node.kind === "thread";
+  const topic = thread && node.purpose === "topic";
   const title =
+    topic ? (
+      // O assunto se diz pelo título que o assistente deu; sem ele, pelo começo da abertura; sem os dois, "Assunto". Nunca "Thread com…".
+      topicLabel(node.title, node.label, t("row.topic"))
+    ) :
     node.kind === "general" ? (
       t("row.general")
     ) : node.kind === "ticket" && node.ticket ? (
@@ -48,7 +53,9 @@ function ConversationRow({ node, depth, parent }: { node: ConversationNode; dept
         aria-current={current ? "true" : undefined}
         onClick={() => chats.select(refOfNode(node))}
       >
-        {thread && node.id !== null ? (
+        {topic ? (
+          <span className="conv-topic-mark" aria-hidden="true">✦</span>
+        ) : thread && node.id !== null ? (
           <span className="conv-thread-mark" aria-hidden="true" style={{ background: threadColor(node.id) }} />
         ) : node.kind === "general" ? (
           <GeneralIcon />
@@ -76,6 +83,19 @@ function ConversationRow({ node, depth, parent }: { node: ConversationNode; dept
           </span>
         )}
       </button>
+      {node.kind === "general" && chats.topicRun !== null && (
+        <ul className="conv-children">
+          <li className="conv-item">
+            <button type="button" className={`conv-row is-thread ${chats.topicRun.status === "failed" ? "is-unread" : ""}`} style={{ "--conv-level": Math.min(depth + 1, MAX_INDENT_LEVEL) } as CSSProperties} onClick={() => chats.openTopicRun()}>
+              <span className="conv-topic-mark" aria-hidden="true">✦</span>
+              <span className="conv-text">
+                <span className="conv-title">{chats.topicRun.status === "failed" ? t("topic.failed") : t("topic.pending")}</span>
+                <span className="conv-preview">{chats.topicRun.text}</span>
+              </span>
+            </button>
+          </li>
+        </ul>
+      )}
       {node.children.length > 0 && (
         <ul className="conv-children">
           {node.children.map((child, index) => <ConversationRow key={child.id ?? `${child.kind}-${child.ticket?.id ?? index}`} node={child} depth={depth + 1} parent={node} />)}

@@ -172,9 +172,9 @@ describe("an empty field with the focus in the bar", () => {
     const reader = withAssistant(makePanelMe("member", [{ projectId: "p1", role: "reader" }]));
     render(<Host client={makeFullClient()} me={reader} />);
     await userEvent.click(await bar());
-    // Nenhuma ação de criar: só a navegação "Próximo ticket para trabalhar" (ADR 0047), que quem só lê também usa.
+    // Nenhuma ação de criar: só "Abrir o Meu chat" (ADR 0056) e a navegação "Próximo ticket para trabalhar" (ADR 0047), que quem só lê também usa.
     expect(screen.queryByRole("option", { name: /conversa/i })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["Próximo ticket para trabalhar"]);
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["Abrir o Meu chat", "Próximo ticket para trabalhar"]);
   }, SLOW);
 
   it("does not highlight anything by default, so Enter does not start a conversation by accident", async () => {

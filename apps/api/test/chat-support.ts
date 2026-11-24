@@ -75,6 +75,9 @@ export async function openGeneral(h: Harness, who: Who | "target"): Promise<stri
 /** Mensagem numa conversa pelo id (principal ou thread). */
 export const post = (h: Harness, who: Who | "target", conversation: string, body: string, mentions?: string[], ticketId?: string) =>
   h.call("POST", `/api/conversations/${conversation}/messages`, as(who), { body, ...(mentions ? { mentions } : {}), ...(ticketId ? { ticketId } : {}) });
+/** Abre uma thread de assunto (o texto livre vira conversa com o assistente) dentro de uma conversa principal. */
+export const topic = (h: Harness, who: Who | "target", conversation: string, body: string, extra: Record<string, unknown> = {}) =>
+  h.call("POST", `/api/conversations/${conversation}/messages`, as(who), { body, topic: true, ...extra });
 /** Mensagem na conversa principal da pessoa no ticket (abre a conversa antes). */
 export const send = async (h: Harness, who: Who | "target", ticket: string, body: string, mentions?: string[]) => post(h, who, await openTicket(h, who, ticket), body, mentions);
 export const reply = post;

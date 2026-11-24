@@ -293,35 +293,6 @@ describe("description draft", () => {
     expect(down).toEqual({ ok: false, error: { kind: "unavailable", code: "assistant_unavailable" } });
   });
 });
-
-describe("askProject", () => {
-  it("posts the question and the history to the project's ask route and reads { text, model }", async () => {
-    const { client, fetchImpl } = setup({ text: "Está em ALFA-2.", model: "claude-opus-5-5" });
-    const result = await client.askProject(OTHER, { question: "Onde está o login?", history: [{ author: "person", body: "Oi" }] });
-    expect(result).toEqual({ ok: true, data: { text: "Está em ALFA-2.", model: "claude-opus-5-5" } });
-    expect(lastCall(fetchImpl)).toEqual({ path: expect.stringContaining(`/api/projects/${OTHER}/assistant/ask`), method: "POST", body: { question: "Onde está o login?", history: [{ author: "person", body: "Oi" }] } });
-  });
-
-  it("passes the abort signal to fetch", async () => {
-    const { client, fetchImpl } = setup({ text: "x", model: "m" });
-    const controller = new AbortController();
-    await client.askProject(OTHER, { question: "?" }, { signal: controller.signal });
-    expect(fetchImpl.mock.calls.at(-1)![1]?.signal).toBe(controller.signal);
-  });
-
-  it("maps 503 assistant_unavailable to an unavailable error with its code", async () => {
-    const { client } = setup({ error: { code: "assistant_unavailable" } }, 503);
-    const result = await client.askProject(OTHER, { question: "?" });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("assistant_unavailable");
-  });
-
-  it("rejects an answer without text as an invalid response", async () => {
-    const { client } = setup({ model: "m" });
-    expect((await client.askProject(OTHER, { question: "?" })).ok).toBe(false);
-  });
-});
-
 describe("registrar o rascunho como ideia (TREEPM-242)", () => {
   it("lê idea do rascunho; um servidor antigo (sem o campo) vale como falso", async () => {
     const on = await setup({ ...detail, draft: { ...detail.draft, idea: true } }).client.getConversation(ID);

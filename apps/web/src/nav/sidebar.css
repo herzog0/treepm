@@ -34,6 +34,8 @@
 .conv-row:hover { background: var(--tp-side-hover); }
 .conv-dot { grid-area: mark; width: 10px; height: 10px; border-radius: 50%; }
 .conv-thread-mark { grid-area: mark; width: 4px; height: 26px; border-radius: 2px; justify-self: center; }
+.conv-topic-mark { grid-area: mark; justify-self: center; color: var(--tp-accent); font-size: 14px; line-height: 1; }
+.conv-row[aria-current] .conv-topic-mark { color: var(--tp-side-on-selected); }
 .conv-general-icon { grid-area: mark; width: 14px; height: 14px; justify-self: center; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .conv-text { grid-area: text; display: flex; flex-direction: column; min-width: 0; }
 .conv-title { overflow: hidden; color: var(--tp-side-text); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }

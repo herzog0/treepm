@@ -20,7 +20,7 @@ describe.each([
   ["1440x900", 1440, 900],
   ["390x844", 390, 844],
 ] as const)("barra de pedidos em %s", (size, width, height) => {
-  it("mostra 'Registrar ideia' entre 'Criar ticket' e 'Perguntar ao assistente', dentro da tela", async () => {
+  it("mostra 'Registrar ideia' depois de 'Criar ticket' e do Meu chat, dentro da tela", async () => {
     await page.viewport(width, height);
     const client = makeTreeClient({
       projects: [makeProject("p1", "ALFA", "Projeto Alfa")],
@@ -42,9 +42,9 @@ describe.each([
     expect(rect.right).toBeLessThanOrEqual(window.innerWidth);
     expect(rect.bottom).toBeLessThanOrEqual(window.innerHeight);
     const create = screen.getByRole("option", { name: /Criar ticket/ }).element().getBoundingClientRect();
-    const ask = screen.getByRole("option", { name: /Perguntar ao assistente/ }).element().getBoundingClientRect();
+    const chat = screen.getByRole("option", { name: /Conversar no Meu chat/ }).element().getBoundingClientRect();
+    expect(chat.top).toBeLessThan(create.top);
     expect(create.top).toBeLessThan(rect.top);
-    expect(rect.top).toBeLessThan(ask.top);
     await userEvent.keyboard("{ArrowDown}");
     await shot(`barra-registrar-ideia-${size}`);
   });

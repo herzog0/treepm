@@ -27,6 +27,20 @@ export function chatBodyOf(raw: string): string | null {
   return body.length >= CHAT_BODY_MIN && body.length <= CHAT_BODY_MAX && !hasForbiddenChatChars(body) ? body : null;
 }
 
+/** O título curto de uma thread de assunto (ADR 0056): até este tamanho, uma linha, sem ponto final. */
+export const CHAT_TITLE_MAX = 60;
+
+/**
+ * O título que o assistente deu, aparado, ou `null` quando não serve (vazio, acima de 60 caracteres, em mais de uma linha, com
+ * caractere proibido ou terminado em ponto). Título inválido nunca é "consertado": é ignorado e a tela usa o começo da mensagem.
+ */
+export function chatTitleOf(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const title = raw.trim();
+  if (title.length < 1 || title.length > CHAT_TITLE_MAX || /[\r\n]/.test(title) || hasForbiddenChatChars(title) || title.endsWith(".")) return null;
+  return title;
+}
+
 export type ChatTurn = { author: "person" | "assistant"; body: string };
 
 /**

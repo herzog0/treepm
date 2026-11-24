@@ -168,7 +168,7 @@ export interface DescriptionWriter {
 
 export const DESCRIPTION_WRITER = Symbol("DESCRIPTION_WRITER");
 
-// ---- Pergunta sobre o projeto (ADR 0037, fatia 5) --------------------------------------------------------------
+// ---- Ferramentas de consulta (ADR 0037 e 0056) --------------------------------------------------------------
 
 /** Resultado de uma ferramenta: texto (JSON) para o modelo; `isError` marca entrada inválida do modelo, que não derruba a pergunta. */
 export type ToolOutcome = { content: string; isError: boolean };
@@ -180,16 +180,6 @@ export type ToolOutcome = { content: string; isError: boolean };
 export interface ToolExecutor {
   execute(name: string, input: unknown): Promise<ToolOutcome>;
 }
-
-/** Tudo em rótulos neutros (`T47`): a conversão de chaves é de quem chama. A conversa não é guardada em lugar nenhum. */
-export type ProjectAnswerInput = { question: string; history: readonly ConversationMessage[]; tools: ToolExecutor };
-
-/** Claude: responde uma pergunta sobre o projeto consultando-o pelas ferramentas. Só leitura. */
-export interface ProjectAnswerer {
-  answer(input: ProjectAnswerInput): Promise<{ text: string; model: string }>;
-}
-
-export const PROJECT_ANSWERER = Symbol("PROJECT_ANSWERER");
 
 // ---- Chat de trabalho por ticket (ADR 0049) --------------------------------------------------------------------
 
@@ -224,11 +214,14 @@ export type ChatTurnInput = {
   history: readonly ConversationMessage[];
   projects: readonly string[];
   tools: ToolExecutor;
+  /** Só na primeira resposta de uma thread de assunto (ADR 0056): devolva também um título curto. */
+  wantTitle: boolean;
 };
 
 /** Claude: ajuda a pessoa a pensar e consulta tickets pelas ferramentas de leitura. Nunca altera nada. */
 export interface ChatProvider {
-  reply(input: ChatTurnInput): Promise<{ message: string; model: string }>;
+  /** `title`: só quando `wantTitle`, e só se o provedor deu um; quem grava confere de novo (`chatTitleOf`). */
+  reply(input: ChatTurnInput): Promise<{ message: string; model: string; title?: string | null }>;
 }
 
 export const CHAT_PROVIDER = Symbol("CHAT_PROVIDER");

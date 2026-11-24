@@ -13,7 +13,8 @@
     "keys": {
       "navigate": "↑ ↓ navigate",
       "open": "Enter open",
-      "close": "Esc close"
+      "close": "Esc close",
+      "chat": "Enter to chat"
     },
     "conversation": "Conversation"
   },
@@ -21,37 +22,15 @@
     "create": "Create ticket «{{text}}»",
     "createShortcut": "Ctrl Enter",
     "registerIdea": "Register idea «{{text}}»",
-    "ask": "Ask the assistant about «{{text}}»",
-    "askShortcut": "Shift Enter",
-    "next": "Next ticket to work on"
+    "next": "Next ticket to work on",
+    "chat": "Chat in My chat",
+    "chatShortcut": "Shift Enter"
   },
   "conversation": {
     "inProgress": "Conversation in progress",
     "resume": "Continue conversation",
-    "new": "New conversation"
-  },
-  "ask": {
-    "inProgress": "Question in progress",
-    "label": "Question about the project",
-    "title": "Question about the project",
-    "new": "New question",
-    "collapse": "Collapse",
-    "project": {
-      "question": "Which project?",
-      "option": "{{key}} · {{name}}"
-    },
-    "waiting": "Checking the project…",
-    "error": "The assistant did not answer. Try again.",
-    "retry": "Try again",
-    "reply": "Assistant's answer",
-    "message": {
-      "label": "Ask more about this project",
-      "placeholder": "Ask more about this project",
-      "send": "Send",
-      "over": "The question is over {{max}} characters ({{length}}). Shorten it to send.",
-      "within": "{{length}} of {{max}} characters"
-    },
-    "unanswered": "Not answered"
+    "new": "New conversation",
+    "openChat": "Open My chat"
   },
   "next": {
     "all_blocked": "Everything that is ready depends on another ticket.",
