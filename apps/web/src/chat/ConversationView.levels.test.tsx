@@ -6,7 +6,7 @@ import { ALFA1, renderChats } from "./chatTesting.js";
 
 const panel = () => screen.findByRole("complementary", { name: "Conversa" });
 const write = async (user: ReturnType<typeof userEvent.setup>, text: string) => {
-  const field = await screen.findByRole("textbox", { name: /^(Mensagem|Responder na thread)$/ });
+  const field = await screen.findByRole("combobox", { name: /^(Mensagem|Responder na thread)$/ });
   await user.type(field, text);
 };
 
@@ -74,19 +74,16 @@ describe("o que falha na leitura tenta de novo", () => {
     expect(vi.mocked(client.getMe).mock.calls.length).toBeGreaterThan(1);
   });
 
-  it("a lista de tickets do 'sobre o ticket…' que falhou volta a tentar", async () => {
+  it("a lista de tickets do # que falhou volta a tentar", async () => {
     const { client } = renderChats({ seed: (c) => void c.seedGeneral([{ person: "oi", assistant: "olá" }]) });
     vi.mocked(client.listTickets).mockResolvedValueOnce({ ok: false, error: { kind: "unavailable" } } as ApiResult<never>);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
-    await write(user, "Bia, olha");
-    await user.click(await screen.findByRole("button", { name: "Mencionar" }));
-    await user.click(within(await screen.findByRole("dialog", { name: "Mencionar pessoas" })).getByRole("button", { name: "Bia" }));
-    await user.click(await screen.findByRole("button", { name: "Sobre o ticket…" }));
+    await write(user, "Como está o #");
     expect(await screen.findByText("Não foi possível carregar os tickets.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Tentar de novo" }));
-    await user.type(screen.getByRole("searchbox", { name: "Sobre o ticket (opcional)" }), "ALFA-1");
-    expect(await within(screen.getByRole("searchbox", { name: "Sobre o ticket (opcional)" }).closest(".chat-topic") as HTMLElement).findByRole("button", { name: /ALFA-1/ })).toBeInTheDocument();
+    await user.type(screen.getByRole("combobox", { name: "Mensagem" }), "ALFA-1");
+    expect(await within(screen.getByRole("listbox", { name: "Tickets" })).findByRole("option", { name: /ALFA-1/ })).toBeInTheDocument();
   });
 
   it("uma leitura atrasada (e velha) não sobrescreve uma mais nova", async () => {
@@ -127,7 +124,7 @@ describe("clicar na linha da conversa que acabou de nascer", () => {
     await write(user, "rascunho em andamento");
     // A barra agora tem a linha da conversa (com id): clicar nela é o mesmo que já estar nela.
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
-    expect(screen.getByRole("textbox", { name: "Mensagem" })).toHaveValue("rascunho em andamento");
+    expect(screen.getByRole("combobox", { name: "Mensagem" })).toHaveValue("rascunho em andamento");
     expect(screen.getByRole("button", { name: /^ALFA-1/ })).toHaveAttribute("aria-current", "true");
   });
 });
@@ -166,6 +163,6 @@ describe("a conversa que some enquanto está aberta (404 numa atualização)", (
     expect(vi.mocked(client.getConversationView).mock.calls.length).toBe(reads);
     expect(vi.mocked(client.listConversationTree).mock.calls.length).toBe(lists);
     expect(within(await panel()).queryByText("olá velho")).toBeNull();
-    expect(screen.queryByRole("textbox", { name: "Mensagem" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Mensagem" })).toBeNull();
   });
 });

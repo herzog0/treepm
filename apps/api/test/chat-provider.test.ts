@@ -19,6 +19,8 @@ describe("o que vai ao provedor do chat", () => {
     expect(h.chat().calls).toHaveLength(1);
     const call = h.chat().calls[0]!;
     expect(call.history).toEqual([{ author: "person", body: "Como eu começo?" }]);
+    // As chaves dos projetos que a pessoa enxerga (TREEPM-406); o nome do projeto não vai.
+    expect(call.projects).toEqual(["OPEN", "PRIV"]);
     expect(call.ticket).toEqual({
       key: "PRIV-3",
       title: "Ticket do chat",

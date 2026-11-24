@@ -93,6 +93,8 @@ export interface ConversationNode {
   lastActivityAt: string | null;
   unread: number;
   preview: string | null;
+  /** Só nas threads: o começo da mensagem que a abriu; `null` nos outros nós. O servidor antigo não manda. */
+  label?: string | null | undefined;
   children: ConversationNode[];
 }
 const conversationNodeSchema: z.ZodType<ConversationNode> = z.lazy(() =>
@@ -107,6 +109,7 @@ const conversationNodeSchema: z.ZodType<ConversationNode> = z.lazy(() =>
     lastActivityAt: z.string().nullable(),
     unread: z.number(),
     preview: z.string().nullable(),
+    label: z.string().nullish(),
     children: z.array(conversationNodeSchema),
   }),
 );

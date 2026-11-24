@@ -4,7 +4,7 @@ import "../theme.css";
 import "../styles.css";
 import "../controls.css";
 import { TestSidebar } from "../layout/testSidebar.js";
-import { createFakeChat, makeClient, makeMe, makePerson, makeProject } from "../test/fakes.js";
+import { createFakeChat, makeClient, makeMe, makePerson, makeProject, makeTicket } from "../test/fakes.js";
 import { ChatShell } from "./ChatShell.js";
 import { ChatsProvider } from "./ChatsContext.js";
 
@@ -16,11 +16,11 @@ const TICKETS = [
 ];
 type Chat = ReturnType<typeof createFakeChat>;
 
-export async function mountConversations(options: { as?: string; seed?: (chat: Chat) => void } = {}) {
+export async function mountConversations(options: { as?: string; seed?: (chat: Chat) => void; privateProject?: boolean } = {}) {
   const chat = createFakeChat({ tickets: TICKETS, people });
   options.seed?.(chat);
   const as = options.as ?? "person-1";
-  const client = makeClient({ me: makeMe({ assistant: true, personId: as, displayName: people.find((person) => person.id === as)!.displayName }), people, projects: [makeProject("p1", "ALFA", "Projeto Alfa")], chat, chatAs: as });
+  const client = makeClient({ me: makeMe({ assistant: true, personId: as, displayName: people.find((person) => person.id === as)!.displayName }), people, projects: [options.privateProject ? makeProject("p1", "ALFA", "Projeto Alfa", { visibility: "private", members: [{ personId: "person-1", role: "manager" }] }) : makeProject("p1", "ALFA", "Projeto Alfa")], tickets: { p1: TICKETS.map((ticket, index) => makeTicket(ticket.id, "p1", index + 1, ticket.title, { key: ticket.key })) }, chat, chatAs: as });
   return await render(
     <div id="root" style={{ height: "100dvh" }}>
       <ChatsProvider client={client} onShowTicket={() => {}}>

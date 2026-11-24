@@ -10,6 +10,8 @@ export interface MentionContext {
   projectId: string;
   /** Tickets do projeto, com situação e título atuais. */
   tickets: readonly TicketSummary[];
+  /** As chaves de qualquer projeto valem (a conversa do chat cita tickets de vários); `projectId` não filtra. */
+  anyProject?: boolean;
   /** O ticket aberto: fica fora da lista do "@", mas a chave dele no texto também é menção. */
   ownId?: string;
   /** Abre o ticket da menção. Sem ela, a menção aparece mas não leva a lugar nenhum. */
@@ -51,7 +53,7 @@ export function descriptionDecorations(source: () => DecorationSource) {
           doc.descendants((node, pos) => {
             if (node.type.name === "codeBlock") return false;
             if (!node.isText || node.marks.some((mark) => mark.type.name === "code")) return true;
-            for (const match of findMentions(node.text ?? "", context.tickets, context.projectId)) {
+            for (const match of findMentions(node.text ?? "", context.tickets, context.anyProject ? null : context.projectId)) {
               const { ticket } = match;
               const from = pos + match.start;
               const to = pos + match.end;

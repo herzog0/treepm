@@ -55,7 +55,7 @@ beforeAll(async () => {
     "insert into people (org_id, clerk_user_id, display_name, email, clerk_role) values ('org_cmd', 'user_cmd', 'Admin', 'a@x.test', 'admin') on conflict do nothing returning id",
   );
   const personId = person.rows[0]?.id ?? (await owner.query<{ id: string }>("select id from people where org_id = 'org_cmd' and clerk_user_id = 'user_cmd'")).rows[0]?.id;
-  await owner.query("insert into organization_consents (org_id, kind, document_version, accepted_by_person_id) values ('org_cmd', 'assistant', 'rascunho-2', $1)", [personId]);
+  await owner.query("insert into organization_consents (org_id, kind, document_version, accepted_by_person_id) values ('org_cmd', 'assistant', 'rascunho-3', $1)", [personId]);
   await owner.end();
   booted = await bootApp({ org: "org_cmd", user: "user_cmd", role: "org:admin", fakeProviders: true, fake503First: 0, fake503JudgeAt: 0, needsAi: true, collect: true });
   const client = new ApiClient(booted.baseUrl, booted.token);

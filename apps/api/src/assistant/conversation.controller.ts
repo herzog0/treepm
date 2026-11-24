@@ -7,7 +7,9 @@ import { ZodPipe, parseOutput } from "../common/zod.js";
 import { OwnTransactions, Tenant } from "../db/own-transactions.js";
 import type { TenantRunner } from "../db/own-transactions.js";
 import { Tx } from "../db/tx.decorator.js";
+import { ProjectQueryService } from "../query/project-query.service.js";
 import { AssistantGate } from "./assistant-gate.js";
+import { ChatToolExecutor } from "./chat-tools.js";
 import { ConversationService } from "./conversation.service.js";
 import { addParticipantsBodySchema, markReadBodySchema, openedSchema, pageQuerySchema, sendMessageBodySchema, sendResultSchema } from "./conversation.schema.js";
 import type { ConversationTree, ConversationView, PageQuery, SendMessageBody, participantsResultSchema, readResultSchema } from "./conversation.schema.js";
@@ -28,6 +30,7 @@ export class ConversationController {
   constructor(
     @Inject(AssistantGate) private readonly gate: AssistantGate,
     @Inject(ConversationService) private readonly conversations: ConversationService,
+    @Inject(ProjectQueryService) private readonly query: ProjectQueryService,
   ) {}
 
   @Get("conversations")
@@ -83,7 +86,13 @@ export class ConversationController {
     const prep = await tenant.run((tx, principal) => this.conversations.prepareAssistantTurn(tx, principal, id, body.body));
     let reply: { message: string; model: string };
     try {
-      reply = await provider.reply({ ticket: prep.context, history: prep.history });
+      const answer = await provider.reply({
+        ticket: prep.context,
+        history: prep.history,
+        projects: prep.projects.map((project) => project.key),
+        tools: new ChatToolExecutor(tenant, this.query, prep.projects),
+      });
+      reply = answer;
     } catch (error) {
       await this.release(tenant, id);
       if (error instanceof AssistantUnavailableError) {

@@ -4,23 +4,8 @@ import type { ConversationNode } from "../api/client.js";
 import { formatActivityTime } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { nodeIsRef, refOfNode, useChats } from "./ChatsContext.js";
+import { situationColor } from "./situation.js";
 import { threadColor, threadTitle } from "./thread.js";
-
-/** Cor da bolinha: a da situação do ticket (as mesmas do mapa). */
-const SITUATION_TOKEN: Record<string, string> = {
-  blocked: "var(--tp-blocked)",
-  in_progress: "var(--tp-doing)",
-  in_review: "var(--tp-review)",
-  todo: "var(--tp-todo)",
-  done: "var(--tp-done)",
-  cancelled: "var(--tp-cancelled)",
-};
-
-function dotColor(node: ConversationNode): string {
-  const ticket = node.ticket;
-  const situation = ticket?.blocked === true && ticket.status !== "done" && ticket.status !== "cancelled" ? "blocked" : (ticket?.status ?? "todo");
-  return SITUATION_TOKEN[situation] ?? SITUATION_TOKEN["todo"]!;
-}
 
 /** A indentação cresce 12 px por nível até o quinto; dali para baixo a linha fica onde está (a árvore pode ter mais de dez níveis). */
 export const MAX_INDENT_LEVEL = 5;
@@ -29,7 +14,10 @@ const GeneralIcon = () => (
   <svg className="conv-general-icon" viewBox="0 0 18 18" aria-hidden="true"><path d="M3 4h12v8H8l-3 3v-3H3z" /></svg>
 );
 
-function ConversationRow({ node, depth }: { node: ConversationNode; depth: number }) {
+/** As mesmas pessoas (sem olhar a ordem): a thread que repete as pessoas da linha de cima se diz pelo assunto, não pelos nomes. */
+const sameParticipants = (a: ConversationNode, b: ConversationNode): boolean => a.participants.length > 0 && a.participantCount === b.participantCount && a.participants.length === b.participants.length && a.participants.every((person) => b.participants.some((other) => other.id === person.id));
+
+function ConversationRow({ node, depth, parent }: { node: ConversationNode; depth: number; parent?: ConversationNode }) {
   const { t, i18n } = useTranslation("chat");
   const chats = useChats()!;
   const current = chats.open && chats.selection !== null && nodeIsRef(node, chats.selection);
@@ -45,6 +33,8 @@ function ConversationRow({ node, depth }: { node: ConversationNode; depth: numbe
         {" "}
         {node.ticket.title}
       </>
+    ) : node.label && parent !== undefined && sameParticipants(node, parent) ? (
+      node.label
     ) : (
       threadTitle(t, node.participants, node.participantCount, chats.selfId)
     );
@@ -63,7 +53,7 @@ function ConversationRow({ node, depth }: { node: ConversationNode; depth: numbe
         ) : node.kind === "general" ? (
           <GeneralIcon />
         ) : (
-          <span className="conv-dot" aria-hidden="true" style={{ background: dotColor(node) }} />
+          <span className="conv-dot" aria-hidden="true" style={{ background: situationColor(node.ticket) }} />
         )}
         <span className="conv-text">
           <span className="conv-title">{title}</span>
@@ -88,7 +78,7 @@ function ConversationRow({ node, depth }: { node: ConversationNode; depth: numbe
       </button>
       {node.children.length > 0 && (
         <ul className="conv-children">
-          {node.children.map((child, index) => <ConversationRow key={child.id ?? `${child.kind}-${child.ticket?.id ?? index}`} node={child} depth={depth + 1} />)}
+          {node.children.map((child, index) => <ConversationRow key={child.id ?? `${child.kind}-${child.ticket?.id ?? index}`} node={child} depth={depth + 1} parent={node} />)}
         </ul>
       )}
     </li>

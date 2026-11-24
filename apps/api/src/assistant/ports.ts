@@ -193,7 +193,7 @@ export const PROJECT_ANSWERER = Symbol("PROJECT_ANSWERER");
 
 // ---- Chat de trabalho por ticket (ADR 0049) --------------------------------------------------------------------
 
-/** Um ticket vizinho do ticket do chat: a chave, o título e a situação. Nenhum id, nenhuma pessoa. */
+/** Um ticket vizinho do ticket do chat: o rótulo (no campo `key`), o título e a situação. Nenhum id, nenhuma pessoa. */
 export type ChatTicketRef = { key: string; title: string; status: string };
 
 /**
@@ -215,11 +215,18 @@ export type ChatTicketContext = {
 
 /**
  * O histórico termina na mensagem nova da pessoa e só tem a conversa DELA com o assistente, já com o teto de tamanho. `ticket` é nulo no
- * chat geral da pessoa (ADR 0055), que não trata de ticket.
+ * chat geral da pessoa (ADR 0055), que não trata de ticket. Com as chaves de verdade (decisão de Teodoro, TREEPM-406): `projects` são as chaves dos projetos
+ * que a pessoa enxerga e não estão arquivados; nenhum texto leva id, nome de projeto nem dado de pessoa. `tools` consulta
+ * esses projetos, só leitura.
  */
-export type ChatTurnInput = { ticket: ChatTicketContext | null; history: readonly ConversationMessage[] };
+export type ChatTurnInput = {
+  ticket: ChatTicketContext | null;
+  history: readonly ConversationMessage[];
+  projects: readonly string[];
+  tools: ToolExecutor;
+};
 
-/** Claude: ajuda a pessoa a pensar sobre o ticket. Só conversa: não tem ferramentas e nunca altera nada. */
+/** Claude: ajuda a pessoa a pensar e consulta tickets pelas ferramentas de leitura. Nunca altera nada. */
 export interface ChatProvider {
   reply(input: ChatTurnInput): Promise<{ message: string; model: string }>;
 }

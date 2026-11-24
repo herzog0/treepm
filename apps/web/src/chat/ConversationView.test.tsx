@@ -1,16 +1,13 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { ALFA1, renderChats } from "./chatTesting.js";
+import { renderChats } from "./chatTesting.js";
+import { mention } from "./mentionTesting.js";
 
 const panel = () => screen.findByRole("complementary", { name: "Conversa" });
 const write = async (user: ReturnType<typeof userEvent.setup>, text: string) => {
-  const field = await screen.findByRole("textbox", { name: /^(Mensagem|Responder na thread)$/ });
+  const field = await screen.findByRole("combobox", { name: /^(Mensagem|Responder na thread)$/ });
   await user.type(field, text);
-};
-const mention = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
-  await user.click(await screen.findByRole("button", { name: "Mencionar" }));
-  await user.click(within(await screen.findByRole("dialog", { name: "Mencionar pessoas" })).getByRole("button", { name }));
 };
 
 describe("the open conversation", () => {
@@ -39,7 +36,7 @@ describe("the open conversation", () => {
     await write(user, "Oi");
     expect(client.openGeneralConversation).not.toHaveBeenCalled();
     expect(client.getConversationView).not.toHaveBeenCalled();
-    expect(within(await panel()).queryByText(/ticket/i)).toBeNull(); // o aviso do assistente não fala de ticket
+    expect(within(await panel()).getByText("O assistente consulta os tickets dos projetos que você enxerga. Ele não cria nem altera nada.")).toBeInTheDocument();
     await user.keyboard("{Enter}");
     expect(await within(await panel()).findByText("Resposta do assistente.")).toBeInTheDocument();
     expect(client.openGeneralConversation).toHaveBeenCalledTimes(1);
@@ -94,7 +91,8 @@ describe("the open conversation", () => {
     const rows = await screen.findAllByRole("button", { name: /Thread com Bia/ });
     await user.click(rows.at(-1)!);
     expect(await within(await panel()).findByText("Esta conversa está no último nível: não dá para abrir outra thread aqui dentro.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Mencionar" })).toBeDisabled();
+    await user.type(await screen.findByRole("combobox", { name: "Responder na thread" }), "@");
+    expect(screen.queryByRole("listbox")).toBeNull();
   });
 
   it("shows the guest only his thread under the ticket: no link above, no 'back', nothing that hints at what is above", async () => {
@@ -144,17 +142,15 @@ describe("the open conversation", () => {
     expect(screen.queryByRole("button", { name: "Incluir pessoas" })).toBeNull();
   });
 
-  it("offers 'sobre o ticket…' only in the general chat and sends the ticket with the mention", async () => {
+  it("in the general chat a mention opens the thread there and sends no ticket with it (the # is what takes a message to a ticket)", async () => {
     const { client } = renderChats({ seed: (c) => void c.seedGeneral([{ person: "oi", assistant: "olá" }]) });
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
     await write(user, "Bia, olha o login");
     expect(screen.queryByRole("button", { name: "Sobre o ticket…" })).toBeNull();
     await mention(user, "Bia");
-    await user.click(await screen.findByRole("button", { name: "Sobre o ticket…" }));
-    await user.type(screen.getByRole("searchbox", { name: "Sobre o ticket (opcional)" }), "ALFA-1");
-    await user.click(within(screen.getByRole("searchbox", { name: "Sobre o ticket (opcional)" }).closest(".chat-topic") as HTMLElement).getByRole("button", { name: /ALFA-1/ }));
+    expect(screen.queryByRole("button", { name: "Sobre o ticket…" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
-    await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledWith(expect.any(String), { body: "Bia, olha o login", mentions: ["person-2"], ticketId: ALFA1.id }, expect.anything()));
+    await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledWith(expect.any(String), { body: "Bia, olha o login", mentions: ["person-2"] }, expect.anything()));
   });
 });

@@ -96,6 +96,8 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     answerer.delegate = null;
     answerer.fail = false;
     chat.calls.length = 0;
+    chat.tools.length = 0;
+    chat.delegate = null;
     chat.onCall = null;
     chat.reply_ = null;
     chat.fail = false;

@@ -50,7 +50,7 @@ beforeAll(async () => {
   await owner.query("insert into organizations (org_id, name, slug) values ('org_case', 'Case', 'org_case') on conflict do nothing");
   await owner.query("insert into people (org_id, clerk_user_id, display_name, email, clerk_role) values ('org_case', 'user_case', 'Admin', 'a@case.test', 'admin') on conflict do nothing");
   const person = (await owner.query<{ id: string }>("select id from people where org_id = 'org_case' and clerk_user_id = 'user_case'")).rows[0]?.id;
-  await owner.query("insert into organization_consents (org_id, kind, document_version, accepted_by_person_id) values ('org_case', 'assistant', 'rascunho-2', $1)", [person]);
+  await owner.query("insert into organization_consents (org_id, kind, document_version, accepted_by_person_id) values ('org_case', 'assistant', 'rascunho-3', $1)", [person]);
   booted = await bootApp({ org: "org_case", user: "user_case", role: "org:admin", fakeProviders: true, fake503First: 0, fake503JudgeAt: 0, needsAi: true });
   client = new ApiClient(booted.baseUrl, booted.token);
   dir = mkdtempSync(join(tmpdir(), "case-run-"));

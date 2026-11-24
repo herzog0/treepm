@@ -14,8 +14,8 @@ function fakeTx(rows: Row[]): TenantClient {
   } as unknown as TenantClient;
 }
 
-const assistant: Row = { kind: "assistant", documentVersion: "rascunho-2", withdrawnAt: null };
-const code: Row = { kind: "code_reading", documentVersion: "rascunho-2", withdrawnAt: null };
+const assistant: Row = { kind: "assistant", documentVersion: "rascunho-3", withdrawnAt: null };
+const code: Row = { kind: "code_reading", documentVersion: "rascunho-3", withdrawnAt: null };
 
 describe("conferência do aceite do assistente", () => {
   it("em vigor só com a linha aberta da versão atual", async () => {

@@ -30,10 +30,10 @@ describe.skipIf(!ON)("capturas da árvore de conversas", () => {
     q<HTMLButtonElement>(".chat-panel .chat-thread-footer")!.click();
     await settle(900);
     await shot("dono-03-thread-aberta-com-trilha");
-    await userEvent.fill(page.getByRole("textbox", { name: "Responder na thread" }), "Caio, consegue olhar?");
-    await page.getByRole("button", { name: "Mencionar" }).click();
+    await userEvent.type(page.getByRole("combobox", { name: "Responder na thread" }), "@");
     await settle(300);
-    await page.getByRole("dialog", { name: "Mencionar pessoas" }).getByRole("button", { name: "Duda" }).click();
+    await page.getByRole("listbox", { name: "Pessoas" }).getByRole("option", { name: "Duda" }).click();
+    await userEvent.fill(page.getByRole("combobox", { name: "Responder na thread" }), "Caio, consegue olhar?");
     await settle(400);
     await shot("dono-04-compositor-com-aviso-de-thread");
     await open(rows().at(-1)!);

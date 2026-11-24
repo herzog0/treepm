@@ -188,16 +188,26 @@ export class FakeProjectAnswerer implements ProjectAnswerer {
   }
 }
 
-/** Chat de trabalho falso (ADR 0049): grava EXATAMENTE o que recebeu e responde um texto previsível. */
+/**
+ * Chat de trabalho falso (ADR 0049 e 0056): grava EXATAMENTE o que recebeu (sem as ferramentas, que não se clonam) e responde um texto
+ * previsível. `delegate` entrega a vez a outro provedor (o real, com um provedor de IA roteirizado), como o respondedor falso.
+ */
+export type RecordedChatInput = Omit<ChatTurnInput, "tools">;
 export class FakeChatProvider implements ChatProvider {
-  readonly calls: ChatTurnInput[] = [];
+  readonly calls: RecordedChatInput[] = [];
+  /** As ferramentas de cada chamada, na mesma ordem de `calls`. */
+  readonly tools: ChatTurnInput["tools"][] = [];
   onCall: (() => Promise<void>) | null = null;
   reply_: ((input: ChatTurnInput) => string) | null = null;
+  delegate: ChatProvider | null = null;
   fail = false;
   async reply(input: ChatTurnInput): Promise<{ message: string; model: string }> {
-    this.calls.push(structuredClone(input) as ChatTurnInput);
+    const { tools, ...recorded } = input;
+    this.calls.push(structuredClone(recorded) as RecordedChatInput);
+    this.tools.push(tools);
     await this.onCall?.();
     if (this.fail) throw new AssistantUnavailableError("fake");
+    if (this.delegate) return this.delegate.reply(input);
     const last = input.history[input.history.length - 1]?.body ?? "";
     return { message: this.reply_ ? this.reply_(input) : `Resposta sobre ${input.ticket?.key ?? "chat geral"}: ${last.slice(0, 40)}`, model: "claude-opus-5-5" };
   }

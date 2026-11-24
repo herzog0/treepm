@@ -3,17 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiResult } from "../api/client.js";
 import { ALFA1, renderChats } from "./chatTesting.js";
+import { mention } from "./mentionTesting.js";
 
 const panel = () => screen.findByRole("complementary", { name: "Conversa" });
 const refuse = (code: string, details?: Record<string, unknown>, kind = "conflict"): ApiResult<never> =>
   ({ ok: false, error: { kind, code, ...(details ? { details } : {}) } }) as ApiResult<never>;
 const write = async (user: ReturnType<typeof userEvent.setup>, text: string) => {
-  const field = await screen.findByRole("textbox", { name: /^(Mensagem|Responder na thread)$/ });
+  const field = await screen.findByRole("combobox", { name: /^(Mensagem|Responder na thread)$/ });
   await user.type(field, text);
-};
-const mention = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
-  await user.click(await screen.findByRole("button", { name: "Mencionar" }));
-  await user.click(within(await screen.findByRole("dialog", { name: "Mencionar pessoas" })).getByRole("button", { name }));
 };
 const ownedThread = (c: Parameters<NonNullable<Parameters<typeof renderChats>[0]>["seed"] & {}>[0]) => {
   const main = c.seedConversation("t1", [{ person: "oi", assistant: "olá" }]);
@@ -34,7 +31,7 @@ describe("a recusa do servidor tem texto próprio na tela", () => {
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
     expect(await within(await panel()).findByRole("alert")).toHaveTextContent(text);
     // A mensagem não se perde: continua no campo, com a pessoa marcada.
-    expect(screen.getByRole("textbox", { name: "Mensagem" })).toHaveValue("Bia, olha");
+    expect(screen.getByRole("combobox", { name: "Mensagem" })).toHaveValue("Bia, olha");
     expect(screen.getByText(/abre uma thread com Bia/)).toBeInTheDocument();
     // O texto do cartão não nomeia ninguém.
     if (code === "participant_cannot_view_ticket") expect(document.body).not.toHaveTextContent(/Caio|Duda/);
@@ -84,6 +81,8 @@ describe("a recusa do servidor tem texto próprio na tela", () => {
     await user.click(within(dialog).getByRole("button", { name: "Incluir" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(text);
     expect(dialog).toHaveTextContent("(Caio)");
+    // O foco precisa estar dentro da janela para o Esc chegar a ela (o botão que enviou ficou desligado durante o envio).
+    within(dialog).getByRole("searchbox", { name: "Buscar pessoa" }).focus();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Incluir pessoas na thread" })).toBeNull());
     expect(open).toHaveFocus();
@@ -113,7 +112,7 @@ describe("a recusa do servidor tem texto próprio na tela", () => {
     vi.mocked(client.sendChatMessage).mockResolvedValueOnce(refuse("chat_changed"));
     await user.keyboard("{Enter}");
     expect(await within(await panel()).findByRole("alert")).toHaveTextContent("A conversa mudou em outro aparelho enquanto o assistente respondia.");
-    expect(screen.getByRole("textbox", { name: "Mensagem" })).toHaveValue("pergunta");
+    expect(screen.getByRole("combobox", { name: "Mensagem" })).toHaveValue("pergunta");
     await waitFor(() => expect(vi.mocked(client.getConversationView).mock.calls.length).toBeGreaterThan(reads));
   });
 
@@ -193,7 +192,8 @@ describe("uma conversa que passa de 30 mensagens", () => {
     await waitFor(() => expect(vi.mocked(client.getConversationView).mock.calls.length).toBeGreaterThanOrEqual(reads + 2));
     await new Promise((resolve) => setTimeout(resolve, 50));
     // 32 mensagens à vista, todas já carregadas: não há nada "anterior" a buscar e nenhuma aparece duas vezes.
-    await waitFor(() => expect(within(screen.getByRole("complementary", { name: "Conversa" })).getAllByText("Resposta do assistente.")).toHaveLength(2));
+    // Só as mensagens da lista (o anúncio para o leitor de tela repete a última resposta fora dela).
+    await waitFor(() => expect(within(screen.getByRole("log", { name: "Mensagens" })).getAllByText("Resposta do assistente.")).toHaveLength(2));
     expect(within(await panel()).queryByRole("button", { name: "Carregar mensagens anteriores" })).toBeNull();
     expect(within(await panel()).getAllByText("pergunta 1")).toHaveLength(1);
     expect(within(await panel()).getAllByText("resposta 14")).toHaveLength(1);

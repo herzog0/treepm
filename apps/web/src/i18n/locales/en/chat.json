@@ -23,10 +23,10 @@
     "gone": "This conversation no longer exists. Pick another one in the sidebar."
   },
   "notice": {
-    "assistant": "The assistant sees the ticket text and this conversation. It does not run or change anything.",
+    "assistant": "The assistant sees this ticket and looks up the others you can see. It doesn't create or change anything.",
     "noConsent": "AI is off for this organization. An administrator needs to turn it on in Settings. Threads with other people keep working.",
     "noProvider": "AI is not configured on this server. You can still open threads with other people.",
-    "general": "The assistant sees only this conversation. It does not run or change anything."
+    "general": "The assistant looks up the tickets in the projects you can see. It doesn't create or change anything."
   },
   "log": {
     "label": "Messages",
@@ -49,30 +49,23 @@
     "unread_one": "{{count}} unread",
     "unread_other": "{{count}} unread",
     "reply": "Reply in the thread",
-    "replyPlaceholder": "Reply to everyone in the thread, or use Mention to open another thread",
+    "replyPlaceholder": "Reply to everyone in the thread, or use @ to open another thread",
     "opened": "Thread opened."
   },
   "composer": {
     "label": "Message",
-    "placeholder": "Talk to the assistant, or use Mention to open a thread",
-    "placeholderThreads": "Use Mention to open a thread with other people",
+    "placeholder": "Talk to the assistant, use @ to call someone or # to cite a ticket",
+    "placeholderThreads": "Use @ to open a thread with other people",
     "send": "Send",
     "sendThread": "Open thread",
-    "mention": "Mention",
     "pills": "People mentioned",
     "removeMention": "Remove mention of {{name}}",
     "refused": "cannot be mentioned here",
     "count": "{{length}} of {{max}}",
     "over": "{{length}} of {{max}}: over the limit",
     "opensThread": "This message opens a thread with {{names}}. Whoever is already in this conversation takes part too.",
-    "noMoreLevels": "This conversation is at the last level: you cannot open another thread inside it."
-  },
-  "picker": {
-    "label": "Mention people",
-    "search": "Search people",
-    "none": "No one to mention.",
-    "loading": "Loading people…",
-    "failed": "Could not load the people."
+    "noMoreLevels": "This conversation is at the last level: you cannot open another thread inside it.",
+    "willLabel": "What will happen"
   },
   "row": {
     "general": "My chat",
@@ -98,16 +91,32 @@
     "done": "People included in the thread.",
     "unknownPerson": "Someone"
   },
-  "topic": {
-    "add": "About the ticket…",
-    "about": "About the ticket",
-    "label": "About the ticket (optional)",
-    "placeholder": "Ticket key or title",
-    "loading": "Loading the tickets…",
-    "failed": "The tickets could not be loaded.",
-    "none": "No ticket found.",
-    "remove": "Take ticket {{key}} off the thread",
-    "removeShort": "Remove",
-    "retry": "Try again"
+  "picker": {
+    "people": "People",
+    "tickets": "Tickets",
+    "hintPeople": "↑↓ choose · Enter or Tab confirm · Esc close",
+    "hintTickets": "Search by key or title · only projects you can see",
+    "noProject": "Can't see this ticket's project",
+    "noneTickets": "No ticket found.",
+    "loadingTickets": "Loading tickets…",
+    "failedTickets": "Couldn't load the tickets.",
+    "retry": "Try again",
+    "none": "Nobody to mention.",
+    "search": "Search people",
+    "loading": "Loading people…",
+    "failed": "Could not load the people.",
+    "pathSeparator": " › ",
+    "sub": "{{path}} · {{state}}"
+  },
+  "will": {
+    "toTicket": "Goes to the conversation of {{key}}.",
+    "ticketAndThread": "Opens the conversation of {{key}} and, inside it, a thread with {{names}}.",
+    "reference": "Stays in this conversation. The assistant reads the cited tickets.",
+    "referenceThread": "Stays in this thread. The cited tickets are only a reference.",
+    "checking": "Checking the cited tickets…",
+    "checkFailed": "Couldn't check the cited tickets. Your text is still in the field; try again."
+  },
+  "link": {
+    "ticket": "{{key}} {{title}}, {{status}}"
   }
 }
