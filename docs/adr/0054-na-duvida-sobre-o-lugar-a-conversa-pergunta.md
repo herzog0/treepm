@@ -105,3 +105,43 @@ Duas correções ao texto acima:
 
 - **Falha ou prazo do Jev na descida não vira pergunta:** continua sendo "assistente indisponível", como já era. Sem o julgamento não há opções para oferecer. "Procura interrompida" cobre só nível grande demais e limite de níveis.
 - **Lugares recentes da pessoa** (`TREEPM-358`, com a correção de Teodoro: o sinal é onde a pessoa esteve agora há pouco, não o que está atribuído a ela, porque quem coordena cria tickets para todos) entram nesta mesma tela como opções da pergunta. Para o servidor, escolher um lugar recente é só mais um ramo confirmado.
+
+## Como ficou (2026-11-24)
+
+Servidor, tela e ferramentas no PR #212, numa mudança só (migration `0032_placement_decisions_placed_by`), sobre o contrato do adendo.
+
+- **Dúvida:** `apps/api/src/assistant/placement-doubt.ts` decide se há dúvida e de que tipo (cabe ou não cabe, qual dos ramos, raiz, relacionado, procura interrompida); `placement-question.ts` monta a pergunta. Valores de partida: `PLACEMENT_DOUBT_LOW=0.2`, `PLACEMENT_DOUBT_HIGH=0.8` e `PLACEMENT_DOUBT_CHOICE=0.5`.
+- **Procura:** `POST /ticket-conversations/:id/placement` recebe `scopeId` e `startId` opcionais e devolve a pergunta ou o destino confirmado.
+- **Criação:** exige `placedBy` (`search`, `option`, `stay`, `recent` ou `map`). `search` só vale para o destino confirmado guardado para o rascunho atual; fora disso a resposta é 409 `placement_stale` e a tela procura de novo.
+- **Tela:** a pergunta ocupa o lugar do destino; o botão de criar não aparece enquanto há pergunta aberta (decisão de Teodoro); uma linha fina separa "fica aqui" e "deixar solto" dos ramos; os lugares recentes ficam só no navegador da pessoa, como identificadores; a escolha da pessoa sobrevive à edição do rascunho.
+- **Ferramentas:** respondedor pelo gabarito em `case-run` e no tirar e recolocar; `doubt-curve` refaz a curva de larguras a partir de uma rodada já gravada.
+
+### Medição com os provedores de verdade
+
+Tirar e recolocar em 40 tickets do projeto `TREEPM`, com Claude e Jev reais, faixa de 0,2 a 0,8 e escolha em 0,5:
+
+| Resultado | Com a pergunta | Sem perguntar |
+| --- | --- | --- |
+| Lugar certo sem pergunta | 9 | 16 |
+| Mais fundo que o gabarito, sem pergunta | 3 | 10 |
+| Lugar errado sem pergunta | 6 | 14 |
+| Lugar certo depois de pergunta | 22 | — |
+
+Foram 32 perguntas em 22 tickets, e a resposta certa estava disponível em todas: o ramo certo em 18 e "fica aqui" em 14.
+
+A mesma rodada, em outras larguras de faixa:
+
+| Faixa | Tickets com pergunta | Errados sem pergunta |
+| --- | --- | --- |
+| 0,3 a 0,7 | 15 | 7 |
+| 0,2 a 0,8 | 22 | 6 |
+| 0,15 a 0,85 | 26 | 4 |
+| 0,1 a 0,9 | 30 | 4 |
+| 0,05 a 0,95 | 37 | 2 |
+
+A largura fica em 0,2 a 0,8 até Teodoro escolher (`TREEPM-364`). O que a medição mostra: a pergunta mais que dobra os acertos, e alargar a faixa compra poucos erros a menos por muitas perguntas a mais; os seis erros que sobram são julgamentos confiantes e errados, que largura nenhuma razoável alcança.
+
+### Em aberto
+
+- Teste de Teodoro com sessão real (`TREEPM-365`).
+- A coluna `placed_by` ainda não está no `schema.prisma`; a API a grava por SQL e tolera a ausência dela.
