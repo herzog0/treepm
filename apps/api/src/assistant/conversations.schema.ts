@@ -4,6 +4,7 @@ import { ticketDetailSchema } from "../tickets/tickets.schema.js";
 import { ticketDescriptionSchema, ticketTitleSchema } from "../tickets/tickets.schema.js";
 import { MAX_REASON_CHARS, MAX_SUGGESTED_DESCRIPTION_CHARS } from "./elaboration.js";
 import { MAX_DRAFT_CHILDREN } from "./ports.js";
+import { PLACED_BY } from "./placement-decision.js";
 import { ELABORATION_MAX_LINKS, ELABORATION_MAX_SUGGESTED } from "./prompts.js";
 
 export const MAX_PERSON_MESSAGE = 4000;
@@ -77,11 +78,20 @@ export const createTicketBodySchema = z
     suggested: z.array(suggestedTaskSchema).max(MAX_SUGGESTED_TASKS).default([]),
     /** As ligações "depende de" que a pessoa deixou marcadas: do pai (`"pai"`) ou de uma parte dela, para uma chave de ticket do projeto. */
     links: z.array(linkSchema).max(MAX_LINKS).default([]),
+    /**
+     * De que tipo foi a escolha do lugar (ADR 0054, adendo), obrigatório. `search`: o destino confirmado da última procura para
+     * este rascunho (a API confere); os outros: a pessoa escolheu (opção da pergunta, "fica aqui", lugar recente, mapa).
+     */
+    placedBy: z.enum(PLACED_BY),
   })
   .strict();
 
-/** Corpo opcional da procura: o agrupador de escopo (ou `null`: o projeto inteiro). */
-export const placementBodySchema = z.object({ scopeId: idSchema.nullable().optional() }).strict();
+/**
+ * Corpo opcional da procura: o agrupador de escopo (ou `null`: o projeto inteiro) e, depois de uma pergunta, o ramo que a pessoa
+ * confirmou por último (ADR 0054, adendo). A procura parte de `startId` sem julgá-lo de novo; o servidor não guarda estado de
+ * pergunta entre requisições.
+ */
+export const placementBodySchema = z.object({ scopeId: idSchema.nullable().optional(), startId: idSchema.optional() }).strict();
 
 const draftSchema = z
   .object({
@@ -135,7 +145,20 @@ const relatedSchema = z.object({
   path: z.array(z.object({ id: z.string(), title: z.string() })),
 });
 
+const questionPathSchema = z.array(z.object({ id: z.string(), title: z.string() }));
+/** A pergunta do lugar (ADR 0054), montada em código; as opções vêm do mais provável ao menos, sem as probabilidades. "Fica aqui" e "nenhum destes" são da tela. */
+export const placementQuestionSchema = z.object({
+  level: z.number().int(),
+  kind: z.enum(["fit", "which", "root", "related", "interrupted"]),
+  at: z.object({ id: z.string().nullable(), title: z.string(), path: questionPathSchema }),
+  options: z.array(z.object({ id: z.string(), title: z.string(), path: questionPathSchema })).max(3),
+});
+
 export const placementOutcomeSchema = z.object({
+  /** Há pergunta aberta (ADR 0054); `destination` continua sendo o melhor palpite. `null` quando a procura não teve dúvida. */
+  question: placementQuestionSchema.nullable(),
+  /** `false` com pergunta aberta; `true` quando a procura não teve dúvida. Só o destino confirmado vale como `placedBy: "search"`. */
+  destinationConfirmed: z.boolean(),
   destination: targetSchema,
   alternatives: z.array(targetSchema).max(2),
   discarded: z.array(z.object({ level: z.number(), parentId: z.string().nullable(), ticketId: z.string(), title: z.string() })),

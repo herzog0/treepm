@@ -188,7 +188,7 @@ describe("placement — ideias não são lugar para um ticket novo (ADR 0043)", 
       parentId: tree.sso,
       path: [{ id: tree.auth, title: "Auth" }, { id: tree.sso, title: "SSO" }],
     });
-    const created = await h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), { parentId: res.body.destination.parentId });
+    const created = await h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), { placedBy: "map", parentId: res.body.destination.parentId });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const [row] = await rows("select parent_id from tickets where id = $1", [created.body.ticket.id]);
     expect(row.parent_id).toBe(tree.sso);

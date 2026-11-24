@@ -9,6 +9,7 @@ import { RichDescription } from "./description/RichDescription.js";
 import { useState } from "react";
 import { reopenWarningText, reopensOnReceiving } from "./reopen.js";
 import type { CreateRequest } from "./TicketPage.js";
+import { useRecentPlaces } from "../assistant/RecentPlacesContext.js";
 import { useDescribeApiError } from "../api/errorText.js";
 
 interface CreateTicketProps {
@@ -24,6 +25,7 @@ interface CreateTicketProps {
 export function CreateTicket({ client, project, request, onChanged, onCreated, onCancel }: CreateTicketProps) {
   const { t } = useTranslation("ticket");
   const describeError = useDescribeApiError();
+  const recents = useRecentPlaces();
   const [title, setTitle] = useState(request.draft?.title ?? "");
   const [description, setDescription] = useState(request.draft?.description ?? "");
   const action = useAction();
@@ -43,6 +45,8 @@ export function CreateTicket({ client, project, request, onChanged, onCreated, o
     if (request.idea) body.idea = true;
     const result = await action.run(() => client.createTicket(request.projectId, body));
     if (!result.ok) return;
+    // O pai do ticket criado é um lugar em que a pessoa esteve agora há pouco (TREEPM-358).
+    if (request.parentId !== null) recents.record(request.projectId, request.parentId);
     onChanged();
     onCreated(result.data.id);
   };

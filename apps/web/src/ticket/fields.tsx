@@ -3,6 +3,7 @@ import type { TFunction } from "i18next";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ApiClient, IdeaStage, Person, TicketDetail, TicketStatus, TicketSummary, UpdateTicketBody } from "../api/client.js";
+import { useRecentPlaces } from "../assistant/RecentPlacesContext.js";
 import { useDescribeApiError } from "../api/errorText.js";
 import { useStatusText } from "../map/nodeContent.js";
 import { StatusMark } from "../map/StatusMark.js";
@@ -517,6 +518,7 @@ const TicketLabel = ({ ticket }: { ticket: TicketSummary }): ReactNode => (
 
 export function ParentField({ client, detail, parent, tickets, canEdit, onOpen, onSaved }: ParentProps) {
   const { t } = useTranslation("ticket");
+  const recents = useRecentPlaces();
   const [picking, setPicking] = useState(false);
   const [filter, setFilter] = useState("");
   const [reopened, setReopened] = useState<string | null>(null);
@@ -531,6 +533,8 @@ export function ParentField({ client, detail, parent, tickets, canEdit, onOpen, 
   const choose = async (parentId: string | null) => {
     const result = await action.run(() => client.updateTicket(detail.id, { parentId }));
     if (!result.ok) return;
+    // O novo pai é um lugar em que a pessoa esteve agora há pouco (TREEPM-358).
+    if (parentId !== null) recents.record(detail.projectId, parentId);
     // A escolha vale no clique, sem confirmação: o aviso diz o que a API fez (ADR 0034).
     const target = parentId === null ? null : tickets.find((entry) => entry.id === parentId);
     setReopened(target && reopensOnReceiving(target) && isOpenStatus(detail.status) ? target.key : null);

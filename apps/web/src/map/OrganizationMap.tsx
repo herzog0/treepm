@@ -13,6 +13,8 @@ import type { PlayRun } from "../play/playModel.js";
 import { splitIdeaText } from "../command/ideaText.js";
 import { useDescribeApiError } from "../api/errorText.js";
 import { AssistantPanel } from "../assistant/AssistantPanel.js";
+import { RecentPlacesProvider } from "../assistant/RecentPlacesContext.js";
+import { createRecentPlaces } from "../assistant/recentPlaces.js";
 import { AskPanel } from "../assistant/AskPanel.js";
 import type { MapPicker } from "../assistant/types.js";
 import type { ConversationSummary } from "../api/client.js";
@@ -157,6 +159,12 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
 
   const [creating, setCreating] = useState<CreateRequest | null>(null);
   const pageOpen = openTicketId !== null || creating !== null;
+  // Os lugares em que a pessoa esteve agora há pouco (TREEPM-358): guardados neste navegador, por organização, projeto e pessoa.
+  const recents = useMemo(() => createRecentPlaces(me.organization.orgId, me.person.id), [me.organization.orgId, me.person.id]);
+  const openedProjectId = openTicketId === null ? null : Object.values(ticketsByProject).flat().find((ticket) => ticket.id === openTicketId)?.projectId ?? null;
+  useEffect(() => {
+    if (openTicketId !== null && openedProjectId !== null) recents.record(openedProjectId, openTicketId);
+  }, [openTicketId, openedProjectId, recents]);
   // Valores que os ouvintes (seleção, teclado) leem sem precisar ser refeitos a cada render.
   const live = useRef({ selectedId: null as string | null, selected: null as MapNode | null, pageOpen, openTicketId, creating, panelOpen: false, assistantExpanded: false, askExpanded: false, ask: ASK_CLOSED, play: null as PlayRun | null });
 
@@ -605,6 +613,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   const showCreateFirst = items.length === 1 && canCreateProject;
 
   return (
+    <RecentPlacesProvider value={recents}>
     <div className={`map-workspace ${pageOpen ? "has-ticket-page" : ""} ${play !== null ? "has-play" : ""}`}>
     <MapDetailProvider store={scaleStore} data={detailData}>
     <SpatialCanvasView
@@ -815,6 +824,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
       />
     )}
     </div>
+    </RecentPlacesProvider>
   );
 }
 

@@ -147,7 +147,7 @@ describe("criação pela conversa com a IA", () => {
   it("o ticket criado pela conversa grava as ligações da descrição do rascunho", async () => {
     await add();
     const opened = await h.call("POST", `/api/projects/${priv()}/ticket-conversations`, as("contributor"), { message: "Corrigir o que PRIV-1 deixou" });
-    const res = await h.call("POST", `/api/ticket-conversations/${opened.body.id}/ticket`, as("contributor"), { parentId: null });
+    const res = await h.call("POST", `/api/ticket-conversations/${opened.body.id}/ticket`, as("contributor"), { placedBy: "map", parentId: null });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(await pairs()).toEqual(["2>1"]);
   });
@@ -157,6 +157,7 @@ describe("criação pela conversa com a IA", () => {
     const b = await add();
     const opened = await h.call("POST", `/api/projects/${priv()}/ticket-conversations`, as("contributor"), { message: "Reunir" });
     const res = await h.call("POST", `/api/ticket-conversations/${opened.body.id}/ticket`, as("contributor"), {
+      placedBy: "map",
       parentId: null,
       group: { title: "Grupo", description: "Junta PRIV-1 e PRIV-2.", ticketIds: [a.id, b.id] },
     });

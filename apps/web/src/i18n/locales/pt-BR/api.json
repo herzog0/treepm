@@ -16,6 +16,7 @@
       "conversation_closed": "Esta conversa já foi encerrada. Comece uma nova conversa.",
       "conversation_changed": "A conversa mudou enquanto o assistente respondia. Mostramos a versão mais recente.",
       "grouping_changed": "Algum desses tickets mudou de lugar. Procure de novo.",
+      "placement_stale": "A procura do lugar não vale mais para este rascunho. Procurando de novo.",
       "draft_required": "A conversa ainda não tem rascunho. Peça ao assistente para escrevê-lo antes de continuar.",
       "ticket_has_no_items": "Este ticket ainda não tem itens.",
       "github_unavailable": "O GitHub não respondeu. Tente de novo em instantes.",

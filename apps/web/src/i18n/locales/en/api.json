@@ -16,6 +16,7 @@
       "conversation_closed": "This conversation has ended. Start a new conversation.",
       "conversation_changed": "The conversation changed while the assistant was replying. We are showing the latest version.",
       "grouping_changed": "One of these tickets has moved. Search again.",
+      "placement_stale": "The place search no longer matches this draft. Searching again.",
       "draft_required": "The conversation does not have a draft yet. Ask the assistant to write one before continuing.",
       "ticket_has_no_items": "This ticket has no items yet.",
       "github_unavailable": "GitHub did not respond. Try again in a moment.",

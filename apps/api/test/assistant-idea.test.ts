@@ -26,7 +26,7 @@ const open = async (message = REQUEST, who: Who = "contributor") => {
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return res.body as Conv;
 };
-const create = (id: string, parentId: string | null = null, who: Who = "contributor") => h.call("POST", `/api/ticket-conversations/${id}/ticket`, as(who), { parentId });
+const create = (id: string, parentId: string | null = null, who: Who = "contributor") => h.call("POST", `/api/ticket-conversations/${id}/ticket`, as(who), { placedBy: "map", parentId });
 const patch = (id: string, body: unknown) => h.call("PATCH", `/api/ticket-conversations/${id}/draft`, as("contributor"), body);
 const stageOf = async (id: string) => (await rows("select idea_stage, status, parent_id from tickets where id = $1", [id]))[0] as { idea_stage: string | null; status: string; parent_id: string | null };
 
@@ -147,7 +147,7 @@ describe("criar a partir de um rascunho com idea", () => {
     const b = await h.call("POST", `/api/projects/${priv()}/tickets`, as("admin"), { title: "Solto B" });
     propose(true, kids(2));
     const conv = await open();
-    const res = await h.call("POST", `/api/ticket-conversations/${conv.id}/ticket`, as("contributor"), { parentId: null, group: { title: "Grupo", description: "", ticketIds: [a.body.id, b.body.id] } });
+    const res = await h.call("POST", `/api/ticket-conversations/${conv.id}/ticket`, as("contributor"), { placedBy: "map", parentId: null, group: { title: "Grupo", description: "", ticketIds: [a.body.id, b.body.id] } });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body.ticket.idea).toEqual({ root: true, stage: "new" });
     expect(res.body.children).toHaveLength(2);

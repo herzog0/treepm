@@ -526,17 +526,38 @@ describe("path found", () => {
       const props = setup(client);
       await search();
       await userEvent.click(await screen.findByRole("button", { name: "Criar aqui" }));
-      await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t2" }));
+      await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t2", placedBy: "search" }));
       await waitFor(() => expect(props.onCreated).toHaveBeenCalledWith("t9"));
       expect(props.onChanged).toHaveBeenCalled();
     });
 
-    it("creates at the project root with parentId null", async () => {
-      const client = resumed(makePlacement({ destination: { parentId: null, path: [] } }));
+    it("sends placedBy by how the destination was chosen: option (alternative, one level up or an open question) and a new search after placement_stale", async () => {
+      const alt = target("t1", "t3");
+      const client = resumed(makePlacement({ destination: target("t1", "t2"), alternatives: [alt] }));
+      setup(client);
+      await search();
+      await userEvent.click(await screen.findByRole("button", { name: /Usar: / }));
+      await userEvent.click(await screen.findByRole("button", { name: "Criar aqui" }));
+      await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t3", placedBy: "option" }));
+    });
+
+    it("on 409 placement_stale it searches the place again", async () => {
+      const client = resumed(makePlacement({ destination: target("t1", "t2") }), { createTicketFromConversation: vi.fn(async () => failed("conflict", "placement_stale")) });
       setup(client);
       await search();
       await userEvent.click(await screen.findByRole("button", { name: "Criar aqui" }));
-      await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: null }));
+      await waitFor(() => expect(client.findPlacement).toHaveBeenCalledTimes(2));
+    });
+
+    it("creates at the project root with parentId null", async () => {
+      // A raiz nunca é destino confirmado pela procura: o servidor a manda como palpite, e criar ali é escolha da pessoa.
+      const client = resumed(makePlacement({ destination: { parentId: null, path: [] }, destinationConfirmed: false }));
+      setup(client);
+      await search();
+      // Sem decisão guardada e com o palpite na raiz a tela pergunta (revisão 1): só a pessoa põe o ticket solto.
+      await userEvent.click(await screen.findByRole("button", { name: "Deixar solto no projeto" }));
+      await userEvent.click(await screen.findByRole("button", { name: "Criar aqui" }));
+      await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: null, placedBy: "stay" }));
     });
 
     it("shows the API error next to the button and does not hand anything over", async () => {
@@ -823,6 +844,7 @@ describe("proposal of a new parent ticket (ADR 0031, ADR 0034)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Criar ticket pai e mover" }));
     await waitFor(() =>
       expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", {
+      placedBy: "search",
         parentId: "t2",
         group: { title: "Redefinição de senha", description: "Fluxos de senha esquecida e de reset.", ticketIds: ["t3", "t7"] },
       }),
@@ -836,17 +858,17 @@ describe("proposal of a new parent ticket (ADR 0031, ADR 0034)", () => {
     const props = setup(client);
     await shown();
     await userEvent.click(screen.getByRole("button", { name: "Criar aqui" }));
-    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t2" }));
+    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t2", placedBy: "search" }));
     expect(vi.mocked(client.createTicketFromConversation).mock.calls[0]![1]).not.toHaveProperty("group");
     await waitFor(() => expect(props.onCreated).toHaveBeenCalledWith("t9"));
   });
 
-  it("a proposal at the project root confirms with parentId null", async () => {
-    const client = resumed(withProposal({ destination: { parentId: null, path: [] } }));
+  it("a proposal made on a root guess is not shown: the question comes first", async () => {
+    const client = resumed(withProposal({ destination: { parentId: null, path: [] }, destinationConfirmed: false }));
     setup(client);
     await shown();
-    await userEvent.click(screen.getByRole("button", { name: "Criar ticket pai e mover" }));
-    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", expect.objectContaining({ parentId: null })));
+    expect(screen.getByRole("heading", { name: "Onde isto entra?" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Criar ticket pai e mover" })).not.toBeInTheDocument();
   });
 
   describe("discarding", () => {

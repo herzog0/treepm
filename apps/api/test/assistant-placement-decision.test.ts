@@ -77,7 +77,7 @@ describe("a decisão da procura guardada", () => {
     const kept = await open();
     await h.call("PUT", `/api/ticket-conversations/${kept}/draft`, as("contributor"), { title: "Corrigir o login", description: "Botão parado" });
     await placement(kept);
-    const created = await h.call("POST", `/api/ticket-conversations/${kept}/ticket`, as("contributor"), { parentId: tree.sso });
+    const created = await h.call("POST", `/api/ticket-conversations/${kept}/ticket`, as("contributor"), { placedBy: "map", parentId: tree.sso });
     expect(created.status).toBe(201);
     const [row] = await rows("select conversation_id, ticket_id from placement_decisions");
     expect(row).toEqual({ conversation_id: null, ticket_id: created.body.ticket.id });
@@ -104,7 +104,7 @@ describe("a decisão da procura guardada", () => {
     await placement(id);
     await h.pool.query("alter table placement_decisions rename to placement_decisions_off");
     try {
-      const created = await h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), { parentId: tree.sso });
+      const created = await h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), { placedBy: "map", parentId: tree.sso });
       expect(created.status).toBe(201);
       expect(created.body.conversation.status).toBe("ticket_created");
       expect(await rows("select 1 from tickets where id = $1", [created.body.ticket.id])).toHaveLength(1);

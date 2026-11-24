@@ -7,7 +7,7 @@ import type { PlacementDeps, PlacementOutcome } from "./placement-search.js";
 import { judgeInputFits } from "./jev-branch-judge.js";
 import { relatedInputFits } from "./jev-related-judge.js";
 import { resolvePlacement } from "./related-placement.js";
-import type { JudgedRelated, PlacementRule } from "./related-placement.js";
+import type { JudgedRelated, PlacementResolved } from "./related-placement.js";
 import { proposeGroup } from "./group-proposal.js";
 import type { GroupProposalResult } from "./group-proposal.js";
 import { AssistantUnavailableError } from "./ports.js";
@@ -72,8 +72,11 @@ export class PlacementService {
     deps: {
       /** Ticket de escopo (ADR 0031, 0034), já validado por quem chama: qualquer ticket do projeto da conversa. */
       scopeId?: string | null;
+      /** Ramo que a pessoa respondeu (ADR 0054): a descida parte dele, sem a conferência de escopo. */
+      startId?: string | null;
       judge: BranchJudge;
       timeoutMs?: number;
+      maxLevels?: number;
     },
   ): Promise<PlacementOutcome> {
     const { childrenOf, describe } = this.context(snapshot);
@@ -82,23 +85,26 @@ export class PlacementService {
       describe((childrenOf.get(parentId) ?? []).filter((child) => (childrenOf.get(child.id) ?? []).length > 0), descendantsScale);
 
     const byId = new Map(snapshot.tickets.map((ticket) => [ticket.id, ticket]));
-    const scopeTicket = deps.scopeId ? byId.get(deps.scopeId) : undefined;
-    let scope: PlacementDeps["scope"];
-    if (scopeTicket) {
+    const originOf = async (ticket: TreeTicket | undefined): Promise<PlacementDeps["scope"]> => {
+      if (!ticket) return undefined;
       const ancestors: { id: string; title: string }[] = [];
-      for (let up = scopeTicket.parentId ? byId.get(scopeTicket.parentId) : undefined; up; up = up.parentId ? byId.get(up.parentId) : undefined) {
+      for (let up = ticket.parentId ? byId.get(ticket.parentId) : undefined; up; up = up.parentId ? byId.get(up.parentId) : undefined) {
         ancestors.unshift({ id: up.id, title: up.title });
       }
-      const [node] = await describe([scopeTicket]);
-      scope = { node: node as BranchCandidate, ancestors };
-    }
+      const [node] = await describe([ticket]);
+      return { node: node as BranchCandidate, ancestors };
+    };
+    const scope = await originOf(deps.scopeId ? byId.get(deps.scopeId) : undefined);
+    const start = await originOf(deps.startId ? byId.get(deps.startId) : undefined);
 
     return searchPlacement(draft, {
       judge: deps.judge,
       candidates,
       ...(scope ? { scope } : {}),
+      ...(start ? { start } : {}),
       fits: judgeInputFits,
       ...(deps.timeoutMs ? { timeoutMs: deps.timeoutMs } : {}),
+      ...(deps.maxLevels ? { maxLevels: deps.maxLevels } : {}),
     });
   }
 
@@ -240,7 +246,7 @@ export class PlacementService {
     outcome: PlacementOutcome,
     snapshot: PlacementSnapshot,
     deps: { related: readonly JudgedRelated[]; duplicateId: string | null; scopeId: string | null; draft: TicketDraft; judge: BranchJudge; timeoutMs?: number },
-  ): Promise<{ outcome: PlacementOutcome; rule: PlacementRule }> {
+  ): Promise<PlacementResolved> {
     const { describe } = this.context(snapshot);
     const byId = new Map(snapshot.tickets.map((ticket) => [ticket.id, ticket]));
     return resolvePlacement({

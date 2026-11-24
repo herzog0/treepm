@@ -266,12 +266,12 @@ const CASES: Case[] = [
   {
     name: "criação pela conversa (ticket único)",
     prepare: async () => (await ok(send("post", `/api/projects/${P()}/ticket-conversations`, "contributor", { message: "Quero corrigir o login" }))).id as string,
-    act: (id) => ok(send("post", `/api/ticket-conversations/${id}/ticket`, "contributor", { parentId: null })),
+    act: (id) => ok(send("post", `/api/ticket-conversations/${id}/ticket`, "contributor", { placedBy: "map", parentId: null })),
   },
   {
     name: "criação pela conversa (dentro de um pai concluído)",
     prepare: async () => (await ok(send("post", `/api/projects/${P()}/ticket-conversations`, "contributor", { message: "Quero corrigir o login" }))).id as string,
-    act: async (id) => ok(send("post", `/api/ticket-conversations/${id}/ticket`, "contributor", { parentId: await idOf(2) })),
+    act: async (id) => ok(send("post", `/api/ticket-conversations/${id}/ticket`, "contributor", { placedBy: "map", parentId: await idOf(2) })),
   },
   {
     name: "MCP update_ticket_status",
@@ -496,7 +496,7 @@ describe("criação pela conversa com grupo e com filhos do rascunho (inventári
     await seedProject(h.pool, P(), h.world().people.manager, h.world().people.contributor);
     const id = (await ok(send("post", `/api/projects/${P()}/ticket-conversations`, "contributor", { message: "Quero corrigir o login" }))).id as string;
     const before = await etag();
-    await ok(send("post", `/api/ticket-conversations/${id}/ticket`, "contributor", { parentId: null, group: { title: "Grupo", description: "d", ticketIds: [await idOf(4)] } }));
+    await ok(send("post", `/api/ticket-conversations/${id}/ticket`, "contributor", { placedBy: "map", parentId: null, group: { title: "Grupo", description: "d", ticketIds: [await idOf(4)] } }));
     expect(await etag()).not.toBe(before);
   });
 
@@ -505,7 +505,7 @@ describe("criação pela conversa com grupo e com filhos do rascunho (inventári
     const id = (await ok(send("post", `/api/projects/${P()}/ticket-conversations`, "contributor", { message: "Quero corrigir o login" }))).id as string;
     await ok(send("patch", `/api/ticket-conversations/${id}/draft`, "contributor", { title: "Corrigir login", description: "d", children: [{ title: "Parte 1", description: "a" }, { title: "Parte 2", description: "b" }] }));
     const before = await etag();
-    await ok(send("post", `/api/ticket-conversations/${id}/ticket`, "contributor", { parentId: null }));
+    await ok(send("post", `/api/ticket-conversations/${id}/ticket`, "contributor", { placedBy: "map", parentId: null }));
     expect(await etag()).not.toBe(before);
     expect(((await get(listPath())).body as unknown[]).length).toBe(7);
   });

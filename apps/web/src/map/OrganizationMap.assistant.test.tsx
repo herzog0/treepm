@@ -328,7 +328,7 @@ describe("creating", () => {
     await placed();
     const reloads = vi.mocked(client.listTickets).mock.calls.length;
     await userEvent.click(screen.getByRole("button", { name: "Criar aqui" }));
-    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1" }));
+    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1", placedBy: "search" }));
     await waitFor(() => expect(onChange).toHaveBeenCalledWith("t9"));
     expect(assistant()).not.toBeInTheDocument();
     expect(vi.mocked(client.listTickets).mock.calls.length).toBeGreaterThan(reloads);

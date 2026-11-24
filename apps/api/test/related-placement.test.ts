@@ -133,6 +133,15 @@ describe("resolvePlacement: a regra do lugar", () => {
     expect(r.asked).toEqual([]);
   });
 
+  it("relacionado fraco tira o ticket da raiz: `weakAncestor` lista as opções (o vencedor, depois as alternativas); o confiante não", async () => {
+    const weak = await run({ destination: null, related: [rel("A1a", 0.75), rel("B1a", 0.72)] });
+    expect(dest(weak)).toBe("A1");
+    expect(weak.rule).toBe("related_ancestor");
+    expect(weak.weakAncestor).toEqual(["A1", "B1"]);
+    expect((await run({ destination: null, related: [rel("A1a", 0.9)] })).weakAncestor).toBeNull();
+    expect((await run({ destination: "A", related: [rel("A1a1", 0.75)] })).weakAncestor).toBeNull();
+  });
+
   it("a descida parou acima (ancestral do pai do relacionado): vence o pai do relacionado", async () => {
     const r = await run({ destination: "A", related: [rel("A1a1")] });
     expect(dest(r)).toBe("A1a");
@@ -184,6 +193,25 @@ describe("resolvePlacement: a regra do lugar", () => {
     expect(r.outcome.uncertain).toBe(true);
     expect(r.outcome.alternatives.map((a) => a.parentId)).toEqual(["A1"]);
     expect(r.rule).toBe("choice_unavailable");
+  });
+
+  it("a escolha devolve as opções com as probabilidades e a do vencedor (ADR 0054); falha devolve opções sem probabilidade", async () => {
+    const ok = await run({ destination: "B1", related: [rel("A1a")], choose: async (options) => ({ [options[0] as string]: 0.3, [options[1] as string]: 0.7 }) });
+    expect(ok.choice).toEqual({ options: [{ id: "A1", probability: 0.7 }, { id: "B1", probability: 0.3 }], top: 0.7, descentId: "B1" });
+    const failed = await run({ destination: "B1", related: [rel("A1a")], choose: async () => Promise.reject(new Error("fora do ar")) });
+    expect(failed.choice).toEqual({ options: [{ id: "B1", probability: null }, { id: "A1", probability: null }], top: null, descentId: "B1" });
+    const none = await run({ destination: "B1", related: [] });
+    expect(none.choice).toBeNull();
+  });
+
+  it("o ramo respondido é limite (ADR 0054): relacionado fora dele não gera destino; dentro dele vale como hoje", async () => {
+    const outside = await run({ destination: "A1", related: [rel("B1a")], scopeId: "A1" });
+    expect(dest(outside)).toBe("A1");
+    expect(outside.rule).toBe("descent");
+    expect(outside.asked).toEqual([]);
+    const inside = await run({ destination: "A1", related: [rel("A1a1")], scopeId: "A1" });
+    expect(dest(inside)).toBe("A1a");
+    expect(inside.rule).toBe("related_ancestor");
   });
 
   it("relacionado na raiz não gera destino: nada muda", async () => {

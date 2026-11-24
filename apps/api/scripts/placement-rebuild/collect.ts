@@ -356,7 +356,7 @@ async function collectOne(
   // Devolve o ticket ao lugar original pela conversa (rascunho original do gabarito), com situação e pessoas.
   const made = (
     await call<{ ticket: Detail }>("ticket", "recriar ticket", () =>
-      ctx.client.request("POST", `/ticket-conversations/${conversation.id}/ticket`, { parentId: expectedParentNewId }),
+      ctx.client.request("POST", `/ticket-conversations/${conversation.id}/ticket`, { parentId: expectedParentNewId, placedBy: "map" }),
     )
   ).ticket;
   // A conversa grava a citação do pedido na frente da descrição (ADR 0044); a coleta quer o texto do gabarito.

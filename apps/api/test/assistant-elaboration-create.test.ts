@@ -17,7 +17,7 @@ const open = async (children?: { title: string; description: string }[], descrip
   return id;
 };
 const create = (id: string, extra: Record<string, unknown> = {}, parentId: string | null = null) =>
-  h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), { parentId, ...extra });
+  h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), { placedBy: "map", parentId, ...extra });
 const task = (title: string, motivo = "sem isso não há diff", description = "Detalhe da tarefa") => ({ title, description, motivo });
 const relations = () => rows("select f.number as from_n, t.number as to_n from ticket_relations r join tickets f on f.id = r.from_ticket_id join tickets t on t.id = r.to_ticket_id where r.kind = 'depends_on' order by 1, 2");
 

@@ -16,7 +16,7 @@ const count = async (table: string) => (await rows(`select count(*)::int as n fr
 const open = async (who: Who = "contributor") =>
   (await h.call("POST", `/api/projects/${priv()}/ticket-conversations`, as(who), { message: "Quero corrigir o login" })).body.id as string;
 const create = (id: string, parentId: string | null, who: Who | "outsider" = "contributor", org = "org_A") =>
-  h.call("POST", `/api/ticket-conversations/${id}/ticket`, as(who, org), { parentId });
+  h.call("POST", `/api/ticket-conversations/${id}/ticket`, as(who, org), { placedBy: "map", parentId });
 
 describe("POST /ticket-conversations/:id/ticket — a criação", () => {
   it("cria o ticket do rascunho no pai informado e fecha a conversa", async () => {
@@ -252,7 +252,7 @@ describe("criação — sem as chaves da IA", () => {
       "insert into ticket_conversations (org_id, project_id, author_person_id, draft_title, draft_description) values ('org_A',$1,$2,'Do rascunho','Texto') returning id",
       [world.projects.priv, world.people.contributor],
     );
-    const res = await off.call("POST", `/api/ticket-conversations/${inserted.rows[0].id}/ticket`, as("contributor"), { parentId: null });
+    const res = await off.call("POST", `/api/ticket-conversations/${inserted.rows[0].id}/ticket`, as("contributor"), { placedBy: "map", parentId: null });
     expect(res.status).toBe(201);
     expect(res.body.ticket.title).toBe("Do rascunho");
   });

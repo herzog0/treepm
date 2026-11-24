@@ -37,6 +37,14 @@ const schema = z.object({
   SEMANTIC_TRIAGE: z.enum(["off", "rrf", "interleave"]).default("off"),
   /** O tipo da consulta ao provedor de vetores nas duas rotas: `query` (padrão) ou `document`. */
   SEMANTIC_QUERY_KIND: z.enum(["query", "document"]).default("query"),
+  /**
+   * Quando a procura do lugar pergunta (ADR 0054): `LOW` e `HIGH` são a faixa em que "cabe em algum ramo" é dúvida
+   * (0 ≤ LOW < HIGH ≤ 1) e `CHOICE` é a probabilidade abaixo da qual o ramo escolhido não se destaca. Só decidem QUANDO
+   * perguntar; a descida (BELONGS_LOW/HIGH em `placement-search.ts`) não muda.
+   */
+  PLACEMENT_DOUBT_LOW: z.coerce.number().min(0).max(1).default(0.2),
+  PLACEMENT_DOUBT_HIGH: z.coerce.number().min(0).max(1).default(0.8),
+  PLACEMENT_DOUBT_CHOICE: z.coerce.number().min(0).max(1).default(0.5),
   /** Identificador numérico do GitHub App. Opcional: sem as cinco variáveis do app, a ligação com o GitHub fica desligada (ADR 0032). */
   GITHUB_APP_ID: z.string().regex(/^\d+$/, "deve ser numérico").optional(),
   GITHUB_APP_SLUG: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/, "deve ser o slug do app").optional(),
@@ -156,6 +164,9 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     const extras = parseExtraOrigins(rawExtras, config.APP_ORIGIN);
     if ("problems" in extras) throw new ConfigError(`Configuração inválida — ${extras.problems.join("; ")}`);
     config.APP_EXTRA_ORIGINS = extras.origins;
+  }
+  if (!(config.PLACEMENT_DOUBT_LOW < config.PLACEMENT_DOUBT_HIGH)) {
+    throw new ConfigError("Configuração inválida — PLACEMENT_DOUBT_LOW: deve ser menor que PLACEMENT_DOUBT_HIGH");
   }
   const presentGithub = GITHUB_VARIABLES.filter((name) => config[name] !== undefined);
   if (presentGithub.length > 0 && presentGithub.length < GITHUB_VARIABLES.length) {

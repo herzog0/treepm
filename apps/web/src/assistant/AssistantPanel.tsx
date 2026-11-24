@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import type { ApiClient, ApiError, ApiResult, ConversationDetail, CreatedFromConversation, DraftPreview, ElaborationOutcome, NewGroup, PlacementOutcome, Project, TicketSummary } from "../api/client.js";
+import type { ApiClient, ApiError, ApiResult, ConversationDetail, CreatedFromConversation, DraftPreview, ElaborationOutcome, NewGroup, PlacedBy, PlacementOutcome, Project, TicketSummary } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { AiIcon } from "../command/icons.js";
 import { LoadError } from "../LoadError.js";
@@ -19,10 +19,12 @@ import type { LinkRow } from "./Elaboration.js";
 import { DuplicateNotice, RelatedList } from "./RelatedTickets.js";
 import type { PartEdit } from "./DraftPreview.js";
 import { PathCard } from "./PathCard.js";
+import type { QuestionView } from "./PathCard.js";
+import { useRecentPlaces } from "./RecentPlacesContext.js";
 import { Reveal } from "./Reveal.js";
 import { Skeleton } from "./Skeleton.js";
-import { destinationUnder, oneLevelUp } from "./placement.js";
-import type { Destination } from "./placement.js";
+import { destinationUnder, oneLevelUp, recentChoices } from "./placement.js";
+import type { Destination, PlaceChoice } from "./placement.js";
 import type { MapPicker } from "./types.js";
 import { RichDescription } from "../ticket/description/RichDescription.js";
 import "./assistant.css";
@@ -210,6 +212,17 @@ interface Edit {
   idea: boolean;
 }
 
+/** Quantas respostas a pessoa dá à pergunta nesta procura antes de a tela parar de perguntar (ADR 0054, item 4): conforto, não segurança. */
+export const MAX_ANSWERS = 3;
+
+/** As respostas da pessoa nesta procura: quantas, o último ramo que ela confirmou e de que tipo foi a primeira. */
+interface Trail {
+  answers: number;
+  branch: string | null;
+  first: "option" | "recent" | null;
+}
+const NO_TRAIL: Trail = { answers: 0, branch: null, first: null };
+
 /** A mensagem que a pessoa acabou de enviar: aparece na conversa antes de a resposta chegar e, se falhar, fica como não respondida. */
 interface Outbox {
   text: string;
@@ -242,6 +255,16 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   const [searchCount, setSearchCount] = useState(0);
   const [focusCreate, setFocusCreate] = useState(false);
   const [target, setTarget] = useState<Destination | null>(null);
+  // De que tipo foi a escolha do destino (ADR 0054, adendo): o que a procura confirmou, ou o que a pessoa escolheu. Com a pergunta
+  // aberta não há destino nem criação; um resultado sem pergunta e sem confirmação (decisão não guardada) vale como opção.
+  const [placedBy, setPlacedBy] = useState<PlacedBy>("search");
+  // As respostas da pessoa à pergunta nesta procura; recomeçam a cada procura nova. O teto de três vale na tela.
+  const trail = useRef<Trail>(NO_TRAIL);
+  // Cada procura leva um número; o resultado de uma procura superada (a pessoa agiu depois de ela sair) é descartado.
+  const searchSeq = useRef(0);
+  const inFlight = useRef(false);
+  const [limitReached, setLimitReached] = useState(false);
+  const recents = useRecentPlaces();
   // A proposta de ticket pai novo (ADR 0031) vale só para o destino da procura: trocar o destino, procurar de novo ou o 409 a descartam.
   const [proposalDropped, setProposalDropped] = useState(false);
   const [unchecked, setUnchecked] = useState<string[]>([]);
@@ -289,7 +312,8 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   // Uma elaboração por procura: só depois de a procura terminar (há resultado na tela), e não de novo quando o rascunho é salvo.
   // Rascunho que mudou depois dela deixa a elaboração velha: ela some e a pessoa procura de novo.
   const draftKey = draft ? JSON.stringify(draft) : null;
-  const elaborationKey = outcome ? searchCount : null;
+  // Com a pergunta aberta não há destino: a elaboração espera a pessoa escolher o lugar.
+  const elaborationKey = outcome && target ? searchCount : null;
   const draftKeyNow = useRef(draftKey);
   draftKeyNow.current = draftKey;
   useEffect(() => {
@@ -365,7 +389,10 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
       setPickNotice(t("pick.otherProject", { name: project.name }));
       return;
     }
+    searchSeq.current += 1;
+    setLimitReached(false);
     setTarget(destinationUnder(list, parentId));
+    setPlacedBy("map");
     setProposalDropped(true);
     setPickNotice("");
     setChoosing(false);
@@ -384,6 +411,9 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     setDuplicateAccepted(false);
     setTarget(null);
     setChoosing(false);
+    trail.current = NO_TRAIL;
+    searchSeq.current += 1;
+    setLimitReached(false);
     search.clear();
     create.clear();
   };
@@ -470,7 +500,29 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     return saved;
   };
 
-  /** `scopeId`: o escopo desta procura (`null`: o projeto inteiro). Devolve se a procura deu resultado. */
+  /** Põe na tela o resultado de uma procura, com as respostas que a pessoa deu até aqui (ADR 0054). */
+  const showOutcome = (data: PlacementOutcome, answered: Trail) => {
+    setProposalDropped(false);
+    setUnchecked([]);
+    setDuplicateAccepted(false);
+    setSearchCount((count) => count + 1);
+    setOutcome(data);
+    const stopAsking = data.question !== null && answered.answers >= MAX_ANSWERS && answered.branch !== null;
+    // Sem decisão guardada e com o palpite na raiz: só a pessoa pode pôr o ticket ali, então a tela pergunta (ADR 0054, revisão 1).
+    const rootGuess = data.question === null && !data.destinationConfirmed && data.destination.parentId === null;
+    // Teto: o destino é o último ramo que a pessoa confirmou, sem proposta de agrupador (ela vem do palpite).
+    if (stopAsking) setProposalDropped(true);
+    setLimitReached(stopAsking);
+    setTarget(stopAsking ? destinationUnder(list, answered.branch) : data.question !== null || rootGuess ? null : data.destination);
+    setPlacedBy(answered.answers > 0 ? answered.first ?? "option" : data.destinationConfirmed ? "search" : "option");
+    // O lugar fechou (resposta que confirma, teto, palpite fora da raiz): o foco vai ao botão de criar.
+    if (stopAsking || (data.question === null && !rootGuess && answered.answers > 0)) setFocusCreate(true);
+  };
+
+  /** O lugar na tela é uma escolha da pessoa (ramo, "fica aqui", recente, mapa, alternativa)? Então a edição do rascunho não o invalida. */
+  const chosenPlace = target !== null && placedBy !== "search";
+
+  /** `scopeId`: o escopo desta procura (`null`: o projeto inteiro). Procura nova: as respostas recomeçam. Devolve se deu resultado. */
   const searchPlace = async (scopeId: string | null = scope?.id ?? null): Promise<boolean> => {
     if (!conversation || busy) return false;
     let current = conversation;
@@ -479,16 +531,54 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
       if (!saved) return false;
       current = saved;
     }
+    return searchFrom(current, scopeId);
+  };
+
+  /** A procura nova de um rascunho já salvo. */
+  const searchFrom = async (current: ConversationDetail, scopeId: string | null): Promise<boolean> => {
     setProposalDropped(true);
+    const seq = ++searchSeq.current;
     const result = await search.run(() => (scopeId === null ? client.findPlacement(current.id) : client.findPlacement(current.id, scopeId)));
-    if (!result.ok) return false;
-    setProposalDropped(false);
-    setUnchecked([]);
-    setDuplicateAccepted(false);
-    setSearchCount((count) => count + 1);
-    setOutcome(result.data);
-    setTarget(result.data.destination);
+    if (!result.ok || seq !== searchSeq.current) return false;
+    trail.current = NO_TRAIL;
+    showOutcome(result.data, NO_TRAIL);
     return true;
+  };
+
+  /** Salva o rascunho. O lugar que veio da procura vale para o texto de antes: procura de novo. A escolha da pessoa fica. */
+  const saveAndSearchAgain = async () => {
+    if (!conversation || busy) return;
+    const saved = await saveDraft();
+    if (saved && outcome !== null && !chosenPlace) await searchFrom(saved, scope?.id ?? null);
+  };
+
+  /** A pessoa respondeu à pergunta com um ramo ou um lugar recente: a procura continua a partir dele. */
+  const answer = async (choice: PlaceChoice, kind: "option" | "recent") => {
+    if (!conversation || busy || inFlight.current) return;
+    // Rascunho com edição não salva: o lugar de antes já não vale; salvar procura de novo, do zero.
+    if (dirty) return void (await saveAndSearchAgain());
+    const answered: Trail = { answers: trail.current.answers + 1, branch: choice.id, first: trail.current.first ?? kind };
+    const scopeId = scope?.id;
+    const seq = ++searchSeq.current;
+    inFlight.current = true;
+    const result = await search.run(() => client.findPlacement(conversation.id, scopeId, choice.id));
+    inFlight.current = false;
+    // A pessoa agiu depois de a procura sair (mensagem, rascunho, nova procura): a resposta velha não troca destino nem `placedBy`.
+    if (!result.ok || seq !== searchSeq.current) return;
+    trail.current = answered;
+    showOutcome(result.data, answered);
+  };
+
+  /** "Fica aqui" (na raiz: solto): o destino é o nó da pergunta, com o caminho que o servidor mandou. */
+  const stay = () => {
+    if (!outcome || busy || inFlight.current) return;
+    const at = outcome.question?.at ?? { id: null, path: [] };
+    searchSeq.current += 1;
+    setProposalDropped(true);
+    setLimitReached(false);
+    setTarget({ parentId: at.id, path: at.path.map((step) => ({ id: step.id, title: step.title })) });
+    setPlacedBy("stay");
+    setFocusCreate(true);
   };
 
   /** Tira o escopo; com um resultado na tela, refaz a procura no projeto inteiro. Se ela falhar, o resultado de escopo sai da tela. */
@@ -504,14 +594,18 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   /** `group`: a proposta confirmada; sem ele, o ticket nasce solto no destino. */
   const createHere = async (group?: NewGroup, withoutElaboration = false) => {
     if (!conversation || !target || busy || duplicatePending) return;
+    // O rascunho mudou desde a procura: salvar procura de novo, e a pessoa confere o lugar antes de criar.
     let current = conversation;
     if (dirty) {
+      // O lugar da procura vale para o texto de antes: salvar procura de novo e a pessoa confere. Uma escolha dela fica e cria já.
+      if (!chosenPlace) return void (await saveAndSearchAgain());
       const saved = await saveDraft();
       if (!saved) return;
       current = saved;
     }
     const result = await create.run(() => client.createTicketFromConversation(current.id, {
         parentId: target.parentId,
+        placedBy,
         ...(group ? { group } : {}),
         ...(!withoutElaboration && keptSuggested.length > 0 ? { suggested: keptSuggested } : {}),
         ...(!withoutElaboration && keptLinks.length > 0 ? { links: keptLinks } : {}),
@@ -520,8 +614,12 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
     if (!result.ok) {
       // Algum ticket da proposta mudou de lugar: a proposta sai, o resto do card fica.
       if (result.error.code === "grouping_changed") setProposalDropped(true);
+      // A procura guardada não vale mais para este rascunho (ADR 0054): procura de novo.
+      if (result.error.code === "placement_stale") void searchPlace().then((found) => { if (found) create.clear(); });
       return;
     }
+    // O pai real do ticket criado (com agrupador, é o agrupador), não o destino pedido.
+    if (result.data.ticket.parentId !== null) recents.record(project.id, result.data.ticket.parentId);
     onChanged();
     if (result.data.warnings.length > 0) {
       setCreatedNotice({ ticketId: result.data.ticket.id, warnings: result.data.warnings });
@@ -564,7 +662,17 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
   }, [focusCreate, duplicatePending]);
   const createBlocked = duplicatePending || (preview !== null && (preview.unknownKeys.length > 0 || preview.descriptionTooLong));
   const up = target ? oneLevelUp(target) : null;
-  const options = outcome ? [outcome.destination, ...outcome.alternatives] : [];
+  // O palpite do servidor só vira opção quando não há pergunta (com pergunta, a pessoa escolhe entre as opções dela).
+  const options = outcome && outcome.question === null ? [outcome.destination, ...outcome.alternatives] : [];
+  const questionView = useMemo<QuestionView | null>(
+    () =>
+      outcome && target === null
+        ? outcome.question
+          ? { at: outcome.question.at, options: outcome.question.options, recents: recentChoices(list, recents.read(project.id), outcome.question, scope?.id ?? null) }
+          : { at: { id: null, title: project.name, path: [] }, options: [], recents: [] }
+        : null,
+    [outcome, target, list, recents, project.id, project.name, scope?.id],
+  );
   const proposal = outcome && target && !proposalDropped && target.parentId === outcome.destination.parentId ? outcome.groupProposal : null;
   const confirmGroup = () => {
     if (!proposal) return;
@@ -669,7 +777,7 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
               {search.busy && <p role="status" className="assistant-hint">{t("draft.searching")}</p>}
               {!conversation!.ready && !outcome && <p className="assistant-hint assistant-not-ready">{t("draft.notReady")}</p>}
               <div className="assistant-actions">
-                {dirty && <button type="button" disabled={save.busy || blankTitle} onClick={() => void saveDraft()}>{t("draft.save")}</button>}
+                {dirty && <button type="button" disabled={save.busy || blankTitle} onClick={() => void saveAndSearchAgain()}>{t("draft.save")}</button>}
                 <button type="button" className={outcome || !conversation!.ready ? undefined : "primary"} disabled={busy || blankTitle} onClick={() => void searchPlace()}>
                   {outcome ? t("draft.searchAgain") : conversation!.ready ? t("draft.search") : t("draft.searchAnyway")}
                 </button>
@@ -679,10 +787,15 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
             {!createdNotice && outcome?.duplicate && !duplicateAccepted && (
               <DuplicateNotice duplicate={outcome.duplicate} announceKey={searchCount} onOpen={() => (onOpenExisting ?? onCreated)(outcome.duplicate!.id)} onCreateAnyway={() => { setDuplicateAccepted(true); setFocusCreate(true); }} />
             )}
-            {!createdNotice && outcome && target && (
+            {!createdNotice && outcome && (target || questionView) && (
               <PathCard
                 project={project}
                 target={target}
+                question={questionView}
+                questionKey={searchCount}
+                onAnswer={(choice, kind) => void answer(choice, kind)}
+                onStay={stay}
+                limitReached={limitReached}
                 outcome={outcome}
                 options={options}
                 draftTitle={draft.title}
@@ -698,12 +811,18 @@ function Chat(props: ConversationProps & { initial: ConversationDetail | null })
                 onToggle={(ticketId) => setUnchecked((current) => (current.includes(ticketId) ? current.filter((id) => id !== ticketId) : [...current, ticketId]))}
                 onCreateGroup={confirmGroup}
                 onUse={(destination) => {
+                  searchSeq.current += 1;
+                  setLimitReached(false);
                   setProposalDropped(true);
                   setTarget(destination);
+                  setPlacedBy("option");
                 }}
                 onUp={() => {
+                  searchSeq.current += 1;
+                  setLimitReached(false);
                   setProposalDropped(true);
                   if (up) setTarget(up);
+                  setPlacedBy("option");
                 }}
                 onChoose={() => setChoosing(true)}
                 onCreate={() => void createHere()}

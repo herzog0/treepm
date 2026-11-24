@@ -91,7 +91,7 @@ describe("a elaboração na prévia", () => {
     const waiting = screen.getByRole("button", { name: "Aguardando as sugestões…" });
     expect(waiting).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "Criar sem esperar" }));
-    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1" }));
+    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1", placedBy: "search" }));
     release(elaboration());
   });
 
@@ -119,7 +119,7 @@ describe("a elaboração na prévia", () => {
     expect(screen.queryByRole("region", { name: "Sugeridas pelo assistente" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Ligações propostas" })).toBeNull();
     await create();
-    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1" }));
+    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1", placedBy: "search" }));
   });
 });
 
@@ -133,6 +133,7 @@ describe("tirar e desmarcar", () => {
     await create();
     await waitFor(() => expect(props.onCreated).toHaveBeenCalledWith("t9"));
     expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", {
+      placedBy: "search",
       parentId: "t1",
       suggested: [{ title: "Guardar o cursor da última sincronização", description: "Para pedir só o diff", motivo: "sem isso não há diff" }],
       links: [{ de: "pai", dependeDe: "ALFA-8" }],
@@ -148,7 +149,7 @@ describe("tirar e desmarcar", () => {
     await userEvent.click(within(await suggestedGroup()).getByRole("button", { name: "Tirar todas" }));
     expect(screen.queryByRole("region", { name: "Sugeridas pelo assistente" })).toBeNull();
     await create();
-    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1" }));
+    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1", placedBy: "search" }));
   });
 
   it("procurar de novo refaz a elaboração, mas o que a pessoa tirou não volta se a sugestão é a mesma", async () => {
@@ -164,7 +165,7 @@ describe("tirar e desmarcar", () => {
     expect(within(again).queryByText("Cadastrar o token do Jira")).toBeNull();
     expect(within(await linksGroup()).getByRole("checkbox")).not.toBeChecked();
     await create();
-    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1", suggested: [{ title: "Guardar o cursor da última sincronização", description: "Para pedir só o diff", motivo: "sem isso não há diff" }] }));
+    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1", placedBy: "search", suggested: [{ title: "Guardar o cursor da última sincronização", description: "Para pedir só o diff", motivo: "sem isso não há diff" }] }));
   });
 
   it("a descrição escrita pelo modelo aparece na prévia, recolhida e como texto puro", async () => {
@@ -208,7 +209,7 @@ describe("tirar e desmarcar", () => {
     await search();
     await linksGroup();
     await create();
-    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1", links: [{ de: 0, deTitle: "Receber o diff", dependeDe: "ALFA-8" }] }));
+    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1", placedBy: "search", links: [{ de: 0, deTitle: "Receber o diff", dependeDe: "ALFA-8" }] }));
   });
 
   it("a chave abre o ticket sem fechar o assistente", async () => {
@@ -252,18 +253,31 @@ describe("uma elaboração por estado", () => {
     expect(getElaboration).toHaveBeenCalledTimes(2);
   });
 
-  it("rascunho salvo depois da elaboração: a elaboração velha some, não vai na criação e a tela diz para procurar de novo", async () => {
+  it("rascunho salvo depois da elaboração: a procura e a elaboração recomeçam e a criação leva a nova", async () => {
     const { client, getElaboration } = setup();
     await search();
     await suggestedGroup();
     await editTitle("Sincronizar tickets do Jira");
     await userEvent.click(screen.getByRole("button", { name: "Salvar rascunho" }));
+    // Salvar procura o lugar de novo (ADR 0054, adendo), e a elaboração acompanha a procura nova.
+    await waitFor(() => expect(client.findPlacement).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getElaboration).toHaveBeenCalledTimes(2));
+    await suggestedGroup();
+    expect(screen.queryByText("O rascunho mudou: procure de novo para atualizar as sugestões e as ligações.")).toBeNull();
+    await create();
+    // A elaboração que vai é a da procura nova (a velha foi descartada com a procura velha).
+    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", expect.objectContaining({ parentId: "t1", placedBy: "search" })));
+  });
+
+  it("rascunho editado e ainda não salvo: a elaboração velha some e a tela diz para procurar de novo", async () => {
+    const { getElaboration } = setup();
+    await search();
+    await suggestedGroup();
+    await editTitle("Sincronizar tickets do Jira");
     await waitFor(() => expect(screen.queryByRole("region", { name: "Sugeridas pelo assistente" })).toBeNull());
     expect(screen.queryByRole("region", { name: "Ligações propostas" })).toBeNull();
     expect(screen.getByText("O rascunho mudou: procure de novo para atualizar as sugestões e as ligações.")).toBeInTheDocument();
     expect(getElaboration).toHaveBeenCalledTimes(1);
-    await create();
-    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1" }));
   });
 });
 

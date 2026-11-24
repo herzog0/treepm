@@ -59,7 +59,7 @@ export function makeConversation(id: string, projectId: string, extra: Omit<Part
 }
 
 export function makePlacement(extra: Partial<PlacementOutcome> = {}): PlacementOutcome {
-  return { destination: { parentId: null, path: [] }, alternatives: [], discarded: [], uncertain: false, stoppedEarly: null, scope: null, groupProposal: null, groupProposalSkipped: null, related: [], duplicate: null, ...extra };
+  return { question: null, destinationConfirmed: true, destination: { parentId: null, path: [] }, alternatives: [], discarded: [], uncertain: false, stoppedEarly: null, scope: null, groupProposal: null, groupProposalSkipped: null, related: [], duplicate: null, ...extra };
 }
 
 interface FakeData {

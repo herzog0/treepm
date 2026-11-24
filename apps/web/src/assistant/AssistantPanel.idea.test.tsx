@@ -137,15 +137,19 @@ describe("criar como ideia", () => {
     expect(within(card).queryByText(/Entra como ideia/)).toBeNull();
   });
 
-  it("ligar a opção depois de achar o lugar muda o botão na hora e a criação salva a opção antes de criar; depois abre a ideia", async () => {
+  it("ligar a opção depois de achar o lugar muda o botão na hora e criar salva a opção e procura de novo; no segundo clique abre a ideia", async () => {
     const { client, props } = setup();
     await search();
     await screen.findByRole("region", { name: "Caminho encontrado" });
     await userEvent.click(await option());
+    // A opção muda o rascunho: o primeiro clique o salva e procura o lugar de novo (ADR 0054, adendo); o segundo cria.
     await userEvent.click(screen.getByRole("button", { name: "Registrar ideia aqui" }));
+    await waitFor(() => expect(client.findPlacement).toHaveBeenCalledTimes(2));
+    expect(client.createTicketFromConversation).not.toHaveBeenCalled();
+    await userEvent.click(await screen.findByRole("button", { name: "Registrar ideia aqui" }));
     await waitFor(() => expect(props.onCreated).toHaveBeenCalledWith("t9"));
     expect(client.updateConversationDraft).toHaveBeenCalledWith("c1", expect.objectContaining({ idea: true }));
-    expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1" });
+    expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1", placedBy: "search" });
     expect(props.onChanged).toHaveBeenCalled();
   });
 

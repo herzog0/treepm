@@ -32,6 +32,7 @@ import type {
   TicketElaborator,
 } from "./ports.js";
 import type { SemanticSettings } from "./semantic-triage.js";
+import type { DoubtConfig } from "./placement-doubt.js";
 
 /** Os provedores de IA, entregues só depois de a conferência passar. */
 export type AssistantProviders = {
@@ -49,6 +50,8 @@ export type AssistantProviders = {
   embedder: EmbeddingProvider | null;
   /** `SEMANTIC_TRIAGE` e `SEMANTIC_QUERY_KIND`: como as rotas usam os vetores (`off` por padrão). */
   semantic: SemanticSettings;
+  /** `PLACEMENT_DOUBT_*`: quando a procura do lugar pergunta (ADR 0054). */
+  doubt: DoubtConfig;
 };
 
 /**
@@ -97,6 +100,6 @@ export class AssistantGate {
         message: "O assistente não está configurado neste ambiente.",
       });
     }
-    return { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator, embedder: this.embedder ?? null, semantic: { mode: this.config.SEMANTIC_TRIAGE, queryKind: this.config.SEMANTIC_QUERY_KIND } };
+    return { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator, embedder: this.embedder ?? null, semantic: { mode: this.config.SEMANTIC_TRIAGE, queryKind: this.config.SEMANTIC_QUERY_KIND }, doubt: { low: this.config.PLACEMENT_DOUBT_LOW, high: this.config.PLACEMENT_DOUBT_HIGH, choice: this.config.PLACEMENT_DOUBT_CHOICE } };
   }
 }
