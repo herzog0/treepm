@@ -13,7 +13,8 @@
     "keys": {
       "navigate": "↑ ↓ navegar",
       "open": "Enter abrir",
-      "close": "Esc fechar"
+      "close": "Esc fechar",
+      "chat": "Enter conversar"
     },
     "conversation": "Conversa"
   },
@@ -21,37 +22,15 @@
     "create": "Criar ticket «{{text}}»",
     "createShortcut": "Ctrl Enter",
     "registerIdea": "Registrar ideia «{{text}}»",
-    "ask": "Perguntar ao assistente sobre «{{text}}»",
-    "askShortcut": "Shift Enter",
-    "next": "Próximo ticket para trabalhar"
+    "next": "Próximo ticket para trabalhar",
+    "chat": "Conversar no Meu chat",
+    "chatShortcut": "Shift Enter"
   },
   "conversation": {
     "inProgress": "Conversa em andamento",
     "resume": "Continuar conversa",
-    "new": "Nova conversa"
-  },
-  "ask": {
-    "inProgress": "Pergunta em andamento",
-    "label": "Pergunta sobre o projeto",
-    "title": "Pergunta sobre o projeto",
-    "new": "Nova pergunta",
-    "collapse": "Recolher",
-    "project": {
-      "question": "Em qual projeto?",
-      "option": "{{key}} · {{name}}"
-    },
-    "waiting": "Consultando o projeto…",
-    "error": "O assistente não respondeu. Tente de novo.",
-    "retry": "Tentar de novo",
-    "reply": "Resposta do assistente",
-    "message": {
-      "label": "Pergunte mais sobre este projeto",
-      "placeholder": "Pergunte mais sobre este projeto",
-      "send": "Enviar",
-      "over": "A pergunta passou de {{max}} caracteres ({{length}}). Encurte para enviar.",
-      "within": "{{length}} de {{max}} caracteres"
-    },
-    "unanswered": "Não respondida"
+    "new": "Nova conversa",
+    "openChat": "Abrir o Meu chat"
   },
   "next": {
     "all_blocked": "Tudo o que está pronto depende de outro ticket.",

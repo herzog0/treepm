@@ -32,6 +32,9 @@ interface StoredConversation {
   depth: number;
   participants: string[];
   messages: StoredMessage[];
+  /** Só nas threads: entre pessoas (`people`) ou assunto com o assistente (`topic`). */
+  purpose: "people" | "topic" | null;
+  title: string | null;
 }
 export interface FakeChatTicket {
   id: string;
@@ -55,6 +58,8 @@ export interface FakeChatOptions {
   reply?: (body: string) => string;
   /** Estado da IA no servidor: `ready` (padrão), `no_consent` (403) ou `not_configured` (503). */
   assistant?: "ready" | "no_consent" | "not_configured";
+  /** O título que o assistente dá a uma thread de assunto nova; padrão: nenhum (a tela usa o começo da abertura). */
+  topicTitle?: (body: string) => string | null;
   /** Quem é responsável por cada ticket além de `assignedToMe` (que vale para `me`). */
   assignees?: Record<string, string[]>;
 }
@@ -73,6 +78,8 @@ export interface FakeChat {
   seedConversation(ticketId: string, turns: { person: string; assistant: string }[]): string;
   /** O chat geral da pessoa do cliente, já existente, com estas mensagens. Devolve o id. */
   seedGeneral(turns: { person: string; assistant: string }[]): string;
+  /** Uma thread de assunto da pessoa do cliente, já existente, dentro de `parentId` (principal ou chat geral): a abertura mora em cima, a resposta na thread. Devolve o id. */
+  seedTopic(parentId: string, input: { body: string; reply?: string; title?: string | null }): string;
   /** Dá a conversa como lida até o fim (a de `conversationId`, ou todas as da pessoa). */
   readAll(conversationId?: string): void;
   /** Mensagens guardadas hoje na principal do ticket (mais antigas primeiro). */
@@ -111,9 +118,9 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
   const generalOf = (who: string) => all().find((entry) => entry.kind === "general" && entry.ownerId === who);
   const sees = (who: string, entry: StoredConversation) => entry.participants.includes(who);
   const canSeeTicket = (ticket: FakeChatTicket, who: string) => ticket.visibleTo === undefined || ticket.visibleTo.includes(who);
-  const create = (input: Omit<StoredConversation, "id" | "messages" | "depth"> & { messages?: StoredMessage[] }): StoredConversation => {
+  const create = (input: Omit<StoredConversation, "id" | "messages" | "depth" | "purpose" | "title"> & { messages?: StoredMessage[]; purpose?: "people" | "topic"; title?: string | null }): StoredConversation => {
     const parent = input.parentId === null ? null : conversations.get(input.parentId)!;
-    const entry: StoredConversation = { ...input, id: `conv-${++counter}`, depth: parent === null ? 0 : parent.depth + 1, messages: input.messages ?? [] };
+    const entry: StoredConversation = { ...input, purpose: input.kind === "thread" ? (input.purpose ?? "people") : null, title: input.title ?? null, id: `conv-${++counter}`, depth: parent === null ? 0 : parent.depth + 1, messages: input.messages ?? [] };
     conversations.set(entry.id, entry);
     return entry;
   };
@@ -151,6 +158,8 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
       lastActivityAt: at(lastSeq(entry)),
       unread: unreadIn(who, entry),
       startedByMe: entry.ownerId === who,
+      purpose: entry.purpose ?? "people",
+      title: entry.title,
     };
   };
 
@@ -158,12 +167,12 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
 
   /** A trilha: só as conversas de cima que a pessoa lê, em sequência a partir da conversa. */
   const trailOf = (who: string, entry: StoredConversation) => {
-    const items: { id: string; kind: StoredConversation["kind"]; label: string | null }[] = [];
+    const items: { id: string; kind: StoredConversation["kind"]; label: string | null; title: string | null }[] = [];
     let current = entry;
     while (current.parentId !== null) {
       const parent = conversations.get(current.parentId)!;
       if (!sees(who, parent)) break;
-      items.unshift({ id: parent.id, kind: parent.kind, label: parent.kind === "thread" ? parent.messages[0]!.body.slice(0, 40) : null });
+      items.unshift({ id: parent.id, kind: parent.kind, label: parent.kind === "thread" ? parent.messages[0]!.body.slice(0, 40) : null, title: parent.title });
       current = parent;
     }
     return items;
@@ -185,6 +194,9 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
       lastActivityAt: last === 0 ? null : at(last),
       unread: entry === null ? 0 : unreadIn(who, entry),
       preview: readable.length === 0 ? null : readable.at(-1)!.body.slice(0, 80),
+      ...(entry?.purpose === "topic" ? { label: entry.messages[0]!.body.slice(0, 40) } : {}),
+      purpose: entry?.purpose ?? null,
+      title: entry?.title ?? null,
       children: kids.map((child) => nodeOf(who, child, { kind: "thread", ticket: null })),
     };
   };
@@ -251,9 +263,11 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
           : {
               id: entry.id,
               kind: entry.kind,
+              purpose: entry.purpose,
+              title: entry.title,
               ownedByMe: entry.ownerId === who,
               participants: entry.participants.map((id) => person(id)!),
-              canAddParticipants: entry.kind === "thread" && entry.ownerId === who,
+              canAddParticipants: entry.kind === "thread" && entry.purpose === "people" && entry.ownerId === who,
               canOpenThread: levels < MAX_LEVELS,
               openingMessageId: entry.kind === "thread" ? `m${entry.messages[0]!.seq}` : null,
               opening: entry.kind === "thread" ? cardOf(who, entry).opening : null,
@@ -328,6 +342,16 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
       }
       return entry.id;
     },
+    seedTopic(parentId, { body, reply, title = null }) {
+      const parent = conversations.get(parentId);
+      if (!parent) throw new Error(`conversa desconhecida: ${parentId}`);
+      const opening: StoredMessage = { seq: nextSeq(), authorId: defaultMe, body, model: null, opened: null };
+      const thread = create({ kind: "thread", purpose: "topic", title, ticketId: parent.ticketId, ownerId: defaultMe, parentId, participants: [defaultMe], messages: [opening] });
+      opening.opened = thread.id;
+      parent.messages.push(opening);
+      if (reply !== undefined) thread.messages.push({ seq: nextSeq(), authorId: null, body: reply, model: "claude-opus-5-5", opened: null });
+      return thread.id;
+    },
     readAll(conversationId) {
       for (const entry of all()) if (conversationId === undefined ? sees(defaultMe, entry) : entry.id === conversationId) lastRead.set(`${defaultMe}:${entry.id}`, lastSeq(entry));
     },
@@ -357,7 +381,7 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
           return ok({ id: ensurePrincipal(ticketId, who).id });
         }),
         openGeneralConversation: vi.fn(async () => ok({ id: ensureGeneral(who).id })),
-        sendChatMessage: vi.fn(async (id: string, body: { body: string; mentions?: string[]; ticketId?: string }): Promise<ApiResult<SendResult>> => {
+        sendChatMessage: vi.fn(async (id: string, body: { body: string; mentions?: string[]; ticketId?: string; topic?: boolean }): Promise<ApiResult<SendResult>> => {
           const entry = known(id);
           if (!entry) return failed("not_found", "not_found");
           if (!validBody(body.body)) return failed("invalid", "validation_error");
@@ -365,13 +389,28 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
           if (ticket?.archived === true) return failed("conflict", "project_archived");
           const text = body.body.trim();
           const mentions = body.mentions ?? [];
+          if (body.topic === true) {
+            if (mentions.length > 0) return failed("unavailable", "topic_with_mentions");
+            if (body.ticketId !== undefined) return failed("unavailable", "topic_with_ticket");
+            if (entry.kind === "thread") return failed("unavailable", "topic_in_thread");
+            if (options.assistant === "no_consent") return failed("forbidden", "assistant_consent_required");
+            if (options.assistant === "not_configured") return failed("unavailable", "assistant_not_configured");
+            const opening: StoredMessage = { seq: nextSeq(), authorId: who, body: text, model: null, opened: null };
+            const thread = create({ kind: "thread", purpose: "topic", title: options.topicTitle?.(text) ?? null, ticketId: entry.ticketId, ownerId: who, parentId: entry.id, participants: [who], messages: [opening] });
+            opening.opened = thread.id;
+            entry.messages.push(opening);
+            const answer: StoredMessage = { seq: nextSeq(), authorId: null, body: options.reply?.(text) ?? "Resposta do assistente.", model: "claude-opus-5-5", opened: null };
+            thread.messages.push(answer);
+            const sent = { kind: "topic" as const, message: toMessage(who, entry, opening), thread: cardOf(who, thread), reply: toMessage(who, thread, answer) };
+            return ok(sendResultSchema.parse(JSON.parse(JSON.stringify(sent))));
+          }
           if (mentions.length > 0) {
             const opened = openThread(who, entry, text, mentions, body.ticketId);
             if (!opened.ok) return opened;
             const sent = { kind: "thread" as const, message: toMessage(who, entry, opened.data.message), thread: cardOf(who, opened.data.thread) };
             return ok(sendResultSchema.parse(JSON.parse(JSON.stringify(sent))));
           }
-          if (entry.kind === "thread") {
+          if (entry.kind === "thread" && entry.purpose !== "topic") {
             const message: StoredMessage = { seq: nextSeq(), authorId: who, body: text, model: null, opened: null };
             entry.messages.push(message);
             return ok(sendResultSchema.parse({ kind: "message", message: toMessage(who, entry, message) }));
@@ -387,6 +426,7 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
           const entry = known(id);
           if (!entry) return failed("not_found", "not_found");
           if (entry.kind !== "thread") return failed("unavailable", "principal_conversation");
+          if (entry.purpose === "topic") return failed("unavailable", "private_thread");
           if (entry.ownerId !== who) return failed("forbidden", "not_thread_owner");
           const ticket = entry.ticketId === null ? undefined : ticketOf(entry.ticketId);
           const refused = personIds.filter((personId) => !options.people.some((entry) => entry.id === personId) || (ticket !== undefined && !canSeeTicket(ticket, personId)));

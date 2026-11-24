@@ -27,7 +27,8 @@
     "assistant": "O assistente vê este ticket e consulta os outros que você enxerga. Ele não cria nem altera nada.",
     "noConsent": "A IA está desligada nesta organização. Um administrador precisa ativá-la em Configurações. As threads com outras pessoas continuam funcionando.",
     "noProvider": "A IA não está configurada neste servidor. Você ainda pode abrir threads com outras pessoas.",
-    "general": "O assistente consulta os tickets dos projetos que você enxerga. Ele não cria nem altera nada."
+    "general": "O assistente consulta os tickets dos projetos que você enxerga. Ele não cria nem altera nada.",
+    "topic": "Só você e o assistente"
   },
   "log": {
     "label": "Mensagens",
@@ -76,7 +77,9 @@
     "thread": "Thread",
     "main": "Conversa principal",
     "threadWith": "Thread com {{name}}",
-    "threadWithMore": "Thread com {{name}} +{{count}}"
+    "threadWithMore": "Thread com {{name}} +{{count}}",
+    "topic": "Assunto",
+    "topicNew": "Assunto novo"
   },
   "trail": {
     "label": "Onde você está"
@@ -121,5 +124,12 @@
   },
   "link": {
     "ticket": "{{key}} {{title}}, {{status}}"
+  },
+  "topic": {
+    "busy": "O assistente ainda está respondendo ao assunto anterior.",
+    "timeout": "O assistente não respondeu a tempo. Seu texto voltou para o campo.",
+    "cancel": "Cancelar",
+    "pending": "respondendo…",
+    "failed": "Não respondida"
   }
 }

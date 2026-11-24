@@ -4,38 +4,24 @@ import type { TicketStatus } from "@treepm/domain";
 import type { TenantRunner } from "../db/own-transactions.js";
 import type { ProjectQueryService } from "../query/project-query.service.js";
 import type { QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "../query/query.schema.js";
-import { fromNeutralLabels, labelOf, parseLabel, toNeutralLabels } from "./ask-labels.js";
-import { ASK_TOOLS } from "./ask-tools.js";
-import type { ToolExecutor, ToolOutcome } from "./ports.js";
 
 /** Entrada do modelo que não vale: vira resultado de ferramenta com erro, nunca uma falha da pergunta. */
 export class ToolInputError extends Error {}
 
-/** Como um projeto aparece ao modelo: o rótulo de cada ticket e a troca de chaves por rótulos nos dois sentidos. */
+/** Como um projeto aparece ao modelo: a chave de cada ticket (`TREEPM-88`) e o caminho de volta, do que o modelo escreve para o número. */
 export interface Labeler {
-  /** O rótulo do ticket de número `number` neste projeto (`T47`, ou `P2-T47` nas conversas). */
+  /** A chave do ticket de número `number` neste projeto. */
   label(number: number): string;
-  /** O número de um rótulo exato deste projeto; qualquer outra coisa → `null`. */
+  /** O número de uma chave exata deste projeto; qualquer outra coisa → `null`. */
   parse(text: string): number | null;
-  /** O formato, para a mensagem de erro (`T47`). */
+  /** O formato, para a mensagem de erro (`TREEPM-88`). */
   readonly example: string;
-  /** Chaves de ticket do texto → rótulos. */
-  neutral(text: string): string;
-  /** Rótulos do texto da busca → chaves reais (a busca é pelo texto e pela chave). */
-  real(text: string): string;
-}
-
-/** O rótulo de um projeto só (a pergunta sobre o projeto): `T47`. */
-export function singleProjectLabeler(projectKey: string): Labeler {
-  return { label: labelOf, parse: parseLabel, example: "T47", neutral: (text) => toNeutralLabels(text, projectKey), real: (text) => fromNeutralLabels(text, projectKey, everyLabel) };
 }
 
 /** O que o modelo vê de um ticket nas listas: o rótulo no lugar de id, chave, número e parentId. */
 type AskIdea = { kind: "root"; stage: string } | { kind: "inside"; root: string } | null;
 type Brief = { label: string; title: string; excerpt: string; status: TicketStatus; parent: string | null; idea: AskIdea };
 type BriefList = { tickets: Brief[]; truncated: boolean };
-
-const everyLabel = { has: () => true };
 
 /** Valida a entrada do modelo com o esquema da ferramenta; ferramenta desconhecida ou entrada inválida é erro devolvido ao modelo. */
 export function parseToolInput(tools: readonly { name: string; schema: { safeParse(input: unknown): { success: true; data: unknown } | { success: false; error: { issues: readonly { path: readonly PropertyKey[] }[] } } } }[], name: string, input: unknown): Record<string, unknown> {
@@ -50,11 +36,12 @@ export function parseToolInput(tools: readonly { name: string; schema: { safePar
 }
 
 /**
- * Executa as ferramentas da pergunta sobre o projeto (ADR 0037) sobre a camada de consulta, em rótulos neutros. Cada
+ * Executa as ferramentas de consulta de UM projeto (ADR 0037 e 0056) sobre a camada de consulta; quem escolhe o projeto é o
+ * `ChatToolExecutor`. Cada
  * execução abre a sua transação, curta (`TenantRunner`): permissões são conferidas de novo a cada uma, e nada fica
  * aberto enquanto o provedor pensa. O que volta ao modelo é a saída reduzida e já convertida para rótulos.
  */
-export class ProjectToolExecutor implements ToolExecutor {
+export class ProjectToolExecutor {
   constructor(
     private readonly tenant: TenantRunner,
     private readonly query: ProjectQueryService,
@@ -62,23 +49,12 @@ export class ProjectToolExecutor implements ToolExecutor {
     private readonly labeler: Labeler,
   ) {}
 
-  async execute(name: string, input: unknown): Promise<ToolOutcome> {
-    try {
-      const args = parseToolInput(ASK_TOOLS, name, input);
-      return { content: JSON.stringify(await this.run(name, args)), isError: false };
-    } catch (error) {
-      if (error instanceof ToolInputError) return { content: error.message, isError: true };
-      throw error;
-    }
-  }
-
   /** A ferramenta já validada (`parseToolInput`), sobre este projeto. Quem monta o resultado para o modelo é quem chama. */
   async run(name: string, args: Record<string, unknown>): Promise<unknown> {
     switch (name) {
       case "search_tickets":
         return this.tenant.run(async (tx, principal) => {
-          // O modelo só conhece rótulos; a busca é pelo texto e pela chave real.
-          const text = this.labeler.real(args["query"] as string);
+          const text = args["query"] as string;
           const found = await this.query.search(tx, principal, this.projectId, text, {
             ...(args["limit"] === undefined ? {} : { limit: args["limit"] as number }),
             ...(args["assigned_to_me"] === true ? { assignedTo: principal.person.id } : {}),
@@ -126,13 +102,9 @@ export class ProjectToolExecutor implements ToolExecutor {
     }
   }
 
-  private neutral(text: string): string {
-    return this.labeler.neutral(text);
-  }
-
   /** O trecho cortado (termina em "…") perde a última palavra: uma chave cortada ao meio não pode virar rótulo errado nem vazar. */
   private excerpt(text: string): string {
-    return text.endsWith("…") ? `${this.neutral(text.slice(0, -1).replace(/\S+$/, ""))}…` : this.neutral(text);
+    return text.endsWith("…") ? `${text.slice(0, -1).replace(/\S+$/, "")}…` : text;
   }
 
   /** Número do pai de cada resumo: os que já estão no resultado, mais uma consulta para os que faltam. */
@@ -149,7 +121,7 @@ export class ProjectToolExecutor implements ToolExecutor {
     const parent = summary.parentId === null ? undefined : numbers.get(summary.parentId);
     return {
       label: this.labeler.label(summary.number),
-      title: this.neutral(summary.title),
+      title: summary.title,
       excerpt: this.excerpt(summary.descriptionExcerpt),
       status: summary.status,
       parent: parent === undefined ? null : this.labeler.label(parent),
@@ -175,7 +147,7 @@ export class ProjectToolExecutor implements ToolExecutor {
       title: self.title,
       status: self.status,
       idea: self.idea,
-      description: this.neutral(ticket.description),
+      description: ticket.description,
       parent: self.parent,
       path: ticket.path.map((summary) => this.brief(summary, numbers)),
       children: reduce(ticket.children),

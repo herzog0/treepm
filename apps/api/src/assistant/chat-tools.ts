@@ -10,7 +10,7 @@ import { TOOL_DATA_HEADER } from "./prompts.js";
 
 /**
  * As ferramentas de consulta das conversas (ADR 0056, item 2): as quatro da pergunta sobre o projeto, agora sobre todos os projetos
- * que a pessoa enxerga. O projeto vai no rótulo (`P2-T47`) e nos argumentos (`project`: `P2`); "atribuídos a quem pergunta" é um
+ * que a pessoa enxerga. O ticket vai pela chave de verdade (`TREEPM-88`) e o projeto nos argumentos (`project`: `TREEPM`); "atribuídos a quem pergunta" é um
  * filtro (`assigned_to_me`) que o servidor aplica, sem nome, e-mail nem identificador de pessoa no caminho.
  */
 
@@ -90,8 +90,6 @@ function projectLabeler(key: string): Labeler {
       return parsed && parsed.project === key.toUpperCase() ? parsed.number : null;
     },
     example: "TREEPM-88",
-    neutral: (text) => text,
-    real: (text) => text,
   };
 }
 

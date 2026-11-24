@@ -38,6 +38,7 @@
 .chat-waiting p { margin: 0 0 6px; color: var(--tp-text-3); font-size: 12px; }
 .chat-thread-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%; min-height: 36px; margin: 8px 0 0; padding: 4px 8px; border: 0; border-radius: var(--tp-radius-control); background: var(--tp-conv-field); color: var(--tp-text-2); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
 .chat-thread-footer:hover { background: var(--tp-selected); }
+.chat-thread-footer.is-topic .chat-topic-mark { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--tp-accent); color: var(--tp-on-accent); font-size: 12px; }
 .chat-thread-name { color: var(--tp-text); font-weight: 600; }
 .chat-avatars { display: flex; margin: 0; padding: 0; list-style: none; }
 /* Pouca sobreposição e avatar de 24 px: as duas letras de cada um se leem inteiras. */

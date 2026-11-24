@@ -14,7 +14,6 @@ import {
   DESCRIPTION_WRITER,
   EMBEDDING_PROVIDER,
   GROUP_NAMER,
-  PROJECT_ANSWERER,
   RELATED_JUDGE,
   TICKET_ELABORATOR,
 } from "./ports.js";
@@ -27,7 +26,6 @@ import type {
   DescriptionWriter,
   EmbeddingProvider,
   GroupNamer,
-  ProjectAnswerer,
   RelatedJudge,
   TicketElaborator,
 } from "./ports.js";
@@ -43,7 +41,6 @@ export type AssistantProviders = {
   related: RelatedJudge;
   namer: GroupNamer;
   writer: DescriptionWriter;
-  answerer: ProjectAnswerer;
   chat: ChatProvider;
   elaborator: TicketElaborator;
   /** Vetores da busca por significado (ADR 0053). `null` sem `VOYAGE_API_KEY`: o assistente segue configurado e a busca usa só palavras. */
@@ -72,7 +69,6 @@ export class AssistantGate {
     @Optional() @Inject(RELATED_JUDGE) private readonly related: RelatedJudge | null,
     @Optional() @Inject(GROUP_NAMER) private readonly namer: GroupNamer | null,
     @Optional() @Inject(DESCRIPTION_WRITER) private readonly writer: DescriptionWriter | null,
-    @Optional() @Inject(PROJECT_ANSWERER) private readonly answerer: ProjectAnswerer | null,
     @Optional() @Inject(CHAT_PROVIDER) private readonly chat: ChatProvider | null,
     @Optional() @Inject(TICKET_ELABORATOR) private readonly elaborator: TicketElaborator | null,
     @Optional() @Inject(EMBEDDING_PROVIDER) private readonly embedder: EmbeddingProvider | null,
@@ -93,13 +89,13 @@ export class AssistantGate {
   }
 
   private configured(): AssistantProviders {
-    const { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator } = this;
-    if (!assistantEnabled(this.config) || !conversation || !judge || !summarizer || !affinity || !related || !namer || !writer || !answerer || !chat || !elaborator) {
+    const { conversation, judge, summarizer, affinity, related, namer, writer, chat, elaborator } = this;
+    if (!assistantEnabled(this.config) || !conversation || !judge || !summarizer || !affinity || !related || !namer || !writer || !chat || !elaborator) {
       throw new ServiceUnavailableException({
         code: "assistant_not_configured",
         message: "O assistente não está configurado neste ambiente.",
       });
     }
-    return { conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator, embedder: this.embedder ?? null, semantic: { mode: this.config.SEMANTIC_TRIAGE, queryKind: this.config.SEMANTIC_QUERY_KIND }, doubt: { low: this.config.PLACEMENT_DOUBT_LOW, high: this.config.PLACEMENT_DOUBT_HIGH, choice: this.config.PLACEMENT_DOUBT_CHOICE } };
+    return { conversation, judge, summarizer, affinity, related, namer, writer, chat, elaborator, embedder: this.embedder ?? null, semantic: { mode: this.config.SEMANTIC_TRIAGE, queryKind: this.config.SEMANTIC_QUERY_KIND }, doubt: { low: this.config.PLACEMENT_DOUBT_LOW, high: this.config.PLACEMENT_DOUBT_HIGH, choice: this.config.PLACEMENT_DOUBT_CHOICE } };
   }
 }

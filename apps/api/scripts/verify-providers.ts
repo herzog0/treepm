@@ -6,8 +6,8 @@
  * Lê só `ANTHROPIC_API_KEY` e `TYPESAFE_API_KEY` (do ambiente ou de `apps/api/.env.local`). Não lê banco, não lê
  * dados reais: todo o texto enviado é o fixo e fictício abaixo, impresso antes de cada chamada. Faz 6 verificações (a 5 e a 6 fazem várias chamadas, a 6 no máximo 2):
  * um turno de conversa (Claude Opus 5.5, esforço medium), um resumo de ramo (Claude Opus 5.5, esforço low) e uma
- * requisição ao Jev com três ramos fictícios, um texto para a descrição (Claude Opus 5.5, esforço low), a pergunta sobre
- * o projeto com o laço de ferramentas (executor em memória, tickets fictícios) e a mesma pergunta com o limite de rodadas
+ * requisição ao Jev com três ramos fictícios, um texto para a descrição (Claude Opus 5.5, esforço low), a mensagem ao
+ * assistente do chat, com título, com o laço de ferramentas (executor em memória, tickets fictícios) e a mesma pergunta com o limite de rodadas
  * em 1, para exercitar a última chamada, sem ferramentas (`tool_choice` "none"). Custo estimado: centavos de dólar.
  */
 import Anthropic from "@anthropic-ai/sdk";
@@ -17,7 +17,7 @@ import { sdkStreamer } from "../src/assistant/claude-call.js";
 import type { ClaudeStreamer } from "../src/assistant/claude-call.js";
 import { ClaudeConversationProvider } from "../src/assistant/claude-conversation-provider.js";
 import { ClaudeDescriptionWriter } from "../src/assistant/claude-description-writer.js";
-import { ClaudeProjectAnswerer } from "../src/assistant/claude-project-answerer.js";
+import { ClaudeChatProvider } from "../src/assistant/claude-chat-provider.js";
 import { JevBranchJudge, sdkSystemOne } from "../src/assistant/jev-branch-judge.js";
 import type { SystemOneCall } from "../src/assistant/jev-branch-judge.js";
 import type { ToolExecutor, ToolOutcome } from "../src/assistant/ports.js";
@@ -176,16 +176,16 @@ async function askStep(name: string, options: { maxToolRounds?: number }, expect
   };
   await step(
     name,
-    { question: ASK_QUESTION, tickets: FAKE_TICKETS.length, options },
+    { message: ASK_QUESTION, tickets: FAKE_TICKETS.length, options },
     async () => {
-      const out = await new ClaudeProjectAnswerer(counting, options).answer({ question: ASK_QUESTION, history: [], tools });
-      if (out.text.trim().length < 1) throw new Error("texto vazio");
+      const out = await new ClaudeChatProvider(counting, options).reply({ ticket: null, history: [{ author: "person", body: ASK_QUESTION }], projects: ["TREEPM"], tools, wantTitle: true });
+      if (out.message.trim().length < 1) throw new Error("texto vazio");
       if (tools.executions < 1) throw new Error("nenhuma ferramenta foi executada");
       if (!expectTools && calls < 2) throw new Error("a chamada final, sem ferramentas, não aconteceu");
-      return { chamadas_ao_provedor: calls, execucoes_de_ferramenta: tools.executions, model: out.model, chars: out.text.length };
+      return { chamadas_ao_provedor: calls, execucoes_de_ferramenta: tools.executions, model: out.model, titulo: out.title ?? null, chars: out.message.length };
     },
     () => claudeUsage,
   );
 }
-await askStep("5. Pergunta sobre o projeto (Claude Opus 5.5, esforço medium, laço de ferramentas)", {}, true);
-await askStep("6. Pergunta com o limite em 1 rodada (última chamada sem ferramentas, tool_choice none)", { maxToolRounds: 1 }, false);
+await askStep("5. Mensagem ao assistente do chat (Claude Opus 5.5, esforço medium, laço de ferramentas)", {}, true);
+await askStep("6. Mensagem com o limite em 1 rodada (última chamada sem ferramentas, tool_choice none)", { maxToolRounds: 1 }, false);

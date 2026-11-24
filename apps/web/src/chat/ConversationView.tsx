@@ -14,7 +14,7 @@ import { safe } from "../panel/safe.js";
 import { ActionsMenu } from "../ticket/menu.js";
 import { AddPeople } from "./AddPeople.js";
 import type { ConversationRef } from "./ChatsContext.js";
-import { useChats } from "./ChatsContext.js";
+import { topicLabel, useChats } from "./ChatsContext.js";
 import { Composer } from "./Composer.js";
 import type { Draft } from "./Composer.js";
 import { peopleWhoSee } from "./directory.js";
@@ -55,7 +55,7 @@ type Entry = { kind: "message"; message: ChatMessage } | { kind: "card"; card: C
 const timeOf = (entry: Entry) => (entry.kind === "message" ? entry.message.createdAt : (entry.card.opening?.createdAt ?? entry.card.lastActivityAt));
 const cardOfNode = (node: ConversationNode): Card | null =>
   node.kind === "thread" && node.id !== null
-    ? { id: node.id, opening: null, participants: node.participants, participantCount: node.participantCount, replyCount: null, lastActivityAt: node.lastActivityAt ?? "", unread: node.unread, startedByMe: node.ownedByMe }
+    ? { id: node.id, opening: null, participants: node.participants, participantCount: node.participantCount, replyCount: null, lastActivityAt: node.lastActivityAt ?? "", unread: node.unread, startedByMe: node.ownedByMe, purpose: node.purpose ?? "people", title: node.title }
     : null;
 
 /** Junta duas listas de mensagens sem repetir nenhuma (por id), na ordem em que foram escritas. */
@@ -76,12 +76,18 @@ const DotsIcon = () => (
 function ThreadFooter({ card, selfId, onOpen }: { card: Card; selfId: string | undefined; onOpen: () => void }) {
   const { t, i18n } = useTranslation("chat");
   const shown = card.participants.slice(0, 3);
+  const topic = card.purpose === "topic";
   return (
-    <button type="button" className="chat-thread-footer" onClick={onOpen}>
-      <span className="chat-avatars" aria-hidden="true">
-        {shown.map((person) => <Initials key={person.id} name={person.displayName} />)}
-      </span>
-      <span className="chat-thread-name">{threadTitle(t, card.participants, card.participantCount, selfId)}</span>
+    <button type="button" className={`chat-thread-footer ${topic ? "is-topic" : ""}`} onClick={onOpen}>
+      {topic ? (
+        // O assunto é entre a pessoa e o assistente: a marca ✦ no lugar dos avatares, e o título no lugar de "Thread com…".
+        <span className="chat-topic-mark" aria-hidden="true">✦</span>
+      ) : (
+        <span className="chat-avatars" aria-hidden="true">
+          {shown.map((person) => <Initials key={person.id} name={person.displayName} />)}
+        </span>
+      )}
+      <span className="chat-thread-name">{topic ? topicLabel(card.title, card.opening?.body.slice(0, 40), t("row.topic")) : threadTitle(t, card.participants, card.participantCount, selfId)}</span>
       {card.replyCount !== null && <span>{t("thread.replies", { count: card.replyCount })}</span>}
       {card.unread > 0 && <span className="chat-badge">{t("thread.unread", { count: card.unread })}</span>}
       {card.lastActivityAt !== "" && <time dateTime={card.lastActivityAt}>{formatActivityTime(i18n.language as Language, card.lastActivityAt, new Date())}</time>}
@@ -143,9 +149,19 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   useEffect(() => {
     void chats.loadDirectory();
   }, [chats.loadDirectory]);
+  // A entrega de um envio que falhou: lida ao montar e também com a conversa já aberta (o texto volta ao campo, com o erro e o aviso que o envio daqui mostraria).
   useEffect(() => {
+    const pending = chats.peekHandoff(target);
+    if (pending === undefined || pending.send === true) {
+      chats.dropHandoff(target);
+      return;
+    }
     chats.dropHandoff(target);
-  }, [chats.dropHandoff, target]);
+    setDraft((current) => (current.text === "" ? { text: pending.text, mentions: pending.mentions } : current));
+    setError(pending.error);
+    if (pending.code === "assistant_not_configured") setOff("provider");
+    else if (pending.code === "assistant_consent_required") setOff("consent");
+  }, [chats.dropHandoff, chats.peekHandoff, chats.handoffTick, target]);
 
   const fetchView = useCallback(
     (query: { limit?: number; before?: string }): Promise<ApiResult<ConversationData>> => {
@@ -203,7 +219,7 @@ export function ConversationView({ target, active }: ConversationViewProps) {
       return;
     }
     followThread.current = true;
-    if (out.mentions.length > 0 || isThread) {
+    if (out.mentions.length > 0 || isPeopleThread) {
       setDraft(out);
       void sendBetweenPeople(out);
     } else {
@@ -227,6 +243,10 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   const ticket = view?.ticket ?? null;
   const kind = info?.kind ?? (target.kind === "general" ? "general" : "ticket");
   const isThread = kind === "thread";
+  /** Thread de assunto (ADR 0056): só da pessoa e do assistente. Fala com o assistente como a conversa principal; marcar alguém abre uma thread com pessoas. */
+  const isTopic = isThread && info?.purpose === "topic";
+  /** Thread entre pessoas: não tem assistente. */
+  const isPeopleThread = isThread && !isTopic;
   const hasTicket = ticket !== null;
   const mentioning = draft.mentions.length > 0;
   const project = directory.status === "ready" && hasTicket ? directory.projects.find((entry) => entry.id === ticket.projectId) : undefined;
@@ -465,7 +485,7 @@ export function ConversationView({ target, active }: ConversationViewProps) {
 
   /** Fica nesta conversa: com pessoas marcadas, abre a thread aqui; sem elas, fala com o assistente (ou responde, numa thread). */
   const sendHere = (next: Draft) => {
-    if (next.mentions.length > 0 || isThread) return void sendBetweenPeople(next);
+    if (next.mentions.length > 0 || isPeopleThread) return void sendBetweenPeople(next);
     if (pending?.status === "sending") return;
     resetDraft();
     void sendToAssistant(next.text.trim());
@@ -616,9 +636,9 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   );
 
   const currentLabel =
-    kind === "thread" ? threadTitle(t, info?.participants ?? [], info?.participants.length ?? 0, selfId) : kind === "general" ? t("row.general") : (ticket?.key ?? "");
-  const trailLabel = (item: { kind: "ticket" | "general" | "thread"; label: string | null }) =>
-    item.kind === "general" ? t("row.general") : item.kind === "ticket" ? (ticket?.key ?? t("row.main")) : (item.label ?? t("row.thread"));
+    isTopic ? topicLabel(info?.title, info?.opening?.body.slice(0, 40), t("row.topic")) : kind === "thread" ? threadTitle(t, info?.participants ?? [], info?.participants.length ?? 0, selfId) : kind === "general" ? t("row.general") : (ticket?.key ?? "");
+  const trailLabel = (item: { kind: "ticket" | "general" | "thread"; label: string | null; title: string | null }) =>
+    item.kind === "general" ? t("row.general") : item.kind === "ticket" ? (ticket?.key ?? t("row.main")) : (item.title !== null ? topicLabel(item.title, item.label, t("row.topic")) : (item.label ?? t("row.thread")));
   const mentionNames = new Intl.ListFormat(i18n.language, { style: "long", type: "conjunction" }).format(draft.mentions.map((personId) => names.get(personId) ?? personId));
   /** O que vai acontecer ao enviar, dito antes (ADR 0056). */
   const notice = routing
@@ -681,6 +701,11 @@ export function ConversationView({ target, active }: ConversationViewProps) {
                   <li aria-current="page" style={{ "--thread-color": threadColor(info.id) } as CSSProperties}>{currentLabel}</li>
                 </ol>
               </nav>
+              {isTopic ? (
+                <div className="chat-people">
+                  <p className="chat-notice">{t("notice.topic")}</p>
+                </div>
+              ) : (
               <div className="chat-people">
                 <ul className="chat-avatars" aria-label={t("people.label")}>
                   {info.participants.slice(0, 5).map((person) => (
@@ -693,6 +718,9 @@ export function ConversationView({ target, active }: ConversationViewProps) {
                 </ul>
                 {info.canAddParticipants && !archived && <AddPeople candidates={addCandidates} status={peopleStatus} onAdd={addPeople} />}
               </div>
+              )}
+              {isTopic && assistantOff === "consent" && <ConsentRequiredNotice className="chat-alert" text={t("notice.noConsent")} />}
+              {isTopic && assistantOff === "provider" && <p role="alert" className="chat-alert">{t("notice.noProvider")}</p>}
             </div>
           )}
           {isThread && archived && <p role="status" className="chat-alert">{describe({ kind: "conflict", code: "project_archived" })}</p>}
@@ -734,8 +762,8 @@ export function ConversationView({ target, active }: ConversationViewProps) {
           <div className="chat-visually-hidden" role="status" aria-live="polite" aria-label={t("assistant.reply")}>{announcement}</div>
           {error && <p role="alert" className="chat-composer-alert">{error}</p>}
           <Composer
-            label={isThread ? t("thread.reply") : t("composer.label")}
-            placeholder={isThread ? t("thread.replyPlaceholder") : assistantOff === null ? t("composer.placeholder") : t("composer.placeholderThreads")}
+            label={isPeopleThread ? t("thread.reply") : t("composer.label")}
+            placeholder={isPeopleThread ? t("thread.replyPlaceholder") : assistantOff === null ? t("composer.placeholder") : t("composer.placeholderThreads")}
             draft={draft}
             onDraft={setDraft}
             people={peopleOptions}
@@ -745,8 +773,8 @@ export function ConversationView({ target, active }: ConversationViewProps) {
             onNeedTickets={openTickets}
             onRetryTickets={retryTickets}
             names={names}
-            canAssistant={!isThread && assistantOff === null}
-            thread={isThread}
+            canAssistant={!isPeopleThread && assistantOff === null}
+            thread={isPeopleThread}
             canOpenThread={canOpenThread}
             notice={notice}
             assistantBusy={pending?.status === "sending" || routing}

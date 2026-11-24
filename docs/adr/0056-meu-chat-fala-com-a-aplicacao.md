@@ -72,7 +72,7 @@ Uma thread pode nascer sem marcar ninguém: **thread de assunto**, só de quem a
 Três fatias, cada uma inteira e sem modo de compatibilidade:
 
 1. **Consulta e menções:** ferramentas de leitura nas conversas principais, rótulos neutros com projeto, seletor de `@` e `#`, e o caminho do `#` no Meu chat. Sem migration.
-2. **Thread de assunto e barra:** natureza da thread (migration `0034`), assistente na thread de assunto, texto livre da barra no Meu chat; saem `AskPanel` e a rota `assistant/ask`.
+2. **Thread de assunto e barra:** natureza da thread (migration `0035`), assistente na thread de assunto, texto livre da barra no Meu chat; saem `AskPanel` e a rota `assistant/ask`.
 3. **Criação como subthread:** thread de criação ligada à conversa de novo ticket, a tela dela dentro da conversa, cópia para a conversa do ticket ao criar, "Criar ticket" e "+ Novo ticket" pela thread; sai o `AssistantPanel` como painel.
 
 ## Fora deste recorte
@@ -110,3 +110,17 @@ Consulta e menções entraram numa mudança só, servidor e tela, sem migration.
 - **O aceite muda de versão** por causa disso: `rascunho-3`. O assistente fica desligado em cada organização até um administrador aceitar de novo. O documento de privacidade passa a listar as chaves entre o que é enviado.
 - **O nome do projeto não vai ao provedor,** só a chave.
 - **Pessoa marcada é pastilha,** fora do texto; o ticket fica no texto como `#CHAVE-N`.
+
+## Como ficou: fatia 2 (2026-11-24)
+
+Thread de assunto e barra de pedidos entraram numa mudança só, servidor e tela, com a migration `0035_conversation_purpose`.
+
+- **Banco:** `conversations.purpose` (`people`, `topic` ou `creation` nas threads; nulo nas principais), gravado na inserção e imutável; `title`; e a ligação com a conversa de novo ticket, já pronta para a fatia 3. Thread de assunto e de criação só nascem sob a conversa principal da própria pessoa e só aceitam quem as abriu como participante, por gatilho. O assistente passa a poder escrever em thread de assunto; em thread com pessoas continua proibido.
+- **Servidor:** `POST …/messages` com `topic: true` abre a thread e roda a vez do assistente dentro dela, lendo só ela. Na primeira resposta o assistente devolve também um título de até 60 caracteres, que o servidor valida antes de guardar. Incluir pessoa em thread de assunto é recusado.
+- **Tela:** na barra de pedidos, Enter sem ticket encontrado e Shift+Enter mandam o texto ao Meu chat; o painel abre na thread nova com o assistente respondendo. A thread de assunto aparece na barra lateral com a marca ✦ e o título.
+- **Saiu** a pergunta sobre o projeto: rota, painel, os rótulos `T47` e os testes deles.
+
+### Em aberto
+
+- "Limpar a conversa" não apaga as threads de assunto, e não há como apagar uma (`TREEPM-416`).
+- A criação de ticket continua pelo painel antigo até a fatia 3.

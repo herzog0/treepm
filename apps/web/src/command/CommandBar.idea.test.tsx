@@ -36,14 +36,14 @@ const optionNames = () => screen.getAllByRole("option").map((option) => option.t
 const IDEA = /Registrar ideia «exportar csv»/;
 
 describe("the “Registrar ideia” line", () => {
-  it("comes right after “Criar ticket” and before “Perguntar ao assistente”, with no shortcut of its own", async () => {
+  it("comes right after “Criar ticket”, after “Conversar no Meu chat”, with no shortcut of its own", async () => {
     render(<Host client={client()} me={adminMe()} />);
     await typed("exportar csv");
     const names = optionNames();
     const at = (pattern: RegExp) => names.findIndex((name) => pattern.test(name));
     expect(at(/Criar ticket/)).toBeGreaterThanOrEqual(0);
     expect(at(IDEA)).toBe(at(/Criar ticket/) + 1);
-    expect(at(/Perguntar ao assistente/)).toBe(at(IDEA) + 1);
+    expect(at(/Conversar no Meu chat/)).toBe(at(/Criar ticket/) - 1);
     const line = screen.getByRole("option", { name: IDEA });
     expect(line.querySelector(".command-hint")).toBeNull();
   }, SLOW);
@@ -60,7 +60,7 @@ describe("the “Registrar ideia” line", () => {
   it("is not offered to someone who can only read, even with the assistant on", async () => {
     render(<Host client={client()} me={withAssistant(makePanelMe("member", [{ projectId: "p1", role: "reader" }]))} />);
     await typed("exportar csv");
-    expect(screen.getByRole("option", { name: /Perguntar ao assistente/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Conversar no Meu chat/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /Registrar ideia/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /Criar ticket/ })).not.toBeInTheDocument();
   }, SLOW);
@@ -69,11 +69,12 @@ describe("the “Registrar ideia” line", () => {
     const api = client();
     render(<Host client={api} me={adminMe()} />);
     await typed("exportar csv");
+    // Sem ticket encontrado, a linha destacada é a do Meu chat: é ela que o Enter pega.
+    expect(screen.getByRole("option", { name: /Conversar no Meu chat/ })).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("{ArrowDown}");
     expect(screen.getByRole("option", { name: /Criar ticket/ })).toHaveAttribute("aria-selected", "true");
     await userEvent.keyboard("{ArrowDown}");
     expect(screen.getByRole("option", { name: IDEA })).toHaveAttribute("aria-selected", "true");
-    await userEvent.keyboard("{ArrowDown}");
-    expect(screen.getByRole("option", { name: /Perguntar ao assistente/ })).toHaveAttribute("aria-selected", "true");
     expect(api.createTicket).not.toHaveBeenCalled();
   }, SLOW);
 });
@@ -84,7 +85,7 @@ describe("registering an idea from the bar", () => {
     const onChange = vi.fn();
     render(<Host client={api} me={adminMe()} onChange={onChange} />);
     const field = await typed("exportar csv");
-    await userEvent.keyboard("{ArrowDown}{Enter}");
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{Enter}");
     await waitFor(() => expect(api.createTicket).toHaveBeenCalledWith("p1", { title: "exportar csv", idea: true }));
     expect(api.createTicket).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(onChange).toHaveBeenLastCalledWith("new-p1-3"));

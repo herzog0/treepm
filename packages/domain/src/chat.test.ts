@@ -4,7 +4,9 @@ import {
   CHAT_HISTORY_MAX_CHARS,
   CHAT_THREAD_PER_PERSON_PER_MINUTE,
   CHAT_HISTORY_MAX_MESSAGES,
+  CHAT_TITLE_MAX,
   chatBodyOf,
+  chatTitleOf,
   trimChatHistory,
 } from "./chat.js";
 import type { ChatTurn } from "./chat.js";
@@ -61,5 +63,16 @@ describe("Revisão 1: caracteres que o banco não aceita e limite de thread", ()
   });
   it("o limite de thread é maior que o do assistente e positivo", () => {
     expect(CHAT_THREAD_PER_PERSON_PER_MINUTE).toBeGreaterThan(CHAT_ASSISTANT_PER_PERSON_PER_MINUTE);
+  });
+});
+
+describe("chatTitleOf", () => {
+  it("apara e aceita um título de uma linha, até 60 caracteres, sem ponto final", () => {
+    expect(chatTitleOf("  Planejar a release  ")).toBe("Planejar a release");
+    expect(chatTitleOf("x".repeat(CHAT_TITLE_MAX))).toBe("x".repeat(CHAT_TITLE_MAX));
+    expect(chatTitleOf("Pergunta?")).toBe("Pergunta?");
+  });
+  it("ignora o que não serve: vazio, comprido, com ponto final, em duas linhas, com caractere proibido ou que não é texto", () => {
+    for (const bad of ["", "   ", "x".repeat(CHAT_TITLE_MAX + 1), "Acaba em ponto.", "Duas\nlinhas", "Duas\rlinhas", "com\u0000nul", undefined, null, 42]) expect(chatTitleOf(bad)).toBeNull();
   });
 });

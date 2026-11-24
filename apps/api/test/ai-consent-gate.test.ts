@@ -21,7 +21,7 @@ const AI_ROUTES: Route[] = [
   { name: "reescrever o texto do agrupador", method: "POST", path: ({ ticket }) => `/api/tickets/${ticket}/summary/regenerate` },
   { name: "escrever na descrição", method: "POST", path: ({ ticket }) => `/api/tickets/${ticket}/description/draft`, body: { request: "Critérios", description: "" } },
   { name: "mensagem no chat do ticket", method: "POST", path: ({ conversation }) => `/api/conversations/${conversation}/messages`, body: { body: "Me ajuda a pensar" } },
-  { name: "perguntar sobre o projeto", method: "POST", path: ({ project }) => `/api/projects/${project}/assistant/ask`, body: { question: "Quantos?", history: [] } },
+  { name: "abrir assunto no chat do ticket", method: "POST", path: ({ conversation }) => `/api/conversations/${conversation}/messages`, body: { body: "Quantos faltam?", topic: true } },
 ];
 
 describe("sem o aceite do assistente, nenhuma rota de IA chega a um provedor", () => {
@@ -31,7 +31,7 @@ describe("sem o aceite do assistente, nenhuma rota de IA chega a um provedor", (
     return { project: h.world().projects.priv, ticket: tree.auth, conversation: await openTicket(h, "contributor", tree.auth) };
   };
   const providerCalls = () =>
-    h.conversation().calls.length + h.judge().calls.length + h.summarizer().calls.length + h.affinity().calls.length + h.namer().calls.length + h.writer().calls.length + h.answerer().calls.length + h.chat().calls.length + h.elaborator().calls.length;
+    h.conversation().calls.length + h.judge().calls.length + h.summarizer().calls.length + h.affinity().calls.length + h.namer().calls.length + h.writer().calls.length + h.chat().calls.length + h.elaborator().calls.length;
 
   it.each(AI_ROUTES)("$name: 403 assistant_consent_required e nenhuma chamada", async (route) => {
     const c = await ctx();
@@ -44,45 +44,46 @@ describe("sem o aceite do assistente, nenhuma rota de IA chega a um provedor", (
   it("o aceite vale para a organização que o deu e não para a outra", async () => {
     const c = await ctx();
     await giveConsent(h.pool, "org_B", h.world().other.person);
-    const own = await h.call("POST", `/api/projects/${c.project}/assistant/ask`, as("contributor"), { question: "Quantos?", history: [] });
+    const own = await h.call("POST", `/api/conversations/${c.conversation}/messages`, as("contributor"), { body: "Quantos?" });
     expect(errorOf(own)).toBe("assistant_consent_required");
-    expect(h.answerer().calls).toHaveLength(0);
+    expect(h.chat().calls).toHaveLength(0);
   });
 
   it("retirado com a tela aberta: a próxima requisição já recusa", async () => {
     const c = await ctx();
     await giveConsent(h.pool, "org_A", h.world().people.admin);
-    const ok = await h.call("POST", `/api/projects/${c.project}/assistant/ask`, as("contributor"), { question: "Quantos?", history: [] });
-    expect(ok.status).toBe(200);
-    expect(h.answerer().calls).toHaveLength(1);
+    const ok = await h.call("POST", `/api/conversations/${c.conversation}/messages`, as("contributor"), { body: "Quantos?" });
+    expect(ok.status).toBe(201);
+    expect(h.chat().calls).toHaveLength(1);
     await h.pool.query("update organization_consents set withdrawn_at = now(), withdrawn_by_person_id = $1", [h.world().people.admin]);
-    const after = await h.call("POST", `/api/projects/${c.project}/assistant/ask`, as("contributor"), { question: "E agora?", history: [] });
+    const after = await h.call("POST", `/api/conversations/${c.conversation}/messages`, as("contributor"), { body: "E agora?" });
     expect(errorOf(after)).toBe("assistant_consent_required");
-    expect(h.answerer().calls).toHaveLength(1);
+    expect(h.chat().calls).toHaveLength(1);
   });
 
   it("aceite de versão antiga não vale", async () => {
     const c = await ctx();
     await giveConsent(h.pool, "org_A", h.world().people.admin, "assistant", "rascunho-0");
-    const res = await h.call("POST", `/api/projects/${c.project}/assistant/ask`, as("contributor"), { question: "Quantos?", history: [] });
+    const res = await h.call("POST", `/api/conversations/${c.conversation}/messages`, as("contributor"), { body: "Quantos?" });
     expect(errorOf(res)).toBe("assistant_consent_required");
   });
 
   it("o aceite de code_reading sozinho não liga o assistente", async () => {
     const c = await ctx();
     await giveConsent(h.pool, "org_A", h.world().people.admin, "code_reading");
-    const res = await h.call("POST", `/api/projects/${c.project}/assistant/ask`, as("contributor"), { question: "Quantos?", history: [] });
+    const res = await h.call("POST", `/api/conversations/${c.conversation}/messages`, as("contributor"), { body: "Quantos?" });
     expect(errorOf(res)).toBe("assistant_consent_required");
   });
 });
 
 describe("com o aceite, as rotas seguem como antes", () => {
   const h = useHarness(AI_CONFIG);
-  it("perguntar sobre o projeto chama o provedor", async () => {
-    await seedTree(h.pool, h.world());
-    const res = await h.call("POST", `/api/projects/${h.world().projects.priv}/assistant/ask`, as("contributor"), { question: "Quantos?", history: [] });
-    expect(res.status).toBe(200);
-    expect(h.answerer().calls).toHaveLength(1);
+  it("mandar mensagem ao assistente chama o provedor", async () => {
+    const tree = await seedTree(h.pool, h.world());
+    const conversation = await openTicket(h, "contributor", tree.auth);
+    const res = await h.call("POST", `/api/conversations/${conversation}/messages`, as("contributor"), { body: "Quantos?" });
+    expect(res.status).toBe(201);
+    expect(h.chat().calls).toHaveLength(1);
   });
 });
 
@@ -117,8 +118,8 @@ describe("cobertura da conferência do aceite", () => {
   const ports = portSymbols();
   const rel = (file: string) => relative(join(__dirname, ".."), file);
 
-  it("enumera as portas de provedor de ports.ts (onze)", () => {
-    expect(ports.sort()).toEqual(["AFFINITY_JUDGE", "BRANCH_JUDGE", "BRANCH_SUMMARIZER", "CHAT_PROVIDER", "CONVERSATION_PROVIDER", "DESCRIPTION_WRITER", "EMBEDDING_PROVIDER", "GROUP_NAMER", "PROJECT_ANSWERER", "RELATED_JUDGE", "TICKET_ELABORATOR"]);
+  it("enumera as portas de provedor de ports.ts (dez)", () => {
+    expect(ports.sort()).toEqual(["AFFINITY_JUDGE", "BRANCH_JUDGE", "BRANCH_SUMMARIZER", "CHAT_PROVIDER", "CONVERSATION_PROVIDER", "DESCRIPTION_WRITER", "EMBEDDING_PROVIDER", "GROUP_NAMER", "RELATED_JUDGE", "TICKET_ELABORATOR"]);
   });
 
   it("só o módulo do assistente e a porta de entrada (AssistantGate) tocam as portas na API", () => {
@@ -146,7 +147,6 @@ describe("cobertura da conferência do aceite", () => {
   it("todo controlador que usa a porta de entrada a chama (require) antes de qualquer outra coisa", () => {
     const users = files(join(SRC, "assistant")).filter((file) => /AssistantGate/.test(readFileSync(file, "utf8")) && file.endsWith(".controller.ts"));
     expect(users.map(rel).sort()).toEqual([
-      "src/assistant/ask.controller.ts",
       "src/assistant/branch-summary.controller.ts",
       "src/assistant/conversation.controller.ts",
       "src/assistant/conversations.controller.ts",
@@ -157,7 +157,7 @@ describe("cobertura da conferência do aceite", () => {
 
   it("os controladores de IA não injetam provedor nenhum: só a porta de entrada", () => {
     for (const file of files(join(SRC, "assistant")).filter((f) => f.endsWith(".controller.ts"))) {
-      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(/@Inject\((CHAT_PROVIDER|CONVERSATION_PROVIDER|BRANCH_|AFFINITY_|RELATED_|GROUP_NAMER|DESCRIPTION_WRITER|PROJECT_ANSWERER|TICKET_ELABORATOR|EMBEDDING_PROVIDER)/);
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(/@Inject\((CHAT_PROVIDER|CONVERSATION_PROVIDER|BRANCH_|AFFINITY_|RELATED_|GROUP_NAMER|DESCRIPTION_WRITER|TICKET_ELABORATOR|EMBEDDING_PROVIDER)/);
     }
   });
 

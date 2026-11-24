@@ -62,7 +62,7 @@ async function thread(parent: string, openedBy: string, participants: string[], 
     await client.query("begin");
     const opening = (await client.query<{ id: string }>("insert into conversation_messages (org_id, conversation_id, author_person_id, body) values ($1,$2,$3,'abre') returning id", [ORG, parent, openedBy])).rows[0]?.id;
     const p = (await client.query<{ depth: number; root_id: string; project_id: string | null; ticket_id: string | null }>("select depth, root_id, project_id, ticket_id from conversations where id = $1", [parent])).rows[0]!;
-    await client.query("insert into conversations (org_id, id, kind, owner_person_id, project_id, ticket_id, parent_id, root_id, depth, opening_message_id) values ($1,$2,'thread',$3,$4,$5,$6,$7,$8,$9)", [ORG, id, openedBy, p.project_id, p.ticket_id, parent, p.root_id, overrides.depth ?? p.depth + 1, opening]);
+    await client.query("insert into conversations (org_id, id, kind, purpose, owner_person_id, project_id, ticket_id, parent_id, root_id, depth, opening_message_id) values ($1,$2,'thread','people',$3,$4,$5,$6,$7,$8,$9)", [ORG, id, openedBy, p.project_id, p.ticket_id, parent, p.root_id, overrides.depth ?? p.depth + 1, opening]);
     for (const person of participants) await client.query("insert into conversation_participants (org_id, conversation_id, person_id) values ($1,$2,$3)", [ORG, id, person]);
     await client.query("commit");
   } catch (error) {
@@ -94,7 +94,7 @@ describe("conversations", () => {
   it("uma thread tem pai, nível e mensagem de abertura; a principal não tem", async () => {
     const t = await newTicket();
     const p = await principal("ticket", ids.person, t);
-    await expect(owner.query("insert into conversations (org_id, id, kind, owner_person_id, project_id, ticket_id, parent_id, root_id, depth) values ($1,$2,'thread',$3,$4,$5,$6,$6,1)", [ORG, randomUUID(), ids.person, ids.project, t, p])).rejects.toThrow(/conversations_opening|conversations_shape_check/);
+    await expect(owner.query("insert into conversations (org_id, id, kind, purpose, owner_person_id, project_id, ticket_id, parent_id, root_id, depth) values ($1,$2,'thread','people',$3,$4,$5,$6,$6,1)", [ORG, randomUUID(), ids.person, ids.project, t, p])).rejects.toThrow(/conversations_opening|conversations_shape_check/);
     await expect(owner.query("insert into conversations (org_id, id, kind, owner_person_id, project_id, ticket_id, root_id, depth) values ($1,$2,'ticket',$3,$4,$5,$2,1)", [ORG, randomUUID(), second, ids.project, t])).rejects.toThrow(/conversations_shape_check/);
   });
 
@@ -107,7 +107,7 @@ describe("conversations", () => {
     const other = await newTicket();
     const id = randomUUID();
     const opening = await message(p, ids.person);
-    await expect(owner.query("insert into conversations (org_id, id, kind, owner_person_id, project_id, ticket_id, parent_id, root_id, depth, opening_message_id) values ($1,$2,'thread',$3,$4,$5,$6,$6,1,$7)", [ORG, id, ids.person, ids.project, other, p, opening])).rejects.toThrow(/conversations_ticket/);
+    await expect(owner.query("insert into conversations (org_id, id, kind, purpose, owner_person_id, project_id, ticket_id, parent_id, root_id, depth, opening_message_id) values ($1,$2,'thread','people',$3,$4,$5,$6,$6,1,$7)", [ORG, id, ids.person, ids.project, other, p, opening])).rejects.toThrow(/conversations_ticket/);
     expect(g).toBeTruthy();
   });
 
@@ -115,7 +115,7 @@ describe("conversations", () => {
     const t = await newTicket();
     const p = await principal("ticket", ids.person, t);
     const stray = await message(await principal("general", ids.person), ids.person);
-    await expect(owner.query("insert into conversations (org_id, id, kind, owner_person_id, project_id, ticket_id, parent_id, root_id, depth, opening_message_id) values ($1,$2,'thread',$3,$4,$5,$6,$6,1,$7)", [ORG, randomUUID(), ids.person, ids.project, t, p, stray])).rejects.toThrow(/conversations_opening/);
+    await expect(owner.query("insert into conversations (org_id, id, kind, purpose, owner_person_id, project_id, ticket_id, parent_id, root_id, depth, opening_message_id) values ($1,$2,'thread','people',$3,$4,$5,$6,$6,1,$7)", [ORG, randomUUID(), ids.person, ids.project, t, p, stray])).rejects.toThrow(/conversations_opening/);
   });
 
   it("a thread do chat geral pode tratar de um ticket, e a de baixo herda o ticket dela", async () => {
@@ -126,7 +126,7 @@ describe("conversations", () => {
     try {
       await client.query("begin");
       const opening = (await client.query<{ id: string }>("insert into conversation_messages (org_id, conversation_id, author_person_id, body) values ($1,$2,$3,'abre') returning id", [ORG, g, fourth])).rows[0]?.id;
-      await client.query("insert into conversations (org_id, id, kind, owner_person_id, project_id, ticket_id, parent_id, root_id, depth, opening_message_id) values ($1,$2,'thread',$3,$4,$5,$6,$6,1,$7)", [ORG, id, fourth, ids.project, t, g, opening]);
+      await client.query("insert into conversations (org_id, id, kind, purpose, owner_person_id, project_id, ticket_id, parent_id, root_id, depth, opening_message_id) values ($1,$2,'thread','people',$3,$4,$5,$6,$6,1,$7)", [ORG, id, fourth, ids.project, t, g, opening]);
       await client.query("insert into conversation_participants (org_id, conversation_id, person_id) values ($1,$2,$3)", [ORG, id, fourth]);
       await client.query("commit");
     } finally {
@@ -143,7 +143,7 @@ describe("conversations", () => {
     const client = await owner.connect();
     try {
       await client.query("begin");
-      const insert = () => client.query("insert into conversations (org_id, id, kind, owner_person_id, project_id, ticket_id, parent_id, root_id, depth, opening_message_id) values ($1,$2,'thread',$3,$4,$5,$6,$6,1,$7)", [ORG, randomUUID(), ids.person, ids.project, t, p, opening]);
+      const insert = () => client.query("insert into conversations (org_id, id, kind, purpose, owner_person_id, project_id, ticket_id, parent_id, root_id, depth, opening_message_id) values ($1,$2,'thread','people',$3,$4,$5,$6,$6,1,$7)", [ORG, randomUUID(), ids.person, ids.project, t, p, opening]);
       await insert();
       await expect(insert()).rejects.toThrow(/conversations_opening_message_key/);
     } finally {
@@ -336,7 +336,7 @@ describe("Revisão 1: a invariante sob concorrência (duas transações de verda
       const opening = (await a.query<{ id: string }>("insert into conversation_messages (org_id, conversation_id, author_person_id, body) values ($1,$2,$3,'abre') returning id", [ORG, under, ids.person])).rows[0]?.id;
       const p = (await a.query<{ depth: number; root_id: string; project_id: string; ticket_id: string }>("select depth, root_id, project_id, ticket_id from conversations where id = $1", [under])).rows[0]!;
       const child = randomUUID();
-      await a.query("insert into conversations (org_id, id, kind, owner_person_id, project_id, ticket_id, parent_id, root_id, depth, opening_message_id) values ($1,$2,'thread',$3,$4,$5,$6,$7,$8,$9)", [ORG, child, ids.person, p.project_id, p.ticket_id, under, p.root_id, p.depth + 1, opening]);
+      await a.query("insert into conversations (org_id, id, kind, purpose, owner_person_id, project_id, ticket_id, parent_id, root_id, depth, opening_message_id) values ($1,$2,'thread','people',$3,$4,$5,$6,$7,$8,$9)", [ORG, child, ids.person, p.project_id, p.ticket_id, under, p.root_id, p.depth + 1, opening]);
       const members = (await a.query<{ person_id: string }>("select person_id from conversation_participants where conversation_id = $1", [under])).rows.map((r) => r.person_id);
       for (const m of new Set([ids.person, ...members])) await a.query("insert into conversation_participants (org_id, conversation_id, person_id) values ($1,$2,$3)", [ORG, child, m]);
       // B tenta entrar na conversa ao mesmo tempo: com a raiz travada, espera A terminar.

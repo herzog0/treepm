@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, Logger, Param, Post, Query, ServiceUnavailableException } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Inject, Logger, Param, Post, Query, ServiceUnavailableException, UnprocessableEntityException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import { CurrentPrincipal } from "../access/principal.js";
 import type { Principal } from "../access/principal.js";
@@ -79,36 +79,52 @@ export class ConversationController {
   ): Promise<z.output<typeof sendResultSchema>> {
     const mentions = body.mentions ?? [];
     // O acesso à conversa vem antes de tudo (404), inclusive antes da porta do aceite.
-    const kind = await tenant.run((tx, principal) => this.conversations.kindOf(tx, principal, id));
+    const { kind, purpose } = await tenant.run((tx, principal) => this.conversations.kindOf(tx, principal, id));
+    if (body.topic === true) {
+      // Pedido que não cabe é 422, sem gastar IA e sem gravar nada; o aceite e o provedor vêm depois da forma e antes de tudo o mais.
+      if (mentions.length > 0) throw new UnprocessableEntityException({ code: "topic_with_mentions", message: "Um assunto novo não marca ninguém: ele é só seu e do assistente." });
+      if (body.ticketId !== undefined) throw new UnprocessableEntityException({ code: "topic_with_ticket", message: "O assunto novo herda o ticket da conversa onde nasce." });
+      if (kind === "thread") throw new UnprocessableEntityException({ code: "topic_in_thread", message: "Um assunto novo só abre na conversa principal, não dentro de uma thread." });
+      return this.assistantTurn(tenant, id, body.body, true);
+    }
     if (mentions.length > 0) return tenant.run((tx, principal) => this.conversations.openThread(tx, principal, id, body.body, mentions, body.ticketId));
-    if (kind === "thread") return tenant.run((tx, principal) => this.conversations.postInThread(tx, principal, id, body.body));
+    if (kind === "thread" && purpose !== "topic") return tenant.run((tx, principal) => this.conversations.postInThread(tx, principal, id, body.body));
+    return this.assistantTurn(tenant, id, body.body, false);
+  }
+
+  /**
+   * A vez do assistente: aceite e provedor → leitura curta → chamada SEM transação aberta → escrita curta que confere tudo de novo.
+   * `opening`: o texto abre uma thread de assunto (que só existe depois da resposta); senão é uma mensagem numa conversa que já fala
+   * com o assistente (a principal ou uma thread de assunto), que reserva a vez.
+   */
+  private async assistantTurn(tenant: TenantRunner, id: string, text: string, opening: boolean): Promise<z.output<typeof sendResultSchema>> {
     const { chat: provider } = await this.gate.open(tenant);
-    const prep = await tenant.run((tx, principal) => this.conversations.prepareAssistantTurn(tx, principal, id, body.body));
-    let reply: { message: string; model: string };
+    const prep = await tenant.run((tx, principal) => (opening ? this.conversations.prepareTopicOpening(tx, principal, id, text) : this.conversations.prepareAssistantTurn(tx, principal, id, text)));
+    let reply: { message: string; model: string; title?: string | null };
     try {
-      const answer = await provider.reply({
+      reply = await provider.reply({
         ticket: prep.context,
         history: prep.history,
         projects: prep.projects.map((project) => project.key),
         tools: new ChatToolExecutor(tenant, this.query, prep.projects),
+        wantTitle: prep.wantTitle,
       });
-      reply = answer;
     } catch (error) {
-      await this.release(tenant, id);
+      if (!opening) await this.release(tenant, id);
       if (error instanceof AssistantUnavailableError) {
         this.logger.warn(`assistente indisponível motivo=${error.reason}`);
         throw new ServiceUnavailableException({ code: "assistant_unavailable", message: error.message });
       }
       throw error;
     }
-    let saved;
     try {
-      saved = await tenant.run((tx, principal) => this.conversations.recordAssistantTurn(tx, principal, id, body.body, reply, prep.seenLastSeq));
+      if (opening) return parseOutput(sendResultSchema, { kind: "topic", ...(await tenant.run((tx, principal) => this.conversations.recordTopicOpening(tx, principal, id, text, reply))) });
+      const saved = await tenant.run((tx, principal) => this.conversations.recordAssistantTurn(tx, principal, id, text, reply, prep.seenLastSeq));
+      return parseOutput(sendResultSchema, { kind: "assistant", ...saved });
     } catch (error) {
-      await this.release(tenant, id);
+      if (!opening) await this.release(tenant, id);
       throw error;
     }
-    return parseOutput(sendResultSchema, { kind: "assistant", ...saved });
   }
 
   /** Solta a vez do assistente; falha ao soltar não esconde o erro de verdade (a reserva vence sozinha). */

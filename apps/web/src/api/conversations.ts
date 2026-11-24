@@ -17,6 +17,9 @@ const messageBase = z.object({
   model: z.string().nullable(),
 });
 
+/** Para que a thread existe (ADR 0056): entre pessoas, assunto com o assistente (só de quem a abriu) ou conversa de novo ticket. */
+export const purposeSchema = z.enum(["people", "topic", "creation"]);
+
 export const threadCardSchema = z.object({
   id: z.string(),
   opening: messageBase,
@@ -26,6 +29,9 @@ export const threadCardSchema = z.object({
   lastActivityAt: z.string(),
   unread: z.number(),
   startedByMe: z.boolean(),
+  purpose: purposeSchema.nullish().transform((value) => value ?? "people"),
+  /** O título curto da thread de assunto; `null` até o assistente dar um (a tela usa o começo da abertura). Ausente vale nulo. */
+  title: z.string().nullish().transform((value) => value ?? null),
 });
 
 export const chatMessageSchema = messageBase.extend({ thread: threadCardSchema.nullable() });
@@ -42,11 +48,14 @@ export const conversationTicketSchema = z.object({
 
 export const conversationKind = z.enum(["ticket", "general", "thread"]);
 
-export const trailItemSchema = z.object({ id: z.string(), kind: conversationKind, label: z.string().nullable() });
+export const trailItemSchema = z.object({ id: z.string(), kind: conversationKind, label: z.string().nullable(), title: z.string().nullish().transform((value) => value ?? null) });
 
 export const conversationInfoSchema = z.object({
   id: z.string(),
   kind: conversationKind,
+  /** Só nas threads; `null` nas principais. */
+  purpose: purposeSchema.nullish().transform((value) => value ?? null),
+  title: z.string().nullish().transform((value) => value ?? null),
   ownedByMe: z.boolean(),
   participants: z.array(chatPersonSchema),
   canAddParticipants: z.boolean(),
@@ -75,6 +84,8 @@ export const sendResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("assistant"), message: chatMessageSchema, reply: chatMessageSchema }),
   z.object({ kind: z.literal("message"), message: chatMessageSchema }),
   z.object({ kind: z.literal("thread"), message: chatMessageSchema, thread: threadCardSchema }),
+  /** `topic: true`: a mensagem de abertura (na conversa de cima), a thread de assunto que nasceu e a resposta do assistente (dentro dela). */
+  z.object({ kind: z.literal("topic"), message: chatMessageSchema, thread: threadCardSchema, reply: chatMessageSchema }),
 ]);
 
 export const readResultSchema = z.object({ lastRead: z.string().nullable(), unread: z.number() });
@@ -95,6 +106,10 @@ export interface ConversationNode {
   preview: string | null;
   /** Só nas threads: o começo da mensagem que a abriu; `null` nos outros nós. O servidor antigo não manda. */
   label?: string | null | undefined;
+  /** Só nas threads: para que ela existe; `null` nos outros nós. */
+  purpose: z.output<typeof purposeSchema> | null;
+  /** O título curto da thread de assunto; `null` até o assistente dar um. */
+  title: string | null;
   children: ConversationNode[];
 }
 const conversationNodeSchema: z.ZodType<ConversationNode> = z.lazy(() =>
@@ -110,6 +125,8 @@ const conversationNodeSchema: z.ZodType<ConversationNode> = z.lazy(() =>
     unread: z.number(),
     preview: z.string().nullable(),
     label: z.string().nullish(),
+    purpose: purposeSchema.nullish().transform((value) => value ?? null),
+    title: z.string().nullish().transform((value) => value ?? null),
     children: z.array(conversationNodeSchema),
   }),
 );
@@ -131,4 +148,7 @@ export interface ChatWriteBody {
   mentions?: string[];
   /** Só ao abrir thread numa conversa sem ticket (o chat geral): o ticket de que a thread trata. */
   ticketId?: string;
+  /** O texto livre vira uma thread de assunto com o assistente, só da pessoa (só numa conversa principal, sem `mentions` nem `ticketId`). */
+  topic?: boolean;
 }
+export type ConversationPurpose = z.output<typeof purposeSchema>;

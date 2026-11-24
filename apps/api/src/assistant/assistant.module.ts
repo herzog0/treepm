@@ -13,8 +13,6 @@ import { TicketConversationsController } from "./conversations.controller.js";
 import { QueryModule } from "../query/query.module.js";
 import { TicketsModule } from "../tickets/tickets.module.js";
 import { ClaudeBranchSummarizer } from "./claude-branch-summarizer.js";
-import { AskController } from "./ask.controller.js";
-import { ClaudeProjectAnswerer } from "./claude-project-answerer.js";
 import { ClaudeChatProvider } from "./claude-chat-provider.js";
 import { ConversationAccess } from "./conversation-access.js";
 import { ConversationController } from "./conversation.controller.js";
@@ -28,11 +26,11 @@ import { JevBranchJudge, sdkSystemOne } from "./jev-branch-judge.js";
 import { JevRelatedJudge } from "./jev-related-judge.js";
 import { VoyageEmbeddingProvider } from "./voyage-embedding-provider.js";
 import { PlacementService } from "./placement.service.js";
-import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, EMBEDDING_PROVIDER, GROUP_NAMER, PLACEMENT_TIMEOUTS, PROJECT_ANSWERER, RELATED_JUDGE, TICKET_ELABORATOR } from "./ports.js";
+import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, EMBEDDING_PROVIDER, GROUP_NAMER, PLACEMENT_TIMEOUTS, RELATED_JUDGE, TICKET_ELABORATOR } from "./ports.js";
 
 @Module({
   imports: [AccessModule, AccessTokensModule, TicketsModule, QueryModule],
-  controllers: [TicketConversationsController, BranchSummaryController, DescriptionDraftController, AskController, ConversationController],
+  controllers: [TicketConversationsController, BranchSummaryController, DescriptionDraftController, ConversationController],
   providers: [
     ActivityService,
     PlacementService,
@@ -95,14 +93,6 @@ import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERS
       useFactory: (config: AppConfig) =>
         assistantEnabled(config) && config.ANTHROPIC_API_KEY
           ? new ClaudeDescriptionWriter(sdkStreamer(new Anthropic({ apiKey: config.ANTHROPIC_API_KEY, maxRetries: 0 })))
-          : null,
-    },
-    {
-      provide: PROJECT_ANSWERER,
-      inject: [CONFIG],
-      useFactory: (config: AppConfig) =>
-        assistantEnabled(config) && config.ANTHROPIC_API_KEY
-          ? new ClaudeProjectAnswerer(sdkStreamer(new Anthropic({ apiKey: config.ANTHROPIC_API_KEY, maxRetries: 0 })))
           : null,
     },
     {

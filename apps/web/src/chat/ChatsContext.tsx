@@ -3,6 +3,11 @@ import type { ReactNode } from "react";
 import type { ApiClient, ConversationNode, Me, Person, Project, Team, TicketSummary } from "../api/client.js";
 import { useAutoRefresh } from "../map/useAutoRefresh.js";
 import { safe } from "../panel/safe.js";
+import { useDescribeApiError } from "../api/errorText.js";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "../i18n/format.js";
+import type { Language } from "../i18n/languages.js";
+import { CHAT_BODY_MAX } from "./Composer.js";
 
 /** As pessoas, os projetos e os times que o seletor de menção e o aviso do assistente usam; carregados uma vez, quando o primeiro chat abre. */
 export type Directory =
@@ -40,15 +45,20 @@ export interface Handoff {
   error: string | null;
   /** A conversa de destino manda o texto assim que abre (o caminho do `#`): o envio acontece lá, com a bolha pendente e o "tentar de novo". */
   send?: boolean;
+  /** O código do erro da API (sem aceite, sem provedor…): a conversa mostra o mesmo aviso, com o elo, que mostraria se o envio tivesse sido feito nela. */
+  code?: string;
 }
+
+/** Quanto se espera pela resposta de um assunto novo antes de soltar a barra e devolver o texto. */
+export const TOPIC_TIMEOUT_MS = 90_000;
 
 /**
  * O que a coluna da conversa mostra: uma conversa por id (principal, thread ou chat geral que já existe), a conversa da pessoa num
  * ticket (que pode ainda não existir: a leitura não cria nada) ou o chat geral que ainda não existe.
  */
-export type ConversationRef = { kind: "conversation"; id: string } | { kind: "ticket"; ticketId: string } | { kind: "general" };
+export type ConversationRef = { kind: "conversation"; id: string } | { kind: "ticket"; ticketId: string } | { kind: "general" } | { kind: "topic"; run: number };
 
-export const refKey = (ref: ConversationRef): string => (ref.kind === "conversation" ? `c:${ref.id}` : ref.kind === "ticket" ? `t:${ref.ticketId}` : "general");
+export const refKey = (ref: ConversationRef): string => (ref.kind === "conversation" ? `c:${ref.id}` : ref.kind === "ticket" ? `t:${ref.ticketId}` : ref.kind === "topic" ? `topic:${ref.run}` : "general");
 
 /** A linha da barra abre este alvo: o que tem conversa abre por id; o que ainda não tem abre a leitura, sem criar nada. */
 export function refOfNode(node: ConversationNode): ConversationRef {
@@ -60,6 +70,7 @@ export function refOfNode(node: ConversationNode): ConversationRef {
 export function nodeIsRef(node: ConversationNode, ref: ConversationRef): boolean {
   if (ref.kind === "conversation") return node.id === ref.id;
   if (ref.kind === "ticket") return node.kind === "ticket" && node.ticket?.id === ref.ticketId;
+  if (ref.kind === "topic") return false;
   return node.kind === "general";
 }
 
@@ -68,6 +79,28 @@ const flatten = (nodes: readonly ConversationNode[]): ConversationNode[] => node
 function withUnread(nodes: ConversationNode[], id: string, unread: number): ConversationNode[] {
   return nodes.map((node) => ({ ...node, unread: node.id === id ? unread : node.unread, children: withUnread(node.children, id, unread) }));
 }
+
+/** O assunto que a barra de pedidos mandou ao Meu chat e que ainda espera a resposta: a thread só existe quando ela chega. */
+export interface TopicRun {
+  run: number;
+  text: string;
+  /** `sending`: espera a resposta; `failed`: não respondida (o texto espera no Meu chat). */
+  status: "sending" | "failed";
+}
+
+/** O rótulo de uma thread de assunto: o título, senão o começo da abertura, senão `fallback` ("Assunto"). Uma função só, para toda a tela. */
+export const topicLabel = (title: string | null | undefined, label: string | null | undefined, fallback: string): string => {
+  const t = title?.trim();
+  if (t) return t;
+  const l = label?.trim();
+  return l ? l : fallback;
+};
+
+/** Tem caractere de controle que o servidor recusa (tudo abaixo de espaço, fora quebra de linha e tabulação, e o DEL)? */
+const hasForbidden = (text: string): boolean => [...text].some((char) => {
+  const code = char.charCodeAt(0);
+  return (code < 32 && code !== 9 && code !== 10 && code !== 13) || code === 127;
+});
 
 export interface ChatsApi {
   client: ApiClient;
@@ -100,6 +133,22 @@ export interface ChatsApi {
   peekHandoff: (ref: ConversationRef) => Handoff | undefined;
   dropHandoff: (ref: ConversationRef) => void;
   select: (ref: ConversationRef) => void;
+  /** O assunto em andamento (a mensagem e o "respondendo…" da coluna) ou não respondido, ou `null`. */
+  topicRun: TopicRun | null;
+  /** Cancela o assunto que espera a resposta: solta a barra e devolve o texto ao campo do Meu chat. */
+  cancelTopic: () => void;
+  /** A linha ✦ da barra lateral: reabre o pendente; se não foi respondido, abre o Meu chat com o texto no campo e o erro. */
+  openTopicRun: () => void;
+  /** Cresce quando uma entrega chega: a conversa já montada a lê. */
+  handoffTick: number;
+  /**
+   * A barra de pedidos manda o texto ao Meu chat como thread de assunto nova (ADR 0056): a coluna abre já no assunto, com a mensagem e o
+   * "respondendo…", e passa para a thread quando a resposta chega. Falhou: a coluna abre no Meu chat com o texto de volta no campo e o
+   * erro de sempre. Devolve a frase da recusa (já há um assunto esperando a resposta, ou o texto não vale), sem fazer nada: o texto fica com quem chamou; `null` se aceitou.
+   */
+  startTopic: (text: string) => string | null;
+  /** Abre o Meu chat na coluna (o chat geral que ainda não existe abre só a leitura, sem criar nada). */
+  openGeneral: () => void;
   /** "Abrir chat" da página do ticket: a leitura da conversa da pessoa nesse ticket. */
   openTicket: (ticketId: string) => void;
   close: () => void;
@@ -150,6 +199,14 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
   const directoryState = useRef<Directory["status"]>("idle");
   const showTicketRef = useRef(onShowTicket);
   showTicketRef.current = onShowTicket;
+  const describe = useDescribeApiError();
+  const describeRef = useRef(describe);
+  describeRef.current = describe;
+  const [topicRun, setTopicRun] = useState<TopicRun | null>(null);
+  const topicBusy = useRef(false);
+  const topicRunRef = useRef<TopicRun | null>(null);
+  topicRunRef.current = topicRun;
+  const topicCount = useRef(0);
 
   const selfLoading = useRef(false);
   const selfKnown = useRef(false);
@@ -250,12 +307,11 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
     [client, publishTickets],
   );
   const shareTickets = useCallback((byProject: Readonly<Record<string, readonly TicketSummary[]>> | null) => setSharedTickets(byProject), []);
-  const stashHandoff = useCallback((ref: ConversationRef, handoff: Handoff) => void handoffs.current.set(refKey(ref), handoff), []);
-  const peekHandoff = useCallback((ref: ConversationRef) => handoffs.current.get(refKey(ref)), []);
-  const dropHandoff = useCallback((ref: ConversationRef) => void handoffs.current.delete(refKey(ref)), []);
 
   const treeRef = useRef(tree);
   treeRef.current = tree;
+  const openRef = useRef(open);
+  openRef.current = open;
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
   const openPanel = useCallback((requested: ConversationRef) => {
@@ -272,6 +328,112 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
     setOpen(true);
     void refresh();
   }, [refresh]);
+
+  const openGeneral = useCallback(() => {
+    const general = (treeRef.current ?? []).find((node) => node.kind === "general");
+    openPanel(general ? refOfNode(general) : { kind: "general" });
+  }, [openPanel]);
+
+  const { t: tChat, i18n } = useTranslation("chat");
+  const tChatRef = useRef(tChat);
+  tChatRef.current = tChat;
+  const [handoffTick, setHandoffTick] = useState(0);
+  const aborter = useRef<AbortController | null>(null);
+  const cancelled = useRef(false);
+
+  /** O Meu chat é uma chave só, tenha ou não id (uma entrega gravada antes de a árvore conhecer o chat geral vale depois). */
+  const canon = (ref: ConversationRef): ConversationRef => {
+    const general = (treeRef.current ?? []).find((node) => node.kind === "general");
+    return ref.kind === "conversation" && general?.id === ref.id ? { kind: "general" } : ref;
+  };
+  const stashHandoffCanon = useCallback((ref: ConversationRef, handoff: Handoff) => {
+    handoffs.current.set(refKey(canon(ref)), handoff);
+    setHandoffTick((n) => n + 1);
+  }, []);
+
+  const stashHandoff = stashHandoffCanon;
+  const peekHandoff = useCallback((ref: ConversationRef) => handoffs.current.get(refKey(canon(ref))), []);
+  const dropHandoff = useCallback((ref: ConversationRef) => void handoffs.current.delete(refKey(canon(ref))), []);
+
+  const startTopic = useCallback(
+    (text: string): string | null => {
+      if (topicBusy.current) return tChatRef.current("topic.busy");
+      if (text.trim().length > CHAT_BODY_MAX) return tChatRef.current("composer.over", { length: formatNumber(i18n.language as Language, text.trim().length), max: formatNumber(i18n.language as Language, CHAT_BODY_MAX) });
+      if (hasForbidden(text)) return describeRef.current({ kind: "invalid", code: "validation_error" });
+      topicBusy.current = true;
+      cancelled.current = false;
+      const run = ++topicCount.current;
+      const mine: ConversationRef = { kind: "topic", run };
+      const control = new AbortController();
+      aborter.current = control;
+      setTopicRun({ run, text, status: "sending" });
+      openPanel(mine);
+      const timer = setTimeout(() => control.abort(), TOPIC_TIMEOUT_MS);
+      const stillHere = () => selectionRef.current !== null && refKey(selectionRef.current) === refKey(mine);
+      void (async () => {
+        let generalId = (treeRef.current ?? []).find((node) => node.kind === "general")?.id ?? null;
+        let failure: { error: string | null; code?: string } | null = null;
+        if (generalId === null) {
+          // O chat geral nasce neste envio (e só nele); se já existe, o servidor devolve o mesmo.
+          const opened = await safe(() => client.openGeneralConversation());
+          if (opened.ok) generalId = opened.data.id;
+          else failure = { error: describeRef.current(opened.error), ...(opened.error.code ? { code: opened.error.code } : {}) };
+        }
+        if (generalId !== null && !control.signal.aborted) {
+          const sent = await Promise.race([
+            safe(() => client.sendChatMessage(generalId!, { body: text.trim(), topic: true }, { signal: control.signal })),
+            new Promise<null>((resolve) => control.signal.addEventListener("abort", () => resolve(null))),
+          ]);
+          if (sent !== null && sent.ok && sent.data.kind === "topic" && !control.signal.aborted) {
+            if (mounted.current && stillHere()) {
+              setSelection({ kind: "conversation", id: sent.data.thread.id });
+              setOpened(true);
+            }
+          } else if (sent !== null && !sent.ok) {
+            failure = { error: describeRef.current(sent.error), ...(sent.error.code ? { code: sent.error.code } : {}) };
+          } else {
+            failure = { error: cancelled.current ? null : tChatRef.current("topic.timeout") };
+          }
+        } else if (failure === null) {
+          failure = { error: cancelled.current ? null : tChatRef.current("topic.timeout") };
+        }
+        clearTimeout(timer);
+        topicBusy.current = false;
+        aborter.current = null;
+        if (!mounted.current) return;
+        if (failure === null) {
+          setTopicRun(null);
+          void refresh();
+          return;
+        }
+        // O texto volta ao Meu chat (a chave é uma só, com ou sem id), e a linha ✦ da barra lateral vira "não respondida".
+        await refresh();
+        stashHandoffCanon({ kind: "general" }, { text, mentions: [], error: failure.error, ...(failure.code ? { code: failure.code } : {}) });
+        if (cancelled.current || (stillHere() && openRef.current)) {
+          setTopicRun(null);
+          if (stillHere()) setSelection(generalId === null ? { kind: "general" } : { kind: "conversation", id: generalId });
+        } else {
+          setTopicRun({ run, text, status: "failed" });
+        }
+      })();
+      return null;
+    },
+    [client, openPanel, refresh, stashHandoffCanon, i18n.language],
+  );
+  const cancelTopic = useCallback(() => {
+    cancelled.current = true;
+    aborter.current?.abort();
+  }, []);
+  const openTopicRun = useCallback(() => {
+    const current = topicRunRef.current;
+    if (current === null) return;
+    if (current.status === "sending") {
+      openPanel({ kind: "topic", run: current.run });
+      return;
+    }
+    setTopicRun(null);
+    openGeneral();
+  }, [openPanel, openGeneral]);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -303,13 +465,19 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
       peekHandoff,
       dropHandoff,
       select: openPanel,
+      topicRun,
+      cancelTopic,
+      openTopicRun,
+      handoffTick,
+      startTopic,
+      openGeneral,
       openTicket: (ticketId) => openPanel({ kind: "ticket", ticketId }),
       close,
       refresh,
       setConversationUnread: (id, unread) => setTree((current) => (current === null ? current : withUnread(current, id, unread))),
       showTicket: (id) => showTicketRef.current(id),
     }),
-    [client, opened, open, selection, tree, listFailed, selfId, unreadChats, version, directory, loadDirectory, tickets, loadTickets, shareTickets, stashHandoff, peekHandoff, dropHandoff, close, openPanel, refresh],
+    [client, opened, open, selection, tree, listFailed, selfId, unreadChats, version, directory, loadDirectory, tickets, loadTickets, shareTickets, stashHandoff, peekHandoff, dropHandoff, close, openPanel, refresh, topicRun, cancelTopic, openTopicRun, handoffTick, startTopic, openGeneral],
   );
   return <ChatsContext.Provider value={api}>{children}</ChatsContext.Provider>;
 }

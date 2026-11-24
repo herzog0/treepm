@@ -497,7 +497,6 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "createTestPerson", "deactivateTestPerson", "reactivateTestPerson",
     ...SUMMARY_NAMES,
     "draftTicketDescription",
-    "askProject",
     "createTicketComment", "updateComment", "removeComment",
     "createContribution", "updateContribution", "removeContribution", "putContributionPerson", "removeContributionPerson",
     "getConversationView", "getTicketConversationView", "openTicketConversation", "openGeneralConversation", "sendChatMessage", "addConversationParticipants", "markConversationRead", "clearConversationMessages",
