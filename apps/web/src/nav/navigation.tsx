@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { MouseEvent } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 export type View = "map" | "ideas" | "teams" | "settings" | "import";
@@ -8,6 +8,17 @@ export type View = "map" | "ideas" | "teams" | "settings" | "import";
 type NavView = Exclude<View, "import">;
 
 const LINKS: readonly NavView[] = ["map", "ideas", "teams", "settings"];
+
+/** Ícones das seções na barra lateral (ADR 0055); decorativos, o nome vem do texto. */
+const ICONS: Record<NavView, ReactNode> = {
+  map: (<><rect x="2.5" y="2.5" width="13" height="13" rx="3.5" /><rect x="6" y="6" width="6" height="6" rx="1.5" /></>),
+  ideas: <path d="M9 2.5a4.5 4.5 0 00-2.5 8.2V12h5v-1.3A4.5 4.5 0 009 2.5zM7 14.5h4" />,
+  teams: <path d="M2 15c.6-2.6 2.5-3.9 5-3.9s4.4 1.3 5 3.9M12.5 4.2a2.6 2.6 0 010 4.8M14 11.3c1.3.5 2 1.7 2.3 3.2M9.8 6.5a2.8 2.8 0 11-5.6 0 2.8 2.8 0 015.6 0z" />,
+  settings: (<><circle cx="9" cy="9" r="2.5" /><path d="M9 2v2M9 14v2M2 9h2M14 9h2M4 4l1.4 1.4M12.6 12.6L14 14M4 14l1.4-1.4M12.6 5.4L14 4" /></>),
+};
+export const NavIcon = ({ view }: { view: NavView }) => (
+  <svg className="nav-icon" viewBox="0 0 18 18" aria-hidden="true">{ICONS[view]}</svg>
+);
 
 interface Route {
   view: View;
@@ -108,11 +119,11 @@ export function useView(): [View, NavigateFn, string | null, string | null, (tic
   return [route.view, navigate, route.projectId, route.ticketId, openTicket, route.focusId, clearFocus];
 }
 
-export function AppNav({ view, onNavigate }: { view: View; onNavigate: (view: View) => void }) {
+export function AppNav({ view, onNavigate, links = LINKS }: { view: View; onNavigate: (view: View) => void; links?: readonly NavView[] }) {
   const { t } = useTranslation("nav");
   return (
     <nav className="app-nav" aria-label={t("label")}>
-      {LINKS.map((link) => (
+      {links.map((link) => (
         <a
           key={link}
           href={viewHref(link)}
@@ -123,7 +134,8 @@ export function AppNav({ view, onNavigate }: { view: View; onNavigate: (view: Vi
             onNavigate(link);
           }}
         >
-          {t(link)}
+          <NavIcon view={link} />
+          <span>{t(link)}</span>
         </a>
       ))}
     </nav>

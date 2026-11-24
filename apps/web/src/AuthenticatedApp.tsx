@@ -23,7 +23,8 @@ import { ClerkPreferencesProvider } from "./preferences/ClerkPreferences.js";
 import { ChatShell } from "./chat/ChatShell.js";
 import { ChatsProvider } from "./chat/ChatsContext.js";
 import { chatTicketTarget, useView } from "./nav/navigation.js";
-import { TenantHeader } from "./nav/TenantHeader.js";
+import { Sidebar } from "./nav/Sidebar.js";
+import type { CommandRequest } from "./map/commandRequest.js";
 import { Workspace } from "./Workspace.js";
 
 function meIndicatorKey(result: MeResult | null) {
@@ -66,6 +67,12 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
     if (previousOrgId.current && orgId && previousOrgId.current !== orgId && ticketId !== null) openTicket(null);
     previousOrgId.current = orgId;
   }, [orgId, ticketId, openTicket]);
+  // "Novo ticket" e "Buscar" da barra lateral falam com a barra de pedidos do mapa: o pedido espera o mapa montar e vale uma vez.
+  const [commandRequest, setCommandRequest] = useState<CommandRequest | null>(null);
+  const requestCommand = (kind: CommandRequest["kind"]) => {
+    setCommandRequest((current) => ({ kind, id: (current?.id ?? 0) + 1 }));
+    if (view !== "map") navigate("map");
+  };
   const mustChooseOrganization = session?.currentTask?.key === "choose-organization";
 
   useEffect(() => {
@@ -113,12 +120,20 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
     // Trocar de organização descarta o painel de chats (e o que ele guarda): os chats são da organização.
     <ChatsProvider key={orgId} client={callbackClient} onShowTicket={(id) => navigate("map", null, chatTicketTarget(ticketId, id))}>
       <ChatShell
-        header={
-          <TenantHeader view={view} onNavigate={navigate}>
-            <OrganizationSwitcher hidePersonal />
-            <MeIndicator key={orgId} getToken={getToken} />
-            <UserButton />
-          </TenantHeader>
+        sidebar={
+          <Sidebar
+            view={view}
+            onNavigate={navigate}
+            onNewTicket={() => requestCommand("new")}
+            onSearch={() => requestCommand("search")}
+            organization={<OrganizationSwitcher hidePersonal />}
+            account={
+              <>
+                <UserButton />
+                <MeIndicator key={orgId} getToken={getToken} />
+              </>
+            }
+          />
         }
       >
         {onGithubCallback ? (
@@ -132,7 +147,7 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
             />
           </main>
         ) : (
-          <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} ticketId={ticketId} onOpenTicket={openTicket} focusTicketId={focusId} onFocusHandled={clearFocus} getToken={getToken} />
+          <Workspace orgId={orgId} view={view} projectId={projectId} onNavigate={navigate} ticketId={ticketId} onOpenTicket={openTicket} focusTicketId={focusId} onFocusHandled={clearFocus} commandRequest={commandRequest} onCommandHandled={() => setCommandRequest(null)} getToken={getToken} />
         )}
       </ChatShell>
     </ChatsProvider>

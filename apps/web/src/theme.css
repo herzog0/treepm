@@ -26,6 +26,28 @@
   --tp-danger: #e5687a;
   --tp-danger-text: #f0919b;
 
+  /* Barra lateral fixa e coluna da conversa (ADR 0055): mais claras que o resto, para a casca se separar do mapa. */
+  --tp-side-bg: #171922;
+  --tp-side-border: #2c3040;
+  --tp-side-field: #0f1118;
+  --tp-side-field-border: #343949;
+  --tp-side-hover: #1f2230;
+  --tp-side-strong: #ffffff;
+  --tp-side-text: #d5d8e2;
+  --tp-side-text-2: #b4b9c7;
+  --tp-side-text-3: #9da3b4;
+  --tp-side-selected: #a99bff;
+  --tp-side-on-selected: #15121f;
+  --tp-side-selected-meta: #2c2547;
+  --tp-side-cta: #f2f3f7;
+  --tp-side-on-cta: #14161d;
+  --tp-mention: #ff6b5e;
+  --tp-on-mention: #1b0907;
+  --tp-conv-bg: #10121a;
+  --tp-conv-field: #181b25;
+  --tp-conv-field-border: #3a4052;
+  --tp-conv-text: #e6e8ef;
+
   --tp-font: "Inter Variable", system-ui, sans-serif;
   --tp-font-mono: "JetBrains Mono", ui-monospace, monospace;
   --tp-radius-control: 6px;

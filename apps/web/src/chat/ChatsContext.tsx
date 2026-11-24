@@ -11,10 +11,11 @@ export type Directory =
 
 export interface ChatsApi {
   client: ApiClient;
-  /** O painel já foi aberto alguma vez (depois disso ele fica montado, só escondido, para a conversa em andamento não se perder). */
+  /** A coluna da conversa já foi aberta alguma vez (depois disso ela fica montada, só escondida, para a conversa em andamento não se perder). */
   opened: boolean;
+  /** A coluna da conversa está à vista, ao lado do mapa. A lista "Conversas" fica sempre na barra lateral (ADR 0055). */
   open: boolean;
-  /** O chat aberto no painel; `null` mostra a lista "Meus chats". */
+  /** O chat da coluna; a linha dele na lista fica marcada enquanto `open`. */
   ticketId: string | null;
   chats: ChatListItem[] | null;
   listFailed: boolean;
@@ -24,14 +25,11 @@ export interface ChatsApi {
   version: number;
   directory: Directory;
   loadDirectory: () => void;
-  toggle: () => void;
-  openList: () => void;
   openChat: (ticketId: string) => void;
   close: () => void;
   refresh: () => Promise<void>;
   setChatUnread: (ticketId: string, unread: number) => void;
   showTicket: (ticketId: string) => void;
-  registerButton: (element: HTMLElement | null) => void;
 }
 
 const ChatsContext = createContext<ChatsApi | null>(null);
@@ -49,8 +47,8 @@ interface ChatsProviderProps {
 }
 
 /**
- * O estado do painel de chats (ADR 0049): aberto ou não, o chat aberto e a lista "Meus chats". Vive na memória da sessão (nada em
- * `localStorage`, nada na URL). A lista se atualiza ao abrir o painel e a cada passo do gatilho de 30 s do mapa, e alimenta o número do botão.
+ * O estado dos chats (ADR 0049, ADR 0055): a conversa aberta ao lado do mapa e a lista "Conversas" da barra lateral. Vive na memória da sessão (nada em
+ * `localStorage`, nada na URL). A lista se atualiza ao abrir o painel e a cada passo do gatilho de 30 s do mapa, e alimenta o total de não lidas da barra lateral.
  */
 export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderProps) {
   const [open, setOpen] = useState(false);
@@ -61,7 +59,6 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
   const [version, setVersion] = useState(0);
   const [directory, setDirectory] = useState<Directory>({ status: "idle" });
   const trigger = useRef<HTMLElement | null>(null);
-  const button = useRef<HTMLElement | null>(null);
   const requests = useRef(0);
   const directoryState = useRef<Directory["status"]>("idle");
   const showTicketRef = useRef(onShowTicket);
@@ -103,10 +100,10 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
     });
   }, [client]);
 
-  const openPanel = useCallback((next: string | null | undefined) => {
+  const openPanel = useCallback((next: string) => {
     const active = document.activeElement;
     trigger.current = active instanceof HTMLElement && active !== document.body ? active : null;
-    if (next !== undefined) setTicketId(next);
+    setTicketId(next);
     setOpened(true);
     setOpen(true);
     void refresh();
@@ -114,9 +111,9 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
 
   const close = useCallback(() => {
     setOpen(false);
-    // O foco volta a quem abriu o painel; se esse elemento já não existe, ao botão do cabeçalho.
+    // O foco volta a quem abriu a conversa; se esse elemento já não existe, à linha dela na lista.
     queueMicrotask(() => {
-      const target = trigger.current && trigger.current.isConnected ? trigger.current : button.current;
+      const target = trigger.current && trigger.current.isConnected ? trigger.current : document.querySelector<HTMLElement>("button.conv-row[aria-current]");
       target?.focus();
     });
   }, []);
@@ -133,19 +130,11 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
       version,
       directory,
       loadDirectory,
-      toggle: () => (open ? close() : openPanel(undefined)),
-      openList: () => {
-        setTicketId(null);
-        if (!open) openPanel(null);
-      },
       openChat: (id) => openPanel(id),
       close,
       refresh,
       setChatUnread: (id, unread) => setChats((current) => (current === null ? current : current.map((chat) => (chat.ticketId === id ? { ...chat, unread } : chat)))),
       showTicket: (id) => showTicketRef.current(id),
-      registerButton: (element) => {
-        button.current = element;
-      },
     }),
     [client, opened, open, ticketId, chats, listFailed, version, directory, loadDirectory, close, openPanel, refresh],
   );

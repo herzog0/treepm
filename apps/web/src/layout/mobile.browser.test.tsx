@@ -108,12 +108,24 @@ for (const [width, height] of VIEWPORTS) {
           expect(smallText()).toEqual([]);
           expect(smallFields()).toEqual([]);
         });
-        it("a navegação, o seletor da organização e o avatar cabem e se alcançam", async () => {
+        it("o botão do topo abre a gaveta; a navegação, a organização, a pessoa e Configurações cabem e se alcançam", async () => {
           await page.viewport(width, height);
           await renderScreen(name);
-          const parts = [...all(".app-nav a"), q(".cl-organizationSwitcherTrigger")!, q(".cl-userButtonTrigger")!];
-          expect(parts).toHaveLength(6);
+          const menu = q<HTMLElement>(".tenant-menu-button")!;
+          expect(visible(menu)).toBe(true);
+          expect(q(".sidebar") && visible(q(".sidebar")!), "gaveta fechada").toBeFalsy();
+          const strip = rectOf(menu);
+          expect(strip.top).toBeGreaterThanOrEqual(0);
+          menu.click();
+          await settle(200);
+          const bar = rectOf(q(".sidebar")!);
+          expect(bar.left).toBe(0);
+          expect(bar.width).toBeLessThanOrEqual(320);
+          expect(bar.height).toBe(window.innerHeight);
+          const parts = [menu, q(".cl-organizationSwitcherTrigger")!, q(".sidebar-new")!, q(".sidebar-search")!, ...all(".app-nav a"), q(".sidebar-settings")!, q(".cl-userButtonTrigger")!];
+          expect(parts).toHaveLength(9);
           for (const el of parts) {
+            if (el === menu) continue;
             const r = rectOf(el);
             expect(within(r), label(el)).toBe(true);
             expect(r.top, label(el)).toBeGreaterThanOrEqual(0);
@@ -122,6 +134,20 @@ for (const [width, height] of VIEWPORTS) {
             expect(w, label(el)).toBeGreaterThanOrEqual(TOUCH - 0.5);
             expect(h, label(el)).toBeGreaterThanOrEqual(TOUCH - 0.5);
           }
+          // Com a gaveta aberta: nada passa da borda, alvos de 44 px e texto legível.
+          expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+          expect(stickingOut()).toEqual([]);
+          expect(smallTargets()).toEqual([]);
+          expect(smallText()).toEqual([]);
+        });
+        it("escolher um destino da gaveta fecha a gaveta", async () => {
+          await page.viewport(width, height);
+          await renderScreen(name);
+          q<HTMLElement>(".tenant-menu-button")!.click();
+          await settle(200);
+          all<HTMLAnchorElement>(".app-nav a").find((link) => link.textContent === "Times")!.click();
+          await settle(200);
+          expect(visible(q(".sidebar")!)).toBe(false);
         });
       });
     }

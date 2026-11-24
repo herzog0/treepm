@@ -9,7 +9,7 @@ import "../controls.css";
 import type { ApiClient } from "../api/client.js";
 import { OrganizationMap } from "../map/OrganizationMap.js";
 import { chatTicketTarget } from "../nav/navigation.js";
-import { TenantHeader } from "../nav/TenantHeader.js";
+import { TestSidebar } from "../layout/testSidebar.js";
 import { makePanelMe, makePerson } from "../panel/testing.js";
 import { createFakeChat, makeMe, makeProject, makeTicket, makeTreeClient } from "../test/fakes.js";
 import type { FakeChat } from "../test/chatFakes.js";
@@ -56,7 +56,7 @@ function Host({ setup }: { setup: Setup }) {
   return (
     <div id="root" style={{ height: "100dvh" }}>
       <ChatsProvider client={api} onShowTicket={(id) => { const target = chatTicketTarget(open, id); setOpen(target.ticketId ?? null); setFocus(target.focusId ?? null); }}>
-        <ChatShell header={<TenantHeader view="map" onNavigate={() => {}}><span /></TenantHeader>}>
+        <ChatShell sidebar={<TestSidebar />}>
           <main className="tenant-map">
             <OrganizationMap client={api} me={panelMe} openTicketId={open} onOpenTicketChange={setOpen} focusTicketId={focus} onFocusHandled={() => setFocus(null)} />
           </main>
@@ -68,8 +68,9 @@ function Host({ setup }: { setup: Setup }) {
 
 const q = <T extends Element = HTMLElement>(selector: string) => document.querySelector<T>(selector);
 const inPanel = (text: RegExp | string) => [...document.querySelectorAll<HTMLElement>(".chat-panel button, .chat-panel [role=tab], .chat-panel [role=menuitem]")].find((el) => (typeof text === "string" ? (el.textContent ?? "").includes(text) || el.getAttribute("aria-label") === text : text.test(`${el.textContent} ${el.getAttribute("aria-label") ?? ""}`)))!;
-const openPanel = async () => { q<HTMLButtonElement>("button.tenant-chats")!.click(); await settle(); };
-const openChat = async (key: string) => { inPanel(new RegExp(key)).click(); await settle(); };
+/** A lista "Conversas" está sempre na barra lateral; no celular ela fica na gaveta, que o passo "abrir" abre. */
+const openPanel = async () => { if (window.innerWidth <= 720) { q<HTMLButtonElement>(".tenant-menu-button")!.click(); await settle(); } };
+const openChat = async (key: string) => { [...document.querySelectorAll<HTMLButtonElement>("button.conv-row")].find((row) => new RegExp(key).test(row.textContent ?? ""))!.click(); await settle(); };
 const type = async (text: string) => { await page.getByRole("textbox", { name: "Mensagem" }).fill(text); await settle(200); };
 
 describe.skipIf(!ON)("capturas do chat por ticket", () => {

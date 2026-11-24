@@ -3,5 +3,17 @@
   "map": "Map",
   "ideas": "Ideas",
   "teams": "Teams",
-  "settings": "Settings"
+  "settings": "Settings",
+  "sidebar": {
+    "label": "Sidebar",
+    "newTicket": "New ticket",
+    "search": "Search",
+    "shortcut": "Ctrl K",
+    "shortcutMac": "⌘ K",
+    "settings": "Settings",
+    "menuOpen": "Open the menu",
+    "menuClose": "Close the menu",
+    "menuUnread_one": "Open the menu, {{count}} unread conversation",
+    "menuUnread_other": "Open the menu, {{count}} unread conversations"
+  }
 }

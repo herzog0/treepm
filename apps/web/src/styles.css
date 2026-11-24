@@ -22,51 +22,34 @@ code { font-family: var(--tp-font-mono); }
 .tenant-shell {
   display: grid;
   height: 100%;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: 296px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
-.tenant-header {
-  display: flex;
-  min-height: 48px;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px 12px;
-  padding: 0 clamp(10px, 2vw, 22px);
-  border-bottom: 1px solid var(--tp-divider);
-  background: var(--tp-bar);
-  color: var(--tp-text);
-}
-.tenant-controls { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.tenant-api-status { color: var(--tp-text-2); font-size: 12px; }
-.tenant-api-status:empty { position: absolute; }
+/* A tela (mapa, ideias, times…) é o que sobra na última coluna; a faixa do topo só existe em tela estreita. */
+.tenant-shell > :not(.tenant-topbar):not(.sidebar):not(.chat-panel):not(.tenant-drawer-backdrop) { grid-column: -2 / -1; grid-row: 1; min-width: 0; min-height: 0; overflow: auto; }
+.tenant-shell > .sidebar { grid-column: 1; grid-row: 1; }
+.tenant-topbar { display: none; }
+.tenant-drawer-backdrop { display: none; }
+.tenant-api-status { color: var(--tp-side-text-3); font-size: 12px; }
+.tenant-api-status:empty { display: none; }
 .tenant-map { min-width: 0; }
-.tenant-brand { display: flex; align-items: center; gap: 18px; }
-.tenant-brand strong { font-size: 14px; font-weight: 600; }
-.app-nav { display: flex; gap: 4px; }
-.app-nav a { padding: 5px 10px; border-radius: var(--tp-radius-control); color: var(--tp-text-2); font-size: 13px; text-decoration: none; }
-.app-nav a:hover { background: var(--tp-raised); color: var(--tp-text); }
-.app-nav a[aria-current="page"] { background: var(--tp-selected); color: var(--tp-text); }
-.app-nav a:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
 .teams-screen { min-width: 0; padding: 24px clamp(10px, 2vw, 22px); color: var(--tp-text); }
 .teams-screen h1 { margin: 0; font-size: 22px; font-weight: 600; }
-
 /*
- * Tela estreita (TREEPM-231): até 720 px de largura o cabeçalho vira duas linhas compactas (marca e abas; organização, estado e avatar),
- * a altura é a real da tela (`dvh`) e as margens seguras do aparelho entram. Acima de 720 px nada disto vale.
+ * Tela estreita (TREEPM-231, ADR 0055): até 720 px a barra lateral vira uma gaveta, aberta pelo botão da faixa do topo; a altura é a
+ * real da tela (`dvh`) e as margens seguras do aparelho entram. Acima de 720 px nada disto vale.
  * `interactive-widget=resizes-content` (index.html) faz o teclado virtual do Chrome encolher a altura de `dvh`: o conteúdo fica acima dele.
  */
 @media (max-width: 720px) {
-  /* A coluna única não cresce com o conteúdo do cabeçalho: o seletor da organização encolhe em vez de empurrar a página para o lado. */
-  .tenant-shell { height: 100dvh; grid-template-columns: minmax(0, 1fr); }
-  .tenant-header { padding: env(safe-area-inset-top) max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left)); gap: 0; }
-  .tenant-brand { flex: 1 1 100%; min-width: 0; gap: 10px; }
-  .tenant-brand strong { flex: none; }
-  .app-nav { flex: 1; min-width: 0; gap: 2px; }
-  .app-nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; font-size: 14px; white-space: nowrap; }
-  .tenant-controls { flex: 1 1 100%; justify-content: space-between; gap: 8px; min-height: 44px; border-top: 1px solid var(--tp-divider); }
-  .tenant-controls .cl-organizationSwitcherTrigger { min-height: 44px; max-width: 100%; }
-  .tenant-controls > :is(.cl-organizationSwitcherTrigger, :has(.cl-organizationSwitcherTrigger)) { min-width: 0; flex: 0 1 auto; }
-  .tenant-controls .cl-userButtonTrigger { min-width: 44px; min-height: 44px; }
-  .tenant-api-status { flex: none; white-space: nowrap; }
+  .tenant-shell { height: 100dvh; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .tenant-shell > :not(.tenant-topbar):not(.sidebar):not(.chat-panel):not(.tenant-drawer-backdrop) { grid-column: 1; grid-row: 2; }
+  .tenant-topbar { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: env(safe-area-inset-top) max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left)); border-bottom: 1px solid var(--tp-side-border); background: var(--tp-side-bg); color: var(--tp-side-strong); }
+  .tenant-menu-button { position: relative; display: grid; place-items: center; min-width: 44px; min-height: 44px; padding: 0; border: 0; border-radius: var(--tp-radius-field); background: transparent; color: var(--tp-side-text); cursor: pointer; }
+  .tenant-menu-button .chat-badge { position: absolute; top: 4px; right: 2px; font-size: 12px; }
+  .tenant-menu-button:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
+  .tenant-brand-name { font-size: 14px; font-weight: 600; }
+  .tenant-shell:not(.has-drawer) > .sidebar { display: none; }
+  .tenant-shell > .sidebar { position: fixed; z-index: 50; top: 0; bottom: 0; left: 0; width: min(320px, 88vw); height: 100dvh; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); padding-left: env(safe-area-inset-left); box-shadow: 12px 0 32px color-mix(in srgb, var(--tp-bg) 70%, transparent); }
+  .tenant-drawer-backdrop { display: block; position: fixed; z-index: 45; inset: 0; background: color-mix(in srgb, var(--tp-bg) 60%, transparent); }
   .teams-screen { padding: 16px max(10px, env(safe-area-inset-right)) 24px max(10px, env(safe-area-inset-left)); }
 }

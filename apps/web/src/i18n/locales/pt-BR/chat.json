@@ -1,15 +1,10 @@
 {
-  "button": {
-    "label": "Chats",
-    "withUnread": "Chats, não lidas: {{count}}"
-  },
   "panel": {
-    "label": "Chats",
-    "close": "Fechar o painel de chats",
-    "back": "Voltar para a lista de chats"
+    "label": "Conversa do ticket",
+    "close": "Fechar a conversa"
   },
   "list": {
-    "title": "Meus chats",
+    "title": "Conversas",
     "loading": "Carregando os chats…",
     "loadFailed": "Não foi possível carregar os chats.",
     "retry": "Tentar de novo",

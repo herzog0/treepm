@@ -21,11 +21,11 @@ function setup(withProvider: boolean) {
 }
 
 describe("Abrir chat on the ticket page", () => {
-  it("opens the chats panel on that ticket's chat", async () => {
+  it("opens the conversation column on that ticket's chat", async () => {
     const user = userEvent.setup();
     setup(true);
     await user.click(await screen.findByRole("button", { name: "Abrir chat" }));
-    const panel = await screen.findByRole("complementary", { name: "Chats" });
+    const panel = await screen.findByRole("complementary", { name: "Conversa do ticket" });
     expect(await screen.findByRole("tab", { name: "Conversa" })).toBeInTheDocument();
     expect(panel).toHaveTextContent("ALFA-1");
   });

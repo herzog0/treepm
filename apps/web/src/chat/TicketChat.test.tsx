@@ -5,11 +5,10 @@ import { failed, makeMe } from "../test/fakes.js";
 import { ALFA2, renderChats } from "./chatTesting.js";
 import type { ChatSetup } from "./chatTesting.js";
 
-/** Abre o painel e o chat do ticket (por padrão ALFA-1, de que a pessoa é responsável). */
+/** Abre o chat do ticket pela lista "Conversas" (por padrão ALFA-1, de que a pessoa é responsável). */
 async function openChat(setup: ChatSetup = {}, ticketKey = "ALFA-1") {
   const user = userEvent.setup();
   const view = renderChats(setup);
-  await user.click(await screen.findByRole("button", { name: /^Chats/ }));
   await user.click(await screen.findByRole("button", { name: new RegExp(ticketKey) }));
   await screen.findByRole("tab", { name: "Conversa" });
   return { user, ...view };
@@ -34,7 +33,7 @@ describe("a ticket's chat", () => {
   it("lists the conversation with the newest at the bottom and loads the earlier ones with the opaque cursor", async () => {
     const { chat, client, user } = await openChat();
     chat.seedConversation("t1", Array.from({ length: 20 }, (_, index) => ({ person: `pergunta ${index + 1}`, assistant: `resposta ${index + 1}` })));
-    await user.click(screen.getByRole("button", { name: "Voltar para a lista de chats" }));
+    await user.click(screen.getByRole("button", { name: "Fechar a conversa" }));
     await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
     await screen.findByText("resposta 20");
     const texts = within(log()).getAllByRole("listitem").map((item) => item.textContent ?? "");
@@ -173,7 +172,7 @@ describe("talking to the assistant", () => {
     const { chat, user } = await openChat();
     chat.seedConversation("t1", [{ person: "pergunta antiga", assistant: "resposta antiga" }]);
     chat.receiveThread("t1", { from: "person-2", body: "uma thread" });
-    await user.click(screen.getByRole("button", { name: "Voltar para a lista de chats" }));
+    await user.click(screen.getByRole("button", { name: "Fechar a conversa" }));
     await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
     await screen.findByText("resposta antiga");
     await user.click(screen.getByRole("button", { name: "Opções do chat" }));
@@ -222,7 +221,7 @@ describe("mentions and threads", () => {
     expect(field()).toHaveValue("olá ");
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Mencionar pessoas" })).toBeNull();
-    expect(screen.getByRole("complementary", { name: "Chats" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Conversa do ticket" })).toBeInTheDocument();
     expect(field()).toHaveFocus();
   });
 
@@ -262,7 +261,7 @@ describe("mentions and threads", () => {
   it("opens a thread: the root, the replies and a field to reply that can mention more people", async () => {
     const { chat, client, user } = await openChat();
     chat.receiveThread("t1", { from: "person-2", body: "Raiz da thread", replies: [{ from: "person-3", body: "Primeira resposta" }] });
-    await user.click(screen.getByRole("button", { name: "Voltar para a lista de chats" }));
+    await user.click(screen.getByRole("button", { name: "Fechar a conversa" }));
     await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
     expect(await screen.findByText("de Bia, numa thread")).toBeInTheDocument();
     expect(screen.getByText("1 resposta")).toBeInTheDocument();
@@ -279,7 +278,7 @@ describe("mentions and threads", () => {
   it("always shows the thread messages as plain text with line breaks, never as the assistant's markdown", async () => {
     const { chat, user } = await openChat();
     chat.receiveThread("t1", { from: "person-2", body: "# não é título\n**nem negrito**" });
-    await user.click(screen.getByRole("button", { name: "Voltar para a lista de chats" }));
+    await user.click(screen.getByRole("button", { name: "Fechar a conversa" }));
     await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
     const root = await screen.findByText(/não é título/);
     expect(root.textContent).toBe("# não é título\n**nem negrito**");
@@ -291,10 +290,13 @@ describe("who sees what: assigned to me × started by me", () => {
   async function open(assignedToMe: boolean, startedByMe: boolean) {
     const user = userEvent.setup();
     const ticket = { ...ALFA2, assignedToMe };
-    const view = renderChats({ tickets: [ticket] });
-    if (startedByMe) view.chat.receiveThread("t2", { from: "person-1", body: "minha thread", to: ["person-2"] });
-    else view.chat.receiveThread("t2", { from: "person-2", body: "thread do outro" });
-    await user.click(await screen.findByRole("button", { name: /^Chats/ }));
+    const view = renderChats({
+      tickets: [ticket],
+      seed: (chat) => {
+        if (startedByMe) chat.receiveThread("t2", { from: "person-1", body: "minha thread", to: ["person-2"] });
+        else chat.receiveThread("t2", { from: "person-2", body: "thread do outro" });
+      },
+    });
     await user.click(await screen.findByRole("button", { name: /ALFA-2/ }));
     await screen.findByRole("tab", { name: "Conversa" });
     return { user, ...view };
@@ -337,7 +339,6 @@ describe("what was read", () => {
     const user = userEvent.setup();
     const view = renderChats(setup);
     seed(view.chat);
-    await user.click(await screen.findByRole("button", { name: /^Chats/ }));
     await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
     await screen.findByRole("tab", { name: "Conversa" });
     return { user, ...view };
@@ -347,7 +348,7 @@ describe("what was read", () => {
     const { client } = await openSeeded((chat) => chat.seedConversation("t1", [{ person: "oi", assistant: "olá" }]));
     await waitFor(() => expect(client.markChatRead).toHaveBeenCalledWith("t1", { upTo: "c2" }));
     expect(client.markChatRead).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Chats" })).toBeInTheDocument());
+    await waitFor(() => expect(document.querySelector(".conv-section-total")).toBeNull());
   });
 
   it("does not mark anything while the end of the list is out of sight, and marks when the person scrolls to it", async () => {
@@ -363,16 +364,16 @@ describe("what was read", () => {
     await waitFor(() => expect(client.markChatRead).toHaveBeenCalledWith("t1", { upTo: "c2" }));
   });
 
-  it("opening a thread marks it as read up to its newest reply, and the button count goes down", async () => {
+  it("opening a thread marks it as read up to its newest reply, and the unread total of the list goes down", async () => {
     const { chat, client, user } = await openSeeded((chat) => {
       chat.receiveThread("t1", { from: "person-2", body: "Raiz", replies: [{ from: "person-2", body: "Resposta" }] });
     });
-    expect(screen.getByRole("button", { name: "Chats, não lidas: 1" })).toBeInTheDocument();
+    expect(document.querySelector(".conv-section-total")).toHaveTextContent("1 não lida");
     await user.click(await screen.findByRole("button", { name: "Abrir thread" }));
     await screen.findByText("Resposta");
     await waitFor(() => expect(client.markChatRead).toHaveBeenCalledWith("t1", { upTo: "c2" }));
     void chat;
-    await waitFor(() => expect(screen.getByRole("button", { name: "Chats" })).toBeInTheDocument());
+    await waitFor(() => expect(document.querySelector(".conv-section-total")).toBeNull());
   });
 });
 
@@ -411,7 +412,7 @@ describe("rendering text safely", () => {
   it("shows a person's message as plain text, turning only http(s) addresses into links", async () => {
     const { chat, user } = await openChat();
     chat.receiveThread("t1", { from: "person-2", body: "veja https://exemplo.com/a?b=1, e javascript:alert(1) e <b>x</b> ![i](http://e.example/i.png)" });
-    await user.click(screen.getByRole("button", { name: "Voltar para a lista de chats" }));
+    await user.click(screen.getByRole("button", { name: "Fechar a conversa" }));
     await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
     const root = await screen.findByText(/veja/);
     const links = [...root.querySelectorAll("a")];
@@ -427,10 +428,10 @@ describe("rendering text safely", () => {
   it("uses no remote image for people: initials only", async () => {
     const { chat, user } = await openChat();
     chat.receiveThread("t1", { from: "person-2", body: "oi" });
-    await user.click(screen.getByRole("button", { name: "Voltar para a lista de chats" }));
+    await user.click(screen.getByRole("button", { name: "Fechar a conversa" }));
     await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
     await screen.findByText("oi");
-    expect(screen.getByRole("complementary", { name: "Chats" }).querySelector("img")).toBeNull();
+    expect(screen.getByRole("complementary", { name: "Conversa do ticket" }).querySelector("img")).toBeNull();
   });
 });
 
@@ -447,8 +448,7 @@ describe("archived project and languages", () => {
     await setTestLanguage("en");
     const user = userEvent.setup();
     renderChats();
-    await user.click(await screen.findByRole("button", { name: "Chats" }));
-    expect(await screen.findByRole("heading", { name: "My chats" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
     expect(await screen.findByRole("tab", { name: "Conversation" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Mentions" })).toBeInTheDocument();
@@ -463,7 +463,6 @@ describe("archived project and languages", () => {
     await setTestLanguage(language as "en" | "es-MX");
     const user = userEvent.setup();
     renderChats({ assistant: "no_consent", me: makeMe({ assistant: true, consent: false }) });
-    await user.click(await screen.findByRole("button", { name: /^Chats/ }));
     await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent(phrase);
   });
@@ -473,8 +472,7 @@ describe("archived project and languages", () => {
     await setTestLanguage("es-MX");
     const user = userEvent.setup();
     renderChats();
-    await user.click(await screen.findByRole("button", { name: "Chats" }));
-    expect(await screen.findByRole("heading", { name: "Mis chats" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Conversaciones" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
     expect(await screen.findByRole("tab", { name: "Conversación" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Mensaje" })).toBeInTheDocument();

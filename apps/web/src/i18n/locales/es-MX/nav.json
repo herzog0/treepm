@@ -3,5 +3,18 @@
   "map": "Mapa",
   "ideas": "Ideas",
   "teams": "Equipos",
-  "settings": "Configuración"
+  "settings": "Configuración",
+  "sidebar": {
+    "label": "Barra lateral",
+    "newTicket": "Nuevo ticket",
+    "search": "Buscar",
+    "shortcut": "Ctrl K",
+    "shortcutMac": "⌘ K",
+    "settings": "Configuración",
+    "menuOpen": "Abrir el menú",
+    "menuClose": "Cerrar el menú",
+    "menuUnread_one": "Abrir el menú, {{count}} conversación sin leer",
+    "menuUnread_many": "Abrir el menú, {{count}} conversaciones sin leer",
+    "menuUnread_other": "Abrir el menú, {{count}} conversaciones sin leer"
+  }
 }

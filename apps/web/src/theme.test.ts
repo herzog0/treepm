@@ -68,6 +68,73 @@ describe("theme.css", () => {
   });
 });
 
+/** Tokens da barra lateral e da coluna da conversa (ADR 0055). */
+const SIDE: Record<string, string> = {
+  "--tp-side-bg": "#171922",
+  "--tp-side-border": "#2c3040",
+  "--tp-side-field": "#0f1118",
+  "--tp-side-field-border": "#343949",
+  "--tp-side-hover": "#1f2230",
+  "--tp-side-strong": "#ffffff",
+  "--tp-side-text": "#d5d8e2",
+  "--tp-side-text-2": "#b4b9c7",
+  "--tp-side-text-3": "#9da3b4",
+  "--tp-side-selected": "#a99bff",
+  "--tp-side-on-selected": "#15121f",
+  "--tp-side-selected-meta": "#2c2547",
+  "--tp-side-cta": "#f2f3f7",
+  "--tp-side-on-cta": "#14161d",
+  "--tp-mention": "#ff6b5e",
+  "--tp-on-mention": "#1b0907",
+  "--tp-conv-bg": "#10121a",
+  "--tp-conv-field": "#181b25",
+  "--tp-conv-field-border": "#3a4052",
+  "--tp-conv-text": "#e6e8ef",
+};
+const luminance = (hex: string) => {
+  const channel = (at: number) => {
+    const value = Number.parseInt(hex.slice(at, at + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+};
+const contrast = (a: string, b: string) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+  return (hi + 0.05) / (lo + 0.05);
+};
+
+describe("sidebar tokens (ADR 0055)", () => {
+  it.each(Object.entries(SIDE))("defines %s as %s on :root", (name, value) => {
+    expect(tokenValue(name)).toBe(value);
+  });
+
+  // Texto sobre fundo, mínimo 4,5:1 (WCAG AA): cada par que a barra, a conversa e as linhas selecionadas usam.
+  it.each([
+    ["--tp-side-strong", "--tp-side-bg"],
+    ["--tp-side-text", "--tp-side-bg"],
+    ["--tp-side-text-2", "--tp-side-bg"],
+    ["--tp-side-text-3", "--tp-side-bg"],
+    ["--tp-side-text-3", "--tp-side-field"],
+    ["--tp-side-text-2", "--tp-side-field"],
+    ["--tp-side-text", "--tp-side-hover"],
+    ["--tp-side-text-3", "--tp-side-hover"],
+    ["--tp-side-on-selected", "--tp-side-selected"],
+    ["--tp-side-selected-meta", "--tp-side-selected"],
+    ["--tp-side-on-cta", "--tp-side-cta"],
+    ["--tp-on-mention", "--tp-mention"],
+    ["--tp-conv-text", "--tp-conv-bg"],
+    ["--tp-side-text-3", "--tp-conv-bg"],
+    ["--tp-side-text-2", "--tp-conv-bg"],
+    ["--tp-side-strong", "--tp-conv-bg"],
+    ["--tp-conv-text", "--tp-conv-field"],
+    ["--tp-side-text-3", "--tp-conv-field"],
+    ["--tp-accent-soft", "--tp-conv-field"],
+    ["--tp-accent-soft", "--tp-conv-bg"],
+  ])("%s on %s has at least 4.5:1", (foreground, background) => {
+    expect(contrast(tokenValue(foreground)!, tokenValue(background)!)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
 describe("idea color (ADR 0042)", () => {
   it("is distinct from every status color and from the accent", () => {
     expect([...new Set([...Object.values(STATUS_COLORS), ACCENT_COLOR])]).not.toContain(IDEA_COLOR);

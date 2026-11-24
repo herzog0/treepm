@@ -13,23 +13,21 @@ import { ImportScreen } from "../import/ImportScreen.js";
 import { OrganizationMap } from "../map/OrganizationMap.js";
 import { ChatShell } from "../chat/ChatShell.js";
 import { ChatsProvider } from "../chat/ChatsContext.js";
-import { TenantHeader } from "../nav/TenantHeader.js";
+import { TestSidebar } from "./testSidebar.js";
 import type { View } from "../nav/navigation.js";
 import { makePanelMe, makePerson, makeTeam } from "../panel/testing.js";
 import { SettingsScreen } from "../settings/SettingsScreen.js";
 import { MemoryPreferencesProvider } from "../preferences/context.js";
 import { TeamsScreen } from "../teams/TeamsScreen.js";
-import { fakeToken, makeClient, makeMe, makeProject, makeTicket, makeToken, makeTreeClient, ok } from "../test/fakes.js";
+import { createFakeChat, fakeToken, makeClient, makeMe, makeProject, makeTicket, makeToken, makeTreeClient, ok } from "../test/fakes.js";
 
 /**
- * As telas principais montadas como o `AuthenticatedApp` as monta (cabeçalho + tela dentro de `.tenant-shell`, em `#root`),
- * com o seletor da organização e o avatar do Clerk trocados por botões de mesmo tamanho e mesmas classes `cl-*`.
+ * As telas principais montadas como o `AuthenticatedApp` as monta (barra lateral + tela dentro de `.tenant-shell`, em `#root`),
+ * com o seletor da organização e o avatar do Clerk trocados por botões de mesmo tamanho e mesmas classes `cl-*` (`testSidebar.tsx`).
  * Usado pelas suítes de navegador do layout (TREEPM-231): a estreita e a de desktop inalterado.
  */
 export type LayoutScreen = "map" | "ticket" | "teams" | "settings" | "import" | "ideas";
 
-// Textos do Clerk trocados por botões: não são da interface do TreePM.
-const STUB = { org: "Organização de Teste Ltda", status: "Administrador", account: "Conta" };
 const project = makeProject("p1", "ALFA", "Projeto Alfa");
 const ana = { id: "person-1", displayName: "Ana Souza", avatarUrl: null };
 const bruno = { id: "person-2", displayName: "Bruno Lima", avatarUrl: null };
@@ -100,22 +98,22 @@ function ideasClient(): ApiClient {
 
 function Shell({ view, children }: { view: View; children: ReactNode }) {
   const [current, setCurrent] = useState(view);
-  // Como a aplicação: o provedor e a casca do painel de chats (ADR 0049), que põem o botão "Chats" no cabeçalho e o "Abrir chat" na página do ticket.
-  const [chatClient] = useState(() => makeClient({}));
+  // Como a aplicação: o provedor e a casca com a barra lateral fixa (ADR 0055), que traz a lista "Conversas" e o "Abrir chat" da página do ticket.
+  const [chatClient] = useState(() => {
+    const chat = createFakeChat({
+      tickets: [
+        { id: "t1", key: "ALFA-1", title: "Tela de acesso por token com um título bem comprido para quebrar linha na lista", projectId: "p1", assignedToMe: true },
+        { id: "t2", key: "ALFA-2", title: "Publicação", projectId: "p1" },
+        { id: "t3", key: "ALFA-3", title: "Filho do primeiro", projectId: "p1", assignedToMe: true },
+      ],
+      people: [makePerson("person-1", "Ana Souza"), makePerson("person-2", "Bruno Lima")],
+    });
+    chat.receiveThread("t2", { from: "person-2", body: "Olha isto antes de publicar", replies: [{ from: "person-2", body: "e isto" }] });
+    return makeClient({ chat });
+  });
   return (
     <ChatsProvider client={chatClient} onShowTicket={vi.fn()}>
-      <ChatShell header={
-      <TenantHeader view={current} onNavigate={setCurrent}>
-        <button type="button" className="cl-organizationSwitcherTrigger" style={{ display: "flex", alignItems: "center", gap: 8, height: 36, padding: "0 10px", border: 0, borderRadius: 6, background: "transparent", color: "inherit", font: "500 14px var(--tp-font)" }}>
-          <span aria-hidden style={{ flex: "none", width: 24, height: 24, borderRadius: 6, background: "#7c5cff" }} />
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{STUB.org}</span>
-        </button>
-        <span className="tenant-api-status" role="status">{STUB.status}</span>
-        <button type="button" className="cl-userButtonTrigger" aria-label={STUB.account} style={{ width: 28, height: 28, padding: 0, border: 0, borderRadius: "50%", background: "#3a4767" }} />
-      </TenantHeader>
-      }>
-        {children}
-      </ChatShell>
+      <ChatShell sidebar={<TestSidebar view={current} onNavigate={setCurrent} />}>{children}</ChatShell>
     </ChatsProvider>
   );
 }

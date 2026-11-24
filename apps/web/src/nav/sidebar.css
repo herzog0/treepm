@@ -1,0 +1,59 @@
+/* Barra lateral fixa (ADR 0055): 296 px, sempre à vista no desktop; em tela estreita é uma gaveta (regras no fim de `styles.css`). Cores só por tokens. */
+.sidebar { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--tp-side-border); background: var(--tp-side-bg); color: var(--tp-side-text); font-size: 14px; line-height: 1.4; }
+.sidebar :is(button, a):focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
+.nav-icon { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+.sidebar-org { display: flex; align-items: center; flex: none; min-height: 64px; padding: 0 16px; border-bottom: 1px solid var(--tp-side-border); color: var(--tp-side-strong); }
+.sidebar-org > * { min-width: 0; max-width: 100%; }
+.sidebar-org .cl-organizationSwitcherTrigger { width: 100%; max-width: 100%; min-height: 44px; }
+.sidebar-org .cl-organizationSwitcherTrigger * { color: var(--tp-side-strong); }
+
+.sidebar-actions { display: flex; flex: none; flex-direction: column; gap: 12px; padding: 14px 12px 4px; }
+.sidebar-new { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; border: 0; border-radius: var(--tp-radius-field); background: var(--tp-side-cta); color: var(--tp-side-on-cta); font: inherit; font-weight: 600; cursor: pointer; }
+.sidebar-new:hover { background: var(--tp-side-text); }
+.sidebar-search { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 12px; border: 1px solid var(--tp-side-field-border); border-radius: var(--tp-radius-field); background: var(--tp-side-field); color: var(--tp-side-text-3); font: inherit; text-align: left; cursor: pointer; }
+.sidebar-search:hover { border-color: var(--tp-side-text-3); }
+.sidebar-search-label { flex: 1; }
+.sidebar-search kbd { padding: 1px 6px; border: 1px solid var(--tp-side-field-border); border-radius: 5px; color: var(--tp-side-text-2); font-family: var(--tp-font-mono); font-size: 11px; }
+
+.sidebar .app-nav { display: flex; flex: none; flex-direction: column; gap: 2px; padding: 10px 12px 0; }
+.sidebar .app-nav a { display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 0 12px; border-radius: var(--tp-radius-field); color: var(--tp-side-text); font-weight: 500; text-decoration: none; }
+.sidebar .app-nav a:hover { background: var(--tp-side-hover); color: var(--tp-side-strong); }
+.sidebar .app-nav a[aria-current="page"] { background: var(--tp-side-selected); color: var(--tp-side-on-selected); font-weight: 600; }
+
+.sidebar-conversations { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; }
+.conv-section { display: flex; flex-direction: column; min-height: 0; }
+.conv-section-head { display: flex; align-items: center; gap: 8px; padding: 18px 24px 8px; color: var(--tp-side-text-3); }
+.conv-section-head h2 { flex: 1; margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.conv-section-total { color: var(--tp-side-text); font-size: 11px; font-weight: 600; }
+.conv-hint { margin: 0; padding: 4px 24px 12px; color: var(--tp-side-text-3); font-size: 12.5px; }
+.conv-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 12px 8px; list-style: none; }
+.conv-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; grid-template-areas: "dot title time" "dot meta badge"; align-items: center; column-gap: 12px; row-gap: 1px; width: 100%; padding: 8px 12px; border: 0; border-radius: var(--tp-radius-field); background: transparent; color: var(--tp-side-text-2); font: inherit; text-align: left; cursor: pointer; }
+.conv-row:hover { background: var(--tp-side-hover); }
+.conv-dot { grid-area: dot; width: 10px; height: 10px; border-radius: 50%; }
+.conv-title { grid-area: title; overflow: hidden; color: var(--tp-side-text); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.conv-key { margin-right: 8px; font-size: 11px; font-weight: 600; opacity: 0.75; }
+.conv-time { grid-area: time; color: var(--tp-side-text-3); font-size: 11px; }
+.conv-assigned { grid-area: meta; overflow: hidden; color: var(--tp-side-text-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.conv-badge { grid-area: badge; display: grid; place-items: center; justify-self: end; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--tp-side-selected); color: var(--tp-side-on-selected); font-size: 11px; font-weight: 700; }
+.conv-row.is-unread .conv-title { color: var(--tp-side-strong); font-weight: 700; }
+.conv-row.is-unread .conv-assigned { color: var(--tp-side-text); }
+.conv-row[aria-current] { background: var(--tp-side-selected); }
+.conv-row[aria-current] .conv-title { color: var(--tp-side-on-selected); font-weight: 700; }
+.conv-row[aria-current] :is(.conv-time, .conv-assigned) { color: var(--tp-side-selected-meta); }
+.conv-row[aria-current] .conv-dot { box-shadow: 0 0 0 2px var(--tp-side-selected), 0 0 0 3.5px var(--tp-side-on-selected); }
+
+.sidebar-foot { display: flex; align-items: center; flex: none; gap: 12px; padding: 10px 12px; border-top: 1px solid var(--tp-side-border); }
+.sidebar-account { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; }
+.sidebar-account .cl-userButtonTrigger { min-width: 34px; min-height: 34px; }
+.sidebar-settings { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border: 1px solid var(--tp-side-field-border); border-radius: var(--tp-radius-field); background: var(--tp-conv-field); color: var(--tp-side-text); }
+.sidebar-settings:hover { background: var(--tp-side-hover); }
+.sidebar-settings[aria-current="page"] { background: var(--tp-side-selected); color: var(--tp-side-on-selected); }
+
+@media (max-width: 720px) {
+  .sidebar-new, .sidebar-search, .sidebar .app-nav a, .conv-row { min-height: 44px; }
+  .sidebar-settings { width: 44px; height: 44px; }
+  .conv-time, .conv-key, .conv-badge, .conv-section-head h2, .conv-section-total, .sidebar-search kbd { font-size: 12px; }
+  .sidebar-account .cl-userButtonTrigger { min-width: 44px; min-height: 44px; }
+  .sidebar-org .cl-organizationSwitcherTrigger { min-height: 44px; }
+}
