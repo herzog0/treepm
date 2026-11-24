@@ -89,3 +89,19 @@ A curva vai a Teodoro, que escolhe a largura. A decisão guardada da procura reg
 - Nenhum ticket vai para a raiz sem a pessoa ter dito isso.
 - Mesmo com faixa larga sobram erros confiantes; a pessoa continua vendo o destino e podendo trocá-lo antes de criar.
 - A regra da [ADR 0033](0033-descricao-antes-da-procura-e-texto-fixo-do-agrupador.md) de que a raiz vence a faixa do meio deixa de valer.
+
+## Adendo de 2026-11-23: o contrato entre a tela e o servidor, depois de duas revisões
+
+A primeira implementação fazia o cliente reenviar a lista inteira de respostas (nível, nó da pergunta, tipo), que o servidor validava em cadeia e cruzava por índice com a decisão guardada. Duas revisões independentes seguidas acharam defeito que bloqueava no mesmo ponto (pergunta que não podia ser respondida), com todas as suítes verdes. O contrato foi trocado por um menor, e três pontos desta ADR mudam com ele:
+
+- **O que o cliente manda na procura:** só o ramo que a pessoa confirmou por último (`startId`), além do escopo de sempre. O servidor confere que é ticket vivo, do projeto e dentro do escopo, parte dele sem julgar de novo e devolve destino confirmado ou a próxima pergunta. Não há lista de respostas, nível nem índice, e o servidor não guarda estado de pergunta entre requisições.
+- **"Fica aqui" e "nenhum destes" são resolvidos na tela,** como as ações da prévia já eram (usar alternativa, subir um nível, escolher no mapa): "fica aqui" põe o destino no nó da pergunta; "nenhum destes" abre a escolha no mapa. Não há nova pergunta sem as opções recusadas: na calibração, a resposta certa estava disponível em 31 de 32 perguntas.
+- **O teto de três perguntas é contado na tela.** É conforto, não segurança.
+- **Na criação, uma regra só:** o lugar enviado é o destino confirmado da última procura guardada para o rascunho atual, ou a pessoa escolheu (resposta, "fica aqui", lugar recente, mapa), e o cliente diz qual dos casos. Sem decisão guardada para o rascunho atual, criar "pelo destino da procura" é recusado e a tela procura de novo. A raiz só vale como escolha da pessoa.
+- **O que fica guardado:** a decisão da procura registra a pergunta feita (nível, tipo, opções, probabilidades), e a criação registra de que tipo foi a escolha do lugar (procura, opção da pergunta, "fica aqui", lugar recente, mapa), para o uso mostrar quais opções servem (`TREEPM-358`).
+- **Servidor e tela entram juntos,** numa mudança só. Não existe modo de compatibilidade com a tela antiga.
+
+Duas correções ao texto acima:
+
+- **Falha ou prazo do Jev na descida não vira pergunta:** continua sendo "assistente indisponível", como já era. Sem o julgamento não há opções para oferecer. "Procura interrompida" cobre só nível grande demais e limite de níveis.
+- **Lugares recentes da pessoa** (`TREEPM-358`, com a correção de Teodoro: o sinal é onde a pessoa esteve agora há pouco, não o que está atribuído a ela, porque quem coordena cria tickets para todos) entram nesta mesma tela como opções da pergunta. Para o servidor, escolher um lugar recente é só mais um ramo confirmado.
