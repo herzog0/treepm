@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Logger, Param, Post, Query, ServiceUnavailableException, UnprocessableEntityException } from "@nestjs/common";
 import { rawPersonRefIds } from "@treepm/domain";
 import type { TenantClient } from "@treepm/db";
+import { assistantSpeaksIn } from "@treepm/domain";
 import { CurrentPrincipal } from "../access/principal.js";
 import type { Principal } from "../access/principal.js";
 import { idSchema } from "../common/schemas.js";
@@ -15,6 +16,7 @@ import { ConversationService } from "./conversation.service.js";
 import { addParticipantsBodySchema, markReadBodySchema, openedSchema, pageQuerySchema, sendMessageBodySchema, sendResultSchema } from "./conversation.schema.js";
 import type { ConversationTree, ConversationView, PageQuery, SendMessageBody, participantsResultSchema, readResultSchema } from "./conversation.schema.js";
 import { AssistantUnavailableError } from "./ports.js";
+import { TicketDraftService } from "./ticket-draft.service.js";
 import type { z } from "zod";
 
 /**
@@ -32,6 +34,7 @@ export class ConversationController {
     @Inject(AssistantGate) private readonly gate: AssistantGate,
     @Inject(ConversationService) private readonly conversations: ConversationService,
     @Inject(ProjectQueryService) private readonly query: ProjectQueryService,
+    @Inject(TicketDraftService) private readonly drafts: TicketDraftService,
   ) {}
 
   @Get("conversations")
@@ -86,16 +89,28 @@ export class ConversationController {
     if (rawPersonRefIds(body.body).some((personId) => !mentions.includes(personId))) {
       throw new UnprocessableEntityException({ code: "mention_mismatch", message: "O texto marca uma pessoa que não está na lista de marcados." });
     }
+    // Onde o assistente fala é UMA regra (`assistantSpeaksIn`); fora dela (thread com pessoas) não há criação, projeto nem vez do assistente.
+    const speaks = assistantSpeaksIn({ kind, purpose });
+    // Dentro da thread de criação não há mensagens da conversa comum (ADR 0056, item 5): o conteúdo é a conversa de novo ticket, pelas rotas dela.
+    if (purpose === "creation") throw new UnprocessableEntityException({ code: "creation_thread", message: "Esta thread é a criação de um ticket: a conversa acontece pelas rotas dela, não por mensagens." });
+    if (body.creation === true) {
+      if (mentions.length > 0 || body.topic === true || body.ticketId !== undefined) throw new UnprocessableEntityException({ code: "creation_with_other", message: "Criar um ticket não combina com marcar pessoas, abrir assunto ou indicar ticket." });
+      if (!speaks) throw new UnprocessableEntityException({ code: "creation_in_thread", message: "Um ticket novo só nasce na conversa principal ou numa thread de assunto, não numa thread com pessoas." });
+      return this.directCreation(tenant, id, body.body, body.projectId);
+    }
+    if (body.projectId !== undefined && (mentions.length > 0 || !speaks)) {
+      throw new UnprocessableEntityException({ code: "project_not_applicable", message: "O projeto só vale numa mensagem ao assistente." });
+    }
     if (body.topic === true) {
       // Pedido que não cabe é 422, sem gastar IA e sem gravar nada; o aceite e o provedor vêm depois da forma e antes de tudo o mais.
       if (mentions.length > 0) throw new UnprocessableEntityException({ code: "topic_with_mentions", message: "Um assunto novo não marca ninguém: ele é só seu e do assistente." });
       if (body.ticketId !== undefined) throw new UnprocessableEntityException({ code: "topic_with_ticket", message: "O assunto novo herda o ticket da conversa onde nasce." });
       if (kind === "thread") throw new UnprocessableEntityException({ code: "topic_in_thread", message: "Um assunto novo só abre na conversa principal, não dentro de uma thread." });
-      return this.assistantTurn(tenant, id, body.body, true);
+      return this.assistantTurn(tenant, id, body.body, true, body.projectId);
     }
     if (mentions.length > 0) return tenant.run((tx, principal) => this.conversations.openThread(tx, principal, id, body.body, mentions, body.ticketId));
-    if (kind === "thread" && purpose !== "topic") return tenant.run((tx, principal) => this.conversations.postInThread(tx, principal, id, body.body));
-    return this.assistantTurn(tenant, id, body.body, false);
+    if (!speaks) return tenant.run((tx, principal) => this.conversations.postInThread(tx, principal, id, body.body));
+    return this.assistantTurn(tenant, id, body.body, false, body.projectId);
   }
 
   /**
@@ -103,17 +118,18 @@ export class ConversationController {
    * `opening`: o texto abre uma thread de assunto (que só existe depois da resposta); senão é uma mensagem numa conversa que já fala
    * com o assistente (a principal ou uma thread de assunto), que reserva a vez.
    */
-  private async assistantTurn(tenant: TenantRunner, id: string, text: string, opening: boolean): Promise<z.output<typeof sendResultSchema>> {
-    const { chat: provider } = await this.gate.open(tenant);
-    const prep = await tenant.run((tx, principal) => (opening ? this.conversations.prepareTopicOpening(tx, principal, id, text) : this.conversations.prepareAssistantTurn(tx, principal, id, text)));
-    let reply: { message: string; model: string; title?: string | null };
+  private async assistantTurn(tenant: TenantRunner, id: string, text: string, opening: boolean, projectId: string | undefined): Promise<z.output<typeof sendResultSchema>> {
+    const { chat: provider, conversation: drafter } = await this.gate.open(tenant);
+    const prep = await tenant.run((tx, principal) => (opening ? this.conversations.prepareTopicOpening(tx, principal, id, text) : this.conversations.prepareAssistantTurn(tx, principal, id, text, projectId)));
+    let reply: { message: string; model: string; title?: string | null; openDraft?: string };
     try {
       reply = await provider.reply({
         ticket: prep.context,
         history: prep.history,
         projects: prep.projects.map((project) => project.key),
-        tools: new ChatToolExecutor(tenant, this.query, prep.projects),
+        tools: new ChatToolExecutor(tenant, this.query, prep.projects, prep.draftTool),
         wantTitle: prep.wantTitle,
+        draftTool: prep.draftTool,
       });
     } catch (error) {
       if (!opening) await this.release(tenant, id);
@@ -123,6 +139,15 @@ export class ConversationController {
       }
       throw error;
     }
+    // O assistente chamou `open_ticket_draft`: a vez termina aqui e quem abre o rascunho é o servidor, pelo mesmo caminho do pedido direto.
+    if (reply.openDraft !== undefined) {
+      try {
+        return await this.openDraft(tenant, drafter, { id, text, request: reply.openDraft, projectId, assistant: { model: reply.model, seenLastSeq: prep.seenLastSeq } });
+      } catch (error) {
+        await this.release(tenant, id);
+        throw error;
+      }
+    }
     try {
       if (opening) return parseOutput(sendResultSchema, { kind: "topic", ...(await tenant.run((tx, principal) => this.conversations.recordTopicOpening(tx, principal, id, text, reply))) });
       const saved = await tenant.run((tx, principal) => this.conversations.recordAssistantTurn(tx, principal, id, text, reply, prep.seenLastSeq));
@@ -131,6 +156,31 @@ export class ConversationController {
       if (!opening) await this.release(tenant, id);
       throw error;
     }
+  }
+
+  /** O pedido direto (`creation: true`): o texto abre a thread de criação, sem passar pelo modelo do chat. */
+  private async directCreation(tenant: TenantRunner, id: string, text: string, projectId: string | undefined): Promise<z.output<typeof sendResultSchema>> {
+    const { conversation: drafter } = await this.gate.open(tenant);
+    return this.openDraft(tenant, drafter, { id, text, request: text, projectId, assistant: null });
+  }
+
+  /**
+   * Os dois caminhos caem aqui: leitura curta (projeto e cota) → a conversa de novo ticket responde ao pedido (SEM transação aberta, pelo
+   * mesmo serviço da rota `POST projects/:id/ticket-conversations`) → escrita curta que confere tudo de novo. O provedor vê o `request`; a
+   * conversa guarda o que a pessoa escreveu (a citação "Pedido original" é dela, nunca do que o modelo resumiu).
+   */
+  private async openDraft(
+    tenant: TenantRunner,
+    drafter: Awaited<ReturnType<AssistantGate["open"]>>["conversation"],
+    input: { id: string; text: string; request: string; projectId: string | undefined; assistant: { model: string; seenLastSeq: number } | null },
+  ): Promise<z.output<typeof sendResultSchema>> {
+    // A cota já foi cobrada na vez do assistente (caminho da ferramenta); o pedido direto cobra a sua.
+    const prep = await tenant.run((tx, principal) => this.conversations.prepareCreation(tx, principal, input.id, input.projectId, { quota: input.assistant === null }));
+    const turn = await this.drafts.ask(drafter, { history: [{ author: "person", body: input.request }], draft: null, groups: prep.groups });
+    const saved = await tenant.run((tx, principal) =>
+      this.conversations.recordCreation(tx, principal, { id: input.id, text: input.text, request: input.request, projectId: prep.project.id, requestedProjectId: input.projectId, turn, assistant: input.assistant }),
+    );
+    return parseOutput(sendResultSchema, { kind: "creation", ...saved });
   }
 
   /** Solta a vez do assistente; falha ao soltar não esconde o erro de verdade (a reserva vence sozinha). */

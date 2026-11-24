@@ -7,6 +7,7 @@ import {
   CHAT_TITLE_MAX,
   chatBodyOf,
   chatTitleOf,
+  creationTitleOf,
   trimChatHistory,
 } from "./chat.js";
 import type { ChatTurn } from "./chat.js";
@@ -74,5 +75,25 @@ describe("chatTitleOf", () => {
   });
   it("ignora o que não serve: vazio, comprido, com ponto final, em duas linhas, com caractere proibido ou que não é texto", () => {
     for (const bad of ["", "   ", "x".repeat(CHAT_TITLE_MAX + 1), "Acaba em ponto.", "Duas\nlinhas", "Duas\rlinhas", "com\u0000nul", undefined, null, 42]) expect(chatTitleOf(bad)).toBeNull();
+  });
+});
+
+describe("creationTitleOf", () => {
+  it("usa o texto inteiro quando cabe, em uma linha", () => {
+    expect(creationTitleOf("  Migrar a autenticação  ")).toBe("Migrar a autenticação");
+    expect(creationTitleOf("Primeira linha\n\n  segunda   linha")).toBe("Primeira linha segunda linha");
+  });
+  it("corta no limite, sem deixar espaço nem ponto no fim", () => {
+    const cut = creationTitleOf(`${"a".repeat(55)} bbbbbbbbbb cccc`);
+    expect(cut).not.toBeNull();
+    expect(cut!.length).toBeLessThanOrEqual(CHAT_TITLE_MAX);
+    expect(cut!.endsWith(" ")).toBe(false);
+    expect(creationTitleOf("Acaba em ponto.")).toBe("Acaba em ponto");
+    expect(creationTitleOf("Um...")).toBe("Um");
+    expect(chatTitleOf(creationTitleOf("x".repeat(500)))).toBe("x".repeat(CHAT_TITLE_MAX));
+  });
+  it("tira caractere proibido e devolve null quando não sobra nada", () => {
+    expect(creationTitleOf("com\u0000nul")).toBe("comnul");
+    for (const bad of ["", "   ", "...", "\u0000", 42, null, undefined]) expect(creationTitleOf(bad)).toBeNull();
   });
 });

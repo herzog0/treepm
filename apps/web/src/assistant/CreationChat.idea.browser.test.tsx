@@ -8,7 +8,7 @@ import "../controls.css";
 import "../command/command.css";
 import type { ApiClient, DraftPreview } from "../api/client.js";
 import { makeClient, makeConversation, makeProject, makeTicket, ok } from "../test/fakes.js";
-import { AssistantPanel } from "./AssistantPanel.js";
+import { ChatHarness } from "../test/mountChat.js";
 
 // ADR 0044, adendo (TREEPM-242), em navegador real: o controle «Registrar como ideia» alcançável pelo teclado e com alvo de 44 px em tela estreita.
 const project = makeProject("p1", "TREEPM", "TreePM");
@@ -29,8 +29,8 @@ async function mount() {
   return render(
     <main className="tenant-map" style={{ position: "fixed", inset: 0, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "12px 0" }}>
       <div className="command-bar is-open">
-        <AssistantPanel client={makeClientWith()} projects={[project]} initialProjectId="p1" tickets={{ p1: [makeTicket("t1", "p1", 1, "Design", { key: "TREEPM-12" })] }} expanded resume
-          onCollapse={() => undefined} onProgress={() => undefined} onCreated={() => undefined} onManualCreate={() => undefined} onDraftChange={() => undefined} onChanged={() => undefined} registerPicker={() => undefined} />
+        <ChatHarness client={makeClientWith()} projects={[project]} initialProjectId="p1" tickets={{ p1: [makeTicket("t1", "p1", 1, "Design", { key: "TREEPM-12" })] }} resume
+          onCreated={() => undefined} onManualCreate={() => undefined} onDraftChange={() => undefined} onChanged={() => undefined} registerPicker={() => undefined} />
       </div>
     </main>,
   );

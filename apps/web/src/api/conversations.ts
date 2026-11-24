@@ -15,10 +15,23 @@ const messageBase = z.object({
   body: z.string(),
   createdAt: z.string(),
   model: z.string().nullable(),
+  /** `creation_opened`: a resposta fixa de "abri um rascunho"; a tela mostra a frase pelo catálogo e ignora `body`. Ausente vale nulo. */
+  marker: z.enum(["creation_opened"]).nullish().transform((value) => value ?? null),
 });
 
 /** Para que a thread existe (ADR 0056): entre pessoas, assunto com o assistente (só de quem a abriu) ou conversa de novo ticket. */
 export const purposeSchema = z.enum(["people", "topic", "creation"]);
+
+/** A thread de criação de ticket: onde está a conversa de novo ticket (espelha `creationSchema` da API). Campo ausente vale nulo. */
+export const creationSchema = z.object({
+  ticketConversationId: z.string().nullish().transform((value) => value ?? null),
+  projectId: z.string().nullish().transform((value) => value ?? null),
+  projectKey: z.string().nullish().transform((value) => value ?? null),
+  state: z.enum(["draft", "waiting", "created", "discarded"]),
+  openedBy: z.enum(["person", "assistant"]).nullish().transform((value) => value ?? "person"),
+  ticket: z.object({ id: z.string(), key: z.string(), title: z.string() }).nullish().transform((value) => value ?? null),
+});
+const optionalCreation = creationSchema.nullish().transform((value) => value ?? null);
 
 export const threadCardSchema = z.object({
   id: z.string(),
@@ -32,6 +45,7 @@ export const threadCardSchema = z.object({
   purpose: purposeSchema.nullish().transform((value) => value ?? "people"),
   /** O título curto da thread de assunto; `null` até o assistente dar um (a tela usa o começo da abertura). Ausente vale nulo. */
   title: z.string().nullish().transform((value) => value ?? null),
+  creation: optionalCreation,
 });
 
 export const chatMessageSchema = messageBase.extend({ thread: threadCardSchema.nullable() });
@@ -56,6 +70,7 @@ export const conversationInfoSchema = z.object({
   /** Só nas threads; `null` nas principais. */
   purpose: purposeSchema.nullish().transform((value) => value ?? null),
   title: z.string().nullish().transform((value) => value ?? null),
+  creation: optionalCreation,
   ownedByMe: z.boolean(),
   participants: z.array(chatPersonSchema),
   canAddParticipants: z.boolean(),
@@ -86,6 +101,8 @@ export const sendResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("thread"), message: chatMessageSchema, thread: threadCardSchema }),
   /** `topic: true`: a mensagem de abertura (na conversa de cima), a thread de assunto que nasceu e a resposta do assistente (dentro dela). */
   z.object({ kind: z.literal("topic"), message: chatMessageSchema, thread: threadCardSchema, reply: chatMessageSchema }),
+  /** O pedido abriu uma thread de criação de ticket; `reply` é a resposta fixa do assistente quando foi ele que abriu (`null` no pedido direto). */
+  z.object({ kind: z.literal("creation"), message: chatMessageSchema, thread: threadCardSchema, reply: chatMessageSchema.nullish().transform((value) => value ?? null), ticketConversationId: z.string() }),
 ]);
 
 export const readResultSchema = z.object({ lastRead: z.string().nullable(), unread: z.number() });
@@ -110,6 +127,8 @@ export interface ConversationNode {
   purpose: z.output<typeof purposeSchema> | null;
   /** O título curto da thread de assunto; `null` até o assistente dar um. */
   title: string | null;
+  /** Só nas threads de criação ainda abertas. */
+  creation: z.output<typeof creationSchema> | null;
   children: ConversationNode[];
 }
 const conversationNodeSchema: z.ZodType<ConversationNode> = z.lazy(() =>
@@ -127,6 +146,7 @@ const conversationNodeSchema: z.ZodType<ConversationNode> = z.lazy(() =>
     label: z.string().nullish(),
     purpose: purposeSchema.nullish().transform((value) => value ?? null),
     title: z.string().nullish().transform((value) => value ?? null),
+    creation: optionalCreation,
     children: z.array(conversationNodeSchema),
   }),
 );
@@ -150,5 +170,10 @@ export interface ChatWriteBody {
   ticketId?: string;
   /** O texto livre vira uma thread de assunto com o assistente, só da pessoa (só numa conversa principal, sem `mentions` nem `ticketId`). */
   topic?: boolean;
+  /** O texto abre uma thread de criação de ticket (sem `mentions`, `topic` nem `ticketId`). */
+  creation?: boolean;
+  /** O projeto aberto no mapa: onde um rascunho nasce; vale numa mensagem ao assistente e com `creation`. */
+  projectId?: string;
 }
+export type CreationBlock = z.output<typeof creationSchema>;
 export type ConversationPurpose = z.output<typeof purposeSchema>;

@@ -181,13 +181,20 @@ export class FakeChatProvider implements ChatProvider {
   fail = false;
   /** O título que o "modelo" dá à thread de assunto (só pedido na primeira resposta); `undefined` = título previsível; `null` = nenhum. */
   title_: ((input: ChatTurnInput) => string | null) | null = null;
-  async reply(input: ChatTurnInput): Promise<{ message: string; model: string; title?: string | null }> {
+  /** ADR 0056, item 5: devolve o pedido com que o "modelo" chama `open_ticket_draft` (pelo executor de verdade); `null` = não chama. */
+  draft_: ((input: ChatTurnInput) => string | null) | null = null;
+  async reply(input: ChatTurnInput): Promise<{ message: string; model: string; title?: string | null; openDraft?: string }> {
     const { tools, ...recorded } = input;
     this.calls.push(structuredClone(recorded) as RecordedChatInput);
     this.tools.push(tools);
     await this.onCall?.();
     if (this.fail) throw new AssistantUnavailableError("fake");
     if (this.delegate) return this.delegate.reply(input);
+    const request = this.draft_ ? this.draft_(input) : null;
+    if (request !== null) {
+      const outcome = await input.tools.execute("open_ticket_draft", { request });
+      return outcome.openDraft !== undefined ? { message: "", model: "claude-opus-5-5", openDraft: outcome.openDraft } : { message: `Não abri: ${outcome.content}`, model: "claude-opus-5-5" };
+    }
     const last = input.history[input.history.length - 1]?.body ?? "";
     const title = this.title_ ? this.title_(input) : input.wantTitle ? "Assunto de teste" : null;
     return { message: this.reply_ ? this.reply_(input) : `Resposta sobre ${input.ticket?.key ?? "chat geral"}: ${last.slice(0, 40)}`, model: "claude-opus-5-5", ...(title !== null ? { title } : {}) };

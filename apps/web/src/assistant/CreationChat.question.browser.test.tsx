@@ -8,7 +8,7 @@ import "../controls.css";
 import "../command/command.css";
 import type { ApiClient, PlacementOutcome } from "../api/client.js";
 import { makeClient, makeConversation, makePlacement, makeProject, makeTicket, ok } from "../test/fakes.js";
-import { AssistantPanel } from "./AssistantPanel.js";
+import { ChatHarness } from "../test/mountChat.js";
 import { RecentPlacesProvider } from "./RecentPlacesContext.js";
 import { createRecentPlaces } from "./recentPlaces.js";
 
@@ -70,8 +70,8 @@ async function mount(client: ApiClient) {
     <RecentPlacesProvider value={recents}>
       <main className="tenant-map" style={{ position: "fixed", inset: 0, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "12px 0" }}>
         <div className="command-bar is-open">
-          <AssistantPanel client={client} projects={[project]} initialProjectId="p1" tickets={{ p1: list }} expanded resume
-            onCollapse={() => undefined} onProgress={() => undefined} onCreated={() => undefined} onManualCreate={() => undefined} onDraftChange={() => undefined} onChanged={() => undefined} registerPicker={() => undefined} />
+          <ChatHarness client={client} projects={[project]} initialProjectId="p1" tickets={{ p1: list }} resume
+            onCreated={() => undefined} onManualCreate={() => undefined} onDraftChange={() => undefined} onChanged={() => undefined} registerPicker={() => undefined} />
         </div>
       </main>
     </RecentPlacesProvider>,

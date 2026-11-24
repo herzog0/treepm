@@ -208,27 +208,6 @@ describe("keyboard", () => {
     expect(document.activeElement).toBe(document.querySelector(".spatial-stage"));
   }, SLOW);
 
-  it("Esc first cancels a pending choice on the map, then folds the conversation sheet, and only then the results sheet", async () => {
-    const only = withAssistant(makePanelMe("member", [{ projectId: "p1", role: "manager" }]));
-    render(<Host client={makeFullClient()} me={only} />);
-    await userEvent.click(await bar());
-    await userEvent.click(await screen.findByRole("option", { name: /Nova conversa/ }));
-    await userEvent.type(await screen.findByRole("textbox", { name: "Mensagem para o assistente" }), "O login quebra{Enter}");
-    await userEvent.click(await screen.findByRole("button", { name: "Procurar o lugar" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Escolher no mapa" }));
-    expect(screen.getByText(/Clique em um ticket ou no projeto, no mapa/)).toBeInTheDocument();
-    await userEvent.keyboard("{Escape}");
-    expect(screen.queryByText(/Clique em um ticket ou no projeto, no mapa/)).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Novo ticket com o assistente" })).toBeInTheDocument();
-    await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("region", { name: "Novo ticket com o assistente" })).not.toBeInTheDocument();
-    const field = await typed("login");
-    expect(screen.getByRole("listbox")).toBeInTheDocument();
-    await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
-    expect(field).toHaveValue("");
-  }, SLOW);
-
   it("Esc with nothing of the bar in play still closes the ticket page", async () => {
     const onChange = vi.fn();
     render(<Host client={makeFullClient()} me={adminMe()} onChange={onChange} />);
@@ -261,43 +240,6 @@ describe("the create action", () => {
     expect(screen.queryByRole("option", { name: /Criar ticket/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Ações" })).not.toBeInTheDocument();
     expect(optionNames()[0]).toContain("ALFA-2");
-  }, SLOW);
-
-  it("with the assistant on, Ctrl+Enter opens the conversation with the text as the first message", async () => {
-    const client = makeFullClient();
-    const only = withAssistant(makePanelMe("member", [{ projectId: "p1", role: "manager" }]));
-    render(<Host client={client} me={only} />);
-    const field = await typed("exportar csv");
-    await userEvent.keyboard("{Control>}{Enter}{/Control}");
-    expect(await screen.findByRole("region", { name: "Novo ticket com o assistente" })).toBeInTheDocument();
-    await waitFor(() => expect(client.openConversation).toHaveBeenCalledWith("p1", { message: "exportar csv", scopeId: null }));
-    expect(field).toHaveValue("");
-    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
-  }, SLOW);
-
-  it("always starts a new conversation, even when an earlier one exists, and sends the text to it", async () => {
-    const old = makeConversation("old", "p1");
-    const client = makeFullClient({
-      listConversations: vi.fn(async () => ok([{ ...old, messages: undefined }])),
-      getConversation: vi.fn(async (id: string) => ok(id === "old" ? old : makeConversation(id, "p1"))),
-      sendConversationMessage: vi.fn(async () => ok(old)),
-      openConversation: vi.fn(async (projectId: string) => ok(makeConversation("new", projectId))),
-    });
-    const only = withAssistant(makePanelMe("member", [{ projectId: "p1", role: "manager" }]));
-    render(<Host client={client} me={only} />);
-    await typed("outro assunto");
-    await userEvent.keyboard("{Control>}{Enter}{/Control}");
-    await waitFor(() => expect(client.openConversation).toHaveBeenCalledWith("p1", { message: "outro assunto", scopeId: null }));
-    expect(client.sendConversationMessage).not.toHaveBeenCalled();
-  }, SLOW);
-
-  it("clicking the action does the same, and the project question comes first when there are several", async () => {
-    const client = makeFullClient();
-    render(<Host client={client} me={adminMe()} />);
-    await typed("exportar csv");
-    await userEvent.click(screen.getByRole("option", { name: /Criar ticket «exportar csv»/ }));
-    await userEvent.click(await screen.findByRole("button", { name: "ALFA · Projeto Alfa" }));
-    await waitFor(() => expect(client.openConversation).toHaveBeenCalledWith("p1", { message: "exportar csv", scopeId: null }));
   }, SLOW);
 
   it("with the assistant off, opens manual creation with the title filled in", async () => {

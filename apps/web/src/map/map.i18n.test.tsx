@@ -58,7 +58,7 @@ const TEXT = {
     explore: "Explore branch",
     createFirst: "Create first project",
     barInput: "Ask for anything",
-    newConversation: "New conversation",
+    createTicket: /^Create ticket «csv»/,
     org: (n: string) => new RegExp(`^Equipe Alfa\\. Organization with ${n}\\.`),
     project: /ALFA · Projeto Alfa\. Project\./,
     ticket: /ALFA-1 · Publicar\. Ticket\./,
@@ -92,7 +92,7 @@ const TEXT = {
     explore: "Explorar rama",
     createFirst: "Crear primer proyecto",
     barInput: "Pide lo que quieras",
-    newConversation: "Nueva conversación",
+    createTicket: /^Crear ticket «csv»/,
     org: (n: string) => new RegExp(`^Equipe Alfa\\. Organización con ${n}\\.`),
     project: /ALFA · Projeto Alfa\. Proyecto\./,
     ticket: /ALFA-1 · Publicar\. Ticket\./,
@@ -156,9 +156,9 @@ describe.each(["en", "es-MX"] as const)("map in %s", (language) => {
     const card = screen.getByRole("complementary", { name: text.selected });
     expect(within(card).getByRole("button", { name: text.close })).toBeInTheDocument();
     expect(within(card).getByRole("button", { name: text.explore })).toBeInTheDocument();
-    // O botão flutuante "Novo ticket" saiu (ADR 0036): a conversa começa pela barra, com o campo vazio em foco.
-    await userEvent.click(screen.getByRole("combobox", { name: text.barInput }));
-    expect(await screen.findByRole("option", { name: text.newConversation })).toBeInTheDocument();
+    // Sem botão flutuante (ADR 0036): o pedido de ticket começa pela barra.
+    await userEvent.type(screen.getByRole("combobox", { name: text.barInput }), "csv");
+    expect(await screen.findByRole("option", { name: text.createTicket })).toBeInTheDocument();
     expectNoMapPortuguese(container, language);
   }, SLOW);
 

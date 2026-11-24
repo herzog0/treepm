@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ElaborationOutcome } from "../api/client.js";
 import { setTestLanguage } from "../test/i18n.js";
 import { makeClient, makeConversation, makePlacement, makeProject, makeTicket, ok } from "../test/fakes.js";
-import { AssistantPanel } from "./AssistantPanel.js";
+import { ChatHarness } from "../test/mountChat.js";
 
 /** Tarefas sugeridas pelo assistente e ligações propostas na prévia (ADR 0052, fatia 3; TREEPM-329). */
 const alfa = makeProject("p1", "ALFA", "Projeto Alfa");
@@ -44,10 +44,9 @@ function setup(answers: ElaborationOutcome | (() => Promise<ElaborationOutcome>)
       })),
   });
   const props = {
-    client, projects: [alfa], initialProjectId: "p1", tickets, expanded: true, resume: true,
-    onCollapse: vi.fn(), onProgress: vi.fn(), onCreated: vi.fn(), onOpenExisting: vi.fn(), onManualCreate: vi.fn(), onDraftChange: vi.fn(), onChanged: vi.fn(), registerPicker: vi.fn(),
+    client, projects: [alfa], initialProjectId: "p1", tickets, resume: true, onCreated: vi.fn(), onOpenExisting: vi.fn(), onManualCreate: vi.fn(), onDraftChange: vi.fn(), onChanged: vi.fn(), registerPicker: vi.fn(),
   };
-  render(<AssistantPanel {...props} />);
+  render(<ChatHarness {...props} />);
   return { client, props, getElaboration };
 }
 const search = async () => userEvent.click(await screen.findByRole("button", { name: /Procurar o lugar|Find the place|Buscar el lugar/ }));
@@ -212,12 +211,11 @@ describe("tirar e desmarcar", () => {
     await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1", placedBy: "search", links: [{ de: 0, deTitle: "Receber o diff", dependeDe: "ALFA-8" }] }));
   });
 
-  it("a chave abre o ticket sem fechar o assistente", async () => {
+  it("a chave abre o ticket sem sair da conversa", async () => {
     const { props } = setup();
     await search();
     await userEvent.click(within(await linksGroup()).getByRole("button", { name: "Abrir ALFA-8 Guardar a origem de cada ticket" }));
     expect(props.onOpenExisting).toHaveBeenCalledWith("t8");
-    expect(props.onCollapse).not.toHaveBeenCalled();
   });
 });
 

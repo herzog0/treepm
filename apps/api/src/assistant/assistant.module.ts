@@ -26,6 +26,8 @@ import { JevBranchJudge, sdkSystemOne } from "./jev-branch-judge.js";
 import { JevRelatedJudge } from "./jev-related-judge.js";
 import { VoyageEmbeddingProvider } from "./voyage-embedding-provider.js";
 import { PlacementService } from "./placement.service.js";
+import { CreationThreads } from "./creation-threads.js";
+import { TicketDraftService } from "./ticket-draft.service.js";
 import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERSATION_PROVIDER, DESCRIPTION_WRITER, EMBEDDING_PROVIDER, GROUP_NAMER, PLACEMENT_TIMEOUTS, RELATED_JUDGE, TICKET_ELABORATOR } from "./ports.js";
 
 @Module({
@@ -34,6 +36,8 @@ import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERS
   providers: [
     ActivityService,
     PlacementService,
+    TicketDraftService,
+    CreationThreads,
     ConversationAccess,
     ConversationService,
     AssistantGate,

@@ -131,5 +131,42 @@
     "cancel": "Cancelar",
     "pending": "respondiendo…",
     "failed": "Sin respuesta"
+  },
+  "creation": {
+    "busy": "Ya se está abriendo un ticket nuevo: espera o cancela antes de pedir otro.",
+    "waiting": "Abriendo el borrador…",
+    "state": {
+      "draft": "borrador",
+      "waiting": "tu turno",
+      "created": "creado",
+      "discarded": "descartado"
+    },
+    "private": "Solo tú lo ves. El ticket solo existe cuando presiones Crear.",
+    "openedByAssistant": "El asistente abrió este borrador a petición tuya.",
+    "project": "Proyecto {{key}}",
+    "newTicket": "Nuevo ticket",
+    "newTicketHint": "Crea un borrador de ticket con lo que escribiste",
+    "modeNotice": "Nuevo ticket: lo que escribas se vuelve un borrador. Solo tú lo ves.",
+    "modeCancel": "Volver a conversar",
+    "opened": "Abrí un borrador de ticket",
+    "goTo": "Abrir el borrador",
+    "cardCreated": "{{key}} · {{title}}",
+    "cardOpenTicket": "Abrir la conversación del ticket {{key}}",
+    "cardTitle": "Borrador de ticket",
+    "pickProject": "¿En qué proyecto?",
+    "pickProjectHint": "Creas tickets en más de un proyecto. Elige dónde nace este borrador.",
+    "pickProjectOption": "{{key}} · {{name}}",
+    "projectUnavailable": "No puedes crear tickets en ese proyecto, o no está disponible. Elige otro.",
+    "projectMismatch": "Esta conversación trata de un ticket de otro proyecto: el borrador nace en el proyecto de ese ticket.",
+    "changeProject": "Cambiar de proyecto",
+    "changeProjectConfirm": "Descarta este borrador y abre otro en el proyecto elegido, con la misma solicitud.",
+    "changeProjectTo": "Abrir en {{key}}",
+    "noAccess": "No ves el proyecto de este borrador.",
+    "loading": "Cargando el borrador…",
+    "createdBody": "Ticket creado: {{key}} · {{title}}",
+    "openTicketChat": "Abrir la conversación del ticket",
+    "discardedBody": "Borrador descartado. No se creó nada.",
+    "fallbackTitle": "Nuevo ticket",
+    "newBadge": "nuevo"
   }
 }

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient, ApiResult, ConversationDetail } from "../api/client.js";
 import { failed, makeClient, makeConversation, makeProject, ok } from "../test/fakes.js";
-import { AssistantPanel } from "./AssistantPanel.js";
+import { ChatHarness } from "../test/mountChat.js";
 import { REVEAL_MAX_MS, REVEAL_STEP_MS } from "./Reveal.js";
 
 /** "O chat responde na hora" (TREEPM-194): a mensagem aparece ao enviar, o esqueleto espera, a resposta é revelada aos poucos. */
@@ -35,15 +35,14 @@ function setup(extra: Partial<Record<keyof ApiClient, unknown>> = {}, props: Rec
     ...extra,
   });
   render(
-    <AssistantPanel
+    <ChatHarness
       client={client}
       projects={[alfa]}
       initialProjectId="p1"
       tickets={{ p1: [] }}
-      expanded
       resume={false}
-      onCollapse={vi.fn()}
-      onProgress={vi.fn()}
+
+
       onCreated={vi.fn()}
       onManualCreate={vi.fn()}
       onDraftChange={vi.fn()}

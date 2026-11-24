@@ -23,6 +23,8 @@ export type ConversationRow = {
   depth: number;
   openingMessageId: string | null;
   lastActivityAt: Date;
+  /** Só nas threads de criação (ADR 0056, item 5): a conversa de novo ticket; nula depois de descartada. */
+  ticketConversationId: string | null;
 };
 
 /** O que `resolve` entrega: a conversa que a pessoa lê, e só ela. Nada daqui revela conversa de cima que a pessoa não leia. */
@@ -36,7 +38,7 @@ export type Resolved = {
   seen: Visible | null;
 };
 
-const CONV_SELECT = { id: true, kind: true, purpose: true, title: true, ownerPersonId: true, projectId: true, ticketId: true, parentId: true, rootId: true, depth: true, openingMessageId: true, lastActivityAt: true } as const;
+const CONV_SELECT = { id: true, kind: true, purpose: true, title: true, ownerPersonId: true, projectId: true, ticketId: true, parentId: true, rootId: true, depth: true, openingMessageId: true, lastActivityAt: true, ticketConversationId: true } as const;
 export const notFound = (): NotFoundException => new NotFoundException("Conversa não encontrada.");
 
 /**

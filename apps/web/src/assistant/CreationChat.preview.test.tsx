@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApiClient, DraftPreview } from "../api/client.js";
 import { setTestLanguage } from "../test/i18n.js";
 import { failed, makeClient, makeConversation, makePlacement, makeProject, makeTicket, ok } from "../test/fakes.js";
-import { AssistantPanel } from "./AssistantPanel.js";
+import { ChatHarness } from "../test/mountChat.js";
 
 /** A prévia da quebra do pedido em pai e filhos (ADR 0044, fatia 2; TREEPM-214 e 217). */
 const alfa = makeProject("p1", "ALFA", "Projeto Alfa");
@@ -47,17 +47,14 @@ function setup(options: { children?: { title: string; description: string }[]; p
     projects: [alfa],
     initialProjectId: "p1",
     tickets,
-    expanded: true,
     resume: true,
-    onCollapse: vi.fn(),
-    onProgress: vi.fn(),
     onCreated: vi.fn(),
     onManualCreate: vi.fn(),
     onDraftChange: vi.fn(),
     onChanged: vi.fn(),
     registerPicker: vi.fn(),
   };
-  render(<AssistantPanel {...props} />);
+  render(<ChatHarness {...props} />);
   return { client, props };
 }
 const parts = () => screen.getByRole("list", { name: "Partes do ticket" });

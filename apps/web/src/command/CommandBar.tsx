@@ -34,7 +34,7 @@ export interface CommandBarProps {
   /** Há uma escolha no mapa em andamento: o `Esc` é dela, não da barra. */
   pickerActive: () => boolean;
   onOpenTicket: (ticketId: string) => void;
-  onCreate: (text: string) => void;
+  onCreate: (text: string) => string | null;
   /**
    * "Registrar ideia «texto»" (ADR 0042): cria a ideia direto, sem conversa, e abre a página dela. Devolve o texto do erro, ou
    * `null` quando deu certo; com erro a folha continua à vista, com o texto preservado.
@@ -46,16 +46,6 @@ export interface CommandBarProps {
   play?: CommandPlay;
   /** Devolve o foco ao palco do mapa. */
   returnFocus: () => void;
-  /** A conversa de novo ticket mora na barra (ADR 0036): sem conversa, à vista ou recolhida (em andamento). */
-  conversation: "none" | "expanded" | "collapsed";
-  /** A IA está ligada: com o campo vazio, a folha oferece a conversa. */
-  assistantAvailable: boolean;
-  /** Título da conversa anterior que "Continuar conversa" retomaria (o rascunho ou o começo da primeira mensagem); `null` quando não há. */
-  loadResumable: () => Promise<string | null>;
-  onNewConversation: () => void;
-  onResumeConversation: () => void;
-  onReopenConversation: () => void;
-  onCollapseConversation: () => void;
   /** A IA está ligada: a folha de busca oferece "Conversar no Meu chat" (o texto vira uma thread de assunto, ADR 0056), também a quem só lê. */
   canChat: boolean;
   /** Manda o texto ao Meu chat. Devolve a frase da recusa (já há um assunto esperando a resposta, texto que não vale) e o texto fica no campo; `null` se aceitou. */
@@ -64,15 +54,13 @@ export interface CommandBarProps {
   onOpenChat: () => void;
   /** Cresce quando algo de fora (a "Nova pergunta") pede o foco do campo da barra. */
   focusRequest: number;
-  /** A folha da conversa, que fica dentro da barra, embaixo do campo. */
-  children?: ReactNode;
 }
 
 type Option = { kind: "ticket"; ticket: TicketSummary } | { kind: "chat" } | { kind: "create" } | { kind: "idea" } | { kind: "next" };
-type EmptyKind = "chat" | "resume" | "new" | "next";
+type EmptyKind = "chat" | "next";
 
 /** Barra de pedidos no topo do mapa (ADR 0036, fatia 1): busca de tickets e a ação "Criar ticket". */
-export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTicket, onCreate, onRegisterIdea, onNextTicket, play, returnFocus, conversation, assistantAvailable, loadResumable, onNewConversation, onResumeConversation, onReopenConversation, onCollapseConversation, canChat, onChat, onOpenChat, focusRequest, children }: CommandBarProps) {
+export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTicket, onCreate, onRegisterIdea, onNextTicket, play, returnFocus, canChat, onChat, onOpenChat, focusRequest }: CommandBarProps) {
   const { t } = useTranslation("command");
   const { t: tMap } = useTranslation("map");
   const { t: tPlay } = useTranslation("play");
@@ -84,7 +72,6 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
   const [active, setActive] = useState(0);
   // Com o campo vazio e a IA ligada, a folha oferece a conversa; nada vem destacado, para o Enter não começar uma sem querer.
   const [emptyActive, setEmptyActive] = useState(-1);
-  const [resumeTitle, setResumeTitle] = useState<string | null>(null);
   // "Registrar ideia" espera a API: enquanto isso a linha não dispara de novo, e um erro fica na folha.
   const [registering, setRegistering] = useState(false);
   const [registerError, setRegisterError] = useState<string | null>(null);
@@ -114,20 +101,17 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
   const ideaIndex = createIndex + 1;
   const nextIndex = found.length + (canChat ? 1 : 0) + (canCreate ? 2 : 0);
   const sheetOpen = open && trimmed !== "" && !playing;
-  const conversationAvailable = assistantAvailable && canCreate;
-  const emptyOpen = open && trimmed === "" && (canChat || conversationAvailable || nextAvailable) && conversation === "none" && !playing;
+  const emptyOpen = open && trimmed === "" && (canChat || nextAvailable) && !playing;
   const menuOpen = menu !== null && !playing;
   const emptyOptions = useMemo<readonly EmptyKind[]>(
-    () => [...(canChat ? (["chat"] as const) : []), ...(conversationAvailable ? (resumeTitle === null ? (["new"] as const) : (["resume", "new"] as const)) : []), ...(nextAvailable ? (["next"] as const) : [])],
-    [resumeTitle, conversationAvailable, nextAvailable, canChat],
+    () => [...(canChat ? (["chat"] as const) : []), ...(nextAvailable ? (["next"] as const) : [])],
+    [nextAvailable, canChat],
   );
   const emptyIndex = Math.min(emptyActive, emptyOptions.length - 1);
   const optionId = (index: number) => `${id}-option-${index}`;
   const activeIndex = Math.min(active, Math.max(options.length - 1, 0));
 
-  const conversationRef = useRef(conversation);
-  conversationRef.current = conversation;
-  const folded = conversation === "expanded" || playing;
+  const folded = playing;
   // Sair do play devolve o foco ao botão que o abriu.
   const playFocus = play?.focusRequest ?? 0;
   useEffect(() => {
@@ -150,22 +134,10 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
     return () => element.removeEventListener("wheel", stop);
   }, []);
 
-  // A conversa anterior é consultada cada vez que a folha vazia abre: o projeto depende do que está selecionado no mapa.
-  const loadRef = useRef(loadResumable);
-  loadRef.current = loadResumable;
   useEffect(() => {
-    setResumeTitle(null);
     setEmptyActive(-1);
     setNextReason(null);
-    if (!emptyOpen || !conversationAvailable) return;
-    let current = true;
-    void loadRef.current().then((title) => {
-      if (current) setResumeTitle(title);
-    });
-    return () => {
-      current = false;
-    };
-  }, [emptyOpen, conversationAvailable]);
+  }, [emptyOpen]);
 
   // Ctrl+K e ⌘K levam o foco à barra de qualquer lugar da tela do mapa. Em fase de captura, porque a página do ticket e os
   // painéis param a propagação das teclas.
@@ -173,13 +145,6 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== "k" || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
       event.preventDefault();
-      // Com a folha da conversa à vista o campo da barra está recolhido: o foco vai ao campo de mensagem dela.
-      const sheet = conversationRef.current === "expanded" ? ".assistant-sheet:not([hidden])" : null;
-      const message = sheet ? (zone.current?.querySelector<HTMLElement>(`${sheet} #assistant-message`) ?? zone.current?.querySelector<HTMLElement>(`${sheet} .assistant-body`)) : null;
-      if (message) {
-        message.focus();
-        return;
-      }
       input.current?.focus();
       input.current?.select();
     };
@@ -218,9 +183,6 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
       onOpenChat();
       return;
     }
-    finish();
-    if (kind === "resume") onResumeConversation();
-    else onNewConversation();
   };
   const choose = (option: Option) => {
     if (option.kind === "ticket") {
@@ -245,9 +207,10 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
     } else if (option.kind === "chat") {
       chooseChat();
     } else {
-      const request = trimmed;
-      finish();
-      onCreate(request);
+      // O texto vira uma thread de criação no Meu chat; a recusa (já há um pedido em andamento) fica na folha e o texto no campo.
+      const refused = onCreate(trimmed);
+      if (refused == null) finish();
+      else setChatError(refused === "" ? null : refused);
     }
   };
 
@@ -266,8 +229,6 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
         setText("");
         setOpen(false);
         setActive(0);
-        // A folha da conversa se recolhe sem encerrar a conversa (ADR 0036).
-        if (conversation === "expanded") onCollapseConversation();
         returnFocus();
         return;
       case "ArrowDown":
@@ -361,9 +322,6 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
               setMenu(null);
             }}
           />
-          {conversation === "collapsed" && (
-            <button type="button" className="command-progress" onClick={onReopenConversation}>{t("conversation.inProgress")}</button>
-          )}
           <kbd>{sheetOpen ? t("bar.escape") : t("bar.shortcut")}</kbd>
           {play && (
             <button
@@ -424,18 +382,8 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
                         onMouseMove={() => setEmptyActive(index)}
                         onClick={() => chooseEmpty(kind)}
                       >
-                        <span className="command-action-icon">{kind === "resume" || kind === "chat" ? <AiIcon /> : <PlusIcon />}</span>
-                        <span className="command-title">
-                          {kind === "chat" ? (
-                            t("conversation.openChat")
-                          ) : kind === "resume" ? (
-                            <>
-                              {t("conversation.resume")} <span className="command-resume-title">{resumeTitle}</span>
-                            </>
-                          ) : (
-                            t("conversation.new")
-                          )}
-                        </span>
+                        <span className="command-action-icon"><AiIcon /></span>
+                        <span className="command-title">{t("conversation.openChat")}</span>
                       </div>
                     ),
                   )}
@@ -555,7 +503,6 @@ export function CommandBar({ tickets, aside, canCreate, pickerActive, onOpenTick
             </div>
           </div>
         )}
-        {children}
       </div>
     </section>
   );

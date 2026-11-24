@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { ApiError, GroupProposal, PlacementOutcome, Project } from "../api/client.js";
 import { useTranslation } from "react-i18next";
+import { situationColor } from "../chat/situation.js";
 import { reopenWarningText } from "../ticket/reopen.js";
 import { destinationLabel } from "./placement.js";
 import type { Destination, PlaceChoice } from "./placement.js";
@@ -40,7 +41,8 @@ interface PathCardProps {
   onWholeProject: () => void;
   onUse: (destination: Destination) => void;
   onUp: () => void;
-  onChoose: () => void;
+  /** Sem mapa montado (a pessoa está em outra tela) não há onde escolher: o botão não aparece. */
+  onChoose?: () => void;
   onCreate: () => void;
   /** A proposta de ticket pai novo (ADR 0031, ADR 0034) enquanto o destino é o da procura; `null` quando não há ou foi descartada. */
   proposal: GroupProposal | null;
@@ -57,6 +59,8 @@ interface PathCardProps {
   /** A elaboração ainda carrega (ADR 0052, item 4): criar espera por ela, ou a pessoa escolhe criar sem ela. */
   waiting?: boolean;
   onCreateNow?: () => void;
+  /** O ticket de uma opção (a chave e a bolinha da situação); sem ele a opção mostra só o título e o caminho. */
+  ticketOf?: (id: string) => { key: string; status: string; blocked?: boolean } | undefined;
 }
 
 /** O caminho do topo até a base, em palavras: sem probabilidades (ADR 0029). */
@@ -89,11 +93,11 @@ export function PathCard(props: PathCardProps) {
           <p className="assistant-question-at">{t("question.at", { where: question.at.path.length === 0 ? project.name : question.at.path.map((step) => step.title).join(" › ") })}</p>
           <ul className="assistant-choices" aria-label={t("question.options")}>
             {question.options.map((choice) => (
-              <li key={choice.id}><ChoiceButton choice={choice} disabled={busy} onClick={() => props.onAnswer?.(choice, "option")} /></li>
+              <li key={choice.id}><ChoiceButton choice={choice} ticket={props.ticketOf?.(choice.id)} disabled={busy} onClick={() => props.onAnswer?.(choice, "option")} /></li>
             ))}
             {question.options.length > 0 && <li role="separator" className="assistant-choice-rule" />}
             <li>
-              <button type="button" className="assistant-choice" disabled={busy} onClick={props.onStay}>
+              <button type="button" className="assistant-choice assistant-stay" disabled={busy} onClick={props.onStay}>
                 {question.at.id === null ? t("question.stayRoot") : t("question.stay", { title: question.at.title })}
               </button>
             </li>
@@ -103,12 +107,12 @@ export function PathCard(props: PathCardProps) {
               <p className="assistant-sub">{t("question.recent")}</p>
               <ul className="assistant-choices" aria-label={t("question.recent")}>
                 {question.recents.map((choice) => (
-                  <li key={choice.id}><ChoiceButton choice={choice} disabled={busy} onClick={() => props.onAnswer?.(choice, "recent")} /></li>
+                  <li key={choice.id}><ChoiceButton choice={choice} ticket={props.ticketOf?.(choice.id)} disabled={busy} onClick={() => props.onAnswer?.(choice, "recent")} /></li>
                 ))}
               </ul>
             </>
           )}
-          <button type="button" className="assistant-choice" disabled={busy} onClick={props.onChoose}>{t("question.map")}</button>
+          {props.onChoose && <button type="button" className="assistant-choice is-map" disabled={busy} onClick={props.onChoose}>{t("question.map")}</button>}
         </div>
       ) : (
         <>
@@ -183,18 +187,22 @@ export function PathCard(props: PathCardProps) {
         <button type="button" className="primary" data-assistant-create disabled={busy || props.createBlocked || props.waiting === true} onClick={props.onCreate}>{props.waiting === true ? t("elaboration.waiting") : props.idea ? (props.parts > 0 ? t("path.createIdeaWithParts", { count: props.parts }) : t("path.createIdea")) : props.parts > 0 ? t("path.createWithParts", { count: props.parts }) : t("path.create")}</button>
         {props.waiting === true && props.onCreateNow && <button type="button" className="text" disabled={busy || props.createBlocked} onClick={props.onCreateNow}>{t("elaboration.createNow")}</button>}
         <button type="button" disabled={!props.canGoUp} onClick={props.onUp}>{t("path.up")}</button>
-        <button type="button" className="text" onClick={props.onChoose}>{t("pick.choose")}</button>
+        {props.onChoose && <button type="button" className="text" onClick={props.onChoose}>{t("pick.choose")}</button>}
       </div>}
     </section>
   );
 }
 
 /** Uma opção da pergunta: o título e, em letra menor, onde ela está (os ancestrais; um ticket de topo não tem linha de caminho). */
-function ChoiceButton({ choice, disabled, onClick }: { choice: PlaceChoice; disabled: boolean; onClick: () => void }) {
+function ChoiceButton({ choice, ticket, disabled, onClick }: { choice: PlaceChoice; ticket?: { key: string; status: string; blocked?: boolean }; disabled: boolean; onClick: () => void }) {
   return (
+    // A chave vai no `data-key` e é pintada por CSS: o nome do botão continua sendo o título e o caminho (o que as telas e os leitores de tela já liam).
     <button type="button" className="assistant-choice" disabled={disabled} onClick={onClick}>
-      <span className="choice-title">{choice.title}</span>
-      {choice.path.length > 1 && <small className="choice-path">{choice.path.slice(0, -1).map((step) => step.title).join(" › ")}</small>}
+      {ticket && <span className="choice-dot" aria-hidden="true" style={{ background: situationColor(ticket) }} />}
+      <span className="choice-text">
+        <span className="choice-title" data-key={ticket?.key}>{choice.title}</span>
+        {choice.path.length > 1 && <small className="choice-path">{choice.path.slice(0, -1).map((step) => step.title).join(" › ")}</small>}
+      </span>
     </button>
   );
 }

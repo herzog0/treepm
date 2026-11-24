@@ -16,7 +16,11 @@ type ToolResult = { type: "tool_result"; tool_use_id: string; content: string; i
 
 export type LoopOptions = { timeoutMs?: number; totalTimeoutMs?: number; maxToolRounds?: number };
 
-export type LoopOutcome = { final: FinalMessage; rounds: number; executions: number; perTool: ReadonlyMap<string, number>; ms: number };
+/**
+ * `final` é a resposta do modelo; é `null` quando uma ferramenta pediu para abrir um rascunho de ticket (`openDraft`): a vez do
+ * assistente termina ali, sem outra chamada ao provedor. `model` é o do último retorno do provedor.
+ */
+export type LoopOutcome = { final: FinalMessage | null; openDraft?: string; model: string; rounds: number; executions: number; perTool: ReadonlyMap<string, number>; ms: number };
 
 /**
  * O laço manual de ferramentas, do chat (ADR 0037 e 0056): `stop_reason: "tool_use"` → executa
@@ -38,6 +42,7 @@ export async function runToolLoop(input: {
   const perTool = new Map<string, number>();
   let rounds = 0;
   let executions = 0;
+  let model = "";
 
   for (;;) {
     const closing = rounds >= options.maxToolRounds || executions >= MAX_TOOL_EXECUTIONS;
@@ -45,8 +50,9 @@ export async function runToolLoop(input: {
     if (remaining <= 0) throw new AssistantUnavailableError("timeout");
     const final = await callClaude(stream, input.params(messages, closing), Math.min(options.timeoutMs, remaining), logger);
     const content = final.content ?? [];
+    model = final.model;
 
-    if (final.stop_reason === "end_turn") return { final, rounds, executions, perTool, ms: Date.now() - started };
+    if (final.stop_reason === "end_turn") return { final, model, rounds, executions, perTool, ms: Date.now() - started };
     if (final.stop_reason !== "tool_use") throw new AssistantUnavailableError(`stop_reason=${final.stop_reason}`);
     // Pediu ferramenta quando não podia: não há resposta.
     if (closing) throw new AssistantUnavailableError("tool_limit");
@@ -55,7 +61,10 @@ export async function runToolLoop(input: {
     if (uses.length === 0) throw new AssistantUnavailableError("stop_reason=tool_use");
     rounds += 1;
     const results: ToolResult[] = [];
+    let openDraft: string | undefined;
     for (const use of uses) {
+      // O primeiro pedido de rascunho vale e encerra a rodada: nada depois dele é executado.
+      if (openDraft !== undefined) break;
       if (executions >= MAX_TOOL_EXECUTIONS) {
         // Todo tool_use precisa de resposta; o excedente não é executado.
         results.push({ type: "tool_result", tool_use_id: use.id, content: "Limite de consultas atingido: esta não foi executada.", is_error: true });
@@ -66,8 +75,13 @@ export async function runToolLoop(input: {
       executions += 1;
       perTool.set(use.name, (perTool.get(use.name) ?? 0) + 1);
       const outcome = await tools.execute(use.name, use.input);
+      if (outcome.openDraft !== undefined) {
+        openDraft = outcome.openDraft;
+        break;
+      }
       results.push({ type: "tool_result", tool_use_id: use.id, content: outcome.content, ...(outcome.isError ? { is_error: true as const } : {}) });
     }
+    if (openDraft !== undefined) return { final: null, openDraft, model, rounds, executions, perTool, ms: Date.now() - started };
     // O conteúdo da resposta volta como veio (inclui o raciocínio, que a API exige inalterado).
     messages.push({ role: "assistant", content: content as never });
     const willClose = rounds >= options.maxToolRounds || executions >= MAX_TOOL_EXECUTIONS;

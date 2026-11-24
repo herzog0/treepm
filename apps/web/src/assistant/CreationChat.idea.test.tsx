@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApiClient, DraftPreview } from "../api/client.js";
 import { setTestLanguage } from "../test/i18n.js";
 import { makeClient, makeConversation, makePlacement, makeProject, makeTicket, ok } from "../test/fakes.js";
-import { AssistantPanel } from "./AssistantPanel.js";
+import { ChatHarness } from "../test/mountChat.js";
 
 /** Registrar o rascunho como ideia pela conversa (ADR 0044, adendo; TREEPM-242). */
 const alfa = makeProject("p1", "ALFA", "Projeto Alfa");
@@ -38,10 +38,9 @@ function setup(options: { idea?: boolean; children?: { title: string; descriptio
     })),
   } as Partial<Record<keyof ApiClient, unknown>>);
   const props = {
-    client, projects: [alfa], initialProjectId: "p1", tickets, expanded: true, resume: true,
-    onCollapse: vi.fn(), onProgress: vi.fn(), onCreated: vi.fn(), onManualCreate: vi.fn(), onDraftChange: vi.fn(), onChanged: vi.fn(), registerPicker: vi.fn(),
+    client, projects: [alfa], initialProjectId: "p1", tickets, resume: true, onCreated: vi.fn(), onManualCreate: vi.fn(), onDraftChange: vi.fn(), onChanged: vi.fn(), registerPicker: vi.fn(),
   };
-  render(<AssistantPanel {...props} />);
+  render(<ChatHarness {...props} />);
   return { client, props };
 }
 const option = () => screen.findByRole("checkbox", { name: "Registrar como ideia" });

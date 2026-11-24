@@ -124,3 +124,28 @@ Thread de assunto e barra de pedidos entraram numa mudança só, servidor e tela
 
 - "Limpar a conversa" não apaga as threads de assunto, e não há como apagar uma (`TREEPM-416`).
 - A criação de ticket continua pelo painel antigo até a fatia 3.
+
+## Como ficou: fatia 3 (2026-11-24)
+
+Criação de ticket como subthread, servidor e tela numa mudança só, sem migration (a `0035` já tinha deixado a ligação pronta).
+
+- **Como nasce:** `creation: true` no envio de mensagem, ou a ferramenta `open_ticket_draft` do assistente, que só abre o rascunho e encerra a vez dele. Não existe ferramenta que crie, altere ou apague ticket. No máximo um rascunho aberto por vez pelo assistente, com trava por pessoa.
+- **O que tem dentro:** a conversa de novo ticket de antes, sem reescrita (`assistant/CreationChat.tsx`, o miolo do painel que saiu), hospedada pela thread (`chat/CreationThread.tsx`). As tabelas e as rotas dela não mudaram.
+- **Projeto:** o do ticket, no chat de um ticket; no Meu chat, o que está aberto no mapa; sem nenhum e com mais de um possível, a tela pergunta. Num envio comum ao assistente, projeto que não serve só tira a ferramenta: a mensagem é respondida.
+- **Estado** (rascunho, esperando a pessoa, criado, descartado): derivado da conversa de novo ticket a cada leitura. Aberta, a thread aparece na barra com a marca "+"; criada ou descartada, some, e o cartão na conversa de cima fica.
+- **Ao criar,** na mesma transação, a conversa da criação é copiada para a conversa principal de quem criou no ticket novo, uma vez só.
+- **Quem perdeu o acesso ao projeto** recebe "não encontrado" na thread, e o cartão fica só com o estado, sem chave, título nem projeto.
+- **A frase "abri um rascunho"** é guardada com um marcador, e a tela a mostra no idioma da pessoa; ela fica fora do histórico enviado ao provedor.
+- **Saiu** o painel de novo ticket (`AssistantPanel`) e as linhas "Nova conversa" e "Continuar conversa" da barra de pedidos. "Criar ticket" e "+ Novo ticket" abrem a thread de criação no Meu chat.
+- O que é só da tela numa criação (destino escolhido, respostas, edição não salva) fica guardado por thread durante a sessão; a pergunta aberta é reconstruída do servidor.
+
+### O que mudou em relação ao texto acima
+
+- **Editar o rascunho** continua direto no cartão, como já era; não virou ação separada.
+- **Do chat de um ticket,** a procura do lugar parte do ticket de origem só quando ele está na árvore viva (não é ideia nem cancelado); "tirar o escopo" procura no projeto inteiro.
+- **"Escolher no mapa" e "criar manualmente"** só aparecem com o mapa montado.
+
+### Em aberto
+
+- Rascunhos de novo ticket abertos antes desta fatia não aparecem mais (ficam no banco).
+- O cabeçalho da thread de criação ocupa bastante altura.

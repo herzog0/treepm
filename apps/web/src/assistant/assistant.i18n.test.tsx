@@ -9,8 +9,8 @@ import { resources } from "../i18n/resources.js";
 import type { MapNode } from "../map/items.js";
 import { failed, makeClient, makeConversation, makePlacement, makeProject, makeTicket, ok } from "../test/fakes.js";
 import { setTestLanguage } from "../test/i18n.js";
-import { AssistantPanel } from "./AssistantPanel.js";
-import type { AssistantPanelProps } from "./AssistantPanel.js";
+import { ChatHarness } from "../test/mountChat.js";
+import type { MountProps } from "../test/mountChat.js";
 import type { MapPicker } from "./types.js";
 
 /** Textos em português dos catálogos `assistant` e `demo` que o idioma testado traduziu de outro jeito (e que não são variáveis nem marcação). */
@@ -69,23 +69,23 @@ const resumed = (placement: PlacementOutcome | null, conversation = makeConversa
     ...(placement ? { findPlacement: vi.fn(async () => ok(placement)) } : {}),
   });
 
-function setup(client: ApiClient, extra: Partial<AssistantPanelProps> = {}) {
-  const props: AssistantPanelProps = {
-    client, projects: [alfa], initialProjectId: "p1", tickets, expanded: true, resume: true, onCollapse: vi.fn(), onProgress: vi.fn(), onCreated: vi.fn(), onManualCreate: vi.fn(),
+function setup(client: ApiClient, extra: Partial<MountProps> = {}) {
+  const props: MountProps = {
+    client, projects: [alfa], initialProjectId: "p1", tickets, resume: true, onCreated: vi.fn(), onManualCreate: vi.fn(),
     onDraftChange: vi.fn(), onChanged: vi.fn(), registerPicker: vi.fn(), ...extra,
   };
-  const view = render(<AssistantPanel {...props} />);
+  const view = render(<ChatHarness {...props} />);
   return { props, ...view };
 }
 const projectNode = (id: string): MapNode => ({ id, parentId: "org", kind: "project", label: id, color: "#fff", key: id, ticket: null, leafCount: 1 });
 
 const TEXT = {
   en: {
-    panel: "New ticket with the assistant", title: "New ticket", subtitle: "The assistant knows the tree and remembers earlier conversations", collapse: "Collapse",
+    panel: "New ticket with the assistant",
     which: "Which project?", loading: "Loading the conversation…",
     hint: "Describe the task. The assistant asks what is missing, writes the ticket and looks for its place in the tree.",
     message: "Message to the assistant", placeholder: "Describe the task or reply to the assistant", send: "Send", reply: "Assistant reply",
-    waiting: "The assistant is replying…", retry: "Try again", manual: "Create manually", newConversation: "New conversation", deleteConversation: "Delete conversation",
+    waiting: "The assistant is replying…", retry: "Try again", manual: "Create manually", discard: "Discard draft",
     draftRegion: "Ticket draft", draft: "Draft", titleField: "Title", description: "Description",
     searching: "Looking for the place… the first search in a project can take a while.", notReady: "The AI still has a question before looking for the place.",
     save: "Save draft", find: "Find the place", anyway: "Search anyway", again: "Search again",
@@ -102,11 +102,11 @@ const TEXT = {
     create: "Create here", up: "Up one level", choose: "Choose on the map", cancelChoose: "Cancel choosing", unavailable: "The assistant did not respond.",
   },
   "es-MX": {
-    panel: "Nuevo ticket con el asistente", title: "Nuevo ticket", subtitle: "El asistente conoce el árbol y recuerda las conversaciones anteriores", collapse: "Contraer",
+    panel: "Nuevo ticket con el asistente",
     which: "¿En qué proyecto?", loading: "Cargando la conversación…",
     hint: "Describe la tarea. El asistente pregunta lo que falte, escribe el ticket y busca su lugar en el árbol.",
     message: "Mensaje para el asistente", placeholder: "Describe la tarea o responde al asistente", send: "Enviar", reply: "Respuesta del asistente",
-    waiting: "El asistente está respondiendo…", retry: "Intentar de nuevo", manual: "Crear manualmente", newConversation: "Nueva conversación", deleteConversation: "Eliminar conversación",
+    waiting: "El asistente está respondiendo…", retry: "Intentar de nuevo", manual: "Crear manualmente", discard: "Descartar borrador",
     draftRegion: "Borrador del ticket", draft: "Borrador", titleField: "Título", description: "Descripción",
     searching: "Buscando el lugar… la primera búsqueda en un proyecto puede tardar.", notReady: "La IA aún tiene una pregunta antes de buscar el lugar.",
     save: "Guardar borrador", find: "Buscar el lugar", anyway: "Buscar de todos modos", again: "Buscar de nuevo",
@@ -126,8 +126,8 @@ const TEXT = {
 
 describe.each(["en", "es-MX"] as const)("assistant panel in %s", (language) => {
   const text = TEXT[language];
-  // A folha é a região da conversa; o nome do projeto e as ações ficam na linha de cima da barra, ao lado dela.
-  const panel = () => screen.getByRole("region", { name: text.panel }).closest<HTMLElement>(".assistant-sheet")!;
+  // O miolo é a região da conversa; as ações dele ficam no espaço do cabeçalho da thread, ao lado.
+  const panel = () => screen.getByRole("region", { name: text.panel }).closest<HTMLElement>(".creation-thread")!;
   const card = () => screen.getByRole("region", { name: text.path });
   const find = async (name: string) => userEvent.click(await screen.findByRole("button", { name }));
 
@@ -135,32 +135,12 @@ describe.each(["en", "es-MX"] as const)("assistant panel in %s", (language) => {
     await setTestLanguage(language);
     setup(clientWith());
     expect(await screen.findByText(text.hint)).toBeInTheDocument();
-    expect(within(panel()).getByRole("heading", { level: 2, name: text.title })).toBeInTheDocument();
-    expect(panel()).toHaveTextContent("ALFA · Projeto Alfa");
-    expect(screen.getByRole("button", { name: text.collapse })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: text.message })).toHaveAttribute("placeholder", text.placeholder);
     expect(screen.getByRole("button", { name: text.send })).toBeInTheDocument();
     expectNoPortuguese(panel(), language);
   });
 
-  it("translates the header while no project is chosen, the project question and the loading", async () => {
-    await setTestLanguage(language);
-    setup(clientWith(), { projects: [alfa, beta], initialProjectId: null });
-    expect(screen.getByRole("heading", { level: 3, name: text.which })).toBeInTheDocument();
-    expect(panel()).toHaveTextContent(text.subtitle);
-    await userEvent.click(screen.getByRole("button", { name: /ALFA · Projeto Alfa/ }));
-    expect(await screen.findByText(text.hint)).toBeInTheDocument();
-    expectNoPortuguese(panel(), language);
-  });
 
-  it("shows the loading line while the conversation is fetched", async () => {
-    await setTestLanguage(language);
-    let release: () => void = () => undefined;
-    setup(clientWith({ listConversations: vi.fn(() => new Promise((resolve) => { release = () => resolve(ok([])); })) }));
-    expect(screen.getByRole("status")).toHaveTextContent(text.loading);
-    await act(async () => release());
-    expect(await screen.findByText(text.hint)).toBeInTheDocument();
-  });
 
   it("translates a conversation with a draft; the AI text and the draft come as they arrived", async () => {
     await setTestLanguage(language);
@@ -171,8 +151,7 @@ describe.each(["en", "es-MX"] as const)("assistant panel in %s", (language) => {
     expect(within(draft).getByRole("textbox", { name: text.titleField })).toHaveValue("Corrigir o login");
     expect(within(draft).getByRole("textbox", { name: text.description })).toHaveTextContent("O login falha no Safari.");
     expect(screen.getByRole("button", { name: text.find })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: text.newConversation })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: text.deleteConversation })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: text.discard })).toBeInTheDocument();
     expect(screen.getByRole("status", { name: text.reply })).toBeInTheDocument();
     await userEvent.type(within(draft).getByRole("textbox", { name: text.titleField }), "!");
     expect(screen.getByRole("button", { name: text.save })).toBeInTheDocument();
@@ -309,7 +288,7 @@ describe.each(["en", "es-MX"] as const)("assistant panel in %s", (language) => {
     act(() => picker.pick(projectNode("p9")));
     expect(await screen.findByRole("alert")).toHaveTextContent(text.pickNotice);
     // Escolhendo, a região da folha se recolhe e a instrução ocupa a linha de cima.
-    expectNoPortuguese(document.querySelector<HTMLElement>(".assistant-sheet")!, language);
+    expectNoPortuguese(document.querySelector<HTMLElement>(".creation-thread")!, language);
   });
 
   it("translates a provider error with its two ways out", async () => {
@@ -328,7 +307,7 @@ describe.each(["en", "es-MX"] as const)("assistant panel in %s", (language) => {
     expect(await screen.findByRole("region", { name: "Caminho encontrado" })).toBeInTheDocument();
     await setTestLanguage(language);
     await waitFor(() => expect(screen.getByRole("region", { name: text.path })).toBeInTheDocument());
-    expect(panel()).toHaveTextContent(text.title);
+    expect(screen.getByRole("button", { name: text.discard })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: text.message })).toHaveAttribute("placeholder", text.placeholder);
     expectNoPortuguese(panel(), language);
     await setTestLanguage("pt-BR");

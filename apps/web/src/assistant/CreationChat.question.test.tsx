@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient, PlacementOutcome } from "../api/client.js";
 import type { MapNode } from "../map/items.js";
 import { failed, makeClient, makeConversation, makePlacement, makeProject, makeTicket, ok } from "../test/fakes.js";
-import { AssistantPanel } from "./AssistantPanel.js";
-import type { AssistantPanelProps } from "./AssistantPanel.js";
+import { ChatHarness } from "../test/mountChat.js";
+import type { MountProps } from "../test/mountChat.js";
 import { RecentPlacesProvider } from "./RecentPlacesContext.js";
 import { createRecentPlaces } from "./recentPlaces.js";
 import type { RecentPlaces } from "./recentPlaces.js";
@@ -71,16 +71,13 @@ function clientWith(placements: PlacementOutcome[], extra: Partial<Record<keyof 
   return client;
 }
 
-function baseProps(client: ApiClient, extra: Partial<AssistantPanelProps> = {}): AssistantPanelProps {
+function baseProps(client: ApiClient, extra: Partial<MountProps> = {}): MountProps {
   return {
     client,
     projects: [alfa],
     initialProjectId: "p1",
     tickets,
-    expanded: true,
     resume: true,
-    onCollapse: vi.fn(),
-    onProgress: vi.fn(),
     onCreated: vi.fn(),
     onManualCreate: vi.fn(),
     onDraftChange: vi.fn(),
@@ -90,9 +87,9 @@ function baseProps(client: ApiClient, extra: Partial<AssistantPanelProps> = {}):
   };
 }
 
-function setup(client: ApiClient, extra: Partial<AssistantPanelProps> = {}, recents?: RecentPlaces) {
+function setup(client: ApiClient, extra: Partial<MountProps> = {}, recents?: RecentPlaces) {
   const props = baseProps(client, extra);
-  const panel = <AssistantPanel {...props} />;
+  const panel = <ChatHarness {...props} />;
   render(recents ? <RecentPlacesProvider value={recents}>{panel}</RecentPlacesProvider> : panel);
   return props;
 }
@@ -111,7 +108,7 @@ const deferred = <T,>() => {
   return { promise, resolve };
 };
 const created = (client: ApiClient) => vi.mocked(client.createTicketFromConversation).mock.calls.at(-1)?.[1];
-const lastPicker = (props: AssistantPanelProps) => vi.mocked(props.registerPicker).mock.calls.filter(([picker]) => picker !== null).at(-1)![0] as MapPicker;
+const lastPicker = (props: MountProps) => vi.mocked(props.registerPicker).mock.calls.filter(([picker]) => picker !== null).at(-1)![0] as MapPicker;
 const ticketNode = (id: string): MapNode => ({ id, parentId: "p1", kind: "ticket", label: byId(id).title, color: "#fff", key: byId(id).key, ticket: byId(id), leafCount: 1 });
 
 describe("the question in place of the destination", () => {
@@ -756,7 +753,7 @@ describe("review 1: the limit notice and the placedBy table", () => {
   it("'Usar' and 'Um nível acima' after a branch answer are each option, with the right parent", async () => {
     for (const [button, parentId] of [[/Usar: /, "t7"], ["Um nível acima", "t2"]] as const) {
       const client = clientWith([question(null, ["t1"]), makePlacement({ destination: target("t3"), alternatives: [target("t7")] })]);
-      const { unmount } = render(<AssistantPanel {...baseProps(client)} />);
+      const { unmount } = render(<ChatHarness {...baseProps(client)} />);
       await search();
       await userEvent.click(await screen.findByRole("button", { name: /^Acesso/ }));
       await userEvent.click(await screen.findByRole("button", { name: button }));
@@ -801,20 +798,6 @@ describe("review 1: the count starts over", () => {
     expect(screen.queryByText(/Já perguntei três vezes/)).not.toBeInTheDocument();
   });
 
-  it("deleting the conversation", async () => {
-    const client = rounds(question(null, ["t1", "t4"]), question("t1", ["t2", "t7"]), question("t2", ["t3", "t10"]));
-    setup(client);
-    await twoAnswers();
-    await userEvent.click(screen.getByRole("button", { name: "Apagar conversa" }));
-    await userEvent.click(document.querySelector<HTMLButtonElement>(".confirm-action button.danger")!);
-    await waitFor(() => expect(client.removeConversation).toHaveBeenCalled());
-    await userEvent.type(await screen.findByRole("textbox", { name: "Mensagem para o assistente" }), "de novo{Enter}");
-    await userEvent.click(await screen.findByRole("button", { name: "Procurar o lugar" }));
-    await userEvent.click(await screen.findByRole("button", { name: /^Acesso/ }));
-    await userEvent.click(await screen.findByRole("button", { name: /^Login/ }));
-    expect(await screen.findByRole("heading", { name: "Onde isto entra?" })).toBeInTheDocument();
-    expect(screen.queryByText(/Já perguntei três vezes/)).not.toBeInTheDocument();
-  });
 });
 
 describe("review 1: the person's choice survives an edited draft", () => {

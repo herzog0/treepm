@@ -22,7 +22,16 @@ const cursorSchema = z.string().min(1).max(64);
  * dentro da conversa principal dela; não combina com `mentions`, `ticketId` nem com uma thread como destino (422).
  */
 export const sendMessageBodySchema = z
-  .object({ body: chatBodySchema, mentions: z.array(idSchema).max(200).optional(), ticketId: idSchema.optional(), topic: z.boolean().optional() })
+  .object({
+    body: chatBodySchema,
+    mentions: z.array(idSchema).max(200).optional(),
+    ticketId: idSchema.optional(),
+    topic: z.boolean().optional(),
+    /** ADR 0056, item 5: o texto abre direto a thread de criação de ticket (conversa principal ou thread de assunto da própria pessoa). */
+    creation: z.boolean().optional(),
+    /** O projeto que a pessoa tem aberto no mapa: onde um rascunho de ticket nasce, no Meu chat. Só vale numa mensagem ao assistente ou com `creation`. */
+    projectId: idSchema.optional(),
+  })
   .strict();
 
 /** Incluir pessoas numa thread (só quem a abriu). */
@@ -55,10 +64,27 @@ const messageBase = z.object({
   createdAt: z.string(),
   /** O modelo que respondeu; só nas mensagens do assistente. */
   model: z.string().nullable(),
+  /** `creation_opened`: a resposta fixa de quando o assistente abriu um rascunho (a tela mostra a frase no idioma da pessoa; `body` é só o texto de reserva em português). */
+  marker: z.enum(["creation_opened"]).nullable(),
 });
 
 /** Para que a thread existe (ADR 0056): entre pessoas, assunto com o assistente (só de quem a abriu) ou conversa de novo ticket. */
 export const purposeSchema = z.enum(["people", "topic", "creation"]);
+
+/**
+ * A thread de criação (ADR 0056, item 5): onde está a conversa de novo ticket. `draft`: rascunho em escrita; `waiting`: esperando a pessoa
+ * (pergunta sobre o lugar aberta ou rascunho pronto para criar); `created`: o ticket existe (`ticket`); `discarded`: a conversa foi
+ * descartada (o elo com ela some: `ticketConversationId`, `projectId` e `projectKey` ficam nulos).
+ */
+export const creationSchema = z.object({
+  ticketConversationId: z.string().nullable(),
+  projectId: z.string().nullable(),
+  projectKey: z.string().nullable(),
+  state: z.enum(["draft", "waiting", "created", "discarded"]),
+  /** Quem abriu: a pessoa (pedido direto) ou o assistente (pela ferramenta; o pedido que ele passou fica como mensagem dele na thread). */
+  openedBy: z.enum(["person", "assistant"]),
+  ticket: z.object({ id: z.string(), key: z.string(), title: z.string() }).nullable(),
+});
 
 /** O cartão de uma thread, para quem participa dela. */
 export const threadCardSchema = z.object({
@@ -75,8 +101,10 @@ export const threadCardSchema = z.object({
   unread: z.number(),
   startedByMe: z.boolean(),
   purpose: purposeSchema,
-  /** O título curto da thread de assunto; `null` até o assistente dar um (a tela usa o começo da abertura). */
+  /** O título curto da thread de assunto; `null` até o assistente dar um (a tela usa o começo da abertura). Na de criação, o título do rascunho quando há. */
   title: z.string().nullable(),
+  /** Só nas threads de criação. */
+  creation: creationSchema.nullable(),
 });
 
 export const chatMessageSchema = messageBase.extend({
@@ -115,6 +143,8 @@ export const conversationInfoSchema = z.object({
   /** Só nas threads; `null` nas principais. */
   purpose: purposeSchema.nullable(),
   title: z.string().nullable(),
+  /** Só nas threads de criação (ADR 0056, item 5). */
+  creation: creationSchema.nullable(),
   /** Foi a pessoa quem abriu. */
   ownedByMe: z.boolean(),
   participants: z.array(personRefSchema),
@@ -151,6 +181,11 @@ export const sendResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("thread"), message: chatMessageSchema, thread: threadCardSchema }),
   /** O texto livre virou thread de assunto: a abertura (na conversa de cima), a thread e a resposta do assistente, dentro dela. */
   z.object({ kind: z.literal("topic"), message: chatMessageSchema, thread: threadCardSchema, reply: chatMessageSchema }),
+  /**
+   * O pedido abriu uma thread de criação de ticket (ADR 0056, item 5): `message` é a abertura (na conversa principal, com o cartão da thread),
+   * `thread` o cartão e `reply`, quando o assistente abriu o rascunho, a resposta fixa dele na conversa onde a pessoa falou; `null` no pedido direto.
+   */
+  z.object({ kind: z.literal("creation"), message: chatMessageSchema, thread: threadCardSchema, reply: chatMessageSchema.nullable(), ticketConversationId: z.string() }),
 ]);
 
 export const readResultSchema = z.object({ lastRead: z.string().nullable(), unread: z.number() });
@@ -178,6 +213,8 @@ export interface ConversationNodeShape {
   purpose: z.output<typeof purposeSchema> | null;
   /** O título da thread de assunto; `null` nas demais e até o assistente dar um. */
   title: string | null;
+  /** Só nas threads de criação ainda abertas (ADR 0056, item 5). */
+  creation: z.output<typeof creationSchema> | null;
   children: ConversationNodeShape[];
 }
 export const conversationNodeSchema: z.ZodType<ConversationNodeShape> = z.lazy(() =>
@@ -195,6 +232,7 @@ export const conversationNodeSchema: z.ZodType<ConversationNodeShape> = z.lazy((
     label: z.string().nullable(),
     purpose: purposeSchema.nullable(),
     title: z.string().nullable(),
+    creation: creationSchema.nullable(),
     children: z.array(conversationNodeSchema),
   }),
 );

@@ -131,5 +131,42 @@
     "cancel": "Cancelar",
     "pending": "respondendo…",
     "failed": "Não respondida"
+  },
+  "creation": {
+    "busy": "Já há um ticket novo sendo aberto: espere ou cancele antes de pedir outro.",
+    "waiting": "Abrindo o rascunho…",
+    "state": {
+      "draft": "rascunho",
+      "waiting": "sua vez",
+      "created": "criado",
+      "discarded": "descartado"
+    },
+    "private": "Só você vê. O ticket só existe quando você apertar Criar.",
+    "openedByAssistant": "O assistente abriu este rascunho a seu pedido.",
+    "project": "Projeto {{key}}",
+    "newTicket": "Novo ticket",
+    "newTicketHint": "Cria um rascunho de ticket com o que está escrito",
+    "modeNotice": "Novo ticket: o que você escrever vira um rascunho. Só você vê.",
+    "modeCancel": "Voltar a conversar",
+    "opened": "Abri um rascunho de ticket",
+    "goTo": "Abrir o rascunho",
+    "cardCreated": "{{key}} · {{title}}",
+    "cardOpenTicket": "Abrir a conversa do ticket {{key}}",
+    "cardTitle": "Rascunho de ticket",
+    "pickProject": "Em qual projeto?",
+    "pickProjectHint": "Há mais de um projeto em que você cria tickets. Escolha onde este rascunho nasce.",
+    "pickProjectOption": "{{key}} · {{name}}",
+    "projectUnavailable": "Você não pode criar tickets nesse projeto, ou ele não está disponível. Escolha outro.",
+    "projectMismatch": "Esta conversa trata de um ticket de outro projeto: o rascunho nasce no projeto dele.",
+    "changeProject": "Trocar de projeto",
+    "changeProjectConfirm": "Descarta este rascunho e abre outro no projeto escolhido, com o mesmo pedido.",
+    "changeProjectTo": "Abrir em {{key}}",
+    "noAccess": "Você não enxerga o projeto deste rascunho.",
+    "loading": "Carregando o rascunho…",
+    "createdBody": "Ticket criado: {{key}} · {{title}}",
+    "openTicketChat": "Abrir a conversa do ticket",
+    "discardedBody": "Rascunho descartado. Nada foi criado.",
+    "fallbackTitle": "Novo ticket",
+    "newBadge": "novo"
   }
 }

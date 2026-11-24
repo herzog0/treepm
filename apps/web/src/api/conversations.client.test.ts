@@ -91,3 +91,22 @@ describe("conversation calls", () => {
     expect(await client.listConversationTree()).toMatchObject({ ok: false, error: { kind: "unavailable" } });
   });
 });
+
+describe("creation thread contract (ADR 0056)", () => {
+  const creation = { ticketConversationId: "tc1", projectId: ID, projectKey: "ALFA", state: "waiting", openedBy: "assistant", ticket: null };
+  it("reads the creation block and the marker, and treats a missing field as null", async () => {
+    const draftCard = { ...card, purpose: "creation", creation };
+    const { client } = setup([{ kind: "creation", message: { ...msg({ marker: "creation_opened" }), thread: draftCard }, thread: draftCard, reply: { ...msg({ marker: "creation_opened" }), thread: null }, ticketConversationId: "tc1" }]);
+    const result = await client.sendChatMessage("c1", { body: "Crie um ticket", creation: true, projectId: ID });
+    expect(result).toMatchObject({ ok: true, data: { kind: "creation", thread: { creation: { state: "waiting", openedBy: "assistant" } }, reply: { marker: "creation_opened" } } });
+    const old = setup([{ kind: "message", message: { ...msg(), thread: card } }]);
+    const r = await old.client.sendChatMessage("c1", { body: "oi" });
+    expect(r).toMatchObject({ ok: true, data: { message: { marker: null, thread: { creation: null } } } });
+  });
+  it("lets a node and a view come from an older server without the creation block", async () => {
+    const node = { id: "t1", kind: "thread", ticket: null, ownedByMe: true, assignedToMe: false, participants: [], participantCount: 0, lastActivityAt: null, unread: 0, preview: null, purpose: "creation", title: "X", children: [] };
+    const { client } = setup([{ items: [node] }, { ...view, conversation: { ...info, creation } }]);
+    expect(await client.listConversationTree()).toMatchObject({ ok: true, data: { items: [{ creation: null }] } });
+    expect(await client.getConversationView("c1")).toMatchObject({ ok: true, data: { conversation: { creation: { state: "waiting" } } } });
+  });
+});

@@ -171,7 +171,15 @@ export const DESCRIPTION_WRITER = Symbol("DESCRIPTION_WRITER");
 // ---- Ferramentas de consulta (ADR 0037 e 0056) --------------------------------------------------------------
 
 /** Resultado de uma ferramenta: texto (JSON) para o modelo; `isError` marca entrada inválida do modelo, que não derruba a pergunta. */
-export type ToolOutcome = { content: string; isError: boolean };
+export type ToolOutcome = {
+  content: string;
+  isError: boolean;
+  /**
+   * Só a ferramenta `open_ticket_draft` (ADR 0056, item 5): o pedido da pessoa, que abre a thread de criação. Quem recebe isto encerra a vez
+   * do assistente na hora; a ferramenta não cria ticket, e quem abre o rascunho é o servidor, não o modelo.
+   */
+  openDraft?: string;
+};
 
 /**
  * Quem executa as ferramentas de consulta. O adaptador do Claude só conhece esta interface, nunca o banco. Entrada
@@ -209,6 +217,8 @@ export type ChatTicketContext = {
  * que a pessoa enxerga e não estão arquivados; nenhum texto leva id, nome de projeto nem dado de pessoa. `tools` consulta
  * esses projetos, só leitura.
  */
+export type DraftToolState = { kind: "ready" } | { kind: "blocked"; reason: "project_required" | "draft_open" };
+
 export type ChatTurnInput = {
   ticket: ChatTicketContext | null;
   history: readonly ConversationMessage[];
@@ -216,12 +226,17 @@ export type ChatTurnInput = {
   tools: ToolExecutor;
   /** Só na primeira resposta de uma thread de assunto (ADR 0056): devolva também um título curto. */
   wantTitle: boolean;
+  /**
+   * A ferramenta que abre o rascunho de um ticket novo (ADR 0056, item 5). `null`: a conversa não é só da pessoa com o assistente e a
+   * ferramenta nem existe para o modelo. `blocked`: existe, mas a execução devolve o motivo ao modelo, que o diz à pessoa.
+   */
+  draftTool: DraftToolState | null;
 };
 
 /** Claude: ajuda a pessoa a pensar e consulta tickets pelas ferramentas de leitura. Nunca altera nada. */
 export interface ChatProvider {
   /** `title`: só quando `wantTitle`, e só se o provedor deu um; quem grava confere de novo (`chatTitleOf`). */
-  reply(input: ChatTurnInput): Promise<{ message: string; model: string; title?: string | null }>;
+  reply(input: ChatTurnInput): Promise<{ message: string; model: string; title?: string | null; openDraft?: string }>;
 }
 
 export const CHAT_PROVIDER = Symbol("CHAT_PROVIDER");

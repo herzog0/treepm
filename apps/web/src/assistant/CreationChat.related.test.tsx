@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlacementOutcome } from "../api/client.js";
 import { setTestLanguage } from "../test/i18n.js";
 import { makeClient, makeConversation, makePlacement, makeProject, makeTicket, ok } from "../test/fakes.js";
-import { AssistantPanel } from "./AssistantPanel.js";
+import { ChatHarness } from "../test/mountChat.js";
 
 /** Tickets relacionados e aviso de duplicado na prévia da conversa (ADR 0052, fatia 2; TREEPM-328). */
 const alfa = makeProject("p1", "ALFA", "Projeto Alfa");
@@ -32,10 +32,9 @@ function setup(placement: PlacementOutcome) {
       })),
   });
   const props = {
-    client, projects: [alfa], initialProjectId: "p1", tickets, expanded: true, resume: true,
-    onCollapse: vi.fn(), onProgress: vi.fn(), onCreated: vi.fn(), onOpenExisting: vi.fn(), onManualCreate: vi.fn(), onDraftChange: vi.fn(), onChanged: vi.fn(), registerPicker: vi.fn(),
+    client, projects: [alfa], initialProjectId: "p1", tickets, resume: true, onCreated: vi.fn(), onOpenExisting: vi.fn(), onManualCreate: vi.fn(), onDraftChange: vi.fn(), onChanged: vi.fn(), registerPicker: vi.fn(),
   };
-  render(<AssistantPanel {...props} />);
+  render(<ChatHarness {...props} />);
   return { client, props };
 }
 const search = async () => userEvent.click(await screen.findByRole("button", { name: "Procurar o lugar" }));
