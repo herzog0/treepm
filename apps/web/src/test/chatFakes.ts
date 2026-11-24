@@ -1,10 +1,13 @@
 import { vi } from "vitest";
-import type { ApiClient, ApiError, ApiErrorKind, ApiResult, ChatListItem, ChatMessage, ChatPage, ChatPerson, ChatThread, ChatWriteBody, TicketChat } from "../api/client.js";
+import type { ApiClient, ApiError, ApiErrorKind, ApiResult } from "../api/client.js";
+import { conversationTreeSchema, conversationViewSchema, sendResultSchema } from "../api/conversations.js";
+import type { ChatMessage, ChatPerson, ConversationNode, ConversationView, SendResult, ThreadCard } from "../api/conversations.js";
 
 /**
- * O chat de trabalho por ticket (ADR 0049) em memória, com as regras do contrato (`CONTRATO-CHAT.local.md`): chat por pessoa, conversa
- * só com o assistente, threads por menção, posição por `cursor` opaco, ponto de leitura que nunca recua, limpar só a conversa.
- * Não importa `fakes.ts` (que o importa): tem os próprios `ok` e `failed`.
+ * As conversas em níveis (ADR 0055) em memória, com as regras do contrato do servidor: uma principal por pessoa e ticket, um chat geral
+ * por pessoa, threads dentro de threads, quem participa da de cima participa das de dentro, quem é marcado vê a thread e nada acima,
+ * posição por `cursor` opaco, "lido até" por pessoa e conversa. Cada resposta passa pelos esquemas do cliente. As mesmas conversas
+ * podem ser lidas por pessoas diferentes (`methods(personId)`): dono, participante e convidado. Não importa `fakes.ts` (que o importa).
  */
 const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 const failed = (kind: ApiErrorKind, code?: string, details?: Record<string, unknown>): ApiResult<never> => ({
@@ -17,12 +20,16 @@ interface StoredMessage {
   authorId: string | null;
   body: string;
   model: string | null;
-  threadId: string | null;
+  /** A conversa (thread) que esta mensagem abriu. */
+  opened: string | null;
 }
-interface StoredThread {
+interface StoredConversation {
   id: string;
-  ticketId: string;
-  startedBy: string;
+  kind: "ticket" | "general" | "thread";
+  ticketId: string | null;
+  ownerId: string;
+  parentId: string | null;
+  depth: number;
   participants: string[];
   messages: StoredMessage[];
 }
@@ -32,7 +39,9 @@ export interface FakeChatTicket {
   title: string;
   projectId?: string;
   archived?: boolean;
-  /** A pessoa de quem o cliente fala é responsável pelo ticket (o chat aparece sozinho na lista). */
+  status?: string;
+  blocked?: boolean;
+  /** A pessoa de quem o cliente fala é responsável pelo ticket (o ticket aparece sozinho na barra). */
   assignedToMe?: boolean;
   /** Quem enxerga o ticket; ausente = todas as pessoas. */
   visibleTo?: string[];
@@ -46,35 +55,48 @@ export interface FakeChatOptions {
   reply?: (body: string) => string;
   /** Estado da IA no servidor: `ready` (padrão), `no_consent` (403) ou `not_configured` (503). */
   assistant?: "ready" | "no_consent" | "not_configured";
+  /** Quem é responsável por cada ticket além de `assignedToMe` (que vale para `me`). */
+  assignees?: Record<string, string[]>;
 }
+
+export type FakeChatMethods = Pick<ApiClient, "listConversationTree" | "getConversationView" | "getTicketConversationView" | "openTicketConversation" | "openGeneralConversation" | "sendChatMessage" | "addConversationParticipants" | "markConversationRead" | "clearConversationMessages">;
 
 export interface FakeChat {
   options: FakeChatOptions;
-  /** Alguém (outra pessoa) abre uma thread mencionando a pessoa do cliente (ou só as de `to`). */
+  /** Alguém (outra pessoa) abre, na conversa principal dela no ticket, uma thread marcando a pessoa do cliente (ou só as de `to`). Devolve o id da thread. */
   receiveThread(ticketId: string, input: { from: string; body: string; to?: string[]; replies?: { from: string; body: string }[] }): string;
+  /** Alguém abre uma thread dentro de uma conversa que já existe (`from` participa dela). */
+  openThreadIn(parentId: string, input: { from: string; body: string; to: string[]; replies?: { from: string; body: string }[]; ticketId?: string }): string;
   /** Alguém responde numa thread que já existe. */
   receiveReply(threadId: string, input: { from: string; body: string }): void;
-  /** Uma mensagem da pessoa do cliente na conversa com o assistente, já guardada, mais a resposta do assistente. */
-  seedConversation(ticketId: string, turns: { person: string; assistant: string }[]): void;
-  /** Dá o chat como lido até o fim. */
-  readAll(ticketId: string): void;
-  /** Mensagens da conversa guardadas hoje (mais antigas primeiro). */
+  /** Uma mensagem da pessoa do cliente na conversa com o assistente, já guardada, mais a resposta do assistente. Devolve o id da conversa. */
+  seedConversation(ticketId: string, turns: { person: string; assistant: string }[]): string;
+  /** O chat geral da pessoa do cliente, já existente, com estas mensagens. Devolve o id. */
+  seedGeneral(turns: { person: string; assistant: string }[]): string;
+  /** Dá a conversa como lida até o fim (a de `conversationId`, ou todas as da pessoa). */
+  readAll(conversationId?: string): void;
+  /** Mensagens guardadas hoje na principal do ticket (mais antigas primeiro). */
   conversationOf(ticketId: string): { authorId: string | null; body: string }[];
-  methods(): Partial<ApiClient>;
+  /** O id da principal da pessoa no ticket, ou `undefined`. */
+  principalOf(ticketId: string, personId?: string): string | undefined;
+  /** O id do chat geral da pessoa, ou `undefined`. */
+  generalOf(personId?: string): string | undefined;
+  /** Os métodos do cliente, vistos pela pessoa (padrão: `me`). */
+  methods(personId?: string): FakeChatMethods;
 }
 
 const EPOCH = Date.parse("2026-11-23T10:00:00.000Z");
 const cursorOf = (seq: number) => `c${seq}`;
 const seqOf = (cursor: string): number | null => (/^c\d+$/.test(cursor) ? Number(cursor.slice(1)) : null);
+/** Níveis que a pessoa pode ter na trilha, a conversa atual inclusive. */
+const MAX_LEVELS = 10;
 
 export function createFakeChat(options: FakeChatOptions): FakeChat {
-  const me = options.me ?? "person-1";
+  const defaultMe = options.me ?? "person-1";
   let seq = 0;
-  const conversations = new Map<string, StoredMessage[]>();
-  const threads = new Map<string, StoredThread>();
+  let counter = 0;
+  const conversations = new Map<string, StoredConversation>();
   const lastRead = new Map<string, number>();
-  /** O chat existe depois do primeiro envio, da primeira menção ou da primeira thread recebida. */
-  const chats = new Set<string>();
   const nextSeq = () => ++seq;
   const at = (n: number) => new Date(EPOCH + n * 60_000).toISOString();
   const ticketOf = (id: string) => options.tickets.find((entry) => entry.id === id);
@@ -83,194 +105,321 @@ export function createFakeChat(options: FakeChatOptions): FakeChat {
     const found = options.people.find((entry) => entry.id === id);
     return { id, displayName: found?.displayName ?? id, avatarUrl: null };
   };
-  const conversationOf = (ticketId: string) => conversations.get(ticketId) ?? [];
-  const readSeq = (ticketId: string) => lastRead.get(ticketId) ?? 0;
+  const readSeq = (who: string, conversationId: string) => lastRead.get(`${who}:${conversationId}`) ?? 0;
+  const all = () => [...conversations.values()];
+  const principalOf = (ticketId: string, who: string) => all().find((entry) => entry.kind === "ticket" && entry.ticketId === ticketId && entry.ownerId === who);
+  const generalOf = (who: string) => all().find((entry) => entry.kind === "general" && entry.ownerId === who);
+  const sees = (who: string, entry: StoredConversation) => entry.participants.includes(who);
+  const canSeeTicket = (ticket: FakeChatTicket, who: string) => ticket.visibleTo === undefined || ticket.visibleTo.includes(who);
+  const create = (input: Omit<StoredConversation, "id" | "messages" | "depth"> & { messages?: StoredMessage[] }): StoredConversation => {
+    const parent = input.parentId === null ? null : conversations.get(input.parentId)!;
+    const entry: StoredConversation = { ...input, id: `conv-${++counter}`, depth: parent === null ? 0 : parent.depth + 1, messages: input.messages ?? [] };
+    conversations.set(entry.id, entry);
+    return entry;
+  };
+  const ensurePrincipal = (ticketId: string, who: string) => principalOf(ticketId, who) ?? create({ kind: "ticket", ticketId, ownerId: who, parentId: null, participants: [who] });
+  const ensureGeneral = (who: string) => generalOf(who) ?? create({ kind: "general", ticketId: null, ownerId: who, parentId: null, participants: [who] });
 
-  const toMessage = (ticketId: string, stored: StoredMessage): ChatMessage => ({
-    id: `m${stored.seq}`,
-    cursor: cursorOf(stored.seq),
-    unread: stored.authorId !== me && stored.seq > readSeq(ticketId),
-    authorKind: stored.authorId === null ? "assistant" : "person",
-    author: person(stored.authorId),
-    body: stored.body,
-    createdAt: at(stored.seq),
-    model: stored.model,
-    threadId: stored.threadId,
-  });
-  const summaryOf = (thread: StoredThread): ChatThread => {
-    const root = thread.messages[0]!;
+  const lastSeq = (entry: StoredConversation) => Math.max(0, ...entry.messages.map((message) => message.seq));
+  /** Conta como não lida: de outra pessoa, depois do ponto de leitura, e que não abriu uma thread daqui (essas contam no cartão da thread). */
+  const countsAsUnread = (who: string, entry: StoredConversation, message: StoredMessage) => message.authorId !== who && message.seq > readSeq(who, entry.id) && (message.opened === null || message.opened === entry.id);
+  const unreadIn = (who: string, entry: StoredConversation) => entry.messages.filter((message) => countsAsUnread(who, entry, message)).length;
+
+  const toMessage = (who: string, entry: StoredConversation, stored: StoredMessage, withCard = true): ChatMessage => {
+    const opened = stored.opened === null ? null : conversations.get(stored.opened);
     return {
-      id: thread.id,
-      ticketId: thread.ticketId,
-      root: toMessage(thread.ticketId, root),
-      replyCount: thread.messages.length - 1,
-      lastMessageAt: at(thread.messages.at(-1)!.seq),
-      unread: thread.messages.filter((entry) => entry.authorId !== me && entry.seq > readSeq(thread.ticketId)).length,
-      startedByMe: thread.startedBy === me,
-      participants: thread.participants.map((id) => person(id)!),
+      id: `m${stored.seq}`,
+      cursor: cursorOf(stored.seq),
+      unread: countsAsUnread(who, entry, stored),
+      authorKind: stored.authorId === null ? "assistant" : "person",
+      author: person(stored.authorId),
+      body: stored.body,
+      createdAt: at(stored.seq),
+      model: stored.model,
+      thread: withCard && opened && sees(who, opened) ? cardOf(who, opened) : null,
     };
   };
-  const mine = (ticketId: string) => [...threads.values()].filter((thread) => thread.ticketId === ticketId && thread.participants.includes(me));
-  const lastSeqOf = (ticketId: string) => Math.max(0, ...conversationOf(ticketId).map((entry) => entry.seq), ...mine(ticketId).flatMap((thread) => thread.messages.map((entry) => entry.seq)));
-  const unreadOf = (ticketId: string) =>
-    conversationOf(ticketId).filter((entry) => entry.authorId !== me && entry.seq > readSeq(ticketId)).length + mine(ticketId).reduce((sum, thread) => sum + summaryOf(thread).unread, 0);
+  const cardOf = (who: string, entry: StoredConversation): ThreadCard => {
+    const { thread: _ignored, ...opening } = toMessage(who, entry, entry.messages[0]!, false);
+    void _ignored;
+    return {
+      id: entry.id,
+      opening,
+      participants: entry.participants.map((id) => person(id)!),
+      participantCount: entry.participants.length,
+      replyCount: entry.messages.length - 1,
+      lastActivityAt: at(lastSeq(entry)),
+      unread: unreadIn(who, entry),
+      startedByMe: entry.ownerId === who,
+    };
+  };
 
-  const pageOf = (ticketId: string, all: StoredMessage[], query: { limit?: number; before?: string }): ApiResult<ChatPage> => {
+  const kidsOf = (who: string, entry: StoredConversation) => all().filter((child) => child.parentId === entry.id && sees(who, child));
+
+  /** A trilha: só as conversas de cima que a pessoa lê, em sequência a partir da conversa. */
+  const trailOf = (who: string, entry: StoredConversation) => {
+    const items: { id: string; kind: StoredConversation["kind"]; label: string | null }[] = [];
+    let current = entry;
+    while (current.parentId !== null) {
+      const parent = conversations.get(current.parentId)!;
+      if (!sees(who, parent)) break;
+      items.unshift({ id: parent.id, kind: parent.kind, label: parent.kind === "thread" ? parent.messages[0]!.body.slice(0, 40) : null });
+      current = parent;
+    }
+    return items;
+  };
+
+  const nodeOf = (who: string, entry: StoredConversation | null, base: { kind: ConversationNode["kind"]; ticket: FakeChatTicket | null }, extraKids: StoredConversation[] = []): ConversationNode => {
+    const kids = [...(entry === null ? [] : kidsOf(who, entry)), ...extraKids].sort((a, b) => lastSeq(b) - lastSeq(a));
+    const t = base.ticket;
+    const last = entry === null ? 0 : lastSeq(entry);
+    const readable = entry === null ? [] : entry.messages;
+    return {
+      id: entry?.id ?? null,
+      kind: base.kind,
+      ticket: t === null ? null : { id: t.id, key: t.key, title: t.title, projectId: t.projectId ?? "p1", archived: t.archived === true, status: t.status ?? "todo", blocked: t.blocked === true },
+      ownedByMe: entry?.ownerId === who,
+      assignedToMe: t !== null && ((t.assignedToMe === true && who === defaultMe) || (options.assignees?.[t.id] ?? []).includes(who)),
+      participants: (entry?.participants ?? []).slice(0, 5).map((id) => person(id)!),
+      participantCount: entry?.participants.length ?? 0,
+      lastActivityAt: last === 0 ? null : at(last),
+      unread: entry === null ? 0 : unreadIn(who, entry),
+      preview: readable.length === 0 ? null : readable.at(-1)!.body.slice(0, 80),
+      children: kids.map((child) => nodeOf(who, child, { kind: "thread", ticket: null })),
+    };
+  };
+
+  const buildTree = (who: string) => {
+    const mine = all().filter((entry) => sees(who, entry));
+    const general = generalOf(who);
+    const generalOrphans: StoredConversation[] = [];
+    const ticketOrphans = new Map<string, StoredConversation[]>();
+    for (const entry of mine) {
+      if (entry.kind !== "thread") continue;
+      const parent = conversations.get(entry.parentId!)!;
+      if (sees(who, parent)) continue;
+      // Quem foi marcado só nesta thread: ela aparece sob o ticket de que trata, ou sob o chat geral da própria pessoa.
+      if (entry.ticketId === null) generalOrphans.push(entry);
+      else ticketOrphans.set(entry.ticketId, [...(ticketOrphans.get(entry.ticketId) ?? []), entry]);
+    }
+    const items: ConversationNode[] = [nodeOf(who, general ?? null, { kind: "general", ticket: null }, generalOrphans)];
+    const ticketIds = new Set<string>();
+    for (const ticket of options.tickets) {
+      if (!canSeeTicket(ticket, who)) continue;
+      const assigned = (ticket.assignedToMe === true && who === defaultMe) || (options.assignees?.[ticket.id] ?? []).includes(who);
+      if (assigned || principalOf(ticket.id, who) || ticketOrphans.has(ticket.id)) ticketIds.add(ticket.id);
+    }
+    for (const ticket of options.tickets) {
+      if (!ticketIds.has(ticket.id)) continue;
+      items.push(nodeOf(who, principalOf(ticket.id, who) ?? null, { kind: "ticket", ticket }, ticketOrphans.get(ticket.id) ?? []));
+    }
+    // Ordem: o chat geral primeiro; os tickets pela atividade mais recente.
+    const [first, ...rest] = items;
+    rest.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
+    return [first!, ...rest];
+  };
+
+  const pageOf = (who: string, entry: StoredConversation, query: { limit?: number; before?: string }): ApiResult<{ items: ChatMessage[]; nextBefore: string | null }> => {
     const limit = query.limit ?? 30;
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) return failed("invalid", "validation_error");
-    let list = [...all].sort((a, b) => b.seq - a.seq);
+    let list = [...entry.messages].sort((a, b) => b.seq - a.seq);
     if (query.before !== undefined) {
       const before = seqOf(query.before);
       if (before === null) return failed("invalid", "invalid_cursor");
-      list = list.filter((entry) => entry.seq < before);
+      list = list.filter((message) => message.seq < before);
     }
     const items = list.slice(0, limit);
-    return ok({ items: items.map((entry) => toMessage(ticketId, entry)), nextBefore: list.length > limit ? cursorOf(items.at(-1)!.seq) : null });
+    return ok({ items: items.map((message) => toMessage(who, entry, message)), nextBefore: list.length > limit ? cursorOf(items.at(-1)!.seq) : null });
   };
 
-  /** A conferência das menções: a pessoa mencionada precisa existir e enxergar o ticket. */
-  const checkMentions = (ticket: FakeChatTicket, mentions: string[] | undefined): ApiResult<never> | null => {
-    if (mentions === undefined || mentions.length === 0) return null;
-    if (mentions.includes(me)) return failed("unavailable", "cannot_mention_self");
-    if (mentions.length > 10) return failed("unavailable", "too_many_mentions", { max: 10 });
-    const refused = mentions.filter((id) => !options.people.some((entry) => entry.id === id) || (ticket.visibleTo !== undefined && !ticket.visibleTo.includes(id)));
-    return refused.length > 0 ? failed("unavailable", "mention_not_allowed", { personIds: refused }) : null;
+  const viewOf = (who: string, entry: StoredConversation | null, ticket: FakeChatTicket | null, query: { limit?: number; before?: string }): ApiResult<ConversationView> => {
+    const page = entry === null ? ok({ items: [] as ChatMessage[], nextBefore: null }) : pageOf(who, entry, query);
+    if (!page.ok) return page;
+    const read = entry === null ? 0 : readSeq(who, entry.id);
+    let threads: StoredConversation[] = entry === null ? [] : kidsOf(who, entry);
+    if (entry === null || entry.kind === "ticket") {
+      // Na leitura do ticket, também as threads em que a pessoa entrou sem ver a de cima.
+      const extra = ticket === null ? [] : all().filter((other) => other.kind === "thread" && other.ticketId === ticket.id && sees(who, other) && !sees(who, conversations.get(other.parentId!)!));
+      threads = [...threads, ...extra];
+    }
+    const trail = entry === null ? [] : trailOf(who, entry);
+    const levels = trail.length + 1;
+    const view: ConversationView = {
+      conversation:
+        entry === null
+          ? null
+          : {
+              id: entry.id,
+              kind: entry.kind,
+              ownedByMe: entry.ownerId === who,
+              participants: entry.participants.map((id) => person(id)!),
+              canAddParticipants: entry.kind === "thread" && entry.ownerId === who,
+              canOpenThread: levels < MAX_LEVELS,
+              openingMessageId: entry.kind === "thread" ? `m${entry.messages[0]!.seq}` : null,
+              opening: entry.kind === "thread" ? cardOf(who, entry).opening : null,
+              replyCount: entry.kind === "thread" ? entry.messages.length - 1 : entry.messages.length,
+              lastActivityAt: at(lastSeq(entry)),
+              trail,
+            },
+      ticket: ticket === null ? null : { id: ticket.id, key: ticket.key, title: ticket.title, projectId: ticket.projectId ?? "p1", archived: ticket.archived === true, status: ticket.status ?? "todo", blocked: ticket.blocked === true },
+      assignedToMe: ticket !== null && ((ticket.assignedToMe === true && who === defaultMe) || (options.assignees?.[ticket.id] ?? []).includes(who)),
+      lastRead: read === 0 ? null : cursorOf(read),
+      unread: entry === null ? 0 : unreadIn(who, entry),
+      messages: page.data,
+      threads: threads.sort((a, b) => lastSeq(b) - lastSeq(a)).map((thread) => cardOf(who, thread)),
+    };
+    return ok(conversationViewSchema.parse(JSON.parse(JSON.stringify(view))));
   };
   const validBody = (body: unknown): body is string => typeof body === "string" && body.trim().length >= 1 && body.trim().length <= 4000;
 
-  const startThread = (ticketId: string, startedBy: string, body: string, others: string[]): StoredThread => {
-    const root: StoredMessage = { seq: nextSeq(), authorId: startedBy, body, model: null, threadId: null };
-    const thread: StoredThread = { id: `m${root.seq}`, ticketId, startedBy, participants: [...new Set([startedBy, ...others])], messages: [root] };
-    root.threadId = thread.id;
-    threads.set(thread.id, thread);
-    chats.add(ticketId);
-    return thread;
+  const openThread = (who: string, parent: StoredConversation, text: string, mentions: string[], ticketId: string | undefined): ApiResult<{ message: StoredMessage; thread: StoredConversation }> => {
+    const levels = trailOf(who, parent).length + 1;
+    if (levels >= MAX_LEVELS) return failed("unavailable", "max_depth");
+    if (mentions.includes(who)) return failed("unavailable", "cannot_mention_self");
+    if (mentions.length > 10) return failed("unavailable", "too_many_mentions", { max: 10 });
+    const ticket = parent.ticketId !== null ? ticketOf(parent.ticketId) : ticketId === undefined ? undefined : ticketOf(ticketId);
+    if (ticketId !== undefined && parent.ticketId !== null && parent.ticketId !== ticketId) return failed("unavailable", "ticket_mismatch");
+    const refused = mentions.filter((id) => !options.people.some((entry) => entry.id === id) || (ticket !== undefined && !canSeeTicket(ticket, id)));
+    if (refused.length > 0) return failed("unavailable", "mention_not_allowed", { personIds: refused });
+    const heritage = ticket === undefined ? [] : parent.participants.filter((id) => !canSeeTicket(ticket, id));
+    if (heritage.length > 0) return failed("unavailable", "participant_cannot_view_ticket");
+    const participants = [...new Set([...parent.participants, ...mentions])];
+    if (participants.length > 25) return failed("unavailable", "thread_full");
+    const message: StoredMessage = { seq: nextSeq(), authorId: who, body: text, model: null, opened: null };
+    const thread = create({ kind: "thread", ticketId: ticket?.id ?? null, ownerId: who, parentId: parent.id, participants, messages: [message] });
+    message.opened = thread.id;
+    // A abertura mora na thread (primeira mensagem) e na conversa de cima (com o cartão): a mesma mensagem, duas leituras.
+    parent.messages.push(message);
+    return ok({ message, thread });
   };
 
   const self: FakeChat = {
     options,
-    receiveThread(ticketId, { from, body, to = [me], replies = [] }) {
-      const thread = startThread(ticketId, from, body, to);
-      for (const reply of replies) thread.messages.push({ seq: nextSeq(), authorId: reply.from, body: reply.body, model: null, threadId: thread.id });
-      return thread.id;
+    receiveThread(ticketId, { from, body, to = [defaultMe], replies = [] }) {
+      const parent = ensurePrincipal(ticketId, from);
+      return self.openThreadIn(parent.id, { from, body, to, replies });
+    },
+    openThreadIn(parentId, { from, body, to, replies = [], ticketId }) {
+      const parent = conversations.get(parentId);
+      if (!parent) throw new Error(`conversa desconhecida: ${parentId}`);
+      const opened = openThread(from, parent, body, to, ticketId);
+      if (!opened.ok) throw new Error(`falhou: ${opened.error.code}`);
+      for (const reply of replies) opened.data.thread.messages.push({ seq: nextSeq(), authorId: reply.from, body: reply.body, model: null, opened: null });
+      return opened.data.thread.id;
     },
     receiveReply(threadId, { from, body }) {
-      const thread = threads.get(threadId);
+      const thread = conversations.get(threadId);
       if (!thread) throw new Error(`thread desconhecida: ${threadId}`);
-      thread.messages.push({ seq: nextSeq(), authorId: from, body, model: null, threadId: thread.id });
+      thread.messages.push({ seq: nextSeq(), authorId: from, body, model: null, opened: null });
     },
     seedConversation(ticketId, turns) {
-      const list = conversations.get(ticketId) ?? [];
+      const entry = ensurePrincipal(ticketId, defaultMe);
       for (const turn of turns) {
-        list.push({ seq: nextSeq(), authorId: me, body: turn.person, model: null, threadId: null });
-        list.push({ seq: nextSeq(), authorId: null, body: turn.assistant, model: "claude-opus-5-5", threadId: null });
+        entry.messages.push({ seq: nextSeq(), authorId: defaultMe, body: turn.person, model: null, opened: null });
+        entry.messages.push({ seq: nextSeq(), authorId: null, body: turn.assistant, model: "claude-opus-5-5", opened: null });
       }
-      conversations.set(ticketId, list);
-      chats.add(ticketId);
+      return entry.id;
     },
-    readAll(ticketId) {
-      lastRead.set(ticketId, lastSeqOf(ticketId));
+    seedGeneral(turns) {
+      const entry = ensureGeneral(defaultMe);
+      for (const turn of turns) {
+        entry.messages.push({ seq: nextSeq(), authorId: defaultMe, body: turn.person, model: null, opened: null });
+        entry.messages.push({ seq: nextSeq(), authorId: null, body: turn.assistant, model: "claude-opus-5-5", opened: null });
+      }
+      return entry.id;
     },
-    conversationOf: (ticketId) => conversationOf(ticketId).map((entry) => ({ authorId: entry.authorId, body: entry.body })),
-    methods() {
+    readAll(conversationId) {
+      for (const entry of all()) if (conversationId === undefined ? sees(defaultMe, entry) : entry.id === conversationId) lastRead.set(`${defaultMe}:${entry.id}`, lastSeq(entry));
+    },
+    conversationOf: (ticketId) => (principalOf(ticketId, defaultMe)?.messages ?? []).map((entry) => ({ authorId: entry.authorId, body: entry.body })),
+    principalOf: (ticketId, who = defaultMe) => principalOf(ticketId, who)?.id,
+    generalOf: (who = defaultMe) => generalOf(who)?.id,
+    methods(who = defaultMe) {
+      const known = (id: string) => {
+        const entry = conversations.get(id);
+        return entry && sees(who, entry) ? entry : undefined;
+      };
       return {
-        listChats: vi.fn(async () => {
-          const items: ChatListItem[] = options.tickets
-            .filter((ticket) => ticket.assignedToMe === true || chats.has(ticket.id))
-            .map((ticket) => {
-              const last = lastSeqOf(ticket.id);
-              return {
-                ticketId: ticket.id,
-                ticketKey: ticket.key,
-                title: ticket.title,
-                projectId: ticket.projectId ?? "p1",
-                chatId: chats.has(ticket.id) ? `chat-${ticket.id}` : null,
-                assignedToMe: ticket.assignedToMe === true,
-                lastActivityAt: at(last),
-                unread: unreadOf(ticket.id),
-              };
-            })
-            .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
-          return ok({ items });
+        listConversationTree: vi.fn(async () => ok(conversationTreeSchema.parse({ items: buildTree(who) }))),
+        getConversationView: vi.fn(async (id: string, query: { limit?: number; before?: string } = {}) => {
+          const entry = known(id);
+          if (!entry) return failed("not_found", "not_found");
+          return viewOf(who, entry, entry.ticketId === null ? null : (ticketOf(entry.ticketId) ?? null), query);
         }),
-        getTicketChat: vi.fn(async (ticketId: string, query: { limit?: number; before?: string } = {}): Promise<ApiResult<TicketChat>> => {
+        getTicketConversationView: vi.fn(async (ticketId: string, query: { limit?: number; before?: string } = {}) => {
           const ticket = ticketOf(ticketId);
-          if (!ticket) return failed("not_found", "not_found");
-          const messages = pageOf(ticketId, conversationOf(ticketId), query);
-          if (!messages.ok) return messages;
-          const read = readSeq(ticketId);
-          return ok({
-            ticket: { id: ticket.id, key: ticket.key, title: ticket.title, projectId: ticket.projectId ?? "p1", archived: ticket.archived === true },
-            chatId: chats.has(ticketId) ? `chat-${ticketId}` : null,
-            assignedToMe: ticket.assignedToMe === true,
-            lastRead: read === 0 ? null : cursorOf(read),
-            unread: unreadOf(ticketId),
-            messages: messages.data,
-            threads: mine(ticketId)
-              .map(summaryOf)
-              .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt)),
-          });
+          if (!ticket || !canSeeTicket(ticket, who)) return failed("not_found", "not_found");
+          return viewOf(who, principalOf(ticketId, who) ?? null, ticket, query);
         }),
-        getChatThread: vi.fn(async (threadId: string, query: { limit?: number; before?: string } = {}) => {
-          const thread = threads.get(threadId);
-          const ticket = thread && ticketOf(thread.ticketId);
-          if (!thread || !ticket || !thread.participants.includes(me)) return failed("not_found", "not_found");
-          const replies = pageOf(thread.ticketId, thread.messages.slice(1), query);
-          if (!replies.ok) return replies;
-          return ok({ ticket: { id: ticket.id, key: ticket.key, title: ticket.title, projectId: ticket.projectId ?? "p1", archived: ticket.archived === true }, thread: summaryOf(thread), replies: replies.data });
-        }),
-        sendChatMessage: vi.fn(async (ticketId: string, body: ChatWriteBody) => {
+        openTicketConversation: vi.fn(async (ticketId: string) => {
           const ticket = ticketOf(ticketId);
-          if (!ticket) return failed("not_found", "not_found");
+          if (!ticket || !canSeeTicket(ticket, who)) return failed("not_found", "not_found");
+          return ok({ id: ensurePrincipal(ticketId, who).id });
+        }),
+        openGeneralConversation: vi.fn(async () => ok({ id: ensureGeneral(who).id })),
+        sendChatMessage: vi.fn(async (id: string, body: { body: string; mentions?: string[]; ticketId?: string }): Promise<ApiResult<SendResult>> => {
+          const entry = known(id);
+          if (!entry) return failed("not_found", "not_found");
           if (!validBody(body.body)) return failed("invalid", "validation_error");
-          if (ticket.archived === true) return failed("conflict", "project_archived");
+          const ticket = entry.ticketId === null ? undefined : ticketOf(entry.ticketId);
+          if (ticket?.archived === true) return failed("conflict", "project_archived");
           const text = body.body.trim();
-          const problem = checkMentions(ticket, body.mentions);
-          if (problem) return problem;
-          if (body.mentions !== undefined && body.mentions.length > 0) {
-            return ok({ kind: "thread" as const, thread: summaryOf(startThread(ticketId, me, text, body.mentions)) });
+          const mentions = body.mentions ?? [];
+          if (mentions.length > 0) {
+            const opened = openThread(who, entry, text, mentions, body.ticketId);
+            if (!opened.ok) return opened;
+            const sent = { kind: "thread" as const, message: toMessage(who, entry, opened.data.message), thread: cardOf(who, opened.data.thread) };
+            return ok(sendResultSchema.parse(JSON.parse(JSON.stringify(sent))));
+          }
+          if (entry.kind === "thread") {
+            const message: StoredMessage = { seq: nextSeq(), authorId: who, body: text, model: null, opened: null };
+            entry.messages.push(message);
+            return ok(sendResultSchema.parse({ kind: "message", message: toMessage(who, entry, message) }));
           }
           if (options.assistant === "no_consent") return failed("forbidden", "assistant_consent_required");
           if (options.assistant === "not_configured") return failed("unavailable", "assistant_not_configured");
-          const list = conversations.get(ticketId) ?? [];
-          const sent: StoredMessage = { seq: nextSeq(), authorId: me, body: text, model: null, threadId: null };
-          const answer: StoredMessage = { seq: nextSeq(), authorId: null, body: options.reply?.(text) ?? "Resposta do assistente.", model: "claude-opus-5-5", threadId: null };
-          list.push(sent, answer);
-          conversations.set(ticketId, list);
-          chats.add(ticketId);
-          return ok({ kind: "assistant" as const, message: toMessage(ticketId, sent), reply: toMessage(ticketId, answer) });
+          const sent: StoredMessage = { seq: nextSeq(), authorId: who, body: text, model: null, opened: null };
+          const answer: StoredMessage = { seq: nextSeq(), authorId: null, body: options.reply?.(text) ?? "Resposta do assistente.", model: "claude-opus-5-5", opened: null };
+          entry.messages.push(sent, answer);
+          return ok(sendResultSchema.parse({ kind: "assistant", message: toMessage(who, entry, sent), reply: toMessage(who, entry, answer) }));
         }),
-        replyChatThread: vi.fn(async (threadId: string, body: ChatWriteBody) => {
-          const thread = threads.get(threadId);
-          const ticket = thread && ticketOf(thread.ticketId);
-          if (!thread || !ticket || !thread.participants.includes(me)) return failed("not_found", "not_found");
-          if (!validBody(body.body)) return failed("invalid", "validation_error");
-          if (ticket.archived === true) return failed("conflict", "project_archived");
-          const problem = checkMentions(ticket, body.mentions);
-          if (problem) return problem;
-          const added = (body.mentions ?? []).filter((id) => !thread.participants.includes(id));
-          if (thread.participants.length + added.length > 25) return failed("unavailable", "thread_full");
-          thread.participants.push(...added);
-          const reply: StoredMessage = { seq: nextSeq(), authorId: me, body: body.body.trim(), model: null, threadId: thread.id };
-          thread.messages.push(reply);
-          return ok({ message: toMessage(thread.ticketId, reply), thread: summaryOf(thread) });
+        addConversationParticipants: vi.fn(async (id: string, personIds: string[]) => {
+          const entry = known(id);
+          if (!entry) return failed("not_found", "not_found");
+          if (entry.kind !== "thread") return failed("unavailable", "principal_conversation");
+          if (entry.ownerId !== who) return failed("forbidden", "not_thread_owner");
+          const ticket = entry.ticketId === null ? undefined : ticketOf(entry.ticketId);
+          const refused = personIds.filter((personId) => !options.people.some((entry) => entry.id === personId) || (ticket !== undefined && !canSeeTicket(ticket, personId)));
+          if (refused.length > 0) return failed("unavailable", "mention_not_allowed", { personIds: refused });
+          const added = personIds.filter((personId) => !entry.participants.includes(personId));
+          if (entry.participants.length + added.length > 25) return failed("unavailable", "thread_full");
+          const stack = [entry];
+          while (stack.length > 0) {
+            const next = stack.pop()!;
+            next.participants.push(...added.filter((personId) => !next.participants.includes(personId)));
+            stack.push(...all().filter((child) => child.parentId === next.id));
+          }
+          return ok({ participants: entry.participants.map((personId) => person(personId)!) });
         }),
-        markChatRead: vi.fn(async (ticketId: string, body: { upTo?: string } = {}) => {
-          if (!ticketOf(ticketId)) return failed("not_found", "not_found");
-          if (!chats.has(ticketId)) return ok({ lastRead: null, unread: 0 });
-          const newest = lastSeqOf(ticketId);
+        markConversationRead: vi.fn(async (id: string, body: { upTo?: string } = {}) => {
+          const entry = known(id);
+          if (!entry) return failed("not_found", "not_found");
+          const newest = lastSeq(entry);
           let target = newest;
           if (body.upTo !== undefined) {
             const upTo = seqOf(body.upTo);
             if (upTo === null) return failed("invalid", "invalid_cursor");
             target = Math.min(upTo, newest);
           }
-          lastRead.set(ticketId, Math.max(readSeq(ticketId), target));
-          const read = readSeq(ticketId);
-          return ok({ lastRead: read === 0 ? null : cursorOf(read), unread: unreadOf(ticketId) });
+          lastRead.set(`${who}:${entry.id}`, Math.max(readSeq(who, entry.id), target));
+          const read = readSeq(who, entry.id);
+          return ok({ lastRead: read === 0 ? null : cursorOf(read), unread: unreadIn(who, entry) });
         }),
-        clearChat: vi.fn(async (ticketId: string) => {
-          conversations.delete(ticketId);
+        clearConversationMessages: vi.fn(async (id: string) => {
+          const entry = known(id);
+          if (!entry || entry.ownerId !== who) return failed("not_found", "not_found");
+          if (entry.kind === "thread") return failed("unavailable", "not_principal");
+          entry.messages = entry.messages.filter((message) => message.opened !== null);
           return ok(undefined);
         }),
       };

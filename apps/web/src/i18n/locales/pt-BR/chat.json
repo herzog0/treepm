@@ -1,18 +1,17 @@
 {
   "panel": {
-    "label": "Conversa do ticket",
+    "label": "Conversa",
     "close": "Fechar a conversa"
   },
   "list": {
     "title": "Conversas",
-    "loading": "Carregando os chats…",
-    "loadFailed": "Não foi possível carregar os chats.",
+    "loading": "Carregando as conversas…",
+    "loadFailed": "Não foi possível carregar as conversas.",
     "retry": "Tentar de novo",
-    "empty": "Os chats dos tickets de que você é responsável aparecem aqui.",
-    "assigned": "Responsável",
     "unread_one": "{{count}} não lida",
     "unread_many": "{{count}} não lidas",
-    "unread_other": "{{count}} não lidas"
+    "unread_other": "{{count}} não lidas",
+    "assignedHint": "Você é responsável"
   },
   "chat": {
     "openTicket": "Abrir o ticket {{key}}, {{title}}",
@@ -21,23 +20,19 @@
     "options": "Opções do chat",
     "clear": "Limpar a minha conversa",
     "clearMessage": "Apaga só a sua conversa com o assistente. As threads ficam.",
-    "cleared": "Conversa com o assistente limpa."
-  },
-  "tabs": {
-    "label": "Partes do chat",
-    "conversation": "Conversa",
-    "mentions": "Menções"
+    "cleared": "Conversa com o assistente limpa.",
+    "gone": "Esta conversa não existe mais. Escolha outra na barra."
   },
   "notice": {
     "assistant": "O assistente vê o texto do ticket e esta conversa. Ele não executa nem altera nada.",
     "noConsent": "A IA está desligada nesta organização. Um administrador precisa ativá-la em Configurações. As threads com outras pessoas continuam funcionando.",
-    "noProvider": "A IA não está configurada neste servidor. Você ainda pode abrir threads com outras pessoas."
+    "noProvider": "A IA não está configurada neste servidor. Você ainda pode abrir threads com outras pessoas.",
+    "general": "O assistente vê só esta conversa. Ele não executa nem altera nada."
   },
   "log": {
     "label": "Mensagens",
     "older": "Carregar mensagens anteriores",
-    "empty": "Nenhuma mensagem ainda. Escreva abaixo para falar com o assistente.",
-    "mentionsEmpty": "Nenhuma menção por enquanto."
+    "empty": "Nenhuma mensagem ainda. Escreva abaixo para falar com o assistente."
   },
   "message": {
     "you": "Você"
@@ -46,24 +41,18 @@
     "reply": "Resposta do assistente",
     "waiting": "O assistente está respondendo…",
     "unanswered": "Não respondida",
-    "retry": "Tentar de novo"
+    "retry": "Tentar de novo",
+    "name": "Assistente"
   },
   "thread": {
-    "label": "Thread",
-    "messages": "Mensagens da thread",
-    "fromOther": "de {{name}}, numa thread",
-    "fromMe": "você, para {{names}}",
     "replies_one": "{{count}} resposta",
     "replies_many": "{{count}} respostas",
     "replies_other": "{{count}} respostas",
     "unread_one": "{{count}} não lida",
     "unread_many": "{{count}} não lidas",
     "unread_other": "{{count}} não lidas",
-    "open": "Abrir thread",
-    "back": "Voltar à conversa",
     "reply": "Responder na thread",
-    "replyPlaceholder": "Responda para quem participa da thread",
-    "loadFailed": "Não foi possível carregar a thread.",
+    "replyPlaceholder": "Responda para quem participa da thread, ou use Mencionar para abrir outra thread",
     "opened": "Thread aberta."
   },
   "composer": {
@@ -71,13 +60,15 @@
     "placeholder": "Fale com o assistente, ou use Mencionar para abrir uma thread",
     "placeholderThreads": "Use Mencionar para abrir uma thread com outras pessoas",
     "send": "Enviar",
-    "sendThread": "Abrir thread (não vai ao assistente)",
+    "sendThread": "Abrir thread",
     "mention": "Mencionar",
     "pills": "Pessoas mencionadas",
     "removeMention": "Remover menção a {{name}}",
-    "refused": "não enxerga este ticket",
+    "refused": "não pode ser marcada aqui",
     "count": "{{length}} de {{max}}",
-    "over": "{{length}} de {{max}}: passou do limite"
+    "over": "{{length}} de {{max}}: passou do limite",
+    "opensThread": "Esta mensagem abre uma thread com {{names}}. Quem já está nesta conversa também participa.",
+    "noMoreLevels": "Esta conversa está no último nível: não dá para abrir outra thread aqui dentro."
   },
   "picker": {
     "label": "Mencionar pessoas",
@@ -85,5 +76,41 @@
     "none": "Ninguém para mencionar.",
     "loading": "Carregando as pessoas…",
     "failed": "Não foi possível carregar as pessoas."
+  },
+  "row": {
+    "general": "Meu chat",
+    "generalHint": "Só você e o assistente",
+    "thread": "Thread",
+    "main": "Conversa principal",
+    "threadWith": "Thread com {{name}}",
+    "threadWithMore": "Thread com {{name}} +{{count}}"
+  },
+  "trail": {
+    "label": "Onde você está"
+  },
+  "people": {
+    "label": "Quem participa",
+    "more": "+{{count}}"
+  },
+  "add": {
+    "open": "Incluir pessoas",
+    "label": "Incluir pessoas na thread",
+    "warning": "Quem entra vê o histórico desta thread e das threads dentro dela.",
+    "none": "Ninguém para incluir.",
+    "submit": "Incluir",
+    "done": "Pessoas incluídas na thread.",
+    "unknownPerson": "Alguém"
+  },
+  "topic": {
+    "add": "Sobre o ticket…",
+    "about": "Sobre o ticket",
+    "label": "Sobre o ticket (opcional)",
+    "placeholder": "Chave ou título do ticket",
+    "loading": "Carregando os tickets…",
+    "failed": "Não foi possível carregar os tickets.",
+    "none": "Nenhum ticket encontrado.",
+    "remove": "Tirar o ticket {{key}} da thread",
+    "removeShort": "Tirar",
+    "retry": "Tentar de novo"
   }
 }

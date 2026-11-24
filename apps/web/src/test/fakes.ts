@@ -12,13 +12,13 @@ export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "
 });
 
 /** `assistant`: o servidor tem a IA configurada; `consent` (padrão: aceito): a organização aceitou o uso (ADR 0039). */
-export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean; consent?: boolean; github?: boolean; mcp?: boolean; mcpWrite?: boolean } = {}): Me {
+export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean; consent?: boolean; github?: boolean; mcp?: boolean; mcpWrite?: boolean; personId?: string; displayName?: string } = {}): Me {
   const consent = overrides.consent ?? true;
   return {
     ...(overrides.mcp === undefined ? {} : { mcp: { enabled: overrides.mcp, ...(overrides.mcpWrite === undefined ? {} : { writeEnabled: overrides.mcpWrite }) } }),
     ...(overrides.assistant === undefined ? {} : { assistant: { enabled: overrides.assistant && consent, configured: overrides.assistant, consent } }),
     ...(overrides.github === undefined ? {} : { github: { enabled: overrides.github } }),
-    person: { id: "person-1", displayName: "Ana", email: "ana@example.com", avatarUrl: null },
+    person: { id: overrides.personId ?? "person-1", displayName: overrides.displayName ?? "Ana", email: "ana@example.com", avatarUrl: null },
     organization: { orgId: overrides.orgId ?? "org-1", name: overrides.orgName ?? "Equipe Alfa", slug: "alfa" },
     roles: { clerk: overrides.clerk ?? "admin", teams: [], projects: [] },
   };
@@ -88,8 +88,10 @@ interface FakeData {
   ideaCreatedAt?: Record<string, string>;
   /** Conversas de criação com a IA, por ID, para `createTicketFromConversation` do cliente em árvore; sem entrada, o rascunho é o padrão. */
   conversations?: Record<string, ConversationDetail>;
-  /** Liga o chat de trabalho por ticket (ADR 0049) com as regras do contrato; sem isso, `listChats` devolve a lista vazia e as outras rotas lançam. */
+  /** Liga as conversas em níveis (ADR 0055) com as regras do contrato; sem isso, `listConversationTree` devolve a árvore vazia e as outras rotas lançam. */
   chat?: FakeChat;
+  /** Quem lê o chat (padrão: a pessoa de `me` do chat falso). */
+  chatAs?: string;
 }
 
 export interface FakeAiConsent {
@@ -496,7 +498,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "askProject",
     "createTicketComment", "updateComment", "removeComment",
     "createContribution", "updateContribution", "removeContribution", "putContributionPerson", "removeContributionPerson",
-    "getTicketChat", "getChatThread", "sendChatMessage", "replyChatThread", "markChatRead", "clearChat",
+    "getConversationView", "getTicketConversationView", "openTicketConversation", "openGeneralConversation", "sendChatMessage", "addConversationParticipants", "markConversationRead", "clearConversationMessages",
   ] as const;
   const base = Object.fromEntries(names.map((name) => [name, unexpected(name)])) as unknown as ApiClient;
   let client!: ApiClient;
@@ -513,9 +515,9 @@ export function makeClient(data: FakeData = {}): ApiClient {
     listTicketsIfChanged: vi.fn(async (projectId: string) => changedList(await self().listTickets(projectId))),
     // Atividade vazia por padrão: os testes que não falam dela não mudam (ADR 0040).
     ticketActivity: vi.fn(async (): Promise<ApiResult<ActivityPage>> => ok({ entries: [], before: null, canComment: false })),
-    // Sem chat configurado, a lista de chats é vazia: o mapa e o painel que a pedem não quebram os testes que não falam dela.
-    listChats: vi.fn(async () => ok({ items: [] })),
-    ...(data.chat ? data.chat.methods() : {}),
+    // Sem chat configurado, a árvore de conversas é vazia: o mapa e a barra que a pedem não quebram os testes que não falam dela.
+    listConversationTree: vi.fn(async () => ok({ items: [] })),
+    ...(data.chat ? data.chat.methods(data.chatAs) : {}),
     ...(data.github ? githubMethods(data) : {}),
     ...(data.mcp ? mcpMethods(data) : {}),
     ...(data.aiConsent ? aiConsentMethods(data) : {}),

@@ -61,9 +61,23 @@ export async function seedChatTickets(pool: pg.Pool, world: World): Promise<Chat
   return { root, parent, ticket, child1, child2, grandchild, dependsOn, blocker, keys: { root: "PRIV-1", parent: "PRIV-2", ticket: "PRIV-3", child1: "PRIV-4", child2: "PRIV-5", grandchild: "PRIV-8", dependsOn: "PRIV-6", blocker: "PRIV-7" } };
 }
 
-export const send = (h: Harness, who: Who | "target", ticket: string, body: string, mentions?: string[]) =>
-  h.call("POST", `/api/tickets/${ticket}/chat/messages`, as(who), mentions ? { body, mentions } : { body });
-export const view = (h: Harness, who: Who | "target", ticket: string, query = "") => h.call("GET", `/api/tickets/${ticket}/chat${query}`, as(who));
-export const reply = (h: Harness, who: Who | "target", thread: string, body: string, mentions?: string[]) =>
-  h.call("POST", `/api/chat-threads/${thread}/messages`, as(who), mentions ? { body, mentions } : { body });
+/** Abre (ou obtém) a conversa principal da pessoa no ticket e devolve o id. */
+export async function openTicket(h: Harness, who: Who | "target", ticket: string): Promise<string> {
+  const res = await h.call("POST", `/api/tickets/${ticket}/conversation`, as(who));
+  if (res.status !== 200) throw new Error(`openTicket ${who}: ${res.status} ${JSON.stringify(res.body)}`);
+  return res.body.id as string;
+}
+export async function openGeneral(h: Harness, who: Who | "target"): Promise<string> {
+  const res = await h.call("POST", "/api/conversations/general", as(who));
+  if (res.status !== 200) throw new Error(`openGeneral ${who}: ${res.status} ${JSON.stringify(res.body)}`);
+  return res.body.id as string;
+}
+/** Mensagem numa conversa pelo id (principal ou thread). */
+export const post = (h: Harness, who: Who | "target", conversation: string, body: string, mentions?: string[], ticketId?: string) =>
+  h.call("POST", `/api/conversations/${conversation}/messages`, as(who), { body, ...(mentions ? { mentions } : {}), ...(ticketId ? { ticketId } : {}) });
+/** Mensagem na conversa principal da pessoa no ticket (abre a conversa antes). */
+export const send = async (h: Harness, who: Who | "target", ticket: string, body: string, mentions?: string[]) => post(h, who, await openTicket(h, who, ticket), body, mentions);
+export const reply = post;
+export const view = (h: Harness, who: Who | "target", conversation: string, query = "") => h.call("GET", `/api/conversations/${conversation}${query}`, as(who));
+export const ticketView = (h: Harness, who: Who | "target", ticket: string, query = "") => h.call("GET", `/api/tickets/${ticket}/conversation${query}`, as(who));
 export const errorCode = (res: { body: { error?: { code: string } } }) => res.body.error?.code;

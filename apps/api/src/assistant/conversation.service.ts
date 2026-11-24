@@ -1,0 +1,690 @@
+import { randomUUID } from "node:crypto";
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Inject, Injectable, UnprocessableEntityException } from "@nestjs/common";
+import type { TenantClient } from "@treepm/db";
+import {
+  CHAT_ASSISTANT_PER_PERSON_PER_MINUTE,
+  CHAT_MAX_MENTIONS,
+  CHAT_THREAD_PER_PERSON_PER_MINUTE,
+  CONVERSATION_MAX_PARTICIPANTS,
+  canOpenThreadBelow,
+  newThreadParticipants,
+  participantCountAfter,
+  trimChatHistory,
+  visibleTree,
+} from "@treepm/domain";
+import type { Actor, ConversationNode } from "@treepm/domain";
+import { ACCESS_TOKEN_CLOCK } from "../access-tokens/clock.js";
+import type { AccessTokenClock } from "../access-tokens/clock.js";
+import { RateLimiter } from "../access-tokens/rate-limiter.js";
+import { AuthorizationService } from "../access/authorization.service.js";
+import type { Principal } from "../access/principal.js";
+import { parseOutput } from "../common/zod.js";
+import { CONFIG } from "../config.js";
+import type { AppConfig } from "../config.js";
+import { readEffectivePriorities } from "../tickets/ticket-priority.read.js";
+import { MAX_TREE_DEPTH, scopeOf } from "../tickets/ticket-scope.js";
+import type { ProjectRow } from "../tickets/tickets.service.js";
+import { decodeChatCursor, encodeChatCursor } from "./chat-cursor.js";
+import { ConversationAccess } from "./conversation-access.js";
+import type { Resolved, Visible } from "./conversation-access.js";
+import {
+  conversationTreeSchema,
+  conversationViewSchema,
+  participantsResultSchema,
+  readResultSchema,
+  sendResultSchema,
+} from "./conversation.schema.js";
+import type { ChatMessage, ConversationNodeShape, ConversationTree, ConversationView, PageQuery, ThreadCard } from "./conversation.schema.js";
+import type { ChatTicketContext, ChatTicketRef } from "./ports.js";
+
+/** Quantos filhos e dependências do ticket vão ao provedor, no máximo (ADR 0049: o contexto tem teto). */
+export const CHAT_CONTEXT_MAX_RELATED = 50;
+/** Quantos ancestrais (os mais próximos) vão ao provedor. */
+export const CHAT_CONTEXT_MAX_PATH = 50;
+/** Teto de tickets na árvore da barra e de conversas carregadas numa leitura. */
+export const CHAT_LIST_MAX = 100;
+const TREE_MAX = 500;
+const THREADS_PER_VIEW_MAX = 100;
+const AVATARS_MAX = 5;
+const PREVIEW_MAX = 80;
+const HISTORY_FETCH = 60;
+const WINDOW_MS = 60_000;
+const ALL_READ = 1n << 62n;
+/** Uma vez reservada, a vez do assistente vence sozinha depois disto (o prazo do provedor é 60 s). */
+const TURN_TTL_MS = 120_000;
+
+type PersonRef = { id: string; displayName: string; avatarUrl: string | null };
+type MessageRow = { id: string; seq: bigint; authorPersonId: string | null; body: string; model: string | null; createdAt: Date };
+const MSG_SELECT = { id: true, seq: true, authorPersonId: true, body: true, model: true, createdAt: true } as const;
+type TicketRef = { id: string; key: string; title: string; projectId: string; archived: boolean; status: string; blocked: boolean };
+type Stats = { unread: number; replyCount: number; lastReadSeq: bigint; preview: string | null };
+
+/** O que a primeira transação da mensagem ao assistente leu: o que vai ao provedor e o que conferir na volta. */
+export type AssistantPrep = { context: ChatTicketContext | null; history: { author: "person" | "assistant"; body: string }[]; seenLastSeq: number };
+
+const apiError = (status: number, code: string, message: string, details?: Record<string, unknown>) =>
+  new HttpException({ code, message, ...(details ? { details } : {}) }, status);
+
+/**
+ * Conversas em níveis (ADR 0055; substitui o chat da ADR 0049). Quem lê o quê é UMA regra (`@treepm/domain`, `conversations.ts`) e
+ * toda rota entra por `ConversationAccess.resolve`, que devolve a conversa só a quem participa dela. Aqui nada decide privacidade
+ * por conta própria: as consultas já saem filtradas por "a pessoa participa". Nada grava atividade nem toca a versão do projeto ou
+ * a trava de estrutura (ADR 0045 e 0046): conversa não é estrutura. O conteúdo das mensagens nunca vai para log.
+ */
+/** O assistente só fala na conversa principal: o serviço recusa thread antes de ler qualquer histórico, qualquer que seja o chamador. */
+const notPrincipalForAssistant = (): UnprocessableEntityException => new UnprocessableEntityException({ code: "not_principal", message: "O assistente só responde na conversa principal." });
+
+@Injectable()
+export class ConversationService {
+  private readonly limiter: RateLimiter;
+  private readonly threadLimiter: RateLimiter;
+
+  constructor(
+    @Inject(ConversationAccess) private readonly access: ConversationAccess,
+    @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
+    @Inject(ACCESS_TOKEN_CLOCK) clock: AccessTokenClock,
+    @Inject(CONFIG) private readonly config: AppConfig,
+  ) {
+    this.limiter = new RateLimiter(clock, CHAT_ASSISTANT_PER_PERSON_PER_MINUTE, WINDOW_MS);
+    this.threadLimiter = new RateLimiter(clock, CHAT_THREAD_PER_PERSON_PER_MINUTE, WINDOW_MS);
+  }
+
+  private cursor(orgId: string, seq: bigint): string {
+    return encodeChatCursor(this.config.CLERK_SECRET_KEY, orgId, seq);
+  }
+
+  /** O `seq` de um cursor recebido; cursor que não é desta API e organização é 400 `invalid_cursor`. */
+  private seqOf(principal: Principal, cursor: string): bigint {
+    const seq = decodeChatCursor(this.config.CLERK_SECRET_KEY, principal.organization.orgId, cursor);
+    if (seq === null) throw new BadRequestException({ code: "invalid_cursor", message: "Cursor inválido." });
+    return seq;
+  }
+
+  // ---- peças ----------------------------------------------------------------------------------------------
+
+  private async people(tx: TenantClient, ids: readonly (string | null)[]): Promise<Map<string, PersonRef>> {
+    const wanted = [...new Set(ids.filter((id): id is string => id !== null))];
+    if (wanted.length === 0) return new Map();
+    const rows = await tx.person.findMany({ where: { id: { in: wanted } }, select: { id: true, displayName: true, avatarUrl: true } });
+    return new Map(rows.map((r) => [r.id, r]));
+  }
+
+  private async visibleProjectIds(tx: TenantClient, principal: Principal): Promise<string[]> {
+    const projects = await tx.project.findMany({ select: { id: true, visibility: true } });
+    return projects.filter((p) => this.authorization.canView(principal.actor, p)).map((p) => p.id);
+  }
+
+  /** Os tickets pedidos que existem (cabeçalho para a barra e a conversa), com situação e bloqueio. Quem filtra por acesso é quem chama. */
+  private async ticketRefs(tx: TenantClient, ids: readonly string[]): Promise<Map<string, TicketRef>> {
+    const wanted = [...new Set(ids)];
+    if (wanted.length === 0) return new Map();
+    const rows = await tx.$queryRaw<{ id: string; project_id: string; number: number; title: string; status: string; key: string; archived: boolean; blocked: boolean }[]>`
+      select t.id, t.project_id, t.number, t.title, t.status, p.key, (p.archived_at is not null) as archived,
+             exists (
+               select 1 from ticket_relations r join tickets d on d.org_id = r.org_id and d.id = r.to_ticket_id
+               where r.org_id = t.org_id and r.from_ticket_id = t.id and r.kind = 'depends_on' and d.status not in ('done', 'cancelled')
+             ) as blocked
+      from tickets t join projects p on p.org_id = t.org_id and p.id = t.project_id
+      where t.id = any(${wanted}::uuid[])`;
+    return new Map(rows.map((r) => [r.id, { id: r.id, key: `${r.key}-${r.number}`, title: r.title, projectId: r.project_id, archived: r.archived, status: r.status, blocked: r.blocked }]));
+  }
+
+  /** Os participantes de cada conversa pedida, na ordem em que entraram. Só se chama com conversas que a pessoa lê. */
+  private async participantsOf(tx: TenantClient, ids: readonly string[]): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>();
+    if (ids.length === 0) return out;
+    const rows = await tx.conversationParticipant.findMany({ where: { conversationId: { in: [...ids] } }, orderBy: [{ addedAt: "asc" }, { personId: "asc" }], select: { conversationId: true, personId: true } });
+    for (const row of rows) out.set(row.conversationId, [...(out.get(row.conversationId) ?? []), row.personId]);
+    return out;
+  }
+
+  /**
+   * Não lidas, respostas e prévia das conversas pedidas, do ponto de vista de `me`. Uma consulta pelos índices; só as conversas de
+   * que `me` participa entram (o `join` com o participante). A mensagem de abertura conta na thread (é a primeira dela), e na
+   * conversa de cima não conta como não lida, porque quem a lê lá também a lê na thread.
+   */
+  private async stats(tx: TenantClient, me: string, ids: readonly string[]): Promise<Map<string, Stats>> {
+    const out = new Map<string, Stats>();
+    if (ids.length === 0) return out;
+    const rows = await tx.$queryRaw<{ id: string; unread: number; reply_count: number; last_read_seq: bigint; preview: string | null }[]>`
+      select cp.conversation_id as id, cp.last_read_seq,
+        (select count(*) from conversation_messages m
+          where m.org_id = c.org_id and (m.conversation_id = c.id or m.id = c.opening_message_id)
+            and m.seq > cp.last_read_seq and m.author_person_id is distinct from cp.person_id
+            and not exists (select 1 from conversations o where o.org_id = m.org_id and o.opening_message_id = m.id and o.parent_id = c.id))::int as unread,
+        (select count(*) from conversation_messages m where m.org_id = c.org_id and m.conversation_id = c.id)::int as reply_count,
+        (select left(m.body, ${PREVIEW_MAX}::int) from conversation_messages m
+          where m.org_id = c.org_id and (m.conversation_id = c.id or m.id = c.opening_message_id) order by m.seq desc limit 1) as preview
+      from conversation_participants cp join conversations c on c.org_id = cp.org_id and c.id = cp.conversation_id
+      where cp.person_id = ${me}::uuid and cp.conversation_id = any(${[...ids]}::uuid[])`;
+    for (const r of rows) out.set(r.id, { unread: r.unread, replyCount: r.reply_count, lastReadSeq: r.last_read_seq, preview: r.preview });
+    return out;
+  }
+
+  private baseMessage(row: MessageRow, people: Map<string, PersonRef>, principal: Principal, lastRead: bigint, countAsUnread = true) {
+    return {
+      id: row.id,
+      cursor: this.cursor(principal.organization.orgId, row.seq),
+      unread: countAsUnread && row.authorPersonId !== principal.person.id && row.seq > lastRead,
+      authorKind: row.authorPersonId === null ? ("assistant" as const) : ("person" as const),
+      author: row.authorPersonId === null ? null : (people.get(row.authorPersonId) ?? null),
+      body: row.body,
+      createdAt: row.createdAt.toISOString(),
+      model: row.model,
+    };
+  }
+
+  /** A mensagem que abriu uma thread conta como não lida na thread (no cartão), nunca duas vezes. */
+  private message(row: MessageRow, people: Map<string, PersonRef>, principal: Principal, lastRead: bigint, thread: ThreadCard | null = null, opensThread = thread !== null): ChatMessage {
+    // A mensagem que abriu uma thread nunca conta como não lida nesta conversa, mesmo com o cartão escondido (projeto sem acesso).
+    return { ...this.baseMessage(row, people, principal, lastRead, !opensThread), thread };
+  }
+
+  /** Os cartões das threads pedidas, só das de que a pessoa participa. */
+  private async cards(tx: TenantClient, principal: Principal, ids: readonly string[]): Promise<Map<string, ThreadCard>> {
+    const out = new Map<string, ThreadCard>();
+    if (ids.length === 0) return out;
+    const me = principal.person.id;
+    // Thread de projeto que a pessoa não enxerga (nunca viu, ou perdeu o acesso depois) não vira cartão: o mesmo que a árvore faz.
+    const visible = await this.visibleProjectIds(tx, principal);
+    const threads = await tx.conversation.findMany({
+      where: { id: { in: [...ids] }, kind: "thread", participants: { some: { personId: me } }, OR: [{ projectId: null }, { projectId: { in: visible } }] },
+      select: { id: true, ownerPersonId: true, openingMessageId: true, lastActivityAt: true },
+    });
+    const openings = await tx.conversationMessage.findMany({ where: { id: { in: threads.flatMap((t) => (t.openingMessageId ? [t.openingMessageId] : [])) } }, select: MSG_SELECT });
+    const byOpening = new Map(openings.map((o) => [o.id, o]));
+    const parts = await this.participantsOf(tx, threads.map((t) => t.id));
+    const stats = await this.stats(tx, me, threads.map((t) => t.id));
+    const people = await this.people(tx, [...openings.map((o) => o.authorPersonId), ...[...parts.values()].flat()]);
+    for (const t of threads) {
+      const opening = t.openingMessageId ? byOpening.get(t.openingMessageId) : undefined;
+      const stat = stats.get(t.id);
+      if (!opening || !stat) continue;
+      const members = parts.get(t.id) ?? [];
+      out.set(t.id, {
+        id: t.id,
+        opening: this.baseMessage(opening, people, principal, stat.lastReadSeq),
+        participants: members.flatMap((p) => (people.get(p) ? [people.get(p) as PersonRef] : [])),
+        participantCount: members.length,
+        replyCount: stat.replyCount,
+        lastActivityAt: t.lastActivityAt.toISOString(),
+        unread: stat.unread,
+        startedByMe: t.ownerPersonId === me,
+      });
+    }
+    return out;
+  }
+
+  // ---- leituras -------------------------------------------------------------------------------------------
+
+  /** A árvore que a pessoa enxerga: o chat geral dela, as conversas de tickets e, em cada uma, as threads de que participa. */
+  async tree(tx: TenantClient, principal: Principal): Promise<ConversationTree> {
+    const me = principal.person.id;
+    const visibleProjects = await this.visibleProjectIds(tx, principal);
+    const convs = await tx.conversation.findMany({
+      where: { participants: { some: { personId: me } }, OR: [{ projectId: null }, { projectId: { in: visibleProjects } }] },
+      orderBy: { lastActivityAt: "desc" },
+      take: TREE_MAX,
+      select: { id: true, kind: true, ownerPersonId: true, ticketId: true, parentId: true, lastActivityAt: true },
+    });
+    const ids = convs.map((c) => c.id);
+    const parts = await this.participantsOf(tx, ids);
+    const stats = await this.stats(tx, me, ids);
+    const domainNodes: ConversationNode[] = convs.map((c) => ({ id: c.id, parentId: c.parentId, participantIds: new Set(parts.get(c.id) ?? []) }));
+    // A regra: o pai de cada conversa é o que a pessoa LÊ; sem ele, a thread é uma ponta de baixo da árvore dela.
+    const parentOf = visibleTree(me, domainNodes);
+    const assigned = visibleProjects.length === 0 ? [] : await tx.ticketAssignee.findMany({ where: { personId: me, ticket: { projectId: { in: visibleProjects } } }, orderBy: { createdAt: "desc" }, take: CHAT_LIST_MAX, select: { ticketId: true, createdAt: true } });
+    const assignedIds = new Set(assigned.map((a) => a.ticketId));
+    const refs = await this.ticketRefs(tx, [...convs.flatMap((c) => (c.ticketId ? [c.ticketId] : [])), ...assigned.map((a) => a.ticketId)]);
+    const people = await this.people(tx, ids.flatMap((id) => (parts.get(id) ?? []).slice(0, AVATARS_MAX)));
+    const make = (c: (typeof convs)[number] | null, ticketId: string | null, kind: ConversationNodeShape["kind"], at: Date | null): ConversationNodeShape => {
+      const members = c ? (parts.get(c.id) ?? []) : [me];
+      const stat = c ? stats.get(c.id) : undefined;
+      return {
+        id: c?.id ?? null,
+        kind,
+        ticket: ticketId ? (refs.get(ticketId) ?? null) : null,
+        ownedByMe: c ? c.ownerPersonId === me : true,
+        assignedToMe: ticketId !== null && assignedIds.has(ticketId),
+        participants: members.slice(0, AVATARS_MAX).flatMap((p) => (people.get(p) ? [people.get(p) as PersonRef] : [])),
+        participantCount: members.length,
+        lastActivityAt: at ? at.toISOString() : null,
+        unread: stat?.unread ?? 0,
+        preview: stat?.preview ?? null,
+        children: [],
+      };
+    };
+    const nodeOf = new Map<string, ConversationNodeShape>();
+    for (const c of convs) nodeOf.set(c.id, make(c, c.ticketId, c.kind as ConversationNodeShape["kind"], c.lastActivityAt));
+    const ticketNodes = new Map<string, ConversationNodeShape>();
+    let general: ConversationNodeShape | null = null;
+    const orphans: (typeof convs)[number][] = [];
+    for (const c of convs) {
+      const node = nodeOf.get(c.id) as ConversationNodeShape;
+      const parent = parentOf.get(c.id) ?? null;
+      if (parent !== null) nodeOf.get(parent)?.children.push(node);
+      else if (c.kind === "ticket" && c.ticketId) ticketNodes.set(c.ticketId, node);
+      else if (c.kind === "general") general = node;
+      else orphans.push(c);
+    }
+    // Ticket com responsável e sem conversa ainda: aparece, sem id.
+    for (const a of assigned) if (!ticketNodes.has(a.ticketId) && refs.has(a.ticketId)) ticketNodes.set(a.ticketId, make(null, a.ticketId, "ticket", a.createdAt));
+    const generalNode = general ?? make(null, null, "general", null);
+    // Thread em que a pessoa entrou sem ver a de cima: fica sob o ticket de que trata (ou sob o chat geral dela), sem dado do pai real.
+    for (const c of orphans) {
+      const node = nodeOf.get(c.id) as ConversationNodeShape;
+      if (c.ticketId && refs.has(c.ticketId)) {
+        let group = ticketNodes.get(c.ticketId);
+        if (!group) {
+          group = make(null, c.ticketId, "ticket", c.lastActivityAt);
+          ticketNodes.set(c.ticketId, group);
+        }
+        group.children.push(node);
+        if (group.id === null && (!group.lastActivityAt || group.lastActivityAt < c.lastActivityAt.toISOString())) group.lastActivityAt = c.lastActivityAt.toISOString();
+      } else {
+        generalNode.children.push(node);
+      }
+    }
+    const byActivity = (a: ConversationNodeShape, b: ConversationNodeShape) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? "");
+    const sortDeep = (node: ConversationNodeShape): void => {
+      node.children.sort(byActivity);
+      node.children.forEach(sortDeep);
+    };
+    const tickets = [...ticketNodes.values()].sort(byActivity).slice(0, CHAT_LIST_MAX);
+    for (const node of [generalNode, ...tickets]) sortDeep(node);
+    return parseOutput(conversationTreeSchema, { items: [generalNode, ...tickets] });
+  }
+
+  /** Uma conversa, só para quem participa dela; as mensagens, as mais recentes primeiro. */
+  async view(tx: TenantClient, principal: Principal, id: string, page: PageQuery): Promise<ConversationView> {
+    const resolved = await this.access.resolve(tx, principal, id);
+    return this.build(tx, principal, resolved, resolved.seen, page, []);
+  }
+
+  /** A conversa da pessoa neste ticket (sem criar nada) e as threads do ticket em que ela entrou sem ver a de cima. */
+  async ticketView(tx: TenantClient, principal: Principal, ticketId: string, page: PageQuery): Promise<ConversationView> {
+    const me = principal.person.id;
+    const seen = await this.access.visible(tx, principal, ticketId);
+    const mine = await tx.conversation.findFirst({ where: { kind: "ticket", ticketId, ownerPersonId: me }, select: { id: true } });
+    const resolved = mine ? await this.access.resolve(tx, principal, mine.id) : null;
+    const orphans = await tx.conversation.findMany({
+      where: { kind: "thread", ticketId, participants: { some: { personId: me } }, parent: { participants: { none: { personId: me } } } },
+      orderBy: { lastActivityAt: "desc" },
+      take: THREADS_PER_VIEW_MAX,
+      select: { id: true },
+    });
+    return this.build(tx, principal, resolved, seen, page, orphans.map((o) => o.id));
+  }
+
+  private async build(tx: TenantClient, principal: Principal, resolved: Resolved | null, seen: Visible | null, page: PageQuery, extraThreadIds: readonly string[]): Promise<ConversationView> {
+    const me = principal.person.id;
+    const orgId = principal.organization.orgId;
+    const ticketId = seen?.ticket.id ?? null;
+    const refs = ticketId ? await this.ticketRefs(tx, [ticketId]) : new Map<string, TicketRef>();
+    const conv = resolved?.conv ?? null;
+    const lastRead = resolved?.lastReadSeq ?? 0n;
+    const before = page.before ? { seq: { lt: this.seqOf(principal, page.before) } } : {};
+    const rows = conv
+      ? await tx.conversationMessage.findMany({
+          where: { AND: [{ OR: [{ conversationId: conv.id }, ...(conv.openingMessageId ? [{ id: conv.openingMessageId }] : [])] }, before] },
+          orderBy: { seq: "desc" },
+          take: page.limit + 1,
+          select: MSG_SELECT,
+        })
+      : [];
+    const items = rows.slice(0, page.limit);
+    const opened = conv && items.length > 0 ? await tx.conversation.findMany({ where: { parentId: conv.id, openingMessageId: { in: items.map((m) => m.id) }, participants: { some: { personId: me } } }, select: { id: true, openingMessageId: true } }) : [];
+    const directThreads = conv ? await tx.conversation.findMany({ where: { parentId: conv.id, participants: { some: { personId: me } } }, orderBy: { lastActivityAt: "desc" }, take: THREADS_PER_VIEW_MAX, select: { id: true } }) : [];
+    const threadIds = [...new Set([...directThreads.map((t) => t.id), ...extraThreadIds])];
+    const cards = await this.cards(tx, principal, [...new Set([...opened.map((o) => o.id), ...threadIds])]);
+    const openingIds = new Set((conv && items.length > 0 ? await tx.conversation.findMany({ where: { parentId: conv.id, openingMessageId: { in: items.map((m) => m.id) } }, select: { openingMessageId: true } }) : []).flatMap((o) => (o.openingMessageId ? [o.openingMessageId] : [])));
+    const cardByOpening = new Map(opened.flatMap((o) => (o.openingMessageId && cards.get(o.id) ? [[o.openingMessageId, cards.get(o.id) as ThreadCard] as const] : [])));
+    const people = await this.people(tx, items.map((m) => m.authorPersonId));
+    const stats = conv ? (await this.stats(tx, me, [conv.id])).get(conv.id) : undefined;
+    const trail = conv ? await this.access.trail(tx, principal, conv.id) : [];
+    const trailOpenings = await tx.conversationMessage.findMany({ where: { id: { in: trail.flatMap((t) => (t.openingMessageId ? [t.openingMessageId] : [])) } }, select: { id: true, body: true } });
+    const labels = new Map(trailOpenings.map((m) => [m.id, m.body.slice(0, PREVIEW_MAX)]));
+    const openingRow = conv?.openingMessageId ? await tx.conversationMessage.findFirst({ where: { id: conv.openingMessageId }, select: MSG_SELECT }) : null;
+    const openingPeople = await this.people(tx, [openingRow?.authorPersonId ?? null]);
+    const members = conv ? [...(resolved as Resolved).participantIds] : [];
+    const memberPeople = await this.people(tx, members);
+    const assigned = ticketId ? (await tx.ticketAssignee.count({ where: { ticketId, personId: me } })) > 0 : false;
+    return parseOutput(conversationViewSchema, {
+      conversation: conv
+        ? {
+            id: conv.id,
+            kind: conv.kind,
+            ownedByMe: conv.ownerPersonId === me,
+            participants: members.flatMap((p) => (memberPeople.get(p) ? [memberPeople.get(p) as PersonRef] : [])),
+            canAddParticipants: conv.kind === "thread" && conv.ownerPersonId === me,
+            canOpenThread: canOpenThreadBelow(trail.length, conv.depth),
+            openingMessageId: conv.openingMessageId,
+            opening: openingRow ? this.baseMessage(openingRow, openingPeople, principal, lastRead) : null,
+            replyCount: stats?.replyCount ?? 0,
+            lastActivityAt: conv.lastActivityAt.toISOString(),
+            trail: trail.map((t) => ({ id: t.id, kind: t.kind, label: t.openingMessageId ? (labels.get(t.openingMessageId) ?? null) : null })),
+          }
+        : null,
+      ticket: ticketId ? (refs.get(ticketId) ?? null) : null,
+      assignedToMe: assigned,
+      lastRead: lastRead > 0n ? this.cursor(orgId, lastRead) : null,
+      unread: stats?.unread ?? 0,
+      messages: {
+        items: items.map((r) => this.message(r, people, principal, lastRead, cardByOpening.get(r.id) ?? null, openingIds.has(r.id))),
+        nextBefore: rows.length > page.limit && items.length > 0 ? this.cursor(orgId, items[items.length - 1]!.seq) : null,
+      },
+      threads: threadIds.flatMap((id) => (cards.get(id) ? [cards.get(id) as ThreadCard] : [])),
+    });
+  }
+
+  // ---- abrir (ou obter) as conversas principais -------------------------------------------------------------
+
+  /** O chat geral da pessoa: nasce na primeira necessidade. */
+  async openGeneral(tx: TenantClient, principal: Principal): Promise<{ id: string }> {
+    const me = principal.person.id;
+    const found = await tx.conversation.findFirst({ where: { kind: "general", ownerPersonId: me }, select: { id: true } });
+    if (found) return found;
+    return this.createPrincipal(tx, principal, "general", null);
+  }
+
+  /** A conversa principal da pessoa neste ticket: nasce na primeira necessidade (projeto arquivado: só se já existe). */
+  async openTicket(tx: TenantClient, principal: Principal, ticketId: string): Promise<{ id: string }> {
+    const seen = await this.access.visible(tx, principal, ticketId);
+    const found = await tx.conversation.findFirst({ where: { kind: "ticket", ticketId, ownerPersonId: principal.person.id }, select: { id: true } });
+    if (found) return found;
+    this.access.writable(seen);
+    return this.createPrincipal(tx, principal, "ticket", seen);
+  }
+
+  private async createPrincipal(tx: TenantClient, principal: Principal, kind: "ticket" | "general", seen: Visible | null): Promise<{ id: string }> {
+    const me = principal.person.id;
+    const id = randomUUID();
+    const created = await tx.conversation.createMany({
+      data: [{ orgId: principal.organization.orgId, id, kind, ownerPersonId: me, projectId: seen?.project.id ?? null, ticketId: seen?.ticket.id ?? null, rootId: id, depth: 0 }],
+      skipDuplicates: true,
+    });
+    if (created.count === 0) {
+      // Duas aberturas ao mesmo tempo acabam na mesma conversa.
+      return tx.conversation.findFirstOrThrow({ where: kind === "general" ? { kind, ownerPersonId: me } : { kind, ownerPersonId: me, ticketId: seen?.ticket.id ?? null }, select: { id: true } });
+    }
+    await tx.conversationParticipant.create({ data: { orgId: principal.organization.orgId, conversationId: id, personId: me } });
+    return { id };
+  }
+
+  // ---- mensagens --------------------------------------------------------------------------------------------
+
+  /** Que tipo de conversa é, para a rota decidir o caminho (assistente ou entre pessoas). 404 antes de qualquer outra coisa. */
+  async kindOf(tx: TenantClient, principal: Principal, id: string): Promise<"ticket" | "general" | "thread"> {
+    return (await this.access.resolve(tx, principal, id)).conv.kind;
+  }
+
+  private requireThreadQuota(principal: Principal): void {
+    const hit = this.threadLimiter.hit(`${principal.organization.orgId}:${principal.person.id}`);
+    if (!hit.allowed) {
+      const seconds = Math.max(1, Math.ceil(hit.retryAfterMs / 1000));
+      throw apiError(HttpStatus.TOO_MANY_REQUESTS, "chat_thread_rate_limited", `Muitas mensagens em threads. Tente de novo em ${seconds} s.`, { retryAfterSeconds: seconds });
+    }
+  }
+
+  /** Um pedido ao assistente por pessoa por minuto: acima do teto, 429 claro. Em memória do processo, como o do MCP. */
+  requireAssistantQuota(principal: Principal): void {
+    const hit = this.limiter.hit(`${principal.organization.orgId}:${principal.person.id}`);
+    if (!hit.allowed) {
+      const seconds = Math.max(1, Math.ceil(hit.retryAfterMs / 1000));
+      throw apiError(HttpStatus.TOO_MANY_REQUESTS, "chat_rate_limited", `Muitas mensagens ao assistente. Tente de novo em ${seconds} s.`, { retryAfterSeconds: seconds });
+    }
+  }
+
+  /** Mensagem sem menção numa thread: conversa entre pessoas, sem assistente. */
+  async postInThread(tx: TenantClient, principal: Principal, id: string, body: string) {
+    const me = principal.person.id;
+    const resolved = await this.access.resolve(tx, principal, id);
+    if (resolved.seen) this.access.writable(resolved.seen);
+    this.requireThreadQuota(principal);
+    const created = await tx.conversationMessage.create({ data: { orgId: principal.organization.orgId, conversationId: id, authorPersonId: me, body }, select: MSG_SELECT });
+    await tx.conversation.updateMany({ where: { id }, data: { lastActivityAt: created.createdAt } });
+    const people = await this.people(tx, [me]);
+    return parseOutput(sendResultSchema, { kind: "message", message: this.message(created, people, principal, ALL_READ) });
+  }
+
+  /**
+   * Marcar alguém numa mensagem abre uma thread DENTRO desta conversa: a mensagem fica aqui e é a primeira da thread. Os
+   * participantes são todos os desta conversa mais os marcados (a invariante); abrir e incluir mexem na árvore, então a árvore
+   * inteira é travada antes de ler quem participa.
+   */
+  async openThread(tx: TenantClient, principal: Principal, id: string, body: string, mentions: readonly string[], ticketId: string | undefined) {
+    const me = principal.person.id;
+    const orgId = principal.organization.orgId;
+    const resolved = await this.access.resolve(tx, principal, id);
+    if (resolved.seen) this.access.writable(resolved.seen);
+    const trail = await this.access.trail(tx, principal, id);
+    if (!canOpenThreadBelow(trail.length, resolved.conv.depth)) {
+      throw new UnprocessableEntityException({ code: "max_depth", message: "Esta conversa está no último nível: não dá para abrir uma thread dentro dela." });
+    }
+    let subject: Visible | null = resolved.seen;
+    if (ticketId !== undefined) {
+      if (resolved.conv.ticketId !== null && resolved.conv.ticketId !== ticketId) throw new UnprocessableEntityException({ code: "ticket_mismatch", message: "Esta conversa já trata de outro ticket." });
+      if (resolved.conv.ticketId === null) {
+        subject = await this.access.visible(tx, principal, ticketId);
+        this.access.writable(subject);
+      }
+    }
+    const mentioned = await this.resolveMentions(tx, principal, subject?.project ?? null, mentions);
+    this.requireThreadQuota(principal);
+    await tx.$queryRaw`select 1 from conversations where id = ${resolved.conv.rootId}::uuid for update`;
+    const parentMembers = (await tx.conversationParticipant.findMany({ where: { conversationId: id }, select: { personId: true } })).map((p) => p.personId);
+    // Thread com ticket dentro de conversa sem ticket: quem já está na de cima entra por herança e TEM de enxergar o projeto. Senão,
+    // a mesma resposta da menção não permitida, sem dizer quem.
+    if (subject && resolved.conv.ticketId === null) {
+      // Inativos não autenticam: não travam a conversa.
+      const active = (await tx.person.findMany({ where: { id: { in: parentMembers }, active: true }, select: { id: true } })).map((x) => x.id);
+      const ok = await this.eligible(tx, active, [subject.project]);
+      if (active.some((p) => !ok.has(p))) throw new UnprocessableEntityException({ code: "participant_cannot_view_ticket", message: "Alguém desta conversa não enxerga o projeto deste ticket." });
+    }
+    const members = newThreadParticipants(me, parentMembers, mentioned);
+    if (members.length > CONVERSATION_MAX_PARTICIPANTS) {
+      throw new UnprocessableEntityException({ code: "thread_full", message: `Uma conversa tem no máximo ${CONVERSATION_MAX_PARTICIPANTS} participantes.`, details: { max: CONVERSATION_MAX_PARTICIPANTS } });
+    }
+    const opening = await tx.conversationMessage.create({ data: { orgId, conversationId: id, authorPersonId: me, body }, select: MSG_SELECT });
+    const threadId = randomUUID();
+    await tx.conversation.create({
+      data: {
+        orgId,
+        id: threadId,
+        kind: "thread",
+        ownerPersonId: me,
+        projectId: subject?.project.id ?? null,
+        ticketId: subject?.ticket.id ?? null,
+        parentId: id,
+        rootId: resolved.conv.rootId,
+        depth: resolved.conv.depth + 1,
+        openingMessageId: opening.id,
+        lastActivityAt: opening.createdAt,
+      },
+    });
+    await tx.conversationParticipant.createMany({ data: members.map((personId) => ({ orgId, conversationId: threadId, personId, addedByPersonId: personId === me ? null : me })) });
+    await tx.conversation.updateMany({ where: { id }, data: { lastActivityAt: opening.createdAt } });
+    const card = (await this.cards(tx, principal, [threadId])).get(threadId) as ThreadCard;
+    const people = await this.people(tx, [me]);
+    return parseOutput(sendResultSchema, { kind: "thread", message: this.message(opening, people, principal, ALL_READ, card), thread: card });
+  }
+
+  /**
+   * Quem pode ser marcado: gente que enxerga o ticket da conversa (marcar não concede acesso; sem ticket, qualquer pessoa ativa da
+   * organização). Recusa a própria pessoa, mais gente que o teto e quem não puder, SEM dizer nada além dos ids que a pessoa mesma
+   * mandou (inexistente, de outra organização, inativa e sem acesso dão a mesma resposta).
+   */
+  private async resolveMentions(tx: TenantClient, principal: Principal, project: ProjectRow | null, raw: readonly string[]): Promise<string[]> {
+    const wanted = [...new Set(raw)];
+    if (wanted.length === 0) return [];
+    if (wanted.length > CHAT_MAX_MENTIONS) {
+      throw new UnprocessableEntityException({ code: "too_many_mentions", message: `Mencione no máximo ${CHAT_MAX_MENTIONS} pessoas por mensagem.`, details: { max: CHAT_MAX_MENTIONS } });
+    }
+    if (wanted.includes(principal.person.id)) throw new UnprocessableEntityException({ code: "cannot_mention_self", message: "Você não pode mencionar a si mesma." });
+    const ok = await this.eligible(tx, wanted, project ? [project] : []);
+    const refused = wanted.filter((id) => !ok.has(id));
+    if (refused.length > 0) {
+      throw new UnprocessableEntityException({ code: "mention_not_allowed", message: "Só se pode mencionar quem enxerga este ticket.", details: { personIds: refused } });
+    }
+    return wanted;
+  }
+
+  /** Das pessoas pedidas, as ativas que enxergam TODOS os projetos dados. */
+  private async eligible(tx: TenantClient, personIds: readonly string[], projects: readonly ProjectRow[]): Promise<Set<string>> {
+    const people = await tx.person.findMany({ where: { id: { in: [...personIds] }, active: true }, select: { id: true, clerkRole: true } });
+    const ok = new Set<string>();
+    for (const person of people) {
+      const actor: Actor = await this.authorization.loadActor(tx, person.id, person.clerkRole);
+      if (projects.every((project) => this.authorization.canView(actor, project))) ok.add(person.id);
+    }
+    return ok;
+  }
+
+  // ---- participantes ------------------------------------------------------------------------------------------
+
+  /**
+   * Só quem abriu a thread inclui pessoas nela (incluir expõe o histórico inteiro). A pessoa entra, na mesma transação, em todas as
+   * threads de dentro; o teto de 25 vale em cada uma e, se alguma estourar, a operação inteira falha.
+   */
+  async addParticipants(tx: TenantClient, principal: Principal, id: string, personIds: readonly string[]) {
+    const me = principal.person.id;
+    const orgId = principal.organization.orgId;
+    const resolved = await this.access.resolve(tx, principal, id);
+    if (resolved.conv.kind !== "thread") throw new UnprocessableEntityException({ code: "principal_conversation", message: "A conversa principal é só da pessoa com o assistente: só uma thread aceita participantes." });
+    if (resolved.conv.ownerPersonId !== me) throw new ForbiddenException({ code: "not_thread_owner", message: "Só quem abriu a thread inclui pessoas nela." });
+    if (resolved.seen) this.access.writable(resolved.seen);
+    const wanted = [...new Set(personIds)].filter((p) => p !== me);
+    if (wanted.length > CHAT_MAX_MENTIONS) throw new UnprocessableEntityException({ code: "too_many_mentions", message: `Inclua no máximo ${CHAT_MAX_MENTIONS} pessoas por vez.`, details: { max: CHAT_MAX_MENTIONS } });
+    await tx.$queryRaw`select 1 from conversations where id = ${resolved.conv.rootId}::uuid for update`;
+    const targets = await this.access.subtree(tx, id);
+    const projectIds = [...new Set(targets.flatMap((t) => (t.projectId ? [t.projectId] : [])))];
+    const projects = await tx.project.findMany({ where: { id: { in: projectIds } } });
+    const ok = await this.eligible(tx, wanted, projects as ProjectRow[]);
+    const refused = wanted.filter((p) => !ok.has(p));
+    if (refused.length > 0) throw new UnprocessableEntityException({ code: "mention_not_allowed", message: "Só se pode incluir quem enxerga este ticket.", details: { personIds: refused } });
+    const members = await this.participantsOf(tx, targets.map((t) => t.id));
+    for (const t of targets) {
+      if (participantCountAfter(new Set(members.get(t.id) ?? []), wanted) > CONVERSATION_MAX_PARTICIPANTS) {
+        throw new UnprocessableEntityException({ code: "thread_full", message: `Uma conversa tem no máximo ${CONVERSATION_MAX_PARTICIPANTS} participantes.`, details: { max: CONVERSATION_MAX_PARTICIPANTS } });
+      }
+    }
+    for (const t of targets) await tx.conversationParticipant.createMany({ data: wanted.map((personId) => ({ orgId, conversationId: t.id, personId, addedByPersonId: me })), skipDuplicates: true });
+    const now = (await this.participantsOf(tx, [id])).get(id) ?? [];
+    const people = await this.people(tx, now);
+    return parseOutput(participantsResultSchema, { participants: now.flatMap((p) => (people.get(p) ? [people.get(p) as PersonRef] : [])) });
+  }
+
+  // ---- leitura e limpeza ----------------------------------------------------------------------------------
+
+  async markRead(tx: TenantClient, principal: Principal, id: string, upTo: string | undefined) {
+    const me = principal.person.id;
+    const resolved = await this.access.resolve(tx, principal, id);
+    // Nunca além da mensagem mais nova que a pessoa pode ler aqui: um cursor à frente não marca como lida mensagem que ainda vai chegar.
+    const newest = (
+      await tx.conversationMessage.aggregate({ where: { OR: [{ conversationId: id }, ...(resolved.conv.openingMessageId ? [{ id: resolved.conv.openingMessageId }] : [])] }, _max: { seq: true } })
+    )._max.seq ?? 0n;
+    const asked = upTo === undefined ? newest : this.seqOf(principal, upTo);
+    const target = asked < newest ? asked : newest;
+    if (target > resolved.lastReadSeq) await tx.conversationParticipant.updateMany({ where: { conversationId: id, personId: me, lastReadSeq: { lt: target } }, data: { lastReadSeq: target } });
+    const stat = (await this.stats(tx, me, [id])).get(id);
+    const lastRead = stat?.lastReadSeq ?? 0n;
+    return parseOutput(readResultSchema, { lastRead: lastRead > 0n ? this.cursor(principal.organization.orgId, lastRead) : null, unread: stat?.unread ?? 0 });
+  }
+
+  /** Apaga a conversa da pessoa com o assistente (só a principal dela). As threads abertas nela, e as mensagens que as abriram, ficam. */
+  async clear(tx: TenantClient, principal: Principal, id: string): Promise<void> {
+    // A pessoa sempre apaga a própria conversa, mesmo sem enxergar mais o ticket (não lê nada: só apaga o que é dela).
+    const resolved = await this.access.resolve(tx, principal, id, { ignoreTicketAccess: true });
+    if (resolved.conv.kind === "thread") throw new UnprocessableEntityException({ code: "not_principal", message: "Só a conversa com o assistente pode ser limpa." });
+    await tx.conversationMessage.deleteMany({ where: { conversationId: id, opens: { none: {} } } });
+  }
+
+  // ---- mensagem ao assistente (só na conversa principal) ------------------------------------------------
+
+  /** Primeira transação: confere o acesso, lê o contexto do ticket e a conversa DA PRÓPRIA PESSOA, e monta o que vai ao provedor. */
+  async prepareAssistantTurn(tx: TenantClient, principal: Principal, id: string, body: string): Promise<AssistantPrep> {
+    const resolved = await this.access.resolve(tx, principal, id);
+    if (resolved.conv.kind === "thread") throw notPrincipalForAssistant();
+    if (resolved.seen) this.access.writable(resolved.seen);
+    this.requireAssistantQuota(principal);
+    // Reserva a vez ANTES de chamar o provedor: uma conversa por vez por principal. A segunda requisição recebe o conflito sem gastar IA.
+    const claimed = await tx.conversation.updateMany({
+      where: { id, OR: [{ turnStartedAt: null }, { turnStartedAt: { lt: new Date(Date.now() - TURN_TTL_MS) } }] },
+      data: { turnStartedAt: new Date() },
+    });
+    if (claimed.count === 0) throw new ConflictException({ code: "chat_busy", message: "O assistente ainda está respondendo à mensagem anterior. Espere a resposta." });
+    // Só a conversa com o assistente: as mensagens que abriram threads moram aqui, mas são entre pessoas e nunca vão ao provedor.
+    const previous = await tx.conversationMessage.findMany({ where: { conversationId: id, opens: { none: {} } }, orderBy: { seq: "desc" }, take: HISTORY_FETCH, select: { seq: true, authorPersonId: true, body: true } });
+    const history = trimChatHistory([
+      ...previous.reverse().map((m) => ({ author: m.authorPersonId === null ? ("assistant" as const) : ("person" as const), body: m.body })),
+      { author: "person" as const, body },
+    ]);
+    const seenLastSeq = previous.length > 0 ? Math.max(...previous.map((m) => Number(m.seq))) : 0;
+    return { context: resolved.seen ? await this.context(tx, resolved.seen) : null, history, seenLastSeq };
+  }
+
+  /** Solta a vez do assistente (provedor falhou ou a gravação não ocorreu). */
+  async releaseTurn(tx: TenantClient, principal: Principal, id: string): Promise<void> {
+    await tx.conversation.updateMany({ where: { id, ownerPersonId: principal.person.id }, data: { turnStartedAt: null } });
+  }
+
+  /** Segunda transação: confere tudo de novo e grava a mensagem da pessoa e a resposta, nesta ordem. */
+  async recordAssistantTurn(tx: TenantClient, principal: Principal, id: string, body: string, reply: { message: string; model: string }, seenLastSeq: number) {
+    const me = principal.person.id;
+    const resolved = await this.access.resolve(tx, principal, id);
+    if (resolved.conv.kind === "thread") throw notPrincipalForAssistant();
+    if (resolved.seen) this.access.writable(resolved.seen);
+    await tx.$queryRaw`select 1 from conversations where id = ${id}::uuid for update`; // serializa turnos concorrentes da mesma pessoa
+    const last = await tx.conversationMessage.aggregate({ where: { conversationId: id, opens: { none: {} } }, _max: { seq: true } });
+    if (Number(last._max.seq ?? 0n) !== seenLastSeq) {
+      throw new ConflictException({ code: "chat_changed", message: "A conversa mudou enquanto o assistente respondia. Recarregue e envie de novo." });
+    }
+    const base = { orgId: principal.organization.orgId, conversationId: id };
+    const person = await tx.conversationMessage.create({ data: { ...base, authorPersonId: me, body }, select: MSG_SELECT });
+    const assistant = await tx.conversationMessage.create({ data: { ...base, body: reply.message, model: reply.model }, select: MSG_SELECT });
+    await tx.conversation.updateMany({ where: { id }, data: { lastActivityAt: assistant.createdAt, turnStartedAt: null } });
+    const people = await this.people(tx, [me]);
+    return { message: this.message(person, people, principal, ALL_READ), reply: this.message(assistant, people, principal, ALL_READ) };
+  }
+
+  // ---- o que vai ao provedor ----------------------------------------------------------------------------
+
+  /**
+   * O contexto do ticket para o assistente (ADR 0049), lido agora, com `select` explícito: título, descrição, situação, prioridade que
+   * vale, caminho até a raiz, filhos e dependências (chave, título e situação). Nunca comentários, histórico, áreas, nota do marcador
+   * de trabalho nem qualquer dado de pessoa; nenhum id sai daqui.
+   */
+  private async context(tx: TenantClient, { project, ticket }: Visible): Promise<ChatTicketContext> {
+    const key = (number: number) => `${project.key}-${number}`;
+    const ref = (t: { number: number; title: string; status: string }): ChatTicketRef => ({ key: key(t.number), title: t.title, status: t.status });
+    const scope = scopeOf(project);
+    const [priorities, ancestors, children, dependsOn, blocks] = await Promise.all([
+      readEffectivePriorities(tx, scope, [ticket.id]),
+      tx.$queryRaw<{ number: number; title: string }[]>`
+        with recursive up as (
+          select t.org_id, t.project_id, t.id, t.parent_id, t.number, t.title, 0 as depth
+          from tickets t where t.org_id = ${scope.orgId} and t.project_id = ${scope.projectId}::uuid and t.id = ${ticket.id}::uuid
+          union all
+          select p.org_id, p.project_id, p.id, p.parent_id, p.number, p.title, up.depth + 1
+          from tickets p join up on p.org_id = up.org_id and p.project_id = up.project_id and p.id = up.parent_id
+          where up.depth < ${MAX_TREE_DEPTH}::int
+        )
+        select number, title from up where depth > 0 order by depth asc limit ${CHAT_CONTEXT_MAX_PATH}::int`,
+      tx.ticket.findMany({ where: { parentId: ticket.id, projectId: project.id }, orderBy: { number: "asc" }, take: CHAT_CONTEXT_MAX_RELATED, select: { number: true, title: true, status: true } }),
+      tx.ticketRelation.findMany({ where: { kind: "depends_on", fromTicketId: ticket.id }, orderBy: { createdAt: "asc" }, take: CHAT_CONTEXT_MAX_RELATED, select: { to: { select: { number: true, title: true, status: true } } } }),
+      tx.ticketRelation.findMany({ where: { kind: "depends_on", toTicketId: ticket.id }, orderBy: { createdAt: "asc" }, take: CHAT_CONTEXT_MAX_RELATED, select: { from: { select: { number: true, title: true, status: true } } } }),
+    ]);
+    return {
+      key: key(ticket.number),
+      title: ticket.title,
+      description: ticket.description,
+      status: ticket.status,
+      priority: priorities.get(ticket.id) ?? 0,
+      // Do topo até o pai: a consulta devolve do pai para cima.
+      path: [...ancestors].reverse().map((a) => ({ key: key(a.number), title: a.title })),
+      children: children.map(ref),
+      dependsOn: dependsOn.map((r) => ref(r.to)),
+      blocks: blocks.map((r) => ref(r.from)),
+    };
+  }
+}

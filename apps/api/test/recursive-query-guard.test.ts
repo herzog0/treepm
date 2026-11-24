@@ -93,7 +93,7 @@ describe("consultas recursivas de tickets: org_id e project_id em toda ligação
     for (const entry of found) expect(entry.sql, entry.file).not.toMatch(/depth\s*<\s*\d/);
     for (const file of sources(SRC)) {
       const text = readFileSync(file, "utf8");
-      if (/with\s+recursive/i.test(text) && /\bdepth\b/.test(text)) expect(text, relative(SRC, file)).toContain("MAX_TREE_DEPTH");
+      if (/with\s+recursive/i.test(text) && /\bdepth\b/.test(text)) expect(text, relative(SRC, file)).toMatch(/MAX_TREE_DEPTH|CONVERSATION_TECHNICAL_MAX_DEPTH/);
     }
   });
 });

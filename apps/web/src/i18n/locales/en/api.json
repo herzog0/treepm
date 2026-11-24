@@ -35,13 +35,19 @@
       "request_too_long": "The original request went over the limit of a description. Split the request into smaller conversations.",
       "chat_busy": "A message of yours is already waiting for the assistant's reply in this chat. Wait for the reply, then send again.",
       "chat_changed": "The conversation changed on another device while the assistant was replying. We reloaded it; send the message again.",
-      "mention_not_allowed": "Someone you mentioned cannot see this ticket (or is no longer in the organization). Remove that person from the mention and send again.",
+      "mention_not_allowed": "Someone you marked cannot join this conversation (they cannot see what it is about, or are no longer in the organization). Remove that person and send again.",
       "cannot_mention_self": "You cannot mention yourself.",
       "too_many_mentions": "Mention at most 10 people per message.",
       "thread_full": "This thread already has the maximum of 25 participants.",
       "chat_thread_rate_limited": "You sent too many thread messages in a short time. Wait a moment and try again.",
       "chat_rate_limited": "You sent too many messages to the assistant in a short time. Wait a moment and try again.",
-      "invalid_cursor": "Those messages could not be loaded. Reload the conversation."
+      "invalid_cursor": "Those messages could not be loaded. Reload the conversation.",
+      "participant_cannot_view_ticket": "Someone in this conversation cannot see this ticket's project.",
+      "max_depth": "This conversation is at the last level: you cannot open another thread inside it.",
+      "not_thread_owner": "Only the person who opened the thread can include people in it.",
+      "principal_conversation": "You cannot include people in the conversation with the assistant. Open a thread and include them there.",
+      "ticket_mismatch": "This thread is already about another ticket.",
+      "not_principal": "Only the conversation with the assistant can be cleared."
     },
     "kind": {
       "unauthenticated": "Your session has expired. Sign in again.",

@@ -25,8 +25,8 @@ describe("Abrir chat on the ticket page", () => {
     const user = userEvent.setup();
     setup(true);
     await user.click(await screen.findByRole("button", { name: "Abrir chat" }));
-    const panel = await screen.findByRole("complementary", { name: "Conversa do ticket" });
-    expect(await screen.findByRole("tab", { name: "Conversa" })).toBeInTheDocument();
+    const panel = await screen.findByRole("complementary", { name: "Conversa" });
+    expect(await screen.findByRole("textbox", { name: "Mensagem" })).toBeInTheDocument();
     expect(panel).toHaveTextContent("ALFA-1");
   });
 

@@ -4,37 +4,10 @@ import {
   CHAT_HISTORY_MAX_CHARS,
   CHAT_THREAD_PER_PERSON_PER_MINUTE,
   CHAT_HISTORY_MAX_MESSAGES,
-  canReadChatMessage,
   chatBodyOf,
   trimChatHistory,
 } from "./chat.js";
 import type { ChatTurn } from "./chat.js";
-
-const ME = "p-me";
-const OTHER = "p-other";
-const inThreads = new Set(["root-1"]);
-
-describe("canReadChatMessage (a privacidade do chat, num predicado só)", () => {
-  it("a conversa com o assistente é só da dona do chat", () => {
-    expect(canReadChatMessage(ME, { chatOwnerPersonId: ME, threadId: null }, inThreads)).toBe(true);
-    expect(canReadChatMessage(OTHER, { chatOwnerPersonId: ME, threadId: null }, inThreads)).toBe(false);
-    expect(canReadChatMessage(OTHER, { chatOwnerPersonId: ME, threadId: null }, new Set())).toBe(false);
-  });
-
-  it("a mensagem de thread é de quem participa da thread, e de mais ninguém", () => {
-    expect(canReadChatMessage(ME, { chatOwnerPersonId: null, threadId: "root-1" }, inThreads)).toBe(true);
-    expect(canReadChatMessage(ME, { chatOwnerPersonId: null, threadId: "root-2" }, inThreads)).toBe(false);
-    expect(canReadChatMessage(ME, { chatOwnerPersonId: null, threadId: "root-1" }, new Set())).toBe(false);
-  });
-
-  it("não existe papel que leia o chat alheio: o predicado nem recebe o papel", () => {
-    expect(canReadChatMessage.length).toBe(3);
-  });
-
-  it("mensagem sem dona e sem thread nunca é lida", () => {
-    expect(canReadChatMessage(ME, { chatOwnerPersonId: null, threadId: null }, inThreads)).toBe(false);
-  });
-});
 
 describe("chatBodyOf", () => {
   it("apara e recusa vazio e acima do teto", () => {

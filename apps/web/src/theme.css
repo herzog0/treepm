@@ -47,6 +47,13 @@
   --tp-conv-field: #181b25;
   --tp-conv-field-border: #3a4052;
   --tp-conv-text: #e6e8ef;
+  /* Cores das threads (ADR 0055): a de cada thread sai do id dela; marca o cartão na conversa e a linha na barra. */
+  --tp-thread-1: #ff9f43;
+  --tp-thread-2: #2ee6b6;
+  --tp-thread-3: #f472d0;
+  --tp-thread-4: #ffd000;
+  --tp-thread-5: #5fb0ff;
+  --tp-thread-6: #c4b8ff;
 
   --tp-font: "Inter Variable", system-ui, sans-serif;
   --tp-font-mono: "JetBrains Mono", ui-monospace, monospace;

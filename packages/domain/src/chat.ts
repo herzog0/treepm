@@ -1,12 +1,10 @@
-/** Chat de trabalho por ticket (ADR 0049): limites e a regra de privacidade, em funções puras. */
+/** Chat de trabalho (ADR 0049 e 0055): limites do corpo, das menções e do histórico, em funções puras. A regra de quem lê o quê é de `conversations.ts`. */
 
 /** Tamanho de uma mensagem do chat, depois de aparada. */
 export const CHAT_BODY_MIN = 1;
 export const CHAT_BODY_MAX = 4000;
 /** Pessoas mencionadas numa mensagem. */
 export const CHAT_MAX_MENTIONS = 10;
-/** Participantes de uma thread, contando quem a abriu. */
-export const CHAT_MAX_THREAD_PARTICIPANTS = 25;
 /** Mensagens de thread (abrir e responder) por pessoa por minuto: conversa entre pessoas, sem custo de IA, mas com teto contra enxurrada. */
 export const CHAT_THREAD_PER_PERSON_PER_MINUTE = 30;
 /** Mensagens ao assistente por pessoa por minuto (as de thread, entre pessoas, não contam). */
@@ -27,25 +25,6 @@ export const hasForbiddenChatChars = (text: string): boolean => FORBIDDEN.test(t
 export function chatBodyOf(raw: string): string | null {
   const body = raw.trim();
   return body.length >= CHAT_BODY_MIN && body.length <= CHAT_BODY_MAX && !hasForbiddenChatChars(body) ? body : null;
-}
-
-/**
- * Onde uma mensagem mora, o bastante para decidir quem a lê: a dona do chat (conversa com o assistente, sem thread) ou a
- * thread (mensagem entre pessoas, sem dona).
- */
-export interface ChatMessageHome {
-  readonly chatOwnerPersonId: string | null;
-  readonly threadId: string | null;
-}
-
-/**
- * A regra de privacidade do chat (ADR 0049), a ÚNICA: a conversa com o assistente é só da pessoa do chat; a mensagem de thread
- * é só de quem participa da thread. Nenhum papel entra aqui, de propósito: administrador da organização e gestor do projeto
- * não leem o chat de ninguém. Enxergar o ticket é conferido à parte por quem chama.
- */
-export function canReadChatMessage(viewerPersonId: string, message: ChatMessageHome, viewerThreadIds: ReadonlySet<string>): boolean {
-  if (message.threadId !== null) return viewerThreadIds.has(message.threadId);
-  return message.chatOwnerPersonId !== null && message.chatOwnerPersonId === viewerPersonId;
 }
 
 export type ChatTurn = { author: "person" | "assistant"; body: string };

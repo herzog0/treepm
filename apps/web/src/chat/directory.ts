@@ -1,7 +1,7 @@
 import type { Person, Project, Team } from "../api/client.js";
 
 /**
- * Quem enxerga um ticket do projeto (ADR 0049, CONTRATO-CHAT): projeto da organização, todas as pessoas ativas; projeto privado,
+ * Quem enxerga um ticket do projeto (ADR 0049, ADR 0055): projeto da organização, todas as pessoas ativas; projeto privado,
  * administradores, membros do projeto e membros dos times do projeto. A API confere de novo (`mention_not_allowed`).
  */
 export function peopleWhoSee(project: Project | undefined, people: readonly Person[], teams: readonly Team[], selfId: string | undefined): Person[] {

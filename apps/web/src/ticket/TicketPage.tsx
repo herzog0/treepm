@@ -115,7 +115,7 @@ function Header({ projectKey, keyText, path, onClose, actions }: { projectKey: s
         {actions && (
           <>
             {chats && (
-              <button type="button" className="ticket-chat-button" onClick={() => chats.openChat(actions.ticketId)}>
+              <button type="button" className="ticket-chat-button" onClick={() => chats.openTicket(actions.ticketId)}>
                 {t("header.openChat")}
               </button>
             )}

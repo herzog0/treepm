@@ -35,13 +35,19 @@
       "request_too_long": "La solicitud original superó el límite de una descripción. Divide la solicitud en conversaciones más pequeñas.",
       "chat_busy": "Ya hay un mensaje tuyo esperando la respuesta del asistente en este chat. Espera la respuesta y vuelve a enviar.",
       "chat_changed": "La conversación cambió en otro dispositivo mientras el asistente respondía. La recargamos; vuelve a enviar el mensaje.",
-      "mention_not_allowed": "Alguien mencionado no ve este ticket (o ya no está en la organización). Quita a esa persona de la mención y vuelve a enviar.",
+      "mention_not_allowed": "Alguien marcado no puede participar en esta conversación (no ve de qué trata o ya no está en la organización). Quita a esa persona y vuelve a enviar.",
       "cannot_mention_self": "No puedes mencionarte a ti mismo.",
       "too_many_mentions": "Menciona como máximo a 10 personas por mensaje.",
-      "thread_full": "Este hilo ya tiene el máximo de 25 participantes.",
-      "chat_thread_rate_limited": "Enviaste demasiados mensajes de hilo en poco tiempo. Espera un momento e inténtalo de nuevo.",
+      "thread_full": "Este thread ya tiene el máximo de 25 participantes.",
+      "chat_thread_rate_limited": "Enviaste demasiados mensajes de thread en poco tiempo. Espera un momento e inténtalo de nuevo.",
       "chat_rate_limited": "Enviaste demasiados mensajes al asistente en poco tiempo. Espera un momento e inténtalo de nuevo.",
-      "invalid_cursor": "No se pudieron cargar esos mensajes. Recarga la conversación."
+      "invalid_cursor": "No se pudieron cargar esos mensajes. Recarga la conversación.",
+      "participant_cannot_view_ticket": "Alguien de esta conversación no ve el proyecto de este ticket.",
+      "max_depth": "Esta conversación está en el último nivel: no se puede abrir otro thread aquí dentro.",
+      "not_thread_owner": "Solo quien abrió el thread puede incluir personas en él.",
+      "principal_conversation": "No se pueden incluir personas en la conversación con el asistente. Abre un thread e inclúyelas ahí.",
+      "ticket_mismatch": "Este thread ya trata de otro ticket.",
+      "not_principal": "Solo se puede limpiar la conversación con el asistente."
     },
     "kind": {
       "unauthenticated": "Tu sesión expiró. Vuelve a iniciar sesión.",

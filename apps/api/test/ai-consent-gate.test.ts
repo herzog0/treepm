@@ -3,13 +3,14 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AI_CONFIG, TEST_CONFIG } from "./helpers.js";
 import { seedTree } from "./assistant-tree.js";
+import { openTicket } from "./chat-support.js";
 import { useHarness } from "./harness.js";
 import { as, giveConsent } from "./world.js";
 
 const UNKNOWN_ID = "0199aaaa-bbbb-7ccc-8ddd-eeeeffff0000";
 const errorOf = (res: { body: { error?: { code: string } } }) => res.body.error?.code;
 
-type Route = { name: string; method: string; path: (ctx: { project: string; ticket: string }) => string; body?: unknown };
+type Route = { name: string; method: string; path: (ctx: { project: string; ticket: string; conversation: string }) => string; body?: unknown };
 /** Toda rota da API que usa um provedor de IA (ou serve só ao assistente, como o texto do agrupador). */
 const AI_ROUTES: Route[] = [
   { name: "abrir conversa", method: "POST", path: ({ project }) => `/api/projects/${project}/ticket-conversations`, body: { message: "Preciso de login" } },
@@ -19,7 +20,7 @@ const AI_ROUTES: Route[] = [
   { name: "escrever o texto do agrupador", method: "PUT", path: ({ ticket }) => `/api/tickets/${ticket}/summary`, body: { text: "Texto" } },
   { name: "reescrever o texto do agrupador", method: "POST", path: ({ ticket }) => `/api/tickets/${ticket}/summary/regenerate` },
   { name: "escrever na descrição", method: "POST", path: ({ ticket }) => `/api/tickets/${ticket}/description/draft`, body: { request: "Critérios", description: "" } },
-  { name: "mensagem no chat do ticket", method: "POST", path: ({ ticket }) => `/api/tickets/${ticket}/chat/messages`, body: { body: "Me ajuda a pensar" } },
+  { name: "mensagem no chat do ticket", method: "POST", path: ({ conversation }) => `/api/conversations/${conversation}/messages`, body: { body: "Me ajuda a pensar" } },
   { name: "perguntar sobre o projeto", method: "POST", path: ({ project }) => `/api/projects/${project}/assistant/ask`, body: { question: "Quantos?", history: [] } },
 ];
 
@@ -27,7 +28,7 @@ describe("sem o aceite do assistente, nenhuma rota de IA chega a um provedor", (
   const h = useHarness(AI_CONFIG, { consent: false });
   const ctx = async () => {
     const tree = await seedTree(h.pool, h.world());
-    return { project: h.world().projects.priv, ticket: tree.auth };
+    return { project: h.world().projects.priv, ticket: tree.auth, conversation: await openTicket(h, "contributor", tree.auth) };
   };
   const providerCalls = () =>
     h.conversation().calls.length + h.judge().calls.length + h.summarizer().calls.length + h.affinity().calls.length + h.namer().calls.length + h.writer().calls.length + h.answerer().calls.length + h.chat().calls.length + h.elaborator().calls.length;
@@ -89,7 +90,7 @@ describe("a ordem dos motivos: não configurado vem antes do aceite", () => {
   const h = useHarness(TEST_CONFIG, { consent: false });
   it.each(AI_ROUTES)("$name: 503 assistant_not_configured mesmo sem aceite", async (route) => {
     const tree = await seedTree(h.pool, h.world());
-    const res = await h.call(route.method, route.path({ project: h.world().projects.priv, ticket: tree.auth }), as("contributor"), route.body);
+    const res = await h.call(route.method, route.path({ project: h.world().projects.priv, ticket: tree.auth, conversation: await openTicket(h, "contributor", tree.auth) }), as("contributor"), route.body);
     expect(res.status).toBe(503);
     expect(errorOf(res)).toBe("assistant_not_configured");
   });
@@ -147,7 +148,7 @@ describe("cobertura da conferência do aceite", () => {
     expect(users.map(rel).sort()).toEqual([
       "src/assistant/ask.controller.ts",
       "src/assistant/branch-summary.controller.ts",
-      "src/assistant/chat.controller.ts",
+      "src/assistant/conversation.controller.ts",
       "src/assistant/conversations.controller.ts",
       "src/assistant/description-draft.controller.ts",
     ]);
