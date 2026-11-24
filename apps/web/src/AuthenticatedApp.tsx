@@ -142,7 +142,7 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
               client={callbackClient}
               onOpenSettings={() => {
                 setOnGithubCallback(false);
-                navigate("settings");
+                navigate("settings", null, { section: "github" });
               }}
             />
           </main>

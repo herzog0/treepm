@@ -31,7 +31,8 @@
     "connectedTo": "Conectada a la cuenta {{account}} desde el {{date}}.",
     "selectedOnly": "La app solo ve los repositorios elegidos en la instalación.",
     "disconnect": "Desconectar",
-    "disconnectWarning": "Los repositorios vinculados a los proyectos y los vínculos de código de los tickets se quitarán de TreePM. La app sigue instalada en GitHub hasta que la quites allá."
+    "disconnectWarning": "Los repositorios vinculados a los proyectos y los vínculos de código de los tickets se quitarán de TreePM. La app sigue instalada en GitHub hasta que la quites allá.",
+    "card": "Conexión con la organización"
   },
   "repositories": {
     "title": "Repositorios",

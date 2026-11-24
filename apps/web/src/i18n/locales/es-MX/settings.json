@@ -115,6 +115,16 @@
       "readHint": "El cliente de IA solo consulta los tickets del proyecto.",
       "writeHint": "Además de consultar, el cliente de IA podrá cambiar el estado de los tickets, comentar y marcar trabajo en curso, con los permisos de tu propia cuenta.",
       "writeOff": "La escritura por MCP está desactivada en la organización: este token solo escribirá cuando un administrador active el interruptor."
+    },
+    "tokensOff": "El acceso por MCP está desactivado. Actívalo en Clientes de IA (MCP) para crear tokens.",
+    "connectHint": "Crea un token en Tus tokens: el comando para conectar el cliente aparece justo después de crearlo.",
+    "goTokens": "Ir a Tus tokens",
+    "activeCount_one": "{{count}} activo",
+    "activeCount_other": "{{count}} activos",
+    "activeCount_many": "{{count}} activos",
+    "state": {
+      "writeOn": "El acceso por MCP está activado; la escritura está activada.",
+      "writeOff": "El acceso por MCP está activado; la escritura está desactivada."
     }
   },
   "ai": {
@@ -147,5 +157,34 @@
       "accept": "Aceptar la lectura de código",
       "withdrawWarning": "La IA deja de poder leer código de los repositorios vinculados."
     }
+  },
+  "nav": {
+    "label": "Secciones de la configuración",
+    "admin": "admin",
+    "group": {
+      "you": "Tú",
+      "organization": "Organización",
+      "integrations": "Integraciones"
+    },
+    "mcp": "Clientes de IA"
+  },
+  "sections": {
+    "language": {
+      "lead": "El idioma de los menús, botones y avisos de la interfaz."
+    },
+    "tokens": {
+      "lead": "Los tokens que creaste para conectar clientes de IA, como Claude Code, a tus proyectos."
+    },
+    "github": {
+      "lead": "La conexión de la organización con GitHub, usada para mostrar repositorios, ramas y pull requests."
+    },
+    "mcp": {
+      "lead": "Tokens para que clientes de IA, como Claude Code, accedan a los tickets de esta organización."
+    }
+  },
+  "cards": {
+    "access": "Acceso",
+    "own": "Creados por ti",
+    "connect": "Cómo conectar un cliente"
   }
 }

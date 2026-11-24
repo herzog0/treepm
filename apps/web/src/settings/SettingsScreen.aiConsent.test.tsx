@@ -13,6 +13,7 @@ const none = { inForce: false, version: null, acceptedBy: null, acceptedAt: null
 const state = (extra: Partial<AiConsent> = {}): Partial<AiConsent> => ({ currentVersion: "rascunho-2", ...extra });
 
 function setup(options: { me?: Me; consent?: FakeAiConsent; onChange?: () => void } = {}) {
+  window.location.hash = "ia";
   const me = options.me ?? makeMe({ assistant: true, consent: false });
   const client = makeClient({ me, aiConsent: options.consent ?? {} });
   const user = userEvent.setup();
@@ -27,11 +28,22 @@ function setup(options: { me?: Me; consent?: FakeAiConsent; onChange?: () => voi
 const section = async () => screen.findByRole("region", { name: "IA e privacidade" });
 
 afterEach(() => {
+  window.location.hash = "";
   window.localStorage.clear();
   window.sessionStorage.clear();
 });
 
 describe("seção IA e privacidade", () => {
+  it("não tem texto novo: sem frase de abertura e sem selo Ligado/Desligado nos cartões (texto legal é só o que já existia)", async () => {
+    setup({ consent: { state: state({ assistant: given }) } });
+    const region = await section();
+    await within(region).findByText(/enviado à Anthropic e à TypeSafe/);
+    expect(region.querySelector(".settings-lead")).toBeNull();
+    expect(within(region).queryByText("Ligado")).toBeNull();
+    expect(within(region).queryByText("Desligado")).toBeNull();
+    expect(region.querySelector(".settings-badge")).toBeNull();
+  });
+
   it("não aparece quando o servidor não tem a IA configurada", () => {
     setup({ me: makeMe({ assistant: false }) });
     expect(screen.queryByRole("region", { name: "IA e privacidade" })).toBeNull();
@@ -142,6 +154,7 @@ describe("seção IA e privacidade", () => {
       const { unmount } = (() => {
         const me = makeMe({ assistant: true, consent: false });
         const client = makeClient({ me, aiConsent: {} });
+        window.location.hash = "ia";
         return render(<MemoryPreferencesProvider onSave={vi.fn()}><SettingsScreen client={client} me={me} /></MemoryPreferencesProvider>);
       })();
       await waitFor(() => expect(screen.getByRole("region", { name: heading })).toBeInTheDocument());

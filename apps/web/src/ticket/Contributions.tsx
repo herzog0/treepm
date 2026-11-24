@@ -77,7 +77,7 @@ export function Contributions({ client, detail, people, tickets, isAdmin, onOpen
           {isAdmin && (
             <>
               {" "}
-              <a href={viewHref("settings")}>{t("contributions.manageAreas")}</a>
+              <a href={viewHref("settings", window.location.href, null, { section: "github" })}>{t("contributions.manageAreas")}</a>
             </>
           )}
         </p>

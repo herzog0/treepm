@@ -115,6 +115,16 @@
       "readHint": "O cliente de IA só consulta os tickets do projeto.",
       "writeHint": "O cliente de IA poderá, além de consultar, mudar a situação dos tickets, comentar e marcar trabalho em andamento, com as permissões da sua própria conta.",
       "writeOff": "A escrita por MCP está desligada na organização: este token só vai escrever quando um administrador ligar a chave."
+    },
+    "tokensOff": "O acesso por MCP está desligado. Ligue-o em Clientes de IA (MCP) para criar tokens.",
+    "connectHint": "Crie um token em Seus tokens: o comando para ligar o cliente aparece logo depois de criar.",
+    "goTokens": "Ir para Seus tokens",
+    "activeCount_one": "{{count}} ativo",
+    "activeCount_other": "{{count}} ativos",
+    "activeCount_many": "{{count}} ativos",
+    "state": {
+      "writeOn": "O acesso por MCP está ligado; a escrita está ligada.",
+      "writeOff": "O acesso por MCP está ligado; a escrita está desligada."
     }
   },
   "ai": {
@@ -147,5 +157,34 @@
       "accept": "Aceitar a leitura de código",
       "withdrawWarning": "A IA deixa de poder ler código dos repositórios ligados."
     }
+  },
+  "nav": {
+    "label": "Seções das configurações",
+    "admin": "admin",
+    "group": {
+      "you": "Você",
+      "organization": "Organização",
+      "integrations": "Integrações"
+    },
+    "mcp": "Clientes de IA"
+  },
+  "sections": {
+    "language": {
+      "lead": "A língua dos menus, botões e avisos da interface."
+    },
+    "tokens": {
+      "lead": "Os tokens que você criou para ligar clientes de IA, como o Claude Code, aos seus projetos."
+    },
+    "github": {
+      "lead": "A ligação da organização com o GitHub, usada para mostrar repositórios, branches e pull requests."
+    },
+    "mcp": {
+      "lead": "Tokens para clientes de IA, como o Claude Code, acessarem os tickets desta organização."
+    }
+  },
+  "cards": {
+    "access": "Acesso",
+    "own": "Criados por você",
+    "connect": "Como ligar um cliente"
   }
 }

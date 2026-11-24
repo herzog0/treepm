@@ -115,6 +115,15 @@
       "readHint": "The AI client can only read the project's tickets.",
       "writeHint": "Besides reading, the AI client will be able to change ticket status, comment and mark work in progress, with the permissions of your own account.",
       "writeOff": "MCP writes are off for the organization: this token will only write once an administrator turns the switch on."
+    },
+    "tokensOff": "MCP access is off. Turn it on in AI clients (MCP) to create tokens.",
+    "connectHint": "Create a token in Your tokens: the command to connect the client appears right after you create it.",
+    "goTokens": "Go to Your tokens",
+    "activeCount_one": "{{count}} active",
+    "activeCount_other": "{{count}} active",
+    "state": {
+      "writeOn": "MCP access is on; writing is on.",
+      "writeOff": "MCP access is on; writing is off."
     }
   },
   "ai": {
@@ -147,5 +156,34 @@
       "accept": "Accept code reading",
       "withdrawWarning": "The AI can no longer read code from the linked repositories."
     }
+  },
+  "nav": {
+    "label": "Settings sections",
+    "admin": "admin",
+    "group": {
+      "you": "You",
+      "organization": "Organization",
+      "integrations": "Integrations"
+    },
+    "mcp": "AI clients"
+  },
+  "sections": {
+    "language": {
+      "lead": "The language of the interface menus, buttons and notices."
+    },
+    "tokens": {
+      "lead": "The tokens you created to connect AI clients, such as Claude Code, to your projects."
+    },
+    "github": {
+      "lead": "The organization's link to GitHub, used to show repositories, branches and pull requests."
+    },
+    "mcp": {
+      "lead": "Tokens for AI clients, such as Claude Code, to access this organization's tickets."
+    }
+  },
+  "cards": {
+    "access": "Access",
+    "own": "Created by you",
+    "connect": "How to connect a client"
   }
 }

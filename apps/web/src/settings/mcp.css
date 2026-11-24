@@ -1,51 +1,55 @@
-/* Seção "Clientes de IA (MCP)" das Configurações (ADR 0038). */
-.settings-mcp p { margin: 0 0 10px; font-size: 14px; }
-.settings-mcp .settings-hint { color: var(--tp-text-2); font-size: 13px; }
-.settings-mcp h3 { margin: 18px 0 8px; font-size: 14px; font-weight: 600; }
-.settings-mcp h4 { margin: 0; font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
-.mcp-switch { margin-bottom: 4px; }
-.mcp-switch .settings-hint { margin: 4px 0 0; }
-.mcp-switch input[type="checkbox"] { accent-color: var(--tp-accent); }
-.mcp-tokens { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.mcp-token { display: grid; justify-items: start; gap: 8px; padding: 10px 12px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-field); background: var(--tp-card); }
-.mcp-token-inactive { opacity: 0.55; }
-.mcp-token-head, .mcp-token-meta { justify-self: stretch; }
-.mcp-token-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
-.mcp-token-status { color: var(--tp-text-2); font-size: 12px; }
+/* Seções "Clientes de IA (MCP)" e "Seus tokens" das Configurações (ADR 0038). */
+.mcp-tokens { display: grid; margin: 0; padding: 0; list-style: none; }
+/* Cada token é uma linha: nome, alcance e situação; embaixo, os dados em uma linha só; "Revogar" à direita. */
+.mcp-token { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 18px; }
+.mcp-token + .mcp-token { border-top: 1px solid var(--tp-divider); }
+.mcp-token-inactive { opacity: 0.6; }
+.mcp-token-main { display: grid; flex: 1 1 320px; gap: 4px; min-width: 0; }
+.mcp-token-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.settings-screen .mcp-token h4 { margin: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.mcp-token-scope { font-weight: 600; }
+.mcp-token-status { color: var(--tp-side-text-2); font-size: 12px; }
 .mcp-token-status-active { color: var(--tp-done); }
 .mcp-token-status-revoked { color: var(--tp-danger-text); }
-.mcp-token-person { margin-left: auto; color: var(--tp-text-2); font-size: 12px; }
-.mcp-token-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px 14px; margin: 0; font-size: 12px; }
-.mcp-token-meta div { min-width: 0; }
-.mcp-token-meta dt { color: var(--tp-text-3); }
-.mcp-token-meta dd { margin: 0; overflow-wrap: anywhere; }
+.mcp-token-person { margin-left: auto; color: var(--tp-side-text-2); font-size: 12px; }
+.mcp-token-meta { display: flex; flex-wrap: wrap; margin: 0; color: var(--tp-side-text-2); font-size: 12px; line-height: 1.5; }
+.mcp-token-meta > div { min-width: 0; }
+/* O separador fica no fim do item (e não no começo do seguinte): se a linha quebrar, nenhuma linha começa com "·". */
+.mcp-token-meta > div:not(:last-child)::after { content: "·"; margin: 0 7px; color: var(--tp-side-text-3); }
+.mcp-token-meta dt, .mcp-token-meta dd { display: inline; margin: 0; }
+.mcp-token-meta dt { color: var(--tp-side-text-3); }
+.mcp-token-meta dd { overflow-wrap: anywhere; }
 .mcp-token code { font-family: var(--tp-font-mono); }
-.mcp-form { display: grid; gap: 12px; }
+.mcp-token-action { flex: none; }
+.mcp-token .confirm-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mcp-token .confirm-message { color: var(--tp-danger-text); font-size: 13px; }
+.mcp-form { display: grid; gap: 12px; padding: 16px 18px; }
 .mcp-field { display: grid; gap: 4px; min-width: 0; }
 .mcp-field :is(input[type="text"], select) { width: 100%; box-sizing: border-box; }
+.settings-screen .mcp-field .settings-hint { margin: 0; }
 .mcp-validity { display: flex; flex-wrap: wrap; gap: 6px 16px; }
-.mcp-created { display: grid; gap: 10px; margin-top: 14px; padding: 12px; border: 1px solid var(--tp-border-strong); border-radius: var(--tp-radius-panel); background: var(--tp-card); }
-.mcp-created h3 { margin: 0; }
+.mcp-created { display: grid; gap: 10px; margin-bottom: 20px; padding: 16px 18px; border: 1px solid var(--tp-border-strong); border-radius: 12px; background: var(--tp-side-bg); }
+.mcp-created h3 { margin: 0; font-size: 15px; font-weight: 600; }
 .mcp-created h3:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 2px; }
-.mcp-created p { margin: 0; }
+.mcp-created p { margin: 0; font-size: 14px; }
+.mcp-created .settings-hint { color: var(--tp-side-text-3); font-size: 13px; }
 .mcp-warning { color: var(--tp-review); }
 .mcp-copy-status { min-height: 1.2em; color: var(--tp-done); font-size: 13px; }
 .mcp-block-code { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.mcp-secret { flex: 1 1 240px; min-width: 0; padding: 8px 10px; border-radius: var(--tp-radius-field); background: var(--tp-bg); font-family: var(--tp-font-mono); font-size: 12px; overflow-wrap: anywhere; user-select: all; }
+.mcp-secret { flex: 1 1 240px; min-width: 0; padding: 8px 10px; border-radius: var(--tp-radius-field); background: var(--tp-conv-bg); font-family: var(--tp-font-mono); font-size: 12px; overflow-wrap: anywhere; user-select: all; }
 .mcp-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--tp-divider); }
-.mcp-tabs button[role="tab"] { border-color: transparent; border-bottom-left-radius: 0; border-bottom-right-radius: 0; background: transparent; color: var(--tp-text-2); }
+.mcp-tabs button[role="tab"] { border-color: transparent; border-bottom-left-radius: 0; border-bottom-right-radius: 0; background: transparent; color: var(--tp-side-text-2); }
 .mcp-tabs button[role="tab"][aria-selected="true"] { border-color: var(--tp-border); border-bottom-color: var(--tp-card); background: var(--tp-card); color: var(--tp-text); margin-bottom: -1px; }
 .mcp-tabpanel { display: grid; gap: 10px; }
 .mcp-tabpanel:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 2px; }
 .mcp-snippet { display: grid; gap: 4px; }
 .mcp-snippet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.mcp-snippet pre { margin: 0; padding: 10px; overflow-x: auto; border-radius: var(--tp-radius-field); background: var(--tp-bg); font-family: var(--tp-font-mono); font-size: 12px; line-height: 1.5; }
+.mcp-snippet pre { margin: 0; padding: 10px; overflow-x: auto; border-radius: var(--tp-radius-field); background: var(--tp-conv-bg); font-family: var(--tp-font-mono); font-size: 12px; line-height: 1.5; }
 .mcp-snippet code { font-family: inherit; white-space: pre; }
 
-/* Tela estreita (TREEPM-231): texto de 12 px no mínimo, abas com alvo de 44 px e a lista larga rolando dentro do bloco. */
+/* Tela estreita (TREEPM-231): texto de 12 px no mínimo e abas rolando dentro do bloco. */
 @media (max-width: 720px) {
   .mcp-tabs { overflow-x: auto; }
   .mcp-tabs button[role="tab"] { flex: none; }
   .mcp-secret, .mcp-snippet pre, .mcp-token-status, .mcp-token-person, .mcp-token-meta { font-size: 12px; }
-  .mcp-switch { min-height: 44px; }
 }

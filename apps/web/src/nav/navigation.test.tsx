@@ -258,3 +258,35 @@ describe("ideas route", () => {
     expect(renderHook(() => useView()).result.current[5]).toBeNull();
   });
 });
+
+describe("âncora das Configurações (#ia, #github, #mcp)", () => {
+  it("pede a seção das Configurações pela âncora", () => {
+    expect(viewHref("settings", "https://x.test/app", null, { section: "ia" })).toBe("/app?view=settings#ia");
+    expect(viewHref("settings", "https://x.test/app?ticket=t1#h", null, { section: "github" })).toBe("/app?view=settings#github");
+    expect(viewHref("settings", "https://x.test/app#h")).toBe("/app?view=settings");
+  });
+
+  it("a âncora não vaza: ao sair das Configurações o hash é apagado, no mapa e em outras telas", () => {
+    expect(viewHref("map", "https://x.test/app?view=settings#mcp")).toBe("/app");
+    expect(viewHref("teams", "https://x.test/app?view=settings#mcp")).toBe("/app?view=teams");
+    expect(viewHref("map", "https://x.test/app?view=settings#mcp", null, { ticketId: "t1" })).toBe("/app?ticket=t1");
+  });
+
+  it("navegar das Configurações para o mapa tira o #mcp do endereço; o endereço do ticket aberto depois também não o traz", () => {
+    setUrl("/?view=settings#mcp");
+    const { result } = renderHook(() => useView());
+    act(() => result.current[1]("map"));
+    expect(window.location.hash).toBe("");
+    act(() => result.current[4]("t1"));
+    expect(window.location.search).toBe("?ticket=t1");
+    expect(window.location.hash).toBe("");
+  });
+
+  it("navigate abre as Configurações já na seção pedida (volta do GitHub)", () => {
+    const { result } = renderHook(() => useView());
+    act(() => result.current[1]("settings", null, { section: "github" }));
+    expect(result.current[0]).toBe("settings");
+    expect(window.location.search).toBe("?view=settings");
+    expect(window.location.hash).toBe("#github");
+  });
+});

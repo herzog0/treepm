@@ -31,7 +31,8 @@
     "connectedTo": "Connected to account {{account}} since {{date}}.",
     "selectedOnly": "The app only sees the repositories chosen at installation.",
     "disconnect": "Disconnect",
-    "disconnectWarning": "The repositories linked to projects and the ticket code links will be removed from TreePM. The app stays installed on GitHub until you remove it there."
+    "disconnectWarning": "The repositories linked to projects and the ticket code links will be removed from TreePM. The app stays installed on GitHub until you remove it there.",
+    "card": "Organization connection"
   },
   "repositories": {
     "title": "Repositories",
