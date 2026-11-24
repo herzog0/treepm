@@ -43,6 +43,7 @@ import "./map.css";
 import "./status-mark.css";
 import "./agent-work.css";
 import "../assistant/assistant.css";
+import type { CommandRequest } from "./commandRequest.js";
 
 const getLabel = (node: MapNode) => node.label;
 const getColor = (node: MapNode) => node.color;
@@ -99,9 +100,11 @@ interface MapViewProps {
   onOpenTicketChange: (ticketId: string | null) => void;
   focusTicketId: string | null;
   onFocusHandled: (() => void) | undefined;
+  commandRequest: CommandRequest | null;
+  onCommandHandled: (() => void) | undefined;
 }
 
-function MapView({ client, me, projects, people, ticketsByProject, onChanged, onImport, openTicketId, onOpenTicketChange, focusTicketId, onFocusHandled }: MapViewProps) {
+function MapView({ client, me, projects, people, ticketsByProject, onChanged, onImport, openTicketId, onOpenTicketChange, focusTicketId, onFocusHandled, commandRequest, onCommandHandled }: MapViewProps) {
   const { t } = useTranslation("map");
   const labels = useMemo<SpatialCanvasLabels>(
     () => ({ canvas: t("canvas.label"), toolbar: t("canvas.toolbar"), zoomOut: t("canvas.zoomOut"), reset: t("canvas.reset"), zoomIn: t("canvas.zoomIn"), colors: t("canvas.colors") }),
@@ -497,6 +500,18 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     setAssistant((state) => ({ open: true, expanded: true, resume, projectId: chosen?.id ?? null, scopeId, message, nonce: state.nonce + 1 }));
   };
 
+  // "Novo ticket" e "Buscar" da barra lateral (ADR 0055): o pedido vale uma vez. Sem assistente (ou sem projeto onde criar) "Novo ticket" só leva o foco ao campo.
+  const commandHandled = useRef(onCommandHandled);
+  commandHandled.current = onCommandHandled;
+  const openAssistantRef = useRef(openAssistant);
+  openAssistantRef.current = openAssistant;
+  useEffect(() => {
+    if (commandRequest === null) return;
+    if (commandRequest.kind === "new" && assistantAvailable) openAssistantRef.current();
+    else setBarFocus((current) => current + 1);
+    commandHandled.current?.();
+  }, [commandRequest, assistantAvailable]);
+
   // Projeto da pergunta: o do ticket aberto na página; senão o do nó selecionado; senão o único visível; senão a folha pergunta.
   const chooseAskProject = (): Project | undefined => {
     const live_ = live.current;
@@ -839,9 +854,12 @@ export interface OrganizationMapProps {
   /** Ticket a que a câmera vai uma vez, sem abrir a página ("Ver no mapa" da tela "Ideias"); `onFocusHandled` avisa que foi tratado. */
   focusTicketId?: string | null;
   onFocusHandled?: () => void;
+  /** Pedido da barra lateral ("Novo ticket", "Buscar"); `onCommandHandled` avisa que foi tratado. */
+  commandRequest?: CommandRequest | null;
+  onCommandHandled?: () => void;
 }
 
-export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTicketChange, focusTicketId = null, onFocusHandled }: OrganizationMapProps) {
+export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTicketChange, focusTicketId = null, onFocusHandled, commandRequest = null, onCommandHandled }: OrganizationMapProps) {
   const { t } = useTranslation("map");
   const { state, reload, retry, update, version } = useApiResource(() => loadMapData(client));
   // O mapa se atualiza sozinho (ADR 0043): só troca os dados se a resposta difere do que está na tela.
@@ -869,5 +887,5 @@ export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTick
       </div>
     );
   }
-  return <MapView client={client} me={me} projects={state.data.projects} people={state.data.people} ticketsByProject={state.data.ticketsByProject} onChanged={reload} onImport={onImport} openTicketId={controlled ? openTicketId : ownTicketId} onOpenTicketChange={changeTicket} focusTicketId={focusTicketId} onFocusHandled={onFocusHandled} />;
+  return <MapView client={client} me={me} projects={state.data.projects} people={state.data.people} ticketsByProject={state.data.ticketsByProject} onChanged={reload} onImport={onImport} openTicketId={controlled ? openTicketId : ownTicketId} onOpenTicketChange={changeTicket} focusTicketId={focusTicketId} onFocusHandled={onFocusHandled} commandRequest={commandRequest} onCommandHandled={onCommandHandled} />;
 }

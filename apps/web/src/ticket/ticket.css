@@ -1,13 +1,13 @@
-/* Página do ticket (ADR 0026): região à direita do mapa; o palco do mapa estreita para dar lugar a ela. */
+/* Página do ticket (ADR 0026): região à direita do mapa; o palco do mapa estreita para dar lugar a ela. Com a barra lateral e a conversa abertas (ADR 0055) o mapa é estreito: a página cede até 320 px para deixar 300 px ao palco e à barra de pedidos. */
 .map-workspace { position: relative; height: 100%; min-width: 0; overflow: hidden; }
 .map-workspace > .org-map { height: 100%; }
 @media (min-width: 1000px) {
-  .map-workspace.has-ticket-page > .org-map { margin-right: 620px; }
+  .map-workspace.has-ticket-page > .org-map { margin-right: clamp(320px, calc(100% - 300px), 620px); }
 }
 
 .ticket-page {
   position: absolute; z-index: 10; top: 0; right: 0; bottom: 0;
-  display: flex; flex-direction: column; width: 620px; max-width: 100%;
+  display: flex; flex-direction: column; width: clamp(320px, calc(100% - 300px), 620px); max-width: 100%;
   border-left: 1px solid var(--tp-divider); background: var(--tp-surface); color: var(--tp-text);
   box-shadow: -24px 0 56px color-mix(in srgb, var(--tp-bg) 45%, transparent);
   font: 400 13px/1.5 var(--tp-font); cursor: default; user-select: text; outline: none;

@@ -8,14 +8,14 @@ import "../styles.css";
 import "../controls.css";
 import { chatTicketTarget } from "../nav/navigation.js";
 import { OrganizationMap } from "../map/OrganizationMap.js";
-import { TenantHeader } from "../nav/TenantHeader.js";
+import { TestSidebar } from "../layout/testSidebar.js";
 import { makePanelMe, makePerson } from "../panel/testing.js";
 import { createFakeChat, makeMe, makeProject, makeTicket, makeTreeClient } from "../test/fakes.js";
 import { ChatShell } from "./ChatShell.js";
 import { ChatsProvider } from "./ChatsContext.js";
 
 // ADR 0049 × ADR 0048, em navegador real: o painel de chats, a página do ticket e o modo play ligados ao mesmo tempo.
-// Em 1440 os três ficam alcançáveis (o painel à esquerda, a página à direita, a barra do play dentro da página).
+// Em 1440 os três ficam alcançáveis (a barra lateral e a conversa à esquerda, a página à direita, a barra do play dentro da página).
 // Em 390 o painel cobre a tela inteira e o play continua do mesmo ponto depois que ele fecha.
 const project = makeProject("p1", "ALFA", "Projeto Alfa");
 const settle = (ms = 900) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -37,7 +37,7 @@ function Host() {
   return (
     <div id="root" style={{ height: "100dvh" }}>
       <ChatsProvider client={api} onShowTicket={(id) => { const target = chatTicketTarget(open, id); setOpen(target.ticketId ?? null); setFocus(target.focusId ?? null); }}>
-        <ChatShell header={<TenantHeader view="map" onNavigate={() => {}}><span /></TenantHeader>}>
+        <ChatShell sidebar={<TestSidebar />}>
           <main className="tenant-map">
             <OrganizationMap client={api} me={panelMe} openTicketId={open} onOpenTicketChange={setOpen} focusTicketId={focus} onFocusHandled={() => setFocus(null)} />
           </main>
@@ -64,8 +64,13 @@ async function startPlay() {
   [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].find((el) => el.textContent?.includes("Meu trabalho"))!.click();
   await settle(2500);
 }
-const openPanel = async () => {
-  [...document.querySelectorAll<HTMLButtonElement>("button.tenant-chats")][0]!.click();
+/** Abre a conversa do ALFA-1 pela lista "Conversas" da barra lateral; no celular a lista está na gaveta, que se abre antes. */
+const openPanel = async (key = "ALFA-1") => {
+  if (window.innerWidth <= 720) {
+    q<HTMLButtonElement>(".tenant-menu-button")!.click();
+    await settle(200);
+  }
+  [...document.querySelectorAll<HTMLButtonElement>("button.conv-row")].find((row) => (row.textContent ?? "").includes(key))!.click();
   await settle(600);
 };
 const playStep = () => q(".play-bar [role=status]")?.textContent ?? "";
@@ -75,9 +80,9 @@ afterEach(async () => {
   await page.viewport(1440, 900);
 });
 
-describe("painel de chats, página do ticket e play juntos em 1440", () => {
-  it("o painel fica à esquerda, a página à direita e a barra do play dentro da página, todos alcançáveis", async () => {
-    await page.viewport(1440, 900);
+describe.each([[1440, 900], [1280, 800]] as const)("conversa, página do ticket e play juntos em %i", (viewWidth, viewHeight) => {
+  it("a conversa fica ao lado da barra, a página à direita e a barra do play ao lado dela, todas alcançáveis e sem sobreposição", async () => {
+    await page.viewport(viewWidth, viewHeight);
     await render(<Host />);
     await settle(1200);
     await startPlay();
@@ -89,19 +94,22 @@ describe("painel de chats, página do ticket e play juntos em 1440", () => {
     expect(panel).not.toBeNull();
     expect(ticketPage).not.toBeNull();
     const p = size(panel);
-    expect(p.left).toBe(0);
-    expect(p.width).toBeGreaterThanOrEqual(360);
-    expect(p.width).toBeLessThanOrEqual(400);
+    expect(p.left).toBe(296);
+    expect(p.width).toBeCloseTo(Math.min(440, Math.max(380, viewWidth * 0.31)), 0);
     // A página e a barra do play ficam inteiras à direita do painel, dentro da janela.
     const t = size(ticketPage);
     expect(t.left).toBeGreaterThanOrEqual(p.right - 1);
     expect(t.right).toBeLessThanOrEqual(window.innerWidth + 1);
     const bar = size(q(".play-bar")!);
+    // O mapa que sobra entre a conversa e a página dá lugar à barra do play: ela não é espremida.
+    expect(bar.width).toBeGreaterThanOrEqual(220);
+    expect(bar.right).toBeLessThanOrEqual(t.left + 1);
     expect(bar.left).toBeGreaterThanOrEqual(p.right - 1);
     expect(bar.right).toBeLessThanOrEqual(window.innerWidth + 1);
     for (const label of ["Voltar", "Avançar", "Sair do play"]) reachable(byLabel(label), label);
-    reachable(panel.querySelector("h2, .chat-header-title, button")!, "painel");
-    reachable(q("button.tenant-chats")!, "botão Chats");
+    reachable(panel.querySelector("button")!, "conversa");
+    reachable(q("button.sidebar-new")!, "Novo ticket da barra lateral");
+    reachable(q("button.conv-row")!, "lista de conversas");
     // Mexer no play com o painel aberto continua funcionando e não fecha o painel.
     byLabel("Avançar").click();
     await settle(1500);
@@ -134,7 +142,7 @@ describe.each([[390, 844]] as const)("painel de chats com o play ligado em %ix%i
       expect(panel.contains(document.elementFromPoint(x, y)), `ponto ${x},${y}`).toBe(true);
     }
     noSideScroll();
-    byLabel("Fechar o painel de chats").click();
+    byLabel("Fechar a conversa").click();
     await settle(500);
     expect(getComputedStyle(q(".chat-panel")!).display).toBe("none");
     expect(playStep()).toBe(step);
@@ -148,7 +156,6 @@ describe("cabeçalho do chat com a página do ticket já aberta (ajuste 3, ADR 0
     await page.viewport(1440, 900);
     const screen = await render(<Host />);
     await settle(1200);
-    await openPanel();
     const spot = () => {
       const stage = document.querySelector("[aria-label='Mapa da organização']")!.getBoundingClientRect();
       const card = q("[aria-label^='ALFA-2 · ']")!.getBoundingClientRect();
@@ -160,14 +167,18 @@ describe("cabeçalho do chat com a página do ticket já aberta (ajuste 3, ADR 0
     await screen.getByRole("button", { name: /ALFA-2 · Publicação/ }).click();
     await expect.element(screen.getByRole("heading", { level: 1, name: "Publicação" })).toBeVisible();
     await settle();
+    // A conversa do ALFA-2 abre antes de medir: o mapa já encolheu e a câmera já se enquadrou na largura que sobra.
+    [...document.querySelectorAll<HTMLButtonElement>("button.conv-row")].find((b) => /ALFA-2/.test(b.textContent ?? ""))!.click();
+    await settle(600);
+    // O mapa encolheu com a conversa; o primeiro clique no cabeçalho enquadra o ticket na largura que sobrou, e esse é o ponto de referência.
+    q<HTMLButtonElement>(".chat-panel .chat-ticket-title")!.click();
+    await settle(1200);
     const framed = spot();
     const stage = screen.getByRole("region", { name: "Mapa da organização" });
     await userEvent.dragAndDrop(stage, stage, { sourcePosition: { x: 40, y: 400 }, targetPosition: { x: 140, y: 330 } });
     await settle();
     expect(spot()).not.toEqual(framed);
     // O chat do ALFA-2 pelo painel; o cabeçalho dele leva a câmera ao ticket cuja página já está aberta.
-    [...q(".chat-panel")!.querySelectorAll<HTMLButtonElement>("button")].find((b) => /ALFA-2/.test(b.textContent ?? ""))!.click();
-    await settle(600);
     q<HTMLButtonElement>(".chat-panel .chat-ticket-title")!.click();
     await settle(1200);
     expect(spot()).toEqual(framed);

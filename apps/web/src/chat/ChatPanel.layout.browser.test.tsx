@@ -6,12 +6,12 @@ import "../theme.css";
 import "../styles.css";
 import "../controls.css";
 import { settle } from "../layout/layoutMeasure.js";
-import { TenantHeader } from "../nav/TenantHeader.js";
+import { TestSidebar } from "../layout/testSidebar.js";
 import { makeClient, makeMe, makePerson, makeProject, createFakeChat } from "../test/fakes.js";
 import { ChatShell } from "./ChatShell.js";
 import { ChatsProvider } from "./ChatsContext.js";
 
-// ADR 0049: o painel de chats no navegador real. Roda no Chromium do contêiner (TREEPM_PLAYWRIGHT_WS).
+// ADR 0049 e ADR 0055: a barra lateral e a conversa aberta no navegador real. Roda no Chromium do contêiner (TREEPM_PLAYWRIGHT_WS).
 const WIDE = [1440, 900] as const;
 const NARROW = [[360, 740], [390, 844], [430, 932]] as const;
 const TOUCH = 44;
@@ -24,7 +24,7 @@ async function mount() {
   return await render(
     <div id="root" style={{ height: "100dvh" }}>
       <ChatsProvider client={client} onShowTicket={() => {}}>
-        <ChatShell header={<TenantHeader view="map" onNavigate={() => {}}><span /></TenantHeader>}>
+        <ChatShell sidebar={<TestSidebar />}>
           <main id="stand-in-map" className="tenant-map" style={{ minWidth: 0 }}>mapa</main>
         </ChatShell>
       </ChatsProvider>
@@ -33,8 +33,9 @@ async function mount() {
 }
 const q = <T extends Element = HTMLElement>(selector: string) => document.querySelector<T>(selector);
 const rect = (selector: string) => q(selector)!.getBoundingClientRect();
+/** No celular a lista está dentro da gaveta: abre a gaveta antes de escolher a conversa. */
 async function openChat() {
-  await page.getByRole("button", { name: /^Chats/ }).click();
+  if (window.innerWidth <= 720) await page.getByRole("button", { name: /^Abrir o menu/ }).click();
   await page.getByRole("button", { name: /ALFA-1/ }).click();
   await settle();
 }
@@ -44,38 +45,63 @@ afterEach(async () => {
   await page.viewport(...WIDE);
 });
 
-describe("chats panel, wide screen", () => {
-  it("splits the space with the map at 1440: the panel is fixed and the map shrinks instead of being covered", async () => {
+describe("barra lateral e conversa, tela larga", () => {
+  it("a barra tem 296 px, fica fixa à esquerda e a lista de conversas já está à vista", async () => {
     await page.viewport(...WIDE);
     await mount();
-    const before = rect("#stand-in-map").width;
-    await page.getByRole("button", { name: /^Chats/ }).click();
     await settle();
-    const panel = rect(".chat-panel");
-    expect(panel.width).toBeGreaterThanOrEqual(360);
-    expect(panel.width).toBeLessThanOrEqual(400);
-    expect(panel.left).toBe(0);
-    const map = rect("#stand-in-map");
-    expect(map.left).toBeGreaterThanOrEqual(panel.right - 1);
-    expect(map.width).toBeCloseTo(before - panel.width, 0);
+    const bar = rect(".sidebar");
+    expect(bar.left).toBe(0);
+    expect(bar.width).toBe(296);
+    expect(bar.height).toBe(900);
+    expect(rect(".conv-row").width).toBeGreaterThan(200);
+    expect(q(".chat-panel")).toBeNull();
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
   });
 
-  it("moves the focus into the panel when it opens and back to the button when Esc closes it", async () => {
+  it("a conversa abre numa coluna de 440 px entre a barra e o mapa, e o mapa encolhe em vez de ficar coberto", async () => {
     await page.viewport(...WIDE);
     await mount();
-    await page.getByRole("button", { name: /^Chats/ }).click();
     await settle();
+    const before = rect("#stand-in-map");
+    expect(before.left).toBe(296);
+    await openChat();
+    const panel = rect(".chat-panel");
+    expect(panel.left).toBe(296);
+    expect(panel.width).toBe(440);
+    expect(panel.height).toBe(900);
+    const map = rect("#stand-in-map");
+    expect(map.left).toBeGreaterThanOrEqual(panel.right - 1);
+    expect(map.width).toBeCloseTo(before.width - panel.width, 0);
+    expect(rect(".sidebar").width).toBe(296);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
+  });
+
+  it("fechar a conversa devolve a largura ao mapa e o foco à linha dela", async () => {
+    await page.viewport(...WIDE);
+    await mount();
+    await settle();
+    const before = rect("#stand-in-map").width;
+    await openChat();
     expect(q(".chat-panel")!.contains(document.activeElement)).toBe(true);
     await userEvent.keyboard("{Escape}");
     await settle();
     expect(getComputedStyle(q(".chat-panel")!).display).toBe("none");
-    expect(document.activeElement).toBe(q(".tenant-chats"));
+    expect(rect("#stand-in-map").width).toBe(before);
+    expect(document.activeElement).toBe(q(".conv-row"));
+  });
+
+  it("a linha da conversa aberta fica marcada na barra", async () => {
+    await page.viewport(...WIDE);
+    await mount();
+    await settle();
+    await openChat();
+    expect(q(".conv-row")!.getAttribute("aria-current")).toBe("true");
   });
 });
 
-describe.each(NARROW)("chats panel at %ix%i", (width, height) => {
-  it("takes the whole screen, has no sideways scroll and 44 px targets", async () => {
+describe.each(NARROW)("conversa no celular %ix%i", (width, height) => {
+  it("ocupa a tela inteira, sem rolagem lateral e com alvos de 44 px", async () => {
     await page.viewport(width, height);
     await mount();
     await openChat();
@@ -92,7 +118,7 @@ describe.each(NARROW)("chats panel at %ix%i", (width, height) => {
     }
   });
 
-  it("keeps the composer stuck to the bottom of the visible area", async () => {
+  it("mantém o campo de escrever preso à base da área visível", async () => {
     await page.viewport(width, height);
     await mount();
     await openChat();

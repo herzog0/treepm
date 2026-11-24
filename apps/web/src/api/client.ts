@@ -361,7 +361,7 @@ const chatThreadSchema = z.object({
 const chatPageSchema = z.object({ items: z.array(chatMessageSchema), nextBefore: z.string().nullable() });
 const chatTicketSchema = z.object({ id: z.string(), key: z.string(), title: z.string(), projectId: z.string(), archived: z.boolean() });
 const chatListSchema = z.object({
-  items: z.array(z.object({ ticketId: z.string(), ticketKey: z.string(), title: z.string(), projectId: z.string(), chatId: z.string().nullable(), assignedToMe: z.boolean(), lastActivityAt: z.string(), unread: z.number() })),
+  items: z.array(z.object({ ticketId: z.string(), ticketKey: z.string(), title: z.string(), projectId: z.string(), chatId: z.string().nullable(), assignedToMe: z.boolean(), lastActivityAt: z.string(), unread: z.number(), status: ticketStatus.optional(), blocked: z.boolean().optional() })),
 });
 const ticketChatSchema = z.object({
   ticket: chatTicketSchema,

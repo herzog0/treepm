@@ -7,11 +7,16 @@ import type { Box } from "./layoutMeasure.js";
 
 // TREEPM-231, regra de ouro: acima de 720 px nada muda. Esta suíte grava em 1440×900 o retângulo dos elementos principais de cada tela
 // (com `VITE_TREEPM_RECORD=1`, no código de antes da mudança) e confere que o desenho de hoje continua idêntico. Não se edita a linha de base.
+//
+// ADR 0055, a exceção pedida por Teodoro (2026-11-23/24): o redesign da casca troca o cabeçalho de cima pela barra lateral fixa de 296 px, e a
+// linha de base foi REGERADA por esse pedido explícito (a de antes está no Git, em `git show 849d17e:apps/web/src/layout/baseline.desktop.json`).
+// As telas (mapa, ticket, times, configurações, importação) perdem a altura do cabeçalho (48 px) e ganham a largura da barra (296 px) à esquerda;
+// o desenho de dentro de cada tela não muda. A partir daqui a regra volta a valer: a nova linha de base não se edita.
 const BASELINE = "src/layout/baseline.desktop.json";
 const RECORD = (import.meta.env as Record<string, string | undefined>)["VITE_TREEPM_RECORD"] === "1";
 const TOLERANCE = 0.6;
 
-const COMMON = [".tenant-header", ".tenant-brand", ".app-nav", ".app-nav a", ".tenant-controls", ".cl-organizationSwitcherTrigger", ".tenant-api-status", ".cl-userButtonTrigger", ".tenant-chats"];
+const COMMON = [".sidebar", ".sidebar-org", ".sidebar-actions", ".sidebar-new", ".sidebar-search", ".app-nav", ".app-nav a", ".conv-section", ".conv-row", ".sidebar-foot", ".cl-organizationSwitcherTrigger", ".tenant-api-status", ".cl-userButtonTrigger", ".sidebar-settings"];
 const SELECTORS: Record<Exclude<LayoutScreen, "ideas">, readonly string[]> = {
   map: [...COMMON, ".org-map", ".spatial-toolbar", ".spatial-toolbar button", ".spatial-help", ".spatial-context", ".command-zone", ".command-bar", ".command-field input"],
   ticket: [...COMMON, ".map-workspace", ".ticket-page", ".ticket-header", ".ticket-chat-button", ".ticket-icon-button", ".ticket-title", ".ticket-row", ".ticket-row button", ".ticket-section", ".ticket-section h2", ".ticket-contribution", ".ticket-contribution-head", ".ticket-activity-item", ".ticket-comment-composer", ".ticket-comment-composer textarea", ".command-bar"],

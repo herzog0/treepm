@@ -6,6 +6,7 @@ import { useApiResource } from "./api/useApiResource.js";
 import { LoadError } from "./LoadError.js";
 import { IdeasScreen } from "./ideas/IdeasScreen.js";
 import { ImportScreen } from "./import/ImportScreen.js";
+import type { CommandRequest } from "./map/commandRequest.js";
 import { OrganizationMap } from "./map/OrganizationMap.js";
 import type { NavigateFn, View } from "./nav/navigation.js";
 import { scheduleDescriptionEditorPreload } from "./ticket/description/RichDescription.js";
@@ -25,11 +26,14 @@ export interface WorkspaceProps {
   /** Ticket a que a câmera vai ao chegar no mapa ("Ver no mapa" da tela "Ideias"); `onFocusHandled` tira o pedido da URL. */
   focusTicketId?: string | null;
   onFocusHandled?: () => void;
+  /** "Novo ticket" e "Buscar" da barra lateral; `onCommandHandled` tira o pedido depois de tratado. */
+  commandRequest?: CommandRequest | null;
+  onCommandHandled?: () => void;
   getToken: () => Promise<string | null>;
   fetch?: typeof fetch;
 }
 
-function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, onOpenTicket, focusTicketId, onFocusHandled, getToken, fetch: fetchImpl }: Omit<WorkspaceProps, "orgId">) {
+function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, onOpenTicket, focusTicketId, onFocusHandled, commandRequest, onCommandHandled, getToken, fetch: fetchImpl }: Omit<WorkspaceProps, "orgId">) {
   const { t } = useTranslation();
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
@@ -75,6 +79,7 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
         {...(onNavigate ? { onImport: (id: string) => onNavigate("import", id) } : {})}
         {...(ticketId !== undefined && onOpenTicket ? { openTicketId: ticketId, onOpenTicketChange: onOpenTicket } : {})}
         {...(focusTicketId && onFocusHandled ? { focusTicketId, onFocusHandled } : {})}
+        {...(commandRequest && onCommandHandled ? { commandRequest, onCommandHandled } : {})}
       />
     </main>
     </AdminProvider>

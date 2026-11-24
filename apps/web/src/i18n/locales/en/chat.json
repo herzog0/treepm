@@ -1,15 +1,10 @@
 {
-  "button": {
-    "label": "Chats",
-    "withUnread": "Chats, unread: {{count}}"
-  },
   "panel": {
-    "label": "Chats",
-    "close": "Close the chats panel",
-    "back": "Back to the chat list"
+    "label": "Ticket conversation",
+    "close": "Close the conversation"
   },
   "list": {
-    "title": "My chats",
+    "title": "Conversations",
     "loading": "Loading chats…",
     "loadFailed": "Could not load the chats.",
     "retry": "Try again",

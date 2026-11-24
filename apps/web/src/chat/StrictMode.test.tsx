@@ -9,7 +9,6 @@ describe("Chats under StrictMode", () => {
     const { chat } = renderChats({ strict: true });
     chat.seedConversation("t1", [{ person: "Pergunta de Ana", assistant: "Resposta do assistente" }]);
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Chats/ }));
     await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
     expect(await screen.findByText("Pergunta de Ana")).toBeInTheDocument();
     expect(screen.getByText("Resposta do assistente")).toBeInTheDocument();
@@ -19,7 +18,6 @@ describe("Chats under StrictMode", () => {
     const { chat } = renderChats({ strict: true });
     chat.receiveThread("t1", { from: "person-2", body: "Raiz da thread", replies: [{ from: "person-2", body: "Primeira resposta" }] });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Chats/ }));
     await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
     await user.click(await screen.findByRole("button", { name: "Abrir thread" }));
     expect(await screen.findByText("Raiz da thread")).toBeInTheDocument();

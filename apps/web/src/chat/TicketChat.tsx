@@ -34,9 +34,6 @@ interface Pending {
 type Entry = { kind: "message"; message: ChatMessage } | { kind: "thread"; thread: ChatThread };
 const timeOf = (entry: Entry) => (entry.kind === "message" ? entry.message.createdAt : entry.thread.root.createdAt);
 
-const BackIcon = () => (
-  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 2 4 7l5 5" /></svg>
-);
 const CloseIcon = () => (
   <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="m3 3 8 8M11 3l-8 8" /></svg>
 );
@@ -315,9 +312,6 @@ export function TicketChat({ ticketId, active }: TicketChatProps) {
   return (
     <div className="chat-ticket">
       <header className="chat-header">
-        <button type="button" className="chat-icon-button" aria-label={t("panel.back")} onClick={chats.openList}>
-          <BackIcon />
-        </button>
         {ticket ? (
           <button type="button" className="chat-ticket-title" aria-label={t("chat.openTicket", { key: ticket.key, title: ticket.title })} onClick={() => chats.showTicket(ticket.id)}>
             <code>{ticket.key}</code>
