@@ -199,7 +199,7 @@ export class FakeChatProvider implements ChatProvider {
     await this.onCall?.();
     if (this.fail) throw new AssistantUnavailableError("fake");
     const last = input.history[input.history.length - 1]?.body ?? "";
-    return { message: this.reply_ ? this.reply_(input) : `Resposta sobre ${input.ticket.key}: ${last.slice(0, 40)}`, model: "claude-opus-5-5" };
+    return { message: this.reply_ ? this.reply_(input) : `Resposta sobre ${input.ticket?.key ?? "chat geral"}: ${last.slice(0, 40)}`, model: "claude-opus-5-5" };
   }
 }
 

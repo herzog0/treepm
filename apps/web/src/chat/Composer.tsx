@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { ChangeEvent, KeyboardEvent, RefObject } from "react";
+import type { ChangeEvent, KeyboardEvent, ReactNode, RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type { Person } from "../api/client.js";
 import { formatNumber } from "../i18n/format.js";
@@ -77,6 +77,10 @@ interface ComposerProps {
   canAssistant: boolean;
   /** A thread não tem assistente: o botão é sempre "Enviar". */
   thread: boolean;
+  /** Marcar alguém abre uma thread aqui dentro; falso no último nível (o seletor fica desligado, com a explicação). */
+  canOpenThread: boolean;
+  /** Entre o aviso "abre uma thread" e o campo, quando há alguém marcado (o ticket de que a thread trata, no chat geral). */
+  extra?: ReactNode;
   /** Há uma mensagem ao assistente esperando a resposta (não impede abrir thread). */
   assistantBusy: boolean;
   /** Há uma mensagem de thread sendo enviada. */
@@ -90,12 +94,14 @@ interface ComposerProps {
 }
 
 /** O campo de escrever do chat e da thread: `Enter` envia, `Shift+Enter` quebra a linha, `@` e "Mencionar" abrem o mesmo seletor. */
-export function Composer({ label, placeholder, draft, onDraft, candidates, peopleStatus, names, canAssistant, thread, assistantBusy, threadBusy, readOnly, refused, fieldRef, onSend }: ComposerProps) {
+export function Composer({ label, placeholder, draft, onDraft, candidates, peopleStatus, names, canAssistant, thread, canOpenThread, extra, assistantBusy, threadBusy, readOnly, refused, fieldRef, onSend }: ComposerProps) {
   const { t, i18n } = useTranslation("chat");
   const language = i18n.language as Language;
   const [picking, setPicking] = useState(false);
   const id = useId();
   const mentioning = draft.mentions.length > 0;
+  const mentionNames = new Intl.ListFormat(i18n.language, { style: "long", type: "conjunction" }).format(draft.mentions.map((personId) => names.get(personId) ?? personId));
+  const offId = `${id}-levels`;
   const over = draft.text.length > CHAT_BODY_MAX;
   const canSend = !readOnly && draft.text.trim() !== "" && !over && (mentioning || thread ? !threadBusy : canAssistant && !assistantBusy);
 
@@ -112,7 +118,7 @@ export function Composer({ label, placeholder, draft, onDraft, candidates, peopl
     const at = (event.target.selectionStart ?? value.length) - 1;
     const typedOne = value.length === draft.text.length + 1 && value.slice(0, at) + value.slice(at + 1) === draft.text;
     // O "@" digitado depois de espaço ou no começo abre o seletor, e o "@" não fica no texto.
-    if (typedOne && value[at] === "@" && (at === 0 || /\s/.test(value[at - 1]!)) && !readOnly) {
+    if (typedOne && value[at] === "@" && (at === 0 || /\s/.test(value[at - 1]!)) && !readOnly && canOpenThread) {
       onDraft({ ...draft, text: value.slice(0, at) + value.slice(at + 1) });
       setPicking(true);
       return;
@@ -155,6 +161,11 @@ export function Composer({ label, placeholder, draft, onDraft, candidates, peopl
           })}
         </ul>
       )}
+      {mentioning && (
+        <p className="chat-thread-notice" role="status">{t("composer.opensThread", { names: mentionNames })}</p>
+      )}
+      {mentioning && extra}
+      {!canOpenThread && <p id={offId} className="chat-levels-note">{t("composer.noMoreLevels")}</p>}
       <div className="chat-composer-row">
         <div className="chat-composer-field">
           <label className="chat-visually-hidden" htmlFor={`${id}-field`}>{label}</label>
@@ -178,10 +189,10 @@ export function Composer({ label, placeholder, draft, onDraft, candidates, peopl
         </div>
         <div className="chat-composer-actions">
           <div className="chat-picker-anchor">
-            <button type="button" className="chat-mention-button" disabled={readOnly} aria-haspopup="dialog" aria-expanded={picking} onClick={() => setPicking((was) => !was)}>
+            <button type="button" className="chat-mention-button" disabled={readOnly || !canOpenThread} aria-describedby={canOpenThread ? undefined : offId} aria-haspopup="dialog" aria-expanded={picking} onClick={() => setPicking((was) => !was)}>
               {t("composer.mention")}
             </button>
-            {picking && (
+            {picking && canOpenThread && (
               <MentionPicker
                 candidates={candidates.filter((person) => !draft.mentions.includes(person.id))}
                 status={peopleStatus}
@@ -193,7 +204,7 @@ export function Composer({ label, placeholder, draft, onDraft, candidates, peopl
               />
             )}
           </div>
-          {mentioning && !thread ? (
+          {mentioning ? (
             <button type="submit" className="chat-send is-thread" disabled={!canSend}>{t("composer.sendThread")}</button>
           ) : (
             <button type="submit" className="chat-send" aria-label={t("composer.send")} disabled={!canSend}>

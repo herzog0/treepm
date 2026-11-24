@@ -1,11 +1,12 @@
 import { useTranslation } from "react-i18next";
-import type { KeyboardEvent } from "react";
-import type { ChatListItem } from "../api/client.js";
+import type { CSSProperties, KeyboardEvent } from "react";
+import type { ConversationNode } from "../api/client.js";
 import { formatActivityTime } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
-import { useChats } from "./ChatsContext.js";
+import { nodeIsRef, refOfNode, useChats } from "./ChatsContext.js";
+import { threadColor, threadTitle } from "./thread.js";
 
-/** Cor da bolinha: a da situação do ticket quando a lista a traz; neutra (a de "a fazer") enquanto o servidor não manda esse dado. */
+/** Cor da bolinha: a da situação do ticket (as mesmas do mapa). */
 const SITUATION_TOKEN: Record<string, string> = {
   blocked: "var(--tp-blocked)",
   in_progress: "var(--tp-doing)",
@@ -15,38 +16,86 @@ const SITUATION_TOKEN: Record<string, string> = {
   cancelled: "var(--tp-cancelled)",
 };
 
-function dotColor(chat: ChatListItem): string {
-  const situation = chat.blocked === true && chat.status !== "done" && chat.status !== "cancelled" ? "blocked" : (chat.status ?? "todo");
+function dotColor(node: ConversationNode): string {
+  const ticket = node.ticket;
+  const situation = ticket?.blocked === true && ticket.status !== "done" && ticket.status !== "cancelled" ? "blocked" : (ticket?.status ?? "todo");
   return SITUATION_TOKEN[situation] ?? SITUATION_TOKEN["todo"]!;
 }
 
-function ConversationRow({ chat, current }: { chat: ChatListItem; current: boolean }) {
+/** A indentação cresce 12 px por nível até o quinto; dali para baixo a linha fica onde está (a árvore pode ter mais de dez níveis). */
+export const MAX_INDENT_LEVEL = 5;
+
+const GeneralIcon = () => (
+  <svg className="conv-general-icon" viewBox="0 0 18 18" aria-hidden="true"><path d="M3 4h12v8H8l-3 3v-3H3z" /></svg>
+);
+
+function ConversationRow({ node, depth }: { node: ConversationNode; depth: number }) {
   const { t, i18n } = useTranslation("chat");
   const chats = useChats()!;
+  const current = chats.open && chats.selection !== null && nodeIsRef(node, chats.selection);
+  const level = Math.min(depth, MAX_INDENT_LEVEL);
+  const thread = node.kind === "thread";
+  const title =
+    node.kind === "general" ? (
+      t("row.general")
+    ) : node.kind === "ticket" && node.ticket ? (
+      <>
+        <code className="conv-key">{node.ticket.key}</code>
+        {/* O espaço entre a chave e o título é parte do nome acessível da linha. */}
+        {" "}
+        {node.ticket.title}
+      </>
+    ) : (
+      threadTitle(t, node.participants, node.participantCount, chats.selfId)
+    );
+  const sub = node.preview ?? (node.kind === "general" ? t("row.generalHint") : null);
   return (
-    <li>
+    <li className="conv-item">
       <button
         type="button"
-        className={`conv-row ${chat.unread > 0 ? "is-unread" : ""}`}
+        className={`conv-row is-${node.kind} ${node.unread > 0 ? "is-unread" : ""}`}
+        style={{ "--conv-level": level } as CSSProperties}
         aria-current={current ? "true" : undefined}
-        onClick={() => chats.openChat(chat.ticketId)}
+        onClick={() => chats.select(refOfNode(node))}
       >
-        <span className="conv-dot" aria-hidden="true" style={{ background: dotColor(chat) }} />
-        <span className="conv-title"><code className="conv-key">{chat.ticketKey}</code>{chat.title}</span>
-        <time className="conv-time" dateTime={chat.lastActivityAt}>{formatActivityTime(i18n.language as Language, chat.lastActivityAt, new Date())}</time>
-        {chat.assignedToMe && <span className="conv-assigned">{t("list.assigned")}</span>}
-        {chat.unread > 0 && (
-          <span className="conv-badge">
-            <span aria-hidden="true">{chat.unread}</span>
-            <span className="chat-visually-hidden">{t("list.unread", { count: chat.unread })}</span>
+        {thread && node.id !== null ? (
+          <span className="conv-thread-mark" aria-hidden="true" style={{ background: threadColor(node.id) }} />
+        ) : node.kind === "general" ? (
+          <GeneralIcon />
+        ) : (
+          <span className="conv-dot" aria-hidden="true" style={{ background: dotColor(node) }} />
+        )}
+        <span className="conv-text">
+          <span className="conv-title">{title}</span>
+          {sub !== null && <span className="conv-preview">{sub}</span>}
+        </span>
+        {node.lastActivityAt !== null && <time className="conv-time" dateTime={node.lastActivityAt}>{formatActivityTime(i18n.language as Language, node.lastActivityAt, new Date())}</time>}
+        {(node.assignedToMe || node.unread > 0) && (
+          <span className="conv-aside">
+            {node.assignedToMe && (
+              <span className="conv-assigned" role="img" aria-label={t("list.assignedHint")} title={t("list.assignedHint")}>
+                <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="2.6" /><path d="M3 13.5c.6-2.6 2.6-4 5-4s4.4 1.4 5 4" /></svg>
+              </span>
+            )}
+            {node.unread > 0 && (
+              <span className="conv-badge">
+                <span aria-hidden="true">{node.unread}</span>
+                <span className="chat-visually-hidden">{t("list.unread", { count: node.unread })}</span>
+              </span>
+            )}
           </span>
         )}
       </button>
+      {node.children.length > 0 && (
+        <ul className="conv-children">
+          {node.children.map((child, index) => <ConversationRow key={child.id ?? `${child.kind}-${child.ticket?.id ?? index}`} node={child} depth={depth + 1} />)}
+        </ul>
+      )}
     </li>
   );
 }
 
-/** A seção "Conversas" da barra lateral (ADR 0055): a lista "Meus chats" da ADR 0049, sempre à vista. Sem provedor de chats, não existe. */
+/** A seção "Conversas" da barra lateral (ADR 0055): a árvore do chat geral, dos tickets e das threads, sempre à vista. Sem provedor de chats, não existe. */
 export function ConversationList() {
   const { t } = useTranslation("chat");
   const chats = useChats();
@@ -67,17 +116,16 @@ export function ConversationList() {
         <h2 id="conv-section-title">{t("list.title")}</h2>
         {chats.unreadChats > 0 && <span className="conv-section-total">{t("list.unread", { count: chats.unreadChats })}</span>}
       </div>
-      {chats.chats === null && !chats.listFailed && <p role="status" className="conv-hint">{t("list.loading")}</p>}
+      {chats.tree === null && !chats.listFailed && <p role="status" className="conv-hint">{t("list.loading")}</p>}
       {chats.listFailed && (
         <div className="conv-hint">
           <p role="alert">{t("list.loadFailed")}</p>
           <button type="button" className="chat-text-button" onClick={() => void chats.refresh()}>{t("list.retry")}</button>
         </div>
       )}
-      {chats.chats !== null && chats.chats.length === 0 && !chats.listFailed && <p className="conv-hint">{t("list.empty")}</p>}
-      {chats.chats !== null && chats.chats.length > 0 && (
+      {chats.tree !== null && chats.tree.length > 0 && (
         <ul className="conv-list" onKeyDown={onKeyDown}>
-          {chats.chats.map((chat) => <ConversationRow key={chat.ticketId} chat={chat} current={chats.open && chats.ticketId === chat.ticketId} />)}
+          {chats.tree.map((node, index) => <ConversationRow key={node.id ?? `${node.kind}-${node.ticket?.id ?? index}`} node={node} depth={0} />)}
         </ul>
       )}
     </section>

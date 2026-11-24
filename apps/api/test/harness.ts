@@ -8,6 +8,7 @@ import type { AppConfig } from "../src/config.js";
 import type { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeChatProvider, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer, FakeProjectAnswerer, FakeRelatedJudge, FakeTicketElaborator } from "./assistant-fakes.js";
 import type { FakeEmbeddingProvider } from "../scripts/placement-rebuild/fakes.js";
 import type { PlacementTimeouts } from "../src/assistant/ports.js";
+import type { AccessTokenClock } from "../src/access-tokens/clock.js";
 import type { FakeRepositoryProvider } from "./github-fakes.js";
 import { seedWorld } from "./world.js";
 import type { World } from "./world.js";
@@ -33,7 +34,7 @@ export type Harness = {
 };
 
 /** Registra os hooks de ciclo de vida e devolve acessores para a app, o mundo semeado e o `call`. */
-export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTimeouts; consent?: boolean } = {}): Harness {
+export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTimeouts; consent?: boolean; clock?: AccessTokenClock } = {}): Harness {
   const pool = ownerPoolWithCleanup();
   let app: INestApplication;
   let verifier: FakeSessionVerifier;
@@ -52,7 +53,7 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
   let github: FakeRepositoryProvider;
 
   beforeAll(async () => {
-    ({ app, verifier, conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator, embedder, github } = await createTestApp([], config, options.timeouts ? { timeouts: options.timeouts } : {}));
+    ({ app, verifier, conversation, judge, summarizer, affinity, related, namer, writer, answerer, chat, elaborator, embedder, github } = await createTestApp([], config, { ...(options.timeouts ? { timeouts: options.timeouts } : {}), ...(options.clock ? { clock: options.clock } : {}) }));
   });
   afterAll(async () => {
     await app.close();

@@ -16,8 +16,9 @@ import { ClaudeBranchSummarizer } from "./claude-branch-summarizer.js";
 import { AskController } from "./ask.controller.js";
 import { ClaudeProjectAnswerer } from "./claude-project-answerer.js";
 import { ClaudeChatProvider } from "./claude-chat-provider.js";
-import { ChatController } from "./chat.controller.js";
-import { ChatService } from "./chat.service.js";
+import { ConversationAccess } from "./conversation-access.js";
+import { ConversationController } from "./conversation.controller.js";
+import { ConversationService } from "./conversation.service.js";
 import { ClaudeDescriptionWriter } from "./claude-description-writer.js";
 import { DescriptionDraftController } from "./description-draft.controller.js";
 import { ClaudeGroupNamer } from "./claude-group-namer.js";
@@ -31,11 +32,12 @@ import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERS
 
 @Module({
   imports: [AccessModule, AccessTokensModule, TicketsModule, QueryModule],
-  controllers: [TicketConversationsController, BranchSummaryController, DescriptionDraftController, AskController, ChatController],
+  controllers: [TicketConversationsController, BranchSummaryController, DescriptionDraftController, AskController, ConversationController],
   providers: [
     ActivityService,
     PlacementService,
-    ChatService,
+    ConversationAccess,
+    ConversationService,
     AssistantGate,
     {
       provide: CONVERSATION_PROVIDER,

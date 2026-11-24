@@ -32,7 +32,7 @@ describe("app shell (ADR 0055)", () => {
     expect(shell).not.toHaveClass("has-chat-panel");
     await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
     expect(shell).toHaveClass("has-chat-panel");
-    expect(screen.getByRole("complementary", { name: "Conversa do ticket" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Conversa" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Fechar a conversa" }));
     expect(shell).not.toHaveClass("has-chat-panel");
     expect(screen.getByText("Conteúdo da tela")).toBeInTheDocument();

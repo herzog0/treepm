@@ -35,13 +35,19 @@
       "request_too_long": "O pedido original passou do limite de uma descrição. Divida o pedido em conversas menores.",
       "chat_busy": "Já há uma mensagem sua esperando a resposta do assistente neste chat. Espere a resposta chegar e envie de novo.",
       "chat_changed": "A conversa mudou em outro aparelho enquanto o assistente respondia. Recarregamos a conversa; envie a mensagem de novo.",
-      "mention_not_allowed": "Alguém mencionado não enxerga este ticket (ou não está mais na organização). Tire essa pessoa da menção e envie de novo.",
+      "mention_not_allowed": "Alguém marcado não pode participar desta conversa (não enxerga o que ela trata ou não está mais na organização). Tire essa pessoa e envie de novo.",
       "cannot_mention_self": "Uma menção precisa ser de outra pessoa, não de você.",
       "too_many_mentions": "Mencione no máximo 10 pessoas por mensagem.",
       "thread_full": "Esta thread já tem o máximo de 25 participantes.",
       "chat_thread_rate_limited": "Você enviou mensagens de thread demais em pouco tempo. Espere um instante e tente de novo.",
       "chat_rate_limited": "Você enviou mensagens demais ao assistente em pouco tempo. Espere um instante e tente de novo.",
-      "invalid_cursor": "Não foi possível carregar essas mensagens. Recarregue a conversa."
+      "invalid_cursor": "Não foi possível carregar essas mensagens. Recarregue a conversa.",
+      "participant_cannot_view_ticket": "Alguém desta conversa não enxerga o projeto deste ticket.",
+      "max_depth": "Esta conversa está no último nível: não dá para abrir outra thread aqui dentro.",
+      "not_thread_owner": "Só quem abriu a thread pode incluir pessoas nela.",
+      "principal_conversation": "Não dá para incluir pessoas na conversa com o assistente. Abra uma thread e inclua nela.",
+      "ticket_mismatch": "Esta thread já trata de outro ticket.",
+      "not_principal": "Só a conversa com o assistente pode ser limpa."
     },
     "kind": {
       "unauthenticated": "Sua sessão expirou. Entre novamente.",

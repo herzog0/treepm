@@ -213,8 +213,11 @@ export type ChatTicketContext = {
   blocks: readonly ChatTicketRef[];
 };
 
-/** O histórico termina na mensagem nova da pessoa e só tem a conversa DELA com o assistente, já com o teto de tamanho. */
-export type ChatTurnInput = { ticket: ChatTicketContext; history: readonly ConversationMessage[] };
+/**
+ * O histórico termina na mensagem nova da pessoa e só tem a conversa DELA com o assistente, já com o teto de tamanho. `ticket` é nulo no
+ * chat geral da pessoa (ADR 0055), que não trata de ticket.
+ */
+export type ChatTurnInput = { ticket: ChatTicketContext | null; history: readonly ConversationMessage[] };
 
 /** Claude: ajuda a pessoa a pensar sobre o ticket. Só conversa: não tem ferramentas e nunca altera nada. */
 export interface ChatProvider {

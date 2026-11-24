@@ -88,6 +88,7 @@ export * from "./dependencies.js";
 export * from "./activity.js";
 export * from "./comments.js";
 export * from "./chat.js";
+export * from "./conversations.js";
 export * from "./contributions.js";
 
 /** Allows organization admins to connect and disconnect the organization's GitHub installation (ADR 0032). */

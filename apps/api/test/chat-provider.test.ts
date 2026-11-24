@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CHAT_HISTORY_MAX_MESSAGES } from "@treepm/domain";
 import { AI_CONFIG, TEST_CONFIG } from "./helpers.js";
 import { useHarness } from "./harness.js";
-import { SENTINEL, errorCode, reply, seedChatTickets, send } from "./chat-support.js";
+import { SENTINEL, errorCode, openGeneral, openTicket, post, reply, seedChatTickets, send } from "./chat-support.js";
 import { as, giveConsent } from "./world.js";
 
 // ADR 0049, regra 3: o que vai ao provedor do chat é título, descrição, situação, prioridade que vale, caminho, filhos e dependências do
@@ -67,10 +67,10 @@ describe("o que vai ao provedor do chat", () => {
   it("o teto: as mais recentes, no máximo 20 mensagens, começando por uma da pessoa e terminando na nova", async () => {
     const t = await seedChatTickets(h.pool, h.world());
     // 15 trocas semeadas direto no banco (o limite por minuto vale para a API, não para a semente).
-    const chat = (await h.pool.query<{ id: string }>("insert into ticket_chats (org_id, project_id, ticket_id, person_id) values ('org_A',$1,$2,$3) returning id", [h.world().projects.priv, t.ticket, h.world().people.contributor])).rows[0]!.id;
+    const chat = await openTicket(h, "contributor", t.ticket);
     for (let i = 1; i <= 15; i += 1) {
-      await h.pool.query("insert into ticket_chat_messages (org_id, project_id, ticket_id, chat_id, author_person_id, body) values ('org_A',$1,$2,$3,$4,$5)", [h.world().projects.priv, t.ticket, chat, h.world().people.contributor, `p${i}`]);
-      await h.pool.query("insert into ticket_chat_messages (org_id, project_id, ticket_id, chat_id, body, model) values ('org_A',$1,$2,$3,$4,'m')", [h.world().projects.priv, t.ticket, chat, `a${i}`]);
+      await h.pool.query("insert into conversation_messages (org_id, conversation_id, author_person_id, body) values ('org_A',$1,$2,$3)", [chat, h.world().people.contributor, `p${i}`]);
+      await h.pool.query("insert into conversation_messages (org_id, conversation_id, body, model) values ('org_A',$1,$2,'m')", [chat, `a${i}`]);
     }
     expect((await send(h, "contributor", t.ticket, "nova")).status).toBe(201);
     const history = h.chat().calls[0]!.history;
@@ -84,7 +84,7 @@ describe("o que vai ao provedor do chat", () => {
   it("depois de a pessoa limpar o chat, o provedor não recebe mais nada do que foi apagado", async () => {
     const t = await seedChatTickets(h.pool, h.world());
     await send(h, "contributor", t.ticket, "antiga");
-    await h.call("DELETE", `/api/tickets/${t.ticket}/chat/messages`, as("contributor"));
+    await h.call("DELETE", `/api/conversations/${await openTicket(h, "contributor", t.ticket)}/messages`, as("contributor"));
     h.chat().calls.length = 0;
     await send(h, "contributor", t.ticket, "nova");
     expect(JSON.stringify(h.chat().calls)).not.toContain("antiga");
@@ -95,7 +95,7 @@ describe("o que vai ao provedor do chat", () => {
     await send(h, "contributor", t.ticket, "um");
     await h.pool.query("update tickets set title = 'Título novo' where id = $1", [t.ticket]);
     await send(h, "contributor", t.ticket, "dois");
-    expect(h.chat().calls[1]!.ticket.title).toBe("Título novo");
+    expect(h.chat().calls[1]!.ticket?.title).toBe("Título novo");
   });
 
   it("provedor fora do ar: 503 assistant_unavailable e a mensagem da pessoa NÃO fica guardada", async () => {
@@ -104,8 +104,36 @@ describe("o que vai ao provedor do chat", () => {
     const res = await send(h, "contributor", t.ticket, "se perde");
     expect(res.status).toBe(503);
     expect(errorCode(res)).toBe("assistant_unavailable");
-    const n = await h.pool.query("select count(*)::int as n from ticket_chat_messages");
+    const n = await h.pool.query("select count(*)::int as n from conversation_messages");
     expect(n.rows[0].n).toBe(0);
+  });
+
+  it("a mensagem que abriu uma thread mora na conversa principal mas nunca vai ao provedor, e não atrapalha a conversa", async () => {
+    const world = h.world();
+    const t = await seedChatTickets(h.pool, world);
+    expect((await send(h, "contributor", t.ticket, "primeira ao assistente")).status).toBe(201);
+    const opened = await send(h, "contributor", t.ticket, `${SENTINEL.thread} abre`, [world.people.reader]);
+    expect(opened.body.kind).toBe("thread");
+    expect((await reply(h, "reader", opened.body.thread.id, SENTINEL.threadReply)).status).toBe(201);
+    h.chat().calls.length = 0;
+    expect((await send(h, "contributor", t.ticket, "segunda ao assistente")).status).toBe(201);
+    const call = h.chat().calls[0]!;
+    expect(call.history.map((m) => m.author)).toEqual(["person", "assistant", "person"]);
+    expect(JSON.stringify(h.chat().calls)).not.toContain(SENTINEL.thread);
+    expect(JSON.stringify(h.chat().calls)).not.toContain(SENTINEL.threadReply);
+  });
+
+  it("o chat geral não trata de ticket: o provedor recebe só a conversa da pessoa, sem contexto de ticket", async () => {
+    const world = h.world();
+    await seedChatTickets(h.pool, world);
+    const general = await openGeneral(h, "contributor");
+    const res = await post(h, "contributor", general, "Ideia solta");
+    expect(res.status).toBe(201);
+    expect(res.body.kind).toBe("assistant");
+    const call = h.chat().calls[0]!;
+    expect(call.ticket).toBeNull();
+    expect(call.history).toEqual([{ author: "person", body: "Ideia solta" }]);
+    expect(JSON.stringify(call)).not.toMatch(UUID);
   });
 
   it("a mensagem muda nada em log ou atividade: nenhum evento de histórico nem versão do projeto", async () => {
@@ -125,7 +153,7 @@ describe("sem aceite ou sem provedor configurado, a mensagem não vai a provedor
     expect(res.status).toBe(403);
     expect(errorCode(res)).toBe("assistant_consent_required");
     expect(noConsent.chat().calls).toHaveLength(0);
-    expect((await noConsent.pool.query("select count(*)::int as n from ticket_chat_messages")).rows[0].n).toBe(0);
+    expect((await noConsent.pool.query("select count(*)::int as n from conversation_messages")).rows[0].n).toBe(0);
   });
 
   it("thread (com menção) funciona SEM aceite: é conversa entre pessoas, não vai a provedor", async () => {

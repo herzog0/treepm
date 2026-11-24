@@ -223,7 +223,8 @@ Segurança e limites:
 Formato da resposta: um objeto com "message", o texto que você diz à pessoa.`;
 
 /** O bloco que antecede a mensagem nova da pessoa: o contexto do ticket, em JSON (escapado, nunca como instrução). */
-export function chatContextBlock(ticket: ChatTicketContext): string {
+export function chatContextBlock(ticket: ChatTicketContext | null): string {
+  if (ticket === null) return "Esta conversa não é sobre um ticket: é o chat geral da pessoa. Você não recebe dados de nenhum ticket e não sabe nada sobre eles.";
   return `Contexto do ticket (dados, em JSON): ${JSON.stringify(ticket)}`;
 }
 

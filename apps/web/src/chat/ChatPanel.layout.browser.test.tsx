@@ -32,6 +32,7 @@ async function mount() {
   );
 }
 const q = <T extends Element = HTMLElement>(selector: string) => document.querySelector<T>(selector);
+const rowOf = (key: string) => [...document.querySelectorAll<HTMLButtonElement>("button.conv-row")].find((row) => (row.textContent ?? "").includes(key))!;
 const rect = (selector: string) => q(selector)!.getBoundingClientRect();
 /** No celular a lista está dentro da gaveta: abre a gaveta antes de escolher a conversa. */
 async function openChat() {
@@ -88,7 +89,7 @@ describe("barra lateral e conversa, tela larga", () => {
     await settle();
     expect(getComputedStyle(q(".chat-panel")!).display).toBe("none");
     expect(rect("#stand-in-map").width).toBe(before);
-    expect(document.activeElement).toBe(q(".conv-row"));
+    expect(document.activeElement).toBe(rowOf("ALFA-1"));
   });
 
   it("a linha da conversa aberta fica marcada na barra", async () => {
@@ -96,7 +97,7 @@ describe("barra lateral e conversa, tela larga", () => {
     await mount();
     await settle();
     await openChat();
-    expect(q(".conv-row")!.getAttribute("aria-current")).toBe("true");
+    expect(rowOf("ALFA-1").getAttribute("aria-current")).toBe("true");
   });
 });
 
@@ -109,7 +110,7 @@ describe.each(NARROW)("conversa no celular %ix%i", (width, height) => {
     expect(Math.round(panel.width)).toBe(width);
     expect(Math.round(panel.height)).toBe(height);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
-    for (const selector of [".chat-header .chat-icon-button", ".chat-header .ticket-icon-button", ".chat-tabs button", ".chat-mention-button", ".chat-send"]) {
+    for (const selector of [".chat-header .chat-icon-button", ".chat-header .ticket-icon-button", ".chat-trail button", ".chat-thread-footer", ".chat-mention-button", ".chat-send"]) {
       for (const element of document.querySelectorAll(`.chat-panel ${selector}`)) {
         const box = element.getBoundingClientRect();
         expect(box.height, selector).toBeGreaterThanOrEqual(TOUCH - 1);

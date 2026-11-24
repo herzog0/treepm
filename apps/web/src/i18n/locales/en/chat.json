@@ -1,6 +1,6 @@
 {
   "panel": {
-    "label": "Ticket conversation",
+    "label": "Conversation",
     "close": "Close the conversation"
   },
   "list": {
@@ -8,10 +8,9 @@
     "loading": "Loading chats…",
     "loadFailed": "Could not load the chats.",
     "retry": "Try again",
-    "empty": "Chats for the tickets you are responsible for appear here.",
-    "assigned": "Assignee",
     "unread_one": "{{count}} unread",
-    "unread_other": "{{count}} unread"
+    "unread_other": "{{count}} unread",
+    "assignedHint": "You are the assignee"
   },
   "chat": {
     "openTicket": "Open ticket {{key}}, {{title}}",
@@ -20,23 +19,19 @@
     "options": "Chat options",
     "clear": "Clear my conversation",
     "clearMessage": "Deletes only your conversation with the assistant. Threads stay.",
-    "cleared": "Conversation with the assistant cleared."
-  },
-  "tabs": {
-    "label": "Chat sections",
-    "conversation": "Conversation",
-    "mentions": "Mentions"
+    "cleared": "Conversation with the assistant cleared.",
+    "gone": "This conversation no longer exists. Pick another one in the sidebar."
   },
   "notice": {
     "assistant": "The assistant sees the ticket text and this conversation. It does not run or change anything.",
     "noConsent": "AI is off for this organization. An administrator needs to turn it on in Settings. Threads with other people keep working.",
-    "noProvider": "AI is not configured on this server. You can still open threads with other people."
+    "noProvider": "AI is not configured on this server. You can still open threads with other people.",
+    "general": "The assistant sees only this conversation. It does not run or change anything."
   },
   "log": {
     "label": "Messages",
     "older": "Load earlier messages",
-    "empty": "No messages yet. Write below to talk to the assistant.",
-    "mentionsEmpty": "No mentions for now."
+    "empty": "No messages yet. Write below to talk to the assistant."
   },
   "message": {
     "you": "You"
@@ -45,22 +40,16 @@
     "reply": "Assistant's reply",
     "waiting": "The assistant is replying…",
     "unanswered": "Unanswered",
-    "retry": "Try again"
+    "retry": "Try again",
+    "name": "Assistant"
   },
   "thread": {
-    "label": "Thread",
-    "messages": "Thread messages",
-    "fromOther": "from {{name}}, in a thread",
-    "fromMe": "you, to {{names}}",
     "replies_one": "{{count}} reply",
     "replies_other": "{{count}} replies",
     "unread_one": "{{count}} unread",
     "unread_other": "{{count}} unread",
-    "open": "Open thread",
-    "back": "Back to the conversation",
     "reply": "Reply in the thread",
-    "replyPlaceholder": "Reply to everyone in the thread",
-    "loadFailed": "Could not load the thread.",
+    "replyPlaceholder": "Reply to everyone in the thread, or use Mention to open another thread",
     "opened": "Thread opened."
   },
   "composer": {
@@ -68,13 +57,15 @@
     "placeholder": "Talk to the assistant, or use Mention to open a thread",
     "placeholderThreads": "Use Mention to open a thread with other people",
     "send": "Send",
-    "sendThread": "Open thread (does not go to the assistant)",
+    "sendThread": "Open thread",
     "mention": "Mention",
     "pills": "People mentioned",
     "removeMention": "Remove mention of {{name}}",
-    "refused": "cannot see this ticket",
+    "refused": "cannot be mentioned here",
     "count": "{{length}} of {{max}}",
-    "over": "{{length}} of {{max}}: over the limit"
+    "over": "{{length}} of {{max}}: over the limit",
+    "opensThread": "This message opens a thread with {{names}}. Whoever is already in this conversation takes part too.",
+    "noMoreLevels": "This conversation is at the last level: you cannot open another thread inside it."
   },
   "picker": {
     "label": "Mention people",
@@ -82,5 +73,41 @@
     "none": "No one to mention.",
     "loading": "Loading people…",
     "failed": "Could not load the people."
+  },
+  "row": {
+    "general": "My chat",
+    "generalHint": "Just you and the assistant",
+    "main": "Main conversation",
+    "thread": "Thread",
+    "threadWith": "Thread with {{name}}",
+    "threadWithMore": "Thread with {{name}} +{{count}}"
+  },
+  "trail": {
+    "label": "Where you are"
+  },
+  "people": {
+    "label": "Who takes part",
+    "more": "+{{count}}"
+  },
+  "add": {
+    "open": "Include people",
+    "label": "Include people in the thread",
+    "warning": "Whoever joins sees the history of this thread and of the threads inside it.",
+    "none": "No one to include.",
+    "submit": "Include",
+    "done": "People included in the thread.",
+    "unknownPerson": "Someone"
+  },
+  "topic": {
+    "add": "About the ticket…",
+    "about": "About the ticket",
+    "label": "About the ticket (optional)",
+    "placeholder": "Ticket key or title",
+    "loading": "Loading the tickets…",
+    "failed": "The tickets could not be loaded.",
+    "none": "No ticket found.",
+    "remove": "Take ticket {{key}} off the thread",
+    "removeShort": "Remove",
+    "retry": "Try again"
   }
 }

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page, userEvent } from "vitest/browser";
 import "@fontsource-variable/inter";
@@ -60,8 +60,11 @@ function clientWith(placements: PlacementOutcome[]): ApiClient {
   return client;
 }
 
+const ORG = "org-question";
+const PERSON = "person-question";
+
 async function mount(client: ApiClient) {
-  const recents = createRecentPlaces("org-1", "person-1");
+  const recents = createRecentPlaces(ORG, PERSON);
   for (const id of ["t7", "t5"]) recents.record("p1", id);
   return render(
     <RecentPlacesProvider value={recents}>
@@ -87,7 +90,14 @@ const searchByKeyboard = async (screen: Awaited<ReturnType<typeof mount>>) => {
   await userEvent.keyboard("{Enter}");
 };
 
-afterEach(() => window.localStorage.clear());
+/**
+ * Os lugares recentes ficam no `localStorage`, que todos os arquivos desta suíte compartilham (mesma origem, e o Chromium vive entre as
+ * rodadas). Os testes do mapa registram recentes com a organização e a pessoa padrão e não limpam; por isso este arquivo usa uma
+ * organização e uma pessoa só dele e limpa só a própria chave, em vez de contar com o que sobrou lá ou apagar o que é dos outros.
+ */
+const clearOwnRecents = () => window.localStorage.removeItem(`treepm.recent.${ORG}.p1.${PERSON}`);
+beforeEach(clearOwnRecents);
+afterEach(clearOwnRecents);
 
 describe("a pergunta sobre o lugar em navegador real", () => {
   for (const { size, width, height } of SIZES) {

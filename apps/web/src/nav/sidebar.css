@@ -27,21 +27,33 @@
 .conv-section-head h2 { flex: 1; margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .conv-section-total { color: var(--tp-side-text); font-size: 11px; font-weight: 600; }
 .conv-hint { margin: 0; padding: 4px 24px 12px; color: var(--tp-side-text-3); font-size: 12.5px; }
-.conv-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 12px 8px; list-style: none; }
-.conv-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; grid-template-areas: "dot title time" "dot meta badge"; align-items: center; column-gap: 12px; row-gap: 1px; width: 100%; padding: 8px 12px; border: 0; border-radius: var(--tp-radius-field); background: transparent; color: var(--tp-side-text-2); font: inherit; text-align: left; cursor: pointer; }
+.conv-list, .conv-children { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.conv-list { padding: 0 12px 8px; }
+/* A indentação é da linha (12 px por nível, no máximo cinco): listas aninhadas não somam margem, então a árvore funda não sai da barra. */
+.conv-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; grid-template-areas: "mark text time" "mark text aside"; align-items: center; column-gap: 10px; row-gap: 1px; width: 100%; padding: 7px 12px 7px calc(12px + var(--conv-level, 0) * 12px); border: 0; border-radius: var(--tp-radius-field); background: transparent; color: var(--tp-side-text-2); font: inherit; text-align: left; cursor: pointer; }
 .conv-row:hover { background: var(--tp-side-hover); }
-.conv-dot { grid-area: dot; width: 10px; height: 10px; border-radius: 50%; }
-.conv-title { grid-area: title; overflow: hidden; color: var(--tp-side-text); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.conv-dot { grid-area: mark; width: 10px; height: 10px; border-radius: 50%; }
+.conv-thread-mark { grid-area: mark; width: 4px; height: 26px; border-radius: 2px; justify-self: center; }
+.conv-general-icon { grid-area: mark; width: 14px; height: 14px; justify-self: center; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.conv-text { grid-area: text; display: flex; flex-direction: column; min-width: 0; }
+.conv-title { overflow: hidden; color: var(--tp-side-text); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.conv-preview { overflow: hidden; color: var(--tp-side-text-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .conv-key { margin-right: 8px; font-size: 11px; font-weight: 600; opacity: 0.75; }
 .conv-time { grid-area: time; color: var(--tp-side-text-3); font-size: 11px; }
-.conv-assigned { grid-area: meta; overflow: hidden; color: var(--tp-side-text-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.conv-badge { grid-area: badge; display: grid; place-items: center; justify-self: end; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--tp-side-selected); color: var(--tp-side-on-selected); font-size: 11px; font-weight: 700; }
+.conv-aside { grid-area: aside; display: flex; align-items: center; justify-self: end; gap: 6px; min-width: 0; }
+.conv-assigned { display: inline-grid; place-items: center; width: 16px; height: 16px; color: var(--tp-side-text-3); }
+.conv-assigned svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.conv-badge { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--tp-side-selected); color: var(--tp-side-on-selected); font-size: 11px; font-weight: 700; }
 .conv-row.is-unread .conv-title { color: var(--tp-side-strong); font-weight: 700; }
+.conv-row.is-unread .conv-preview { color: var(--tp-side-text); }
 .conv-row.is-unread .conv-assigned { color: var(--tp-side-text); }
 .conv-row[aria-current] { background: var(--tp-side-selected); }
-.conv-row[aria-current] .conv-title { color: var(--tp-side-on-selected); font-weight: 700; }
+.conv-row[aria-current] :is(.conv-title, .conv-preview) { color: var(--tp-side-on-selected); }
+.conv-row[aria-current] .conv-title { font-weight: 700; }
 .conv-row[aria-current] :is(.conv-time, .conv-assigned) { color: var(--tp-side-selected-meta); }
+.conv-row[aria-current] .conv-badge { background: var(--tp-side-on-selected); color: var(--tp-side-selected); }
 .conv-row[aria-current] .conv-dot { box-shadow: 0 0 0 2px var(--tp-side-selected), 0 0 0 3.5px var(--tp-side-on-selected); }
+.conv-row:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: -2px; }
 
 .sidebar-foot { display: flex; align-items: center; flex: none; gap: 12px; padding: 10px 12px; border-top: 1px solid var(--tp-side-border); }
 .sidebar-account { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; }
@@ -53,7 +65,7 @@
 @media (max-width: 720px) {
   .sidebar-new, .sidebar-search, .sidebar .app-nav a, .conv-row { min-height: 44px; }
   .sidebar-settings { width: 44px; height: 44px; }
-  .conv-time, .conv-key, .conv-badge, .conv-section-head h2, .conv-section-total, .sidebar-search kbd { font-size: 12px; }
+  .conv-time, .conv-key, .conv-badge, .conv-preview, .conv-section-head h2, .conv-section-total, .sidebar-search kbd { font-size: 12px; }
   .sidebar-account .cl-userButtonTrigger { min-width: 44px; min-height: 44px; }
   .sidebar-org .cl-organizationSwitcherTrigger { min-height: 44px; }
 }

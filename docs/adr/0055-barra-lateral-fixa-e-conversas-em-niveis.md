@@ -90,3 +90,31 @@ Três fatias, cada uma com servidor e tela juntos, sem modo de compatibilidade:
 - A privacidade entre pessoas depende inteira de uma regra da aplicação; é o ponto que mais pede teste e revisão.
 - Mensagens de outras pessoas passam a ir ao provedor de IA, e todo aceite precisa ser dado de novo quando a fatia 3 entrar.
 - O assistente ganha, pela primeira vez, o poder de alterar um ticket, sempre com confirmação da pessoa.
+
+## Como ficou: fatias 1 e 2 (2026-11-24)
+
+A fatia 1 (barra lateral fixa) entrou no PR #214. A fatia 2 (conversas em níveis e chat geral) entrou numa mudança só, servidor e tela, com a migration `0033_conversations_in_levels`. A fatia 3 (resumo, assistente marcado, alteração do ticket com confirmação, aceite novo) ainda não começou.
+
+- **Esquema:** `conversations` (tipos `ticket`, `general` e `thread`, com a conversa de cima, a raiz, o nível e a mensagem de abertura), `conversation_participants` (com o ponto de leitura por pessoa e conversa) e `conversation_messages`. A migration leva os dados da 0027 para o esquema novo e apaga as tabelas antigas; não tem volta.
+- **Regra de visibilidade:** em `packages/domain/src/conversations.ts`; na API, `ConversationAccess.resolve` é a única porta por identificador, e um teste estático impede que outro arquivo leia as três tabelas. Conversa em que a pessoa não está responde o mesmo "não encontrado" de conversa que não existe.
+- **Invariante** (a thread de baixo inclui quem está em cima): conferida pelo banco no fim da transação; toda mudança na árvore trava a conversa raiz.
+- **Rotas:** `GET /api/conversations` (a árvore que a pessoa vê), `GET /api/conversations/:id`, `POST …/messages` (com `mentions`, abre thread), `POST …/participants`, `POST …/read`, `DELETE …/messages`, `POST /api/conversations/general`, `POST` e `GET /api/tickets/:ticketId/conversation`. Nenhuma resposta traz o identificador da conversa de cima, da raiz, nem o nível.
+- **Tela:** barra em árvore (12 px por nível até o quinto), cartão da thread com contorno de cor estável, trilha só com o que a pessoa lê, chat geral ("Meu chat"). A conversa principal de um ticket e o chat geral só nascem no primeiro envio, não ao clicar.
+- **Atualização:** não há aviso do servidor em tempo real; a tela recarrega a árvore e a conversa ao abrir e depois de cada escrita.
+
+### O que mudou em relação ao texto acima
+
+- **Os dez níveis são contados para cada pessoa,** a partir da conversa mais alta que ela lê. Contar a partir da raiz deixava quem foi marcado medir quantas conversas havia acima. Consequência: a árvore de quem vê tudo pode passar de dez níveis; o banco tem um teto técnico de quarenta.
+- **Thread sobre um ticket aberta dentro de conversa sem ticket** (a partir do chat geral) é recusada se alguém da conversa de cima não enxerga o projeto, com mensagem que diz isso sem dizer quem. Participante desativado não conta.
+- **Só quem abriu a thread inclui pessoas,** e quem entra passa a participar também das threads de dentro (`TREEPM-378` segue aberto para Teodoro).
+
+### Resíduos aceitos
+
+- Quem foi marcado vê entre os participantes da thread quem estava em cima, o que sugere que havia algo antes. Vem da própria regra.
+- Um convidado que entra acima do nível 30 pode deduzir quantos níveis há acima dele, pelo teto técnico. Exige o dono e três convidados encadeados, cada um descendo dez níveis.
+- Quem perde o acesso a um projeto continua lendo, na conversa de cima, a mensagem que abriu uma thread sobre ele; da thread em si não vê nada.
+
+### Em aberto
+
+- Distinguir, na barra, threads de níveis diferentes com as mesmas pessoas (`TREEPM-392`).
+- Recolher ramos da barra e remover participante: fora desta fatia.

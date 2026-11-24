@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { conversationTreeSchema, conversationViewSchema, openedSchema, participantsResultSchema, readResultSchema, sendResultSchema } from "./conversations.js";
+import type { ChatWriteBody } from "./conversations.js";
 
 const teamRole = z.enum(["admin", "member"]);
 const projectRole = z.enum(["manager", "contributor", "reader"]);
@@ -335,69 +337,11 @@ const aiConsentSchema = z.object({
   assistant: consentSchema,
   codeReading: consentSchema.extend({ githubConnected: z.boolean(), offerable: z.boolean() }),
 });
-/** Chat de trabalho por ticket (ADR 0049): o contrato inteiro está em `CONTRATO-CHAT.local.md`. A posição de uma mensagem é o `cursor` opaco: só se compara por igualdade. */
-const chatPersonSchema = z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() });
-const chatMessageSchema = z.object({
-  id: z.string(),
-  cursor: z.string(),
-  unread: z.boolean(),
-  authorKind: z.enum(["person", "assistant"]),
-  author: chatPersonSchema.nullable(),
-  body: z.string(),
-  createdAt: z.string(),
-  model: z.string().nullable(),
-  threadId: z.string().nullable(),
-});
-const chatThreadSchema = z.object({
-  id: z.string(),
-  ticketId: z.string(),
-  root: chatMessageSchema,
-  replyCount: z.number(),
-  lastMessageAt: z.string(),
-  unread: z.number(),
-  startedByMe: z.boolean(),
-  participants: z.array(chatPersonSchema),
-});
-const chatPageSchema = z.object({ items: z.array(chatMessageSchema), nextBefore: z.string().nullable() });
-const chatTicketSchema = z.object({ id: z.string(), key: z.string(), title: z.string(), projectId: z.string(), archived: z.boolean() });
-const chatListSchema = z.object({
-  items: z.array(z.object({ ticketId: z.string(), ticketKey: z.string(), title: z.string(), projectId: z.string(), chatId: z.string().nullable(), assignedToMe: z.boolean(), lastActivityAt: z.string(), unread: z.number(), status: ticketStatus.optional(), blocked: z.boolean().optional() })),
-});
-const ticketChatSchema = z.object({
-  ticket: chatTicketSchema,
-  chatId: z.string().nullable(),
-  assignedToMe: z.boolean(),
-  lastRead: z.string().nullable(),
-  unread: z.number(),
-  messages: chatPageSchema,
-  threads: z.array(chatThreadSchema),
-});
-const chatThreadDetailSchema = z.object({ ticket: chatTicketSchema, thread: chatThreadSchema, replies: chatPageSchema });
-const chatSentSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("assistant"), message: chatMessageSchema, reply: chatMessageSchema }),
-  z.object({ kind: z.literal("thread"), thread: chatThreadSchema }),
-]);
-const chatRepliedSchema = z.object({ message: chatMessageSchema, thread: chatThreadSchema });
-const chatReadSchema = z.object({ lastRead: z.string().nullable(), unread: z.number() });
 const mcpStateSchema = z.object({ mcp: z.object({ enabled: z.boolean(), writeEnabled: z.boolean().optional() }) });
 const errorBodySchema = z.object({ error: z.object({ code: z.string(), details: z.unknown().optional() }) });
 
 export type Me = z.output<typeof meSchema>;
-export type ChatPerson = z.output<typeof chatPersonSchema>;
-export type ChatMessage = z.output<typeof chatMessageSchema>;
-export type ChatThread = z.output<typeof chatThreadSchema>;
-export type ChatPage = z.output<typeof chatPageSchema>;
-export type ChatListItem = z.output<typeof chatListSchema>["items"][number];
-export type TicketChat = z.output<typeof ticketChatSchema>;
-export type ChatThreadDetail = z.output<typeof chatThreadDetailSchema>;
-export type ChatSent = z.output<typeof chatSentSchema>;
-export type ChatReplied = z.output<typeof chatRepliedSchema>;
-export type ChatRead = z.output<typeof chatReadSchema>;
-export interface ChatWriteBody {
-  body: string;
-  /** Ids das pessoas escolhidas no seletor; a API nunca procura pessoa dentro do texto. */
-  mentions?: string[];
-}
+export type { ChatMessage, ChatPerson, ChatRead, ChatWriteBody, ConversationInfo, ConversationNode, ConversationTicket, ConversationTree, ConversationView, SendResult, ThreadCard, TrailItem } from "./conversations.js";
 export type AiConsent = z.output<typeof aiConsentSchema>;
 export type AiConsentKind = "assistant" | "code_reading";
 export type Person = z.output<typeof personSchema>;
@@ -774,21 +718,27 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     updateComment: (id: string, body: { body: string }) => request("PATCH", `/api/comments/${id}`, commentEntrySchema, body),
     removeComment: (id: string) => request("DELETE", `/api/comments/${id}`, null),
 
-    /** Meus chats (ADR 0049): os que a pessoa tem e os tickets de que é responsável, mais recente primeiro. */
-    listChats: (options: { signal?: AbortSignal } = {}) => request("GET", "/api/chats", chatListSchema, undefined, options.signal),
-    /** O chat da pessoa num ticket: a conversa com o assistente (páginas, mais recentes primeiro) e as threads de que participa. Não cria nada. */
-    getTicketChat: (ticketId: string, query: { limit?: number; before?: string } = {}, options: { signal?: AbortSignal } = {}) =>
-      request("GET", `${ticket(ticketId)}/chat${chatQuery(query)}`, ticketChatSchema, undefined, options.signal),
-    getChatThread: (threadId: string, query: { limit?: number; before?: string } = {}, options: { signal?: AbortSignal } = {}) =>
-      request("GET", `/api/chat-threads/${threadId}${chatQuery(query)}`, chatThreadDetailSchema, undefined, options.signal),
-    /** Sem `mentions`: fala com o assistente; com elas: abre uma thread e o assistente não é chamado. */
-    sendChatMessage: (ticketId: string, body: ChatWriteBody, options: { signal?: AbortSignal } = {}) =>
-      request("POST", `${ticket(ticketId)}/chat/messages`, chatSentSchema, body, options.signal),
-    replyChatThread: (threadId: string, body: ChatWriteBody) => request("POST", `/api/chat-threads/${threadId}/messages`, chatRepliedSchema, body),
+    /** A árvore de conversas da pessoa (ADR 0055): o chat geral, depois os tickets, cada um com as threads dentro. */
+    listConversationTree: (options: { signal?: AbortSignal } = {}) => request("GET", "/api/conversations", conversationTreeSchema, undefined, options.signal),
+    /** Lê uma conversa por id (principal, chat geral ou thread). */
+    getConversationView: (id: string, query: { limit?: number; before?: string } = {}, options: { signal?: AbortSignal } = {}) =>
+      request("GET", `/api/conversations/${id}${chatQuery(query)}`, conversationViewSchema, undefined, options.signal),
+    /** Lê a conversa da pessoa num ticket, sem criar nada; `conversation: null` se ela ainda não tem. */
+    getTicketConversationView: (ticketId: string, query: { limit?: number; before?: string } = {}, options: { signal?: AbortSignal } = {}) =>
+      request("GET", `${ticket(ticketId)}/conversation${chatQuery(query)}`, conversationViewSchema, undefined, options.signal),
+    /** Abre (ou obtém) a conversa principal da pessoa no ticket: só no primeiro envio. */
+    openTicketConversation: (ticketId: string) => request("POST", `${ticket(ticketId)}/conversation`, openedSchema),
+    /** Abre (ou obtém) o chat geral da pessoa: só no primeiro envio. */
+    openGeneralConversation: () => request("POST", "/api/conversations/general", openedSchema),
+    /** Sem `mentions`: fala com o assistente (principal) ou responde (thread); com elas: abre uma thread dentro da conversa. */
+    sendChatMessage: (id: string, body: ChatWriteBody, options: { signal?: AbortSignal } = {}) =>
+      request("POST", `/api/conversations/${id}/messages`, sendResultSchema, body, options.signal),
+    /** Só quem abriu a thread inclui pessoas nela. */
+    addConversationParticipants: (id: string, personIds: string[]) => request("POST", `/api/conversations/${id}/participants`, participantsResultSchema, { personIds }),
     /** `upTo`: o `cursor` da mensagem mais nova vista; sem ele, tudo o que a pessoa pode ler. */
-    markChatRead: (ticketId: string, body: { upTo?: string } = {}) => request("POST", `${ticket(ticketId)}/chat/read`, chatReadSchema, body),
-    /** Apaga só a conversa da pessoa com o assistente; as threads ficam. */
-    clearChat: (ticketId: string) => request("DELETE", `${ticket(ticketId)}/chat/messages`, null),
+    markConversationRead: (id: string, body: { upTo?: string } = {}) => request("POST", `/api/conversations/${id}/read`, readResultSchema, body),
+    /** Apaga só a conversa da pessoa com o assistente (a principal); as threads ficam. */
+    clearConversationMessages: (id: string) => request("DELETE", `/api/conversations/${id}/messages`, null),
 
     getTicketSummary: (id: string) => request("GET", `${ticket(id)}/summary`, ticketSummaryTextSchema),
     putTicketSummary: (id: string, body: { text: string }) => request("PUT", `${ticket(id)}/summary`, ticketSummaryTextSchema, body),
