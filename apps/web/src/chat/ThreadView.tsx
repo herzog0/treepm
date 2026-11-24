@@ -59,7 +59,7 @@ export function ThreadView({ client, threadId, ticketArchived, candidates, peopl
   const alive = useRef(true);
   // Só desce a rolagem quando a pessoa já estava no fim: quem lê respostas antigas não é puxado por uma atualização.
   const stick = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   const load = useCallback(async () => {
     setFailed(false);

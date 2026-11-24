@@ -1,4 +1,5 @@
 import { render } from "@testing-library/react";
+import { StrictMode } from "react";
 import { vi } from "vitest";
 import type { ApiClient, Project } from "../api/client.js";
 import { ChatPanel } from "./ChatPanel.js";
@@ -19,6 +20,8 @@ export interface ChatSetup {
   projects?: Project[];
   /** Desliga o assistente no `me` (a IA não está configurada ou a organização não aceitou). */
   me?: ReturnType<typeof makeMe>;
+  /** Monta sob `StrictMode`, como `main.tsx` em desenvolvimento (efeitos rodam montar, limpar, montar). Padrão: ligado. */
+  strict?: boolean;
 }
 
 /** O painel de chats montado como a aplicação o monta: provedor, botão do cabeçalho e painel, com o chat em memória do contrato. */
@@ -26,11 +29,12 @@ export function renderChats(setup: ChatSetup = {}) {
   const chat = createFakeChat({ tickets: setup.tickets ?? [ALFA1, ALFA2], people: people.filter((person) => person.active), ...(setup.assistant ? { assistant: setup.assistant } : {}), ...(setup.reply ? { reply: setup.reply } : {}) });
   const client: ApiClient = makeClient({ me: setup.me ?? makeMe({ assistant: true }), people, projects: setup.projects ?? [makeProject("p1", "ALFA", "Projeto Alfa")], chat });
   const onShowTicket = vi.fn();
-  const view = render(
+  const tree = (
     <ChatsProvider client={client} onShowTicket={onShowTicket}>
       <ChatsButton />
       <ChatPanel />
-    </ChatsProvider>,
+    </ChatsProvider>
   );
+  const view = render(setup.strict === false ? tree : <StrictMode>{tree}</StrictMode>);
   return { chat, client, onShowTicket, ...view };
 }
