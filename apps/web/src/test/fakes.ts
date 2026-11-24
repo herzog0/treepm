@@ -12,11 +12,12 @@ export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "
 });
 
 /** `assistant`: o servidor tem a IA configurada; `consent` (padrão: aceito): a organização aceitou o uso (ADR 0039). */
-export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean; consent?: boolean; github?: boolean; mcp?: boolean; mcpWrite?: boolean; personId?: string; displayName?: string } = {}): Me {
+export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean; consent?: boolean; github?: boolean; mcp?: boolean; mcpWrite?: boolean; personId?: string; displayName?: string; actingAs?: string } = {}): Me {
   const consent = overrides.consent ?? true;
   return {
     ...(overrides.mcp === undefined ? {} : { mcp: { enabled: overrides.mcp, ...(overrides.mcpWrite === undefined ? {} : { writeEnabled: overrides.mcpWrite }) } }),
     ...(overrides.assistant === undefined ? {} : { assistant: { enabled: overrides.assistant && consent, configured: overrides.assistant, consent } }),
+    ...(overrides.actingAs === undefined ? {} : { actingAs: { realDisplayName: overrides.actingAs } }),
     ...(overrides.github === undefined ? {} : { github: { enabled: overrides.github } }),
     person: { id: overrides.personId ?? "person-1", displayName: overrides.displayName ?? "Ana", email: "ana@example.com", avatarUrl: null },
     organization: { orgId: overrides.orgId ?? "org-1", name: overrides.orgName ?? "Equipe Alfa", slug: "alfa" },
@@ -493,6 +494,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     ...GITHUB_NAMES,
     ...MCP_NAMES,
     "getAiConsent", "acceptAiConsent", "withdrawAiConsent",
+    "createTestPerson", "deactivateTestPerson", "reactivateTestPerson",
     ...SUMMARY_NAMES,
     "draftTicketDescription",
     "askProject",

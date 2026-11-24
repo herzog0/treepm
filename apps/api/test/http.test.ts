@@ -76,6 +76,7 @@ describe("GET /api/me", () => {
     const res = await http().get("/api/me").set("x-test-session", as("user_1", "org_A", "org:admin"));
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
+      actingAs: null,
       person: {
         id: expect.any(String),
         displayName: "Nome de user_1",

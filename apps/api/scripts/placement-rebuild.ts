@@ -4,7 +4,7 @@
  *
  *   pnpm --filter @treepm/api placement:rebuild <comando> [opções]
  *
- * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update (com --idea-stage, --idea-accept, --idea-discard e --idea-make para ideias, e --depends-on e --no-depends-on para dependências), ticket-show, chat-show (lê as conversas, só leitura), relations-rebuild, summary-show, summary-regenerate, conversation-dry-run, embeddings-status, embeddings-reindex, triage-measure, case-run, doubt-curve (a curva da dúvida de uma rodada já gravada, sem provedor).
+ * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update (com --idea-stage, --idea-accept, --idea-discard e --idea-make para ideias, e --depends-on e --no-depends-on para dependências), ticket-show, chat-show, test-person-create, test-person-list (lê as conversas, só leitura), relations-rebuild, summary-show, summary-regenerate, conversation-dry-run, embeddings-status, embeddings-reindex, triage-measure, case-run, doubt-curve (a curva da dúvida de uma rodada já gravada, sem provedor).
  * Sobe a API real em processo (só a sessão é trocada), em 127.0.0.1 e porta efêmera, e fala com ela por HTTP.
  * O terminal mostra só progresso e contagens; todo texto de ticket fica nos arquivos de `--dir`.
  */
@@ -42,10 +42,11 @@ import { chatShowCommand } from "./placement-rebuild/chat-commands.js";
 import { conversationDryRunCommand } from "./placement-rebuild/conversation-dry-run.js";
 import { exitAfterFlush, log } from "./placement-rebuild/output.js";
 import { summaryRegenerateCommand, summaryShowCommand } from "./placement-rebuild/summary-commands.js";
+import { testPersonCreateCommand, testPersonListCommand } from "./placement-rebuild/test-person-commands.js";
 import { TicketCommandError, relationsRebuildCommand, ticketCreateCommand, ticketListCommand, ticketShowCommand, ticketUpdateCommand } from "./placement-rebuild/ticket-commands.js";
 
 /** Comandos de ticket: só as rotas da API, sem IA e sem arquivos de `--dir`. Recusa da API: código e mensagem, sem pilha, saída 1. */
-const TICKET_ROUTE_COMMANDS = ["ticket-list", "ticket-create", "ticket-update", "relations-rebuild", "ticket-show", "summary-show", "summary-regenerate", "conversation-dry-run", "chat-show"] as const;
+const TICKET_ROUTE_COMMANDS = ["ticket-list", "ticket-create", "ticket-update", "relations-rebuild", "ticket-show", "summary-show", "summary-regenerate", "conversation-dry-run", "chat-show", "test-person-create", "test-person-list"] as const;
 type TicketRouteCommand = (typeof TICKET_ROUTE_COMMANDS)[number];
 /** Estes passam pelas rotas do assistente: conferem o aceite da organização e a IA ligada (com `--fake-providers`, só para ensaio, usam os provedores falsos). */
 const ASSISTANT_COMMANDS: readonly TicketRouteCommand[] = ["summary-show", "summary-regenerate", "conversation-dry-run"];
@@ -67,7 +68,9 @@ async function runTicketCommand(command: TicketRouteCommand, options: CliOptions
     const ctx = { client: new ApiClient(booted.baseUrl, booted.token), project: options.project ?? "", log };
     if (command === "chat-show") {
       await chatShowCommand(ctx, options.general ? { general: true } : options.ticket !== undefined ? { ticket: options.ticket } : { thread: options.thread as string });
-    } else if (command === "ticket-list") await ticketListCommand(ctx, options.json ?? false);
+    } else if (command === "test-person-create") await testPersonCreateCommand(ctx, options.name as string);
+    else if (command === "test-person-list") await testPersonListCommand(ctx);
+    else if (command === "ticket-list") await ticketListCommand(ctx, options.json ?? false);
     else if (command === "ticket-show") await ticketShowCommand(ctx, options.number as number);
     else if (command === "summary-show") await summaryShowCommand({ ...ctx, sleep: (ms) => sleep(ms) }, options.number as number);
     else if (command === "summary-regenerate") {

@@ -105,7 +105,7 @@ export class TicketCommentsService {
     if (contributionId !== undefined && !(await tx.ticketContribution.findFirst({ where: { id: contributionId, ticketId }, select: { id: true } }))) {
       throw new NotFoundException("Contribuição não encontrada.");
     }
-    const tokenId = principal.via?.tokenId;
+    const tokenId = principal.via?.kind === "mcp" ? principal.via.tokenId : undefined;
     const request = requestId !== undefined && tokenId !== undefined ? { requestTokenId: tokenId, requestId } : null;
     if (request) {
       await tx.$executeRaw`select pg_advisory_xact_lock(hashtextextended(${`comment-request:${ticketId}:${request.requestTokenId}:${request.requestId}`}, 0))`;
@@ -122,7 +122,7 @@ export class TicketCommentsService {
       }
     }
     const row = await tx.ticketComment.create({
-      data: { orgId: project.orgId, projectId: project.id, ticketId, authorPersonId: principal.person.id, body, ...(request ?? {}), ...(contributionId === undefined ? {} : { contributionId }), ...(principal.via ? { via: principal.via.kind } : {}) },
+      data: { orgId: project.orgId, projectId: project.id, ticketId, authorPersonId: principal.person.id, body, ...(request ?? {}), ...(contributionId === undefined ? {} : { contributionId }), ...(principal.via?.kind === "mcp" ? { via: "mcp" } : principal.via?.kind === "act-as" ? { via: "act-as", viaPersonId: principal.via.realPersonId } : {}) },
       select,
     });
     await this.activity.record(tx, principal, {

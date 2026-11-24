@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Person } from "../api/client.js";
+import { TestBadge } from "../people/TestBadge.js";
 
 interface AddPeopleProps {
   /** Quem pode entrar: enxerga o ticket (se a thread trata de um) e ainda não está na thread. */
@@ -52,7 +53,7 @@ export function AddPeople({ candidates, status, onAdd }: AddPeopleProps) {
               <li key={person.id}>
                 <label>
                   <input type="checkbox" checked={chosen.includes(person.id)} onChange={(event) => setChosen((current) => (event.target.checked ? [...current, person.id] : current.filter((other) => other !== person.id)))} />
-                  {person.displayName}
+                  {person.displayName}<TestBadge person={person} />
                 </label>
               </li>
             ))}

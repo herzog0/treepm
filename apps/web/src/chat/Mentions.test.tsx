@@ -50,6 +50,16 @@ describe("o seletor de pessoas no ponto do texto", () => {
     expect(screen.getByRole("button", { name: "Remover menção a Bia" })).toBeInTheDocument();
   });
 
+  it("a pessoa de teste leva o selo 'teste' na lista e na pastilha (ADR 0057)", async () => {
+    const { user } = await openGeneral({ testPeople: ["person-2"] });
+    await user.type(field(), "@");
+    const [bia, caio] = options(await screen.findByRole("listbox", { name: "Pessoas" }));
+    expect(within(bia!).getByText("teste")).toBeInTheDocument();
+    expect(within(caio!).queryByText("teste")).toBeNull();
+    await user.click(bia!);
+    expect(within(screen.getByRole("list", { name: /Pessoas|menç/i })).getByText("teste")).toBeInTheDocument();
+  });
+
   it("escolhe com as setas e confirma com Tab, sem tirar o foco do campo", async () => {
     const { user } = await openGeneral();
     await user.type(field(), "@");

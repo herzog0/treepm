@@ -15,6 +15,7 @@ import { isOpenStatus, reopenedNoticeText, reopensOnReceiving } from "./reopen.j
 import { RichDescription } from "./description/RichDescription.js";
 import type { DraftRequest } from "./description/WriterRequest.js";
 import { descendantIds } from "./tree.js";
+import { TestBadge, useNameWithBadge } from "../people/TestBadge.js";
 import { fold, searchTickets } from "../command/search.js";
 
 const STATUSES: readonly TicketStatus[] = ["todo", "in_progress", "in_review", "done", "cancelled"];
@@ -463,6 +464,7 @@ export function PeopleField({ client, detail, people, canEdit, onSaved }: FieldB
   const assigned = new Set(detail.assigneeIds);
   const candidates = people.filter((person) => person.active && !assigned.has(person.id));
   const nameOf = (id: string) => people.find((person) => person.id === id)?.displayName ?? t("people.removed");
+  const nameWithBadge = useNameWithBadge();
 
   const add = async (personId: string) => {
     if (personId === "") return;
@@ -484,6 +486,7 @@ export function PeopleField({ client, detail, people, canEdit, onSaved }: FieldB
           <span key={id} className="ticket-person">
             <span aria-hidden="true" className="ticket-avatar">{initials(nameOf(id))}</span>
             {nameOf(id)}
+            <TestBadge person={people.find((person) => person.id === id)} />
             {canEdit && (
               <button type="button" className="ticket-person-remove" aria-label={t("people.remove", { name: nameOf(id) })} disabled={action.busy} onClick={() => void remove(id)}>×</button>
             )}
@@ -493,7 +496,7 @@ export function PeopleField({ client, detail, people, canEdit, onSaved }: FieldB
         {canEdit && adding && (
           <select aria-label={t("people.addLabel")} autoFocus value="" disabled={action.busy} onChange={(event) => void add(event.target.value)}>
             <option value="">{t("people.choose")}</option>
-            {candidates.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}
+            {candidates.map((person) => <option key={person.id} value={person.id}>{nameWithBadge(person)}</option>)}
           </select>
         )}
       </div>

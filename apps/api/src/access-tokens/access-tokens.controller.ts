@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
+import { refuseWhileActingAs } from "../access/act-as.js";
 import { CurrentPrincipal } from "../access/principal.js";
 import type { Principal } from "../access/principal.js";
 import { idSchema } from "../common/schemas.js";
@@ -21,6 +22,7 @@ export class OrganizationController {
     @CurrentPrincipal() principal: Principal,
     @Body(new ZodPipe(mcpSwitchSchema)) body: z.output<typeof mcpSwitchSchema>,
   ): Promise<{ mcp: { enabled: boolean; writeEnabled: boolean } }> {
+    refuseWhileActingAs(principal);
     return this.manager.setMcpEnabled(tx, principal, body.mcpEnabled);
   }
 
@@ -31,6 +33,7 @@ export class OrganizationController {
     @CurrentPrincipal() principal: Principal,
     @Body(new ZodPipe(mcpWriteSwitchSchema)) body: z.output<typeof mcpWriteSwitchSchema>,
   ): Promise<{ mcp: { enabled: boolean; writeEnabled: boolean } }> {
+    refuseWhileActingAs(principal);
     return this.manager.setMcpWriteEnabled(tx, principal, body.mcpWriteEnabled);
   }
 }
@@ -45,6 +48,7 @@ export class AccessTokensController {
     @CurrentPrincipal() principal: Principal,
     @Body(new ZodPipe(createTokenSchema)) body: CreateTokenBody,
   ): Promise<CreatedTokenOutput> {
+    refuseWhileActingAs(principal);
     return this.manager.create(tx, principal, body);
   }
 
@@ -65,6 +69,7 @@ export class AccessTokensController {
     @CurrentPrincipal() principal: Principal,
     @Param("id", new ZodPipe(idSchema)) id: string,
   ): Promise<void> {
+    refuseWhileActingAs(principal);
     await this.manager.revoke(tx, principal, id);
   }
 }

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ApiClient, Me, Person, Team, TeamRole } from "../api/client.js";
 import type { ResourceState } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
+import { TestBadge, useNameWithBadge } from "../people/TestBadge.js";
 import { useMutation } from "./useMutation.js";
 
 export interface TeamDetailProps {
@@ -153,6 +154,7 @@ function Members({ client, team, people, canManage, onChanged }: MembersProps) {
               <li key={member.personId}>
                 <div className="teams-who">
                   <strong>{label}</strong>
+                  <TestBadge person={person} />
                   {person && <small>{person.email}</small>}
                 </div>
                 {canManage ? (
@@ -207,6 +209,7 @@ function Members({ client, team, people, canManage, onChanged }: MembersProps) {
 
 function AddMember({ client, team, people, onChanged }: { client: ApiClient; team: Team; people: Person[]; onChanged: () => void }) {
   const { t } = useTranslation("teams");
+  const nameWithBadge = useNameWithBadge();
   const [personId, setPersonId] = useState("");
   const [role, setRole] = useState<TeamRole>("member");
   const { pending, error, run } = useMutation();
@@ -231,7 +234,7 @@ function AddMember({ client, team, people, onChanged }: { client: ApiClient; tea
           <option value="">{t("detail.pickPerson")}</option>
           {candidates.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.displayName}
+              {nameWithBadge(p)}
             </option>
           ))}
         </select>

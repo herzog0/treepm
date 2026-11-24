@@ -20,5 +20,13 @@
     "member": "Membro",
     "unavailable": "API indisponível",
     "noAccess": "Sessão sem acesso à API"
+  },
+  "testBadge": "teste",
+  "testName": "{{name}} (teste)",
+  "actAs": {
+    "banner": "Você está vendo como {{name}} (teste)",
+    "leave": "Voltar a ser eu",
+    "rejected": "Não foi possível continuar como {{name}}: você voltou a ser você.",
+    "dismiss": "Dispensar"
   }
 }

@@ -4,6 +4,7 @@ import type { ClerkRole } from "@treepm/domain";
 import type { AuthenticatedSession } from "../auth/auth.guard.js";
 import { DIRECTORY_PROVIDER } from "../auth/directory-provider.js";
 import type { DirectoryOrganization, DirectoryProvider, DirectoryUser } from "../auth/directory-provider.js";
+import { TEST_PERSON_PREFIX } from "./act-as.js";
 import { parseClerkRole } from "./actor.js";
 
 /** Dados de identidade lidos no Clerk; sempre obtidos ANTES de abrir a transação do tenant. */
@@ -26,6 +27,8 @@ export class IdentityService {
 
   /** Papel Clerk do token; papéis fora de `admin`/`member` (ADR 0019) não entram. */
   clerkRoleOf(session: AuthenticatedSession): ClerkRole {
+    // Uma pessoa de teste não tem usuário no Clerk (ADR 0057): um identificador com o prefixo dela nunca é provisionado nem adotado.
+    if (session.userId.startsWith(TEST_PERSON_PREFIX)) throw new ForbiddenException("Identificador de usuário não suportado.");
     const role = parseClerkRole(session.orgRole);
     if (!role) throw new ForbiddenException("Papel de organização não suportado.");
     return role;

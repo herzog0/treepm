@@ -10,6 +10,7 @@ import { useAction } from "../panel/useAction.js";
 import { RichDescription } from "./description/RichDescription.js";
 import { ContributionConversation } from "./Conversation.js";
 import { initials } from "./fields.js";
+import { TestBadge, useNameWithBadge } from "../people/TestBadge.js";
 import { ActionsMenu, OptionMenu } from "./menu.js";
 
 const STATUSES: readonly ContributionStatus[] = ["todo", "in_progress", "done"];
@@ -124,6 +125,7 @@ function ContributionBlock({ client, detail, contribution, people, tickets, canE
   const statusLabel = (status: ContributionStatus) => t(`contributions.status.${status}`);
   const inContribution = new Set(contribution.people.map((person) => person.id));
   const candidates = people.filter((person) => person.active && !inContribution.has(person.id));
+  const nameWithBadge = useNameWithBadge();
 
   const changeStatus = async (status: ContributionStatus) => {
     const result = await action.run(() => client.updateContribution(contribution.id, { status }));
@@ -183,6 +185,7 @@ function ContributionBlock({ client, detail, contribution, people, tickets, canE
           <span key={person.id} className="ticket-person">
             <span aria-hidden="true" className="ticket-avatar">{initials(person.displayName)}</span>
             {person.displayName}
+            <TestBadge person={people.find((candidate) => candidate.id === person.id)} />
             {canEdit && (
               <button type="button" className="ticket-person-remove" aria-label={t("contributions.removePerson", { name: person.displayName, area: name })} disabled={action.busy} onClick={() => void removePerson(person.id)}>×</button>
             )}
@@ -192,7 +195,7 @@ function ContributionBlock({ client, detail, contribution, people, tickets, canE
         {canEdit && addingPerson && (
           <select aria-label={t("contributions.addPersonLabel", { area: name })} autoFocus value="" disabled={action.busy} onChange={(event) => void addPerson(event.target.value)}>
             <option value="">{t("people.choose")}</option>
-            {candidates.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}
+            {candidates.map((person) => <option key={person.id} value={person.id}>{nameWithBadge(person)}</option>)}
           </select>
         )}
       </div>

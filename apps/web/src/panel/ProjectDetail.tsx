@@ -10,6 +10,7 @@ import { LoadError } from "../LoadError.js";
 import { ConfirmAction } from "./ConfirmAction.js";
 import { ROLES, VISIBILITIES } from "./labels.js";
 import { canCreateTickets } from "../import/permissions.js";
+import { TestBadge, useNameWithBadge } from "../people/TestBadge.js";
 import { safe } from "./safe.js";
 import { useAction } from "./useAction.js";
 
@@ -183,6 +184,7 @@ function MembersSection({
               projectId={project.id}
               member={member}
               name={nameOf(member.personId)}
+              isTest={people.find((person) => person.id === member.personId)?.isTest}
               canManage={canManage}
               onChanged={onChanged}
             />
@@ -199,6 +201,7 @@ function MemberRow({
   projectId,
   member,
   name,
+  isTest,
   canManage,
   onChanged,
 }: {
@@ -206,6 +209,7 @@ function MemberRow({
   projectId: string;
   member: ProjectMember;
   name: string;
+  isTest?: boolean | undefined;
   canManage: boolean;
   onChanged: () => void;
 }) {
@@ -225,6 +229,7 @@ function MemberRow({
     <li>
       <div className="row">
         <span>{name}</span>
+        <TestBadge person={{ isTest }} />
         {canManage ? (
           <span className="row-actions">
             <select
@@ -267,6 +272,7 @@ function AddMember({
   onChanged: () => void;
 }) {
   const { t } = useTranslation("panel");
+  const nameWithBadge = useNameWithBadge();
   const [personId, setPersonId] = useState("");
   const [role, setRole] = useState<ProjectRole>("reader");
   const action = useAction();
@@ -289,7 +295,7 @@ function AddMember({
           <option value="">{t("detail.people.pickPerson")}</option>
           {candidates.map((person) => (
             <option key={person.id} value={person.id}>
-              {person.displayName}
+              {nameWithBadge(person)}
             </option>
           ))}
         </select>

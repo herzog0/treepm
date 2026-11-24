@@ -47,7 +47,13 @@
       "not_thread_owner": "Only the person who opened the thread can include people in it.",
       "principal_conversation": "You cannot include people in the conversation with the assistant. Open a thread and include them there.",
       "ticket_mismatch": "This thread is already about another ticket.",
-      "not_principal": "Only the conversation with the assistant can be cleared."
+      "not_principal": "Only the conversation with the assistant can be cleared.",
+      "test_people_limit": "There are already 20 active test people. Deactivate one to create another.",
+      "act_as_not_allowed": "You cannot view the app as that person.",
+      "not_while_acting_as": "Go back to being yourself to do this.",
+      "test_people_total_limit": "This organization already has 100 test people, deactivated ones included. Reactivate one instead of creating another.",
+      "display_name_taken": "An active person already has that name (case and accents do not count). Pick another name.",
+      "invalid_display_name": "The name cannot contain invisible or control characters."
     },
     "kind": {
       "unauthenticated": "Your session has expired. Sign in again.",

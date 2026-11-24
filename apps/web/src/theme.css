@@ -28,6 +28,9 @@
   /* Ações que tiram acesso nas Configurações: fundo e borda escuros de erro, texto --tp-danger-text. */
   --tp-danger-surface: #1f1214;
   --tp-danger-border: #5a2a30;
+  /* Faixa "entrar como" e selo "teste" (ADR 0057): âmbar fixo, que não se confunde com nenhuma situação de ticket. */
+  --tp-warn-bg: #3a3210;
+  --tp-warn-text: #ffe680;
 
   /* Barra lateral fixa e coluna da conversa (ADR 0055): mais claras que o resto, para a casca se separar do mapa. */
   --tp-side-bg: #171922;

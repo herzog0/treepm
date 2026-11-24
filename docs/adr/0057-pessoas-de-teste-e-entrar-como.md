@@ -32,3 +32,20 @@ A ADR 0055 promete que nenhum papel, nem administrador, lê conversa em que não
 - Existe agora um caminho em que uma requisição age em nome de outra pessoa; ele depende de três conferências do servidor e é o ponto que mais pede teste nesta mudança.
 - Pessoas de teste aparecem misturadas às de verdade nas listas da organização, distinguidas pelo selo.
 - As mensagens de uma pessoa de teste vão ao provedor de IA como as de qualquer pessoa da organização; são texto escrito por um administrador.
+
+## Como ficou (2026-11-24)
+
+Numa mudança só, com a migration `0034_persons_is_test`.
+
+- **Banco:** `people.is_test`, gravada só na inserção (o papel da aplicação não tem `UPDATE` nela nem no identificador do Clerk); a marca é amarrada por restrição ao identificador sintético e ao papel de membro. `ticket_comments` ganha quem agiu de verdade.
+- **Servidor:** o cabeçalho `X-TreePM-Act-As` é lido num lugar só e conferido ao carregar a identidade da requisição, antes de qualquer efeito e de novo a cada transação. Qualquer falha responde o mesmo 403 e fica no log, só com identificadores e o motivo. Requisição por chave de acesso ou pelo MCP com o cabeçalho é recusada. Um teste percorre todas as rotas da API provando que, com alvo que não é pessoa de teste, nada é lido nem escrito.
+- **Rastro:** o que é escrito agindo como outra pessoa fica no nome dela, com a marca de "entrar como" e quem agiu de verdade; a leitura do ticket não mostra essa marca.
+- **Tela:** seção "Pessoas" nas Configurações, faixa fixa enquanto dura, selo "teste" onde pessoas são listadas ou escolhidas. O modo fica fixado no cliente da aba, e a tela confere com o servidor quem ela está sendo. Preferências ficam só de leitura no modo, para não gravar na conta do administrador.
+- **Limites:** vinte pessoas de teste ativas e cem no total por organização; nome sem caracteres invisíveis e diferente do de qualquer pessoa ativa.
+- **Assistente:** agindo como pessoa de teste, ele consulta só o que ela enxerga.
+
+### Aceito sem mudança
+
+- Com a ligação com o GitHub desligada, quatro rotas respondem "não encontrado" antes da conferência do cabeçalho; nada é atendido.
+- Um administrador desativado volta a ficar ativo no próximo acesso com a sessão dele; quem decide é a sessão do Clerk.
+- A proteção da marca depende de a API conectar ao banco com o papel da aplicação, e não com o dono das tabelas.

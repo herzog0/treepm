@@ -6,7 +6,8 @@
     "auto": "Automático",
     "pt-BR": "Português (Brasil)",
     "en": "English",
-    "es-MX": "Español (México)"
+    "es-MX": "Español (México)",
+    "readOnlyActingAs": "Você está vendo como outra pessoa: o idioma é da conta do administrador e só pode ser mudado depois de voltar a ser você."
   },
   "saveFailed": "Não foi possível salvar a preferência. Tente de novo.",
   "mcp": {
@@ -186,5 +187,30 @@
     "access": "Acesso",
     "own": "Criados por você",
     "connect": "Como ligar um cliente"
+  },
+  "people": {
+    "title": "Pessoas",
+    "lead": "Quem faz parte da organização. Pessoas de teste existem só para experimentar conversas: não entram sozinhas, e só um administrador pode ver a aplicação como elas.",
+    "loading": "Carregando pessoas…",
+    "organization": "Pessoas da organização",
+    "count_one": "{{count}} pessoa",
+    "count_many": "{{count}} pessoas",
+    "count_other": "{{count}} pessoas",
+    "testPeople": "Pessoas de teste",
+    "testCount": "{{count}} de {{limit}}",
+    "you": "você",
+    "admin": "administrador",
+    "inactive": "inativa",
+    "roleAdmin": "administrador",
+    "roleMember": "membro",
+    "enter": "Entrar como",
+    "enterLabel": "Entrar como {{name}}",
+    "deactivate": "Desativar",
+    "deactivateLabel": "Desativar {{name}}",
+    "reactivate": "Reativar",
+    "reactivateLabel": "Reativar {{name}}",
+    "nameLabel": "Nome da pessoa de teste",
+    "namePlaceholder": "Nome da pessoa de teste",
+    "create": "Criar pessoa de teste"
   }
 }

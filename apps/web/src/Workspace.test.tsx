@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { ActAsProvider } from "./people/ActAs.js";
 import { Workspace } from "./Workspace.js";
 
 function orgFetch() {
@@ -155,5 +156,50 @@ describe("Workspace", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Primeiro" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Fechar e voltar ao mapa" }));
     expect(onOpenTicket).toHaveBeenCalledWith(null);
+  });
+});
+
+describe("Workspace: a faixa e a identidade devolvida têm de bater (ADR 0057)", () => {
+  const meAs = (personId: string, actingAs: { realDisplayName: string } | null) =>
+    vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      if (input === "/api/me") {
+        return Response.json({
+          person: { id: personId, displayName: "Bia", email: "b@x.invalid", avatarUrl: null },
+          organization: { orgId: "org-1", name: "Org", slug: "org" },
+          roles: { clerk: "member", teams: [], projects: [] },
+          actingAs,
+        });
+      }
+      return Response.json([]);
+    });
+  const mountActing = (fetchImpl: typeof fetch) => {
+    window.sessionStorage.setItem("treepm.actAs", JSON.stringify({ id: "p-bia", displayName: "Bia" }));
+    render(
+      <ActAsProvider>
+        <Workspace orgId="org-1" view="map" getToken={async () => "t"} fetch={fetchImpl} />
+      </ActAsProvider>,
+    );
+  };
+
+  it("com a identidade certa, o modo continua e todo pedido leva o cabeçalho", async () => {
+    const fetchImpl = meAs("p-bia", { realDisplayName: "Ana" });
+    mountActing(fetchImpl);
+    await waitFor(() => expect(fetchImpl).toHaveBeenCalled());
+    expect(new Headers(fetchImpl.mock.calls[0]![1]!.headers).get("x-treepm-act-as")).toBe("p-bia");
+    expect(screen.getByText(/vendo como Bia/)).toBeInTheDocument();
+    window.sessionStorage.clear();
+  });
+
+  it("se o servidor devolve a pessoa errada (ou sem 'actingAs'), sai do modo e avisa", async () => {
+    mountActing(meAs("p-outra", { realDisplayName: "Ana" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível continuar como Bia");
+    expect(window.sessionStorage.getItem("treepm.actAs")).toBeNull();
+    window.sessionStorage.clear();
+  });
+
+  it("'actingAs' nulo com o modo ligado também sai", async () => {
+    mountActing(meAs("p-bia", null));
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    window.sessionStorage.clear();
   });
 });

@@ -11,6 +11,7 @@ import {
 } from "@clerk/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { writeActAs } from "./api/actAs.js";
 import { createApiClient } from "./api/client.js";
 import { fetchMe } from "./api/me.js";
 import type { MeResult } from "./api/me.js";
@@ -19,6 +20,7 @@ import { clerkLocalization } from "./i18n/clerk.js";
 import { LanguageSync } from "./i18n/LanguageSync.js";
 import type { Language } from "./i18n/languages.js";
 import { Loading } from "./Loading.js";
+import { ActAsProvider, useActAs } from "./people/ActAs.js";
 import { ClerkPreferencesProvider } from "./preferences/ClerkPreferences.js";
 import { ChatShell } from "./chat/ChatShell.js";
 import { ChatsProvider } from "./chat/ChatsContext.js";
@@ -35,17 +37,19 @@ function meIndicatorKey(result: MeResult | null) {
 
 function MeIndicator({ getToken }: { getToken: () => Promise<string | null> }) {
   const { t } = useTranslation();
+  const { acting } = useActAs();
+  const actingId = acting?.id ?? null;
   const [result, setResult] = useState<MeResult | null>(null);
 
   useEffect(() => {
     let active = true;
-    void fetchMe(getToken).then((response) => {
+    void fetchMe(getToken, undefined, actingId).then((response) => {
       if (active) setResult(response);
     });
     return () => {
       active = false;
     };
-  }, [getToken]);
+  }, [getToken, actingId]);
 
   const key = meIndicatorKey(result);
   return <span className="tenant-api-status" role="status">{key && t(key)}</span>;
@@ -55,18 +59,28 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
   const { t } = useTranslation();
   const { isLoaded, isSignedIn, orgId, getToken } = useAuth();
   const { session } = useSession();
+  const { acting, leave } = useActAs();
+  const actingId = acting?.id ?? null;
   const [view, navigate, projectId, ticketId, openTicket, focusId, clearFocus] = useView();
   // O GitHub devolve o navegador para /github/callback (ADR 0032); a tela de retorno ocupa o lugar do mapa até a pessoa sair dela.
   const [onGithubCallback, setOnGithubCallback] = useState(() => window.location.pathname === GITHUB_CALLBACK_PATH);
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
-  const callbackClient = useMemo(() => createApiClient({ getToken: () => getTokenRef.current() }), []);
+  const callbackClient = useMemo(() => createApiClient({ getToken: () => getTokenRef.current(), actAsId: actingId }), [actingId]);
   // Trocar de organização descarta o ticket aberto (ADR 0026): o ID não existe na outra.
   const previousOrgId = useRef(orgId);
   useEffect(() => {
     if (previousOrgId.current && orgId && previousOrgId.current !== orgId && ticketId !== null) openTicket(null);
     previousOrgId.current = orgId;
   }, [orgId, ticketId, openTicket]);
+  // O "entrar como" é de uma organização e de uma sessão: trocar de organização ou sair da conta o encerra (e limpa o que a aba guardou).
+  const actOrgId = useRef(orgId);
+  useEffect(() => {
+    const changedOrg = actOrgId.current !== orgId && actOrgId.current !== undefined && actOrgId.current !== null;
+    actOrgId.current = orgId;
+    if (actingId !== null && (changedOrg || (isLoaded && !isSignedIn))) leave();
+    else if (isLoaded && !isSignedIn) writeActAs(null);
+  }, [orgId, isLoaded, isSignedIn, actingId, leave]);
   // "Novo ticket" e "Buscar" da barra lateral falam com a barra de pedidos do mapa: o pedido espera o mapa montar e vale uma vez.
   const [commandRequest, setCommandRequest] = useState<CommandRequest | null>(null);
   const requestCommand = (kind: CommandRequest["kind"]) => {
@@ -171,10 +185,12 @@ export default function AuthenticatedApp({ publishableKey }: { publishableKey: s
       afterSignOutUrl={appUrl}
       taskUrls={{ "choose-organization": `${appUrl}?auth=choose-organization` }}
     >
-      <ClerkPreferencesProvider>
-        <LanguageSync />
-        <OrganizationGate appUrl={appUrl} />
-      </ClerkPreferencesProvider>
+      <ActAsProvider>
+        <ClerkPreferencesProvider>
+          <LanguageSync />
+          <OrganizationGate appUrl={appUrl} />
+        </ClerkPreferencesProvider>
+      </ActAsProvider>
     </ClerkProvider>
   );
 }

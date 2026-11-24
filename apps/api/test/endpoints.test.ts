@@ -17,6 +17,7 @@ describe("pessoas", () => {
       avatarUrl: null,
       clerkRole: expect.stringMatching(/^(admin|member)$/),
       active: true,
+      isTest: false,
     });
   });
 });

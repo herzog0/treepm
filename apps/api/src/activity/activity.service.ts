@@ -31,7 +31,13 @@ export class ActivityService {
       subjectType: input.subjectType,
       subjectId: input.subjectId,
       // Quem agiu pelo MCP fica no próprio evento (ADR 0043): a origem e o id do token, nunca o segredo.
-      payload: principal.via ? { ...(input.payload ?? {}), via: principal.via.kind, tokenId: principal.via.tokenId } : (input.payload ?? {}),
+      // Agindo como pessoa de teste (ADR 0057): a origem e a pessoa de verdade (o administrador) ficam no evento; a leitura pública não os devolve.
+      payload:
+        principal.via?.kind === "mcp"
+          ? { ...(input.payload ?? {}), via: principal.via.kind, tokenId: principal.via.tokenId }
+          : principal.via?.kind === "act-as"
+            ? { ...(input.payload ?? {}), via: principal.via.kind, realPersonId: principal.via.realPersonId }
+            : (input.payload ?? {}),
     };
   }
 }

@@ -6,7 +6,8 @@
     "auto": "Automatic",
     "pt-BR": "Português (Brasil)",
     "en": "English",
-    "es-MX": "Español (México)"
+    "es-MX": "Español (México)",
+    "readOnlyActingAs": "You are viewing as someone else: the language belongs to the administrator's account and can only be changed after you go back to being yourself."
   },
   "saveFailed": "Couldn't save the preference. Try again.",
   "mcp": {
@@ -185,5 +186,29 @@
     "access": "Access",
     "own": "Created by you",
     "connect": "How to connect a client"
+  },
+  "people": {
+    "title": "People",
+    "lead": "Who is part of the organization. Test people exist only to try out conversations: they cannot sign in on their own, and only an administrator can view the app as them.",
+    "loading": "Loading people…",
+    "organization": "People in the organization",
+    "count_one": "{{count}} person",
+    "count_other": "{{count}} people",
+    "testPeople": "Test people",
+    "testCount": "{{count}} of {{limit}}",
+    "you": "you",
+    "admin": "administrator",
+    "inactive": "inactive",
+    "roleAdmin": "administrator",
+    "roleMember": "member",
+    "enter": "View as",
+    "enterLabel": "View as {{name}}",
+    "deactivate": "Deactivate",
+    "deactivateLabel": "Deactivate {{name}}",
+    "reactivate": "Reactivate",
+    "reactivateLabel": "Reactivate {{name}}",
+    "nameLabel": "Test person name",
+    "namePlaceholder": "Test person name",
+    "create": "Create test person"
   }
 }

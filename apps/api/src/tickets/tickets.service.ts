@@ -657,7 +657,7 @@ export class TicketsService {
     if (body.idea) this.authorization.registerIdea(principal.actor, projectId);
     else this.authorization.createTicket(principal.actor, projectId);
     this.requireActive(project);
-    const tokenId = principal.via?.tokenId;
+    const tokenId = principal.via?.kind === "mcp" ? principal.via.tokenId : undefined;
     if (request !== undefined && tokenId !== undefined) {
       // Serializa as chamadas com o mesmo pedido (a trava dura até o fim da transação); sem migration, a marca fica no evento de criação.
       await tx.$executeRaw`select pg_advisory_xact_lock(hashtextextended(${`ticket-request:${projectId}:${tokenId}:${request.id}`}, 0))`;

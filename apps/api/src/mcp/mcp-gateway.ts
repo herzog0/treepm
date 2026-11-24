@@ -9,6 +9,7 @@ import { RateLimiter } from "../access-tokens/rate-limiter.js";
 import { parseToken } from "../access-tokens/token.js";
 import { AccessTokenService } from "../access-tokens/access-token.service.js";
 import type { ResolveResult } from "../access-tokens/access-token.service.js";
+import { ACT_AS_HEADER } from "../access/act-as.js";
 import type { Principal } from "../access/principal.js";
 import { CONFIG, allowedOrigins } from "../config.js";
 import type { AppConfig } from "../config.js";
@@ -167,6 +168,9 @@ export class McpGateway {
     // 2. Origin: se vier, tem que ser o do próprio site (APP_ORIGIN ou uma das extras).
     const origin = req.headers.origin;
     if (origin !== undefined && !allowedOrigins(this.config).includes(origin)) throw new HttpFailure(403, "forbidden", "Origin not allowed.");
+
+    // 2b. "Entrar como" (ADR 0057) é só da sessão de navegador de um administrador: uma chave de acesso nunca o usa, nem ignorado em silêncio.
+    if (req.headers[ACT_AS_HEADER] !== undefined) throw new HttpFailure(403, "act_as_not_allowed", "Not allowed.");
 
     // 3. Corpo, no máximo 64 KB, decodificado e interpretado UMA vez: o SDK recebe o valor já interpretado, então
     //    o gateway e o SDK nunca veem coisas diferentes. O BOM é tirado (vale para os dois). Só um objeto JSON vira

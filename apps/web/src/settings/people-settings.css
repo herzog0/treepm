@@ -1,0 +1,14 @@
+/* Seção "Pessoas" (ADR 0057): só o que as peças comuns das Configurações não trazem. */
+.people-list { margin: 0; padding: 0; list-style: none; }
+.people-list > li + li { border-top: 1px solid var(--tp-divider); }
+.people-list .settings-row-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.people-avatar { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--tp-selected); color: var(--tp-text); font-size: 12px; font-weight: 700; }
+.people-tag { padding: 1px 7px; border-radius: 6px; background: var(--tp-selected); color: var(--tp-accent-soft); font-size: 11px; font-weight: 700; }
+.people-tag.is-off { color: var(--tp-side-text-2); }
+.people-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.people-create { display: flex; gap: 8px; padding: 12px 18px; background: var(--tp-surface); }
+.people-create input { flex: 1; min-width: 0; min-height: 36px; padding: 0 12px; border: 1px solid var(--tp-side-field-border); border-radius: 8px; background: var(--tp-side-field); color: var(--tp-text); font: inherit; }
+@media (max-width: 720px) {
+  .people-actions { justify-content: flex-start; }
+  .people-actions button, .people-create button { min-height: 44px; }
+}
