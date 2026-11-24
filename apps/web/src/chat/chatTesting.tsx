@@ -1,5 +1,6 @@
 import { render } from "@testing-library/react";
 import { StrictMode } from "react";
+import type { ReactNode } from "react";
 import { vi } from "vitest";
 import type { ApiClient, Project } from "../api/client.js";
 import { ChatPanel } from "./ChatPanel.js";
@@ -33,6 +34,8 @@ export interface ChatSetup {
   prepare?: (client: ApiClient) => void;
   /** Ids de pessoas que são de teste (ADR 0057): a lista de pessoas as devolve com `isTest`. */
   testPeople?: string[];
+  /** Algo a mais dentro do provedor (um botão que chama a API do contexto, como a barra de pedidos faz). */
+  extra?: ReactNode;
 }
 
 /** A lista "Conversas" e a coluna da conversa montadas como a aplicação as monta: provedor, lista da barra lateral e coluna, com o chat em memória do contrato. */
@@ -47,6 +50,7 @@ export function renderChats(setup: ChatSetup = {}) {
     <ChatsProvider client={client} onShowTicket={onShowTicket}>
       <ConversationList />
       <ChatPanel />
+      {setup.extra}
     </ChatsProvider>
   );
   const view = render(setup.strict === false ? tree : <StrictMode>{tree}</StrictMode>);

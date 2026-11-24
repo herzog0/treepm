@@ -3,11 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiResult } from "../api/client.js";
 import { ALFA1, renderChats } from "./chatTesting.js";
+import { composer, composerShown, typeInComposer } from "./composerTesting.js";
 
 const panel = () => screen.findByRole("complementary", { name: "Conversa" });
-const write = async (user: ReturnType<typeof userEvent.setup>, text: string) => {
-  const field = await screen.findByRole("combobox", { name: /^(Mensagem|Responder na thread)$/ });
-  await user.type(field, text);
+const write = async (text: string) => {
+  await composer();
+  typeInComposer(text);
 };
 
 describe("o convidado e a linha do ticket sem conversa", () => {
@@ -79,10 +80,10 @@ describe("o que falha na leitura tenta de novo", () => {
     vi.mocked(client.listTickets).mockResolvedValueOnce({ ok: false, error: { kind: "unavailable" } } as ApiResult<never>);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
-    await write(user, "Como está o #");
+    await write("Como está o #");
     expect(await screen.findByText("Não foi possível carregar os tickets.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Tentar de novo" }));
-    await user.type(screen.getByRole("combobox", { name: "Mensagem" }), "ALFA-1");
+    typeInComposer("ALFA-1");
     expect(await within(screen.getByRole("listbox", { name: "Tickets" })).findByRole("option", { name: /ALFA-1/ })).toBeInTheDocument();
   });
 
@@ -118,13 +119,13 @@ describe("clicar na linha da conversa que acabou de nascer", () => {
     renderChats();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
-    await write(user, "primeira");
+    await write("primeira");
     await user.keyboard("{Enter}");
     expect(await within(await panel()).findByText("Resposta do assistente.")).toBeInTheDocument();
-    await write(user, "rascunho em andamento");
+    await write("rascunho em andamento");
     // A barra agora tem a linha da conversa (com id): clicar nela é o mesmo que já estar nela.
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
-    expect(screen.getByRole("combobox", { name: "Mensagem" })).toHaveValue("rascunho em andamento");
+    expect(composerShown()).toBe("rascunho em andamento");
     expect(screen.getByRole("button", { name: /^ALFA-1/ })).toHaveAttribute("aria-current", "true");
   });
 });

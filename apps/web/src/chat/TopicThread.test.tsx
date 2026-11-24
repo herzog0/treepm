@@ -1,7 +1,10 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { useChats } from "./ChatsContext.js";
+import { linkOf } from "./mentionTesting.js";
 import { renderChats } from "./chatTesting.js";
+import { composer, pickPerson, typeInComposer } from "./composerTesting.js";
 
 const rowsOf = () => [...document.querySelectorAll<HTMLButtonElement>("button.conv-row")];
 const inPanel = () => within(document.getElementById("chat-panel")!);
@@ -80,8 +83,8 @@ describe("a conversa aberta de uma thread de assunto", () => {
     const user = userEvent.setup();
     const { client } = renderChats({ seed: (chat) => void seedTopic(chat), reply: (text) => `Eco: ${text}` });
     await user.click(await screen.findByRole("button", { name: /Dividir a migração/ }));
-    const field = await screen.findByRole("combobox", { name: "Mensagem" });
-    await user.type(field, "E o corte?");
+    await composer("Mensagem");
+    typeInComposer("E o corte?");
     await user.click(screen.getByRole("button", { name: "Enviar" }));
     expect(await inPanel().findByText("Eco: E o corte?")).toBeInTheDocument();
     const calls = (client.sendChatMessage as unknown as { mock: { calls: unknown[][] } }).mock.calls;
@@ -92,10 +95,10 @@ describe("a conversa aberta de uma thread de assunto", () => {
     const user = userEvent.setup();
     renderChats({ seed: (chat) => void seedTopic(chat) });
     await user.click(await screen.findByRole("button", { name: /Dividir a migração/ }));
-    const field = await screen.findByRole("combobox", { name: "Mensagem" });
-    await user.type(field, "@Bia");
-    await user.click(await screen.findByRole("option", { name: /Bia/ }));
-    await user.type(field, "olha isto");
+    await composer("Mensagem");
+    typeInComposer("@Bia");
+    await pickPerson("Bia");
+    typeInComposer(" olha isto");
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
     await waitFor(() => expect(rowsOf().map(rowText)).toContain("Thread com Bia"));
   });
@@ -119,5 +122,19 @@ describe("o cartão do assunto na conversa de cima", () => {
     expect(card).toHaveTextContent("1 resposta");
     await user.click(card);
     expect(await screen.findByRole("navigation", { name: "Onde você está" })).toBeInTheDocument();
+  });
+});
+
+describe("a barra de pedidos manda texto puro ao Meu chat", () => {
+  it("um elo de pessoa colado na barra vira o @Nome simples: o assunto novo vai sem elo e sem menções", async () => {
+    const Bar = () => {
+      const chats = useChats()!;
+      return <button type="button" onClick={() => void chats.startTopic(`Pergunta para ${linkOf("person-2", "Bia")} sobre o corte`)}>Pedir</button>;
+    };
+    const user = userEvent.setup();
+    const { client } = renderChats({ seed: (chat) => void chat.seedGeneral([{ person: "oi", assistant: "olá" }]), extra: <Bar /> });
+    await user.click(await screen.findByRole("button", { name: "Pedir" }));
+    await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalled());
+    expect(vi.mocked(client.sendChatMessage).mock.calls[0]![1]).toEqual({ body: "Pergunta para @Bia sobre o corte", topic: true });
   });
 });

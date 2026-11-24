@@ -5,7 +5,7 @@ import type { Project, TicketSummary } from "../api/client.js";
 import { makeClient, makeProject, makeTicket } from "../test/fakes.js";
 import { ChatsProvider, useChats } from "./ChatsContext.js";
 import type { ChatsApi } from "./ChatsContext.js";
-import { placement } from "./MentionList.js";
+import { placement } from "../mentions/MentionList.js";
 
 function setup(projects: Project[], tickets: Record<string, TicketSummary[]> = {}) {
   const client = makeClient({ projects, tickets });

@@ -4,13 +4,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApiResult } from "../api/client.js";
 import { ALFA1, renderChats } from "./chatTesting.js";
 import { mention } from "./mentionTesting.js";
+import { composer, composerShown, typeInComposer } from "./composerTesting.js";
 
 const panel = () => screen.findByRole("complementary", { name: "Conversa" });
 const refuse = (code: string, details?: Record<string, unknown>, kind = "conflict"): ApiResult<never> =>
   ({ ok: false, error: { kind, code, ...(details ? { details } : {}) } }) as ApiResult<never>;
-const write = async (user: ReturnType<typeof userEvent.setup>, text: string) => {
-  const field = await screen.findByRole("combobox", { name: /^(Mensagem|Responder na thread)$/ });
-  await user.type(field, text);
+const write = async (text: string) => {
+  await composer();
+  typeInComposer(text);
 };
 const ownedThread = (c: Parameters<NonNullable<Parameters<typeof renderChats>[0]>["seed"] & {}>[0]) => {
   const main = c.seedConversation("t1", [{ person: "oi", assistant: "olá" }]);
@@ -25,13 +26,13 @@ describe("a recusa do servidor tem texto próprio na tela", () => {
     const { client } = renderChats({ seed: (c) => void c.seedConversation("t1", [{ person: "oi", assistant: "olá" }]) });
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
-    await write(user, "Bia, olha");
-    await mention(user, "Bia");
+    await write("Bia, olha");
+    await mention("Bia");
     vi.mocked(client.sendChatMessage).mockResolvedValueOnce(refuse(code));
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
     expect(await within(await panel()).findByRole("alert")).toHaveTextContent(text);
     // A mensagem não se perde: continua no campo, com a pessoa marcada.
-    expect(screen.getByRole("combobox", { name: "Mensagem" })).toHaveValue("Bia, olha");
+    expect(composerShown()).toBe("Bia, olha @Bia ");
     expect(screen.getByText(/abre uma thread com Bia/)).toBeInTheDocument();
     // O texto do cartão não nomeia ninguém.
     if (code === "participant_cannot_view_ticket") expect(document.body).not.toHaveTextContent(/Caio|Duda/);
@@ -41,9 +42,9 @@ describe("a recusa do servidor tem texto próprio na tela", () => {
     const { client } = renderChats({ seed: (c) => void c.seedConversation("t1", [{ person: "oi", assistant: "olá" }]) });
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
-    await write(user, "oi");
-    await mention(user, "Bia");
-    await mention(user, "Caio");
+    await write("oi");
+    await mention("Bia");
+    await mention("Caio");
     vi.mocked(client.sendChatMessage).mockResolvedValueOnce(refuse("mention_not_allowed", { personIds: ["person-3"] }));
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
     const alert = await within(await panel()).findByRole("alert");
@@ -59,8 +60,8 @@ describe("a recusa do servidor tem texto próprio na tela", () => {
     const { client } = renderChats({ seed: (c) => void c.seedGeneral([{ person: "oi", assistant: "olá" }]) });
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
-    await write(user, "oi");
-    await mention(user, "Bia");
+    await write("oi");
+    await mention("Bia");
     vi.mocked(client.sendChatMessage).mockResolvedValueOnce(refuse("mention_not_allowed", { personIds: ["person-2"] }));
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
     expect(await within(await panel()).findByRole("alert")).not.toHaveTextContent(/ticket/i);
@@ -107,12 +108,12 @@ describe("a recusa do servidor tem texto próprio na tela", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
     expect(await within(await panel()).findByText("olá")).toBeInTheDocument();
-    await write(user, "pergunta");
+    await write("pergunta");
     const reads = vi.mocked(client.getConversationView).mock.calls.length;
     vi.mocked(client.sendChatMessage).mockResolvedValueOnce(refuse("chat_changed"));
     await user.keyboard("{Enter}");
     expect(await within(await panel()).findByRole("alert")).toHaveTextContent("A conversa mudou em outro aparelho enquanto o assistente respondia.");
-    expect(screen.getByRole("combobox", { name: "Mensagem" })).toHaveValue("pergunta");
+    expect(composerShown()).toBe("pergunta");
     await waitFor(() => expect(vi.mocked(client.getConversationView).mock.calls.length).toBeGreaterThan(reads));
   });
 
@@ -133,7 +134,7 @@ describe("o primeiro envio cria a conversa e a mensagem pode falhar depois", () 
     const { client } = renderChats();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
-    await write(user, "primeira");
+    await write("primeira");
     const lists = vi.mocked(client.listConversationTree).mock.calls.length;
     vi.mocked(client.sendChatMessage).mockResolvedValueOnce({ ok: false, error: { kind: "unavailable" } } as ApiResult<never>);
     await user.keyboard("{Enter}");
@@ -156,12 +157,12 @@ describe("o primeiro envio cria a conversa e a mensagem pode falhar depois", () 
       await new Promise<void>((resolve) => { release = resolve; });
       return real(...args);
     });
-    await write(user, "pergunta ao assistente");
+    await write("pergunta ao assistente");
     await user.keyboard("{Enter}");
     await waitFor(() => expect(client.openTicketConversation).toHaveBeenCalledTimes(1));
     // Com o POST ainda preso, a pessoa abre uma thread: o segundo envio não cria outra conversa, espera a mesma.
-    await write(user, "Bia, olha");
-    await mention(user, "Bia");
+    await write("Bia, olha");
+    await mention("Bia");
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(client.openTicketConversation).toHaveBeenCalledTimes(1);
@@ -184,7 +185,7 @@ describe("uma conversa que passa de 30 mensagens", () => {
     expect(within(await panel()).queryByRole("button", { name: "Carregar mensagens anteriores" })).toBeNull();
     const reads = vi.mocked(client.getConversationView).mock.calls.length;
     for (const text of ["a", "b"]) {
-      await write(user, text);
+      await write(text);
       await user.keyboard("{Enter}");
       await waitFor(() => expect(within(screen.getByRole("complementary", { name: "Conversa" })).getAllByText("Resposta do assistente.").length).toBeGreaterThan(0));
     }

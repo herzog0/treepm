@@ -1,7 +1,8 @@
+import { mentionsPersonRaw } from "@treepm/domain";
 import { z } from "zod";
 import { idSchema } from "../common/schemas.js";
 import { ticketDetailSchema } from "../tickets/tickets.schema.js";
-import { ticketDescriptionSchema, ticketTitleSchema } from "../tickets/tickets.schema.js";
+import { noPersonMention, ticketDescriptionSchema, ticketTitleSchema } from "../tickets/tickets.schema.js";
 import { MAX_REASON_CHARS, MAX_SUGGESTED_DESCRIPTION_CHARS } from "./elaboration.js";
 import { MAX_DRAFT_CHILDREN } from "./ports.js";
 import { PLACED_BY } from "./placement-decision.js";
@@ -14,7 +15,7 @@ export const MAX_PERSON_MESSAGE = 4000;
  * guardado na conversa. `null` ou ausente: a raiz do projeto.
  */
 export const conversationMessageBodySchema = z
-  .object({ message: z.string().trim().min(1).max(MAX_PERSON_MESSAGE), scopeId: idSchema.nullable().optional() })
+  .object({ message: z.string().trim().min(1).max(MAX_PERSON_MESSAGE).refine((text) => !mentionsPersonRaw(text), noPersonMention), scopeId: idSchema.nullable().optional() })
   .strict();
 
 /** Um filho do rascunho (ADR 0044): título e descrição, e nada mais — só um nível. */

@@ -4,15 +4,16 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import type { KeyboardEvent, MouseEvent } from "react";
 import type { JSONContent, Range } from "@tiptap/core";
 import { useTranslation } from "react-i18next";
+import { withoutPersonLinksDeep } from "@treepm/domain";
 import { useStatusText } from "../../map/nodeContent.js";
-import { descriptionDecorations, decorationsKey } from "./decorations.js";
-import type { MentionContext } from "./decorations.js";
-import { blockItems, mentionItems } from "./items.js";
-import { descriptionExtensions, normalizeDescription, readMarkdown, valueAfterEdit } from "./markdown.js";
+import { MentionPicker, pickerOptionId } from "../../mentions/MentionPicker.js";
+import { useSuggestionHost } from "../../mentions/useSuggestionHost.js";
+import { descriptionDecorations, decorationsKey, keysInScope } from "./decorations.js";
+import type { MentionContext, PeopleContext } from "./decorations.js";
+import { blockItems, personItems, ticketItems } from "./items.js";
+import { descriptionExtensions, normalizeDescription, prepareDescription, readMarkdown, valueAfterEdit } from "./markdown.js";
 import { optionId, SuggestionMenu } from "./SuggestionMenu.js";
-import type { MenuState } from "./SuggestionMenu.js";
 import { suggestionExtension } from "./suggestions.js";
-import type { MenuKind, SuggestionHost } from "./suggestions.js";
 import { WriterRequest } from "./WriterRequest.js";
 import type { DraftRequest } from "./WriterRequest.js";
 import "./description.css";
@@ -28,8 +29,10 @@ export interface RichDescriptionProps {
   label: string;
   /** Convite quando o texto está vazio. */
   placeholder: string;
-  /** Tickets do projeto para as menções e a lista do "@". Sem isso, chave é só texto. */
+  /** Tickets do projeto para as menções e a lista do "#". Sem isso, chave é só texto. */
   mentions?: MentionContext;
+  /** Quem se pode marcar com "@" (comentários; a descrição não leva pessoa, ADR 0058). Sem isso, o "@" não abre nada. */
+  people?: PeopleContext;
   /** O texto mudou por edição. Sem edição, nunca é chamada: a leitura não regrava o texto. */
   onChange?: (text: string) => void;
   /** A pessoa clicou no texto (ou deu Enter nele) em leitura. */
@@ -69,58 +72,18 @@ export function RichDescriptionEditor(props: RichDescriptionProps) {
     latest.current = { ...props, t, statusText };
   });
 
+  /** O texto como o editor o lê: a chave solta de um ticket que existe ganha `#` (ADR 0058). */
+  const prepared = (text: string) => prepareDescription(text, (key) => keysInScope(latest.current.mentions).has(key), latest.current.people !== undefined);
   // O que o editor mostra e o que ele escreveria de volta sem edição: a base para a leitura nunca regravar o texto.
   const shown = useRef(value);
   const original = useRef(value);
   const baseline = useRef<string | null>(null);
-  const [menu, setMenu] = useState<MenuState | null>(null);
-  const menuRef = useRef<MenuState | null>(null);
+  const { menu, menuRef, setMenuState, host } = useSuggestionHost();
   const pendingPos = useRef<number | "end">("end");
   const refocus = useRef(false);
   // O pedido ao assistente: aberto ou não, e a posição do cursor onde a proposta entra (acompanha as mudanças do texto).
   const [writing, setWriting] = useState(false);
   const writerPos = useRef(0);
-
-  const setMenuState = useCallback((next: MenuState | null) => {
-    menuRef.current = next;
-    setMenu(next);
-  }, []);
-
-  const host = useMemo<SuggestionHost>(
-    () => ({
-      show(kind, suggestion) {
-        const previous = menuRef.current;
-        const selected = previous && previous.kind === kind && previous.query === suggestion.query ? Math.min(previous.selected, Math.max(suggestion.items.length - 1, 0)) : 0;
-        setMenuState({ kind, query: suggestion.query, items: suggestion.items, selected, rect: suggestion.clientRect?.() ?? null, command: suggestion.command });
-      },
-      key(_kind, event) {
-        const current = menuRef.current;
-        if (!current) return false;
-        const count = current.items.length;
-        if (event.key === "Escape") {
-          // Fecha só o menu: a página e a edição não veem esta tecla.
-          event.stopPropagation();
-          return true;
-        }
-        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-          if (count === 0) return false;
-          setMenuState({ ...current, selected: (current.selected + (event.key === "ArrowDown" ? 1 : count - 1)) % count });
-          return true;
-        }
-        if (event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
-          const item = current.items[current.selected];
-          if (!item) return false;
-          current.command(item);
-          return true;
-        }
-        return false;
-      },
-      hide(kind: MenuKind) {
-        if (menuRef.current?.kind === kind) setMenuState(null);
-      },
-    }),
-    [setMenuState],
-  );
 
   const askAssistant = useCallback(
     (current: Editor, range: Range) => {
@@ -134,24 +97,29 @@ export function RichDescriptionEditor(props: RichDescriptionProps) {
 
   const extensions = useMemo(
     () => [
-      ...descriptionExtensions({ canToggleTasks: () => latest.current.canEdit, taskLabel: (text) => latest.current.t("description.task", { text }) }),
+      ...descriptionExtensions({ canToggleTasks: () => latest.current.canEdit, taskLabel: (text) => latest.current.t("description.task", { text }), ticketExists: (key) => keysInScope(latest.current.mentions).has(key), people: latest.current.people !== undefined }),
       descriptionDecorations(() => ({
         context: latest.current.mentions ? { ...latest.current.mentions, onOpen: latest.current.onOpenMention ?? latest.current.mentions.onOpen } : null,
+        people: latest.current.people ?? null,
         placeholder: latest.current.placeholder,
         statusText: latest.current.statusText,
       })),
       suggestionExtension("blocks", host, (query) => blockItems(latest.current.t, query, latest.current.onDraft ? askAssistant : undefined)),
-      suggestionExtension("mention", host, (query) => (latest.current.mentions ? mentionItems(query, latest.current.mentions) : [])),
+      suggestionExtension("ticket", host, (query) => (latest.current.mentions ? ticketItems(query, latest.current.mentions) : []), () => latest.current.mentions !== undefined),
+      suggestionExtension("person", host, (query) => (latest.current.people ? personItems(query, latest.current.people.options) : []), () => latest.current.people !== undefined),
     ],
     [host, askAssistant],
   );
 
   const editor = useEditor({
     extensions,
-    content: value,
+    content: prepared(value),
     contentType: "markdown",
     editable: editing,
     editorProps: {
+      // O que se cola nunca traz item de pessoa de fora: o elo cru vira `@Nome` e o HTML perde o id e o nome guardado (a pessoa só entra pelo seletor).
+      transformPastedText: (text) => withoutPersonLinksDeep(text),
+      transformPastedHTML: (html) => withoutPersonLinksDeep(html.replace(/\sdata-person-(?:id|name)=("[^"]*"|'[^']*')/gi, "")),
       handleKeyDown: (_view, event) => {
         if (event.key === "Escape" && menuRef.current === null && latest.current.onCancel) {
           // Esc sem menu desfaz o que não foi salvo; a página não vê a tecla.
@@ -194,7 +162,8 @@ export function RichDescriptionEditor(props: RichDescriptionProps) {
   const insertProposal = useCallback(
     (text: string) => {
       if (!editor) return;
-      const parsed = (editor as unknown as { markdown: { parse: (markdown: string) => JSONContent } }).markdown.parse(text);
+      // O assistente nunca insere item de pessoa: o elo que ele escrever vira `@Nome`.
+      const parsed = (editor as unknown as { markdown: { parse: (markdown: string) => JSONContent } }).markdown.parse(withoutPersonLinksDeep(text));
       const position = Math.min(writerPos.current, editor.state.doc.content.size);
       editor.chain().focus().insertContentAt(position, parsed.content ?? []).run();
       setWriting(false);
@@ -202,7 +171,7 @@ export function RichDescriptionEditor(props: RichDescriptionProps) {
     [editor],
   );
 
-  if (baseline.current === null) baseline.current = normalizeDescription(value);
+  if (baseline.current === null) baseline.current = normalizeDescription(value, (key) => keysInScope(props.mentions).has(key), props.people !== undefined);
 
   // O texto guardado mudou por fora (outro ticket, recarga, descarte): o editor passa a mostrá-lo.
   useEffect(() => {
@@ -210,7 +179,7 @@ export function RichDescriptionEditor(props: RichDescriptionProps) {
     if (value !== shown.current) {
       shown.current = value;
       original.current = value;
-      editor.commands.setContent(value, { emitUpdate: false, contentType: "markdown" });
+      editor.commands.setContent(prepared(value), { emitUpdate: false, contentType: "markdown" });
       baseline.current = readMarkdown(editor);
     } else if (original.current !== value) {
       // O que foi escrito pela edição foi guardado: agora é o texto de origem, e o editor já o mostra.
@@ -237,10 +206,20 @@ export function RichDescriptionEditor(props: RichDescriptionProps) {
     wasEditing.current = editing;
   }, [editing, editor, redecorate, setMenuState]);
 
+  // Chegaram tickets cujas chaves soltas viram menção: se ninguém editou, o texto se refaz. Só quando o conjunto de chaves muda; refazer a cada
+  // renderização apagaria o parágrafo vazio que a pessoa acabou de abrir (o texto lido continua igual ao de origem).
+  const scopeKeys = [...keysInScope(props.mentions)].sort().join(",");
+  useEffect(() => {
+    if (!editor || readMarkdown(editor) !== baseline.current) return;
+    editor.commands.setContent(prepared(shown.current), { emitUpdate: false, contentType: "markdown" });
+    baseline.current = readMarkdown(editor);
+    redecorate(editor);
+  }, [editor, scopeKeys]);
+
   // Tickets, títulos e situações mudaram: as menções se refazem.
   useEffect(() => {
     if (editor) redecorate(editor);
-  }, [editor, redecorate, props.mentions, props.placeholder, props.onOpenMention]);
+  }, [editor, redecorate, props.mentions, props.people, props.placeholder, props.onOpenMention]);
 
   // Nome do campo e menu aberto, para quem usa leitor de tela.
   useEffect(() => {
@@ -260,9 +239,9 @@ export function RichDescriptionEditor(props: RichDescriptionProps) {
     const dom = editor?.view.dom;
     if (!dom || !editing) return;
     if (menu && menu.items.length > 0) {
-      dom.setAttribute("aria-controls", `${id}-menu`);
+      dom.setAttribute("aria-controls", menu.kind === "blocks" ? `${id}-menu` : `${id}-list`);
       dom.setAttribute("aria-expanded", "true");
-      dom.setAttribute("aria-activedescendant", optionId(id, menu.selected));
+      dom.setAttribute("aria-activedescendant", menu.kind === "blocks" ? optionId(id, menu.selected) : pickerOptionId(id, menu.items[menu.selected]?.id ?? ""));
     } else {
       for (const name of ["aria-controls", "aria-expanded", "aria-activedescendant"]) dom.removeAttribute(name);
     }
@@ -340,7 +319,14 @@ export function RichDescriptionEditor(props: RichDescriptionProps) {
       onBlur={onBlur}
     >
       <EditorContent editor={editor} />
-      {menu && editing && <SuggestionMenu state={menu} idPrefix={id} />}
+      {menu && editing && menu.kind === "blocks" && <SuggestionMenu state={menu} idPrefix={id} />}
+      {menu && editing && menu.kind !== "blocks" && (
+        <MentionPicker
+          state={{ kind: menu.kind, query: menu.query, items: menu.items, selected: menu.selected, command: menu.command, point: menu.rect ? { left: menu.rect.left, top: menu.rect.top, bottom: menu.rect.bottom } : null }}
+          box={wrapper.current?.getBoundingClientRect() ?? null}
+          idPrefix={id}
+        />
+      )}
       {writing && editing && props.onDraft && editor && (
         <WriterRequest
           anchor={() => {

@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { formatNumber } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { CHAT_BODY_MAX } from "./Composer.js";
+import { withoutPersonLinksDeep } from "@treepm/domain";
 
 /** As pessoas, os projetos e os times que o seletor de menção e o aviso do assistente usam; carregados uma vez, quando o primeiro chat abre. */
 export type Directory =
@@ -92,7 +93,7 @@ export interface TopicRun {
 export const topicLabel = (title: string | null | undefined, label: string | null | undefined, fallback: string): string => {
   const t = title?.trim();
   if (t) return t;
-  const l = label?.trim();
+  const l = label === null || label === undefined ? undefined : withoutPersonLinksDeep(label).trim();
   return l ? l : fallback;
 };
 
@@ -356,7 +357,9 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
   const dropHandoff = useCallback((ref: ConversationRef) => void handoffs.current.delete(refKey(canon(ref))), []);
 
   const startTopic = useCallback(
-    (text: string): string | null => {
+    (typed: string): string | null => {
+      // A barra de pedidos escreve texto puro: um elo de pessoa colado nela vira o `@Nome` simples, nunca uma menção (a API recusaria).
+      const text = withoutPersonLinksDeep(typed);
       if (topicBusy.current) return tChatRef.current("topic.busy");
       if (text.trim().length > CHAT_BODY_MAX) return tChatRef.current("composer.over", { length: formatNumber(i18n.language as Language, text.trim().length), max: formatNumber(i18n.language as Language, CHAT_BODY_MAX) });
       if (hasForbidden(text)) return describeRef.current({ kind: "invalid", code: "validation_error" });

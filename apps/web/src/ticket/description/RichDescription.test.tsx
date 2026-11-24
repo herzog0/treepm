@@ -141,3 +141,27 @@ describe("RichDescription links", () => {
     expect(link.getAttribute("rel")).toContain("noreferrer");
   });
 });
+
+describe("RichDescription e o elo de pessoa (ADR 0058, revisão 2)", () => {
+  const person = (id: string, name: string) => ({ person: { id, displayName: name } as never, blocked: false });
+  const people = { options: [person("p2", "Bia")], names: new Map([["p2", "Bia"]]) };
+
+  it("com a lista de pessoas, mostra o nome atual da pessoa e não o guardado no texto", () => {
+    const { container } = show({ value: "[@Administrador](person:p2)", people });
+    expect(container.querySelector(".mention-person")).toHaveTextContent("@Bia");
+    expect(container.textContent).not.toContain("Administrador");
+  });
+
+  it("id que não existe: o nome guardado, sem destaque", () => {
+    const { container } = show({ value: "[@Zé](person:p9)", people });
+    expect(container.querySelector(".mention-person")).toHaveClass("is-gone");
+    expect(container).toHaveTextContent("@Zé");
+  });
+
+  it("sem a lista de pessoas (a descrição, a resposta do assistente) o elo é só @Nome", () => {
+    const { container } = show({ value: "Fale com [@Bia](person:p2)." });
+    expect(container.querySelector(".mention-person")).toBeNull();
+    expect(container.querySelector("[data-person-id]")).toBeNull();
+    expect(container).toHaveTextContent("Fale com @Bia.");
+  });
+});

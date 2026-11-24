@@ -1,8 +1,8 @@
 import { lockProjectStructure } from "./structure-lock.js";
-import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import type { z } from "zod";
-import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, createsDependencyCycle, descriptionExcerpt, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
+import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, createsDependencyCycle, descriptionExcerpt, mentionsPersonRaw, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
 import type { Actor, IdeaStage, TicketNode, TicketStatus, ticketProgress } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
@@ -179,6 +179,7 @@ export class TicketsService {
     let { ticket } = found;
     this.authorization.editTicket(principal.actor, project.id);
     this.requireActive(project);
+    this.requireNoPersonMention(body.description, body.title);
     if (body.parentId !== undefined) {
       // Mudança de estrutura (ADR 0045): a trava vem antes de qualquer conferência que leia a árvore, e o ticket é lido de novo
       // com ela (o pai atual pode ter mudado enquanto esperávamos).
@@ -726,6 +727,13 @@ export class TicketsService {
    * os responsáveis, reserva o número, grava o ticket e o `ticket.created`. `extraPayload` acrescenta campos ao
    * evento (por exemplo, a origem "assistente").
    */
+  /** A descrição vai ao provedor de IA e às leituras do MCP, e nome de pessoa não vai a nenhum dos dois (ADR 0058): texto com menção de pessoa é recusado. */
+  private requireNoPersonMention(...texts: Array<string | undefined>): void {
+    if (texts.some((text) => text !== undefined && mentionsPersonRaw(text))) {
+      throw new UnprocessableEntityException({ code: "person_mention_not_allowed", message: "A descrição do ticket não aceita menção de pessoa." });
+    }
+  }
+
   async create(
     tx: TenantClient,
     principal: Principal,
@@ -741,6 +749,7 @@ export class TicketsService {
     },
     extraPayload: Record<string, string> = {},
   ): Promise<TicketDetail> {
+    this.requireNoPersonMention(input.description, input.title);
     if (input.parentId) {
       await this.lockStructure(tx, project.id); // ADR 0045: antes de conferir que o pai existe e de ler a ideia que o contém.
       await this.requireParent(tx, project.id, input.parentId);

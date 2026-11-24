@@ -1,4 +1,4 @@
-import { CONTRIBUTION_STATUSES, CONTRIBUTION_TEXT_MAX, IDEA_STAGES, PRIORITY_MAX, PRIORITY_MIN } from "@treepm/domain";
+import { CONTRIBUTION_STATUSES, CONTRIBUTION_TEXT_MAX, IDEA_STAGES, mentionsPersonRaw, PRIORITY_MAX, PRIORITY_MIN } from "@treepm/domain";
 import { z } from "zod";
 import { idSchema } from "../common/schemas.js";
 
@@ -8,10 +8,17 @@ export const MAX_IMPORT_DEPTH = 20;
 export const ticketStatusSchema = z.enum(["todo", "in_progress", "in_review", "done", "cancelled"]);
 /** Estágio de ideia (ADR 0042). */
 export const ideaStageSchema = z.enum(IDEA_STAGES);
-export const ticketTitleSchema = z.string().trim().min(1).max(200);
+/**
+ * Nome de pessoa em formato de menção (nome + id) não vai ao provedor de IA nem às leituras do MCP (ADR 0058). Texto livre de ticket
+ * (título, descrição) passa por esta conferência: o `ZodPipe` a devolve como 422 `person_mention_not_allowed`. É o ponto central;
+ * a guarda de `person-mention-guard.test.ts` falha se um esquema de entrada ganhar um campo de texto livre fora dele.
+ */
+export const PERSON_MENTION_NOT_ALLOWED = "person_mention_not_allowed";
+export const noPersonMention = { message: "person_mention_not_allowed", params: { code: PERSON_MENTION_NOT_ALLOWED } } as const;
+export const ticketTitleSchema = z.string().trim().min(1).max(200).refine((text) => !mentionsPersonRaw(text), noPersonMention);
 /** Tamanho máximo da descrição de um ticket, em caracteres (ADR 0024). */
 export const MAX_TICKET_DESCRIPTION = 20_000;
-export const ticketDescriptionSchema = z.string().max(MAX_TICKET_DESCRIPTION);
+export const ticketDescriptionSchema = z.string().max(MAX_TICKET_DESCRIPTION).refine((text) => !mentionsPersonRaw(text), noPersonMention);
 /** Prioridade (ADR 0047): inteiro de -999 a 999; maior primeiro. */
 export const ticketPrioritySchema = z.number().int().min(PRIORITY_MIN).max(PRIORITY_MAX);
 const titleSchema = ticketTitleSchema;

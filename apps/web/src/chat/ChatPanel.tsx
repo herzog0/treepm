@@ -15,7 +15,9 @@ export function ChatPanel() {
   const chats = useChats();
   if (!chats || !chats.opened || chats.selection === null) return null;
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing) return;
+    // O editor do campo sempre toma o `Esc` para si (o ProseMirror o marca como tratado); a lista aberta, ela sim, o consome antes de chegar aqui.
+    const fromEditor = event.target instanceof Element && event.target.closest(".ProseMirror") !== null;
+    if (event.key !== "Escape" || (event.defaultPrevented && !fromEditor) || event.nativeEvent.isComposing) return;
     // A página do ticket ouve o `Esc` na janela: a coluna o toma para si.
     event.preventDefault();
     event.stopPropagation();

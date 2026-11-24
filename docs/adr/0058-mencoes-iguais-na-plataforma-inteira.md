@@ -41,3 +41,22 @@ Teodoro, depois de usar: o desenho da menção dos comentários "tem que ser o m
 - Textos de descrição antigos ganham o `#` na frente das chaves quando forem salvos de novo.
 - O campo de escrita das conversas é refeito pela segunda vez em pouco tempo; os testes dele são portados, não apagados.
 - Identificador de pessoa passa a existir dentro do texto de comentários e de mensagens. Nenhum dos dois vai ao provedor de IA nesse formato; o servidor guarda as duas portas (itens 5 e 6).
+
+## Como ficou (2026-11-24)
+
+Numa mudança só, sem migration.
+
+- **O item:** dois nós indivisíveis do editor, ticket e pessoa, em `apps/web/src/mentions/`, com um seletor só. O item não quebra por dentro: desce inteiro para a linha seguinte e, se for mais largo que o campo, o título encolhe.
+- **O campo das conversas** é o mesmo editor em configuração mínima. Os testes de conversa dirigem o editor por um ajudante único, pelo caminho real de teclado; o comportamento real de Backspace, Delete, colar e posição do seletor fica na suíte de navegador.
+- **Formato:** funções em `packages/domain/src/mentions.ts`. O `#` só entra em chave solta; endereço, código e destino de link ficam intocados, e aplicar duas vezes dá o mesmo.
+- **`#` seguido de espaço no começo de um bloco continua sendo o atalho de título;** `#` seguido de letra ou número abre os tickets.
+- **Recusa de pessoa em texto que vai à IA ou ao MCP:** um detector estrito, que olha o texto cru sem exceção para código (recusar a mais é aceito), aplicado nos esquemas de título e descrição de ticket. Cobre criar, editar, importar, o rascunho e as mensagens da conversa de novo ticket, o pedido ao assistente na descrição e o MCP de escrita.
+- **Conversas:** o servidor recusa texto com pessoa que não está na lista enviada à parte, pela mesma varredura crua, antes de chamar o provedor.
+- **Na descrição não existe item de pessoa:** colar um vira `@Nome` simples.
+- **O comentário mostra o nome atual da pessoa;** identificador desconhecido mostra o nome guardado, sem destaque. Prévia e rótulo de thread trocam o elo por `@Nome`.
+- **Tamanho da letra do campo das conversas:** o das mensagens em tela larga; 16 px em tela estreita, para o iOS não dar zoom ao focar.
+
+### Lacunas conhecidas
+
+- A limpeza do que o assistente propõe inserir na descrição não tem teste próprio.
+- Marcar pessoa em comentário não avisa ninguém (`TREEPM-410`).

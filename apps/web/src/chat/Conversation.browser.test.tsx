@@ -179,7 +179,8 @@ describe("contraste dos textos novos (tema escuro, o único do app), mínimo 4.5
     for (const selector of [".chat-trail li", ".chat-trail li[aria-current]", ".chat-trail button"]) expectContrast(selector);
     await userEvent.type(page.getByRole("combobox", { name: "Responder na thread" }), "@");
     await page.getByRole("listbox", { name: "Pessoas" }).getByRole("option", { name: "Caio" }).click();
-    await userEvent.fill(page.getByRole("combobox", { name: "Responder na thread" }), "Caio, e você?");
+    // O item da pessoa já está no campo (ADR 0058): o texto continua depois dele, sem trocar o conteúdo.
+    await userEvent.keyboard("Caio, e você?");
     await poll(() => q(".chat-thread-notice")).not.toBeNull();
     expectContrast(".chat-thread-notice");
   });

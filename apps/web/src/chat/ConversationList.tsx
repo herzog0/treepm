@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { withoutPersonLinksDeep } from "@treepm/domain";
 import type { CSSProperties, KeyboardEvent } from "react";
 import type { ConversationNode } from "../api/client.js";
 import { formatActivityTime } from "../i18n/format.js";
@@ -27,7 +28,7 @@ function ConversationRow({ node, depth, parent }: { node: ConversationNode; dept
   const title =
     topic ? (
       // O assunto se diz pelo título que o assistente deu; sem ele, pelo começo da abertura; sem os dois, "Assunto". Nunca "Thread com…".
-      topicLabel(node.title, node.label, t("row.topic"))
+      topicLabel(node.title, node.label ? withoutPersonLinksDeep(node.label) : node.label, t("row.topic"))
     ) :
     node.kind === "general" ? (
       t("row.general")
@@ -39,11 +40,11 @@ function ConversationRow({ node, depth, parent }: { node: ConversationNode; dept
         {node.ticket.title}
       </>
     ) : node.label && parent !== undefined && sameParticipants(node, parent) ? (
-      node.label
+      withoutPersonLinksDeep(node.label)
     ) : (
       threadTitle(t, node.participants, node.participantCount, chats.selfId)
     );
-  const sub = node.preview ?? (node.kind === "general" ? t("row.generalHint") : null);
+  const sub = (node.preview ? withoutPersonLinksDeep(node.preview) : node.preview) ?? (node.kind === "general" ? t("row.generalHint") : null);
   return (
     <li className="conv-item">
       <button

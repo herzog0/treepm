@@ -1,7 +1,14 @@
 import { useEffect, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import "../map/status-mark.css";
-import type { CaretPoint } from "./caret.js";
+import "./mentions.css";
+
+/** Onde o `#` ou o `@` está na tela: o canto de cima da linha e o pé dela. */
+export interface CaretPoint {
+  left: number;
+  top: number;
+  bottom: number;
+}
 
 export interface PopupOption {
   key: string;
@@ -47,7 +54,7 @@ export function placement(point: CaretPoint | null, box: DOMRect | null, viewpor
 }
 
 /**
- * A lista do seletor de `@` e de `#`: aparece junto do ponto do texto e é só uma lista; quem tem o foco é sempre o campo (padrão de caixa de
+ * A lista do seletor de `@` e de `#` (a mesma na descrição, nos comentários e nas conversas): aparece junto do ponto do texto e é só uma lista; quem tem o foco é sempre o campo (padrão de caixa de
  * combinação: o campo aponta a opção com `aria-activedescendant`). Clicar numa opção não tira o foco do campo.
  */
 export function MentionList({ label, typed, listId, optionId, options, activeKey, box, point, message, hint, onPick }: MentionListProps) {
@@ -57,8 +64,8 @@ export function MentionList({ label, typed, listId, optionId, options, activeKey
   }, [activeKey]);
   const style = placement(point, box, { width: window.innerWidth, height: window.innerHeight });
   return (
-    <div className="chat-mention-list" style={style} onMouseDown={(event) => event.preventDefault()}>
-      <div className="chat-mention-head" aria-hidden="true">
+    <div className="mention-list" style={style} onMouseDown={(event) => event.preventDefault()}>
+      <div className="mention-head" aria-hidden="true">
         <span>{label}</span>
         <b>{typed}</b>
       </div>
@@ -79,7 +86,7 @@ export function MentionList({ label, typed, listId, optionId, options, activeKey
           </li>
         ))}
       </ul>
-      <p className="chat-mention-hint" aria-hidden="true">{hint}</p>
+      <p className="mention-hint" aria-hidden="true">{hint}</p>
     </div>
   );
 }

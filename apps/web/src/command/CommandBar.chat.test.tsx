@@ -11,6 +11,7 @@ import { OrganizationMap } from "../map/OrganizationMap.js";
 import { makePanelMe, makePerson } from "../panel/testing.js";
 import { createFakeChat } from "../test/chatFakes.js";
 import { makeClient, makeProject, makeTicket } from "../test/fakes.js";
+import { composerShown } from "../chat/composerTesting.js";
 
 // A barra de pedidos manda o texto livre ao Meu chat (ADR 0056): quais chamadas cada tecla faz.
 const SLOW = 8000;
@@ -124,8 +125,8 @@ describe("a barra de pedidos e o Meu chat", () => {
     render(<Host client={client} />);
     await typed("texto que não pode se perder");
     await userEvent.keyboard("{Enter}");
-    const field = await within(panel()).findByRole("combobox", { name: "Mensagem" });
-    await waitFor(() => expect(field).toHaveValue("texto que não pode se perder"));
+    await within(panel()).findByRole("combobox", { name: "Mensagem" });
+    await waitFor(() => expect(composerShown()).toBe("texto que não pode se perder"));
     expect(within(panel()).getAllByRole("alert").length).toBeGreaterThan(0);
     expect(within(panel()).queryByRole("navigation", { name: "Onde você está" })).toBeNull();
   }, SLOW);
@@ -203,8 +204,8 @@ describe("a barra de pedidos e o Meu chat", () => {
     await typed("texto cancelado");
     await userEvent.keyboard("{Enter}");
     await userEvent.click(await within(panel()).findByRole("button", { name: "Cancelar" }));
-    const field = await within(panel()).findByRole("combobox", { name: "Mensagem" });
-    await waitFor(() => expect(field).toHaveValue("texto cancelado"));
+    await within(panel()).findByRole("combobox", { name: "Mensagem" });
+    await waitFor(() => expect(composerShown()).toBe("texto cancelado"));
     await typed("outro assunto");
     await userEvent.keyboard("{Enter}");
     await waitFor(() => expect(sendCalls(client).length).toBe(2));
@@ -220,8 +221,8 @@ describe("a barra de pedidos e o Meu chat", () => {
       await userEvent.keyboard("{Enter}");
       await within(panel()).findByRole("button", { name: "Cancelar" });
       await vi.advanceTimersByTimeAsync(91_000);
-      const field = await within(panel()).findByRole("combobox", { name: "Mensagem" });
-      await waitFor(() => expect(field).toHaveValue("texto que demora"));
+      await within(panel()).findByRole("combobox", { name: "Mensagem" });
+      await waitFor(() => expect(composerShown()).toBe("texto que demora"));
       expect(within(panel()).getAllByRole("alert").some((el) => /não respondeu a tempo/.test(el.textContent ?? ""))).toBe(true);
     } finally {
       vi.useRealTimers();
@@ -239,8 +240,8 @@ describe("a barra de pedidos e o Meu chat", () => {
     release({ ok: false, error: { kind: "unavailable", code: "assistant_not_configured" } });
     const line = await screen.findByRole("button", { name: /Não respondida/ });
     await userEvent.click(line);
-    const field = await within(panel()).findByRole("combobox", { name: "Mensagem" });
-    await waitFor(() => expect(field).toHaveValue("texto perdido"));
+    await within(panel()).findByRole("combobox", { name: "Mensagem" });
+    await waitFor(() => expect(composerShown()).toBe("texto perdido"));
     expect(within(panel()).getAllByRole("alert").some((el) => /não está configurada/i.test(el.textContent ?? ""))).toBe(true);
   }, SLOW);
 
@@ -250,8 +251,8 @@ describe("a barra de pedidos e o Meu chat", () => {
     render(<Host client={client} />);
     await typed("sem aceite");
     await userEvent.keyboard("{Enter}");
-    const field = await within(panel()).findByRole("combobox", { name: "Mensagem" });
-    await waitFor(() => expect(field).toHaveValue("sem aceite"));
+    await within(panel()).findByRole("combobox", { name: "Mensagem" });
+    await waitFor(() => expect(composerShown()).toBe("sem aceite"));
     expect(within(panel()).getAllByRole("alert").some((el) => /desligada/i.test(el.textContent ?? ""))).toBe(true);
   }, SLOW);
 
@@ -261,8 +262,8 @@ describe("a barra de pedidos e o Meu chat", () => {
     render(<Host client={client} />);
     await typed("sem chat geral");
     await userEvent.keyboard("{Enter}");
-    const field = await within(panel()).findByRole("combobox", { name: "Mensagem" });
-    await waitFor(() => expect(field).toHaveValue("sem chat geral"));
+    await within(panel()).findByRole("combobox", { name: "Mensagem" });
+    await waitFor(() => expect(composerShown()).toBe("sem chat geral"));
     expect(sendCalls(client)).toHaveLength(0);
   }, SLOW);
 
@@ -339,8 +340,8 @@ describe("a barra de pedidos e o Meu chat", () => {
     await userEvent.keyboard("{Enter}");
     await within(panel()).findByRole("button", { name: "Cancelar" });
     release({ ok: false, error: { kind: "unavailable", code: "assistant_unavailable" } });
-    const field = await within(panel()).findByRole("combobox", { name: "Mensagem" });
-    await waitFor(() => expect(field).toHaveValue("texto no chat aberto"));
+    await within(panel()).findByRole("combobox", { name: "Mensagem" });
+    await waitFor(() => expect(composerShown()).toBe("texto no chat aberto"));
     expect(client.openGeneralConversation).toHaveBeenCalledTimes(1);
     expect(within(panel()).getAllByRole("alert").length).toBeGreaterThan(0);
   }, SLOW);
