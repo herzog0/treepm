@@ -2,12 +2,13 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { renderChats } from "./chatTesting.js";
-import { mention } from "./mentionTesting.js";
+import { linkOf, mention } from "./mentionTesting.js";
+import { composer, typeInComposer } from "./composerTesting.js";
 
 const panel = () => screen.findByRole("complementary", { name: "Conversa" });
-const write = async (user: ReturnType<typeof userEvent.setup>, text: string) => {
-  const field = await screen.findByRole("combobox", { name: /^(Mensagem|Responder na thread)$/ });
-  await user.type(field, text);
+const write = async (text: string) => {
+  await composer();
+  typeInComposer(text);
 };
 
 describe("the open conversation", () => {
@@ -15,7 +16,7 @@ describe("the open conversation", () => {
     const { client, chat } = renderChats();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
-    await write(user, "Oi assistente");
+    await write("Oi assistente");
     expect(client.openTicketConversation).not.toHaveBeenCalled();
     await user.keyboard("{Enter}");
     expect(await within(await panel()).findByText("Resposta do assistente.")).toBeInTheDocument();
@@ -23,7 +24,7 @@ describe("the open conversation", () => {
     expect(client.sendChatMessage).toHaveBeenCalledWith(chat.principalOf("t1")!, { body: "Oi assistente" }, expect.anything());
     // A barra ganha a conversa sem recarregar a página: a linha passa a ter prévia.
     await waitFor(() => expect(screen.getByRole("button", { name: /^ALFA-1/ })).toHaveTextContent("Resposta do assistente."));
-    await write(user, "Outra");
+    await write("Outra");
     await user.keyboard("{Enter}");
     await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledTimes(2));
     expect(client.openTicketConversation).toHaveBeenCalledTimes(1);
@@ -33,7 +34,7 @@ describe("the open conversation", () => {
     const { client } = renderChats();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
-    await write(user, "Oi");
+    await write("Oi");
     expect(client.openGeneralConversation).not.toHaveBeenCalled();
     expect(client.getConversationView).not.toHaveBeenCalled();
     expect(within(await panel()).getByText("O assistente consulta os tickets dos projetos que você enxerga. Ele não cria nem altera nada.")).toBeInTheDocument();
@@ -46,13 +47,13 @@ describe("the open conversation", () => {
     const { client } = renderChats({ seed: (chat) => chat.seedConversation("t1", [{ person: "oi", assistant: "olá" }]) });
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
-    await write(user, "Bia, olha");
+    await write("Bia, olha");
     expect(screen.queryByText(/abre uma thread com/)).toBeNull();
-    await mention(user, "Bia");
-    await mention(user, "Caio");
+    await mention("Bia");
+    await mention("Caio");
     expect(screen.getByText("Esta mensagem abre uma thread com Bia e Caio. Quem já está nesta conversa também participa.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
-    await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledWith(expect.any(String), { body: "Bia, olha", mentions: ["person-2", "person-3"] }, expect.anything()));
+    await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledWith(expect.any(String), { body: `Bia, olha ${linkOf("person-2", "Bia")} ${linkOf("person-3", "Caio")}`, mentions: ["person-2", "person-3"] }, expect.anything()));
     // O cartão da thread aparece na própria mensagem, com o rodapé que a abre.
     const card = await within(await panel()).findByRole("button", { name: /Thread com Bia \+1/ });
     expect(card).toHaveTextContent(/0 resposta/);
@@ -91,7 +92,7 @@ describe("the open conversation", () => {
     const rows = await screen.findAllByRole("button", { name: /Thread com Bia/ });
     await user.click(rows.at(-1)!);
     expect(await within(await panel()).findByText("Esta conversa está no último nível: não dá para abrir outra thread aqui dentro.")).toBeInTheDocument();
-    await user.type(await screen.findByRole("combobox", { name: "Responder na thread" }), "@");
+    typeInComposer("@", await composer("Responder na thread"));
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 
@@ -146,11 +147,11 @@ describe("the open conversation", () => {
     const { client } = renderChats({ seed: (c) => void c.seedGeneral([{ person: "oi", assistant: "olá" }]) });
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
-    await write(user, "Bia, olha o login");
+    await write("Bia, olha o login");
     expect(screen.queryByRole("button", { name: "Sobre o ticket…" })).toBeNull();
-    await mention(user, "Bia");
+    await mention("Bia");
     expect(screen.queryByRole("button", { name: "Sobre o ticket…" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
-    await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledWith(expect.any(String), { body: "Bia, olha o login", mentions: ["person-2"] }, expect.anything()));
+    await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledWith(expect.any(String), { body: `Bia, olha o login ${linkOf("person-2", "Bia")}`, mentions: ["person-2"] }, expect.anything()));
   });
 });

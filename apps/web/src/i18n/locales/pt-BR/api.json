@@ -35,6 +35,8 @@
       "request_too_long": "O pedido original passou do limite de uma descrição. Divida o pedido em conversas menores.",
       "chat_busy": "Já há uma mensagem sua esperando a resposta do assistente neste chat. Espere a resposta chegar e envie de novo.",
       "chat_changed": "A conversa mudou em outro aparelho enquanto o assistente respondia. Recarregamos a conversa; envie a mensagem de novo.",
+      "mention_mismatch": "O texto cita uma pessoa que não está entre as marcadas. Marque a pessoa de novo pelo @ e envie outra vez.",
+      "person_mention_not_allowed": "A descrição do ticket não aceita menção de pessoa. Tire a pessoa do texto (nos comentários ela pode ser marcada) e salve de novo.",
       "mention_not_allowed": "Alguém marcado não pode participar desta conversa (não enxerga o que ela trata ou não está mais na organização). Tire essa pessoa e envie de novo.",
       "cannot_mention_self": "Uma menção precisa ser de outra pessoa, não de você.",
       "too_many_mentions": "Mencione no máximo 10 pessoas por mensagem.",

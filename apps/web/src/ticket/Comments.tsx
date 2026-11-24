@@ -8,6 +8,7 @@ import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { useAction } from "../panel/useAction.js";
 import { RichDescription } from "./description/RichDescription.js";
 import type { MentionContext } from "./description/decorations.js";
+import { useCommentPeople } from "./commentPeople.js";
 import { initials } from "./fields.js";
 
 export const ActionError = ({ error }: { error: ApiError | null }) => {
@@ -38,6 +39,7 @@ export function ViaMcp({ via }: { via: ActivityEntry["via"] }) {
 
 export function CommentItem({ client, entry, mentions, language, now, onChange, onOpenArea }: { client: ApiClient; entry: ActivityComment; mentions: MentionContext; language: Language; now: Date; onChange: (entry: ActivityComment) => void; onOpenArea?: (contributionId: string) => void }) {
   const { t } = useTranslation("ticket");
+  const people = useCommentPeople();
   const action = useAction();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(entry.body ?? "");
@@ -98,6 +100,7 @@ export function CommentItem({ client, entry, mentions, language, now, onChange, 
               label={t("activity.comment.editField")}
               placeholder=""
               mentions={mentions}
+              {...(people ? { people } : {})}
               onChange={setDraft}
               onSubmit={() => void save()}
               onCancel={cancel}
@@ -108,7 +111,7 @@ export function CommentItem({ client, entry, mentions, language, now, onChange, 
             </div>
           </div>
         ) : (
-          <RichDescription value={entry.body} editing={false} canEdit={false} label={t("activity.comment.by", { name })} placeholder="" mentions={mentions} {...(mentions.onOpen ? { onOpenMention: mentions.onOpen } : {})} />
+          <RichDescription value={entry.body} editing={false} canEdit={false} label={t("activity.comment.by", { name })} placeholder="" mentions={mentions} {...(people ? { people } : {})} {...(mentions.onOpen ? { onOpenMention: mentions.onOpen } : {})} />
         )}
         {!entry.removed && !editing && (entry.canEdit || entry.canRemove) && (
           <div className="ticket-comment-actions">
@@ -129,6 +132,7 @@ export function CommentItem({ client, entry, mentions, language, now, onChange, 
  */
 export function CommentComposer({ client, ticketId, contribution, mentions, onAdded }: { client: ApiClient; ticketId: string; contribution?: { id: string; name: string }; mentions: MentionContext; onAdded: (entry: ActivityComment) => void }) {
   const { t } = useTranslation("ticket");
+  const people = useCommentPeople();
   const action = useAction();
   const [draft, setDraft] = useState("");
   // Depois de enviar, o campo recomeça vazio (e com o foco, para seguir escrevendo).
@@ -159,6 +163,7 @@ export function CommentComposer({ client, ticketId, contribution, mentions, onAd
         label={contribution ? t("contributions.conversation.field", { area: contribution.name }) : t("activity.comment.field")}
         placeholder={t("activity.comment.placeholder")}
         mentions={mentions}
+        {...(people ? { people } : {})}
         onChange={setDraft}
         onSubmit={() => void send()}
         onCancel={() => (document.activeElement as HTMLElement | null)?.blur()}

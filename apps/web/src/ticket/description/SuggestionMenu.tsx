@@ -1,7 +1,6 @@
 import { Fragment } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { StatusMark } from "../../map/StatusMark.js";
 import type { MenuItem, MenuKind } from "./suggestions.js";
 
 export interface MenuState {
@@ -13,11 +12,11 @@ export interface MenuState {
   command: (item: MenuItem) => void;
 }
 
-const WIDTH = { blocks: 290, mention: 390 } as const;
+const WIDTH = 290;
 const HEIGHT = 300;
 
 function placement(state: MenuState): CSSProperties {
-  const width = WIDTH[state.kind];
+  const width = WIDTH;
   const rect = state.rect;
   if (!rect) return { left: 0, top: 0, width };
   const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
@@ -26,22 +25,21 @@ function placement(state: MenuState): CSSProperties {
 
 export const optionId = (prefix: string, index: number) => `${prefix}-option-${index}`;
 
-/** Menus de "/" e "@" da descrição (ADR 0036): desenhados aqui, com os textos do catálogo. */
+/** O menu de blocos do "/" (ADR 0036): desenhado aqui, com os textos do catálogo. O `#` e o `@` usam o seletor comum (`MentionPicker`). */
 export function SuggestionMenu({ state, idPrefix }: { state: MenuState; idPrefix: string }) {
   const { t } = useTranslation("ticket");
-  const blocks = state.kind === "blocks";
   return (
     <div
       className="description-menu"
       id={`${idPrefix}-menu`}
-      role={blocks ? "menu" : "listbox"}
-      aria-label={blocks ? t("blocks.label") : t("mention.label")}
+      role="menu"
+      aria-label={t("blocks.label")}
       style={placement(state)}
       // O clique no menu não tira o foco do texto.
       onMouseDown={(event) => event.preventDefault()}
     >
-      <div className="description-menu-title" aria-hidden="true">{blocks ? t("blocks.label") : t("mention.label")}</div>
-      {state.items.length === 0 && <div className="description-menu-empty">{blocks ? t("blocks.empty") : t("mention.empty")}</div>}
+      <div className="description-menu-title" aria-hidden="true">{t("blocks.label")}</div>
+      {state.items.length === 0 && <div className="description-menu-empty">{t("blocks.empty")}</div>}
       {state.items.map((item, index) => (
         <Fragment key={item.id}>
           {item.separatorBefore && index > 0 && <div className="description-menu-separator" role="separator" />}
@@ -49,28 +47,18 @@ export function SuggestionMenu({ state, idPrefix }: { state: MenuState; idPrefix
           id={optionId(idPrefix, index)}
           type="button"
           tabIndex={-1}
-          role={blocks ? "menuitem" : "option"}
-          {...(blocks ? {} : { "aria-selected": index === state.selected })}
+          role="menuitem"
           className={index === state.selected ? "description-menu-item is-selected" : "description-menu-item"}
           onClick={() => state.command(item)}
         >
-          {item.ticket ? (
-            <>
-              <StatusMark status={item.ticket.status} />
-              <span className="description-menu-key">{item.ticket.key}</span>
-              <span className="description-menu-text">{item.ticket.title}</span>
-            </>
-          ) : (
-            <>
+          <>
               <span className="description-menu-glyph" aria-hidden="true">{item.glyph}</span>
               <span className="description-menu-text">{item.label}</span>
               {item.hint !== undefined && item.hint !== "" && <span className="description-menu-hint" aria-hidden="true">{item.hint}</span>}
-            </>
-          )}
+          </>
         </button>
         </Fragment>
       ))}
-      {!blocks && <div className="description-menu-foot">{t("mention.footer")}</div>}
     </div>
   );
 }

@@ -33,7 +33,7 @@
 .description .tiptap p.is-empty::before { content: attr(data-placeholder); float: left; height: 0; color: var(--tp-text-3); pointer-events: none; }
 
 /* Menção: uma etiqueta só (marcador de situação, chave e título), sem quebra de linha no meio. */
-.description-mention { display: inline; padding: 1px 7px 1px 7px; border-radius: 5px; background: var(--tp-selected); color: var(--tp-accent-soft); font: 500 12px var(--tp-font-mono); white-space: nowrap; cursor: pointer; }
+.description-mention { display: inline-block; box-sizing: border-box; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; padding: 1px 7px 1px 7px; border-radius: 5px; background: var(--tp-selected); color: var(--tp-accent-soft); font: 500 12px var(--tp-font-mono); white-space: nowrap; cursor: pointer; }
 .description-mention::before { content: ""; display: inline-block; width: 10px; height: 10px; box-sizing: border-box; margin-right: 6px; border: 1.5px solid var(--mark, var(--tp-todo)); border-radius: 2px; background: linear-gradient(to top, var(--mark, var(--tp-todo)) calc(var(--fill, 0) * 100%), transparent calc(var(--fill, 0) * 100%)); vertical-align: -1px; }
 .description-mention::after { content: attr(data-title); margin-left: 6px; color: var(--tp-text); font: 400 13px var(--tp-font); }
 .description-mention[data-state="in_progress"] { --mark: var(--tp-doing); }
@@ -94,3 +94,13 @@
   .description-mention { font-size: 12px; }
   .ticket-page .description-invite { min-height: 44px; }
 }
+
+/* Menção de ticket que não existe mais ou não está na lista: aparece como o texto `#CHAVE`. */
+/* O Tiptap manda `white-space: normal` em todo item não editável do editor; o item de menção nunca quebra por dentro (ADR 0058). */
+.description .ProseMirror :is(.description-mention, .mention-person):not(.is-gone, .is-unresolved) { white-space: nowrap; }
+.description-mention.is-unresolved { display: inline; max-width: none; overflow: visible; padding: 0; background: none; color: inherit; font: inherit; white-space: normal; cursor: text; }
+.description-mention.is-unresolved::before { content: "#"; width: auto; height: auto; margin: 0; border: 0; background: none; vertical-align: baseline; }
+.description-mention.is-unresolved::after { content: none; }
+/* Menção de pessoa (ADR 0058): destaque próprio, em todo lugar. Quem saiu da organização perde o destaque. */
+.mention-person { display: inline-block; box-sizing: border-box; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; padding: 1px 6px; border-radius: 5px; background: color-mix(in srgb, var(--tp-accent) 24%, var(--tp-card)); color: var(--tp-text); font-weight: 600; white-space: nowrap; }
+.mention-person.is-gone { display: inline; white-space: normal; max-width: none; overflow: visible; padding: 0; background: none; font-weight: inherit; }

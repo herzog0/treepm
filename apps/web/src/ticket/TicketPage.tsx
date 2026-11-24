@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useChats } from "../chat/ChatsContext.js";
 import { useTranslation } from "react-i18next";
-import type { ApiClient, Me, Person, Project, TicketDetail, TicketStatus, TicketSummary } from "../api/client.js";
+import type { ApiClient, Me, Person, Project, Team, TicketDetail, TicketStatus, TicketSummary } from "../api/client.js";
 import { assistantEnabled, githubEnabled } from "../api/client.js";
 import { useAgentWorkActive } from "../map/agentWork.js";
 import { formatClock, formatDateTime } from "../i18n/format.js";
@@ -19,7 +19,9 @@ import { useAction } from "../panel/useAction.js";
 import { Contributions } from "./Contributions.js";
 import { CreateTicket } from "./CreateTicket.js";
 import { ItemsSummary } from "./ItemsSummary.js";
+import { CommentPeopleProvider } from "./commentPeople.js";
 import { TicketActivity } from "./TicketActivity.js";
+import { peopleWhoSee } from "../chat/directory.js";
 import { DependsOnField, DescriptionField, IdeaField, InsideIdeaValue, ParentField, PeopleField, PriorityField, StatusField, StatusValue, TitleField } from "./fields.js";
 import { ActionsMenu } from "./menu.js";
 import { ancestorsOf } from "./tree.js";
@@ -239,6 +241,8 @@ function LoadedTicket(props: LoadedProps) {
   const { client, detail, projects, onClose } = props;
   const tickets = useApiResource(() => safe(() => client.listTickets(detail.projectId)));
   const people = useApiResource(() => safe(() => client.listPeople()));
+  // As equipes só decidem quem enxerga um projeto privado; sem elas (ou se falharem) a lista do `@` ainda traz o resto.
+  const teams = useApiResource(() => safe(() => client.listTeams()));
 
   if (tickets.state.status === "error") return <PageError onClose={onClose} error={tickets.state.error} onRetry={tickets.retry} />;
   if (people.state.status === "error") return <PageError onClose={onClose} error={people.state.error} onRetry={people.retry} />;
@@ -252,12 +256,13 @@ function LoadedTicket(props: LoadedProps) {
       </>
     );
   }
-  return <ReadyTicket {...props} list={tickets.state.data} people={people.state.data} reloadList={tickets.reload} />;
+  return <ReadyTicket {...props} list={tickets.state.data} people={people.state.data} teams={teams.state.status === "ready" ? teams.state.data : []} reloadList={tickets.reload} />;
 }
 
 interface ReadyProps extends LoadedProps {
   list: readonly TicketSummary[];
   people: readonly Person[];
+  teams: readonly Team[];
   reloadList: () => void;
 }
 
@@ -303,7 +308,7 @@ function AgentWorkRow({ detail, onEnd, busy }: { detail: TicketDetail; onEnd: ((
   );
 }
 
-function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail, reloadList, onOpenTicket, onClose, onChanged, onRemoved, onShowOnMap, onStartCreate, listedAgentWork }: ReadyProps) {
+function ReadyTicket({ client, me, projects, detail, list, people, teams, reloadDetail, reloadList, onOpenTicket, onClose, onChanged, onRemoved, onShowOnMap, onStartCreate, listedAgentWork }: ReadyProps) {
   const { t } = useTranslation("ticket");
   const { t: tMap } = useTranslation("map");
   const describeError = useDescribeApiError();
@@ -387,7 +392,13 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
     </span>
   );
 
+  const commentPeople = useMemo(() => {
+    const options = peopleWhoSee(project ?? undefined, people, teams, me.person.id).map((person) => ({ person, blocked: false }));
+    return { options, names: new Map(people.map((person) => [person.id, person.displayName] as const)) };
+  }, [project, people, teams, me.person.id]);
+
   return (
+    <CommentPeopleProvider value={commentPeople}>
     <>
       <Header
         projectKey={project?.key ?? ""}
@@ -535,6 +546,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, reloadDetail,
         </div>
       </div>
     </>
+    </CommentPeopleProvider>
   );
 }
 

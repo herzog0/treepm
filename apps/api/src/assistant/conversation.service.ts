@@ -10,6 +10,7 @@ import {
   chatTitleOf,
   newThreadParticipants,
   participantCountAfter,
+  withoutPersonLinks,
   trimChatHistory,
   visibleTree,
 } from "@treepm/domain";
@@ -58,6 +59,9 @@ type PersonRef = { id: string; displayName: string; avatarUrl: string | null };
 type MessageRow = { id: string; seq: bigint; authorPersonId: string | null; body: string; model: string | null; createdAt: Date };
 const MSG_SELECT = { id: true, seq: true, authorPersonId: true, body: true, model: true, createdAt: true } as const;
 type TicketRef = { id: string; key: string; title: string; projectId: string; archived: boolean; status: string; blocked: boolean };
+/** O começo da mensagem para a lista: o elo de pessoa vira `@Nome` antes do corte, para o corte não partir um elo no meio. */
+const previewOf = (body: string): string => withoutPersonLinks(body).slice(0, PREVIEW_MAX);
+
 type Stats = { unread: number; replyCount: number; lastReadSeq: bigint; preview: string | null };
 
 /** O que a primeira transação da mensagem ao assistente leu: o que vai ao provedor e o que conferir na volta. */
@@ -162,11 +166,11 @@ export class ConversationService {
             and m.seq > cp.last_read_seq and m.author_person_id is distinct from cp.person_id
             and not exists (select 1 from conversations o where o.org_id = m.org_id and o.opening_message_id = m.id and o.parent_id = c.id))::int as unread,
         (select count(*) from conversation_messages m where m.org_id = c.org_id and m.conversation_id = c.id)::int as reply_count,
-        (select left(m.body, ${PREVIEW_MAX}::int) from conversation_messages m
+        (select m.body from conversation_messages m
           where m.org_id = c.org_id and (m.conversation_id = c.id or m.id = c.opening_message_id) order by m.seq desc limit 1) as preview
       from conversation_participants cp join conversations c on c.org_id = cp.org_id and c.id = cp.conversation_id
       where cp.person_id = ${me}::uuid and cp.conversation_id = any(${[...ids]}::uuid[])`;
-    for (const r of rows) out.set(r.id, { unread: r.unread, replyCount: r.reply_count, lastReadSeq: r.last_read_seq, preview: r.preview });
+    for (const r of rows) out.set(r.id, { unread: r.unread, replyCount: r.reply_count, lastReadSeq: r.last_read_seq, preview: r.preview === null ? null : previewOf(r.preview) });
     return out;
   }
 
@@ -241,7 +245,7 @@ export class ConversationService {
     const ids = convs.map((c) => c.id);
     // O começo da mensagem que abriu cada thread: é a primeira mensagem da própria thread, que a pessoa já lê (só entram aqui as dela).
     const openings = await tx.conversationMessage.findMany({ where: { id: { in: convs.flatMap((c) => (c.openingMessageId ? [c.openingMessageId] : [])) } }, select: { id: true, body: true } });
-    const openingLabel = new Map(openings.map((m) => [m.id, m.body.slice(0, PREVIEW_MAX)]));
+    const openingLabel = new Map(openings.map((m) => [m.id, previewOf(m.body)]));
     const parts = await this.participantsOf(tx, ids);
     const stats = await this.stats(tx, me, ids);
     const domainNodes: ConversationNode[] = convs.map((c) => ({ id: c.id, parentId: c.parentId, participantIds: new Set(parts.get(c.id) ?? []) }));
@@ -360,7 +364,7 @@ export class ConversationService {
     const stats = conv ? (await this.stats(tx, me, [conv.id])).get(conv.id) : undefined;
     const trail = conv ? await this.access.trail(tx, principal, conv.id) : [];
     const trailOpenings = await tx.conversationMessage.findMany({ where: { id: { in: trail.flatMap((t) => (t.openingMessageId ? [t.openingMessageId] : [])) } }, select: { id: true, body: true } });
-    const labels = new Map(trailOpenings.map((m) => [m.id, m.body.slice(0, PREVIEW_MAX)]));
+    const labels = new Map(trailOpenings.map((m) => [m.id, previewOf(m.body)]));
     const openingRow = conv?.openingMessageId ? await tx.conversationMessage.findFirst({ where: { id: conv.openingMessageId }, select: MSG_SELECT }) : null;
     const openingPeople = await this.people(tx, [openingRow?.authorPersonId ?? null]);
     const members = conv ? [...(resolved as Resolved).participantIds] : [];

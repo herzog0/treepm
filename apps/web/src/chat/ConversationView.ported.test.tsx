@@ -4,8 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { failed, makeMe, makeProject } from "../test/fakes.js";
 import { setTestLanguage } from "../test/i18n.js";
 import { ALFA2, renderChats } from "./chatTesting.js";
-import { mention } from "./mentionTesting.js";
+import { linkOf, mention } from "./mentionTesting.js";
 import type { ChatSetup } from "./chatTesting.js";
+import { composerNow, composerShown, fillComposer, typeInComposer } from "./composerTesting.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -13,7 +14,6 @@ afterEach(() => {
 });
 
 type Chats = ReturnType<typeof renderChats>;
-type User = ReturnType<typeof userEvent.setup>;
 
 /** Monta a barra e abre a conversa do ticket pela linha dela (por padrão ALFA-1, de que a pessoa é responsável). */
 async function openChat(setup: ChatSetup = {}, ticketKey = "ALFA-1", fieldName: string = "Mensagem") {
@@ -23,7 +23,7 @@ async function openChat(setup: ChatSetup = {}, ticketKey = "ALFA-1", fieldName: 
   await screen.findByRole("combobox", { name: fieldName });
   return { user, ...view };
 }
-const field = () => screen.getByRole("combobox", { name: "Mensagem" });
+const field = () => composerNow("Mensagem").dom;
 const log = () => screen.getByRole("log", { name: "Mensagens" });
 const panel = () => screen.getByRole("complementary", { name: "Conversa" });
 const readCalls = (client: Chats["client"]) => [...vi.mocked(client.getTicketConversationView).mock.calls, ...vi.mocked(client.getConversationView).mock.calls];
@@ -35,17 +35,17 @@ describe("writing in the open conversation", () => {
     await user.keyboard("{Enter}");
     expect(client.sendChatMessage).not.toHaveBeenCalled();
     expect(chat.conversationOf("t1")).toHaveLength(0);
-    await user.type(field(), "primeira linha{Shift>}{Enter}{/Shift}segunda");
-    expect(field()).toHaveValue("primeira linha\nsegunda");
+    typeInComposer("primeira linha{Shift>}{Enter}{/Shift}segunda");
+    expect(composerShown()).toBe("primeira linha\nsegunda");
     await user.keyboard("{Enter}");
     expect(await within(panel()).findByText("Resposta do assistente.")).toBeInTheDocument();
     expect(chat.conversationOf("t1")[0]).toEqual({ authorId: "person-1", body: "primeira linha\nsegunda" });
-    expect(field()).toHaveValue("");
+    expect(composerShown()).toBe("");
   });
 
   it("does not send with Enter while an IME composition is going on", async () => {
     const { client } = await openChat();
-    fireEvent.change(field(), { target: { value: "かな" } });
+    fillComposer("かな");
     fireEvent.keyDown(field(), { key: "Enter", isComposing: true });
     expect(client.sendChatMessage).not.toHaveBeenCalled();
     expect(client.openTicketConversation).not.toHaveBeenCalled();
@@ -53,9 +53,9 @@ describe("writing in the open conversation", () => {
 
   it("shows the counter near the limit and blocks over it", async () => {
     const { client, user } = await openChat();
-    fireEvent.change(field(), { target: { value: "a".repeat(3700) } });
+    fillComposer("a".repeat(3700));
     expect(screen.getByText("3.700 de 4.000")).toBeInTheDocument();
-    fireEvent.change(field(), { target: { value: "a".repeat(4001) } });
+    fillComposer("a".repeat(4001));
     expect(screen.getByText("4.001 de 4.000: passou do limite")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
     await user.click(field());
@@ -69,12 +69,12 @@ describe("writing in the open conversation", () => {
   });
 
   it("shows the message at once, a skeleton in place of the reply, and then the reply", async () => {
-    const { client, user } = await openChat();
+    const { client } = await openChat();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     const real = vi.mocked(client.sendChatMessage).getMockImplementation()!;
     vi.mocked(client.sendChatMessage).mockImplementation(async (...args) => { await gate; return real(...args); });
-    await user.type(field(), "Como começo?{Enter}");
+    typeInComposer("Como começo?{Enter}");
     expect(within(log()).getByText("Como começo?")).toBeInTheDocument();
     expect(document.querySelector(".assistant-skeleton")).not.toBeNull();
     expect(screen.getByText("O assistente está respondendo…")).toBeInTheDocument();
@@ -84,8 +84,8 @@ describe("writing in the open conversation", () => {
   });
 
   it("announces the reply politely and reads the reply of the assistant in the restricted markdown", async () => {
-    const { user } = await openChat({ reply: () => "# Passos\n\n- um\n- **dois**" });
-    await user.type(field(), "Plano?{Enter}");
+    await openChat({ reply: () => "# Passos\n\n- um\n- **dois**" });
+    typeInComposer("Plano?{Enter}");
     expect(await screen.findByRole("heading", { name: "Passos" })).toBeInTheDocument();
     expect(log()).toHaveAttribute("aria-live", "polite");
     expect(screen.getByRole("status", { name: "Resposta do assistente" })).toHaveTextContent("Passos");
@@ -93,13 +93,11 @@ describe("writing in the open conversation", () => {
 });
 
 describe("mentions", () => {
-  const pick = (user: User, name: string) => mention(user, name, field());
-
   it("offers only active people, never oneself, and turns the choice into a removable pill", async () => {
     const { user } = await openChat();
-    await user.type(field(), "@");
+    typeInComposer("@");
     const picker = await screen.findByRole("listbox", { name: "Pessoas" });
-    expect(within(picker).getAllByRole("option").map((option) => option.querySelector(".chat-option-title")?.textContent)).toEqual(["Bia", "Caio"]);
+    expect(within(picker).getAllByRole("option").map((option) => option.querySelector(".mention-option-title")?.textContent)).toEqual(["Bia", "Caio"]);
     await user.click(within(picker).getByRole("option", { name: "Bia" }));
     expect(screen.queryByRole("listbox", { name: "Pessoas" })).toBeNull();
     expect(field()).toHaveFocus();
@@ -110,44 +108,44 @@ describe("mentions", () => {
 
   it("in a private project only people who see it can be chosen; the others show dimmed, with the reason", async () => {
     const project = makeProject("p1", "ALFA", "Projeto Alfa", { visibility: "private", members: [{ personId: "person-1", role: "manager" }, { personId: "person-3", role: "reader" }] });
-    const { user } = await openChat({ projects: [project] });
-    await user.type(field(), "@");
+    await openChat({ projects: [project] });
+    typeInComposer("@");
     const picker = await screen.findByRole("listbox", { name: "Pessoas" });
     const chosen = within(picker).getAllByRole("option").filter((option) => option.getAttribute("aria-disabled") !== "true");
-    expect(chosen.map((option) => option.querySelector(".chat-option-title")?.textContent)).toEqual(["Caio"]);
+    expect(chosen.map((option) => option.querySelector(".mention-option-title")?.textContent)).toEqual(["Caio"]);
     expect(within(picker).getByRole("option", { name: /Bia/ })).toHaveTextContent("Não enxerga o projeto deste ticket");
   });
 
   it("opens the picker with @ and keeps what is typed in the field; Esc closes only the picker and leaves the text", async () => {
     const { user } = await openChat();
-    await user.type(field(), "olá @");
+    typeInComposer("olá @");
     expect(await screen.findByRole("listbox", { name: "Pessoas" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Mensagem" })).toHaveValue("olá @");
+    expect(composerShown()).toBe("olá @");
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("listbox", { name: "Pessoas" })).toBeNull();
-    expect(field()).toHaveValue("olá @");
+    expect(composerShown()).toBe("olá @");
     expect(panel()).toBeInTheDocument();
     expect(field()).toHaveFocus();
   });
 
   it("with a mention the button opens a thread that does not go to the assistant, and sends the ids", async () => {
     const { chat, client, user } = await openChat();
-    await user.type(field(), "Bia, pode olhar?");
-    await pick(user, "Bia");
+    typeInComposer("Bia, pode olhar?");
+    await mention("Bia");
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
-    await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledWith(chat.principalOf("t1")!, { body: "Bia, pode olhar?", mentions: ["person-2"] }, expect.anything()));
+    await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledWith(chat.principalOf("t1")!, { body: `Bia, pode olhar? ${linkOf("person-2", "Bia")}`, mentions: ["person-2"] }, expect.anything()));
     expect(await within(panel()).findByRole("button", { name: /Thread com Bia/ })).toBeInTheDocument();
     expect(chat.conversationOf("t1").filter((message) => message.authorId === null)).toHaveLength(0);
     expect(screen.queryByText("Resposta do assistente.")).toBeNull();
-    expect(field()).toHaveValue("");
+    expect(composerShown()).toBe("");
     expect(screen.queryByRole("button", { name: /Remover menção/ })).toBeNull();
   });
 
   it("never searches the text for names: a pasted \"@Bia\" stays text and goes to the assistant without mentions", async () => {
     const { client, user } = await openChat();
-    fireEvent.change(field(), { target: { value: "@Bia oi" } });
+    fillComposer("@Bia oi");
     expect(screen.queryByRole("listbox", { name: "Pessoas" })).toBeNull();
-    expect(field()).toHaveValue("@Bia oi");
+    expect(composerShown()).toBe("@Bia oi");
     await user.click(field());
     await user.keyboard("{Enter}");
     await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalled());
@@ -157,11 +155,11 @@ describe("mentions", () => {
   it("flags the people the API refused and keeps the text", async () => {
     const { client, user } = await openChat();
     vi.mocked(client.sendChatMessage).mockResolvedValueOnce(failed("unavailable", "mention_not_allowed", undefined));
-    await user.type(field(), "Oi");
-    await pick(user, "Caio");
+    typeInComposer("Oi");
+    await mention("Caio");
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Alguém marcado não pode participar desta conversa");
-    expect(field()).toHaveValue("Oi");
+    expect(composerShown()).toBe("Oi @Caio ");
     expect(screen.getByRole("button", { name: "Remover menção a Caio" })).toBeInTheDocument();
   });
 });
@@ -170,7 +168,7 @@ describe("failures talking to the assistant", () => {
   it("keeps the message as unanswered with Tentar de novo when the provider fails, and sends it again", async () => {
     const { client, user } = await openChat();
     vi.mocked(client.sendChatMessage).mockResolvedValueOnce(failed("unavailable", "assistant_unavailable"));
-    await user.type(field(), "Me ajuda{Enter}");
+    typeInComposer("Me ajuda{Enter}");
     expect(await screen.findByText("Não respondida")).toBeInTheDocument();
     expect(within(log()).getByText("Me ajuda")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Tentar de novo" }));
@@ -183,12 +181,12 @@ describe("failures talking to the assistant", () => {
     ["chat_busy", "conflict", /Já há uma mensagem sua esperando/],
     ["chat_changed", "conflict", /A conversa mudou em outro aparelho/],
   ] as const)("on %s reloads the conversation, warns and keeps what was typed", async (code, kind, phrase) => {
-    const { client, user } = await openChat({ seed: (chat) => chat.seedConversation("t1", [{ person: "antes", assistant: "ok" }]) });
+    const { client } = await openChat({ seed: (chat) => chat.seedConversation("t1", [{ person: "antes", assistant: "ok" }]) });
     vi.mocked(client.sendChatMessage).mockResolvedValueOnce(failed(kind, code));
     const loads = readCalls(client).length;
-    await user.type(field(), "texto que não pode se perder{Enter}");
+    typeInComposer("texto que não pode se perder{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent(phrase);
-    expect(field()).toHaveValue("texto que não pode se perder");
+    expect(composerShown()).toBe("texto que não pode se perder");
     await waitFor(() => expect(readCalls(client).length).toBeGreaterThan(loads));
     expect(await within(log()).findByText("ok")).toBeInTheDocument();
     expect(screen.queryByText("Não respondida")).toBeNull();
@@ -198,28 +196,28 @@ describe("failures talking to the assistant", () => {
     const { chat, user } = await openChat({ assistant: "no_consent", me: makeMe({ assistant: true, consent: false }) });
     expect(await screen.findByRole("alert")).toHaveTextContent("A IA está desligada nesta organização. Um administrador precisa ativá-la em Configurações. As threads com outras pessoas continuam funcionando.");
     expect(screen.getByRole("alert")).not.toHaveTextContent("Crie o ticket manualmente");
-    await user.type(field(), "Oi assistente");
+    typeInComposer("Oi assistente");
     expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
-    await mention(user, "Bia", field());
-    expect(field()).toHaveValue("Oi assistente");
+    await mention("Bia");
+    expect(composerShown()).toBe("Oi assistente @Bia ");
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
     expect(await within(panel()).findByRole("button", { name: /Thread com Bia/ })).toBeInTheDocument();
     expect(chat.conversationOf("t1").filter((message) => message.authorId === null)).toHaveLength(0);
   });
 
   it("learns that the consent is missing from the server's answer and shows the phrase", async () => {
-    const { user } = await openChat({ assistant: "no_consent" });
-    await user.type(field(), "Oi{Enter}");
+    await openChat({ assistant: "no_consent" });
+    typeInComposer("Oi{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent("As threads com outras pessoas continuam funcionando.");
     expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
-    expect(field()).toHaveValue("Oi");
+    expect(composerShown()).toBe("Oi");
   });
 
   it("without a provider on the server says so and still lets people open threads", async () => {
-    const { user } = await openChat({ assistant: "not_configured" });
-    await user.type(field(), "Oi{Enter}");
+    await openChat({ assistant: "not_configured" });
+    typeInComposer("Oi{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent("A IA não está configurada neste servidor");
-    await user.type(field(), " @");
+    typeInComposer(" @");
     expect(await screen.findByRole("listbox", { name: "Pessoas" })).toBeInTheDocument();
   });
 
@@ -300,8 +298,8 @@ describe("rendering text safely", () => {
   it("shows the assistant's reply without images, raw HTML or dangerous links, and fetches nothing", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
-    const { user } = await openChat({ reply: () => hostile });
-    await user.type(field(), "Mostre{Enter}");
+    await openChat({ reply: () => hostile });
+    typeInComposer("Mostre{Enter}");
     await screen.findByText(/clique/);
     await waitFor(() => expect(document.querySelector(".chat-assistant .tiptap")).not.toBeNull());
     const scope = log();
@@ -348,17 +346,17 @@ describe("rendering text safely", () => {
 
 describe("archived project and languages", () => {
   it("is read-only in an archived project: says so, turns the field, mention and send off, and does not send", async () => {
-    const { client, user } = await openChat({ tickets: [{ ...ALFA2, assignedToMe: true, archived: true }] }, "ALFA-2");
+    const { client } = await openChat({ tickets: [{ ...ALFA2, assignedToMe: true, archived: true }] }, "ALFA-2");
     expect(await screen.findByText("O projeto está arquivado e só aceita leitura.")).toBeInTheDocument();
-    expect(field()).toHaveAttribute("readonly");
+    expect(field()).toHaveAttribute("contenteditable", "false");
     expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
     // O campo é só de leitura: o `@` não escreve nada nem abre a lista (e o campo diz que não está expandido).
-    await user.type(field(), "@");
+    typeInComposer("@");
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(field()).toHaveAttribute("aria-expanded", "false");
-    expect(field()).toHaveValue("");
-    await user.type(field(), "Oi{Enter}");
-    expect(field()).toHaveValue("");
+    expect(composerShown()).toBe("");
+    typeInComposer("Oi{Enter}");
+    expect(composerShown()).toBe("");
     expect(client.sendChatMessage).not.toHaveBeenCalled();
   });
 
@@ -374,7 +372,7 @@ describe("archived project and languages", () => {
     expect(screen.getByText("The assistant sees this ticket and looks up the others you can see. It doesn't create or change anything.")).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Load earlier messages" }));
     expect(readCalls(client).at(-1)![1]).toMatchObject({ before: expect.stringMatching(/^c\d+$/) });
-    await user.type(screen.getByRole("combobox", { name: "Message" }), "@");
+    typeInComposer("@", composerNow("Message"));
     expect(await screen.findByRole("listbox", { name: "People" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Mention" })).toBeNull();
   });
@@ -387,7 +385,7 @@ describe("archived project and languages", () => {
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
     const view = await screen.findByRole("complementary", { name: "Conversación" });
     expect(screen.getByRole("combobox", { name: "Mensaje" })).toBeInTheDocument();
-    await user.type(screen.getByRole("combobox", { name: "Mensaje" }), "@");
+    typeInComposer("@", composerNow("Mensaje"));
     expect(await screen.findByRole("listbox", { name: "Personas" })).toBeInTheDocument();
     expect(await within(view).findByRole("button", { name: /Thread con Bia/ })).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/hilo/i);

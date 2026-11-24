@@ -159,13 +159,13 @@ describe("blocks menu (/)", () => {
   });
 });
 
-describe("mentions (@)", () => {
+describe("mentions (#)", () => {
   it("lists the tickets of the project without the open one, filters, inserts the key as text and shows it as a mention", async () => {
     const { screen, update } = await open("Ver");
     await screen.getByText("Ver").click();
     await editableFocused();
-    await userEvent.keyboard("{Control>}{End}{/Control} @");
-    const list = screen.getByRole("listbox", { name: "Mencionar ticket" });
+    await userEvent.keyboard("{Control>}{End}{/Control} #");
+    const list = screen.getByRole("listbox", { name: "Tickets" });
     await expect.element(list).toBeVisible();
     await expect.poll(() => document.querySelectorAll("[role=option]").length).toBe(2);
     await expect.element(list.getByText("ALFA-2")).not.toBeInTheDocument();
@@ -175,8 +175,17 @@ describe("mentions (@)", () => {
     await expect.element(screen.getByRole("listbox")).not.toBeInTheDocument();
     await userEvent.keyboard("agora{Control>}{Enter}{/Control}");
     await expect.poll(() => update.mock.calls.length).toBe(1);
-    expect(lastDescription(update)).toBe("Ver ALFA-5 agora");
+    expect(lastDescription(update)).toBe("Ver #ALFA-5 agora");
     await expect.element(screen.getByRole("link", { name: /ALFA-5 Fase vazia/ })).toBeVisible();
+  });
+
+  it("'@' in the description opens nothing", async () => {
+    const { screen } = await open("Ver");
+    await screen.getByText("Ver").click();
+    await editableFocused();
+    await userEvent.keyboard("{Control>}{End}{/Control} @");
+    await new Promise((r) => setTimeout(r, 300));
+    expect(document.querySelectorAll("[role=listbox], [role=menu]").length).toBe(0);
   });
 
   it("clicking a mention in the reading opens that ticket", async () => {

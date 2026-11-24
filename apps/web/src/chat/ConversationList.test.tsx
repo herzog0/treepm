@@ -1,12 +1,21 @@
 import { cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { personLink } from "@treepm/domain";
 import { ALFA1, ALFA2, renderChats } from "./chatTesting.js";
 
 const rowsOf = () => [...document.querySelectorAll<HTMLButtonElement>("button.conv-row")];
 const level = (row: HTMLElement) => row.style.getPropertyValue("--conv-level");
 
 describe("the conversations tree in the sidebar", () => {
+  it("shows @Name, never the raw person link, in the preview and in the label", async () => {
+    renderChats({ seed: (chat) => chat.receiveThread("t1", { from: "person-2", body: `Oi ${personLink("person-3", "Caio")}, olha isto`, replies: [] }) });
+    await screen.findByRole("button", { name: /ALFA-1/ });
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("@Caio");
+    expect(text).not.toContain("person:");
+  });
+
   it("is there from the start, with no button to open it, and the general chat comes first", async () => {
     renderChats({ tickets: [ALFA2] });
     expect(await screen.findByRole("heading", { name: "Conversas" })).toBeInTheDocument();

@@ -10,7 +10,7 @@ const KNOWN_CODES = new Set([
   "grouping_changed", "placement_stale", "draft_required", "ticket_has_no_items", "github_unavailable", "not_connected",
   "installation_unavailable", "repository_already_linked", "repository_not_found", "person_without_project_access", "assistant_consent_required", "contribution_area_taken", "area_in_use", "ticket_in_idea",
   "unknown_ticket_keys", "description_too_long", "request_too_long",
-  "chat_busy", "chat_changed", "mention_not_allowed", "participant_cannot_view_ticket", "cannot_mention_self", "too_many_mentions", "thread_full", "max_depth", "not_thread_owner", "principal_conversation", "ticket_mismatch", "not_principal", "chat_thread_rate_limited", "chat_rate_limited", "invalid_cursor",
+  "chat_busy", "chat_changed", "mention_not_allowed", "mention_mismatch", "person_mention_not_allowed", "participant_cannot_view_ticket", "cannot_mention_self", "too_many_mentions", "thread_full", "max_depth", "not_thread_owner", "principal_conversation", "ticket_mismatch", "not_principal", "chat_thread_rate_limited", "chat_rate_limited", "invalid_cursor",
   "test_people_total_limit", "display_name_taken", "invalid_display_name",
 ] as const);
 type KnownCode = typeof KNOWN_CODES extends Set<infer C> ? C : never;

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import { withoutPersonLinksDeep } from "@treepm/domain";
 import { useTranslation } from "react-i18next";
 import type { ApiResult, ChatMessage, ConversationNode, ConversationView as ConversationData, Person, ThreadCard, TicketSummary } from "../api/client.js";
 import { assistantEnabled, assistantNeedsConsent } from "../api/client.js";
@@ -17,6 +18,7 @@ import type { ConversationRef } from "./ChatsContext.js";
 import { topicLabel, useChats } from "./ChatsContext.js";
 import { Composer } from "./Composer.js";
 import type { Draft } from "./Composer.js";
+import type { ComposerHandle } from "./ComposerEditor.js";
 import { peopleWhoSee } from "./directory.js";
 import { citedTickets, hashedKeys, projectKeyOf, ticketKeyRefs, ticketsByKey, wantsTickets } from "./mentions.js";
 import { AssistantText, Initials, PersonText } from "./MessageText.js";
@@ -34,7 +36,7 @@ const withDeadline = <T,>(promise: Promise<T>, ms: number): Promise<T | null> =>
     void promise.then((value) => { clearTimeout(timer); resolve(value); }, () => { clearTimeout(timer); resolve(null); });
   });
 /** Códigos em que a mensagem não foi guardada e a pessoa precisa dela de volta no campo (não é uma "não respondida" para repetir). */
-const KEEP_TEXT = new Set(["chat_busy", "chat_changed", "chat_rate_limited", "chat_thread_rate_limited", "project_archived", "validation_error", "invalid_cursor", "not_found", "max_depth", "thread_full", "mention_not_allowed", "participant_cannot_view_ticket", "too_many_mentions", "cannot_mention_self"]);
+const KEEP_TEXT = new Set(["chat_busy", "chat_changed", "chat_rate_limited", "chat_thread_rate_limited", "project_archived", "validation_error", "invalid_cursor", "not_found", "max_depth", "thread_full", "mention_not_allowed", "mention_mismatch", "participant_cannot_view_ticket", "too_many_mentions", "cannot_mention_self"]);
 /** O que se lê de um chat geral que a pessoa ainda não abriu: nada, e nenhuma requisição. */
 const EMPTY: ConversationData = { conversation: null, ticket: null, assignedToMe: false, lastRead: null, unread: 0, messages: { items: [], nextBefore: null }, threads: [] };
 
@@ -129,7 +131,7 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   const [off, setOff] = useState<"consent" | "provider" | null>(null);
   const [threadSending, setThreadSending] = useState(false);
   const scroller = useRef<HTMLUListElement>(null);
-  const field = useRef<HTMLTextAreaElement>(null);
+  const field = useRef<ComposerHandle>(null);
   const marked = useRef<string | null>(null);
   const nextId = useRef(0);
   const alive = useRef(true);
@@ -271,6 +273,8 @@ export function ConversationView({ target, active }: ConversationViewProps) {
     return candidates.filter((person) => !inside.has(person.id));
   }, [candidates, info]);
   const names = useMemo(() => new Map(directory.status === "ready" ? directory.people.map((person) => [person.id, person.displayName]) : []), [directory]);
+  // Para o destaque `@Nome` das mensagens: o nome atual de cada pessoa; só quando o diretório chegou (antes, vale o nome guardado na mensagem).
+  const knownNames = directory.status === "ready" ? names : undefined;
   const peopleStatus = directory.status === "ready" ? "ready" : directory.status === "error" ? "error" : "loading";
   const assistantOff = off ?? (me === null ? null : assistantNeedsConsent(me) ? "consent" : !assistantEnabled(me) ? "provider" : null);
   const archived = ticket?.archived === true;
@@ -458,7 +462,7 @@ export function ConversationView({ target, active }: ConversationViewProps) {
     setRefused([]);
     const wasNew = conversationId.current === null;
     const created = await safe(ensureConversation);
-    const result = !created.ok ? created : await safe(() => client.sendChatMessage(created.data, { body: text, ...(mentions.length > 0 ? { mentions } : {}) }, { signal: new AbortController().signal }));
+    const result = !created.ok ? created : await safe(() => client.sendChatMessage(created.data, { body: text.trim(), ...(mentions.length > 0 ? { mentions } : {}) }, { signal: new AbortController().signal }));
     if (!alive.current) return;
     setThreadSending(false);
     if (!result.ok) {
@@ -519,7 +523,7 @@ export function ConversationView({ target, active }: ConversationViewProps) {
       return;
     }
     const people = next.mentions.length > 0;
-    const result = await safe(() => client.sendChatMessage(opened.data.id, { body: people ? next.text : next.text.trim(), ...(people ? { mentions: next.mentions } : {}) }, { signal: new AbortController().signal }));
+    const result = await safe(() => client.sendChatMessage(opened.data.id, { body: next.text.trim(), ...(people ? { mentions: next.mentions } : {}) }, { signal: new AbortController().signal }));
     if (!result.ok) chats.stashHandoff(conversation, { text: next.text, mentions: next.mentions, error: describe(result.error) });
     void chats.refresh();
   };
@@ -618,7 +622,7 @@ export function ConversationView({ target, active }: ConversationViewProps) {
               )}
             </Reveal>
           ) : (
-            <PersonText text={message.body} byKey={byKey} onOpenTicket={chats.showTicket} />
+            <PersonText text={message.body} byKey={byKey} onOpenTicket={chats.showTicket} names={knownNames} />
           )}
           {card && <ThreadFooter card={card} selfId={selfId} onOpen={() => openCard(card)} />}
         </div>
@@ -636,9 +640,9 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   );
 
   const currentLabel =
-    isTopic ? topicLabel(info?.title, info?.opening?.body.slice(0, 40), t("row.topic")) : kind === "thread" ? threadTitle(t, info?.participants ?? [], info?.participants.length ?? 0, selfId) : kind === "general" ? t("row.general") : (ticket?.key ?? "");
+    isTopic ? topicLabel(info?.title, info?.opening ? withoutPersonLinksDeep(info.opening.body).slice(0, 40) : undefined, t("row.topic")) : kind === "thread" ? threadTitle(t, info?.participants ?? [], info?.participants.length ?? 0, selfId) : kind === "general" ? t("row.general") : (ticket?.key ?? "");
   const trailLabel = (item: { kind: "ticket" | "general" | "thread"; label: string | null; title: string | null }) =>
-    item.kind === "general" ? t("row.general") : item.kind === "ticket" ? (ticket?.key ?? t("row.main")) : (item.title !== null ? topicLabel(item.title, item.label, t("row.topic")) : (item.label ?? t("row.thread")));
+    item.kind === "general" ? t("row.general") : item.kind === "ticket" ? (ticket?.key ?? t("row.main")) : (item.title !== null ? topicLabel(item.title, item.label, t("row.topic")) : (item.label ? withoutPersonLinksDeep(item.label) : t("row.thread")));
   const mentionNames = new Intl.ListFormat(i18n.language, { style: "long", type: "conjunction" }).format(draft.mentions.map((personId) => names.get(personId) ?? personId));
   /** O que vai acontecer ao enviar, dito antes (ADR 0056). */
   const notice = routing
@@ -742,7 +746,7 @@ export function ConversationView({ target, active }: ConversationViewProps) {
                 <Initials name={me?.person.displayName ?? ""} />
                 <div className="chat-message-main">
                   <span className="chat-author">{t("message.you")}</span>
-                  <PersonText text={pending.body} />
+                  <PersonText text={pending.body} byKey={byKey} names={knownNames} />
                   {pending.status === "failed" && (
                     <p className="chat-unanswered">
                       <span>{t("assistant.unanswered")}</span>

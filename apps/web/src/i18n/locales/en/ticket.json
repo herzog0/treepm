@@ -47,7 +47,7 @@
     "heading": "Description",
     "empty": "No description.",
     "placeholder": "Click to write the description.",
-    "hint": "Click the text to edit. Type / for blocks and @ to mention a ticket.",
+    "hint": "Click the text to edit. Type / for blocks and # to mention a ticket.",
     "saving": "Saving…",
     "saved": "Saved",
     "task": "Task: {{text}}",

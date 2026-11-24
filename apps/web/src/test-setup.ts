@@ -44,6 +44,17 @@ beforeEach(async () => {
   });
 });
 
+// jsdom não faz layout: o ProseMirror pergunta onde está o cursor (`coordsAtPos`, `posAtCoords`) ao rolar até a seleção e ao tratar o clique.
+// Estes substitutos devolvem caixas vazias, só para essas perguntas não estourarem; quem mede posição de verdade é a suíte de navegador.
+const emptyRect = { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}) } as DOMRect;
+const emptyRects = () => Object.assign([], { item: () => null }) as unknown as DOMRectList;
+Range.prototype.getBoundingClientRect = () => emptyRect;
+Range.prototype.getClientRects = emptyRects;
+Element.prototype.getClientRects = function getClientRects() {
+  return emptyRects();
+};
+document.elementFromPoint = () => null;
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();

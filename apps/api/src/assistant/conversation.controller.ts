@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Logger, Param, Post, Query, ServiceUnavailableException, UnprocessableEntityException } from "@nestjs/common";
+import { rawPersonRefIds } from "@treepm/domain";
 import type { TenantClient } from "@treepm/db";
 import { CurrentPrincipal } from "../access/principal.js";
 import type { Principal } from "../access/principal.js";
@@ -80,6 +81,11 @@ export class ConversationController {
     const mentions = body.mentions ?? [];
     // O acesso à conversa vem antes de tudo (404), inclusive antes da porta do aceite.
     const { kind, purpose } = await tenant.run((tx, principal) => this.conversations.kindOf(tx, principal, id));
+    // ADR 0058: o texto não cita pessoa que não esteja na lista enviada à parte (o servidor não decide participante pelo texto).
+    // A varredura é crua (sem exceção para código): mensagem é texto, não markdown; a web conta igual.
+    if (rawPersonRefIds(body.body).some((personId) => !mentions.includes(personId))) {
+      throw new UnprocessableEntityException({ code: "mention_mismatch", message: "O texto marca uma pessoa que não está na lista de marcados." });
+    }
     if (body.topic === true) {
       // Pedido que não cabe é 422, sem gastar IA e sem gravar nada; o aceite e o provedor vêm depois da forma e antes de tudo o mais.
       if (mentions.length > 0) throw new UnprocessableEntityException({ code: "topic_with_mentions", message: "Um assunto novo não marca ninguém: ele é só seu e do assistente." });
