@@ -94,7 +94,7 @@ export function TicketChat({ ticketId, active }: TicketChatProps) {
   const alive = useRef(true);
   const keepScroll = useRef<number | null>(null);
   const focused = useRef(false);
-  useEffect(() => () => { alive.current = false; }, []);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => chats.loadDirectory(), [chats.loadDirectory]);
 
   /** Traz a página mais nova. `replace` troca tudo (a conversa mudou em outro aparelho); sem ele, junta ao que já está (a atualização automática). */
