@@ -24,10 +24,10 @@
     "gone": "Esta conversa não existe mais. Escolha outra na barra."
   },
   "notice": {
-    "assistant": "O assistente vê o texto do ticket e esta conversa. Ele não executa nem altera nada.",
+    "assistant": "O assistente vê este ticket e consulta os outros que você enxerga. Ele não cria nem altera nada.",
     "noConsent": "A IA está desligada nesta organização. Um administrador precisa ativá-la em Configurações. As threads com outras pessoas continuam funcionando.",
     "noProvider": "A IA não está configurada neste servidor. Você ainda pode abrir threads com outras pessoas.",
-    "general": "O assistente vê só esta conversa. Ele não executa nem altera nada."
+    "general": "O assistente consulta os tickets dos projetos que você enxerga. Ele não cria nem altera nada."
   },
   "log": {
     "label": "Mensagens",
@@ -52,30 +52,23 @@
     "unread_many": "{{count}} não lidas",
     "unread_other": "{{count}} não lidas",
     "reply": "Responder na thread",
-    "replyPlaceholder": "Responda para quem participa da thread, ou use Mencionar para abrir outra thread",
+    "replyPlaceholder": "Responda para quem participa da thread, ou use @ para abrir outra thread",
     "opened": "Thread aberta."
   },
   "composer": {
     "label": "Mensagem",
-    "placeholder": "Fale com o assistente, ou use Mencionar para abrir uma thread",
-    "placeholderThreads": "Use Mencionar para abrir uma thread com outras pessoas",
+    "placeholder": "Fale com o assistente, use @ para chamar alguém ou # para citar um ticket",
+    "placeholderThreads": "Use @ para abrir uma thread com outras pessoas",
     "send": "Enviar",
     "sendThread": "Abrir thread",
-    "mention": "Mencionar",
     "pills": "Pessoas mencionadas",
     "removeMention": "Remover menção a {{name}}",
     "refused": "não pode ser marcada aqui",
     "count": "{{length}} de {{max}}",
     "over": "{{length}} de {{max}}: passou do limite",
     "opensThread": "Esta mensagem abre uma thread com {{names}}. Quem já está nesta conversa também participa.",
-    "noMoreLevels": "Esta conversa está no último nível: não dá para abrir outra thread aqui dentro."
-  },
-  "picker": {
-    "label": "Mencionar pessoas",
-    "search": "Buscar pessoa",
-    "none": "Ninguém para mencionar.",
-    "loading": "Carregando as pessoas…",
-    "failed": "Não foi possível carregar as pessoas."
+    "noMoreLevels": "Esta conversa está no último nível: não dá para abrir outra thread aqui dentro.",
+    "willLabel": "O que vai acontecer"
   },
   "row": {
     "general": "Meu chat",
@@ -101,16 +94,32 @@
     "done": "Pessoas incluídas na thread.",
     "unknownPerson": "Alguém"
   },
-  "topic": {
-    "add": "Sobre o ticket…",
-    "about": "Sobre o ticket",
-    "label": "Sobre o ticket (opcional)",
-    "placeholder": "Chave ou título do ticket",
-    "loading": "Carregando os tickets…",
-    "failed": "Não foi possível carregar os tickets.",
-    "none": "Nenhum ticket encontrado.",
-    "remove": "Tirar o ticket {{key}} da thread",
-    "removeShort": "Tirar",
-    "retry": "Tentar de novo"
+  "picker": {
+    "people": "Pessoas",
+    "tickets": "Tickets",
+    "hintPeople": "↑↓ escolher · Enter ou Tab confirmar · Esc fechar",
+    "hintTickets": "Procura por chave ou título · só projetos que você enxerga",
+    "noProject": "Não enxerga o projeto deste ticket",
+    "noneTickets": "Nenhum ticket encontrado.",
+    "loadingTickets": "Carregando os tickets…",
+    "failedTickets": "Não foi possível carregar os tickets.",
+    "retry": "Tentar de novo",
+    "none": "Ninguém para mencionar.",
+    "search": "Buscar pessoa",
+    "loading": "Carregando as pessoas…",
+    "failed": "Não foi possível carregar as pessoas.",
+    "pathSeparator": " › ",
+    "sub": "{{path}} · {{state}}"
+  },
+  "will": {
+    "toTicket": "Vai para a conversa do {{key}}.",
+    "ticketAndThread": "Abre a conversa do {{key}} e, dentro dela, uma thread com {{names}}.",
+    "reference": "Fica nesta conversa. O assistente lê os tickets citados.",
+    "referenceThread": "Fica nesta thread. Os tickets citados são só referência.",
+    "checking": "Conferindo os tickets citados…",
+    "checkFailed": "Não foi possível conferir os tickets citados. Seu texto continua no campo; tente de novo."
+  },
+  "link": {
+    "ticket": "{{key}} {{title}}, {{status}}"
   }
 }

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { failed, makeMe, makeProject } from "../test/fakes.js";
 import { setTestLanguage } from "../test/i18n.js";
 import { ALFA2, renderChats } from "./chatTesting.js";
+import { mention } from "./mentionTesting.js";
 import type { ChatSetup } from "./chatTesting.js";
 
 afterEach(() => {
@@ -19,10 +20,10 @@ async function openChat(setup: ChatSetup = {}, ticketKey = "ALFA-1", fieldName: 
   const user = userEvent.setup();
   const view = renderChats(setup);
   await user.click(await screen.findByRole("button", { name: new RegExp(`^${ticketKey}`) }));
-  await screen.findByRole("textbox", { name: fieldName });
+  await screen.findByRole("combobox", { name: fieldName });
   return { user, ...view };
 }
-const field = () => screen.getByRole("textbox", { name: "Mensagem" });
+const field = () => screen.getByRole("combobox", { name: "Mensagem" });
 const log = () => screen.getByRole("log", { name: "Mensagens" });
 const panel = () => screen.getByRole("complementary", { name: "Conversa" });
 const readCalls = (client: Chats["client"]) => [...vi.mocked(client.getTicketConversationView).mock.calls, ...vi.mocked(client.getConversationView).mock.calls];
@@ -64,7 +65,7 @@ describe("writing in the open conversation", () => {
 
   it("states what the assistant sees and that it does not run or change anything", async () => {
     await openChat();
-    expect(screen.getByText("O assistente vê o texto do ticket e esta conversa. Ele não executa nem altera nada.")).toBeInTheDocument();
+    expect(screen.getByText("O assistente vê este ticket e consulta os outros que você enxerga. Ele não cria nem altera nada.")).toBeInTheDocument();
   });
 
   it("shows the message at once, a skeleton in place of the reply, and then the reply", async () => {
@@ -92,39 +93,39 @@ describe("writing in the open conversation", () => {
 });
 
 describe("mentions", () => {
-  async function pick(user: User, name: string) {
-    await user.click(screen.getByRole("button", { name: "Mencionar" }));
-    await user.click(within(await screen.findByRole("dialog", { name: "Mencionar pessoas" })).getByRole("button", { name }));
-  }
+  const pick = (user: User, name: string) => mention(user, name, field());
 
   it("offers only active people, never oneself, and turns the choice into a removable pill", async () => {
     const { user } = await openChat();
-    await user.click(screen.getByRole("button", { name: "Mencionar" }));
-    const picker = await screen.findByRole("dialog", { name: "Mencionar pessoas" });
-    expect(within(picker).getAllByRole("button").map((button) => button.textContent)).toEqual(["Bia", "Caio"]);
-    await user.click(within(picker).getByRole("button", { name: "Bia" }));
-    expect(screen.queryByRole("dialog", { name: "Mencionar pessoas" })).toBeNull();
+    await user.type(field(), "@");
+    const picker = await screen.findByRole("listbox", { name: "Pessoas" });
+    expect(within(picker).getAllByRole("option").map((option) => option.querySelector(".chat-option-title")?.textContent)).toEqual(["Bia", "Caio"]);
+    await user.click(within(picker).getByRole("option", { name: "Bia" }));
+    expect(screen.queryByRole("listbox", { name: "Pessoas" })).toBeNull();
     expect(field()).toHaveFocus();
     expect(screen.getByRole("button", { name: "Remover menção a Bia" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Remover menção a Bia" }));
     expect(screen.queryByRole("button", { name: "Remover menção a Bia" })).toBeNull();
   });
 
-  it("in a private project only people who see it are offered", async () => {
+  it("in a private project only people who see it can be chosen; the others show dimmed, with the reason", async () => {
     const project = makeProject("p1", "ALFA", "Projeto Alfa", { visibility: "private", members: [{ personId: "person-1", role: "manager" }, { personId: "person-3", role: "reader" }] });
     const { user } = await openChat({ projects: [project] });
-    await user.click(screen.getByRole("button", { name: "Mencionar" }));
-    const picker = await screen.findByRole("dialog", { name: "Mencionar pessoas" });
-    expect(within(picker).getAllByRole("button").map((button) => button.textContent)).toEqual(["Caio"]);
+    await user.type(field(), "@");
+    const picker = await screen.findByRole("listbox", { name: "Pessoas" });
+    const chosen = within(picker).getAllByRole("option").filter((option) => option.getAttribute("aria-disabled") !== "true");
+    expect(chosen.map((option) => option.querySelector(".chat-option-title")?.textContent)).toEqual(["Caio"]);
+    expect(within(picker).getByRole("option", { name: /Bia/ })).toHaveTextContent("Não enxerga o projeto deste ticket");
   });
 
-  it("opens the same picker with @ and takes the @ out of the text; Esc closes only the picker", async () => {
+  it("opens the picker with @ and keeps what is typed in the field; Esc closes only the picker and leaves the text", async () => {
     const { user } = await openChat();
     await user.type(field(), "olá @");
-    expect(await screen.findByRole("dialog", { name: "Mencionar pessoas" })).toBeInTheDocument();
-    expect(field()).toHaveValue("olá ");
+    expect(await screen.findByRole("listbox", { name: "Pessoas" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Mensagem" })).toHaveValue("olá @");
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "Mencionar pessoas" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Pessoas" })).toBeNull();
+    expect(field()).toHaveValue("olá @");
     expect(panel()).toBeInTheDocument();
     expect(field()).toHaveFocus();
   });
@@ -145,7 +146,7 @@ describe("mentions", () => {
   it("never searches the text for names: a pasted \"@Bia\" stays text and goes to the assistant without mentions", async () => {
     const { client, user } = await openChat();
     fireEvent.change(field(), { target: { value: "@Bia oi" } });
-    expect(screen.queryByRole("dialog", { name: "Mencionar pessoas" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Pessoas" })).toBeNull();
     expect(field()).toHaveValue("@Bia oi");
     await user.click(field());
     await user.keyboard("{Enter}");
@@ -199,8 +200,7 @@ describe("failures talking to the assistant", () => {
     expect(screen.getByRole("alert")).not.toHaveTextContent("Crie o ticket manualmente");
     await user.type(field(), "Oi assistente");
     expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Mencionar" }));
-    await user.click(await screen.findByRole("button", { name: "Bia" }));
+    await mention(user, "Bia", field());
     expect(field()).toHaveValue("Oi assistente");
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
     expect(await within(panel()).findByRole("button", { name: /Thread com Bia/ })).toBeInTheDocument();
@@ -219,7 +219,8 @@ describe("failures talking to the assistant", () => {
     const { user } = await openChat({ assistant: "not_configured" });
     await user.type(field(), "Oi{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent("A IA não está configurada neste servidor");
-    expect(screen.getByRole("button", { name: "Mencionar" })).toBeEnabled();
+    await user.type(field(), " @");
+    expect(await screen.findByRole("listbox", { name: "Pessoas" })).toBeInTheDocument();
   });
 
   it("clears only the conversation with the assistant, after a confirmation that says threads stay", async () => {
@@ -350,8 +351,12 @@ describe("archived project and languages", () => {
     const { client, user } = await openChat({ tickets: [{ ...ALFA2, assignedToMe: true, archived: true }] }, "ALFA-2");
     expect(await screen.findByText("O projeto está arquivado e só aceita leitura.")).toBeInTheDocument();
     expect(field()).toHaveAttribute("readonly");
-    expect(screen.getByRole("button", { name: "Mencionar" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
+    // O campo é só de leitura: o `@` não escreve nada nem abre a lista (e o campo diz que não está expandido).
+    await user.type(field(), "@");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(field()).toHaveAttribute("aria-expanded", "false");
+    expect(field()).toHaveValue("");
     await user.type(field(), "Oi{Enter}");
     expect(field()).toHaveValue("");
     expect(client.sendChatMessage).not.toHaveBeenCalled();
@@ -364,14 +369,14 @@ describe("archived project and languages", () => {
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
     expect(await screen.findByRole("complementary", { name: "Conversation" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Message" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Message" })).toBeInTheDocument();
     expect(screen.getByRole("log", { name: "Messages" })).toBeInTheDocument();
-    expect(screen.getByText("The assistant sees the ticket text and this conversation. It does not run or change anything.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Mention" })).toBeInTheDocument();
+    expect(screen.getByText("The assistant sees this ticket and looks up the others you can see. It doesn't create or change anything.")).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Load earlier messages" }));
     expect(readCalls(client).at(-1)![1]).toMatchObject({ before: expect.stringMatching(/^c\d+$/) });
-    await user.click(screen.getByRole("button", { name: "Mention" }));
-    expect(await screen.findByRole("dialog", { name: "Mention people" })).toBeInTheDocument();
+    await user.type(screen.getByRole("combobox", { name: "Message" }), "@");
+    expect(await screen.findByRole("listbox", { name: "People" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Mention" })).toBeNull();
   });
 
   it("renders in Mexican Spanish and keeps the word thread", async () => {
@@ -381,8 +386,9 @@ describe("archived project and languages", () => {
     expect(await screen.findByRole("heading", { name: "Conversaciones" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
     const view = await screen.findByRole("complementary", { name: "Conversación" });
-    expect(screen.getByRole("textbox", { name: "Mensaje" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Mencionar" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Mensaje" })).toBeInTheDocument();
+    await user.type(screen.getByRole("combobox", { name: "Mensaje" }), "@");
+    expect(await screen.findByRole("listbox", { name: "Personas" })).toBeInTheDocument();
     expect(await within(view).findByRole("button", { name: /Thread con Bia/ })).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/hilo/i);
   });
@@ -406,7 +412,7 @@ describe("archived project and languages", () => {
     const user = userEvent.setup();
     renderChats({ assistant: "not_configured" });
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
-    const input = await screen.findByRole("textbox", { name: language === "en" ? "Message" : "Mensaje" });
+    const input = await screen.findByRole("combobox", { name: language === "en" ? "Message" : "Mensaje" });
     await user.type(input, "Oi{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent(phrase);
   });

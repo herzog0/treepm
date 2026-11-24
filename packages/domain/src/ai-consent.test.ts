@@ -12,8 +12,8 @@ const member: Actor = { clerkRole: "member", teamRoles: new Map(), projectRoles:
 const admin: Actor = { ...member, clerkRole: "admin" };
 
 describe("constantes do aceite", () => {
-  it("a versão em vigor é rascunho-2, os tipos são assistant e code_reading e os caminhos são fixos", () => {
-    expect(AI_CONSENT_VERSION).toBe("rascunho-2");
+  it("a versão em vigor é rascunho-3, os tipos são assistant e code_reading e os caminhos são fixos", () => {
+    expect(AI_CONSENT_VERSION).toBe("rascunho-3");
     expect([...AI_CONSENT_KINDS]).toEqual(["assistant", "code_reading"]);
     expect(AI_CONSENT_PATHS).toEqual({ terms: "/termos", privacy: "/privacidade" });
   });

@@ -55,13 +55,9 @@
 .chat-add-people .chat-picker { right: auto; left: 0; top: calc(100% + 6px); bottom: auto; width: 260px; }
 .chat-picker label { display: flex; align-items: center; gap: 8px; min-height: 32px; cursor: pointer; }
 .chat-thread-notice { margin: 0; color: var(--tp-text-2); font-size: 12px; }
+/* A linha de aviso fica sempre montada (o leitor de tela só anuncia o que muda numa região que já existe): vazia, não ocupa lugar. */
+.chat-thread-notice:empty { display: block; min-height: 0; height: 0; overflow: hidden; }
 .chat-levels-note { margin: 0; color: var(--tp-text-3); font-size: 12px; }
-.chat-topic { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; color: var(--tp-text-2); font-size: 12px; }
-.chat-topic code { padding: 1px 8px; border-radius: 11px; background: var(--tp-conv-bg); color: var(--tp-accent-soft); font-size: 12px; }
-.chat-topic input { flex: 1 1 140px; min-width: 0; }
-.chat-topic ul { flex-basis: 100%; display: grid; margin: 0; padding: 0; list-style: none; }
-.chat-topic li button { width: 100%; min-height: 32px; border: 0; border-radius: var(--tp-radius-control); background: transparent; color: var(--tp-text); text-align: left; font: inherit; cursor: pointer; }
-.chat-topic li button:hover { background: var(--tp-selected); }
 .chat-count { margin: 4px 0 0; color: var(--tp-text-3); font-size: 11.5px; }
 .chat-count.is-over { color: var(--tp-danger-text); }
 
@@ -81,12 +77,32 @@
 .chat-panel .ticket-menu button { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; min-height: 32px; padding: 0 8px; border: 0; border-radius: var(--tp-radius-control); background: transparent; color: var(--tp-text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
 .chat-panel .ticket-menu button:hover:not(:disabled), .chat-panel .ticket-menu button:focus-visible { background: var(--tp-selected); }
 .chat-composer-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.chat-picker-anchor { position: relative; }
-.chat-mention-button { min-height: 28px; padding: 0 10px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-raised); color: var(--tp-text); font: inherit; font-size: 12px; cursor: pointer; }
 .chat-picker { position: absolute; z-index: 5; right: 0; bottom: calc(100% + 6px); display: grid; gap: 6px; width: 240px; max-height: 280px; padding: 8px; overflow: auto; border: 1px solid var(--tp-border-strong); border-radius: var(--tp-radius-panel); background: var(--tp-card); box-shadow: 0 8px 24px color-mix(in srgb, var(--tp-bg) 65%, transparent); }
 .chat-picker ul { display: grid; margin: 0; padding: 0; list-style: none; }
 .chat-picker li button { width: 100%; min-height: 32px; padding: 0 8px; border: 0; border-radius: var(--tp-radius-control); background: transparent; color: var(--tp-text); text-align: left; font: inherit; cursor: pointer; }
 .chat-picker li button:hover { background: var(--tp-selected); }
+/* O seletor de @ e #: junto do ponto do texto (posição calculada no navegador), sempre dentro do campo e da tela. */
+.chat-mention-list { z-index: 50; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; box-sizing: border-box; overflow: hidden; border: 1px solid var(--tp-border-strong); border-radius: 12px; background: var(--tp-card); color: var(--tp-text); box-shadow: 0 18px 40px color-mix(in srgb, var(--tp-bg) 70%, transparent); }
+.chat-mention-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--tp-border); color: var(--tp-text-2); font-size: 12px; font-weight: 600; }
+.chat-mention-head b { color: var(--tp-text); font-family: var(--tp-mono, ui-monospace, monospace); overflow-wrap: anywhere; }
+.chat-mention-list .chat-hint { margin: 0; padding: 8px 12px; }
+.chat-mention-list ul { display: block; min-height: 0; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.chat-mention-list [role="option"] { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 12px; cursor: pointer; }
+.chat-mention-list [role="option"][aria-selected="true"] { background: var(--tp-side-selected); color: var(--tp-side-on-selected); }
+.chat-mention-list [role="option"][aria-disabled="true"] { cursor: default; }
+.chat-mention-list [role="option"][aria-disabled="true"] :is(.chat-option-title, .chat-option-sub) { color: var(--tp-text-3); font-weight: 500; }
+.chat-mention-list [role="option"][aria-disabled="true"] .chat-initials { opacity: 0.55; }
+/* A opção apagada que as setas alcançaram (para o leitor de tela ouvir o motivo) mantém o contraste do fundo da escolhida. */
+.chat-mention-list [role="option"][aria-disabled="true"][aria-selected="true"] :is(.chat-option-title, .chat-option-sub) { color: var(--tp-side-on-selected); }
+.chat-option-text { display: grid; flex: 1; min-width: 0; }
+.chat-option-title { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.chat-option-title code { margin-right: 4px; font-size: 11px; opacity: 0.9; }
+.chat-option-sub { overflow: hidden; color: var(--tp-text-2); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.chat-mention-list [role="option"][aria-selected="true"] .chat-option-sub { color: inherit; opacity: 0.8; }
+.chat-mention-hint { margin: 0; padding: 7px 12px; border-top: 1px solid var(--tp-border); color: var(--tp-text-2); font-size: 12px; }
+.chat-ticket-link { display: inline-flex; align-items: center; gap: 5px; margin: 0 1px; padding: 0 7px; border: 1px solid var(--tp-border-strong); border-radius: 5px; background: var(--tp-selected); color: var(--tp-accent-soft); font: inherit; font-size: 0.92em; font-weight: 600; cursor: pointer; vertical-align: baseline; }
+.chat-ticket-link:hover { border-color: var(--tp-accent); }
+.chat-ticket-link:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
 .chat-send { display: grid; place-items: center; min-width: 44px; min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--tp-radius-field); background: var(--tp-side-selected); color: var(--tp-side-on-selected); font-weight: 600; font: inherit; font-size: 12px; cursor: pointer; }
 .chat-send:disabled { background: var(--tp-selected); color: var(--tp-text-3); cursor: default; }
 .chat-send.is-thread { max-width: 150px; text-align: center; line-height: 1.25; }
@@ -101,9 +117,14 @@
   .chat-panel[hidden] { display: none; }
   .chat-icon-button, .chat-panel .ticket-icon-button { width: 44px; height: 44px; }
   .chat-panel .ticket-menu button { min-height: 44px; }
-  .chat-mention-button, .chat-thread-footer, .chat-text-button, .chat-picker li button, .chat-ticket-title { min-height: 44px; }
+  .chat-thread-footer, .chat-text-button, .chat-picker li button, .chat-ticket-title { min-height: 44px; }
   .chat-log { padding: 14px 12px; }
   .chat-composer { margin: 0 12px 12px; }
   .chat-pills button { width: 44px; height: 44px; margin: -11px -4px -11px 0; }
   .chat-composer textarea { font-size: 16px; }
 }
+
+.chat-ticket-link .status-mark { --mark-size: 11px; flex: none; }
+/* A bolinha da situação na lista de tickets: a mesma da barra lateral (`.conv-dot`), não a marca do mapa, que parece uma caixa de seleção. */
+.chat-situation-dot { flex: none; width: 10px; height: 10px; margin: 0 5px; border-radius: 50%; }
+.chat-mention-list [role="option"][aria-selected="true"] .chat-situation-dot { box-shadow: 0 0 0 2px var(--tp-side-selected), 0 0 0 3.5px var(--tp-side-on-selected); }

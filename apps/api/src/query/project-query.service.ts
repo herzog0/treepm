@@ -31,7 +31,8 @@ export const WORK_QUEUE_MAX_LIMIT = 50;
 export type QueueTicket = QueryTicketSummary & { path: { key: string; title: string }[] };
 export type QueryWorkQueue = { tickets: QueueTicket[]; total: number; truncated: boolean; emptyReason: EmptyQueueReason | null };
 
-export type SearchOptions = { limit?: number };
+/** `assignedTo`: só os tickets atribuídos a esta pessoa (o servidor aplica o filtro; nenhum dado de pessoa sai na resposta). */
+export type SearchOptions = { limit?: number; assignedTo?: string };
 export type ListOptions = {
   /** Uma ou mais situações; vazio ou ausente = todas. */
   status?: readonly TicketStatus[];
@@ -40,6 +41,8 @@ export type ListOptions = {
   limit?: number;
   /** Cursor: devolve só tickets de número maior que este (o `after` da página anterior). */
   after?: number;
+  /** Só os tickets atribuídos a esta pessoa. */
+  assignedTo?: string;
 };
 
 type Row = { id: string; number: number; title: string; description: string; status: string; parentId: string | null; agentWorkUntil?: Date | null; priority?: number };
@@ -110,7 +113,10 @@ export class ProjectQueryService {
     const limit = clamp(options.limit, SEARCH_DEFAULT_LIMIT, SEARCH_MAX_LIMIT);
     const rows = await tx.$queryRaw<Row[]>`
       select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil", priority
-      from tickets where project_id = ${projectId}::uuid order by number asc`;
+      from tickets
+      where project_id = ${projectId}::uuid
+        and (${options.assignedTo ?? null}::uuid is null or id in (select ticket_id from ticket_assignees where person_id = ${options.assignedTo ?? null}::uuid))
+      order by number asc`;
     const searchable = rows.map((row) => ({ key: `${project.key}-${row.number}`, number: row.number, title: row.title, descriptionExcerpt: descriptionExcerpt(row.description), row }));
     const found = cut(searchTickets(text, searchable, limit + 1), limit);
     const ideas = await this.annexOf(tx, scopeOf(project), found.rows.map((entry) => entry.row.id));
@@ -195,6 +201,7 @@ export class ProjectQueryService {
       where project_id = ${projectId}::uuid
         and (${statuses.length > 0 ? statuses : null}::text[] is null or status = any(${statuses.length > 0 ? statuses : null}::text[]))
         and (${options.after ?? null}::int is null or number > ${options.after ?? null}::int)
+        and (${options.assignedTo ?? null}::uuid is null or id in (select ticket_id from ticket_assignees where person_id = ${options.assignedTo ?? null}::uuid))
         and (${under}::uuid is null or id in (
           with recursive down as (
             select org_id, project_id, id, 1 as depth from tickets where org_id = ${project.orgId} and project_id = ${projectId}::uuid and parent_id = ${under}::uuid

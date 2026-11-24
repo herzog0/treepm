@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import type { ApiResult, ChatMessage, ConversationNode, ConversationView as ConversationData, ThreadCard, TicketSummary } from "../api/client.js";
+import type { ApiResult, ChatMessage, ConversationNode, ConversationView as ConversationData, Person, ThreadCard, TicketSummary } from "../api/client.js";
 import { assistantEnabled, assistantNeedsConsent } from "../api/client.js";
 import { ConsentRequiredNotice, isConsentRequired } from "../api/ConsentRequired.js";
 import { useDescribeApiError } from "../api/errorText.js";
@@ -18,15 +18,23 @@ import { useChats } from "./ChatsContext.js";
 import { Composer } from "./Composer.js";
 import type { Draft } from "./Composer.js";
 import { peopleWhoSee } from "./directory.js";
+import { citedTickets, hashedKeys, projectKeyOf, ticketKeyRefs, ticketsByKey, wantsTickets } from "./mentions.js";
 import { AssistantText, Initials, PersonText } from "./MessageText.js";
 import { isAtEnd } from "./scroll.js";
 import { threadColor, threadTitle } from "./thread.js";
-import { TicketTopic } from "./TicketTopic.js";
-import type { Topic } from "./TicketTopic.js";
 
 const PAGE = 30;
+/** Quanto se espera pela lista de tickets e pelo diretório antes de desistir de decidir para onde a mensagem vai. */
+const CHECK_MS = 15_000;
+
+/** O resultado da promessa, ou `null` se ela não acabou no prazo. */
+const withDeadline = <T,>(promise: Promise<T>, ms: number): Promise<T | null> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    void promise.then((value) => { clearTimeout(timer); resolve(value); }, () => { clearTimeout(timer); resolve(null); });
+  });
 /** Códigos em que a mensagem não foi guardada e a pessoa precisa dela de volta no campo (não é uma "não respondida" para repetir). */
-const KEEP_TEXT = new Set(["chat_busy", "chat_changed", "chat_rate_limited", "chat_thread_rate_limited", "project_archived", "validation_error", "invalid_cursor", "not_found", "max_depth", "thread_full", "mention_not_allowed", "participant_cannot_view_ticket", "too_many_mentions", "cannot_mention_self", "ticket_mismatch"]);
+const KEEP_TEXT = new Set(["chat_busy", "chat_changed", "chat_rate_limited", "chat_thread_rate_limited", "project_archived", "validation_error", "invalid_cursor", "not_found", "max_depth", "thread_full", "mention_not_allowed", "participant_cannot_view_ticket", "too_many_mentions", "cannot_mention_self"]);
 /** O que se lê de um chat geral que a pessoa ainda não abriu: nada, e nenhuma requisição. */
 const EMPTY: ConversationData = { conversation: null, ticket: null, assignedToMe: false, lastRead: null, unread: 0, messages: { items: [], nextBefore: null }, threads: [] };
 
@@ -89,7 +97,7 @@ interface ConversationViewProps {
 
 /** A conversa aberta (ADR 0055): a principal de um ticket, o chat geral ou uma thread, sempre no mesmo painel. */
 export function ConversationView({ target, active }: ConversationViewProps) {
-  const { t } = useTranslation("chat");
+  const { t, i18n } = useTranslation("chat");
   const chats = useChats()!;
   const { client, directory, version, selfId } = chats;
   const describe = useDescribeApiError();
@@ -99,14 +107,18 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   const [loadFailed, setLoadFailed] = useState(false);
   /** A conversa não existe mais (404): sem "tentar de novo", e a barra se atualiza. */
   const [gone, setGone] = useState(false);
-  const [draft, setDraft] = useState<Draft>({ text: "", mentions: [] });
-  const [topic, setTopic] = useState<Topic | null>(null);
-  const [topicTickets, setTopicTickets] = useState<Record<string, readonly TicketSummary[]> | null>(null);
-  const [topicFailed, setTopicFailed] = useState(false);
+  // Um envio que foi para a conversa de um ticket e falhou deixa o texto de volta no campo desta conversa, com o erro.
+  const handoff = chats.peekHandoff(target);
+  const [draft, setDraft] = useState<Draft>(() => (handoff?.send === true ? { text: "", mentions: [] } : { text: handoff?.text ?? "", mentions: handoff?.mentions ?? [] }));
+  /** O que o caminho do `#` mandou para esta conversa enviar assim que ela abrir (a bolha pendente, o "tentar de novo" e a revelação são os desta conversa). */
+  const outgoing = useRef<{ text: string; mentions: string[] } | null>(handoff?.send === true ? { text: handoff.text, mentions: handoff.mentions } : null);
+  const followThread = useRef(false);
   const [pending, setPending] = useState<Pending | null>(null);
   const [revealingId, setRevealingId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(handoff?.error ?? null);
+  /** O envio do `#` está abrindo a conversa do ticket e mandando a mensagem para lá. */
+  const [routing, setRouting] = useState(false);
   const [refused, setRefused] = useState<string[]>([]);
   const [off, setOff] = useState<"consent" | "provider" | null>(null);
   const [threadSending, setThreadSending] = useState(false);
@@ -128,7 +140,12 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   /** A conversa em que se escreve: a do alvo, a que a leitura devolveu ou a que o primeiro envio criou (criada uma vez só). */
   const conversationId = useRef<string | null>(target.kind === "conversation" ? target.id : null);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  useEffect(() => chats.loadDirectory(), [chats.loadDirectory]);
+  useEffect(() => {
+    void chats.loadDirectory();
+  }, [chats.loadDirectory]);
+  useEffect(() => {
+    chats.dropHandoff(target);
+  }, [chats.dropHandoff, target]);
 
   const fetchView = useCallback(
     (query: { limit?: number; before?: string }): Promise<ApiResult<ConversationData>> => {
@@ -175,6 +192,24 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   }, [fetchView, chats.refresh]);
 
   useEffect(() => void load("first"), [load]);
+  // O caminho do `#` mandou esta conversa enviar: assim que ela abre (ou, se não abriu, o texto volta ao campo).
+  useEffect(() => {
+    const out = outgoing.current;
+    if (out === null || (view === null && !loadFailed && !gone)) return;
+    outgoing.current = null;
+    if (view === null) {
+      setDraft(out);
+      setError(t("chat.loadFailed"));
+      return;
+    }
+    followThread.current = true;
+    if (out.mentions.length > 0 || isThread) {
+      setDraft(out);
+      void sendBetweenPeople(out);
+    } else {
+      void sendToAssistant(out.text.trim());
+    }
+  }, [view, loadFailed, gone]);
   // O painel volta a ficar à vista, ou a lista se atualizou: a conversa aberta acompanha.
   const seen = useRef(version);
   useEffect(() => {
@@ -194,12 +229,23 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   const isThread = kind === "thread";
   const hasTicket = ticket !== null;
   const mentioning = draft.mentions.length > 0;
-  const aboutId = hasTicket ? ticket.projectId : topic?.projectId;
-  const project = directory.status === "ready" ? directory.projects.find((entry) => entry.id === aboutId) : undefined;
+  const project = directory.status === "ready" && hasTicket ? directory.projects.find((entry) => entry.id === ticket.projectId) : undefined;
   const candidates = useMemo(
     () => (directory.status === "ready" ? peopleWhoSee(project, directory.people, directory.teams, me?.person.id) : []),
     [directory, project, me],
   );
+  // Os tickets citados com `#` que a pessoa enxerga: no Meu chat, exatamente um leva a mensagem à conversa dele (ADR 0056).
+  const byKey = useMemo(() => ticketsByKey(chats.tickets.status === "ready" ? chats.tickets.byProject : null), [chats.tickets]);
+  const cited = useMemo(() => citedTickets(draft.text, byKey), [draft.text, byKey]);
+  const routedTo = kind === "general" && cited.length === 1 ? cited[0]! : null;
+  // Quem não enxerga o projeto do ticket de que a conversa trata (ou do ticket para onde a mensagem vai) aparece apagado no `@`.
+  const peopleOptions = useMemo(() => {
+    if (directory.status !== "ready") return [];
+    const projectId = hasTicket ? ticket.projectId : routedTo?.projectId;
+    const seeing = projectId === undefined ? null : new Set(peopleWhoSee(directory.projects.find((entry) => entry.id === projectId), directory.people, directory.teams, me?.person.id).map((person) => person.id));
+    return directory.people.filter((person) => person.active && person.id !== me?.person.id).map((person: Person) => ({ person, blocked: seeing !== null && !seeing.has(person.id) }));
+  }, [directory, hasTicket, ticket, routedTo, me]);
+  const projectNames = useMemo(() => new Map(directory.status === "ready" ? directory.projects.map((entry) => [entry.id, entry.name]) : []), [directory]);
   const addCandidates = useMemo(() => {
     const inside = new Set(info?.participants.map((person) => person.id));
     return candidates.filter((person) => !inside.has(person.id));
@@ -211,18 +257,25 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   // Sem leitura da conversa de cima, a pessoa que entrou numa thread só vê o que veio em `trail`.
   const canOpenThread = info === null || info.canOpenThread;
 
-  // O ticket de que a thread trata (só no chat geral): a lista de tickets carrega quando a pessoa marca alguém pela primeira vez.
+  // Quem lê tickets (o `#` do campo, uma chave no texto ou numa mensagem) pede a lista; só conta chave cujo prefixo é de um projeto que a pessoa enxerga.
+  const projectKeys = useMemo(() => new Set(directory.status === "ready" ? directory.projects.filter((entry) => entry.archivedAt === null).map((entry) => entry.key) : []), [directory]);
+  const projectList = directory.status === "ready" ? directory.projects : null;
+  /** Abrir o `#`: a lista própria com no máximo 30 s (a do mapa, quando ele está aberto, já é a mais nova). */
+  const openTickets = useCallback(() => {
+    if (projectList !== null) void chats.loadTickets(projectList, "stale");
+  }, [projectList, chats.loadTickets]);
+  const retryTickets = useCallback(() => {
+    if (projectList !== null) void chats.loadTickets(projectList, "fresh");
+  }, [projectList, chats.loadTickets]);
+  const draftWants = useMemo(() => wantsTickets(draft.text, projectKeys), [draft.text, projectKeys]);
+  const messagesWant = useMemo(() => {
+    const wants = (message: { body: string; authorKind?: string }) => wantsTickets(message.body, projectKeys, message.authorKind === "assistant");
+    return messages.some(wants) || (info?.opening ? wants(info.opening) : false) || (view?.threads.some((card) => wants(card.opening)) ?? false);
+  }, [messages, info, view, projectKeys]);
+  const keyShown = draftWants || messagesWant;
   useEffect(() => {
-    if (!mentioning || hasTicket || topicTickets !== null || topicFailed || directory.status !== "ready") return;
-    void Promise.all(directory.projects.filter((entry) => entry.archivedAt === null).map(async (entry) => [entry.id, await safe(() => client.listTickets(entry.id))] as const)).then((results) => {
-      if (!alive.current) return;
-      if (results.some(([, result]) => !result.ok)) return setTopicFailed(true);
-      setTopicTickets(Object.fromEntries(results.map(([projectId, result]) => [projectId, result.ok ? result.data : []])));
-    });
-  }, [mentioning, hasTicket, topicTickets, topicFailed, directory, client]);
-  useEffect(() => {
-    if (!mentioning) setTopic(null);
-  }, [mentioning]);
+    if (keyShown && active && projectList !== null) void chats.loadTickets(projectList, "once");
+  }, [keyShown, active, projectList, chats.loadTickets]);
 
   // O foco entra no campo quando a conversa aparece pela primeira vez com o painel à vista.
   useEffect(() => {
@@ -385,8 +438,7 @@ export function ConversationView({ target, active }: ConversationViewProps) {
     setRefused([]);
     const wasNew = conversationId.current === null;
     const created = await safe(ensureConversation);
-    const aboutTicket = mentions.length > 0 && !hasTicket && topic !== null ? { ticketId: topic.id } : {};
-    const result = !created.ok ? created : await safe(() => client.sendChatMessage(created.data, { body: text, ...(mentions.length > 0 ? { mentions } : {}), ...aboutTicket }, { signal: new AbortController().signal }));
+    const result = !created.ok ? created : await safe(() => client.sendChatMessage(created.data, { body: text, ...(mentions.length > 0 ? { mentions } : {}) }, { signal: new AbortController().signal }));
     if (!alive.current) return;
     setThreadSending(false);
     if (!result.ok) {
@@ -402,6 +454,8 @@ export function ConversationView({ target, active }: ConversationViewProps) {
       setMessages((current) => [...current, { ...sent.message, thread: sent.thread }]);
       setView((current) => (current === null ? current : { ...current, threads: [sent.thread, ...current.threads.filter((card) => card.id !== sent.thread.id)] }));
       setAnnouncement(t("thread.opened"));
+      // O caminho do `#` com pessoas: a conversa do ticket abriu a thread, e é a thread que a pessoa vê.
+      if (followThread.current) chats.select({ kind: "conversation", id: sent.thread.id });
     } else if (sent.kind === "message") {
       setMessages((current) => [...current, sent.message]);
     }
@@ -409,11 +463,86 @@ export function ConversationView({ target, active }: ConversationViewProps) {
     afterWrite();
   };
 
-  const send = (next: Draft) => {
+  /** Fica nesta conversa: com pessoas marcadas, abre a thread aqui; sem elas, fala com o assistente (ou responde, numa thread). */
+  const sendHere = (next: Draft) => {
     if (next.mentions.length > 0 || isThread) return void sendBetweenPeople(next);
     if (pending?.status === "sending") return;
     resetDraft();
     void sendToAssistant(next.text.trim());
+  };
+
+  /**
+   * No Meu chat, exatamente um `#ticket` visível leva a mensagem à conversa daquele ticket (ADR 0056): abre (ou obtém) a conversa e o painel
+   * vai até lá; é a conversa do ticket que envia (com as pessoas marcadas, se houver: a thread nasce dentro dela), então a bolha pendente, o
+   * "tentar de novo" e a revelação são os que toda conversa tem, e o texto de um envio que falha volta ao campo dela. Se a pessoa saiu desta
+   * conversa no meio do caminho, a entrega acontece aqui mesmo (nada se perde nem duplica) e a barra se atualiza do mesmo jeito.
+   */
+  const sendToTicket = async (next: Draft, ticket: TicketSummary) => {
+    setRouting(true);
+    setError(null);
+    setRefused([]);
+    const opened = await safe(() => client.openTicketConversation(ticket.id));
+    void chats.refresh();
+    if (!opened.ok) {
+      if (alive.current) {
+        setRouting(false);
+        setError(describe(opened.error));
+      }
+      return;
+    }
+    const conversation: ConversationRef = { kind: "conversation", id: opened.data.id };
+    if (alive.current) {
+      chats.stashHandoff(conversation, { text: next.text, mentions: next.mentions, error: null, send: true });
+      setRouting(false);
+      resetDraft();
+      chats.select(conversation);
+      return;
+    }
+    const people = next.mentions.length > 0;
+    const result = await safe(() => client.sendChatMessage(opened.data.id, { body: people ? next.text : next.text.trim(), ...(people ? { mentions: next.mentions } : {}) }, { signal: new AbortController().signal }));
+    if (!result.ok) chats.stashHandoff(conversation, { text: next.text, mentions: next.mentions, error: describe(result.error) });
+    void chats.refresh();
+  };
+
+  /**
+   * Os tickets citados com `#CHAVE` que a pessoa enxerga, ou `null` se não foi possível conferir (a lista não carregou, ou a chave é de um projeto
+   * cuja lista falhou). Uma chave desconhecida pode ser de um ticket criado depois: a lista é relida antes de se decidir.
+   */
+  const citedAtSend = async (text: string): Promise<TicketSummary[] | null> => {
+    const ready = directory.status === "ready" ? directory : await chats.loadDirectory();
+    if (ready.status !== "ready") return null;
+    const keys = hashedKeys(text, new Set(ready.projects.filter((entry) => entry.archivedAt === null).map((entry) => entry.key)));
+    if (keys.length === 0) return [];
+    let pool = await chats.loadTickets(ready.projects, "stale");
+    if (pool.status !== "ready") return null;
+    let byKeyNow = ticketsByKey(pool.byProject);
+    if (keys.some((key) => !byKeyNow.has(key))) {
+      pool = await chats.loadTickets(ready.projects, "fresh");
+      if (pool.status !== "ready") return null;
+      byKeyNow = ticketsByKey(pool.byProject);
+      const failedKeys = new Set(ready.projects.filter((entry) => pool.status === "ready" && pool.failed.includes(entry.id)).map((entry) => entry.key));
+      if (keys.some((key) => !byKeyNow.has(key) && failedKeys.has(projectKeyOf(key)))) return null;
+    }
+    return citedTickets(text, byKeyNow);
+  };
+
+  /** No Meu chat, com `#CHAVE` no texto: espera (com aviso e prazo) saber quais tickets valem antes de decidir para onde a mensagem vai; se não der, o texto fica no campo, com o erro. */
+  const routeByTickets = async (next: Draft) => {
+    setRouting(true);
+    setError(null);
+    const found = await withDeadline(citedAtSend(next.text), CHECK_MS);
+    if (!alive.current) return;
+    setRouting(false);
+    if (found === null) return setError(t("will.checkFailed"));
+    if (found.length === 1) return void sendToTicket(next, found[0]!);
+    sendHere(next);
+  };
+
+  const send = (next: Draft) => {
+    if (routing) return;
+    // Só `#CHAVE` (a chave com o `#` colado, fora de código e de endereço) decide o destino; sem ela nada espera.
+    if (kind !== "general" || isThread || !ticketKeyRefs(next.text).some((ref) => ref.hashed)) return sendHere(next);
+    void routeByTickets(next);
   };
 
   const retry = () => {
@@ -464,12 +593,12 @@ export function ConversationView({ target, active }: ConversationViewProps) {
             <Reveal text={message.body} active={message.id === revealingId} onDone={() => setRevealingId((current) => (current === message.id ? null : current))} onStep={() => { const element = scroller.current; if (element) element.scrollTop = element.scrollHeight; }}>
               {(shown, revealing) => (
                 <div className="chat-assistant" aria-hidden={revealing ? true : undefined}>
-                  <AssistantText text={shown} />
+                  <AssistantText text={shown} byKey={byKey} onOpenTicket={chats.showTicket} />
                 </div>
               )}
             </Reveal>
           ) : (
-            <PersonText text={message.body} />
+            <PersonText text={message.body} byKey={byKey} onOpenTicket={chats.showTicket} />
           )}
           {card && <ThreadFooter card={card} selfId={selfId} onOpen={() => openCard(card)} />}
         </div>
@@ -490,6 +619,15 @@ export function ConversationView({ target, active }: ConversationViewProps) {
     kind === "thread" ? threadTitle(t, info?.participants ?? [], info?.participants.length ?? 0, selfId) : kind === "general" ? t("row.general") : (ticket?.key ?? "");
   const trailLabel = (item: { kind: "ticket" | "general" | "thread"; label: string | null }) =>
     item.kind === "general" ? t("row.general") : item.kind === "ticket" ? (ticket?.key ?? t("row.main")) : (item.label ?? t("row.thread"));
+  const mentionNames = new Intl.ListFormat(i18n.language, { style: "long", type: "conjunction" }).format(draft.mentions.map((personId) => names.get(personId) ?? personId));
+  /** O que vai acontecer ao enviar, dito antes (ADR 0056). */
+  const notice = routing
+    ? t("will.checking")
+    : routedTo
+    ? mentioning ? t("will.ticketAndThread", { key: routedTo.key, names: mentionNames }) : t("will.toTicket", { key: routedTo.key })
+    : mentioning ? t("composer.opensThread", { names: mentionNames })
+    : cited.length > 0 ? (isThread ? t("will.referenceThread") : t("will.reference"))
+    : null;
   const canClear = !isThread && info !== null && info.ownedByMe;
 
   return (
@@ -600,16 +738,20 @@ export function ConversationView({ target, active }: ConversationViewProps) {
             placeholder={isThread ? t("thread.replyPlaceholder") : assistantOff === null ? t("composer.placeholder") : t("composer.placeholderThreads")}
             draft={draft}
             onDraft={setDraft}
-            candidates={candidates}
+            people={peopleOptions}
             peopleStatus={peopleStatus}
+            tickets={chats.tickets}
+            projectNames={projectNames}
+            onNeedTickets={openTickets}
+            onRetryTickets={retryTickets}
             names={names}
             canAssistant={!isThread && assistantOff === null}
             thread={isThread}
             canOpenThread={canOpenThread}
-            extra={!hasTicket ? <TicketTopic value={topic} onChange={setTopic} tickets={topicTickets} failed={topicFailed} onRetry={() => setTopicFailed(false)} /> : null}
-            assistantBusy={pending?.status === "sending"}
-            threadBusy={threadSending}
-            readOnly={archived}
+            notice={notice}
+            assistantBusy={pending?.status === "sending" || routing}
+            threadBusy={threadSending || routing}
+            readOnly={archived || routing}
             refused={refused}
             fieldRef={field}
             onSend={send}

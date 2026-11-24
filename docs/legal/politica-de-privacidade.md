@@ -49,7 +49,7 @@ O assistente só funciona na organização depois que um administrador o ativa.
 
 **O que é enviado, e para quem:**
 
-- **Texto de tickets e de conversas com o assistente**, para a Anthropic e a TypeSafe: títulos, descrições, a situação de cada ticket, a posição dele na árvore e as ligações entre tickets.
+- **Texto de tickets e de conversas com o assistente**, para a Anthropic e a TypeSafe: chaves (como `PROJ-12`), títulos, descrições, a situação de cada ticket, a posição dele na árvore e as ligações entre tickets.
 - **Título e descrição de tickets**, para a Voyage AI, que gera os vetores da busca por significado.
 - **Trechos de código do repositório ligado**, só para a Anthropic, e só se um administrador autorizou a leitura de código em um aceite separado.
 

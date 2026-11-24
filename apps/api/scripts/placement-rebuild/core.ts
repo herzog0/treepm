@@ -304,6 +304,7 @@ export const COMMANDS = [
   "summary-show",
   "summary-regenerate",
   "conversation-dry-run",
+  "chat-show",
   "embeddings-status",
   "embeddings-reindex",
   "triage-measure",
@@ -387,6 +388,12 @@ export type CliOptions = {
   all?: boolean;
   /** `summary-regenerate`: só lista a ordem. */
   dryRun?: boolean;
+  /** `chat-show`: o Meu chat. */
+  general?: boolean;
+  /** `chat-show`: número do ticket (com `--project`) cuja conversa principal é lida. */
+  ticket?: number;
+  /** `chat-show`: o id de uma thread. */
+  thread?: string;
   /** `conversation-dry-run`: arquivo com o texto do pedido. */
   textFile?: string;
   /** `case-run`: o arquivo do caso de medição (ADR 0052). */
@@ -439,6 +446,7 @@ const REQUIRED: Record<Command, readonly (keyof CliOptions)[]> = {
   "summary-show": ["org", "user", "project", "number"],
   "summary-regenerate": ["org", "user", "project"],
   "conversation-dry-run": ["org", "user", "project", "textFile"],
+  "chat-show": ["org", "user"],
   "embeddings-status": ["org", "user", "project"],
   "embeddings-reindex": ["org", "user", "project"],
   "triage-measure": ["org", "user", "project"],
@@ -458,10 +466,11 @@ const TICKET_OPTIONS: Record<string, readonly string[]> = {
   "summary-show": ["number"],
   "summary-regenerate": ["number", "subtree", "all", "dryRun"],
   "conversation-dry-run": ["textFile", "scope"],
+  "chat-show": ["general", "ticket", "thread"],
   "embeddings-status": [],
   "embeddings-reindex": ["dryRun"],
 };
-const TICKET_ONLY = ["json", "title", "descriptionFile", "parent", "status", "number", "root", "idea", "ideaStage", "priority", "ideaAccept", "ideaDiscard", "ideaMake", "dependsOn", "noDependsOn", "subtree", "all", "dryRun", "textFile", "scope"] as const;
+const TICKET_ONLY = ["json", "title", "descriptionFile", "parent", "status", "number", "root", "idea", "ideaStage", "priority", "ideaAccept", "ideaDiscard", "ideaMake", "dependsOn", "noDependsOn", "subtree", "all", "dryRun", "textFile", "scope", "general", "ticket", "thread"] as const;
 const IDEA_STAGES_CLI = ["new", "refining", "ready"] as const;
 
 const FLAGS: Record<string, keyof CliOptions> = {
@@ -509,6 +518,9 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--text-file": "textFile",
   "--case": "caseFile",
   "--scope": "scope",
+  "--general": "general",
+  "--ticket": "ticket",
+  "--thread": "thread",
   "--kinds": "kinds",
   "--max-distance": "maxDistance",
   "--fusion": "fusion",
@@ -532,6 +544,7 @@ const usage = `Comandos: ${COMMANDS.join(", ")}.
   ticket-show    --org --user --project --number <número>   (detalhe em JSON)
   summary-show   --org --user --project --number <número>
   summary-regenerate --org --user --project (--number <número> | --subtree <número> | --all) [--dry-run] [--resume] [--dir <pasta do andamento>] [--fake-providers]
+  chat-show      --org --user (--general | --ticket <número> --project <id> | --thread <id>)   (só leitura: as mensagens e as threads da conversa do usuário, ADR 0056)
   conversation-dry-run --org --user --project --text-file <caminho> [--scope <número>] [--fake-providers]   (não cria ticket)
   embeddings-status  --org --user --project   (só números: tickets vivos, vetores em dia, desatualizados e faltando; ADR 0053)
   triage-measure --org --user --project [--pairs arquivo.json] [--kinds document|query] [--max-distance N] [--fusion rrf|interleave|both] [--limit N (padrão 30)] [--mentions] [--json arquivo] [--fake-providers]   (mede só a triagem de relacionados: posição do esperado só com palavras, só com vetor e em cada fusão; --mentions soma os pares por citação; ADR 0053)
@@ -550,7 +563,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     // No `triage-measure`, `--pairs` e `--json` levam um arquivo (nos outros comandos são sinalizadores).
     const key = command === "triage-measure" && flag === "--pairs" ? "pairsFile" : command === "triage-measure" && flag === "--json" ? "jsonFile" : FLAGS[flag];
     if (!key) return fail(`Opção desconhecida: ${flag}.`);
-    if (key === "fakeProviders" || key === "mentions" || key === "loo" || key === "collect" || key === "pairs" || key === "resume" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root" || key === "idea" || key === "ideaAccept" || key === "ideaDiscard" || key === "ideaMake" || key === "all" || key === "dryRun") {
+    if (key === "fakeProviders" || key === "mentions" || key === "loo" || key === "collect" || key === "pairs" || key === "resume" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root" || key === "idea" || key === "ideaAccept" || key === "ideaDiscard" || key === "ideaMake" || key === "all" || key === "dryRun" || key === "general") {
       options[key] = true;
       continue;
     }
@@ -570,7 +583,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
       const parsed = Number(value);
       if (!Number.isInteger(parsed) || parsed < 0) return fail(`${flag} deve ser um número inteiro.`);
       options[key] = parsed;
-    } else if (key === "parent" || key === "number" || key === "dependsOn" || key === "noDependsOn" || key === "subtree" || key === "scope") {
+    } else if (key === "parent" || key === "number" || key === "dependsOn" || key === "noDependsOn" || key === "subtree" || key === "scope" || key === "ticket") {
       const parsed = Number(value);
       if (!Number.isInteger(parsed) || parsed < 1) return fail(`${flag} deve ser o número de um ticket (inteiro maior que zero).`);
       options[key] = parsed;
@@ -639,6 +652,11 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   }
   if (options["idea"] !== undefined && options["status"] !== undefined) return fail("--idea não combina com --status: a situação de uma ideia é sempre todo.");
   if (options["dependsOn"] !== undefined && options["noDependsOn"] !== undefined) return fail("--depends-on não combina com --no-depends-on.");
+  if (command === "chat-show") {
+    if (["general", "ticket", "thread"].filter((key) => options[key] !== undefined).length !== 1) return fail("chat-show pede exatamente um de --general, --ticket <número> ou --thread <id>.");
+    if (options["ticket"] !== undefined && options["project"] === undefined) return fail("chat-show --ticket pede também --project.");
+    if (options["project"] !== undefined && options["ticket"] === undefined) return fail("--project só existe no chat-show com --ticket.");
+  }
   if (command === "summary-regenerate") {
     const scopes = ["number", "subtree", "all"].filter((key) => options[key] !== undefined);
     if (scopes.length !== 1) return fail("summary-regenerate pede exatamente um de --number, --subtree ou --all.");

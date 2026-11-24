@@ -5,7 +5,7 @@ import { ZodPipe } from "../common/zod.js";
 import { OwnTransactions, Tenant } from "../db/own-transactions.js";
 import type { TenantRunner } from "../db/own-transactions.js";
 import { ProjectQueryService } from "../query/project-query.service.js";
-import { ProjectToolExecutor } from "./ask-executor.js";
+import { ProjectToolExecutor, singleProjectLabeler } from "./ask-executor.js";
 import { fromNeutralLabels, labelNumbers, toNeutralLabels } from "./ask-labels.js";
 import { askBodySchema, askResponseSchema } from "./ask.schema.js";
 import type { AskResponse } from "./ask.schema.js";
@@ -42,7 +42,7 @@ export class AskController {
       const answer = await answerer.answer({
         question: toNeutralLabels(body.question, key),
         history: body.history.map((message) => ({ author: message.author, body: toNeutralLabels(message.body, key) })),
-        tools: new ProjectToolExecutor(tenant, this.query, projectId, key),
+        tools: new ProjectToolExecutor(tenant, this.query, projectId, singleProjectLabeler(key)),
       });
       const real = await this.realKeys(tenant, projectId, key, answer.text);
       // Texto fora de 1 a 8.000 caracteres (já com as chaves reais) não é resposta: nunca é cortado em silêncio.

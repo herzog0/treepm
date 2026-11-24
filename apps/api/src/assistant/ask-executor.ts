@@ -9,7 +9,26 @@ import { ASK_TOOLS } from "./ask-tools.js";
 import type { ToolExecutor, ToolOutcome } from "./ports.js";
 
 /** Entrada do modelo que não vale: vira resultado de ferramenta com erro, nunca uma falha da pergunta. */
-class ToolInputError extends Error {}
+export class ToolInputError extends Error {}
+
+/** Como um projeto aparece ao modelo: o rótulo de cada ticket e a troca de chaves por rótulos nos dois sentidos. */
+export interface Labeler {
+  /** O rótulo do ticket de número `number` neste projeto (`T47`, ou `P2-T47` nas conversas). */
+  label(number: number): string;
+  /** O número de um rótulo exato deste projeto; qualquer outra coisa → `null`. */
+  parse(text: string): number | null;
+  /** O formato, para a mensagem de erro (`T47`). */
+  readonly example: string;
+  /** Chaves de ticket do texto → rótulos. */
+  neutral(text: string): string;
+  /** Rótulos do texto da busca → chaves reais (a busca é pelo texto e pela chave). */
+  real(text: string): string;
+}
+
+/** O rótulo de um projeto só (a pergunta sobre o projeto): `T47`. */
+export function singleProjectLabeler(projectKey: string): Labeler {
+  return { label: labelOf, parse: parseLabel, example: "T47", neutral: (text) => toNeutralLabels(text, projectKey), real: (text) => fromNeutralLabels(text, projectKey, everyLabel) };
+}
 
 /** O que o modelo vê de um ticket nas listas: o rótulo no lugar de id, chave, número e parentId. */
 type AskIdea = { kind: "root"; stage: string } | { kind: "inside"; root: string } | null;
@@ -17,6 +36,18 @@ type Brief = { label: string; title: string; excerpt: string; status: TicketStat
 type BriefList = { tickets: Brief[]; truncated: boolean };
 
 const everyLabel = { has: () => true };
+
+/** Valida a entrada do modelo com o esquema da ferramenta; ferramenta desconhecida ou entrada inválida é erro devolvido ao modelo. */
+export function parseToolInput(tools: readonly { name: string; schema: { safeParse(input: unknown): { success: true; data: unknown } | { success: false; error: { issues: readonly { path: readonly PropertyKey[] }[] } } } }[], name: string, input: unknown): Record<string, unknown> {
+  const tool = tools.find((candidate) => candidate.name === name);
+  if (!tool) throw new ToolInputError(`Ferramenta desconhecida. Use ${tools.map((t) => t.name).join(", ")}.`);
+  const parsed = tool.schema.safeParse(input ?? {});
+  if (!parsed.success) {
+    const fields = [...new Set(parsed.error.issues.map((issue) => issue.path.map(String).join(".") || "(raiz)"))].join(", ");
+    throw new ToolInputError(`Entrada inválida em: ${fields}.`);
+  }
+  return parsed.data as Record<string, unknown>;
+}
 
 /**
  * Executa as ferramentas da pergunta sobre o projeto (ADR 0037) sobre a camada de consulta, em rótulos neutros. Cada
@@ -28,33 +59,30 @@ export class ProjectToolExecutor implements ToolExecutor {
     private readonly tenant: TenantRunner,
     private readonly query: ProjectQueryService,
     private readonly projectId: string,
-    private readonly projectKey: string,
+    private readonly labeler: Labeler,
   ) {}
 
   async execute(name: string, input: unknown): Promise<ToolOutcome> {
     try {
-      return { content: JSON.stringify(await this.run(name, input)), isError: false };
+      const args = parseToolInput(ASK_TOOLS, name, input);
+      return { content: JSON.stringify(await this.run(name, args)), isError: false };
     } catch (error) {
       if (error instanceof ToolInputError) return { content: error.message, isError: true };
       throw error;
     }
   }
 
-  private async run(name: string, input: unknown): Promise<unknown> {
-    const tool = ASK_TOOLS.find((candidate) => candidate.name === name);
-    if (!tool) throw new ToolInputError("Ferramenta desconhecida. Use search_tickets, read_ticket, list_tickets ou project_overview.");
-    const parsed = tool.schema.safeParse(input ?? {});
-    if (!parsed.success) {
-      const fields = [...new Set(parsed.error.issues.map((issue) => issue.path.join(".") || "(raiz)"))].join(", ");
-      throw new ToolInputError(`Entrada inválida em: ${fields}.`);
-    }
-    const args = parsed.data as Record<string, unknown>;
-    switch (tool.name) {
+  /** A ferramenta já validada (`parseToolInput`), sobre este projeto. Quem monta o resultado para o modelo é quem chama. */
+  async run(name: string, args: Record<string, unknown>): Promise<unknown> {
+    switch (name) {
       case "search_tickets":
         return this.tenant.run(async (tx, principal) => {
           // O modelo só conhece rótulos; a busca é pelo texto e pela chave real.
-          const text = fromNeutralLabels(args["query"] as string, this.projectKey, everyLabel);
-          const found = await this.query.search(tx, principal, this.projectId, text, args["limit"] === undefined ? {} : { limit: args["limit"] as number });
+          const text = this.labeler.real(args["query"] as string);
+          const found = await this.query.search(tx, principal, this.projectId, text, {
+            ...(args["limit"] === undefined ? {} : { limit: args["limit"] as number }),
+            ...(args["assigned_to_me"] === true ? { assignedTo: principal.person.id } : {}),
+          });
           return this.briefList(tx, found);
         });
       case "read_ticket": {
@@ -71,9 +99,10 @@ export class ProjectToolExecutor implements ToolExecutor {
               ...(under !== undefined ? { under } : {}),
               ...(after !== undefined ? { after } : {}),
               ...(args["limit"] === undefined ? {} : { limit: args["limit"] as number }),
+              ...(args["assigned_to_me"] === true ? { assignedTo: principal.person.id } : {}),
             }),
           );
-          return { ...(await this.briefList(tx, page)), after: page.after === null ? null : labelOf(page.after) };
+          return { ...(await this.briefList(tx, page)), after: page.after === null ? null : this.labeler.label(page.after) };
         });
       }
       default:
@@ -82,8 +111,8 @@ export class ProjectToolExecutor implements ToolExecutor {
   }
 
   private number(label: string): number {
-    const number = parseLabel(label);
-    if (number === null) throw new ToolInputError("Rótulo inválido: use o formato T47.");
+    const number = this.labeler.parse(label);
+    if (number === null) throw new ToolInputError(`Rótulo inválido: use o formato ${this.labeler.example}.`);
     return number;
   }
 
@@ -92,13 +121,13 @@ export class ProjectToolExecutor implements ToolExecutor {
     try {
       return await read();
     } catch (error) {
-      if (error instanceof NotFoundException && error.message === "Ticket não encontrado.") throw new ToolInputError(`Ticket ${labelOf(number)} não existe neste projeto.`);
+      if (error instanceof NotFoundException && error.message === "Ticket não encontrado.") throw new ToolInputError(`Ticket ${this.labeler.label(number)} não existe neste projeto.`);
       throw error;
     }
   }
 
   private neutral(text: string): string {
-    return toNeutralLabels(text, this.projectKey);
+    return this.labeler.neutral(text);
   }
 
   /** O trecho cortado (termina em "…") perde a última palavra: uma chave cortada ao meio não pode virar rótulo errado nem vazar. */
@@ -119,13 +148,13 @@ export class ProjectToolExecutor implements ToolExecutor {
   private brief(summary: QueryTicketSummary, numbers: ReadonlyMap<string, number>): Brief {
     const parent = summary.parentId === null ? undefined : numbers.get(summary.parentId);
     return {
-      label: labelOf(summary.number),
+      label: this.labeler.label(summary.number),
       title: this.neutral(summary.title),
       excerpt: this.excerpt(summary.descriptionExcerpt),
       status: summary.status,
-      parent: parent === undefined ? null : labelOf(parent),
+      parent: parent === undefined ? null : this.labeler.label(parent),
       // A marca de ideia (rótulo neutro, nunca chave nem id); o marcador de trabalho pela IA NÃO sai (ADR 0043).
-      idea: summary.idea === null ? null : summary.idea.kind === "root" ? { kind: "root", stage: summary.idea.stage } : { kind: "inside", root: labelOf(summary.idea.rootNumber) },
+      idea: summary.idea === null ? null : summary.idea.kind === "root" ? { kind: "root", stage: summary.idea.stage } : { kind: "inside", root: this.labeler.label(summary.idea.rootNumber) },
     };
   }
 

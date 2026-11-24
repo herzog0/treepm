@@ -158,6 +158,8 @@ export interface ConversationNodeShape {
   unread: number;
   /** O fim da última mensagem que a pessoa pode ler nesta conversa. */
   preview: string | null;
+  /** Só nos nós de thread: o começo da mensagem que a abriu, o mesmo texto de `trail[].label`; `null` nos demais. */
+  label: string | null;
   children: ConversationNodeShape[];
 }
 export const conversationNodeSchema: z.ZodType<ConversationNodeShape> = z.lazy(() =>
@@ -172,6 +174,7 @@ export const conversationNodeSchema: z.ZodType<ConversationNodeShape> = z.lazy((
     lastActivityAt: z.string().nullable(),
     unread: z.number(),
     preview: z.string().nullable(),
+    label: z.string().nullable(),
     children: z.array(conversationNodeSchema),
   }),
 );

@@ -110,7 +110,7 @@ describe.each(NARROW)("conversa no celular %ix%i", (width, height) => {
     expect(Math.round(panel.width)).toBe(width);
     expect(Math.round(panel.height)).toBe(height);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
-    for (const selector of [".chat-header .chat-icon-button", ".chat-header .ticket-icon-button", ".chat-trail button", ".chat-thread-footer", ".chat-mention-button", ".chat-send"]) {
+    for (const selector of [".chat-header .chat-icon-button", ".chat-header .ticket-icon-button", ".chat-trail button", ".chat-thread-footer", ".chat-send"]) {
       for (const element of document.querySelectorAll(`.chat-panel ${selector}`)) {
         const box = element.getBoundingClientRect();
         expect(box.height, selector).toBeGreaterThanOrEqual(TOUCH - 1);

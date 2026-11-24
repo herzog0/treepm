@@ -12,6 +12,7 @@ import { toWorkTickets, turnOf } from "../play/playModel.js";
 import type { PlayRun } from "../play/playModel.js";
 import { splitIdeaText } from "../command/ideaText.js";
 import { useDescribeApiError } from "../api/errorText.js";
+import { useChats } from "../chat/ChatsContext.js";
 import { AssistantPanel } from "../assistant/AssistantPanel.js";
 import { RecentPlacesProvider } from "../assistant/RecentPlacesContext.js";
 import { createRecentPlaces } from "../assistant/recentPlaces.js";
@@ -870,6 +871,11 @@ export function OrganizationMap({ client, me, onImport, openTicketId, onOpenTick
     if (!isActive() || !result.ok) return;
     update((current: MapData) => mergeMapData(current, result.data), startedAt);
   });
+  // O chat usa os tickets que o mapa já leu (e que ele mantém atualizados) em vez de pedir de novo (ADR 0056).
+  const shareTickets = useChats()?.shareTickets;
+  const shared = state.status === "ready" ? state.data.ticketsByProject : null;
+  useEffect(() => shareTickets?.(shared), [shareTickets, shared]);
+  useEffect(() => () => shareTickets?.(null), [shareTickets]);
   const [ownTicketId, setOwnTicketId] = useState<string | null>(null);
   const controlled = openTicketId !== undefined;
   const changeTicket = useCallback((id: string | null) => {

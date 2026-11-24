@@ -94,3 +94,19 @@ Três fatias, cada uma inteira e sem modo de compatibilidade:
 - O assistente do chat passa a fazer várias chamadas por resposta (uma por consulta), com limite de rodadas e de tempo, como a pergunta sobre o projeto já fazia.
 - O comportamento do Enter na barra muda para quem tinha o hábito de criar ticket por ele.
 - A privacidade entre pessoas ganha uma regra nova a vigiar: thread em que o assistente fala nunca tem outra pessoa.
+
+## Como ficou: fatia 1 (2026-11-24)
+
+Consulta e menções entraram numa mudança só, servidor e tela, sem migration.
+
+- **Servidor:** a vez do assistente nas conversas principais roda o mesmo laço de ferramentas da pergunta sobre o projeto (`tool-loop.ts`: rodadas, execuções e prazo total limitados; a última chamada vai sem ferramenta). Ferramentas em `chat-tools.ts`: procurar, ler, listar e visão geral, mais o filtro "atribuídos a quem pergunta", aplicado pelo servidor. Cada execução confere a visibilidade de quem pergunta; projeto invisível ou arquivado responde igual a projeto que não existe. O resultado de cada ferramenta vai cercado como dado e cortado em 20.000 caracteres.
+- **Tela:** seletor no ponto do texto para `@` e `#`, sem o botão "Mencionar"; a linha que diz o que vai acontecer antes de enviar; no Meu chat, um `#` leva a mensagem à conversa do ticket, que é quem envia; chave de ticket visível vira elo nas mensagens. A lista de tickets vem da mesma fonte que o mapa já mantém em memória.
+- **Ferramenta local:** `chat-show` para a coordenação ler uma conversa como o usuário da ferramenta.
+- O nó de thread da árvore ganhou `label` (o começo da mensagem que a abriu), usado na barra quando threads de níveis diferentes têm as mesmas pessoas (`TREEPM-392`).
+
+### O que mudou em relação ao texto acima
+
+- **As chaves de ticket e de projeto vão ao provedor como estão** (decisão de Teodoro em 2026-11-24, `TREEPM-406`). O item 2 dizia que iriam rótulos neutros, como na ADR 0037. Duas revisões independentes mostraram que a troca não se sustenta em texto livre: a chave de projeto sozinha é só uma palavra, grafias comuns escapam, e a troca deforma o texto para o modelo e às vezes para a pessoa. O que protege os dados é a conferência de visibilidade em cada consulta, e ela ficou. A pergunta sobre o projeto continua com os rótulos dela até sair, na fatia 2.
+- **O aceite muda de versão** por causa disso: `rascunho-3`. O assistente fica desligado em cada organização até um administrador aceitar de novo. O documento de privacidade passa a listar as chaves entre o que é enviado.
+- **O nome do projeto não vai ao provedor,** só a chave.
+- **Pessoa marcada é pastilha,** fora do texto; o ticket fica no texto como `#CHAVE-N`.

@@ -60,7 +60,13 @@ type TicketRef = { id: string; key: string; title: string; projectId: string; ar
 type Stats = { unread: number; replyCount: number; lastReadSeq: bigint; preview: string | null };
 
 /** O que a primeira transação da mensagem ao assistente leu: o que vai ao provedor e o que conferir na volta. */
-export type AssistantPrep = { context: ChatTicketContext | null; history: { author: "person" | "assistant"; body: string }[]; seenLastSeq: number };
+export type AssistantPrep = {
+  context: ChatTicketContext | null;
+  history: { author: "person" | "assistant"; body: string }[];
+  seenLastSeq: number;
+  /** Os projetos que a pessoa enxerga agora e não estão arquivados: é só neles que as ferramentas consultam (ADR 0056). */
+  projects: { id: string; key: string }[];
+};
 
 const apiError = (status: number, code: string, message: string, details?: Record<string, unknown>) =>
   new HttpException({ code, message, ...(details ? { details } : {}) }, status);
@@ -225,9 +231,12 @@ export class ConversationService {
       where: { participants: { some: { personId: me } }, OR: [{ projectId: null }, { projectId: { in: visibleProjects } }] },
       orderBy: { lastActivityAt: "desc" },
       take: TREE_MAX,
-      select: { id: true, kind: true, ownerPersonId: true, ticketId: true, parentId: true, lastActivityAt: true },
+      select: { id: true, kind: true, ownerPersonId: true, ticketId: true, parentId: true, lastActivityAt: true, openingMessageId: true },
     });
     const ids = convs.map((c) => c.id);
+    // O começo da mensagem que abriu cada thread: é a primeira mensagem da própria thread, que a pessoa já lê (só entram aqui as dela).
+    const openings = await tx.conversationMessage.findMany({ where: { id: { in: convs.flatMap((c) => (c.openingMessageId ? [c.openingMessageId] : [])) } }, select: { id: true, body: true } });
+    const openingLabel = new Map(openings.map((m) => [m.id, m.body.slice(0, PREVIEW_MAX)]));
     const parts = await this.participantsOf(tx, ids);
     const stats = await this.stats(tx, me, ids);
     const domainNodes: ConversationNode[] = convs.map((c) => ({ id: c.id, parentId: c.parentId, participantIds: new Set(parts.get(c.id) ?? []) }));
@@ -251,6 +260,7 @@ export class ConversationService {
         lastActivityAt: at ? at.toISOString() : null,
         unread: stat?.unread ?? 0,
         preview: stat?.preview ?? null,
+        label: kind === "thread" && c?.openingMessageId ? (openingLabel.get(c.openingMessageId) ?? null) : null,
         children: [],
       };
     };
@@ -474,7 +484,7 @@ export class ConversationService {
     await tx.$queryRaw`select 1 from conversations where id = ${resolved.conv.rootId}::uuid for update`;
     const parentMembers = (await tx.conversationParticipant.findMany({ where: { conversationId: id }, select: { personId: true } })).map((p) => p.personId);
     // Thread com ticket dentro de conversa sem ticket: quem já está na de cima entra por herança e TEM de enxergar o projeto. Senão,
-    // a mesma resposta da menção não permitida, sem dizer quem.
+    // a thread não abre: 422 `participant_cannot_view_ticket`, que diz que alguém da conversa não enxerga o projeto, sem dizer quem.
     if (subject && resolved.conv.ticketId === null) {
       // Inativos não autenticam: não travam a conversa.
       const active = (await tx.person.findMany({ where: { id: { in: parentMembers }, active: true }, select: { id: true } })).map((x) => x.id);
@@ -620,7 +630,14 @@ export class ConversationService {
       { author: "person" as const, body },
     ]);
     const seenLastSeq = previous.length > 0 ? Math.max(...previous.map((m) => Number(m.seq))) : 0;
-    return { context: resolved.seen ? await this.context(tx, resolved.seen) : null, history, seenLastSeq };
+    const projects = await this.consultableProjects(tx, principal);
+    return { context: resolved.seen ? await this.context(tx, resolved.seen) : null, history, seenLastSeq, projects };
+  }
+
+  /** Os projetos que a pessoa enxerga agora (não arquivados): a lista que o modelo recebe e o alcance das ferramentas. */
+  private async consultableProjects(tx: TenantClient, principal: Principal): Promise<{ id: string; key: string }[]> {
+    const projects = await tx.project.findMany({ where: { archivedAt: null }, select: { id: true, key: true, visibility: true } });
+    return projects.filter((p) => this.authorization.canView(principal.actor, p)).map((p) => ({ id: p.id, key: p.key })).sort((a, b) => (a.key < b.key ? -1 : 1));
   }
 
   /** Solta a vez do assistente (provedor falhou ou a gravação não ocorreu). */

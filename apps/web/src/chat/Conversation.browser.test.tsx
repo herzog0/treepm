@@ -97,10 +97,10 @@ describe("conversa pela barra, 1440×900", () => {
     await page.viewport(1440, 900);
     await mountConversations({ seed: (chat) => chat.seedConversation("t1", [{ person: "oi", assistant: "olá" }]) });
     await openRow("ALFA-1");
-    await userEvent.fill(page.getByRole("textbox", { name: "Mensagem" }), "Bia, olha");
-    expect(q(".chat-thread-notice")).toBeNull();
-    await page.getByRole("button", { name: "Mencionar" }).click();
-    await page.getByRole("dialog", { name: "Mencionar pessoas" }).getByRole("button", { name: "Bia Nogueira" }).click();
+    await userEvent.fill(page.getByRole("combobox", { name: "Mensagem" }), "Bia, olha");
+    expect(q(".chat-thread-notice")?.textContent).toBe("");
+    await userEvent.keyboard("{Home}@");
+    await page.getByRole("listbox", { name: "Pessoas" }).getByRole("option", { name: "Bia Nogueira" }).click();
     await poll(() => q(".chat-thread-notice")?.textContent ?? "").toContain("abre uma thread com Bia Nogueira");
   });
 });
@@ -177,9 +177,9 @@ describe("contraste dos textos novos (tema escuro, o único do app), mínimo 4.5
     await poll(() => q(".chat-trail")).not.toBeNull();
     await settle(400);
     for (const selector of [".chat-trail li", ".chat-trail li[aria-current]", ".chat-trail button"]) expectContrast(selector);
-    await userEvent.fill(page.getByRole("textbox", { name: "Responder na thread" }), "Caio, e você?");
-    await page.getByRole("button", { name: "Mencionar" }).click();
-    await page.getByRole("dialog", { name: "Mencionar pessoas" }).getByRole("button", { name: "Caio" }).click();
+    await userEvent.type(page.getByRole("combobox", { name: "Responder na thread" }), "@");
+    await page.getByRole("listbox", { name: "Pessoas" }).getByRole("option", { name: "Caio" }).click();
+    await userEvent.fill(page.getByRole("combobox", { name: "Responder na thread" }), "Caio, e você?");
     await poll(() => q(".chat-thread-notice")).not.toBeNull();
     expectContrast(".chat-thread-notice");
   });

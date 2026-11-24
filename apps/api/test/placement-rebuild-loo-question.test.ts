@@ -34,7 +34,7 @@ beforeAll(async () => {
   await owner.query("insert into organizations (org_id, name, slug) values ('org_loo', 'Loo', 'org_loo') on conflict do nothing");
   await owner.query("insert into people (org_id, clerk_user_id, display_name, email, clerk_role) values ('org_loo', 'user_loo', 'Admin', 'a@loo.test', 'admin') on conflict do nothing");
   const person = (await owner.query<{ id: string }>("select id from people where org_id = 'org_loo' and clerk_user_id = 'user_loo'")).rows[0]?.id;
-  await owner.query("insert into organization_consents (org_id, kind, document_version, accepted_by_person_id) values ('org_loo', 'assistant', 'rascunho-2', $1)", [person]);
+  await owner.query("insert into organization_consents (org_id, kind, document_version, accepted_by_person_id) values ('org_loo', 'assistant', 'rascunho-3', $1)", [person]);
   booted = await bootApp({ org: "org_loo", user: "user_loo", role: "org:admin", fakeProviders: true, fake503First: 0, fake503JudgeAt: 0, needsAi: true });
   dir = mkdtempSync(join(tmpdir(), "loo-question-"));
   const gabarito: Gabarito = { exportedAt: "2026-11-23T00:00:00Z", project: { id: "p", key: "LOO", name: "Inventado" }, tickets };
