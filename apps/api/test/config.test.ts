@@ -69,6 +69,20 @@ describe("loadConfig", () => {
     expect(assistantEnabled(loadConfig({ ...valid, VOYAGE_API_KEY: "v" }))).toBe(false);
   });
 
+  it("PLACEMENT_DOUBT_LOW, _HIGH e _CHOICE valem 0,2, 0,8 e 0,5 por padrão e são validados (0 ≤ low < high ≤ 1)", () => {
+    expect(loadConfig(valid)).toMatchObject({ PLACEMENT_DOUBT_LOW: 0.2, PLACEMENT_DOUBT_HIGH: 0.8, PLACEMENT_DOUBT_CHOICE: 0.5 });
+    expect(loadConfig({ ...valid, PLACEMENT_DOUBT_LOW: "", PLACEMENT_DOUBT_HIGH: "", PLACEMENT_DOUBT_CHOICE: "" })).toMatchObject({ PLACEMENT_DOUBT_LOW: 0.2, PLACEMENT_DOUBT_HIGH: 0.8, PLACEMENT_DOUBT_CHOICE: 0.5 });
+    expect(loadConfig({ ...valid, PLACEMENT_DOUBT_LOW: "0.1", PLACEMENT_DOUBT_HIGH: "0.9", PLACEMENT_DOUBT_CHOICE: "0" })).toMatchObject({ PLACEMENT_DOUBT_LOW: 0.1, PLACEMENT_DOUBT_HIGH: 0.9, PLACEMENT_DOUBT_CHOICE: 0 });
+    expect(loadConfig({ ...valid, PLACEMENT_DOUBT_LOW: "0", PLACEMENT_DOUBT_HIGH: "1" })).toMatchObject({ PLACEMENT_DOUBT_LOW: 0, PLACEMENT_DOUBT_HIGH: 1 });
+    expect(() => loadConfig({ ...valid, PLACEMENT_DOUBT_LOW: "0.8", PLACEMENT_DOUBT_HIGH: "0.8" })).toThrow(/PLACEMENT_DOUBT_LOW/);
+    expect(() => loadConfig({ ...valid, PLACEMENT_DOUBT_LOW: "0.9" })).toThrow(/PLACEMENT_DOUBT_LOW/);
+    expect(() => loadConfig({ ...valid, PLACEMENT_DOUBT_HIGH: "0.1" })).toThrow(/PLACEMENT_DOUBT_LOW/);
+    expect(() => loadConfig({ ...valid, PLACEMENT_DOUBT_LOW: "-0.1" })).toThrow(/PLACEMENT_DOUBT_LOW/);
+    expect(() => loadConfig({ ...valid, PLACEMENT_DOUBT_HIGH: "1.5" })).toThrow(/PLACEMENT_DOUBT_HIGH/);
+    expect(() => loadConfig({ ...valid, PLACEMENT_DOUBT_CHOICE: "2" })).toThrow(/PLACEMENT_DOUBT_CHOICE/);
+    expect(() => loadConfig({ ...valid, PLACEMENT_DOUBT_CHOICE: "abc" })).toThrow(/PLACEMENT_DOUBT_CHOICE/);
+  });
+
   it("SEMANTIC_TRIAGE vale off por padrão e aceita off, rrf e interleave; SEMANTIC_QUERY_KIND vale query por padrão", () => {
     expect(loadConfig(valid)).toMatchObject({ SEMANTIC_TRIAGE: "off", SEMANTIC_QUERY_KIND: "query" });
     expect(loadConfig({ ...valid, SEMANTIC_TRIAGE: "", SEMANTIC_QUERY_KIND: "" })).toMatchObject({ SEMANTIC_TRIAGE: "off", SEMANTIC_QUERY_KIND: "query" });

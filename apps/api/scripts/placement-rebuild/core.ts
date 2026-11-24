@@ -4,6 +4,7 @@
  * e números do relatório. Nada aqui fala com rede, banco ou disco.
  */
 
+import type { DoubtRun } from "./doubt.js";
 import { PRIORITY_MAX, PRIORITY_MIN, isValidPriority } from "@treepm/domain";
 
 // ---- tipos -----------------------------------------------------------------------------------------------------
@@ -95,6 +96,8 @@ export type RunRecord = {
   flat?: true;
   /** `leave-one-out --scope-check`: as duas procuras com escopo. `null`: não coube fazer (sem outro agrupador no nível). Ausente: sem `--scope-check` ou ticket na raiz. */
   scopeChecks?: { original: ScopeCheckRecord | null; other: ScopeCheckRecord | null };
+  /** ADR 0054: as perguntas que a procura fez, respondidas pelo gabarito, e como terminou. `chosenByHand`: foi ao mapa, o lugar final é o esperado. */
+  doubt?: DoubtRun & { chosenByHand: boolean };
 };
 
 /** Marca gravada logo depois de abrir a conversa; guarda a resposta do Claude, que depois o rascunho do gabarito apaga. */
@@ -305,6 +308,7 @@ export const COMMANDS = [
   "embeddings-reindex",
   "triage-measure",
   "case-run",
+  "doubt-curve",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -439,6 +443,7 @@ const REQUIRED: Record<Command, readonly (keyof CliOptions)[]> = {
   "embeddings-reindex": ["org", "user", "project"],
   "triage-measure": ["org", "user", "project"],
   "case-run": [...APP_REQUIRED, "caseFile"],
+  "doubt-curve": ["dir"],
 };
 
 export const TICKET_COMMANDS: readonly Command[] = ["ticket-list", "ticket-create", "ticket-update", "relations-rebuild", "ticket-show"];
@@ -836,6 +841,12 @@ export function renderReport(
   out("| --- | ---: |");
   for (const group of GROUPS) out(`| ${group} | ${stats.groups[group]} |`);
   out();
+  // ADR 0054: o grupo é o da PRIMEIRA procura (o palpite sem ajuda). Quem foi ao mapa não é acerto da procura: aparece à parte.
+  const byHand = records.filter((r) => r.doubt?.chosenByHand === true).length;
+  if (records.some((r) => r.doubt !== undefined)) {
+    out(`- Escolhido à mão (foi ao mapa; o grupo acima é o do palpite da procura, não o do lugar final): ${byHand}.`);
+    out();
+  }
   out("## Por profundidade");
   out();
   out("| Profundidade | same_parent | deeper | elsewhere |");

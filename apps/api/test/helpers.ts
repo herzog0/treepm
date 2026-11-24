@@ -30,6 +30,9 @@ export const TEST_CONFIG: AppConfig = {
   PORT: 4310,
   SEMANTIC_TRIAGE: "off",
   SEMANTIC_QUERY_KIND: "query",
+  PLACEMENT_DOUBT_LOW: 0.2,
+  PLACEMENT_DOUBT_HIGH: 0.8,
+  PLACEMENT_DOUBT_CHOICE: 0.5,
 };
 
 /** Verificador falso: a sessão vem do cabeçalho `x-test-session` (JSON); ausente = sem sessão. */

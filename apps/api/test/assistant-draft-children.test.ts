@@ -26,7 +26,7 @@ const open = async (message = REQUEST, who: Who = "contributor") => {
   return res.body as { id: string; draft: { title: string; description: string; children: { title: string; description: string }[] } };
 };
 const create = (id: string, parentId: string | null = null, who: Who = "contributor") =>
-  h.call("POST", `/api/ticket-conversations/${id}/ticket`, as(who), { parentId });
+  h.call("POST", `/api/ticket-conversations/${id}/ticket`, as(who), { placedBy: "map", parentId });
 const patch = (id: string, body: unknown) => h.call("PATCH", `/api/ticket-conversations/${id}/draft`, as("contributor"), body);
 
 afterEach(() => vi.restoreAllMocks());
@@ -288,6 +288,7 @@ describe("criar pai e filhos numa operação só", () => {
     proposeFamily();
     const conv = await open();
     const res = await h.call("POST", `/api/ticket-conversations/${conv.id}/ticket`, as("contributor"), {
+      placedBy: "map",
       parentId: tree.auth,
       group: { title: "Chats", description: "", ticketIds: [tree.login] },
     });

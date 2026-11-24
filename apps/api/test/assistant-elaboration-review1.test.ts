@@ -16,7 +16,7 @@ const open = async (children?: { title: string; description: string }[]) => {
   expect((await h.call("PATCH", `/api/ticket-conversations/${id}/draft`, as("contributor"), { title: "Entrar com SAML corporativo", description: "Login único pela empresa", ...(children ? { children } : {}) })).status).toBe(200);
   return id;
 };
-const create = (id: string, extra: Record<string, unknown> = {}) => h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), { parentId: null, ...extra });
+const create = (id: string, extra: Record<string, unknown> = {}) => h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), { placedBy: "map", parentId: null, ...extra });
 const placement = (id: string) => h.call("POST", `/api/ticket-conversations/${id}/placement`, as("contributor"), {});
 const elaborate = (id: string) => h.call("POST", `/api/ticket-conversations/${id}/elaboration`, as("contributor"));
 const relatedAre = (odds: Record<string, number>) => {

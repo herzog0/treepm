@@ -104,6 +104,28 @@ describe("case-run: a medição", () => {
     expect(titles).toEqual(["Pagamentos", "Cobrança mensal", "Faturas recorrentes", "Acesso", "Login"]);
   });
 
+  it("pedido sem relação com a árvore: a procura pergunta, o respondedor pelo gabarito responde e o registro traz as perguntas (ADR 0054)", async () => {
+    const ok = await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, request: "Zebras voadoras\n\nUm texto sem relação alguma com nada", omit: ["TST-6"] }), repeats: 1 });
+    const record = JSON.parse(lines.find((l) => l.includes('"repeat"')) as string) as { destinationKey: string | null; finalDestinationKey: string | null; finalHit: boolean; destinationHit: boolean; hit: boolean; doubt: { questions: { kind: string; answer: string; expectedInBranch: boolean }[]; result: string; first: { group: string }; final: { group: string } } | null };
+    expect(record.doubt).not.toBeNull();
+    expect(record.doubt?.questions.length).toBeGreaterThan(0);
+    expect(record.doubt?.questions[0]).toMatchObject({ kind: "fit", answer: "branch", expectedInBranch: true });
+    expect(record.doubt?.result).toBe("right_after_question");
+    expect(record.doubt?.first.group).toBeDefined();
+    expect(record.doubt?.final.group).toBe("same_parent");
+    // O acerto é da PRIMEIRA procura; o resultado depois das perguntas vai à parte (ADR 0054).
+    expect(record.finalDestinationKey).toBe("TST-2");
+    expect(record.finalHit).toBe(true);
+    // O palpite da primeira procura foi a raiz (pergunta `root`): não é acerto, mesmo que a pergunta tenha levado ao lugar certo.
+    expect(record.destinationKey).toBeNull();
+    expect(record.destinationHit).toBe(false);
+    expect(record.hit).toBe(false);
+    expect(ok).toBe(false);
+    const summary = JSON.parse(lines.find((l) => l.includes('"summary"')) as string) as { finalHits: number; destinationHits: number };
+    expect(summary.finalHits).toBe(1);
+    expect(summary.destinationHits).toBe(0);
+  });
+
   it("destino fora do esperado e dos aceitos não é acerto; aceitar um descendente o torna", async () => {
     const miss = await caseRunCommand(ctx(), { caseFile: writeCase({ ...base, expectParentKey: "TST-4" }), repeats: 1 });
     expect(miss).toBe(false);

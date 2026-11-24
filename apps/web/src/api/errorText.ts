@@ -7,7 +7,7 @@ import type { ApiError } from "./client.js";
 const KNOWN_CODES = new Set([
   "team_name_taken", "area_name_taken", "project_key_taken", "person_inactive", "ticket_has_open_children", "ticket_cycle", "structure_busy", "concurrent_update", "server_busy",
   "project_archived", "comment_removed", "assistant_not_configured", "assistant_unavailable", "conversation_closed", "conversation_changed",
-  "grouping_changed", "draft_required", "ticket_has_no_items", "github_unavailable", "not_connected",
+  "grouping_changed", "placement_stale", "draft_required", "ticket_has_no_items", "github_unavailable", "not_connected",
   "installation_unavailable", "repository_already_linked", "repository_not_found", "person_without_project_access", "assistant_consent_required", "contribution_area_taken", "area_in_use", "ticket_in_idea",
   "unknown_ticket_keys", "description_too_long", "request_too_long",
   "chat_busy", "chat_changed", "mention_not_allowed", "cannot_mention_self", "too_many_mentions", "thread_full", "chat_thread_rate_limited", "chat_rate_limited", "invalid_cursor",

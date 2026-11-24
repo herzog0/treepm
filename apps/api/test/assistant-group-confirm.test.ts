@@ -16,7 +16,7 @@ const open = async (who: Who = "contributor") =>
   (await h.call("POST", `/api/projects/${priv()}/ticket-conversations`, as(who), { message: "Quero corrigir o login" })).body.id as string;
 type Group = { title: string; description: string; ticketIds: string[] };
 const confirm = (id: string, parentId: string | null, group: Group | undefined, who: Who | "outsider" = "contributor", org = "org_A") =>
-  h.call("POST", `/api/ticket-conversations/${id}/ticket`, as(who, org), group ? { parentId, group } : { parentId });
+  h.call("POST", `/api/ticket-conversations/${id}/ticket`, as(who, org), group ? { placedBy: "map", parentId, group } : { placedBy: "map", parentId });
 const group = (ticketIds: string[], over: Partial<Group> = {}): Group => ({ title: "Entrada alternativa", description: "Formas de entrar.", ticketIds, ...over });
 
 let tree: Tree;
@@ -203,6 +203,7 @@ describe("POST /ticket-conversations/:id/ticket com group — regras da rota", (
   it("campo desconhecido em group: 400", async () => {
     const id = await start();
     const res = await h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), {
+      placedBy: "map",
       parentId: null,
       group: { ...group([tree.loose]), kind: "ticket" },
     });

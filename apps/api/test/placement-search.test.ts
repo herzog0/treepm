@@ -426,3 +426,49 @@ describe("searchPlacement — o rastro da decisão (ADR 0052, item 5)", () => {
     for (const text of ["Ramo", "Resumo", "Corrigir login", "botão"]) expect(json).not.toContain(text);
   });
 });
+
+describe("searchPlacement — partida em um ramo respondido (ADR 0054)", () => {
+  it("parte do ramo, sem a conferência de escopo: a primeira pergunta ao juiz tem o ramo como nó atual e nenhum `scope`", async () => {
+    const inputs: Parameters<BranchJudge["judge"]>[0][] = [];
+    const base = setup({ root: ["A", "B"], A: ["C"], C: [] }, { A: { belongs: 0.9, choice: { C: 1 } } });
+    const judge: BranchJudge = { judge: (input, options) => (inputs.push(input), base.deps.judge.judge(input, options)) };
+    const out = await searchPlacement(draft, { ...base.deps, judge, start: { node: cand("A"), ancestors: [{ id: "R", title: "Raiz" }] } });
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]?.scope).toBeUndefined();
+    expect(inputs[0]?.current?.title).toBe("Ramo A");
+    expect(base.calls.map((c) => c.current)).toEqual(["A"]);
+    expect(out.destination.path.map((n) => n.id)).toEqual(["R", "A", "C"]);
+    expect(out.scope).toBeNull();
+    expect(out.trace.steps[0]).toMatchObject({ level: 1, parentId: "A" });
+  });
+
+  it("com escopo e partida, a partida vale: nada de pergunta do escopo", async () => {
+    const base = setup({ A: ["C"], C: [] }, { A: { belongs: 0.1, choice: { C: 1 } } });
+    const out = await searchPlacement(draft, { ...base.deps, scope: { node: cand("S"), ancestors: [] }, start: { node: cand("A"), ancestors: [] } });
+    expect(out.destination.path.map((n) => n.id)).toEqual(["A"]);
+    expect(out.scope).toBeNull();
+  });
+
+  it("ramo sem filhos com filhos: o destino é o próprio ramo, sem chamar o juiz", async () => {
+    const base = setup({ A: [] }, {});
+    const out = await searchPlacement(draft, { ...base.deps, start: { node: cand("A"), ancestors: [] } });
+    expect(out.destination.parentId).toBe("A");
+    expect(base.calls).toHaveLength(0);
+  });
+});
+
+describe("searchPlacement — limite de níveis reduzido por parâmetro (Revisão 1, item 7)", () => {
+  it("`maxLevels` para a descida; a dúvida `interrupted` fica no nível do nó onde parou (o que a resposta aceitaria)", async () => {
+    const { deps } = setup(
+      { root: ["A"], A: ["C"], C: ["D"], D: [] },
+      { root: { belongs: 0.95, choice: { A: 1 } }, A: { belongs: 0.95, choice: { C: 1 } }, C: { belongs: 0.95, choice: { D: 1 } } },
+      { maxLevels: 2 },
+    );
+    const out = await searchPlacement(draft, deps);
+    expect(out.stoppedEarly).toEqual({ reason: "max_levels", level: 2, parentId: "C" });
+    const { findDoubt } = await import("../src/assistant/placement-doubt.js");
+    const doubt = findDoubt({ steps: out.trace.steps, walk: [null, ...out.trace.chosen], stoppedEarly: out.stoppedEarly }, { low: 0.2, high: 0.8, choice: 0.5 });
+    // C está no nível 2 (A é o 1º); a pergunta é sobre os filhos de C, no nível 3.
+    expect(doubt).toEqual({ level: 3, parentId: "C", kind: "interrupted" });
+  });
+});

@@ -6,6 +6,7 @@ import { runDryRun } from "./conversation-dry-run.js";
 import type { Decision, ElaborationDiagnostics, Triage } from "./conversation-dry-run.js";
 import type { Gabarito, GabaritoTicket } from "./core.js";
 import { probabilitiesOf } from "./conversation-dry-run.js";
+import type { DoubtRun } from "./doubt.js";
 
 /**
  * `case-run`: o caso de medição fixo da ADR 0052. Cria um projeto de medição a partir da árvore exportada (`export`), SEM
@@ -115,6 +116,9 @@ export type CaseRepeat = {
   /** O caso passou nesta repetição: destino, relacionados e duplicado esperados (os que o caso pede). */
   hit: boolean;
   destinationHit: boolean;
+  /** O destino depois das perguntas respondidas pelo gabarito e se ele cai nos aceitos (falso se foi ao mapa); à parte do acerto, que é da primeira procura (ADR 0054). */
+  finalDestinationKey: string | null;
+  finalHit: boolean;
   relatedHit: boolean;
   duplicateHit: boolean;
   /** Todas as `expectLinkKeys` apareceram em `links[].dependeDe` (verdadeiro quando o caso não pede nenhuma). */
@@ -127,6 +131,8 @@ export type CaseRepeat = {
   diagnostics: ElaborationDiagnostics | null;
   suggested: { title: string; description: string; motivo: string }[];
   elaborationUnavailable: string | null;
+  /** ADR 0054: as perguntas respondidas pelo gabarito e como terminou. */
+  doubt: (DoubtRun & { chosenByHand: boolean }) | null;
   uncertain: boolean;
   stopReason: string | null;
   /** Só números e códigos da triagem por palavras e vetores da procura (ADR 0053); `null` em decisão sem `triage`. */
@@ -181,15 +187,23 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
     const originalKeyOfNewId = new Map([...newOf].map(([oldId, summary]) => [summary.id, kept.find((t) => t.id === oldId)?.key ?? summary.key]));
     const originalKeyOfMeasuredKey = new Map([...newOf].map(([oldId, summary]) => [summary.key, kept.find((t) => t.id === oldId)?.key ?? summary.key]));
     const keyOf = (id: string | null): string | null => (id === null ? null : (originalKeyOfNewId.get(id) ?? null));
+    // Os ids novos da raiz até o pai esperado, para o respondedor pelo gabarito.
+    const expectedPath: string[] = [];
+    for (let at: GabaritoTicket | undefined = accepted[0]; at; at = at.parentId === null ? undefined : kept.find((t) => t.id === at?.parentId)) expectedPath.unshift((newOf.get(at.id) as Summary).id);
     const acceptedNewIds = new Set(accepted.map((t) => (newOf.get(t.id) as Summary).id));
 
     const results: CaseRepeat[] = [];
     for (let repeat = 1; repeat <= input.repeats; repeat++) {
-      const run = await runDryRun(measured, spec.request);
-      const destinationId = run.outcome.destination.parentId;
+      const run = await runDryRun(measured, spec.request, undefined, expectedPath);
+      // O acerto é da PRIMEIRA procura (o palpite sem ajuda). O resultado final com o respondedor vai à parte; "foi ao mapa" nunca conta
+      // como acerto, e o lugar final dele é o esperado, escolhido à mão (ADR 0054).
+      const wentToMap = run.doubtRun?.result === "went_to_map";
+      const destinationId = run.firstOutcome.destination.parentId;
       const destinationHit = destinationId !== null && acceptedNewIds.has(destinationId);
-      const related = (run.outcome.related ?? []).map((item) => keyOf(item.id));
-      const duplicate = run.outcome.duplicate ? keyOf(run.outcome.duplicate.id) : null;
+      const finalId = run.doubtRun?.final.parentId ?? destinationId;
+      const finalHit = !wentToMap && finalId !== null && acceptedNewIds.has(finalId);
+      const related = (run.firstOutcome.related ?? []).map((item) => keyOf(item.id));
+      const duplicate = run.firstOutcome.duplicate ? keyOf(run.firstOutcome.duplicate.id) : null;
       const relatedHit = spec.expectRelatedKeys.every((key) => related.includes(key));
       const duplicateHit = spec.expectDuplicateKey === null || duplicate === spec.expectDuplicateKey;
       // A API devolve as chaves do projeto de medição; o mapa de todos os tickets importados liga de volta à chave do projeto original
@@ -202,6 +216,8 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
         destinationKey: keyOf(destinationId),
         hit: destinationHit && relatedHit && duplicateHit && linkHit,
         destinationHit,
+        finalDestinationKey: keyOf(finalId),
+        finalHit,
         relatedHit,
         duplicateHit,
         linkHit,
@@ -211,7 +227,8 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
         suggested: run.elaboration?.suggested ?? [],
         diagnostics: run.elaboration?.diagnostics ?? null,
         elaborationUnavailable: run.elaboration === null ? "unavailable" : run.elaboration.unavailable,
-        uncertain: run.outcome.uncertain as boolean,
+        doubt: run.doubtRun === null ? null : { ...run.doubtRun, chosenByHand: wentToMap },
+        uncertain: run.firstOutcome.uncertain as boolean,
         stopReason: run.decision?.stopReason ?? null,
         triage: run.decision?.triage ?? null,
         probabilities: run.decision ? probabilitiesOf(run.decision as Decision, keyOf) : null,
@@ -239,6 +256,7 @@ export async function caseRunCommand(ctx: Context, input: { caseFile: string; re
         summary: true,
         diagnostics,
         destinationHits: results.filter((r) => r.destinationHit).length,
+        finalHits: results.filter((r) => r.finalHit).length,
         case: spec.name,
         expect: spec.expectParentKey,
         accepted: accepted.map((t) => t.key),

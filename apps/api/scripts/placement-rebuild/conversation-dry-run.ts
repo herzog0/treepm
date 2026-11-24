@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { TicketCommandError, call, listRows, resolveNumber } from "./ticket-commands.js";
 import type { Row, TicketContext } from "./ticket-commands.js";
+import { answerByGabarito } from "./doubt.js";
+import type { DoubtRun, QuestionView } from "./doubt.js";
 
 /**
  * `conversation-dry-run`: o que a tela faz para um pedido novo (abre a conversa com o texto, recebe o rascunho e pede o lugar
@@ -80,26 +82,48 @@ export type ElaborationDiagnostics = {
 };
 
 /** O que uma passada devolve, ainda com os ids da API: quem chama traduz para as chaves que quiser. */
-export type DryRunResult = { draft: NonNullable<Draft>; ready: boolean; outcome: Outcome; decision: Decision | null; elaboration: Elaboration | null; conversationDiscarded: boolean; conversationId: string };
+export type DryRunResult = { /** A primeira procura, o palpite sem ajuda (ADR 0054); sem `expectedPath` é o próprio `outcome`. */ firstOutcome: Outcome; /** ADR 0054: o que o respondedor pelo gabarito fez (só com `expectedPath`); sem ele, a pergunta que a procura fez fica em `outcome.question`. */ doubtRun: DoubtRun | null; draft: NonNullable<Draft>; ready: boolean; outcome: Outcome; decision: Decision | null; elaboration: Elaboration | null; conversationDiscarded: boolean; conversationId: string };
 
 /**
  * Uma passada: abre a conversa com o texto, pede o lugar, lê a decisão guardada e descarta a conversa (com sucesso ou erro).
  * Não imprime nada. `scopeId` é o id (da API) do ticket de escopo.
  */
-export async function runDryRun(ctx: TicketContext, text: string, scopeId?: string): Promise<DryRunResult> {
+export async function runDryRun(ctx: TicketContext, text: string, scopeId?: string, expectedPath?: readonly string[]): Promise<DryRunResult> {
   const scopeBody = scopeId ? { scopeId } : {};
   const conversation = await call<Conversation>("abrir conversa", ctx, "POST", `/projects/${ctx.project}/ticket-conversations`, { message: text, ...scopeBody });
   let result: Omit<DryRunResult, "conversationDiscarded" | "conversationId">;
+  type Asked = Outcome & { question?: QuestionView | null };
   let discarded = false;
   try {
     if (!conversation.draft) throw new TicketCommandError("O assistente não montou um rascunho a partir do texto: não há o que procurar.");
-    const outcome = await call<Outcome>("procurar o lugar", ctx, "POST", `/ticket-conversations/${conversation.id}/placement`, scopeBody);
+    // Com o gabarito (`expectedPath`), cada pergunta é respondida; sem ele, só a primeira procura, com a pergunta em `outcome.question`.
+    const placementUrl = `/ticket-conversations/${conversation.id}/placement`;
+    let doubtRun: DoubtRun | null = null;
+    let firstDecision: { decision: Decision | null } | null = null;
+    let outcome: Outcome;
+    let firstOutcome: Outcome;
+    if (expectedPath) {
+      // A decisão que vale é a da PRIMEIRA procura (a calibração e a triagem); as seguintes partem de um ramo já confirmado.
+      let first: { decision: Decision | null } | null = null;
+      const answered = await answerByGabarito<Asked>(async (body) => {
+        const response = await call<Asked>("procurar o lugar", ctx, "POST", placementUrl, { ...scopeBody, ...body });
+        first ??= await call<{ decision: Decision | null }>("ler a decisão da procura", ctx, "GET", `/ticket-conversations/${conversation.id}/placement-decision`).catch(() => null);
+        return response;
+      }, expectedPath);
+      firstDecision = first as { decision: Decision | null } | null;
+      outcome = answered.outcome;
+      firstOutcome = answered.first;
+      doubtRun = answered.run;
+    } else {
+      outcome = await call<Outcome>("procurar o lugar", ctx, "POST", placementUrl, scopeBody);
+      firstOutcome = outcome;
+    }
     // A decisão sai ANTES do descarte: descartar a conversa apaga a decisão que ainda é dela.
     // A leitura é opcional: se falhar, o resultado da procura sai mesmo assim, sem as probabilidades.
-    const stored = await call<{ decision: Decision | null }>("ler a decisão da procura", ctx, "GET", `/ticket-conversations/${conversation.id}/placement-decision`).catch(() => null);
+    const stored = firstDecision ?? (await call<{ decision: Decision | null }>("ler a decisão da procura", ctx, "GET", `/ticket-conversations/${conversation.id}/placement-decision`).catch(() => null));
     // A elaboração lê a decisão guardada: roda ANTES do descarte. Falhar não derruba o ensaio.
     const elaboration = await call<Elaboration>("elaborar ligações e tarefas", ctx, "POST", `/ticket-conversations/${conversation.id}/elaboration`).catch(() => null);
-    result = { draft: conversation.draft, ready: conversation.ready, outcome, decision: stored?.decision ?? null, elaboration };
+    result = { firstOutcome, doubtRun, draft: conversation.draft, ready: conversation.ready, outcome, decision: stored?.decision ?? null, elaboration };
   } finally {
     discarded = (await ctx.client.request("DELETE", `/ticket-conversations/${conversation.id}`)).status === 204;
   }

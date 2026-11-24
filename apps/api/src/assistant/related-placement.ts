@@ -53,7 +53,26 @@ export type ResolveInput = {
   choose(options: readonly string[]): Promise<Readonly<Record<string, number>>>;
 };
 
-export async function resolvePlacement(input: ResolveInput): Promise<{ outcome: PlacementOutcome; rule: PlacementRule }> {
+/** A escolha entre ramos, quando houve (regras `related_choice` e `choice_unavailable`): as opções na ordem final e a probabilidade do vencedor. */
+export type PlacementChoice = {
+  options: { id: string; probability: number | null }[];
+  top: number | null;
+  /** O destino da descida, que a escolha mantém ou tira; nulo só na pergunta do relacionado fraco (sem escolha). */
+  descentId: string | null;
+};
+
+export type PlacementResolved = {
+  outcome: PlacementOutcome;
+  rule: PlacementRule;
+  choice: PlacementChoice | null;
+  /**
+   * Só na regra `related_ancestor` fraca (descida na raiz e relacionado abaixo de `RELATED_CONFIDENT`): um relacionado fraco
+   * tira o ticket da raiz, então a pessoa é quem confirma. Os ids dos destinos em disputa, o vencedor primeiro.
+   */
+  weakAncestor: string[] | null;
+};
+
+export async function resolvePlacement(input: ResolveInput): Promise<PlacementResolved> {
   const { byId, duplicateId } = input;
   const parentOf = (id: string): string | null => byId.get(id)?.parentId ?? null;
   /** `id` é `ancestorId` ou está dentro dele. */
@@ -97,7 +116,7 @@ export async function resolvePlacement(input: ResolveInput): Promise<{ outcome: 
     })
     .slice(0, RELATED_DESTINATIONS);
   const top = eligible[0];
-  if (!top) return { outcome, rule: "descent" };
+  if (!top) return { outcome, rule: "descent", choice: null, weakAncestor: null };
   const topParent = parentOf(top.id) as string;
   const others = eligible.slice(1).map((entry) => ({ parent: parentOf(entry.id) as string, entry }));
   /** Os pais dos outros elegíveis, que a descida não tem; "outro ramo" é o que não é ancestral nem descendente do destino. */
@@ -124,7 +143,7 @@ export async function resolvePlacement(input: ResolveInput): Promise<{ outcome: 
     const side = sideTargets([current]);
     const alternatives = mergeAlternatives([...side.map((entry) => entry.target), ...outcome.alternatives], outcome.destination);
     const uncertain = outcome.uncertain || side.some((entry) => entry.strongElsewhere);
-    return { outcome: withDestination(outcome, outcome.destination, alternatives, uncertain), rule: "related_within" };
+    return { outcome: withDestination(outcome, outcome.destination, alternatives, uncertain), rule: "related_within", choice: null, weakAncestor: null };
   }
 
   // 4. O destino da descida (inclusive a raiz) é ancestral do pai do relacionado mais provável.
@@ -134,14 +153,15 @@ export async function resolvePlacement(input: ResolveInput): Promise<{ outcome: 
     const side = sideTargets([topParent]).map((entry) => entry.target);
     if (current === null) {
       const alternatives = mergeAlternatives(confident ? [...side, ...outcome.alternatives] : [targetOf(null), ...side, ...outcome.alternatives], winner);
-      return { outcome: withDestination(outcome, winner, alternatives, outcome.uncertain || !confident), rule: "related_ancestor" };
+      const result = withDestination(outcome, winner, alternatives, outcome.uncertain || !confident);
+      return { outcome: result, rule: "related_ancestor", choice: null, weakAncestor: confident ? null : [topParent, ...alternatives.flatMap((a) => (a.parentId === null ? [] : [a.parentId]))] };
     }
     if (confident) {
       const alternatives = mergeAlternatives([outcome.destination, ...side, ...outcome.alternatives], winner);
-      return { outcome: withDestination(outcome, winner, alternatives, outcome.uncertain), rule: "related_ancestor" };
+      return { outcome: withDestination(outcome, winner, alternatives, outcome.uncertain), rule: "related_ancestor", choice: null, weakAncestor: null };
     }
     const alternatives = mergeAlternatives([winner, ...side, ...outcome.alternatives], outcome.destination);
-    return { outcome: withDestination(outcome, outcome.destination, alternatives, true), rule: "descent" };
+    return { outcome: withDestination(outcome, outcome.destination, alternatives, true), rule: "descent", choice: null, weakAncestor: null };
   }
 
   // 5. Ramos diferentes: o Jev escolhe entre o destino da descida e os pais dos relacionados (nunca um ancestral do destino).
@@ -149,11 +169,13 @@ export async function resolvePlacement(input: ResolveInput): Promise<{ outcome: 
   const options = [current as string, ...parents];
   const targets = new Map<string, PlacementTarget>(options.map((id) => [id, id === current ? outcome.destination : targetOf(id)]));
   let ranked: string[];
+  let odds: Readonly<Record<string, number>> | null = null;
   let rule: PlacementRule = "related_choice";
   try {
-    const odds = await input.choose(options);
+    const answered = await input.choose(options);
+    odds = answered;
     ranked = options
-      .map((id, index) => ({ id, index, p: odds[id] ?? 0 }))
+      .map((id, index) => ({ id, index, p: answered[id] ?? 0 }))
       .sort((a, b) => b.p - a.p || a.index - b.index)
       .map((entry) => entry.id);
   } catch {
@@ -164,7 +186,8 @@ export async function resolvePlacement(input: ResolveInput): Promise<{ outcome: 
   const [first, ...rest] = ranked as [string, ...string[]];
   const winner = targets.get(first) as PlacementTarget;
   const alternatives = mergeAlternatives([...rest.map((id) => targets.get(id) as PlacementTarget), ...outcome.alternatives], winner);
-  return { outcome: withDestination(outcome, winner, alternatives, true), rule };
+  const choice: PlacementChoice = { options: ranked.map((id) => ({ id, probability: odds === null ? null : (odds[id] ?? 0) })), top: odds === null ? null : (odds[first] ?? 0), descentId: current as string };
+  return { outcome: withDestination(outcome, winner, alternatives, true), rule, choice, weakAncestor: null };
 }
 
 /**

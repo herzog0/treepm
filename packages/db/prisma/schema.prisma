@@ -413,6 +413,7 @@ model PlacementDecision {
   placementRule     String?  @map("placement_rule")
   /// A triagem de relacionados (ADR 0053, fatia 2): só números e códigos; `{}` quando não houve triagem por vetor.
   triage            Json     @default("{}")
+  // `placed_by` (migration 0032, ADR 0054 adendo) não é mapeada de propósito: a API a lê e grava por SQL cru, tolerando a coluna ausente (42703), para que a ausência dela não derrube a leitura das outras colunas.
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   organization Organization        @relation(fields: [orgId], references: [orgId])

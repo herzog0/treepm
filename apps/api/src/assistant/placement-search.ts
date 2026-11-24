@@ -33,7 +33,15 @@ export type PlacementDeps = {
    * começa nele e não sobe; os caminhos do resultado continuam desde a raiz do projeto.
    */
   scope?: { node: BranchCandidate; ancestors: readonly { id: string; title: string }[] };
+  /**
+   * Ponto de partida de um ramo que a pessoa respondeu (ADR 0054): como o escopo, a descida parte dele e os caminhos
+   * continuam desde a raiz, mas a escolha NÃO é julgada de novo (sem a conferência de escopo: o nó entra como nó atual da
+   * primeira pergunta). Vale mais que `scope`.
+   */
+  start?: { node: BranchCandidate; ancestors: readonly { id: string; title: string }[] };
   timeoutMs?: number;
+  /** Só para teste: reduz `MAX_LEVELS`. */
+  maxLevels?: number;
 };
 
 export type PlacementTarget = { parentId: string | null; path: { id: string; title: string }[] };
@@ -121,16 +129,18 @@ export async function searchPlacement(draft: TicketDraft, deps: PlacementDeps): 
 }
 
 async function descend(draft: TicketDraft, deps: PlacementDeps, signal: AbortSignal): Promise<PlacementOutcome> {
-  const { scope } = deps;
-  // Com escopo, o primeiro nó do caminho é o próprio escopo: a descida parte dele e nunca fica acima dele.
-  const base = scope ? 1 : 0;
-  const ancestors = scope?.ancestors ?? [];
+  const { scope, start } = deps;
+  // Com escopo (ou ramo respondido), o primeiro nó do caminho é ele mesmo: a descida parte dele e nunca fica acima dele.
+  const origin = start ?? scope;
+  const base = origin ? 1 : 0;
+  const maxLevels = deps.maxLevels ?? MAX_LEVELS;
+  const ancestors = origin?.ancestors ?? [];
   let scopeFit: number | null = null;
-  let paths: Path[] = [{ nodes: scope ? [scope.node] : [], logSum: 0, decisions: 0, done: false, stop: null, why: null, bands: [] }];
+  let paths: Path[] = [{ nodes: origin ? [origin.node] : [], logSum: 0, decisions: 0, done: false, stop: null, why: null, bands: [] }];
   const steps: PlacementStep[] = [];
   const discarded: PlacementOutcome["discarded"] = [];
 
-  for (let level = 1; level <= MAX_LEVELS && paths.some((p) => !p.done); level++) {
+  for (let level = 1; level <= maxLevels && paths.some((p) => !p.done); level++) {
     const kept: Path[] = paths.filter((p) => p.done);
     const offered: { parentId: string | null; candidate: BranchCandidate }[] = [];
 
@@ -142,7 +152,7 @@ async function descend(draft: TicketDraft, deps: PlacementDeps, signal: AbortSig
           const parentId = current?.id ?? null;
           let candidates = await deps.candidates(parentId);
           // A conferência do escopo vai na primeira requisição dentro dele; o nó atual desse nível é o próprio escopo.
-          const checksScope = scope !== undefined && level === 1;
+          const checksScope = scope !== undefined && start === undefined && level === 1;
           if (candidates.length === 0 && !checksScope) {
             steps.push({ level, parentId, result: "no_candidates", belongs: null, candidates: [] });
             return [{ ...path, done: true, why: "no_candidates" }];
@@ -151,7 +161,7 @@ async function descend(draft: TicketDraft, deps: PlacementDeps, signal: AbortSig
             draft,
             current: current && !checksScope ? { title: current.title, summary: current.summary } : null,
             candidates: offered,
-            ...(checksScope ? { scope: scope.node } : {}),
+            ...(checksScope && scope ? { scope: scope.node } : {}),
           });
           let input = inputOf(candidates);
           // Nível grande demais: encolhe a parte dos descendentes de TODOS os candidatos na mesma proporção antes de desistir.
@@ -211,7 +221,7 @@ async function descend(draft: TicketDraft, deps: PlacementDeps, signal: AbortSig
   const [top, second] = ordered as [Path, ...Path[]];
   const open = ordered.find((p) => !p.done);
   const stoppedEarly =
-    top.stop ?? (top === open ? { reason: "max_levels" as const, level: MAX_LEVELS, parentId: tip(top)?.id ?? null } : null);
+    top.stop ?? (top === open ? { reason: "max_levels" as const, level: maxLevels, parentId: tip(top)?.id ?? null } : null);
   const idsOf = (path: Path): string[] => [...ancestors.map((a) => a.id), ...path.nodes.map((n) => n.id)];
   const alternativePaths = ordered.slice(1, 1 + MAX_ALTERNATIVES);
   steps.sort((a, b) => a.level - b.level || String(a.parentId).localeCompare(String(b.parentId)));
@@ -221,13 +231,13 @@ async function descend(draft: TicketDraft, deps: PlacementDeps, signal: AbortSig
     discarded,
     uncertain: second !== undefined && (score(top) / score(second) < UNCERTAIN_RATIO || isBandPair(top, second)),
     stoppedEarly,
-    scope: scope ? { id: scope.node.id, title: scope.node.title, outOfScope: scopeFit !== null && scopeFit < BELONGS_LOW, fit: scopeFit } : null,
+    scope: scope && !start ? { id: scope.node.id, title: scope.node.title, outOfScope: scopeFit !== null && scopeFit < BELONGS_LOW, fit: scopeFit } : null,
     trace: {
       steps,
       chosen: idsOf(top),
       alternatives: alternativePaths.map(idsOf),
       stop: stoppedEarly?.reason ?? top.why,
-      scope: scope ? { id: scope.node.id, fit: scopeFit } : null,
+      scope: scope && !start ? { id: scope.node.id, fit: scopeFit } : null,
     },
   };
 }

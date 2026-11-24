@@ -159,7 +159,19 @@ const conversationDetailSchema = conversationSummarySchema.extend({
   ),
 });
 const placementTargetSchema = z.object({ parentId: z.string().nullable(), path: z.array(z.object({ id: z.string(), title: z.string() })) });
+const questionPathSchema = z.array(z.object({ id: z.string(), title: z.string() }));
 const placementOutcomeSchema = z.object({
+  /** Há dúvida sobre o lugar (ADR 0054): a pergunta montada pelo servidor; `null` sem dúvida. */
+  question: z
+    .object({
+      level: z.number(),
+      kind: z.enum(["fit", "which", "root", "related", "interrupted"]),
+      at: z.object({ id: z.string().nullable(), title: z.string(), path: questionPathSchema }),
+      options: z.array(z.object({ id: z.string(), title: z.string(), path: questionPathSchema })),
+    })
+    .nullable(),
+  /** `false` com pergunta aberta ou sem a decisão guardada: `destination` é só o palpite. Só o destino confirmado vale como `placedBy: "search"`. */
+  destinationConfirmed: z.boolean(),
   destination: placementTargetSchema,
   alternatives: z.array(placementTargetSchema).max(2),
   discarded: z.array(z.object({ level: z.number(), parentId: z.string().nullable(), ticketId: z.string(), title: z.string() })),
@@ -444,6 +456,8 @@ export type CreatedFromConversation = z.output<typeof createdFromConversationSch
 export type SuggestedTask = ElaborationOutcome["suggested"][number];
 export type ProposedLink = ElaborationOutcome["links"][number];
 /** O que a criação leva da elaboração: as tarefas que ficaram e as ligações marcadas. */
+/** De que tipo foi a escolha do lugar na criação (ADR 0054, adendo): o destino confirmado da procura, uma opção, "fica aqui", um lugar recente ou o mapa. */
+export type PlacedBy = "search" | "option" | "stay" | "recent" | "map";
 export interface ElaborationChoice {
   suggested?: SuggestedTask[];
   links?: { de: "pai" | number; deTitle?: string; dependeDe: string }[];
@@ -713,11 +727,14 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     updateConversationDraft: (id: string, body: ConversationDraftBody) =>
       request("PATCH", `${conversation(id)}/draft`, conversationDetailSchema, body),
     getConversationPreview: (id: string) => request("GET", `${conversation(id)}/preview`, draftPreviewSchema),
-    /** `scopeId`: procura só dentro desse ticket (ADR 0031, ADR 0034); sem ele, no projeto inteiro. */
-    findPlacement: (id: string, scopeId?: string) =>
-      request("POST", `${conversation(id)}/placement`, placementOutcomeSchema, scopeId === undefined ? undefined : { scopeId }),
+    /**
+     * `scopeId`: procura só dentro desse ticket (ADR 0031, ADR 0034); sem ele, no projeto inteiro. `startId`: o ramo que a pessoa
+     * confirmou por último na pergunta (ADR 0054, adendo); a procura parte dele. Campo ausente não vai no corpo.
+     */
+    findPlacement: (id: string, scopeId?: string, startId?: string) =>
+      request("POST", `${conversation(id)}/placement`, placementOutcomeSchema, scopeId === undefined && startId === undefined ? undefined : { ...(scopeId === undefined ? {} : { scopeId }), ...(startId === undefined ? {} : { startId }) }),
     getElaboration: (id: string) => request("POST", `${conversation(id)}/elaboration`, elaborationOutcomeSchema),
-    createTicketFromConversation: (id: string, body: { parentId: string | null; group?: NewGroup } & ElaborationChoice) =>
+    createTicketFromConversation: (id: string, body: { parentId: string | null; placedBy: PlacedBy; group?: NewGroup } & ElaborationChoice) =>
       request("POST", `${conversation(id)}/ticket`, createdFromConversationSchema, body),
     listConversations: (projectId: string) =>
       request("GET", `/api/ticket-conversations?projectId=${encodeURIComponent(projectId)}`, z.array(conversationSummarySchema)),

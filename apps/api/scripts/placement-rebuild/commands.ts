@@ -1,3 +1,6 @@
+import { answerByGabarito, responderSummaryMarkdown } from "./doubt.js";
+import type { QuestionView } from "./doubt.js";
+import { curveOfRound, expectedPathOf } from "./doubt-curve.js";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -54,6 +57,8 @@ export type Conversation = {
 type Target = { parentId: string | null; path: { id: string; title: string }[] };
 export type Outcome = {
   destination: Target;
+  /** `false` com pergunta aberta ou com a decisão da procura sem guardar (ADR 0054): o destino é só um palpite. */
+  destinationConfirmed: boolean;
   alternatives: Target[];
   uncertain: boolean;
   stoppedEarly: { reason: string; level: number; parentId: string | null } | null;
@@ -387,7 +392,7 @@ async function rebuildOne(
   const pairs = ctx.recorder.takePairs();
   // 4. cria o ticket no destino
   const created = await call<{ ticket: Detail }>("ticket", "criar ticket", () =>
-    ctx.client.request("POST", `/ticket-conversations/${conversation.id}/ticket`, { parentId: outcome.destination.parentId }),
+    ctx.client.request("POST", `/ticket-conversations/${conversation.id}/ticket`, { parentId: outcome.destination.parentId, placedBy: outcome.destinationConfirmed === false ? "option" : "search" }),
   );
   // A conversa grava a citação do pedido na frente da descrição (ADR 0044); a reconstrução quer o texto do gabarito.
   const restored = await call<Detail>("ticket", "restaurar a descrição do gabarito", () => withOriginalDescription(ctx, created.ticket, ticket.description));
@@ -440,7 +445,8 @@ export function reportCommand(ctx: Pick<Context, "dir" | "project" | "log">, loo
   const view = loo ? looView(gabarito.tickets, readLooMap(ctx.dir, ctx.project)) : rebuildView(gabarito.tickets, records, groupMap);
   const groupsCreated = loo ? (records.some((r) => r.flat) ? 0 : gabarito.tickets.filter((x) => x.kind === "group").length) : groupMap.size;
   const markdown = renderReport(gabarito.tickets, records, gabarito.project.key, { view, loo, groupsCreated });
-  writeFileSync(loo ? looReportPath(ctx.dir, ctx.project) : reportPath(ctx.dir, ctx.project), markdown);
+  const curve = loo && records.length > 0 ? `\n${responderSummaryMarkdown(records)}\n${curveOfRound(records, gabarito.tickets, readLooMap(ctx.dir, ctx.project))}` : "";
+  writeFileSync(loo ? looReportPath(ctx.dir, ctx.project) : reportPath(ctx.dir, ctx.project), markdown + curve);
   // Mesma regra do relatório: o grupo é recalculado, não lido do arquivo.
   const groups = { same_parent: 0, deeper: 0, elsewhere: 0 };
   for (const r of recomputeGroups(records, view)) groups[r.group] += 1;
@@ -637,6 +643,9 @@ export async function leaveOneOutCommand(ctx: Context, limit: number | undefined
     ctx.log(`[${position}/${todo.length}] ${record.newKey} → ${record.group}${record.uncertain ? " incerto" : ""} em ${total} ms`);
   }
 
+  // A curva da dúvida (ADR 0054): dos julgamentos desta rodada, sem chamar provedor.
+  const all = readJsonLines<RunRecord>(looPath(ctx.dir, ctx.project));
+  if (all.length > 0) ctx.log(`${responderSummaryMarkdown(all)}\n${curveOfRound(all, gabarito.tickets, map)}`);
   // 4. a árvore tem de estar inteira: mesmos títulos e pais do gabarito
   const problems = await looTreeProblems(ctx, gabarito, map);
   if (problems.length === 0) {
@@ -666,7 +675,7 @@ export async function restoreMissing(ctx: Context, original: GabaritoTicket, mar
     const conversation = conversationResponse.status === 200 ? (conversationResponse.body as Conversation) : null;
     if (conversation && conversation.status === "open" && conversation.draft) {
       const created = await retry("criar ticket pela conversa", () =>
-        ctx.client.request("POST", `/ticket-conversations/${mark.conversationId}/ticket`, { parentId: mark.expectedParentNewId }),
+        ctx.client.request("POST", `/ticket-conversations/${mark.conversationId}/ticket`, { parentId: mark.expectedParentNewId, placedBy: "map" }),
       );
       if (created.status >= 200 && created.status < 300) {
         const made = (created.body as { ticket: Detail }).ticket;
@@ -709,17 +718,32 @@ async function looOne(
     ctx.client.request("PATCH", `/ticket-conversations/${conversation.id}/draft`, { title: ticket.title, description: ticket.description }),
   );
   if (crashAfterDraft) throw new Error("Interrupção de ensaio: o processo parou depois de gravar o rascunho.");
-  const outcome = await call<Outcome>("placement", "procurar o caminho", () => {
-    ctx.recorder.reset();
-    return ctx.client.request("POST", `/ticket-conversations/${conversation.id}/placement`);
-  });
-  const judgments = ctx.recorder.take();
-  const pairs = ctx.recorder.takePairs();
+  // ADR 0054: a procura pode perguntar; o respondedor pelo gabarito responde (opção que contém o lugar esperado, "fica aqui" ou mapa).
+  let firstJudgments: RunRecord["judgments"] | null = null;
+  let pairs: ReturnType<typeof ctx.recorder.takePairs> = [];
+  const answered = await answerByGabarito<Outcome & { question?: QuestionView | null }>(async (body) => {
+    const response = await call<Outcome & { question?: QuestionView | null }>("placement", "procurar o caminho", () => {
+      ctx.recorder.reset();
+      return ctx.client.request("POST", `/ticket-conversations/${conversation.id}/placement`, body);
+    });
+    // Só os julgamentos da primeira procura entram na calibração: as seguintes partem de um ramo já confirmado.
+    const taken = ctx.recorder.take();
+    const takenPairs = ctx.recorder.takePairs();
+    if (firstJudgments === null) {
+      firstJudgments = taken;
+      pairs = takenPairs;
+    }
+    return response;
+  }, expectedPathOf({ expectedParentOldId: ticket.parentId }, tree, map));
+  // O registro é da PRIMEIRA procura (o palpite sem ajuda, de onde vêm os julgamentos); o resultado final com o respondedor fica em `doubt.final`.
+  const outcome = answered.first;
+  const judgments = firstJudgments ?? [];
+  const wentToMap = answered.run.result === "went_to_map";
   const scopeChecks = ctx.scopeCheck && ticket.parentId !== null ? await scopeChecksFor(ctx, call, conversation.id, ticket, tree, map) : undefined;
   // Não cria no destino da procura: recoloca no pai original, para a árvore ficar igual à de antes.
   const made = (
     await call<{ ticket: Detail }>("ticket", "recriar ticket", () =>
-      ctx.client.request("POST", `/ticket-conversations/${conversation.id}/ticket`, { parentId: expectedParentNewId }),
+      ctx.client.request("POST", `/ticket-conversations/${conversation.id}/ticket`, { parentId: expectedParentNewId, placedBy: "map" }),
     )
   ).ticket;
   // A conversa grava a citação do pedido na frente da descrição (ADR 0044); a reconstrução quer o texto do gabarito.
@@ -728,6 +752,7 @@ async function looOne(
   const newToOld = new Map([...map].map(([oldId, newId]) => [newId, oldId]));
   const chosen = outcome.destination.parentId;
   return {
+    doubt: { ...answered.run, chosenByHand: wentToMap },
     affinity: affinityRecordOf(pairs, outcome, (id) => newToOld.get(id) ?? id),
     ...(ctx.flat ? { flat: true as const } : {}),
     oldId: ticket.id,

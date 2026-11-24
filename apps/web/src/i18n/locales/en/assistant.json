@@ -106,6 +106,17 @@
     "partsNote_one": "{{count}} part is created inside the ticket.",
     "partsNote_other": "The {{count}} parts are created inside the ticket, in the order of the draft."
   },
+  "question": {
+    "heading": "Where does this go?",
+    "at": "Unsure at: {{where}}",
+    "options": "Possible places",
+    "stay": "Stays here, in «{{title}}»",
+    "stayRoot": "Leave it loose in the project",
+    "recent": "Recent places",
+    "map": "None of these: choose on the map",
+    "needsPlace": "Choose the place before creating.",
+    "limit": "I have asked three times. You can create it here or choose deeper on the map."
+  },
   "proposal": {
     "line": "This ticket seems to form a group with others here.",
     "list": "Tickets that go to the new parent ticket",

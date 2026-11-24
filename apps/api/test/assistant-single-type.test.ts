@@ -204,7 +204,7 @@ describe("criação pela conversa", () => {
   it("o destino pode ser qualquer ticket, inclusive um sem filhos", async () => {
     tree = await seedTree(h.pool, h.world());
     const id = await startConversation();
-    const res = await h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), { parentId: tree.login });
+    const res = await h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), { placedBy: "map", parentId: tree.login });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body.ticket.parentId).toBe(tree.login);
     expect(res.body.ticket).not.toHaveProperty("kind");

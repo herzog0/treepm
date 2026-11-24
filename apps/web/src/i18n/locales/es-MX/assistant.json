@@ -110,6 +110,17 @@
     "partsNote_many": "Las {{count}} partes se crean dentro del ticket, en el orden del borrador.",
     "partsNote_other": "Las {{count}} partes se crean dentro del ticket, en el orden del borrador."
   },
+  "question": {
+    "heading": "¿Dónde entra esto?",
+    "at": "Duda en: {{where}}",
+    "options": "Lugares posibles",
+    "stay": "Se queda aquí, en «{{title}}»",
+    "stayRoot": "Dejarlo suelto en el proyecto",
+    "recent": "Lugares recientes",
+    "map": "Ninguno de estos: elegir en el mapa",
+    "needsPlace": "Falta elegir el lugar para crear.",
+    "limit": "Ya pregunté tres veces. Puedes crearlo aquí o elegir más a fondo en el mapa."
+  },
   "proposal": {
     "line": "Este ticket parece formar un grupo con otros de aquí.",
     "list": "Tickets que van al ticket padre nuevo",

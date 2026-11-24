@@ -18,7 +18,7 @@ const detail = {
   messages: [{ id: "m1", author: "person", body: "Oi", model: null, createdAt: "2026-11-20T10:00:00.000Z" }],
 };
 const target = { parentId: ID, path: [{ id: ID, title: "Ramo" }] };
-const outcome = { destination: target, alternatives: [], discarded: [], uncertain: false, stoppedEarly: null, scope: null, groupProposal: null, groupProposalSkipped: null };
+const outcome = { question: null, destinationConfirmed: true, destination: target, alternatives: [], discarded: [], uncertain: false, stoppedEarly: null, scope: null, groupProposal: null, groupProposalSkipped: null };
 const ticketDetail = {
   id: ID, projectId: OTHER, number: 1, key: "K-1", parentId: null, title: "T", status: "todo", progress: null,
   assigneeIds: [], descriptionExcerpt: "", description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: OTHER, createdAt: "x", updatedAt: "y",
@@ -84,7 +84,7 @@ describe("ticket conversation calls", () => {
     const { client, fetchImpl } = setup(outcome);
     const result = await client.findPlacement(ID);
     expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/placement`, method: "POST", body: undefined });
-    expect(result).toEqual({ ok: true, data: { ...outcome, related: [], duplicate: null } });
+    expect(result).toEqual({ ok: true, data: { ...outcome, question: null, destinationConfirmed: true, related: [], duplicate: null } });
   });
   it("reads the related tickets and the duplicate, and defaults them when an older API omits them", async () => {
     const related = [{ id: "t7", key: "A-7", title: "Importar", status: "todo", path: [{ id: "t1", title: "Acesso" }] }];
@@ -99,6 +99,13 @@ describe("ticket conversation calls", () => {
     const result = await client.findPlacement(ID, "t1");
     expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/placement`, method: "POST", body: { scopeId: "t1" } });
     expect(result.ok && result.data.scope).toEqual({ id: "t1", title: "Acesso", outOfScope: true });
+  });
+  it("sends only startId when there is no scope, and both when there are both; absent fields never go in the body", async () => {
+    const { client, fetchImpl } = setup(outcome);
+    await client.findPlacement(ID, undefined, "t2");
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/placement`, method: "POST", body: { startId: "t2" } });
+    await client.findPlacement(ID, "t1", "t2");
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/placement`, method: "POST", body: { scopeId: "t1", startId: "t2" } });
   });
   it("reads an outcome from an API without the scope field as having no scope", async () => {
     const old: Record<string, unknown> = { ...outcome };
@@ -131,11 +138,24 @@ describe("ticket conversation calls", () => {
   it("sends the new group with the confirmation", async () => {
     const { client, fetchImpl } = setup({ conversation: detail, ticket: ticketDetail });
     const group = { title: "Redefinição", description: "Fluxos.", ticketIds: [OTHER, ID] };
-    await client.createTicketFromConversation(ID, { parentId: OTHER, group });
-    expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/ticket`, method: "POST", body: { parentId: OTHER, group } });
+    await client.createTicketFromConversation(ID, { parentId: OTHER, placedBy: "option", group });
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/ticket`, method: "POST", body: { parentId: OTHER, placedBy: "option", group } });
   });
   it("explains grouping_changed in words", () => {
     expect(describeApiError(i18n.t, { kind: "conflict", code: "grouping_changed" })).toBe("Algum desses tickets mudou de lugar. Procure de novo.");
+  });
+  it("lê a pergunta do lugar e o destino confirmado; sem os campos, a resposta é recusada (não há modo de compatibilidade)", async () => {
+    const question = { level: 1, kind: "root", at: { id: null, title: "Projeto", path: [] }, options: [{ id: OTHER, title: "Auth", path: [{ id: OTHER, title: "Auth" }] }] };
+    const asked = await setup({ ...outcome, question, destinationConfirmed: false }).client.findPlacement(ID);
+    expect(asked.ok && [asked.data.question?.kind, asked.data.question?.options.length, asked.data.destinationConfirmed]).toEqual(["root", 1, false]);
+    const plain = await setup(outcome).client.findPlacement(ID);
+    expect(plain.ok && [plain.data.question, plain.data.destinationConfirmed]).toEqual([null, true]);
+    const withoutQuestion: Record<string, unknown> = { ...outcome };
+    delete withoutQuestion.question;
+    const withoutConfirmed: Record<string, unknown> = { ...outcome };
+    delete withoutConfirmed.destinationConfirmed;
+    expect(await setup(withoutQuestion).client.findPlacement(ID)).toEqual({ ok: false, error: { kind: "unavailable" } });
+    expect(await setup(withoutConfirmed).client.findPlacement(ID)).toEqual({ ok: false, error: { kind: "unavailable" } });
   });
   it("rejects a placement outcome with more than two alternatives", async () => {
     const { client } = setup({ ...outcome, alternatives: [target, target, target] });
@@ -143,8 +163,8 @@ describe("ticket conversation calls", () => {
   });
   it("creates the ticket under the chosen parent (or null for the project root)", async () => {
     const { client, fetchImpl } = setup({ conversation: detail, ticket: ticketDetail });
-    const result = await client.createTicketFromConversation(ID, { parentId: null });
-    expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/ticket`, method: "POST", body: { parentId: null } });
+    const result = await client.createTicketFromConversation(ID, { parentId: null, placedBy: "map" });
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/ticket-conversations/${ID}/ticket`, method: "POST", body: { parentId: null, placedBy: "map" } });
     expect(result.ok && result.data.ticket.id).toBe(ID);
   });
   it("lists the conversations of a project", async () => {
@@ -189,16 +209,16 @@ describe("conversa que quebra o pedido em pai e filhos (ADR 0044)", () => {
     expect(lastCall(fetchImpl).body).toEqual({ title: "T", description: "D" });
   });
   it("lê os filhos criados, e a falta deles como lista vazia", async () => {
-    const created = await setup({ conversation: detail, ticket: ticketDetail, children: [ticketDetail] }).client.createTicketFromConversation(ID, { parentId: null });
+    const created = await setup({ conversation: detail, ticket: ticketDetail, children: [ticketDetail] }).client.createTicketFromConversation(ID, { parentId: null, placedBy: "map" });
     expect(created.ok && created.data.children).toHaveLength(1);
-    const old = await setup({ conversation: detail, ticket: ticketDetail }).client.createTicketFromConversation(ID, { parentId: null });
+    const old = await setup({ conversation: detail, ticket: ticketDetail }).client.createTicketFromConversation(ID, { parentId: null, placedBy: "map" });
     expect(old.ok && old.data.children).toEqual([]);
   });
   it("guarda as chaves de unknown_ticket_keys e ignora details nos outros erros", async () => {
     const unknown = setup({ error: { code: "unknown_ticket_keys", message: "x", details: { keys: ["PRIV-77", "PRIV-78"] } } }, 409);
-    expect(await unknown.client.createTicketFromConversation(ID, { parentId: null })).toEqual({ ok: false, error: { kind: "conflict", code: "unknown_ticket_keys", keys: ["PRIV-77", "PRIV-78"] } });
+    expect(await unknown.client.createTicketFromConversation(ID, { parentId: null, placedBy: "map" })).toEqual({ ok: false, error: { kind: "conflict", code: "unknown_ticket_keys", keys: ["PRIV-77", "PRIV-78"] } });
     const long = setup({ error: { code: "description_too_long", message: "x", details: { max: 20000, length: 20001, quoteLength: 10 } } }, 409);
-    expect(await long.client.createTicketFromConversation(ID, { parentId: null })).toEqual({ ok: false, error: { kind: "conflict", code: "description_too_long" } });
+    expect(await long.client.createTicketFromConversation(ID, { parentId: null, placedBy: "map" })).toEqual({ ok: false, error: { kind: "conflict", code: "description_too_long" } });
   });
   it("explica os três erros novos em palavras", () => {
     expect(describeApiError(i18n.t, { kind: "conflict", code: "unknown_ticket_keys", keys: ["ALFA-9", "ALFA-8"] })).toBe("O rascunho cita tickets que não existem: ALFA-9, ALFA-8.");

@@ -55,6 +55,7 @@ describe("criação: ligação a ancestral é descartada com aviso", () => {
     const id = (await h.call("POST", `/api/projects/${priv()}/ticket-conversations`, as("contributor"), { message: "Quero SAML" })).body.id as string;
     await h.call("PATCH", `/api/ticket-conversations/${id}/draft`, as("contributor"), { title: "Entrar com SAML corporativo", description: "Login único" });
     const res = await h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), {
+      placedBy: "map",
       parentId: tree.sso,
       links: [{ de: "pai", dependeDe: "PRIV-3" }, { de: "pai", dependeDe: "PRIV-1" }, { de: "pai", dependeDe: "PRIV-2" }],
     });
@@ -70,7 +71,7 @@ describe("criação: ligação a ancestral é descartada com aviso", () => {
     await seedTree(h.pool, h.world());
     const id = (await h.call("POST", `/api/projects/${priv()}/ticket-conversations`, as("contributor"), { message: "Quero SAML" })).body.id as string;
     await h.call("PATCH", `/api/ticket-conversations/${id}/draft`, as("contributor"), { title: "Entrar com SAML corporativo", description: "Login único" });
-    const res = await h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), { parentId: null, links: [{ de: "pai", dependeDe: "PRIV-1" }] });
+    const res = await h.call("POST", `/api/ticket-conversations/${id}/ticket`, as("contributor"), { placedBy: "map", parentId: null, links: [{ de: "pai", dependeDe: "PRIV-1" }] });
     expect(res.status).toBe(201);
     expect(res.body.warnings).toEqual([]);
   });

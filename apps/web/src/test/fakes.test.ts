@@ -155,7 +155,7 @@ describe("the tree fake reopens a concluded parent that receives an open child (
 
   it("reopens the destination when a ticket is created from the conversation, with or without a new parent ticket", async () => {
     const client = make();
-    const loose = await client.createTicketFromConversation("c1", { parentId: "d3" });
+    const loose = await client.createTicketFromConversation("c1", { parentId: "d3", placedBy: "search" });
     expect(loose).toMatchObject({ ok: true, data: { ticket: { parentId: "d3", status: "todo" } } });
     expect(await statusOf(client, "d3")).toBe("todo");
     expect(await statusOf(client, "d1")).toBe("todo");
@@ -163,7 +163,7 @@ describe("the tree fake reopens a concluded parent that receives an open child (
 
   it("reopens the destination when the proposal of a new parent ticket is confirmed, moving the chosen tickets inside it", async () => {
     const client = make();
-    const created = await client.createTicketFromConversation("c1", { parentId: "r1", group: { title: "Grupo novo", description: "", ticketIds: ["o1"] } });
+    const created = await client.createTicketFromConversation("c1", { parentId: "r1", placedBy: "search", group: { title: "Grupo novo", description: "", ticketIds: ["o1"] } });
     expect(created.ok).toBe(true);
     const all = await listed(client);
     const group = all.find((entry) => entry.title === "Grupo novo");

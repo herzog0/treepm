@@ -247,7 +247,7 @@ describe("rascunho com filhos", () => {
     const { client, props } = setup({ children: FILHOS });
     await search();
     await userEvent.click(await screen.findByRole("button", { name: "Criar ticket e 3 partes" }));
-    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1" }));
+    await waitFor(() => expect(client.createTicketFromConversation).toHaveBeenCalledWith("c1", { parentId: "t1", placedBy: "search" }));
     await waitFor(() => expect(props.onCreated).toHaveBeenCalledWith("t9"));
     expect(props.onChanged).toHaveBeenCalled();
   });

@@ -22,7 +22,7 @@ describe("criar a partir da conversa", () => {
     try {
       await owner.query("begin");
       await owner.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`ticket-structure:${P()}`]);
-      const res = await h.call("POST", `/api/ticket-conversations/${open.body.id}/ticket`, as("contributor"), { parentId: null });
+      const res = await h.call("POST", `/api/ticket-conversations/${open.body.id}/ticket`, as("contributor"), { placedBy: "map", parentId: null });
       expect(res.status, JSON.stringify(res.body)).toBe(409);
       expect(res.body.error.code).toBe("structure_busy");
       await owner.query("commit");

@@ -1,6 +1,7 @@
 import { descriptionExcerpt, mentionedKeys, scanTicketKeys } from "@treepm/domain";
 import type { FusionRule } from "@treepm/domain";
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -19,6 +20,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
+import { createHash } from "node:crypto";
 import type { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { CurrentPrincipal } from "../access/principal.js";
@@ -45,8 +47,11 @@ import { buildRequestQuote, suggestedDescription, withRequestQuote } from "./req
 import { forbiddenQuoteText, normalizeTitle, sanitizeElaboration } from "./elaboration.js";
 import { ELABORATION_TIMEOUT_MS } from "./claude-ticket-elaborator.js";
 import { loadPlacementTree } from "./branch-tree.js";
-import { decisionOf, errorCode, handDecisionToTicket, readDecisionSafely, saveDecision } from "./placement-decision.js";
-import type { DecisionExtras, PlacementDecisionRecord } from "./placement-decision.js";
+import { decisionOf, errorCode, handDecisionToTicket, readDecisionSafely, recordPlacedBy, saveDecision } from "./placement-decision.js";
+import type { DecisionExtras, DoubtRecord, PlacementDecisionRecord } from "./placement-decision.js";
+import { findDoubt } from "./placement-doubt.js";
+import { buildQuestion, commonAncestor, forkOf, pathTo } from "./placement-question.js";
+import type { PlacementQuestion, QuestionNode } from "./placement-question.js";
 import { pickRelated, relatedListing } from "./related-placement.js";
 import { linkExistingSuggestions, SUGGESTED_LOOKUP_TIMEOUT_MAX_MS } from "./suggested-links.js";
 import { SEMANTIC_TRIAGE_DEADLINE_MS, semanticSearchOf } from "./semantic-triage.js";
@@ -100,6 +105,9 @@ const placementDraft = (row: ConversationRow): { title: string; description: str
   const parts = `Partes:\n${titles.join("\n")}`;
   return { title: row.draftTitle ?? "", description: description === "" ? parts : `${description}\n\n${parts}` };
 };
+
+/** Só o hash do rascunho (título, descrição, filhos e se é ideia): diz se a procura guardada ainda vale para o rascunho de agora; nunca guarda o texto. */
+const draftMarkOf = (row: ConversationRow): string => createHash("sha256").update(JSON.stringify([row.draftTitle, row.draftDescription ?? "", childrenOf(row), row.draftIdea])).digest("hex").slice(0, 16);
 
 /** O rascunho da conversa, ou `null` se ainda não há. */
 const draftOf = (row: ConversationRow): { title: string; description: string; children: DraftChild[]; idea: boolean } | null =>
@@ -273,7 +281,7 @@ export class TicketConversationsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(placementBodySchema.default({}))) body: z.output<typeof placementBodySchema>,
   ): Promise<z.output<typeof placementOutcomeSchema>> {
-    const { judge, affinity, related, namer, embedder, semantic: settings } = await this.gate.open(tenant);
+    const { judge, affinity, related, namer, embedder, semantic: settings, doubt: doubtConfig } = await this.gate.open(tenant);
     const seen = await tenant.run(async (tx, principal) => {
       const { conversation } = await this.requireWritable(tx, principal, id);
       if (conversation.draftTitle === null) throw this.draftRequired();
@@ -283,10 +291,12 @@ export class TicketConversationsController {
       ]);
       const { tickets } = tree;
       if (body.scopeId) this.requireScope(tickets.find((ticket) => ticket.id === body.scopeId));
+      this.requireStart(tickets, body.startId, body.scopeId ?? null);
       return {
         draft: placementDraft(conversation),
         triage: { title: conversation.draftTitle, description: conversation.draftDescription ?? "", partTitles: childrenOf(conversation).map((child) => child.title) },
         projectKey: project.key,
+        mark: draftMarkOf(conversation),
         snapshot: {
           projectId: conversation.projectId,
           projectName: project.name,
@@ -295,20 +305,25 @@ export class TicketConversationsController {
         },
       };
     });
+    const startId = body.startId ?? null;
+    const nodes = new Map<string, QuestionNode>(seen.snapshot.tickets.map((t) => [t.id, { id: t.id, parentId: t.parentId, number: t.number, title: t.title }]));
     try {
       // Os relacionados (de baixo para cima) e a descida (de cima para baixo) andam juntos; só a descida pode derrubar a procura.
       const startedAt = Date.now();
       const relatedAbort = new AbortController();
       const [descent, found] = await Promise.all([
-        this.placementService.search(seen.draft, seen.snapshot, {
-          judge,
-          ...(body.scopeId ? { scopeId: body.scopeId } : {}),
-          ...(this.timeouts?.descentMs ? { timeoutMs: this.timeouts.descentMs } : {}),
-        }).catch((error: unknown) => {
-          // Se a descida falha, a requisição dos relacionados não fica rodando (e sendo paga).
-          relatedAbort.abort();
-          throw error;
-        }),
+        this.placementService
+          .search(seen.draft, seen.snapshot, {
+            judge,
+            ...(body.scopeId ? { scopeId: body.scopeId } : {}),
+            ...(startId ? { startId } : {}),
+            ...(this.timeouts?.descentMs ? { timeoutMs: this.timeouts.descentMs } : {}),
+          })
+          .catch((error: unknown) => {
+            // Se a descida falha, a requisição dos relacionados não fica rodando (e sendo paga).
+            relatedAbort.abort();
+            throw error;
+          }),
         this.placementService.findRelated(seen.triage, seen.snapshot, {
           related,
           signal: relatedAbort.signal,
@@ -318,26 +333,69 @@ export class TicketConversationsController {
           ...(this.timeouts?.relatedMs ? { timeoutMs: this.timeouts.relatedMs } : {}) }),
       ]);
       const picked = pickRelated(found.judged);
-      const { outcome, rule } = await this.placementService.place(descent, seen.snapshot, {
+      // O ramo confirmado é o limite dos relacionados (como o escopo): fora dele não geram destino; dentro dele vale tudo como hoje.
+      const placed = await this.placementService.place(descent, seen.snapshot, {
         related: picked.related,
         duplicateId: picked.duplicate?.id ?? null,
-        scopeId: body.scopeId ?? null,
+        scopeId: startId ?? body.scopeId ?? null,
         draft: seen.draft,
         judge,
         // A escolha usa o que sobrou do prazo da descida (teto de 10 s): descida + escolha nunca passam do prazo da descida.
         timeoutMs: Math.max(1, (this.timeouts?.descentMs ?? PLACEMENT_TIMEOUT_MS) - (Date.now() - startedAt)),
       });
+      const { rule, weakAncestor } = placed;
+      // O relacionado fraco que tira o ticket da raiz também vira pergunta `related`, com os destinos em disputa como opções.
+      const choice = placed.choice ?? (weakAncestor ? { options: weakAncestor.map((optionId) => ({ id: optionId, probability: null })), top: null, descentId: null } : null);
+      let outcome = placed.outcome;
       const listing = relatedListing(seen.snapshot.tickets, seen.projectKey, picked.related, picked.duplicate?.id ?? null);
+
+      // A dúvida mais rasa do caminho mantido (ADR 0054, item 1).
+      const origin = startId ?? body.scopeId ?? null;
+      const chosen = outcome.trace.chosen;
+      const after = origin === null ? chosen : chosen.slice(chosen.indexOf(origin) + 1);
+      const relatedAt = (rule === "related_choice" || rule === "choice_unavailable") && choice ? commonAncestor(choice.options.map((o) => o.id), nodes) : null;
+      // Os relacionados só tiram o `which` da descida onde o caminho do vencedor se separa do da descida, e só se o vencedor é outro.
+      const winnerId = outcome.destination.parentId;
+      const divergence = rule === "related_choice" && choice?.descentId != null && winnerId !== choice.descentId ? { parentId: forkOf(choice.descentId, winnerId, nodes) } : null;
+      let doubt = findDoubt(
+        {
+          divergence,
+          steps: outcome.trace.steps,
+          walk: [origin, ...after],
+          stoppedEarly: outcome.stoppedEarly,
+          levelOffset: origin === null ? 0 : pathTo(origin, nodes).length,
+          ...(choice ? { related: { rule, choiceTop: choice.top, weak: weakAncestor !== null, parentId: relatedAt, level: pathTo(relatedAt, nodes).length + 1 } } : {}),
+        },
+        doubtConfig,
+      );
+      // A raiz nunca sai como destino confirmado: só a pessoa a escolhe (ADR 0054, item 1).
+      if (!doubt && outcome.destination.parentId === null) doubt = { level: 1, parentId: null, kind: "root" };
+      let question: PlacementQuestion | null = null;
+      if (doubt) {
+        const step = outcome.trace.steps.find((candidate) => candidate.parentId === doubt?.parentId);
+        const unjudged = seen.snapshot.tickets.filter((t) => t.parentId === doubt?.parentId && seen.snapshot.tickets.some((k) => k.parentId === t.id)).map((t) => t.id);
+        question = buildQuestion({ doubt, stepCandidates: doubt.kind === "related" ? [] : (step?.candidates ?? []), choice, unjudged, byId: nodes, projectName: seen.snapshot.projectName });
+      }
+      // A proposta de agrupador (feita sobre o palpite, como antes da ADR 0054) vem antes de a pergunta marcar o destino como incerto.
+      const proposalBase = outcome;
+      if (question) outcome = { ...outcome, uncertain: true };
       // A proposta tem prazo próprio e nunca derruba a procura: falha do provedor vira `unavailable` no resultado.
-      const proposal = await this.placementService.propose(seen.draft, seen.snapshot, outcome, {
+      const proposal = await this.placementService.propose(seen.draft, seen.snapshot, proposalBase, {
         affinity,
         namer,
         ...(picked.duplicate ? { excludeIds: [picked.duplicate.id] } : {}),
         ...(this.timeouts?.proposalMs ? { timeoutMs: this.timeouts.proposalMs } : {}),
       });
       const { trace, ...shown } = outcome;
-      await this.keepDecision(tenant, id, seen.snapshot, { ...shown, trace }, { related: picked.related, duplicateId: picked.duplicate?.id ?? null, rule, triage: found.triage ?? null });
-      return parseOutput(placementOutcomeSchema, { ...shown, ...proposal, ...listing });
+      const record: DoubtRecord = {
+        draftMark: seen.mark,
+        confirmed: question === null,
+        startId,
+        question: question && { level: question.level, kind: question.kind, parentId: question.at.id, options: question.options.map((o) => ({ ticketId: o.id, number: nodes.get(o.id)?.number ?? 0, probability: o.probability })) },
+      };
+      const kept = await this.keepDecision(tenant, id, seen.snapshot, { ...shown, trace }, { related: picked.related, duplicateId: picked.duplicate?.id ?? null, rule, triage: found.triage ?? null, doubt: record });
+      // Sem a decisão guardada a criação por `search` seria recusada (409): a resposta não confirma nada nem pergunta, e a tela pede que a pessoa confirme o lugar.
+      return parseOutput(placementOutcomeSchema, { ...shown, ...proposal, ...listing, question: kept ? question : null, destinationConfirmed: kept && question === null });
     } catch (error) {
       if (error instanceof AssistantUnavailableError) {
         this.logger.warn(`assistente indisponível motivo=${error.reason}`);
@@ -348,18 +406,45 @@ export class TicketConversationsController {
   }
 
   /**
-   * Guarda a decisão da procura (ADR 0052, item 5): só ids e números. É diagnóstico, nunca derruba a procura: se a conversa
-   * mudou durante a descida (fechada, apagada, permissão perdida) ou a gravação falha, a resposta sai igual e o aviso vai ao registro.
+   * `placedBy: "search"` (ADR 0054, adendo): o `parentId` tem de ser o destino confirmado (sem pergunta aberta) da decisão guardada, e a
+   * marca do rascunho tem de bater com o rascunho de agora. Sem decisão, sem marca ou com outra coisa: 409 `placement_stale` e a tela
+   * procura de novo. A raiz nunca é destino confirmado por procura.
    */
-  private async keepDecision(tenant: TenantRunner, id: string, snapshot: { projectId: string; tickets: readonly { id: string; number: number }[] }, outcome: Pick<PlacementOutcome, "uncertain" | "trace">, extras: DecisionExtras): Promise<void> {
+  private async requireConfirmedSearch(tx: TenantClient, id: string, conversation: ConversationRow, parentId: string | null): Promise<void> {
+    const stored = await readDecisionSafely(tx, id);
+    const confirmed = stored?.doubt?.confirmed === true && stored.doubt.draftMark === draftMarkOf(conversation) ? (stored.chosenPath.at(-1) ?? null) : undefined;
+    if (confirmed === undefined || confirmed === null || confirmed !== parentId) {
+      throw new ConflictException({ code: "placement_stale", message: "A procura do lugar não vale mais para este rascunho ou não confirmou este destino: procure de novo." });
+    }
+  }
+
+  /** `startId`: ticket vivo do projeto (a árvore da procura não tem ideia nem cancelado) e dentro do escopo, se houver. Senão, 400. */
+  private requireStart(tickets: readonly { id: string; parentId: string | null }[], startId: string | undefined, scopeId: string | null): void {
+    if (startId === undefined) return;
+    const byId = new Map(tickets.map((ticket) => [ticket.id, ticket]));
+    let inside = scopeId === null;
+    for (let at = byId.get(startId); at && !inside; at = at.parentId === null ? undefined : byId.get(at.parentId)) inside = at.id === scopeId;
+    if (!byId.has(startId) || !inside) throw new BadRequestException({ code: "invalid_start", message: "O ramo de partida não existe neste projeto, não está vivo ou está fora do escopo." });
+  }
+
+  /**
+   * Guarda a decisão da procura (ADR 0052, item 5): só ids e números. Nunca derruba a procura: se a conversa mudou durante a descida
+   * (fechada, apagada, permissão perdida) ou a gravação falha, o aviso vai ao registro e devolve `false` (também quando só a decisão sem a dúvida coube no banco); a resposta então não confirma
+   * o destino nem faz pergunta (ADR 0054, adendo), porque a criação por `search` depende desta decisão.
+   */
+  private async keepDecision(tenant: TenantRunner, id: string, snapshot: { projectId: string; tickets: readonly { id: string; number: number }[] }, outcome: Pick<PlacementOutcome, "uncertain" | "trace">, extras: DecisionExtras): Promise<boolean> {
     try {
       const record = decisionOf(outcome, new Map(snapshot.tickets.map((t) => [t.id, t.number])), extras);
-      await tenant.run(async (tx, principal) => {
+      const withDoubt = await tenant.run(async (tx, principal) => {
         await this.requireWritable(tx, principal, id);
-        await saveDecision(tx, { orgId: principal.organization.orgId, projectId: snapshot.projectId, conversationId: id, record });
+        return saveDecision(tx, { orgId: principal.organization.orgId, projectId: snapshot.projectId, conversationId: id, record });
       });
+      // Banco sem a coluna `triage`: a decisão ficou sem a dúvida e a criação por `search` seria recusada, como se não tivesse sido guardada.
+      if (!withDoubt) this.logger.warn("decisão da procura guardada sem a dúvida (coluna triage ausente)");
+      return withDoubt;
     } catch (error) {
       this.logger.warn(`decisão da procura não guardada codigo=${errorCode(error)}`);
+      return false;
     }
   }
 
@@ -546,6 +631,8 @@ export class TicketConversationsController {
       throw new ConflictException({ code: "conversation_closed", message: "A conversa já foi encerrada." });
     }
     if (conversation.draftTitle === null) throw this.draftRequired();
+    // ADR 0054 (adendo): `search` só vale para o destino confirmado da última procura guardada para este rascunho; as outras escolhas são da pessoa.
+    if (body.placedBy === "search") await this.requireConfirmedSearch(tx, id, conversation, body.parentId);
     // ADR 0045: criar pai, filhos e agrupador muda a estrutura. A trava vem antes de ler a ideia que contém o lugar escolhido.
     await this.tickets.lockStructure(tx, project.id);
     // Ordem das travas (ADR 0046): estrutura → dependências → linhas de ticket → linha do projeto. Com ligações a criar, a trava de
@@ -614,6 +701,9 @@ export class TicketConversationsController {
       where: { orgId_id: { orgId: conversation.orgId, id } },
       data: { status: "ticket_created", createdTicketId: ticket.id, closedAt: new Date() },
     });
+    // De que tipo foi a escolha do lugar (migration 0032), na decisão da conversa e antes de ela passar ao ticket; é diagnóstico.
+    const marked = await recordPlacedBy(tx, { conversationId: id, placedBy: body.placedBy });
+    if (marked !== null) this.logger.warn(`tipo de escolha do lugar não guardado codigo=${marked}`);
     // A decisão da procura passa a ser do ticket criado (ADR 0052): a conversa pode ser apagada depois sem levá-la.
     const handed = await handDecisionToTicket(tx, { orgId: conversation.orgId, conversationId: id, ticketId: ticket.id });
     if (handed !== null) this.logger.warn(`decisão da procura não passou ao ticket codigo=${handed}`);
