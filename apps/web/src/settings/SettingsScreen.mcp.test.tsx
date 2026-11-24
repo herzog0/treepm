@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Me } from "../api/client.js";
@@ -18,7 +18,11 @@ const SECRET = fakeToken("segredo");
 const origin = window.location.origin;
 const member = makeMe({ mcp: true, clerk: "member" });
 
-function setup(options: { me?: Me; mcp?: FakeMcp } = {}) {
+/** A seção que `section()` consulta: a dos tokens da pessoa ("Seus tokens") ou a das chaves da organização ("Clientes de IA (MCP)"). */
+let at: "mcp" | "tokens" = "tokens";
+function setup(options: { me?: Me; mcp?: FakeMcp; at?: "mcp" | "tokens" } = {}) {
+  at = options.at ?? "tokens";
+  window.location.hash = at;
   const me = options.me ?? makeMe({ mcp: true });
   const client = makeClient({ me, projects, mcp: { secret: SECRET, ...options.mcp } });
   const user = userEvent.setup();
@@ -29,24 +33,26 @@ function setup(options: { me?: Me; mcp?: FakeMcp } = {}) {
   );
   return { client, user };
 }
-const section = () => screen.getByRole("region", { name: "Clientes de IA (MCP)" });
+const section = () => screen.getByRole("region", { name: at === "mcp" ? "Clientes de IA (MCP)" : "Seus tokens" });
+const nav = () => screen.getByRole("navigation", { name: "Seções das configurações" });
 const ownList = () => within(section()).getByRole("list", { name: "Seus tokens" });
 const orgList = () => within(section()).getByRole("list", { name: "Tokens da organização" });
 
 afterEach(() => {
+  window.location.hash = "";
   window.localStorage.clear();
   window.sessionStorage.clear();
 });
 
 describe("Configurações › Clientes de IA (MCP): a chave", () => {
   it("is absent when the API does not report mcp", () => {
-    const { client } = setup({ me: makeMe() });
+    const { client } = setup({ at: "mcp", me: makeMe() });
     expect(screen.queryByRole("region", { name: "Clientes de IA (MCP)" })).not.toBeInTheDocument();
     expect(client.listAccessTokens).not.toHaveBeenCalled();
   });
 
   it("shows an administrator only the switch, off, and nothing else, when the key is off", async () => {
-    const { client } = setup({ me: makeMe({ mcp: false }) });
+    const { client } = setup({ at: "mcp", me: makeMe({ mcp: false }) });
     const toggle = within(section()).getByRole("switch", { name: "Permitir acesso por MCP" });
     expect(toggle).not.toBeChecked();
     expect(within(section()).getByText(/só de leitura/)).toBeInTheDocument();
@@ -56,7 +62,7 @@ describe("Configurações › Clientes de IA (MCP): a chave", () => {
   });
 
   it("tells a non-administrator to ask for permission, with nothing else, when the key is off", () => {
-    const { client } = setup({ me: makeMe({ mcp: false, clerk: "member" }) });
+    const { client } = setup({ at: "mcp", me: makeMe({ mcp: false, clerk: "member" }) });
     expect(within(section()).getByText("Um administrador da organização precisa permitir o acesso por MCP.")).toBeInTheDocument();
     expect(within(section()).queryByRole("switch")).not.toBeInTheDocument();
     expect(within(section()).queryByRole("heading", { name: "Seus tokens" })).not.toBeInTheDocument();
@@ -64,29 +70,72 @@ describe("Configurações › Clientes de IA (MCP): a chave", () => {
   });
 
   it("turns the key on right away and loads the tokens", async () => {
-    const { client, user } = setup({ me: makeMe({ mcp: false }), mcp: { enabled: false } });
+    const { client, user } = setup({ at: "mcp", me: makeMe({ mcp: false }), mcp: { enabled: false } });
     await user.click(within(section()).getByRole("switch", { name: "Permitir acesso por MCP" }));
     expect(client.setMcpEnabled).toHaveBeenCalledWith(true);
-    expect(await within(section()).findByRole("heading", { name: "Seus tokens" })).toBeInTheDocument();
+    expect(await within(section()).findByText("Nenhum token na organização.")).toBeInTheDocument();
     expect(within(section()).getByRole("switch", { name: "Permitir acesso por MCP" })).toBeChecked();
   });
 
   it("turns the key off and hides the token lists", async () => {
-    const { client, user } = setup({ mcp: { tokens: [makeToken("a", "Notebook")] } });
+    const { client, user } = setup({ at: "mcp", mcp: { tokens: [makeToken("a", "Notebook")] } });
     expect((await within(section()).findAllByText("Notebook"))[0]).toBeInTheDocument();
     await user.click(within(section()).getByRole("switch", { name: "Permitir acesso por MCP" }));
     expect(client.setMcpEnabled).toHaveBeenCalledWith(false);
     await waitFor(() => expect(within(section()).queryAllByText("Notebook")).toHaveLength(0));
     expect(within(section()).getByRole("switch", { name: "Permitir acesso por MCP" })).not.toBeChecked();
+    // A lista da própria pessoa e o formulário de criar token também somem (estão em "Seus tokens").
+    await user.click(within(nav()).getByRole("link", { name: "Seus tokens" }));
+    at = "tokens";
+    expect(await within(section()).findByText(/O acesso por MCP está desligado/)).toBeInTheDocument();
+    expect(within(section()).queryByText("Notebook")).not.toBeInTheDocument();
+    expect(within(section()).queryByRole("list", { name: "Seus tokens" })).not.toBeInTheDocument();
+    expect(within(section()).queryByRole("button", { name: "Criar token" })).not.toBeInTheDocument();
   });
 
   it("puts the switch back and shows the section error when saving fails", async () => {
-    const { client, user } = setup({ me: makeMe({ mcp: false }), mcp: { enabled: false, switchError: "unavailable" } });
+    const { client, user } = setup({ at: "mcp", me: makeMe({ mcp: false }), mcp: { enabled: false, switchError: "unavailable" } });
     await user.click(within(section()).getByRole("switch", { name: "Permitir acesso por MCP" }));
     expect(await within(section()).findByRole("alert")).toHaveTextContent("Não foi possível mudar o acesso por MCP. Tente de novo.");
     expect(within(section()).getByRole("switch", { name: "Permitir acesso por MCP" })).not.toBeChecked();
     expect(within(section()).queryByRole("heading", { name: "Seus tokens" })).not.toBeInTheDocument();
     expect(client.listAccessTokens).not.toHaveBeenCalled();
+  });
+});
+
+describe("Configurações › Seus tokens e Como ligar um cliente: a divisão em seções", () => {
+  it("with the key off, Seus tokens says so to an administrator and calls nothing", () => {
+    const { client } = setup({ me: makeMe({ mcp: false }) });
+    expect(within(section()).getByText(/Ligue-o em Clientes de IA \(MCP\)/)).toBeInTheDocument();
+    expect(within(section()).queryByRole("button", { name: "Criar token" })).not.toBeInTheDocument();
+    expect(client.listAccessTokens).not.toHaveBeenCalled();
+  });
+
+  it("with the key off, Seus tokens tells a member to ask an administrator", () => {
+    setup({ me: makeMe({ mcp: false, clerk: "member" }) });
+    expect(within(section()).getByText("Um administrador da organização precisa permitir o acesso por MCP.")).toBeInTheDocument();
+  });
+
+  it("shows the connect card with the key on, whose button opens Seus tokens", async () => {
+    const { user } = setup({ at: "mcp" });
+    const card = await within(section()).findByRole("heading", { name: "Como ligar um cliente" });
+    expect(card).toBeInTheDocument();
+    await user.click(within(section()).getByRole("button", { name: "Ir para Seus tokens" }));
+    expect(await screen.findByRole("region", { name: "Seus tokens" })).toBeInTheDocument();
+    expect(window.location.hash).toBe("#tokens");
+  });
+
+  it("does not show the connect card with the key off", () => {
+    setup({ at: "mcp", me: makeMe({ mcp: false }) });
+    expect(within(section()).queryByRole("heading", { name: "Como ligar um cliente" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the switches when going to Seus tokens and back (the state lives in the page)", async () => {
+    const { user } = setup({ at: "mcp", me: makeMe({ mcp: false }), mcp: { enabled: false } });
+    await user.click(within(section()).getByRole("switch", { name: "Permitir acesso por MCP" }));
+    await within(section()).findByRole("heading", { name: "Como ligar um cliente" });
+    await user.click(within(screen.getByRole("navigation", { name: "Seções das configurações" })).getByRole("link", { name: "Seus tokens" }));
+    expect(await screen.findByRole("button", { name: "Criar token" })).toBeInTheDocument();
   });
 });
 
@@ -157,6 +206,7 @@ describe("Configurações › Clientes de IA (MCP): a lista", () => {
 
   it("shows a load error with retry when the list cannot be read", async () => {
     const me = member;
+    window.location.hash = "tokens";
     const client = makeClient({ me, projects, mcp: { tokens: [makeToken("a", "Notebook")] } });
     vi.mocked(client.listAccessTokens).mockResolvedValueOnce({ ok: false, error: { kind: "unavailable" } });
     render(<MemoryPreferencesProvider onSave={vi.fn()}><SettingsScreen client={client} me={me} /></MemoryPreferencesProvider>);
@@ -174,18 +224,22 @@ describe("Configurações › Clientes de IA (MCP): tokens da organização", ()
   ];
 
   it("shows an administrator everyone's tokens with the person, the own ones in both lists", async () => {
-    setup({ mcp: { tokens } });
+    const { user } = setup({ at: "mcp", mcp: { tokens } });
     await within(section()).findByRole("list", { name: "Tokens da organização" });
     const items = within(orgList()).getAllByRole("listitem");
     expect(items).toHaveLength(3);
     expect(within(orgList()).getAllByText("Bia", { selector: ".mcp-token-person" })).toHaveLength(2);
     expect(within(orgList()).getByText("Meu notebook")).toBeInTheDocument();
+    // A lista da própria pessoa fica em outra seção.
+    await user.click(within(screen.getByRole("navigation", { name: "Seções das configurações" })).getByRole("link", { name: "Seus tokens" }));
+    at = "tokens";
+    await within(section()).findByRole("list", { name: "Seus tokens" });
     expect(within(ownList()).getByText("Meu notebook")).toBeInTheDocument();
     expect(within(ownList()).queryByText("Servidor da Bia")).not.toBeInTheDocument();
   });
 
   it("lets an administrator revoke another person's active token in two steps, never an inactive one", async () => {
-    const { client, user } = setup({ mcp: { tokens } });
+    const { client, user } = setup({ at: "mcp", mcp: { tokens } });
     await within(section()).findByRole("list", { name: "Tokens da organização" });
     expect(within(orgList()).queryByRole("button", { name: "Revogar Antigo da Bia" })).not.toBeInTheDocument();
     await user.click(within(orgList()).getByRole("button", { name: "Revogar Servidor da Bia" }));
@@ -196,15 +250,15 @@ describe("Configurações › Clientes de IA (MCP): tokens da organização", ()
   });
 
   it("does not show the organization list to a member, nor ask for it", async () => {
-    const { client } = setup({ me: makeMe({ mcp: true, clerk: "member" }), mcp: { tokens } });
-    await within(section()).findByText("Meu notebook");
+    const { client } = setup({ at: "mcp", me: makeMe({ mcp: true, clerk: "member" }), mcp: { tokens } });
+    await within(section()).findByRole("button", { name: "Ir para Seus tokens" });
     expect(within(section()).queryByRole("list", { name: "Tokens da organização" })).not.toBeInTheDocument();
     expect(within(section()).queryByRole("switch")).not.toBeInTheDocument();
     expect(client.listOrganizationAccessTokens).not.toHaveBeenCalled();
   });
 
   it("shows an empty sentence for the organization", async () => {
-    setup({ mcp: { tokens: [] } });
+    setup({ at: "mcp", mcp: { tokens: [] } });
     expect(await within(section()).findByText("Nenhum token na organização.")).toBeInTheDocument();
   });
 });
@@ -377,9 +431,13 @@ describe("Configurações › Clientes de IA (MCP): criar token", () => {
     const { user } = setup({ mcp: { createError: ["forbidden", "mcp_disabled"] } });
     await fill(user);
     await user.click(within(section()).getByRole("button", { name: "Criar token" }));
-    expect(await within(section()).findByRole("switch", { name: "Permitir acesso por MCP" })).not.toBeChecked();
+    expect(await within(section()).findByText(/O acesso por MCP está desligado/)).toBeInTheDocument();
     expect(within(section()).queryByRole("button", { name: "Criar token" })).not.toBeInTheDocument();
     expect(within(section()).getByRole("alert")).toHaveTextContent("O acesso por MCP foi desligado.");
+    // A chave volta a aparecer desligada na seção das chaves.
+    await user.click(within(nav()).getByRole("link", { name: /^Clientes de IA/ }));
+    at = "mcp";
+    expect(await within(section()).findByRole("switch", { name: "Permitir acesso por MCP" })).not.toBeChecked();
   });
 
   it("shows a message when the project is gone", async () => {
@@ -398,6 +456,7 @@ describe("Configurações › Clientes de IA (MCP): criar token", () => {
 
   it("does not offer to create a token when the person sees no project", async () => {
     const me = makeMe({ mcp: true });
+    window.location.hash = "tokens";
     const client = makeClient({ me, projects: [], mcp: {} });
     render(<MemoryPreferencesProvider onSave={vi.fn()}><SettingsScreen client={client} me={me} /></MemoryPreferencesProvider>);
     expect(await within(section()).findByText("Você ainda não vê nenhum projeto para ligar a um token.")).toBeInTheDocument();
@@ -408,13 +467,87 @@ describe("Configurações › Clientes de IA (MCP): criar token", () => {
 
 describe("Configurações › Clientes de IA (MCP): idiomas", () => {
   it.each([
-    ["en", "AI clients (MCP)", "Allow MCP access", "Create token"],
-    ["es-MX", "Clientes de IA (MCP)", "Permitir acceso por MCP", "Crear token"],
-  ] as const)("renders in %s", async (language, title, switchLabel, create) => {
+    ["en", "AI clients (MCP)", "Allow MCP access", "Create token", "Your tokens"],
+    ["es-MX", "Clientes de IA (MCP)", "Permitir acceso por MCP", "Crear token", "Tus tokens"],
+  ] as const)("renders in %s", async (language, title, switchLabel, create, yourTokens) => {
     await setTestLanguage(language);
-    setup();
+    setup({ at: "mcp" });
     const region = await screen.findByRole("region", { name: title });
     expect(within(region).getByRole("switch", { name: switchLabel })).toBeChecked();
-    expect(await within(region).findByRole("button", { name: create })).toBeInTheDocument();
+    act(() => {
+      window.location.hash = "tokens";
+    });
+    const tokens = await screen.findByRole("region", { name: yourTokens });
+    expect(await within(tokens).findByRole("button", { name: create })).toBeInTheDocument();
+  });
+});
+
+describe("Configurações › o que sobrevive à troca de seção", () => {
+  const goTo = async (user: ReturnType<typeof userEvent.setup>, name: string | RegExp, to: "mcp" | "tokens") => {
+    await user.click(within(nav()).getByRole("link", { name }));
+    at = to;
+  };
+
+  it("o token recém-criado continua na tela depois de ir a Clientes de IA e voltar; só \"Fechar\" o tira", async () => {
+    const { user } = setup({ mcp: { secret: undefined as unknown as string } });
+    await within(section()).findByRole("button", { name: "Criar token" });
+    await user.type(within(section()).getByRole("textbox", { name: "Nome" }), "Notebook");
+    await user.click(within(section()).getByRole("button", { name: "Criar token" }));
+    const token = fakeToken("new1");
+    expect(await within(section()).findByText(token)).toBeInTheDocument();
+
+    await goTo(user, /^Clientes de IA/, "mcp");
+    await within(section()).findByRole("switch", { name: "Permitir acesso por MCP" });
+    await goTo(user, "Seus tokens", "tokens");
+    expect(await within(section()).findByText(token)).toBeInTheDocument();
+    expect(within(section()).getByRole("region", { name: "Token criado" })).toBeInTheDocument();
+
+    await user.click(within(section()).getByRole("button", { name: "Fechar" }));
+    expect(within(section()).queryByText(token)).not.toBeInTheDocument();
+    await goTo(user, /^Clientes de IA/, "mcp");
+    await goTo(user, "Seus tokens", "tokens");
+    expect(within(section()).queryByRole("region", { name: "Token criado" })).not.toBeInTheDocument();
+  });
+
+  it("o formulário de criar token pela metade continua depois de trocar de seção", async () => {
+    const { user } = setup();
+    await within(section()).findByRole("button", { name: "Criar token" });
+    await waitFor(() => expect(within(section()).getAllByRole("option")).toHaveLength(3));
+    await user.type(within(section()).getByRole("textbox", { name: "Nome" }), "Pela metade");
+    await user.selectOptions(within(section()).getByRole("combobox", { name: "Projeto" }), "BETA · Beta");
+    await user.click(within(section()).getByRole("radio", { name: "365 dias" }));
+    await user.click(within(section()).getByRole("radio", { name: "Leitura e escrita" }));
+
+    await goTo(user, /^Clientes de IA/, "mcp");
+    await within(section()).findByRole("switch", { name: "Permitir acesso por MCP" });
+    await goTo(user, "Seus tokens", "tokens");
+    await within(section()).findByRole("button", { name: "Criar token" });
+    expect(within(section()).getByRole("textbox", { name: "Nome" })).toHaveValue("Pela metade");
+    expect(within(section()).getByRole("combobox", { name: "Projeto" })).toHaveValue("p2");
+    expect(within(section()).getByRole("radio", { name: "365 dias" })).toBeChecked();
+    expect(within(section()).getByRole("radio", { name: "Leitura e escrita" })).toBeChecked();
+  });
+
+  it("o erro de gravar a chave aparece também em Seus tokens se a pessoa trocou de seção durante a gravação", async () => {
+    const { client, user } = setup({ at: "mcp", mcp: { enabled: true } });
+    await within(section()).findByRole("switch", { name: "Permitir acesso por MCP" });
+    let fail!: () => void;
+    vi.mocked(client.setMcpWriteEnabled).mockImplementationOnce(() => new Promise((resolve) => { fail = () => resolve({ ok: false, error: { kind: "unavailable" } }); }));
+    await user.click(within(section()).getByRole("switch", { name: "Permitir escrita por MCP" }));
+    await goTo(user, "Seus tokens", "tokens");
+    await within(section()).findByRole("button", { name: "Criar token" });
+    await act(async () => fail());
+    expect(await within(section()).findByRole("alert")).toHaveTextContent("Não foi possível mudar a escrita por MCP. Tente de novo.");
+  });
+
+  it("o membro com o acesso ligado vê uma linha com o estado, não um cartão vazio", async () => {
+    setup({ at: "mcp", me: makeMe({ mcp: true, clerk: "member" }), mcp: { writeEnabled: false } });
+    expect(await within(section()).findByText("O acesso por MCP está ligado; a escrita está desligada.")).toBeInTheDocument();
+    expect(within(section()).queryByRole("heading", { name: "Acesso" })).not.toBeInTheDocument();
+  });
+
+  it("o membro vê que a escrita está ligada", async () => {
+    setup({ at: "mcp", me: makeMe({ mcp: true, mcpWrite: true, clerk: "member" }), mcp: { writeEnabled: true } });
+    expect(await within(section()).findByText("O acesso por MCP está ligado; a escrita está ligada.")).toBeInTheDocument();
   });
 });

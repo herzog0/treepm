@@ -65,9 +65,11 @@ describe("Workspace", () => {
       if (input === "/api/github/installation") return Response.json({ installation: null });
       return new Response(null, { status: 404 });
     });
+    window.location.hash = "github";
     render(<Workspace orgId="org-1" view="settings" getToken={async () => "t"} fetch={fetchImpl} />);
     expect(await screen.findByRole("heading", { name: "GitHub", level: 2 })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Conectar GitHub" })).toBeInTheDocument();
+    window.location.hash = "";
   });
 
   it("never calls a GitHub route when /api/me has no github field or says it is disabled", async () => {

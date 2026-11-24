@@ -25,6 +25,9 @@
   --tp-idea: #f472d0;
   --tp-danger: #e5687a;
   --tp-danger-text: #f0919b;
+  /* Ações que tiram acesso nas Configurações: fundo e borda escuros de erro, texto --tp-danger-text. */
+  --tp-danger-surface: #1f1214;
+  --tp-danger-border: #5a2a30;
 
   /* Barra lateral fixa e coluna da conversa (ADR 0055): mais claras que o resto, para a casca se separar do mapa. */
   --tp-side-bg: #171922;

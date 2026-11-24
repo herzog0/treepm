@@ -33,6 +33,8 @@ interface Route {
 export interface MapTarget {
   ticketId?: string;
   focusId?: string;
+  /** Seção das Configurações a abrir (a âncora `#github`); só vale para a tela de configurações. */
+  section?: string;
 }
 
 /** Para onde "o cabeçalho do chat" leva: abre a página do ticket; se ela já está aberta nele, só a câmera vai (ADR 0049). */
@@ -50,9 +52,14 @@ function parseRoute(search: string): Route {
   return { view: "map", projectId: null, ticketId: params.get("ticket") || null, focusId: params.get("focus") || null };
 }
 
-/** URL relativa para a seção: preserva os outros parâmetros e o hash. `projectId` só vale para a importação; `target`, para o mapa. */
+/**
+ * URL relativa para a seção: preserva os outros parâmetros e o hash. `projectId` só vale para a importação; `target`, para o mapa
+ * (e `target.section`, para as Configurações). A âncora das Configurações (`#mcp`) não sai delas: ao entrar ou sair da tela de
+ * configurações o hash é trocado (pela seção pedida, ou apagado), para não vazar para o endereço do mapa e dos tickets.
+ */
 export function viewHref(view: View, href: string = window.location.href, projectId: string | null = null, target: MapTarget = {}): string {
   const url = new URL(href);
+  if (view === "settings" || url.searchParams.get("view") === "settings") url.hash = view === "settings" && target.section ? target.section : "";
   url.searchParams.delete("project");
   url.searchParams.delete("ticket");
   url.searchParams.delete("focus");

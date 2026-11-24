@@ -5,10 +5,10 @@ import { useDescribeApiError } from "../api/errorText.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { formatDate } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
-import { LoadError } from "../LoadError.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
+import { SettingsCard, SettingsLoadError, SettingsLoading, SettingsNote } from "./parts.js";
 
 type Kind = "assistant" | "code_reading";
 type Given = AiConsent["assistant"];
@@ -16,7 +16,7 @@ type Given = AiConsent["assistant"];
 /** Os endereços dos dois documentos públicos (ADR 0039); as páginas são de outro PR. */
 const DOCUMENTS = { terms: "/termos", privacy: "/privacidade" } as const;
 
-/** Seção "IA e privacidade" das Configurações (ADR 0039): o aceite da organização para a IA. Só administrador muda. */
+/** Conteúdo da seção "IA e privacidade" das Configurações (ADR 0039): o aceite da organização para a IA. Só administrador muda. */
 export function AiPrivacySettings({ client, me, onChange }: { client: ApiClient; me: Me; onChange?: (() => void) | undefined }) {
   const { t, i18n } = useTranslation("settings");
   const language = i18n.language as Language;
@@ -45,7 +45,7 @@ export function AiPrivacySettings({ client, me, onChange }: { client: ApiClient;
   const accept = (kind: Kind) => void run(() => client.acceptAiConsent(kind, data?.currentVersion ?? ""));
   const withdraw = (kind: Kind) => void run(() => client.withdrawAiConsent(kind));
 
-  const failure = (error: ApiError | null) => (error ? <p role="alert" className="settings-error">{describeError(error)}</p> : null);
+  const failure = (error: ApiError | null) => (error ? <SettingsNote role="alert" tone="error">{describeError(error)}</SettingsNote> : null);
 
   const describe = (consent: Given) =>
     consent.acceptedBy !== null && consent.acceptedAt !== null && consent.version !== null
@@ -56,50 +56,52 @@ export function AiPrivacySettings({ client, me, onChange }: { client: ApiClient;
     const prefix = kind === "assistant" ? "ai.assistant" : "ai.codeReading";
     const taken = describe(consent);
     return (
-      <div className="ai-block">
-        <h3>{t(`${prefix}.heading`)}</h3>
-        <p>{t(`${prefix}.explain`)}</p>
+      <SettingsCard title={t(`${prefix}.heading`)}>
+        <SettingsNote>{t(`${prefix}.explain`)}</SettingsNote>
         {kind === "assistant" && (
           <div className="ai-docs">
             <a href={DOCUMENTS.terms} target="_blank" rel="noopener noreferrer">{t("ai.terms")}<span className="assistant-visually-hidden"> ({t("ai.newTab")})</span></a>
             <a href={DOCUMENTS.privacy} target="_blank" rel="noopener noreferrer">{t("ai.privacy")}<span className="assistant-visually-hidden"> ({t("ai.newTab")})</span></a>
           </div>
         )}
-        <p className="ai-state">{consent.inForce ? t(`${prefix}.on`) : t(`${prefix}.off`)}</p>
-        {taken !== null && <p className="settings-hint">{taken}</p>}
+        <SettingsNote>{consent.inForce ? t(`${prefix}.on`) : t(`${prefix}.off`)}</SettingsNote>
+        {taken !== null && <SettingsNote tone="hint">{taken}</SettingsNote>}
         {consent.outdated && data && <p className="ai-warning" role="status">{t("ai.outdated", { current: data.currentVersion })}</p>}
         {isAdmin ? (
-          <div className="settings-actions">
+          <>
             {!consent.inForce && (
-              <button type="button" className="primary" disabled={change.busy || !offerable} onClick={() => accept(kind)}>
-                {t(`${prefix}.accept`)}
-              </button>
+              <div className="settings-actions">
+                <button type="button" className="primary" disabled={change.busy || !offerable} onClick={() => accept(kind)}>
+                  {t(`${prefix}.accept`)}
+                </button>
+              </div>
             )}
-            {!consent.inForce && !offerable && kind === "code_reading" && <p className="settings-hint">{t("ai.codeReading.needsAssistant")}</p>}
+            {!consent.inForce && !offerable && kind === "code_reading" && <SettingsNote tone="hint">{t("ai.codeReading.needsAssistant")}</SettingsNote>}
             {(consent.inForce || consent.outdated) && (
-              <ConfirmAction label={t("ai.withdraw")} message={t(`${prefix}.withdrawWarning`)} disabled={change.busy} onConfirm={() => withdraw(kind)} />
+              <div className="settings-danger-row">
+                <ConfirmAction label={t("ai.withdraw")} message={t(`${prefix}.withdrawWarning`)} disabled={change.busy} onConfirm={() => withdraw(kind)} />
+              </div>
             )}
-          </div>
+          </>
         ) : (
-          !consent.inForce && <p className="settings-hint">{t("ai.askAdmin")}</p>
+          !consent.inForce && <SettingsNote tone="hint">{t("ai.askAdmin")}</SettingsNote>
         )}
-      </div>
+      </SettingsCard>
     );
   };
 
   return (
-    <section aria-labelledby="settings-ai" className="settings-ai">
-      <h2 id="settings-ai">{t("ai.title")}</h2>
-      {state.status === "loading" && data === null && <p role="status">{t("ai.loading")}</p>}
-      {state.status === "error" && data === null && <LoadError error={state.error} onRetry={retry} />}
+    <>
+      {state.status === "loading" && data === null && <SettingsLoading>{t("ai.loading")}</SettingsLoading>}
+      {state.status === "error" && data === null && <SettingsLoadError error={state.error} onRetry={retry} />}
       {data && (
         <>
           {block("assistant", data.assistant, true)}
           {data.codeReading.githubConnected && block("code_reading", data.codeReading, data.codeReading.offerable)}
         </>
       )}
-      {versionChanged && <p role="alert" className="settings-error">{t("ai.versionChanged")}</p>}
+      {versionChanged && <SettingsNote role="alert" tone="error">{t("ai.versionChanged")}</SettingsNote>}
       {failure(change.error)}
-    </section>
+    </>
   );
 }

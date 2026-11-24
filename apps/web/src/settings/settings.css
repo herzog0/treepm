@@ -1,33 +1,95 @@
-.settings-screen { min-width: 0; max-width: 640px; padding: 24px clamp(10px, 2vw, 22px); color: var(--tp-text); }
-.settings-screen h1 { margin: 0 0 20px; font-size: 22px; font-weight: 600; }
-.settings-screen h2 { margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--tp-divider); font-size: 15px; font-weight: 600; }
+/*
+ * Página de Configurações (ADR 0028): navegação das seções à esquerda e uma seção por vez à direita (coluna de leitura de até 760 px).
+ * Em largura útil de até 900 px a navegação vira uma faixa horizontal acima do conteúdo. A largura é a da própria página
+ * (container query), não a da janela: a barra lateral da aplicação já tirou 296 px.
+ */
+.settings-screen { container-type: inline-size; container-name: settings; display: flex; flex-direction: column; min-width: 0; min-height: 100%; color: var(--tp-text); }
+/* A navegação e a linha divisória vão até o fim da página: a casca é uma coluna e o layout ocupa o que sobra. */
+.settings-layout { display: flex; flex: 1; min-width: 0; }
+
+.settings-side { flex: none; box-sizing: border-box; width: 240px; padding: 32px 16px; border-right: 1px solid var(--tp-side-border); }
+.settings-side h1 { margin: 0 12px 20px; font-size: 20px; font-weight: 700; }
+.settings-nav-group + .settings-nav-group { margin-top: 18px; }
+.settings-nav-heading { display: block; margin: 0 12px 6px; color: var(--tp-side-text-3); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.settings-nav ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.settings-nav a { display: flex; align-items: center; gap: 8px; min-height: 36px; box-sizing: border-box; padding: 0 12px; border-radius: var(--tp-radius-field); color: var(--tp-side-text); font-size: 14px; font-weight: 500; text-decoration: none; }
+.settings-nav a:hover { background: var(--tp-side-hover); }
+.settings-nav a[aria-current="page"] { background: var(--tp-side-selected); color: var(--tp-side-on-selected); font-weight: 700; }
+.settings-nav a:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
+.settings-nav-tag { margin-left: auto; padding: 1px 5px; border: 1px solid var(--tp-conv-field-border); border-radius: 5px; color: var(--tp-side-text-3); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.settings-nav a[aria-current="page"] .settings-nav-tag { border-color: var(--tp-side-on-selected); color: var(--tp-side-selected-meta); }
+
+.settings-pane { flex: 1; min-width: 0; box-sizing: border-box; padding: 36px 48px 48px; }
+.settings-pane-inner { max-width: 760px; }
+.settings-pane-title { margin: 0; font-size: 22px; font-weight: 700; }
+.settings-pane-title:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 4px; border-radius: 4px; }
+.settings-lead { max-width: 620px; margin: 6px 0 24px; color: var(--tp-side-text-2); font-size: 14px; line-height: 1.45; }
+
+/* Cartões: cabeçalho e linhas; ajustes com nome e explicação à esquerda e o controle à direita. */
+.settings-card { margin-bottom: 20px; overflow: hidden; border: 1px solid var(--tp-side-border); border-radius: 12px; background: var(--tp-side-bg); }
+.settings-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 14px 18px; border-bottom: 1px solid var(--tp-side-border); }
+.settings-card-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.settings-card-note { color: var(--tp-side-text-3); font-size: 13px; }
+.settings-card-action { margin-left: auto; }
+.settings-card > * + * { border-top: 1px solid var(--tp-divider); }
+.settings-card > .settings-card-head + * { border-top: 0; }
+.settings-row { display: flex; align-items: center; gap: 14px; padding: 12px 18px; }
+.settings-row-text { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.settings-row-title { color: var(--tp-text); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.settings-row-title label { color: inherit; font-size: inherit; cursor: pointer; }
+.settings-row-hint { max-width: 460px; color: var(--tp-side-text-3); font-size: 13px; line-height: 1.45; }
+.settings-row-control { flex: none; }
+.settings-screen .settings-note { margin: 0; padding: 12px 18px; font-size: 14px; line-height: 1.45; }
+.settings-screen .settings-hint { color: var(--tp-side-text-3); font-size: 13px; }
+.settings-state { padding: 12px 18px; }
+.settings-screen .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 18px 14px; }
+.settings-screen .settings-actions .confirm-message { font-size: 13px; }
+
+/* Ações que tiram acesso (revogar, retirar aceite, desligar): separadas das demais, com o estilo de perigo próprio. */
+.settings-danger-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 18px; border-top: 1px solid var(--tp-danger-border); background: var(--tp-danger-surface); }
+.settings-danger-row .confirm-message { color: var(--tp-danger-text); font-size: 13px; }
+.settings-danger-row .confirm-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* Mais específicos que `controls.css` (cartão dentro da página), para não depender da ordem de carga das folhas. */
+.settings-screen .settings-card button.destructive { border-color: var(--tp-danger-border); background: var(--tp-danger-surface); color: var(--tp-danger-text); }
+.settings-screen .settings-card button.destructive:hover:not(:disabled) { border-color: var(--tp-danger); background: var(--tp-danger-surface); }
+.settings-screen .settings-card button.danger { color: var(--tp-on-accent); }
+
 .settings-group { display: grid; gap: 8px; }
-.settings-label { color: var(--tp-text-2); font-size: 13px; }
-.settings-option { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+.settings-label { color: var(--tp-side-text-2); font-size: 13px; }
+.settings-option { display: flex; align-items: center; gap: 8px; color: var(--tp-text); font-size: 14px; cursor: pointer; }
 .settings-option input { accent-color: var(--tp-accent); }
-.settings-option input:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 2px; }
-.settings-error { margin: 12px 0 0; color: var(--tp-danger-text); font-size: 13px; }
+/* Interruptor: o mesmo `input` (caixa com o papel "switch") desenhado como chave. */
+.settings-screen input.settings-switch { appearance: none; position: relative; flex: none; width: 40px; height: 24px; margin: 0; padding: 0; border: 1px solid var(--tp-border-strong); border-radius: 12px; background: var(--tp-side-field-border); cursor: pointer; transition: background-color 0.12s, border-color 0.12s; }
+.settings-screen input.settings-switch::before { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--tp-text); transition: transform 0.12s; }
+.settings-screen input.settings-switch:checked { border-color: var(--tp-accent); background: var(--tp-accent); }
+.settings-screen input.settings-switch:checked::before { background: var(--tp-on-accent); transform: translateX(16px); }
+.settings-screen input.settings-switch:focus-visible { outline: 2px solid var(--tp-accent-soft); outline-offset: 2px; }
+.settings-screen input.settings-switch:disabled { opacity: 0.5; cursor: default; }
+.settings-error { color: var(--tp-danger-text); font-size: 13px; }
+.settings-badge { padding: 2px 8px; border-radius: 6px; background: var(--tp-side-field-border); color: var(--tp-side-text); font-size: 11px; font-weight: 700; }
+.settings-badge-on { background: var(--tp-side-selected-meta); color: var(--tp-accent-soft); }
 
-.settings-screen section + section { margin-top: 28px; }
-.settings-github p { margin: 0 0 10px; font-size: 14px; }
-.settings-github .settings-hint { color: var(--tp-text-2); font-size: 13px; }
-.settings-github button { margin-bottom: 10px; }
-.settings-actions { display: grid; gap: 6px; }
-.settings-actions .confirm-message { font-size: 13px; }
+.settings-screen .ai-docs { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0 18px 12px; font-size: 13px; }
+.settings-screen .ai-docs a { color: var(--tp-accent-soft); }
+.settings-screen .ai-warning { margin: 0 18px 12px; padding: 8px 10px; border: 1px solid var(--tp-border); border-radius: 6px; background: var(--tp-card); font-size: 13px; }
 
-.settings-ai .ai-block { display: grid; gap: 8px; }
-.settings-ai .ai-block + .ai-block { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--tp-divider); }
-.settings-ai h3 { margin: 0; font-size: 14px; font-weight: 600; }
-.settings-ai p { margin: 0; font-size: 14px; }
-.settings-ai .settings-hint { color: var(--tp-text-2); font-size: 13px; }
-.settings-ai .ai-docs { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; }
-.settings-ai .ai-docs a { color: var(--tp-accent); }
-.settings-ai .ai-warning { padding: 8px 10px; border-radius: 6px; background: var(--tp-card); border: 1px solid var(--tp-divider); font-size: 13px; }
-.settings-ai .ai-state { display: flex; align-items: center; gap: 8px; }
-
-/* Tela estreita (TREEPM-231): a opção inteira (rótulo e botão de marcar) é o alvo de toque. */
-@media (max-width: 720px) {
-  .settings-screen { max-width: none; padding: 16px max(10px, env(safe-area-inset-right)) 24px max(10px, env(safe-area-inset-left)); }
+/* Tela estreita: a navegação vira uma faixa horizontal acima do conteúdo (largura útil de até 900 px). */
+@container settings (max-width: 900px) {
+  .settings-layout { flex-direction: column; }
+  .settings-side { width: auto; padding: 16px max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left)); border-right: 0; border-bottom: 1px solid var(--tp-side-border); }
+  .settings-side h1 { margin: 0 0 12px; }
+  .settings-nav { position: relative; display: flex; gap: 4px; overflow-x: auto; padding-bottom: 12px; }
+  .settings-nav-group { display: flex; flex: none; align-items: center; gap: 4px; }
+  .settings-nav-group + .settings-nav-group { margin-top: 0; padding-left: 8px; border-left: 1px solid var(--tp-side-border); }
+  .settings-nav-heading { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .settings-nav ul { display: flex; gap: 4px; }
+  .settings-nav a { min-height: 44px; white-space: nowrap; }
+  .settings-nav-tag { font-size: 12px; }
+  .settings-pane { padding: 20px max(10px, env(safe-area-inset-right)) 32px max(10px, env(safe-area-inset-left)); }
+}
+@container settings (max-width: 560px) {
+  .settings-row { flex-wrap: wrap; }
+  .settings-row-control { flex: 1 0 100%; }
   .settings-option { min-height: 44px; }
   .settings-option input { width: 20px; height: 20px; flex: none; }
 }

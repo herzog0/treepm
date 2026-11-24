@@ -1477,158 +1477,44 @@
     ".settings-screen#0": {
       "x": 296,
       "y": 0,
-      "w": 640,
-      "h": 1911
+      "w": 1144,
+      "h": 900
     },
     ".settings-screen h1#0": {
-      "x": 318,
-      "y": 24,
-      "w": 596,
-      "h": 33
+      "x": 324,
+      "y": 32,
+      "w": 183,
+      "h": 30
     },
     ".settings-screen h2#0": {
-      "x": 318,
-      "y": 77,
-      "w": 596,
-      "h": 31.5
-    },
-    ".settings-screen h2#1": {
-      "x": 318,
-      "y": 340,
-      "w": 596,
-      "h": 31.5
-    },
-    ".settings-screen button#0": {
-      "x": 331,
-      "y": 797.5,
-      "w": 76.5,
-      "h": 28
-    },
-    ".settings-screen button#1": {
-      "x": 331,
-      "y": 1006.5,
-      "w": 76.5,
-      "h": 28
-    },
-    ".settings-screen button#2": {
-      "x": 318,
-      "y": 1402,
-      "w": 94.4,
-      "h": 28
-    },
-    ".settings-screen button#3": {
-      "x": 331,
-      "y": 1639,
-      "w": 76.5,
-      "h": 28
-    },
-    ".settings-screen button#4": {
-      "x": 331,
-      "y": 1848,
-      "w": 76.5,
-      "h": 28
+      "x": 584,
+      "y": 36,
+      "w": 760,
+      "h": 33
     },
     ".settings-screen input#0": {
-      "x": 323,
-      "y": 151,
+      "x": 590,
+      "y": 174.8,
       "w": 13,
       "h": 32
     },
     ".settings-screen input#1": {
-      "x": 323,
-      "y": 194,
+      "x": 590,
+      "y": 217.8,
       "w": 13,
       "h": 32
     },
     ".settings-screen input#2": {
-      "x": 323,
-      "y": 237,
+      "x": 590,
+      "y": 260.8,
       "w": 13,
       "h": 32
     },
     ".settings-screen input#3": {
-      "x": 323,
-      "y": 280,
+      "x": 590,
+      "y": 303.8,
       "w": 13,
       "h": 32
-    },
-    ".settings-screen input#4": {
-      "x": 322,
-      "y": 386.5,
-      "w": 13,
-      "h": 32
-    },
-    ".settings-screen input#5": {
-      "x": 322,
-      "y": 491,
-      "w": 13,
-      "h": 32
-    },
-    ".settings-screen input#6": {
-      "x": 318,
-      "y": 1183.5,
-      "w": 596,
-      "h": 32
-    },
-    ".settings-screen input#7": {
-      "x": 323,
-      "y": 1254,
-      "w": 13,
-      "h": 32
-    },
-    ".settings-screen input#8": {
-      "x": 409.7,
-      "y": 1254,
-      "w": 13,
-      "h": 32
-    },
-    ".settings-screen input#9": {
-      "x": 496.4,
-      "y": 1254,
-      "w": 13,
-      "h": 32
-    },
-    ".settings-screen input#10": {
-      "x": 323,
-      "y": 1324.5,
-      "w": 13,
-      "h": 32
-    },
-    ".settings-screen input#11": {
-      "x": 421.4,
-      "y": 1324.5,
-      "w": 13,
-      "h": 32
-    },
-    ".settings-screen select#0": {
-      "x": 318,
-      "y": 1116,
-      "w": 596,
-      "h": 32
-    },
-    ".mcp-token-meta#0": {
-      "x": 331,
-      "y": 675.5,
-      "w": 570,
-      "h": 114
-    },
-    ".mcp-token-meta#1": {
-      "x": 331,
-      "y": 884.5,
-      "w": 570,
-      "h": 114
-    },
-    ".mcp-token-meta#2": {
-      "x": 331,
-      "y": 1517,
-      "w": 570,
-      "h": 114
-    },
-    ".mcp-token-meta#3": {
-      "x": 331,
-      "y": 1726,
-      "w": 570,
-      "h": 114
     },
     "document": {
       "x": 0,

@@ -146,7 +146,7 @@ describe("adicionar área", () => {
     setup({ areas: [] });
     const section = await region();
     await waitFor(() => expect(section).toHaveTextContent("Nenhuma área cadastrada nesta organização"));
-    expect(within(section).getByRole("link", { name: /cadastr/i })).toHaveAttribute("href", expect.stringContaining("view=settings"));
+    expect(within(section).getByRole("link", { name: /cadastr/i })).toHaveAttribute("href", expect.stringContaining("view=settings#github"));
   });
 
   it("organização sem áreas, quem não administra só lê o aviso", async () => {

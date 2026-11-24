@@ -25,7 +25,7 @@ export function ConsentRequiredNotice({ className, text }: { className?: string;
       {isAdmin && (
         <>
           {" "}
-          <a href={`${viewHref("settings")}`} target="_blank" rel="noopener noreferrer">{t("errors.settingsLink")}</a>
+          <a href={viewHref("settings", window.location.href, null, { section: "ia" })} target="_blank" rel="noopener noreferrer">{t("errors.settingsLink")}</a>
         </>
       )}
     </p>

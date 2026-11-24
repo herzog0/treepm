@@ -221,9 +221,11 @@ describe.each(["en", "es-MX"] as const)("full screens in %s", (language) => {
   it("settings with the GitHub section", async () => {
     await setTestLanguage(language);
     const me = admin();
+    window.location.hash = "github";
     const { container } = render(<MemoryPreferencesProvider><SettingsScreen client={appClient(me)} me={me} /></MemoryPreferencesProvider>);
     await screen.findByText(/herzog0/);
     expectNoPortuguese("settings", container);
+    window.location.hash = "";
   });
 
   it.each([["?setup_action=request"], ["?code=&state="]])("GitHub return screen %s", async (search) => {

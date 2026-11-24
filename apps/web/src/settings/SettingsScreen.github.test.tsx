@@ -11,6 +11,7 @@ const assign = vi.fn();
 const originalLocation = window.location;
 
 function setup(options: { me?: Me; github?: FakeGithub | undefined } = {}) {
+  window.location.hash = "github";
   const me = options.me ?? makeMe({ github: true });
   const client = makeClient({ me, ...(options.github ? { github: options.github } : {}) });
   render(
@@ -23,6 +24,7 @@ function setup(options: { me?: Me; github?: FakeGithub | undefined } = {}) {
 const section = () => screen.getByRole("region", { name: "GitHub" });
 
 afterEach(() => {
+  window.location.hash = "";
   Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
   assign.mockReset();
 });
@@ -110,6 +112,7 @@ describe("Configurações › GitHub", () => {
   });
 
   it("shows a load error with retry when the installation cannot be read", async () => {
+    window.location.hash = "github";
     const me = makeMe({ github: true });
     const client = makeClient({ me, github: { installation: makeInstallation() } });
     vi.mocked(client.getGithubInstallation).mockResolvedValueOnce({ ok: false, error: { kind: "unavailable" } });

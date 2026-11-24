@@ -21,7 +21,7 @@ describe("assistente desligado por falta de aceite", () => {
   it("administrador recebe o link para as Configurações, em outra aba", () => {
     render(<AdminProvider isAdmin><ConsentRequiredNotice /></AdminProvider>);
     const link = screen.getByRole("link", { name: "Abrir Configurações" });
-    expect(link).toHaveAttribute("href", "/?view=settings");
+    expect(link).toHaveAttribute("href", "/?view=settings#ia");
     expect(link).toHaveAttribute("target", "_blank");
   });
 
