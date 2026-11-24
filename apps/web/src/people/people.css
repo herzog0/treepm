@@ -1,0 +1,11 @@
+/* "Entrar como" (ADR 0057): a faixa divide a altura com a aplicação; a aplicação continua ocupando o resto, sem rolagem a mais. */
+.actas-frame { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.actas-body { flex: 1 1 0; min-height: 0; display: grid; }
+.actas-body > .tenant-shell { height: auto; min-height: 0; }
+.actas-banner { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: var(--tp-warn-bg); color: var(--tp-warn-text); font-weight: 600; font-size: 14px; border-bottom: 1px solid var(--tp-divider); }
+.actas-banner span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.actas-banner button { flex: none; min-height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid currentColor; background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+.actas-banner button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.actas-banner.is-notice { background: var(--tp-card); color: var(--tp-text); }
+.test-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 6px; background: var(--tp-warn-bg); color: var(--tp-warn-text); font-size: 11px; font-weight: 700; vertical-align: middle; }
+@media (max-width: 720px) { .actas-body > .tenant-shell { height: auto; } }

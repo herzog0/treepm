@@ -34,7 +34,7 @@ export function SettingsScreen({ client, me, onConsentChange, sections = DEFAULT
   sections?: readonly SettingsSection[] | undefined;
 } = {}) {
   const { t } = useTranslation("settings");
-  const { preferences, save } = usePreferences();
+  const { preferences, save, readOnly = false } = usePreferences();
   const mcp = useMcpSwitches(client, me);
   const tokenDraft = useMcpTokenDraft();
   const navRef = useRef<HTMLElement>(null);
@@ -81,11 +81,11 @@ export function SettingsScreen({ client, me, onConsentChange, sections = DEFAULT
     if (!result.ok) setFailed(section);
   };
   const chooseLanguage = async (value: LanguagePreference) => {
-    if (value === preferences.language) return;
+    if (readOnly || value === preferences.language) return;
     await persist("language", { ...preferences, language: value });
   };
 
-  const context: SectionContext = { t, client, me, isAdmin, preferences, chooseLanguage, languageFailed: failed === "language", mcp, tokenDraft, onConsentChange, titleId, open };
+  const context: SectionContext = { t, client, me, isAdmin, preferences, chooseLanguage, languageFailed: failed === "language", preferencesReadOnly: readOnly, mcp, tokenDraft, onConsentChange, titleId, open };
 
   return (
     <div className="settings-screen">

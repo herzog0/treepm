@@ -18,6 +18,7 @@ import {
   canListInstallationRepositories,
   canManageGithubConnection,
   canManageMcpAccess,
+  canManageTestPeople,
   canRemoveComment,
   canRemoveTicket,
   canCreateTeam,
@@ -96,6 +97,10 @@ export class AuthorizationService {
   /** Chave "Permitir acesso por MCP", lista de todos os tokens da organização e revogação de qualquer um (ADR 0038). */
   manageMcpAccess(actor: Actor): void {
     this.require(canManageMcpAccess(actor));
+  }
+  /** Criar, desativar e reativar pessoa de teste (ADR 0057). */
+  manageTestPeople(actor: Actor): void {
+    this.require(canManageTestPeople(actor));
   }
   /** Aceitar e retirar o uso da IA pela organização (ADR 0039): a mesma regra de quem liga o MCP. */
   manageAiConsent(actor: Actor): void {

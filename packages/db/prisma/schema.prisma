@@ -81,6 +81,8 @@ model Organization {
   @@map("organizations")
 }
 
+/// ATENÇÃO: coluna nova em `people` precisa de `GRANT UPDATE (coluna)` explícito para o papel `treepm_app` (migration 0034 tirou o UPDATE da
+/// tabela inteira, para `is_test` e a chave nunca mudarem). Sem o GRANT, o Prisma acusa "permission denied" ao gravar a coluna.
 model Person {
   orgId       String    @map("org_id")
   id          String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
@@ -90,6 +92,8 @@ model Person {
   avatarUrl   String?   @map("avatar_url")
   clerkRole   ClerkRole @map("clerk_role")
   active      Boolean   @default(true)
+  /// Pessoa de teste (ADR 0057): sem usuário no Clerk; marca imutável (privilégio de coluna, migration 0034).
+  isTest      Boolean   @default(false) @map("is_test")
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -641,8 +645,10 @@ model TicketComment {
   contributionId    String?   @map("contribution_id") @db.Uuid
   /// Nome da área que a contribuição removida tinha, gravado por gatilho no banco; nulo enquanto a contribuição existe
   areaName          String?   @map("area_name")
-  /// `mcp` quando o comentário veio de uma chamada MCP (ADR 0043); nulo quando foi escrito na tela. Nunca muda depois.
+  /// `mcp` quando o comentário veio de uma chamada MCP (ADR 0043), `act-as` quando um administrador o escreveu agindo como pessoa de teste (ADR 0057); nulo quando foi escrito na tela. Nunca muda depois.
   via               String?
+  /// Com `via = act-as` (ADR 0057): a pessoa de verdade (administrador) que escreveu agindo como `authorPersonId`; nulo nos demais. Nunca é devolvido pela API.
+  viaPersonId       String?   @map("via_person_id") @db.Uuid
   /// Repetição de `add_comment` (ADR 0043): id do registro do token e o `requestId` do cliente; os dois nulos fora do MCP.
   requestTokenId    String?   @map("request_token_id") @db.Uuid
   requestId         String?   @map("request_id")

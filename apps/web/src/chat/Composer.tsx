@@ -15,6 +15,7 @@ import { liveTrigger, typedTrigger, withoutToken, withTicketKey } from "./mentio
 import type { LiveTrigger, Selection, Trigger } from "./mentions.js";
 import { situationColor } from "./situation.js";
 import { Initials } from "./MessageText.js";
+import { TestBadge } from "../people/TestBadge.js";
 
 /** Limite da API (`body`, 1 a 4.000) e onde o contador aparece. */
 export const CHAT_BODY_MAX = 4000;
@@ -131,7 +132,7 @@ export function Composer({ label, placeholder, draft, onDraft, people, peopleSta
           <>
             <Initials name={person.displayName} />
             <span className="chat-option-text">
-              <span className="chat-option-title">{person.displayName}</span>
+              <span className="chat-option-title">{person.displayName}<TestBadge person={person} /></span>
               {blocked && <span className="chat-option-sub">{t("picker.noProject")}</span>}
             </span>
           </>
@@ -270,7 +271,7 @@ export function Composer({ label, placeholder, draft, onDraft, people, peopleSta
             const name = names.get(personId) ?? personId;
             return (
               <li key={personId} className={refused.includes(personId) || unseen.includes(personId) ? "is-refused" : undefined}>
-                <span>{name}</span>
+                <span>{name}<TestBadge person={people.find((entry) => entry.person.id === personId)?.person} /></span>
                 {(refused.includes(personId) || unseen.includes(personId)) && <small>{unseen.includes(personId) ? t("picker.noProject") : t("composer.refused")}</small>}
                 <button
                   type="button"

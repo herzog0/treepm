@@ -74,6 +74,22 @@ function clientWith(extra: Partial<Record<keyof ApiClient, unknown>> = {}, proje
 const page = () => screen.getByRole("complementary", { name: "Página do ticket" });
 const loaded = async () => screen.findByRole("heading", { level: 1 });
 
+describe("TicketPage: pessoa de teste (ADR 0057)", () => {
+  it("o responsável de teste leva o selo, e a lista de escolha mostra 'Nome (teste)'", async () => {
+    const withTest = [...people, makePerson("person-9", "Bia", { isTest: true })];
+    const client = makeClient({ projects: [project], people: withTest, tickets: { p1: summaries.map((t) => (t.id === "t2" ? { ...t, assigneeIds: ["person-9"] } : t)) } });
+    Object.assign(client, { getTicket: vi.fn(async () => ok(detailOf({ ...summaries[1]!, assigneeIds: ["person-9"] }))) });
+    setup({ client });
+    expect(await loaded()).toHaveTextContent("Escrever o texto");
+    const view = within(page());
+    expect(view.getByText("Bia")).toBeInTheDocument();
+    expect(view.getByText("teste")).toBeInTheDocument();
+    await userEvent.setup().click(view.getAllByRole("button", { name: /Adicionar/ })[0]!);
+    expect(within(view.getByRole("combobox")).queryByRole("option", { name: "Bia (teste)" })).toBeNull(); // já é responsável: não é candidata
+    expect(within(view.getByRole("combobox")).getByRole("option", { name: "Ana" })).toBeInTheDocument();
+  });
+});
+
 describe("TicketPage content", () => {
   it("shows the key, the ancestors path, the title, the state, the people, the parent and the description of a leaf", async () => {
     setup({ client: clientWith() });

@@ -9,7 +9,7 @@ import { SettingsScreen } from "./SettingsScreen.js";
 
 const navigatorLanguages = (languages: string[]) => vi.spyOn(window.navigator, "languages", "get").mockReturnValue(languages);
 
-function setup(props: { initial?: Preferences; failSave?: boolean } = {}) {
+function setup(props: { initial?: Preferences; failSave?: boolean; readOnly?: boolean } = {}) {
   const onSave = vi.fn();
   render(
     <MemoryPreferencesProvider {...props} onSave={onSave}>
@@ -98,5 +98,16 @@ describe("language preference in Settings", () => {
     setup({ initial: preferences("es-MX") });
     expect(await screen.findByRole("heading", { level: 1, name: "Configuración" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Español (México)" })).toBeChecked();
+  });
+});
+
+describe("language preference vendo como outra pessoa (ADR 0057)", () => {
+  it("fica só leitura, com a explicação, e não grava nada na conta do administrador", async () => {
+    await setTestLanguage("pt-BR");
+    const { onSave } = setup({ readOnly: true, initial: preferences("pt-BR") });
+    expect(await screen.findByText(/o idioma é da conta do administrador/)).toBeInTheDocument();
+    for (const radio of screen.getAllByRole("radio")) expect(radio).toBeDisabled();
+    await userEvent.setup().click(screen.getByRole("radio", { name: "English" }));
+    expect(onSave).not.toHaveBeenCalled();
   });
 });

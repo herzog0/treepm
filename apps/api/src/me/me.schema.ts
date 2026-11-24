@@ -7,6 +7,8 @@ export const meResponseSchema = z.object({
     email: z.string(),
     avatarUrl: z.string().nullable(),
   }),
+  /** Preenchido enquanto um administrador age como uma pessoa de teste (ADR 0057): o nome da pessoa de verdade. */
+  actingAs: z.object({ realDisplayName: z.string() }).nullable(),
   organization: z.object({
     orgId: z.string(),
     name: z.string(),

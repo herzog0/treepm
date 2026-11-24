@@ -20,5 +20,13 @@
     "member": "Miembro",
     "unavailable": "API no disponible",
     "noAccess": "La sesión no tiene acceso a la API"
+  },
+  "testBadge": "prueba",
+  "testName": "{{name}} (prueba)",
+  "actAs": {
+    "banner": "Estás viendo como {{name}} (prueba)",
+    "leave": "Volver a ser yo",
+    "rejected": "No fue posible continuar como {{name}}: volviste a ser tú.",
+    "dismiss": "Descartar"
   }
 }

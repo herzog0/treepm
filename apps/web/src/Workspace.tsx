@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createApiClient } from "./api/client.js";
 import { AdminProvider } from "./api/ConsentRequired.js";
 import { useApiResource } from "./api/useApiResource.js";
 import { LoadError } from "./LoadError.js";
+import { useActAs } from "./people/ActAs.js";
 import { IdeasScreen } from "./ideas/IdeasScreen.js";
 import { ImportScreen } from "./import/ImportScreen.js";
 import type { CommandRequest } from "./map/commandRequest.js";
@@ -37,11 +38,20 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
   const { t } = useTranslation();
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
+  // "Entrar como": esta árvore foi montada para UMA pessoa (a árvore é remontada ao trocar); o cliente manda sempre o mesmo cabeçalho.
+  const { acting, reject } = useActAs();
+  const [actAsId] = useState(() => acting?.id ?? null);
   const client = useMemo(
-    () => createApiClient({ getToken: () => getTokenRef.current(), ...(fetchImpl ? { fetch: fetchImpl } : {}) }),
-    [fetchImpl],
+    () => createApiClient({ getToken: () => getTokenRef.current(), actAsId, ...(fetchImpl ? { fetch: fetchImpl } : {}) }),
+    [fetchImpl, actAsId],
   );
   const { state, retry, reload } = useApiResource(() => client.getMe());
+  // A faixa diz "vendo como X": a identidade que o servidor devolve tem de ser a de X, e vir marcada como "entrar como". Senão sai do modo e avisa.
+  const meData = state.status === "ready" ? state.data : null;
+  const identityMismatch = actAsId !== null && meData !== null && (meData.actingAs == null || meData.person.id !== actAsId);
+  useEffect(() => {
+    if (identityMismatch && actAsId !== null) reject(actAsId);
+  }, [identityMismatch, actAsId, reject]);
 
   // Com o mapa ocioso, o editor da descrição começa a baixar em segundo plano: o primeiro ticket abre sem espera (e o mapa não o espera).
   useEffect(() => (view === "map" ? scheduleDescriptionEditorPreload() : undefined), [view]);

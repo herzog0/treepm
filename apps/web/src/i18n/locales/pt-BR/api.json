@@ -47,7 +47,13 @@
       "not_thread_owner": "Só quem abriu a thread pode incluir pessoas nela.",
       "principal_conversation": "Não dá para incluir pessoas na conversa com o assistente. Abra uma thread e inclua nela.",
       "ticket_mismatch": "Esta thread já trata de outro ticket.",
-      "not_principal": "Só a conversa com o assistente pode ser limpa."
+      "not_principal": "Só a conversa com o assistente pode ser limpa.",
+      "test_people_limit": "Já são 20 pessoas de teste ativas. Desative uma para criar outra.",
+      "act_as_not_allowed": "Não é possível ver a aplicação como essa pessoa.",
+      "not_while_acting_as": "Volte a ser você para fazer isto.",
+      "test_people_total_limit": "Esta organização já tem 100 pessoas de teste, contando as desativadas. Reative uma delas em vez de criar outra.",
+      "display_name_taken": "Já existe uma pessoa ativa com esse nome (maiúsculas e acentos não diferenciam). Escolha outro nome.",
+      "invalid_display_name": "O nome não pode ter caracteres invisíveis nem de controle."
     },
     "kind": {
       "unauthenticated": "Sua sessão expirou. Entre novamente.",

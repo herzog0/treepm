@@ -1,6 +1,7 @@
 import { useUser } from "@clerk/react";
 import { useCallback, useMemo } from "react";
 import type { ReactNode } from "react";
+import { useActAs } from "../people/ActAs.js";
 import { PreferencesProvider } from "./context.js";
 import type { SaveResult } from "./context.js";
 import { parsePreferences, withPreferences } from "./model.js";
@@ -12,17 +13,18 @@ import type { Preferences } from "./model.js";
  */
 export function ClerkPreferencesProvider({ children }: { children: ReactNode }) {
   const { user } = useUser();
+  const readOnly = useActAs().acting !== null;
   const metadata = user?.unsafeMetadata;
   const preferences = useMemo(() => parsePreferences(metadata), [metadata]);
   const save = useCallback(async (next: Preferences): Promise<SaveResult> => {
-    if (!user) return { ok: false };
+    if (!user || readOnly) return { ok: false };
     try {
       await user.updateMetadata({ unsafeMetadata: withPreferences({ ...user.unsafeMetadata }, next) });
       return { ok: true };
     } catch {
       return { ok: false };
     }
-  }, [user]);
-  const value = useMemo(() => ({ preferences, save }), [preferences, save]);
+  }, [user, readOnly]);
+  const value = useMemo(() => ({ preferences, save, readOnly }), [preferences, save, readOnly]);
   return <PreferencesProvider value={value}>{children}</PreferencesProvider>;
 }

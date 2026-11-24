@@ -301,6 +301,8 @@ export const COMMANDS = [
   "ticket-update",
   "relations-rebuild",
   "ticket-show",
+  "test-person-create",
+  "test-person-list",
   "summary-show",
   "summary-regenerate",
   "conversation-dry-run",
@@ -443,6 +445,8 @@ const REQUIRED: Record<Command, readonly (keyof CliOptions)[]> = {
   "ticket-update": ["org", "user", "project", "number"],
   "relations-rebuild": ["org", "user", "project"],
   "ticket-show": ["org", "user", "project", "number"],
+  "test-person-create": ["org", "user", "name"],
+  "test-person-list": ["org", "user"],
   "summary-show": ["org", "user", "project", "number"],
   "summary-regenerate": ["org", "user", "project"],
   "conversation-dry-run": ["org", "user", "project", "textFile"],
@@ -463,6 +467,8 @@ const TICKET_OPTIONS: Record<string, readonly string[]> = {
   "ticket-update": ["number", "title", "descriptionFile", "parent", "status", "root", "ideaStage", "priority", "ideaAccept", "ideaDiscard", "ideaMake", "dependsOn", "noDependsOn"],
   "relations-rebuild": [],
   "ticket-show": ["number"],
+  "test-person-create": [],
+  "test-person-list": [],
   "summary-show": ["number"],
   "summary-regenerate": ["number", "subtree", "all", "dryRun"],
   "conversation-dry-run": ["textFile", "scope"],
@@ -481,7 +487,6 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--confirm": "confirm",
   "--limit": "limit",
   "--key": "key",
-  "--name": "name",
   "--fake-providers": "fakeProviders",
   "--loo": "loo",
   "--collect": "collect",
@@ -499,6 +504,7 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--flat": "flat",
   "--json": "json",
   "--title": "title",
+  "--name": "name",
   "--description-file": "descriptionFile",
   "--parent": "parent",
   "--status": "status",
@@ -542,6 +548,8 @@ const usage = `Comandos: ${COMMANDS.join(", ")}.
                  ou, sozinho no comando (uma coisa por vez): --idea-accept | --idea-discard | --idea-make
   relations-rebuild --org --user --project
   ticket-show    --org --user --project --number <número>   (detalhe em JSON)
+  test-person-create --org --user --name <nome>   (cria uma pessoa de teste, ADR 0057)
+  test-person-list   --org --user   (as pessoas de teste da organização, em JSON)
   summary-show   --org --user --project --number <número>
   summary-regenerate --org --user --project (--number <número> | --subtree <número> | --all) [--dry-run] [--resume] [--dir <pasta do andamento>] [--fake-providers]
   chat-show      --org --user (--general | --ticket <número> --project <id> | --thread <id>)   (só leitura: as mensagens e as threads da conversa do usuário, ADR 0056)
@@ -646,6 +654,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   if (options["status"] !== undefined && !(TICKET_STATUSES as readonly string[]).includes(options["status"] as string)) {
     return fail(`--status é uma de: ${TICKET_STATUSES.join(", ")}.`);
   }
+  if (options["name"] !== undefined && command !== "create-project" && command !== "test-person-create") return fail("--name só existe no create-project e no test-person-create.");
   if (options["parent"] !== undefined && options["root"] !== undefined) return fail("--parent não combina com --root.");
   if (options["ideaStage"] !== undefined && !(IDEA_STAGES_CLI as readonly string[]).includes(options["ideaStage"] as string)) {
     return fail(`--idea-stage é uma de: ${IDEA_STAGES_CLI.join(", ")}.`);

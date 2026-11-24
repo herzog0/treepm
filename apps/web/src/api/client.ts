@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ACT_AS_HEADER, notifyActAsRejected } from "./actAs.js";
 import { conversationTreeSchema, conversationViewSchema, openedSchema, participantsResultSchema, readResultSchema, sendResultSchema } from "./conversations.js";
 import type { ChatWriteBody } from "./conversations.js";
 
@@ -27,6 +28,8 @@ const meSchema = z.object({
   assistant: z.object({ enabled: z.boolean(), configured: z.boolean().optional(), consent: z.boolean().optional() }).optional(),
   /** Ausente em uma API antiga: o GitHub conta como desligado (ADR 0032). */
   github: z.object({ enabled: z.boolean() }).optional(),
+  /** Preenchido enquanto um administrador vê a aplicação como uma pessoa de teste (ADR 0057); nulo ou ausente: é a própria pessoa. */
+  actingAs: z.object({ realDisplayName: z.string() }).nullable().optional(),
   /** A chave "Permitir acesso por MCP" da organização (ADR 0038). Ausente em uma API antiga: a seção não aparece. */
   mcp: z.object({ enabled: z.boolean(), /** A chave "Permitir escrita por MCP" (ADR 0043); ausente em uma API antiga: desligada. */ writeEnabled: z.boolean().optional() }).optional(),
 });
@@ -37,6 +40,8 @@ const personSchema = z.object({
   avatarUrl: z.string().nullable(),
   clerkRole: z.enum(["admin", "member"]),
   active: z.boolean(),
+  /** Pessoa de teste (ADR 0057). Ausente em uma API antiga: conta como pessoa de verdade. */
+  isTest: z.boolean().optional(),
 });
 const teamMemberSchema = z.object({ personId: z.string(), role: teamRole });
 const teamSchema = z.object({ id: z.string(), name: z.string(), members: z.array(teamMemberSchema) });
@@ -499,6 +504,8 @@ export interface UpdateProjectBody {
 export interface ApiClientOptions {
   getToken: () => Promise<string | null>;
   fetch?: typeof fetch;
+  /** Quem se está vendo como (ADR 0057): fixado na criação do cliente, que manda sempre o mesmo cabeçalho. Nulo: a própria pessoa. */
+  actAsId?: string | null;
 }
 
 const KIND_BY_STATUS: Record<number, ApiErrorKind> = {
@@ -509,6 +516,11 @@ const KIND_BY_STATUS: Record<number, ApiErrorKind> = {
   409: "conflict",
   500: "server_error",
 };
+
+/** Cabeçalhos de todo pedido: a sessão e, no "entrar como" (ADR 0057), a pessoa de teste escolhida nesta aba. */
+function authHeaders(token: string, actAsId: string | null): Record<string, string> {
+  return { Authorization: `Bearer ${token}`, ...(actAsId !== null ? { [ACT_AS_HEADER]: actAsId } : {}) };
+}
 
 const fail = (kind: ApiErrorKind, code?: string, keys?: string[], details?: Record<string, unknown>): { ok: false; error: ApiError } => ({
   ok: false,
@@ -528,7 +540,7 @@ function unknownKeysOf(code: string, details: unknown): string[] | undefined {
   return Array.isArray(keys) && keys.every((key) => typeof key === "string") ? (keys as string[]) : undefined;
 }
 
-export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions) {
+export function createApiClient({ getToken, fetch: fetchImpl, actAsId = null }: ApiClientOptions) {
   async function request<T>(
     method: string,
     path: string,
@@ -540,7 +552,7 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       const token = await getToken();
       if (!token) return fail("unauthenticated");
 
-      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      const headers = authHeaders(token, actAsId);
       const init: RequestInit = { headers };
       if (signal) init.signal = signal;
       if (method !== "GET") init.method = method;
@@ -552,6 +564,7 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       const response = await (fetchImpl ?? globalThis.fetch)(path, init);
       if (!response.ok) {
         const parsed = errorBodySchema.safeParse(await response.json().catch(() => null));
+        if (parsed.success && parsed.data.error.code === "act_as_not_allowed" && actAsId !== null) notifyActAsRejected(actAsId);
         return fail(
           KIND_BY_STATUS[response.status] ?? "unavailable",
           parsed.success ? parsed.data.error.code : undefined,
@@ -573,7 +586,7 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
     try {
       const token = await getToken();
       if (!token) return fail("unauthenticated");
-      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      const headers = authHeaders(token, actAsId);
       if (version !== null) headers["If-None-Match"] = version;
       const init: RequestInit = { headers };
       if (signal) init.signal = signal;
@@ -581,6 +594,7 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
       if (response.status === 304) return { ok: true, data: { changed: false } };
       if (!response.ok) {
         const parsed = errorBodySchema.safeParse(await response.json().catch(() => null));
+        if (parsed.success && parsed.data.error.code === "act_as_not_allowed" && actAsId !== null) notifyActAsRejected(actAsId);
         return fail(KIND_BY_STATUS[response.status] ?? "unavailable", parsed.success ? parsed.data.error.code : undefined);
       }
       const parsed = z.array(ticketSummarySchema).safeParse(await response.json());
@@ -605,6 +619,10 @@ export function createApiClient({ getToken, fetch: fetchImpl }: ApiClientOptions
   return {
     getMe: () => request("GET", "/api/me", meSchema),
     listPeople: () => request("GET", "/api/people", z.array(personSchema)),
+    /** Pessoas de teste (ADR 0057): só administrador, e nunca agindo como outra pessoa. */
+    createTestPerson: (displayName: string) => request("POST", "/api/people/test", personSchema, { displayName }),
+    deactivateTestPerson: (id: string) => request("POST", `/api/people/${id}/deactivate`, personSchema),
+    reactivateTestPerson: (id: string) => request("POST", `/api/people/${id}/reactivate`, personSchema),
 
     listTeams: () => request("GET", "/api/teams", z.array(teamSchema)),
     createTeam: (body: { name: string }) => request("POST", "/api/teams", teamSchema, body),

@@ -40,7 +40,7 @@ describe("navegação das Configurações", () => {
   it("administrador com tudo ligado: três grupos, com a marca admin só onde há ajuste de administrador", () => {
     setup(makeMe({ clerk: "admin", github: true, assistant: true, mcp: true }));
     expect(groups()).toEqual(["Você", "Organização", "Integrações"]);
-    expect(links()).toEqual(["Idioma", "Seus tokens", "IA e privacidade admin", "GitHub admin", "Clientes de IA admin"]);
+    expect(links()).toEqual(["Idioma", "Seus tokens", "Pessoas admin", "IA e privacidade admin", "GitHub admin", "Clientes de IA admin"]);
   });
 
   it("membro com tudo ligado: as mesmas seções, sem a marca admin", () => {
@@ -58,15 +58,15 @@ describe("navegação das Configurações", () => {
     expect(links().map((text) => text.replace(" admin", ""))).not.toContain(missing);
   });
 
-  it("sem nenhuma integração: só Você; o grupo Organização e o Integrações não aparecem", () => {
+  it("sem nenhuma integração: Você e, para o administrador, Organização (só Pessoas); Integrações não aparece", () => {
     setup(makeMe({ github: false, assistant: false }));
-    expect(groups()).toEqual(["Você"]);
-    expect(links()).toEqual(["Idioma"]);
+    expect(groups()).toEqual(["Você", "Organização"]);
+    expect(links()).toEqual(["Idioma", "Pessoas admin"]);
   });
 
   it("MCP indisponível some também a seção Seus tokens", () => {
     setup(makeMe({ github: true }));
-    expect(links()).toEqual(["Idioma", "GitHub admin"]);
+    expect(links()).toEqual(["Idioma", "Pessoas admin", "GitHub admin"]);
   });
 
   it("abre a primeira seção disponível e marca a atual com aria-current", () => {
@@ -156,7 +156,7 @@ describe("navegação das Configurações", () => {
     expect(screen.getByRole("navigation", { name: "Settings sections" })).toBeInTheDocument();
     const english = screen.getByRole("navigation", { name: "Settings sections" });
     expect(within(english).getAllByRole("list").map((list) => document.getElementById(list.getAttribute("aria-labelledby") ?? "")?.textContent)).toEqual(["You", "Organization", "Integrations"]);
-    expect(within(english).getAllByRole("link").map((link) => link.textContent)).toEqual(["Language", "Your tokens", "AI and privacy admin", "GitHub admin", "AI clients admin"]);
+    expect(within(english).getAllByRole("link").map((link) => link.textContent)).toEqual(["Language", "Your tokens", "People admin", "AI and privacy admin", "GitHub admin", "AI clients admin"]);
   });
 });
 

@@ -7,6 +7,7 @@ import { LANGUAGE_PREFERENCES } from "../i18n/languages.js";
 import type { LanguagePreference } from "../i18n/languages.js";
 import type { Preferences } from "../preferences/model.js";
 import { AiPrivacySettings } from "./AiPrivacySettings.js";
+import { PeopleSettings, peopleAvailable } from "./PeopleSettings.js";
 import { McpAccessSection, McpTokensSection } from "./McpSettings.js";
 import type { McpSwitches, McpTokenDraft } from "./McpSettings.js";
 import { SettingsCard, SettingsNote } from "./parts.js";
@@ -24,6 +25,8 @@ export interface SectionContext {
   preferences: Preferences;
   chooseLanguage: (value: LanguagePreference) => Promise<void>;
   languageFailed: boolean;
+  /** Vendo como outra pessoa: a preferência é da conta do administrador e só se lê. */
+  preferencesReadOnly: boolean;
   mcp: McpSwitches;
   tokenDraft: McpTokenDraft;
   onConsentChange: (() => void) | undefined;
@@ -62,16 +65,17 @@ export const DEFAULT_SETTINGS_SECTIONS: readonly SettingsSection[] = [
     lead: (t) => t("sections.language.lead"),
     adminTag: false,
     available: () => true,
-    render: ({ t, preferences, chooseLanguage, languageFailed }) => (
+    render: ({ t, preferences, chooseLanguage, languageFailed, preferencesReadOnly }) => (
       <SettingsCard title={t("language.label")} titleId="settings-language-choice">
         <div role="radiogroup" aria-labelledby="settings-language-choice" className="settings-group settings-card-body">
           {LANGUAGE_PREFERENCES.map((option) => (
             <label key={option} className="settings-option">
-              <input type="radio" name="interface-language" checked={preferences.language === option} onChange={() => void chooseLanguage(option)} />
+              <input type="radio" name="interface-language" checked={preferences.language === option} disabled={preferencesReadOnly} onChange={() => void chooseLanguage(option)} />
               {t(`language.${option}`)}
             </label>
           ))}
         </div>
+        {preferencesReadOnly && <SettingsNote>{t("language.readOnlyActingAs")}</SettingsNote>}
         {languageFailed && <SettingsNote role="alert" tone="error">{t("saveFailed")}</SettingsNote>}
       </SettingsCard>
     ),
@@ -84,6 +88,15 @@ export const DEFAULT_SETTINGS_SECTIONS: readonly SettingsSection[] = [
     adminTag: false,
     available: (context) => withApi(context) && mcpAvailable(context.me!),
     render: ({ client, me, mcp, tokenDraft, titleId }) => <McpTokensSection client={client!} me={me!} mcp={mcp} draft={tokenDraft} titleId={titleId} />,
+  },
+  {
+    id: "pessoas",
+    group: "organization",
+    title: (t) => t("people.title"),
+    lead: (t) => t("people.lead"),
+    adminTag: true,
+    available: (context) => withApi(context) && peopleAvailable(context),
+    render: ({ client, me, titleId }) => <PeopleSettings client={client!} me={me!} titleId={titleId} />,
   },
   {
     id: "ia",

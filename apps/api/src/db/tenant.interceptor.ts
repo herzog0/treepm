@@ -5,6 +5,7 @@ import { withTenant } from "@treepm/db";
 import type { PrismaClient } from "@treepm/db";
 import { from, lastValueFrom } from "rxjs";
 import type { Observable } from "rxjs";
+import { readActAs } from "../access/act-as.js";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { IdentityService } from "../access/identity.service.js";
 import type { Identity } from "../access/identity.service.js";
@@ -108,6 +109,8 @@ export class TenantInterceptor implements NestInterceptor {
     slot?: { route: StructureRoute; signal: AbortSignal },
   ): Promise<unknown> {
     const clerkRole = this.identities.clerkRoleOf(session);
+    // O cabeçalho "entrar como" (ADR 0057) é lido aqui e conferido em `PrincipalService.load`, o único lugar que o transforma em identidade.
+    const actAs = readActAs(request.headers);
     const tenant = { orgId: session.orgId, userId: session.userId };
 
     let identity: Identity | null = null;
@@ -117,7 +120,7 @@ export class TenantInterceptor implements NestInterceptor {
 
     if (own) {
       // Transação curta só para provisionar e montar o Principal; o handler abre as dele.
-      const principal = await withTenant(this.prisma, tenant, (tx) => this.principals.load(tx, session, clerkRole, identity));
+      const principal = await withTenant(this.prisma, tenant, (tx) => this.principals.load(tx, session, clerkRole, identity, actAs));
       request[PRINCIPAL_KEY] = principal;
       request[TENANT_RUNNER_KEY] = this.runner(tenant, principal);
       return lastValueFrom(next.handle(), { defaultValue: undefined });
@@ -128,7 +131,7 @@ export class TenantInterceptor implements NestInterceptor {
         withTenant(this.prisma, tenant, async (tx) => {
           watch(tx);
           request[TX_KEY] = tx;
-          request[PRINCIPAL_KEY] = await this.principals.load(tx, session, clerkRole, identity);
+          request[PRINCIPAL_KEY] = await this.principals.load(tx, session, clerkRole, identity, actAs);
           return lastValueFrom(next.handle(), { defaultValue: undefined });
         }),
       );
@@ -142,6 +145,8 @@ export class TenantInterceptor implements NestInterceptor {
         withStructureTimeoutTranslation((watch) =>
           withTenant(this.prisma, tenant, async (tx) => {
             watch(tx);
+            // "Entrar como": cada transação reconfere quem pede e o alvo (a conferência da primeira não vale para as seguintes).
+            await this.principals.recheckActAs(tx, principal);
             const actor = await this.authorization.loadActor(tx, principal.person.id, principal.actor.clerkRole);
             return fn(tx, { ...principal, actor });
           }),

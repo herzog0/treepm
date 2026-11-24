@@ -30,7 +30,7 @@ export type Harness = {
   elaborator: () => FakeTicketElaborator;
   embedder: () => FakeEmbeddingProvider;
   github: () => FakeRepositoryProvider;
-  call: (method: string, path: string, session: string, body?: unknown) => Promise<request.Response>;
+  call: (method: string, path: string, session: string, body?: unknown, headers?: Record<string, string>) => Promise<request.Response>;
 };
 
 /** Registra os hooks de ciclo de vida e devolve acessores para a app, o mundo semeado e o `call`. */
@@ -141,10 +141,11 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     elaborator: () => elaborator,
     embedder: () => embedder,
     github: () => github,
-    call: (method, path, session, body) => {
+    call: (method, path, session, body, headers = {}) => {
       const agent = request(app.getHttpServer());
       const verb = method.toLowerCase() as "get" | "post" | "put" | "patch" | "delete";
-      const req = agent[verb](path).set("x-test-session", session);
+      let req = agent[verb](path).set("x-test-session", session);
+      for (const [name, value] of Object.entries(headers)) req = req.set(name, value);
       return body === undefined ? req : req.send(body as object);
     },
   };

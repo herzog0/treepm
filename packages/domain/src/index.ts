@@ -101,6 +101,11 @@ export function canManageMcpAccess(actor: Actor): boolean {
   return actor.clerkRole === "admin";
 }
 
+/** Allows organization admins to create, deactivate and reactivate test people (ADR 0057). */
+export function canManageTestPeople(actor: Actor): boolean {
+  return actor.clerkRole === "admin";
+}
+
 /** Allows organization admins and managers of any project to list the repositories the installation can reach. */
 export function canListInstallationRepositories(actor: Actor): boolean {
   if (actor.clerkRole === "admin") return true;

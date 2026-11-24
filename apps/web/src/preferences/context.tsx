@@ -9,6 +9,8 @@ export interface PreferencesApi {
   readonly preferences: Preferences;
   /** Grava as preferências. Em falha, o valor anterior continua valendo. */
   save: (next: Preferences) => Promise<SaveResult>;
+  /** Vendo como outra pessoa (ADR 0057): as preferências são da conta do administrador e não se mudam por ali. */
+  readonly readOnly?: boolean;
 }
 
 // Sem provedor (demo, testes isolados): o padrão, e gravar não faz nada.
@@ -20,9 +22,10 @@ export const PreferencesProvider = PreferencesContext.Provider;
 export const usePreferences = (): PreferencesApi => useContext(PreferencesContext);
 
 /** Implementação em memória, para testes e para o harness do navegador. */
-export function MemoryPreferencesProvider({ initial = DEFAULT_PREFERENCES, failSave = false, onSave, children }: {
+export function MemoryPreferencesProvider({ initial = DEFAULT_PREFERENCES, failSave = false, readOnly = false, onSave, children }: {
   initial?: Preferences;
   failSave?: boolean;
+  readOnly?: boolean;
   onSave?: (next: Preferences) => void;
   children: ReactNode;
 }) {
@@ -33,6 +36,6 @@ export function MemoryPreferencesProvider({ initial = DEFAULT_PREFERENCES, failS
     setPreferences(next);
     return { ok: true };
   }, [failSave, onSave]);
-  const value = useMemo(() => ({ preferences, save }), [preferences, save]);
+  const value = useMemo(() => ({ preferences, save, readOnly }), [preferences, save, readOnly]);
   return <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>;
 }
