@@ -118,7 +118,7 @@ Servidor, tela e ferramentas no PR #212, numa mudança só (migration `0032_plac
 
 ### Medição com os provedores de verdade
 
-Tirar e recolocar em 40 tickets do projeto `TREEPM`, com Claude e Jev reais, faixa de 0,2 a 0,8 e escolha em 0,5:
+Tirar e recolocar em 40 tickets de uma cópia da árvore do `TREEPM` (projeto de medição, arquivado depois), com Claude e Jev reais, faixa de 0,2 a 0,8 e escolha em 0,5:
 
 | Resultado | Com a pergunta | Sem perguntar |
 | --- | --- | --- |
@@ -139,7 +139,7 @@ A mesma rodada, em outras larguras de faixa:
 | 0,1 a 0,9 | 30 | 4 |
 | 0,05 a 0,95 | 37 | 2 |
 
-A largura fica em 0,2 a 0,8 até Teodoro escolher (`TREEPM-364`). O que a medição mostra: a pergunta mais que dobra os acertos, e alargar a faixa compra poucos erros a menos por muitas perguntas a mais; os seis erros que sobram são julgamentos confiantes e errados, que largura nenhuma razoável alcança.
+A largura fica em 0,2 a 0,8 até Teodoro escolher (`TREEPM-364`). O que a medição mostra: com a pergunta, os tickets no lugar certo passam de 16 para 31 em 40. Alargar a faixa troca perguntas por erros: de 0,2–0,8 para 0,15–0,85 são quatro tickets a mais com pergunta para dois erros a menos, e para chegar a dois erros é preciso perguntar em 37 dos 40. Os erros que sobram são julgamentos confiantes e errados; a pessoa continua vendo o destino e podendo trocá-lo antes de criar.
 
 ### Em aberto
 
