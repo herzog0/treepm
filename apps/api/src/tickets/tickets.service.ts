@@ -4,6 +4,7 @@ import type { TenantClient } from "@treepm/db";
 import type { z } from "zod";
 import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, createsDependencyCycle, descriptionExcerpt, mentionsPersonRaw, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, safeLinearUrl, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
 import type { Actor, IdeaStage, TicketNode, TicketStatus, ticketProgress } from "@treepm/domain";
+import { buildActor } from "../access/actor.js";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
 import { ACCESS_TOKEN_CLOCK } from "../access-tokens/clock.js";
@@ -884,6 +885,107 @@ export class TicketsService {
       throw new ConflictException({ code: "dependency_cycle", message: "Isso fecharia um ciclo de dependências.", details: { key: `${project.key}-${other.number}` } });
     }
     return this.detailFor(tx, project, id, principal);
+  }
+
+  /**
+   * Pôr uma pessoa como responsável (rota `PUT tickets/:id/assignees/:personId`, ADR 0062: a mesma regra serve ao MCP). Conferências, na ordem:
+   * ticket visível (404), permissão de atribuir (403), projeto ativo (409), pessoa que pode ser responsável (`requireAssignable`).
+   * Idempotente: quem já é responsável não gera evento nem toque na versão do projeto.
+   */
+  async assign(tx: TenantClient, principal: Principal, id: string, rawPersonId: string): Promise<TicketPage> {
+    const personId = rawPersonId.toLowerCase(); // uma vez, na entrada: o id sai do banco em minúsculas e vai assim para o evento
+    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
+    this.authorization.assignTicket(principal.actor, project.id);
+    this.requireActive(project);
+    await this.lockAssignees(tx, project, id);
+    await this.requireAssignable(tx, project, personId);
+    await this.addAssignee(tx, principal, project, ticket, personId);
+    return this.detailFor(tx, project, id, principal);
+  }
+
+  /** Tirar um responsável (rota `DELETE tickets/:id/assignees/:personId`): quem não é responsável é 404. */
+  async unassign(tx: TenantClient, principal: Principal, id: string, rawPersonId: string): Promise<void> {
+    const personId = rawPersonId.toLowerCase();
+    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
+    this.authorization.assignTicket(principal.actor, project.id);
+    this.requireActive(project);
+    await this.lockAssignees(tx, project, id);
+    const key = { orgId_ticketId_personId: { orgId: project.orgId, ticketId: id, personId } };
+    if (!(await tx.ticketAssignee.findUnique({ where: key }))) {
+      throw new NotFoundException("Pessoa não atribuída ao ticket.");
+    }
+    await this.removeAssignee(tx, principal, project, ticket, personId);
+  }
+
+  /**
+   * Define a lista COMPLETA de responsáveis (ferramenta `set_ticket_assignees` do MCP, ADR 0062): as mesmas conferências de `assign`, a
+   * mesma validação de cada pessoa NOVA e os mesmos eventos de `assign`/`unassign`, um por mudança. Lista igual à atual: nada muda.
+   * Pessoa nova que não pode ser responsável: a mesma recusa de `assign` (404/409), antes de qualquer escrita.
+   */
+  async setAssignees(tx: TenantClient, principal: Principal, id: string, personIds: readonly string[]): Promise<void> {
+    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
+    this.authorization.assignTicket(principal.actor, project.id);
+    this.requireActive(project);
+    await this.lockAssignees(tx, project, id);
+    const wanted = [...new Set(personIds.map((personId) => personId.toLowerCase()))];
+    const current = (await tx.ticketAssignee.findMany({ where: { ticketId: id }, select: { personId: true } })).map((row) => row.personId);
+    const toAdd = wanted.filter((personId) => !current.includes(personId));
+    const toRemove = current.filter((personId) => !wanted.includes(personId));
+    for (const personId of toAdd) await this.requireAssignable(tx, project, personId);
+    for (const personId of toRemove) await this.removeAssignee(tx, principal, project, ticket, personId);
+    for (const personId of toAdd) await this.addAssignee(tx, principal, project, ticket, personId);
+  }
+
+  /**
+   * Serializa por ticket tudo o que muda os responsáveis (tela e MCP): trava a linha do ticket até o fim da transação. Quem chega
+   * depois espera, lê o estado já gravado e decide em cima dele; assim "lista completa" vale (duas definições simultâneas terminam
+   * com exatamente uma das listas), os eventos batem com o estado e a corrida da mesma pessoa não vira violação de unicidade.
+   */
+  private async lockAssignees(tx: TenantClient, project: ProjectRow, ticketId: string): Promise<void> {
+    await tx.$queryRaw`select 1 from tickets where org_id = ${project.orgId} and id = ${ticketId}::uuid for update`;
+  }
+
+  private async addAssignee(tx: TenantClient, principal: Principal, project: ProjectRow, ticket: { id: string; number: number }, personId: string): Promise<void> {
+    const key = { orgId_ticketId_personId: { orgId: project.orgId, ticketId: ticket.id, personId } };
+    if (await tx.ticketAssignee.findUnique({ where: key })) return;
+    await touchProjectVersion(tx, project.id); // ADR 0046: as pessoas aparecem no resumo.
+    await tx.ticketAssignee.create({ data: { orgId: project.orgId, ticketId: ticket.id, personId } });
+    await this.activity.record(tx, principal, {
+      kind: "ticket.assignee_added",
+      subjectType: "ticket",
+      subjectId: ticket.id,
+      payload: { key: `${project.key}-${ticket.number}`, personId },
+    });
+  }
+
+  private async removeAssignee(tx: TenantClient, principal: Principal, project: ProjectRow, ticket: { id: string; number: number }, personId: string): Promise<void> {
+    const key = { orgId_ticketId_personId: { orgId: project.orgId, ticketId: ticket.id, personId } };
+    await touchProjectVersion(tx, project.id); // ADR 0046
+    await tx.ticketAssignee.delete({ where: key });
+    await this.activity.record(tx, principal, {
+      kind: "ticket.assignee_removed",
+      subjectType: "ticket",
+      subjectId: ticket.id,
+      payload: { key: `${project.key}-${ticket.number}`, personId },
+    });
+  }
+
+  /**
+   * As pessoas que a tela pode oferecer como responsável no projeto: ativas e que já enxergam o projeto, a mesma regra de
+   * `requireAssignable` (`canView` sobre o papel da pessoa e os papéis que ela tem NO projeto), em nome e identificador (ADR 0062).
+   */
+  async assignablePeople(tx: TenantClient, projectId: string): Promise<{ id: string; displayName: string; email: string; clerkUserId: string }[]> {
+    const project = await tx.project.findFirst({ where: { id: projectId } });
+    if (!project) return [];
+    const people = await tx.person.findMany({ where: { active: true }, select: { id: true, displayName: true, email: true, clerkUserId: true, clerkRole: true }, orderBy: [{ displayName: "asc" }, { id: "asc" }] });
+    const memberships = await tx.projectMembership.findMany({ where: { projectId }, select: { personId: true, role: true } });
+    const roles = new Map(memberships.map((row) => [row.personId, row.role] as const));
+    return people
+      .filter((person) => {
+        const role = roles.get(person.id);
+        return this.authorization.canView(buildActor(person.clerkRole, [], role === undefined ? [] : [{ projectId, role }]), project);
+      })
+      .map(({ id, displayName, email, clerkUserId }) => ({ id, displayName, email, clerkUserId }));
   }
 
   /** Remove "este ticket depende de `otherId`": mesmas conferências de `addDependency`; ligação inexistente é 404. */

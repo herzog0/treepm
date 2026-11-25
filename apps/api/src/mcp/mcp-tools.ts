@@ -7,6 +7,8 @@ import type { ProjectQueryService } from "../query/project-query.service.js";
 import type { QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "../query/query.schema.js";
 import type { QueueTicket } from "../query/project-query.service.js";
 import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
+import { PERSON_NAME_SELECT, mcpPersonRef } from "./person-name.js";
+import type { PersonNameSource } from "./person-name.js";
 
 /**
  * As quatro ferramentas do servidor MCP (ADR 0038), só de leitura, sobre a camada de consulta (ADR 0037). Tudo o que o
@@ -112,8 +114,40 @@ export const projectOverviewOutput = z.strictObject({
   }),
 });
 
-type Summary = z.infer<typeof summarySchema>;
-type TicketList = z.infer<typeof listSchema>;
+/** Alcance "pessoas e conversas" (ADR 0062): quem é responsável pelo ticket. Só nome e identificador, nunca e-mail, papel ou foto. */
+const assigneeSchema = z.strictObject({ id: z.string().describe("Person id, to use with set_ticket_assignees."), name: z.string() });
+const assigneesField = z.array(assigneeSchema).describe("The people assigned to the ticket, by name (empty when nobody is).");
+export const listPeopleInput = z.strictObject({});
+export const listPeopleOutput = z.strictObject({
+  people: z
+    .array(z.strictObject({ id: z.string(), name: z.string(), me: z.boolean().describe("True for the person who owns the token.") }))
+    .describe("The people who can be assigned to tickets of this project: active people who can see the project, in name order."),
+});
+
+const summaryPeopleSchema = summarySchema.extend({ assignees: assigneesField });
+const listPeopleSchema = z.strictObject({ tickets: z.array(summaryPeopleSchema), truncated: listSchema.shape.truncated });
+const directionsPeopleSchema = z.strictObject({ outgoing: listPeopleSchema, incoming: listPeopleSchema });
+const searchTicketsPeopleOutput = listPeopleSchema;
+const listTicketsPeopleOutput = listPeopleSchema.extend({ after: listTicketsOutput.shape.after });
+const workQueuePeopleOutput = workQueueOutput.extend({ tickets: z.array(summaryPeopleSchema.extend({ path: queueTicketSchema.shape.path })) });
+const getTicketPeopleOutput = getTicketOutput.extend({
+  assignees: assigneesField,
+  path: z.array(summaryPeopleSchema),
+  children: listPeopleSchema,
+  relations: z.strictObject({ mentions: directionsPeopleSchema, depends_on: directionsPeopleSchema }),
+});
+
+type Assignee = z.infer<typeof assigneeSchema>;
+/** Resumo de ticket; `assignees` só existe com o alcance de pessoas efetivo (sem ele a chave NÃO existe, nem vazia). */
+type Summary = z.infer<typeof summarySchema> & { assignees?: Assignee[] };
+type TicketList = { tickets: Summary[]; truncated: boolean };
+type Directions = { outgoing: TicketList; incoming: TicketList };
+export type TicketOutput = Omit<z.infer<typeof getTicketOutput>, "path" | "children" | "relations"> & {
+  assignees?: Assignee[];
+  path: Summary[];
+  children: TicketList;
+  relations: { mentions: Directions; depends_on: Directions };
+};
 
 const MEANING =
   "Tickets form a tree: the parent is the ticket a ticket is part of. " +
@@ -122,36 +156,51 @@ const MEANING =
   "Relations: `mentions` means one ticket cites the other in its text; `depends_on` means the first ticket needs the other to be finished before it. " +
   `Statuses: ${STATUSES}.`;
 
-export const TOOL_DEFINITIONS = {
+const definitions = (people: boolean) => ({
   search_tickets: {
     title: "Search tickets",
     description: `Search the tickets of this project by text (title, description and key). Returns summaries (key, title, excerpt, status, parent key) of the best matches. Use it to find where a subject lives. ${MEANING}`,
     inputSchema: searchTicketsInput,
-    outputSchema: searchTicketsOutput,
+    outputSchema: people ? searchTicketsPeopleOutput : searchTicketsOutput,
   },
   get_ticket: {
     title: "Get a ticket",
     description: `Read one ticket in full: complete description, status, parent, the path from the top of the tree down to the parent, children and the relations in both directions. ${MEANING} For \`mentions\`, \`outgoing\` lists tickets this one cites and \`incoming\` lists tickets that cite it. For \`depends_on\`, \`outgoing\` lists tickets that must be finished before this one and \`incoming\` lists tickets waiting for this one.`,
     inputSchema: getTicketInput,
-    outputSchema: getTicketOutput,
+    outputSchema: people ? getTicketPeopleOutput : getTicketOutput,
   },
   list_tickets: {
     title: "List tickets",
     description: `List ticket summaries in key order, optionally filtered by status and by branch (\`under\`). When \`truncated\` is true there are more: ask for the next page with \`after\`. ${MEANING}`,
     inputSchema: listTicketsInput,
-    outputSchema: listTicketsOutput,
+    outputSchema: people ? listTicketsPeopleOutput : listTicketsOutput,
   },
   get_work_queue: {
     title: "Get the work queue",
     description: `The "next to work on" queue of the person who owns the token, in this project (or inside one branch with \`under\`), in working order: highest effective priority first, then tickets assigned to that person before unassigned ones, then ticket number. A ticket is in the queue when it is todo, has no open child ticket, is not an idea nor inside one, does not wait for an open ticket (depends_on), has no agent working mark, and is assigned to that person or to nobody. It is the same queue the TreePM screen shows. It is the queue of the person who owns the token, not of the whole team. Each call reads the whole project (do not call it in a loop; call it when you need to pick work, not per ticket). It does not change anything: it does not start a ticket, assign it or mark it as worked on; use update_ticket_status and set_agent_work for that. When the queue is empty, \`empty_reason\` says why. ${MEANING}`,
     inputSchema: workQueueInput,
-    outputSchema: workQueueOutput,
+    outputSchema: people ? workQueuePeopleOutput : workQueueOutput,
   },
   get_project_overview: {
     title: "Get the project overview",
     description: `Overview of the project: number of tickets in total and per status, and the top-level tickets of the tree with the progress of each. ${MEANING}`,
     inputSchema: projectOverviewInput,
     outputSchema: projectOverviewOutput,
+  },
+});
+
+/** As cinco leituras de sempre; com o alcance de pessoas efetivo, as quatro de ticket passam a trazer `assignees`. */
+export const TOOL_DEFINITIONS = definitions(false);
+export const PEOPLE_TOOL_DEFINITIONS = definitions(true);
+
+/** Só existe com o alcance de pessoas efetivo (ADR 0062). */
+export const PEOPLE_READ_TOOL_DEFINITIONS = {
+  list_people: {
+    title: "List the people of the project",
+    description:
+      "The people who can be assigned to tickets of this project, by name: active people who can see the project, in name order, with `me: true` on the person who owns the token. Use their ids with set_ticket_assignees. No e-mail, role or photo is returned. It is the list the TreePM screen offers when you assign a ticket to someone. Names of people leave TreePM through this tool, because the organization turned on the \"People and conversations\" scope and this token has it.",
+    inputSchema: listPeopleInput,
+    outputSchema: listPeopleOutput,
   },
 } as const;
 
@@ -160,6 +209,13 @@ export type ToolName = keyof typeof TOOL_DEFINITIONS;
 export type ToolContext = {
   principal: Principal;
   project: { id: string; key: string };
+  /** O alcance "pessoas e conversas" EFETIVO (token com ele E chave da organização ligada agora). Ausente = desligado. */
+  people?: boolean;
+};
+
+/** Quem diz quem pode ser responsável de um projeto (a regra de `TicketsService`, a mesma da tela). */
+export type PeopleSource = {
+  assignablePeople(tx: TenantClient, projectId: string): Promise<PersonNameSource[]>;
 };
 
 /** Abre uma transação curta com a identidade que o token resolveu (cada execução abre a sua). */
@@ -176,24 +232,30 @@ export class ProjectTools {
     private readonly run: RunInTenant,
     private readonly query: ProjectQueryService,
     private readonly context: ToolContext,
+    private readonly peopleSource?: PeopleSource,
   ) {}
+
+  /** O alcance de pessoas efetivo desta requisição (token com ele e chave da organização ligada). */
+  private get withPeople(): boolean {
+    return this.context.people === true;
+  }
 
   private get projectKey(): string {
     return this.context.project.key;
   }
 
-  async searchTickets(input: z.infer<typeof searchTicketsInput>): Promise<z.infer<typeof searchTicketsOutput>> {
+  async searchTickets(input: z.infer<typeof searchTicketsInput>): Promise<TicketList> {
     const found = await this.read((tx, principal) => this.query.search(tx, principal, this.context.project.id, input.query, input.limit === undefined ? {} : { limit: input.limit }), (tx, list) => this.page(tx, list));
     return fit(found, (result) => [result]);
   }
 
-  async getTicket(input: z.infer<typeof getTicketInput>): Promise<z.infer<typeof getTicketOutput>> {
+  async getTicket(input: z.infer<typeof getTicketInput>): Promise<TicketOutput> {
     const number = this.ticketNumber(input.key);
     return this.run(this.context.principal, (tx) => this.ticketIn(tx, this.context.principal, number));
   }
 
   /** O ticket como `get_ticket` o devolve, lido na transação que já está aberta (a escrita responde com isto, sem uma segunda transação). */
-  async ticketIn(tx: TenantClient, principal: Principal, number: number): Promise<z.infer<typeof getTicketOutput>> {
+  async ticketIn(tx: TenantClient, principal: Principal, number: number): Promise<TicketOutput> {
     const found = await this.query.ticket(tx, principal, this.context.project.id, number).catch((error: unknown) => {
       if (error instanceof NotFoundException && error.message === "Ticket não encontrado.") throw new ToolInputError(`Ticket ${this.projectKey}-${number} does not exist in this project.`);
       throw error;
@@ -208,7 +270,7 @@ export class ProjectTools {
     return this.summary(found, await this.parentKeys(tx, [found, ...found.path]));
   }
 
-  async listTickets(input: z.infer<typeof listTicketsInput>): Promise<z.infer<typeof listTicketsOutput>> {
+  async listTickets(input: z.infer<typeof listTicketsInput>): Promise<TicketList & { after: string | null }> {
     const under = input.under === undefined ? undefined : this.ticketNumber(input.under);
     const after = input.after === undefined ? undefined : this.ticketNumber(input.after);
     const page = await this.read(
@@ -232,7 +294,7 @@ export class ProjectTools {
     return result.tickets.length < before ? { ...result, after: result.tickets.at(-1)?.key ?? null } : result;
   }
 
-  async getWorkQueue(input: z.infer<typeof workQueueInput>): Promise<z.infer<typeof workQueueOutput>> {
+  async getWorkQueue(input: z.infer<typeof workQueueInput>): Promise<Omit<z.infer<typeof workQueueOutput>, "tickets"> & { tickets: (Summary & { path: { key: string; title: string }[] })[] }> {
     const under = input.under === undefined ? undefined : this.ticketNumber(input.under);
     const queue = await this.read(
       (tx, principal) =>
@@ -244,7 +306,8 @@ export class ProjectTools {
           }),
       async (tx, value) => {
         const keys = await this.parentKeys(tx, value.tickets);
-        return { tickets: value.tickets.map((ticket: QueueTicket) => ({ ...this.summary(ticket, keys), path: ticket.path })), total: value.total, truncated: value.truncated, empty_reason: value.emptyReason };
+        const who = await this.assigneesOf(tx, value.tickets);
+        return { tickets: value.tickets.map((ticket: QueueTicket) => ({ ...this.summary(ticket, keys, who), path: ticket.path })), total: value.total, truncated: value.truncated, empty_reason: value.emptyReason };
       },
     );
     return fit(queue, (value) => [value]);
@@ -285,16 +348,18 @@ export class ProjectTools {
 
   private async page(tx: TenantClient, list: QueryTicketList | QueryTicketPage): Promise<Page> {
     const numbers = await this.parentKeys(tx, list.tickets);
-    return { tickets: list.tickets.map((ticket) => this.summary(ticket, numbers)), truncated: list.truncated };
+    const who = await this.assigneesOf(tx, list.tickets);
+    return { tickets: list.tickets.map((ticket) => this.summary(ticket, numbers, who)), truncated: list.truncated };
   }
 
-  private async reduceTicket(tx: TenantClient, ticket: QueryTicket): Promise<z.infer<typeof getTicketOutput>> {
+  private async reduceTicket(tx: TenantClient, ticket: QueryTicket): Promise<TicketOutput> {
     const { relations } = ticket;
     const lists = [ticket.children, relations.mentions.outgoing, relations.mentions.incoming, relations.dependsOn.outgoing, relations.dependsOn.incoming];
     const keys = await this.parentKeys(tx, [ticket, ...ticket.path, ...lists.flatMap((list) => list.tickets)]);
-    const reduce = (list: QueryTicketList): TicketList => ({ tickets: list.tickets.map((entry) => this.summary(entry, keys)), truncated: list.truncated });
+    const who = await this.assigneesOf(tx, [ticket, ...ticket.path, ...lists.flatMap((list) => list.tickets)]);
+    const reduce = (list: QueryTicketList): TicketList => ({ tickets: list.tickets.map((entry) => this.summary(entry, keys, who)), truncated: list.truncated });
     const directions = (pair: { outgoing: QueryTicketList; incoming: QueryTicketList }) => ({ outgoing: reduce(pair.outgoing), incoming: reduce(pair.incoming) });
-    const self = this.summary(ticket, keys);
+    const self = this.summary(ticket, keys, who);
     return {
       key: self.key,
       title: self.title,
@@ -305,10 +370,35 @@ export class ProjectTools {
       effective_priority: self.effective_priority,
       description: ticket.description,
       parent: self.parent,
-      path: ticket.path.map((entry) => this.summary(entry, keys)),
+      path: ticket.path.map((entry) => this.summary(entry, keys, who)),
       children: reduce(ticket.children),
       relations: { mentions: directions(relations.mentions), depends_on: directions(relations.dependsOn) },
+      ...(self.assignees === undefined ? {} : { assignees: self.assignees }),
     };
+  }
+
+  /**
+   * Responsáveis por ticket, pelo nome (ADR 0062), numa consulta só para a resposta inteira. Só com o alcance de pessoas efetivo:
+   * sem ele devolve `null`, e nenhum resumo ganha a chave `assignees`. Nunca e-mail, papel nem foto.
+   */
+  private async assigneesOf(tx: TenantClient, summaries: readonly QueryTicketSummary[]): Promise<Map<string, Assignee[]> | null> {
+    if (!this.withPeople) return null;
+    const ids = [...new Set(summaries.map((entry) => entry.id))];
+    const rows = ids.length === 0 ? [] : await tx.ticketAssignee.findMany({ where: { ticketId: { in: ids } }, select: { ticketId: true, person: { select: PERSON_NAME_SELECT } } });
+    const byTicket = new Map<string, Assignee[]>();
+    for (const row of rows) byTicket.set(row.ticketId, [...(byTicket.get(row.ticketId) ?? []), mcpPersonRef(row.person)]);
+    for (const list of byTicket.values()) list.sort((a, b) => a.name.localeCompare(b.name, "en") || a.id.localeCompare(b.id));
+    return byTicket;
+  }
+
+  /** `list_people` (só com o alcance de pessoas efetivo): quem pode ser responsável neste projeto, pela regra da tela. */
+  async listPeople(): Promise<z.infer<typeof listPeopleOutput>> {
+    if (!this.withPeople || !this.peopleSource) throw new ToolInputError("This tool is not available.");
+    const source = this.peopleSource;
+    return this.run(this.context.principal, async (tx) => {
+      const people = await source.assignablePeople(tx, this.context.project.id);
+      return { people: people.map((person) => ({ ...mcpPersonRef(person), me: person.id === this.context.principal.person.id })) };
+    });
   }
 
   /** Chave do pai de cada resumo: os que já estão no resultado, mais uma consulta para os que faltam. */
@@ -323,7 +413,7 @@ export class ProjectTools {
     return byId;
   }
 
-  private summary(entry: QueryTicketSummary, keys: ReadonlyMap<string, string>): Summary {
+  private summary(entry: QueryTicketSummary, keys: ReadonlyMap<string, string>, who: ReadonlyMap<string, Assignee[]> | null = null): Summary {
     return {
       key: entry.key,
       title: entry.title,
@@ -334,6 +424,7 @@ export class ProjectTools {
       agentWork: entry.agentWork,
       priority: entry.priority,
       effective_priority: entry.effectivePriority,
+      ...(who === null ? {} : { assignees: who.get(entry.id) ?? [] }),
     };
   }
 }

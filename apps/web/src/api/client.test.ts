@@ -72,6 +72,7 @@ const cases: Case[] = [
   { name: "people", call: (c) => c.listPeople(), method: "GET", path: "/api/people", response: [person] },
   { name: "listTeams", call: (c) => c.listTeams(), method: "GET", path: "/api/teams", response: [team] },
   { name: "createTeam", call: (c) => c.createTeam({ name: "Time" }), method: "POST", path: "/api/teams", body: { name: "Time" }, status: 201, response: team },
+  { name: "setMcpPeopleEnabled", call: (c) => c.setMcpPeopleEnabled(true), method: "PATCH", path: "/api/organization/mcp-people", body: { mcpPeopleEnabled: true }, response: { mcp: { enabled: true, writeEnabled: false, peopleEnabled: true } } },
   { name: "setMcpWriteEnabled", call: (c) => c.setMcpWriteEnabled(true), method: "PATCH", path: "/api/organization/mcp-write", body: { mcpWriteEnabled: true }, response: { mcp: { enabled: true, writeEnabled: true } } },
   { name: "renameTeam", call: (c) => c.renameTeam(ID, { name: "Novo" }), method: "PATCH", path: `/api/teams/${ID}`, body: { name: "Novo" }, response: team },
   { name: "removeTeam", call: (c) => c.removeTeam(ID), method: "DELETE", path: `/api/teams/${ID}`, status: 204 },

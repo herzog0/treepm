@@ -74,6 +74,8 @@ O administrador pode desativar o assistente ou a leitura de código a qualquer m
 
 Se a organização permitir, você pode conectar um cliente de IA seu a um projeto, com um token pessoal. Nesse caso, os dados do projeto que o cliente pedir saem do TreePM para o cliente que **você** escolheu e para o provedor dele. Nós não controlamos o que eles fazem com esses dados.
 
+Por padrão, o que sai pelo MCP não inclui nome, identificador nem e-mail de pessoa. Se um administrador ligar a permissão "Pessoas e conversas" e o seu token a incluir, o cliente passa a receber também o nome e o identificador interno das pessoas responsáveis pelos tickets e das pessoas que podem ser responsáveis no projeto. E-mail nunca sai pelo MCP.
+
 ## 6. Transferência internacional
 
 Alguns fornecedores ficam fora do Brasil, como mostra a tabela da seção 3. Os dados vão a eles na medida necessária para prestar o serviço que você contratou, e esses fornecedores assumem, nos contratos e termos deles, obrigações de proteção de dados.

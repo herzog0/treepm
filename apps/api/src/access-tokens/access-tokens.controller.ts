@@ -7,8 +7,8 @@ import { idSchema } from "../common/schemas.js";
 import { ZodPipe } from "../common/zod.js";
 import { Tx } from "../db/tx.decorator.js";
 import { AccessTokenManager } from "./access-token-manager.js";
-import { createTokenSchema, mcpSwitchSchema, mcpWriteSwitchSchema } from "./access-token.schema.js";
-import type { CreateTokenBody, CreatedTokenOutput, OrganizationTokenOutput, TokenOutput } from "./access-token.schema.js";
+import { createTokenSchema, mcpPeopleSwitchSchema, mcpSwitchSchema, mcpWriteSwitchSchema } from "./access-token.schema.js";
+import type { CreateTokenBody, CreatedTokenOutput, McpState, OrganizationTokenOutput, TokenOutput } from "./access-token.schema.js";
 import type { z } from "zod";
 
 /** A chave "Permitir acesso por MCP" da organização (ADR 0038). Só administrador. */
@@ -21,7 +21,7 @@ export class OrganizationController {
     @Tx() tx: TenantClient,
     @CurrentPrincipal() principal: Principal,
     @Body(new ZodPipe(mcpSwitchSchema)) body: z.output<typeof mcpSwitchSchema>,
-  ): Promise<{ mcp: { enabled: boolean; writeEnabled: boolean } }> {
+  ): Promise<{ mcp: McpState["mcp"] }> {
     refuseWhileActingAs(principal);
     return this.manager.setMcpEnabled(tx, principal, body.mcpEnabled);
   }
@@ -32,9 +32,20 @@ export class OrganizationController {
     @Tx() tx: TenantClient,
     @CurrentPrincipal() principal: Principal,
     @Body(new ZodPipe(mcpWriteSwitchSchema)) body: z.output<typeof mcpWriteSwitchSchema>,
-  ): Promise<{ mcp: { enabled: boolean; writeEnabled: boolean } }> {
+  ): Promise<{ mcp: McpState["mcp"] }> {
     refuseWhileActingAs(principal);
     return this.manager.setMcpWriteEnabled(tx, principal, body.mcpWriteEnabled);
+  }
+
+  /** A chave "Pessoas e conversas" (ADR 0062). Só administrador; só liga com a chave geral ligada. */
+  @Patch("mcp-people")
+  updatePeople(
+    @Tx() tx: TenantClient,
+    @CurrentPrincipal() principal: Principal,
+    @Body(new ZodPipe(mcpPeopleSwitchSchema)) body: z.output<typeof mcpPeopleSwitchSchema>,
+  ): Promise<{ mcp: McpState["mcp"] }> {
+    refuseWhileActingAs(principal);
+    return this.manager.setMcpPeopleEnabled(tx, principal, body.mcpPeopleEnabled);
   }
 }
 

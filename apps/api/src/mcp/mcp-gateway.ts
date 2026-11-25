@@ -106,11 +106,12 @@ export class McpGateway {
     const factory: McpServerFactory = (ctx) => {
       const resolved = ctx.authInfo?.extra?.["resolved"] as Resolved | undefined;
       if (!resolved) throw new Error("Requisição MCP sem identidade resolvida.");
-      const base = { principal: resolved.principal as Principal, project: { id: resolved.project.id, key: resolved.project.key } };
+      // O alcance de pessoas (ADR 0062) só vale com o token E a chave da organização, lidos a cada requisição.
+      const base = { principal: resolved.principal as Principal, project: { id: resolved.project.id, key: resolved.project.key }, people: resolved.people };
       // As ferramentas de escrita só existem para token de escrita com a chave da organização ligada (ADR 0043).
       const canWrite = resolved.scope === "write" && resolved.writeEnabled;
       const services = { tickets: this.tickets, comments: this.comments, agentWork: this.agentWork, authorization: this.authorization };
-      return createProjectServer(run, this.query, base, canWrite ? { services, context: { ...base, tokenId: resolved.tokenId, fresh: resolved.fresh } } : undefined);
+      return createProjectServer(run, this.query, base, canWrite ? { services, context: { ...base, tokenId: resolved.tokenId, fresh: resolved.fresh } } : undefined, resolved.people ? { assignablePeople: (tx, projectId) => this.tickets.assignablePeople(tx, projectId) } : undefined);
     };
     this.handler = createMcpHandler(factory, {
       legacy: "stateless",

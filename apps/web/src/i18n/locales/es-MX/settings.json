@@ -20,7 +20,8 @@
     "notice": {
       "switchFailed": "No se pudo cambiar el acceso por MCP. Inténtalo de nuevo.",
       "disabledMeanwhile": "El acceso por MCP se desactivó.",
-      "writeSwitchFailed": "No se pudo cambiar la escritura por MCP. Inténtalo de nuevo."
+      "writeSwitchFailed": "No se pudo cambiar la escritura por MCP. Inténtalo de nuevo.",
+      "peopleSwitchFailed": "No se pudo cambiar el alcance de personas y conversaciones por MCP. Inténtalo de nuevo."
     },
     "loading": "Cargando…",
     "retry": "Reintentar",
@@ -126,6 +127,15 @@
     "state": {
       "writeOn": "El acceso por MCP está activado; la escritura está activada.",
       "writeOff": "El acceso por MCP está activado; la escritura está desactivada."
+    },
+    "peopleSwitch": {
+      "label": "Personas y conversaciones",
+      "hint": "Con el interruptor activado, los clientes de IA de quien tenga un token con este alcance reciben nombres de personas, responsables, comentarios y las conversaciones del proyecto en las que participa la persona, incluidos mensajes de otras personas. TreePM no controla lo que el cliente y su proveedor hacen con eso. Requiere que el acceso por MCP esté activado."
+    },
+    "people": {
+      "label": "Personas y conversaciones",
+      "hint": "El cliente de IA recibirá nombres de personas, responsables, comentarios y las conversaciones del proyecto en las que participas, incluidos mensajes de otras personas, y podrá definir responsables si el token también es de escritura. Vale en cada llamada, mientras el interruptor de la organización siga activado.",
+      "off": "El alcance de personas y conversaciones está desactivado en la organización: un administrador debe activarlo antes de que puedas crear un token con él."
     }
   },
   "ai": {

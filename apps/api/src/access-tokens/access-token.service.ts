@@ -44,6 +44,12 @@ export type ResolveResult =
       /** Alcance do token e a chave de escrita da organização (ADR 0043). */
       scope: "read" | "write";
       writeEnabled: boolean;
+      /**
+       * O alcance "pessoas e conversas" EFETIVO (ADR 0062): o token o tem E a chave da organização está ligada, lida de novo do
+       * banco a cada requisição (a memória de 5 minutos é só a da participação no Clerk), então desligar a chave corta na
+       * chamada seguinte.
+       */
+      people: boolean;
       /** `true` quando a participação no Clerk foi conferida de novo agora, sem a memória de 5 minutos (exigido para escrever). */
       fresh: boolean;
     }
@@ -146,7 +152,7 @@ export class AccessTokenService {
       // Revogação, validade e a chave podem ter mudado durante a chamada ao Clerk: relê antes de devolver sucesso.
       const again = await tx.accessToken.findUnique({
         where: { tokenHash },
-        include: { person: { select: { active: true } }, organization: { select: { mcpEnabled: true, mcpWriteEnabled: true } } },
+        include: { person: { select: { active: true } }, organization: { select: { mcpEnabled: true, mcpWriteEnabled: true, mcpPeopleEnabled: true } } },
       });
       if (!again || again.revokedAt || again.expiresAt.getTime() <= this.clock.now()) return this.reject(checked.tokenId, "invalid");
       if (!again.organization.mcpEnabled) return this.reject(checked.tokenId, "disabled");
@@ -175,6 +181,7 @@ export class AccessTokenService {
         project: { id: project.id, key: project.key, name: project.name, archivedAt: project.archivedAt },
         scope: again.scope === "write" ? "write" : "read",
         writeEnabled: again.organization.mcpWriteEnabled,
+        people: again.people && again.organization.mcpPeopleEnabled,
         fresh,
       };
     });

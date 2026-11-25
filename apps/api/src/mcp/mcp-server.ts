@@ -4,9 +4,9 @@ import type { CallToolResult } from "@modelcontextprotocol/server";
 import { retryableConflict } from "../common/error.filter.js";
 import { isConnectionWaitTimeout } from "../common/connection-wait.js";
 import type { ProjectQueryService } from "../query/project-query.service.js";
-import { ProjectTools, TOOL_DEFINITIONS, ToolInputError } from "./mcp-tools.js";
-import type { RunInTenant, ToolContext } from "./mcp-tools.js";
-import { WRITE_TOOL_DEFINITIONS, WRITE_TOOL_NAMES, WriteTools, refusalMessage } from "./mcp-write-tools.js";
+import { PEOPLE_READ_TOOL_DEFINITIONS, PEOPLE_TOOL_DEFINITIONS, ProjectTools, TOOL_DEFINITIONS, ToolInputError } from "./mcp-tools.js";
+import type { PeopleSource, RunInTenant, ToolContext } from "./mcp-tools.js";
+import { PEOPLE_WRITE_TOOL_DEFINITIONS, WRITE_TOOL_DEFINITIONS, WRITE_TOOL_NAMES, WriteTools, refusalMessage } from "./mcp-write-tools.js";
 import type { WriteContext, WriteServices } from "./mcp-write-tools.js";
 
 const ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
@@ -53,7 +53,13 @@ export async function guarded(name: string, work: () => Promise<Record<string, u
  * Monta o servidor MCP de UMA requisição, para o projeto e a identidade já resolvidos pelo token. O código das
  * ferramentas não vê o token.
  */
-export function createProjectServer(run: RunInTenant, query: ProjectQueryService, context: ToolContext, write?: { services: WriteServices; context: WriteContext }): McpServer {
+export function createProjectServer(
+  run: RunInTenant,
+  query: ProjectQueryService,
+  context: ToolContext,
+  write?: { services: WriteServices; context: WriteContext },
+  peopleSource?: PeopleSource,
+): McpServer {
   const server = new McpServer(
     { name: "treepm", version: "0.1.0" },
     {
@@ -66,13 +72,16 @@ export function createProjectServer(run: RunInTenant, query: ProjectQueryService
   // entradas inválidas cobre a troca, e a versão do SDK é exata no package.json.
   if (typeof (server as unknown as Record<string, unknown>)["createToolError"] !== "function") throw new Error("SDK sem createToolError: revisar a troca em mcp-server.ts.");
   Object.defineProperty(server, "createToolError", { value: toolError });
-  const tools = new ProjectTools(run, query, context);
-  const register = TOOL_DEFINITIONS;
+  // O alcance de pessoas (ADR 0062) só vale com a fonte das pessoas na mão: sem ela o servidor é montado como sem o alcance.
+  const people = context.people === true && peopleSource !== undefined;
+  const tools = new ProjectTools(run, query, { ...context, people }, peopleSource);
+  const register = people ? PEOPLE_TOOL_DEFINITIONS : TOOL_DEFINITIONS;
   server.registerTool("search_tickets", { ...register.search_tickets, annotations: ANNOTATIONS }, (input) => guarded("search_tickets", () => tools.searchTickets(input)));
   server.registerTool("get_ticket", { ...register.get_ticket, annotations: ANNOTATIONS }, (input) => guarded("get_ticket", () => tools.getTicket(input)));
   server.registerTool("list_tickets", { ...register.list_tickets, annotations: ANNOTATIONS }, (input) => guarded("list_tickets", () => tools.listTickets(input)));
   server.registerTool("get_work_queue", { ...register.get_work_queue, annotations: ANNOTATIONS }, (input) => guarded("get_work_queue", () => tools.getWorkQueue(input)));
   server.registerTool("get_project_overview", { ...register.get_project_overview, annotations: ANNOTATIONS }, () => guarded("get_project_overview", () => tools.getProjectOverview()));
+  if (people) server.registerTool("list_people", { ...PEOPLE_READ_TOOL_DEFINITIONS.list_people, annotations: ANNOTATIONS }, () => guarded("list_people", () => tools.listPeople()));
   // Escrita (ADR 0043): só para token de escrita com a chave da organização ligada. Fora disso as ferramentas nem existem.
   if (write) {
     const writer = new WriteTools(run, write.services, tools, write.context);
@@ -84,6 +93,7 @@ export function createProjectServer(run: RunInTenant, query: ProjectQueryService
     server.registerTool("move_ticket", { ...WRITE_TOOL_DEFINITIONS.move_ticket, annotations: WRITE_ANNOTATIONS }, (input) => guarded("move_ticket", () => writer.moveTicket(input)));
     server.registerTool("add_dependency", { ...WRITE_TOOL_DEFINITIONS.add_dependency, annotations: WRITE_ANNOTATIONS }, (input) => guarded("add_dependency", () => writer.addDependency(input)));
     server.registerTool("remove_dependency", { ...WRITE_TOOL_DEFINITIONS.remove_dependency, annotations: WRITE_ANNOTATIONS }, (input) => guarded("remove_dependency", () => writer.removeDependency(input)));
+    if (people) server.registerTool("set_ticket_assignees", { ...PEOPLE_WRITE_TOOL_DEFINITIONS.set_ticket_assignees, annotations: { ...WRITE_ANNOTATIONS, idempotentHint: true } }, (input) => guarded("set_ticket_assignees", () => writer.setTicketAssignees(input)));
     server.registerTool("set_agent_work", { ...WRITE_TOOL_DEFINITIONS.set_agent_work, annotations: WRITE_ANNOTATIONS }, (input) => guarded("set_agent_work", () => writer.setAgentWork(input)));
   }
   return server;

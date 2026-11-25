@@ -551,3 +551,64 @@ describe("Configurações › o que sobrevive à troca de seção", () => {
     expect(await within(section()).findByText("O acesso por MCP está ligado; a escrita está ligada.")).toBeInTheDocument();
   });
 });
+
+describe("Configurações › MCP: o alcance \"Pessoas e conversas\" (ADR 0062)", () => {
+  it("a chave da organização fica abaixo da de escrita, desligada por padrão, e liga pela API", async () => {
+    const { client, user } = setup({ at: "mcp", me: makeMe({ mcp: true }) });
+    const toggle = await within(section()).findByRole("switch", { name: "Pessoas e conversas" });
+    expect(toggle).not.toBeChecked();
+    const switches = within(section()).getAllByRole("switch").map((entry) => entry.getAttribute("id"));
+    expect(switches).toHaveLength(3);
+    expect(within(section()).getByText(/nomes de pessoas, responsáveis, comentários e as conversas do projeto de que a pessoa participa, inclusive mensagens de outras pessoas/)).toBeInTheDocument();
+    expect(within(section()).getByText(/não controla o que o cliente e o provedor dele fazem/)).toBeInTheDocument();
+    await user.click(toggle);
+    expect(client.setMcpPeopleEnabled).toHaveBeenCalledWith(true);
+    await waitFor(() => expect(within(section()).getByRole("switch", { name: "Pessoas e conversas" })).toBeChecked());
+  });
+
+  it("fica desabilitada com o acesso por MCP desligado", async () => {
+    setup({ at: "mcp", me: makeMe({ mcp: false }) });
+    expect(within(section()).getByRole("switch", { name: "Pessoas e conversas" })).toBeDisabled();
+  });
+
+  it("a falha de gravar volta a chave e mostra o aviso", async () => {
+    const { user } = setup({ at: "mcp", me: makeMe({ mcp: true }), mcp: { peopleSwitchError: "unavailable" } });
+    await user.click(await within(section()).findByRole("switch", { name: "Pessoas e conversas" }));
+    expect(await within(section()).findByRole("alert")).toHaveTextContent("Não foi possível mudar o alcance de pessoas e conversas por MCP. Tente de novo.");
+    expect(within(section()).getByRole("switch", { name: "Pessoas e conversas" })).not.toBeChecked();
+  });
+
+  it("na criação do token: caixa desligada por padrão, independente de leitura e escrita; vai na criação", async () => {
+    const { client, user } = setup({ me: makeMe({ mcp: true, mcpPeople: true }), mcp: { peopleEnabled: true } });
+    const box = await within(section()).findByRole("checkbox", { name: "Pessoas e conversas" });
+    expect(box).not.toBeChecked();
+    expect(box).toBeEnabled();
+    await user.click(within(section()).getByRole("radio", { name: "Leitura e escrita" }));
+    expect(box).not.toBeChecked();
+    await user.click(box);
+    await user.type(within(section()).getByRole("textbox", { name: "Nome" }), "Com pessoas");
+    await user.click(within(section()).getByRole("button", { name: "Criar token" }));
+    expect(client.createAccessToken).toHaveBeenCalledWith(expect.objectContaining({ name: "Com pessoas", scope: "write", people: true }));
+    expect(await within(section()).findByText("Pessoas e conversas", { selector: ".mcp-token-scope" })).toBeInTheDocument();
+  });
+
+  it("sem criar com o alcance, a chamada não leva `people`", async () => {
+    const { client, user } = setup({ me: makeMe({ mcp: true, mcpPeople: true }), mcp: { peopleEnabled: true } });
+    await user.type(await within(section()).findByRole("textbox", { name: "Nome" }), "Sem pessoas");
+    await user.click(within(section()).getByRole("button", { name: "Criar token" }));
+    expect(client.createAccessToken).toHaveBeenCalledWith(expect.not.objectContaining({ people: true }));
+  });
+
+  it("com a chave da organização desligada, a caixa fica desabilitada e explica", async () => {
+    setup({ me: makeMe({ mcp: true, mcpPeople: false }), mcp: { peopleEnabled: false } });
+    const box = await within(section()).findByRole("checkbox", { name: "Pessoas e conversas" });
+    expect(box).toBeDisabled();
+    expect(within(section()).getByText(/O alcance de pessoas e conversas está desligado na organização/)).toBeInTheDocument();
+  });
+
+  it("a lista de tokens mostra o alcance de quem o tem", async () => {
+    setup({ mcp: { tokens: [makeToken("a", "Com pessoas", { people: true }), makeToken("b", "Sem pessoas")] } });
+    const list = await within(section()).findByRole("list", { name: "Seus tokens" });
+    expect(within(list).getAllByText("Pessoas e conversas")).toHaveLength(1);
+  });
+});

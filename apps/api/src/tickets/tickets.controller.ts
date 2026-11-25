@@ -285,22 +285,7 @@ export class TicketsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Param("personId", new ZodPipe(idSchema)) personId: string,
   ): Promise<TicketPage> {
-    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
-    this.authorization.assignTicket(principal.actor, project.id);
-    this.requireActive(project);
-    await this.tickets.requireAssignable(tx, project, personId);
-    const key = { orgId_ticketId_personId: { orgId: project.orgId, ticketId: id, personId } };
-    if (!(await tx.ticketAssignee.findUnique({ where: key }))) {
-      await touchProjectVersion(tx, project.id); // ADR 0046: as pessoas aparecem no resumo.
-      await tx.ticketAssignee.create({ data: { orgId: project.orgId, ticketId: id, personId } });
-      await this.activity.record(tx, principal, {
-        kind: "ticket.assignee_added",
-        subjectType: "ticket",
-        subjectId: id,
-        payload: { key: `${project.key}-${ticket.number}`, personId },
-      });
-    }
-    return this.tickets.detailFor(tx, project, id, principal);
+    return this.tickets.assign(tx, principal, id, personId);
   }
 
   @Delete("tickets/:id/assignees/:personId")
@@ -311,21 +296,7 @@ export class TicketsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Param("personId", new ZodPipe(idSchema)) personId: string,
   ): Promise<void> {
-    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
-    this.authorization.assignTicket(principal.actor, project.id);
-    this.requireActive(project);
-    const key = { orgId_ticketId_personId: { orgId: project.orgId, ticketId: id, personId } };
-    if (!(await tx.ticketAssignee.findUnique({ where: key }))) {
-      throw new NotFoundException("Pessoa não atribuída ao ticket.");
-    }
-    await touchProjectVersion(tx, project.id); // ADR 0046
-    await tx.ticketAssignee.delete({ where: key });
-    await this.activity.record(tx, principal, {
-      kind: "ticket.assignee_removed",
-      subjectType: "ticket",
-      subjectId: id,
-      payload: { key: `${project.key}-${ticket.number}`, personId },
-    });
+    await this.tickets.unassign(tx, principal, id, personId);
   }
 
   /**

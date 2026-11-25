@@ -93,3 +93,13 @@ Mover entre projetos fica fora: o token é de um projeto.
 - Estrutura ocupada responde "tente de novo em instantes" também no MCP. O erro genérico das escritas diz que nada foi alterado. Título, descrição e comentário recusam o caractere nulo nas duas portas (antes dava erro 500).
 - Tokens de escrita já emitidos ganham as quatro ferramentas sem novo aceite; os Termos e a tela de tokens dizem o que o alcance faz.
 - Revisão de segurança independente, com reprodução: sem bloqueio. Ficou a `TREEPM-499` (grafias exóticas de menção de pessoa que escapam da recusa, nas duas portas).
+
+## Como ficou (fatia 2, 2026-11-25)
+
+- Migration `0042_mcp_people_scope`: `organizations.mcp_people_enabled` e `access_tokens.people`, os dois falsos por padrão. O alcance do token é uma coluna própria, independente de leitura e escrita, e a aplicação não consegue alterá-la depois de criado o token.
+- O alcance efetivo é conferido a cada chamada: token com pessoas e chave da organização ligada. Desligar a chave corta os nomes na chamada seguinte.
+- `list_people` devolve quem pode ser responsável no projeto (`id`, `name`, `me`). `get_ticket`, `list_tickets`, `search_tickets` e `get_work_queue` ganham `assignees`; sem o alcance a chave nem existe. `set_ticket_assignees` exige escrita e pessoas.
+- **Todo nome de pessoa sai por uma função só** (`mcp/person-name.ts`). Quem não tem nome no Clerk tem o e-mail ou o identificador do Clerk como nome de exibição; nesses casos sai "Unnamed person". Um teste falha se o nome for lido no MCP por outro caminho. Achado da revisão de segurança, que bloqueou a fatia até a correção.
+- Definir responsáveis trava a linha do ticket, na tela e no MCP: duas definições simultâneas terminam em uma das duas listas. Identificador de pessoa em maiúsculas é normalizado nas duas portas.
+- Limites conhecidos: a memória de até 5 minutos da participação no Clerk (ADR 0038) vale também para a leitura de nomes; a escrita não a usa. Um responsável que saiu da organização continua aparecendo pelo nome no ticket, como na tela. Pessoas de teste aparecem em `list_people`, como na tela.
+- Em projeto privado, quem só tem acesso por um time ligado ao projeto não pode ser responsável nem aparece em `list_people`; é a regra da tela, e a dúvida foi levada a Teodoro.
