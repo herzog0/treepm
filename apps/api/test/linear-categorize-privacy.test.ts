@@ -12,11 +12,13 @@ const open = () => h.world().projects.org;
 const q = async (sql: string, params: unknown[] = []) => (await h.pool.query(sql, params)).rows as Row[];
 
 const ASSIGNEE = { id: "lin-user-1", email: "joao.responsavel@acme.com" };
-const LEAK = ["joao.responsavel", "maria.solta@acme.com", "linear.app", "ENG-", "lin-user-1", "lp-alfa", "lp-beta", "lp-gama", "SEGREDO-comentario", "SEGREDO-contribuicao", "Area-Secreta", "person:", "@Ana", "Acme"];
+const LEAK = ["joao.responsavel", "maria.solta@acme.com", "linear.app", "ENG-", "lin-user-1", "lp-alfa", "lp-beta", "lp-gama", "SEGREDO-comentario", "SEGREDO-contribuicao", "Area-Secreta", "person:", "@Ana", "Acme", "Zxqv"];
 
 describe("o que vai ao provedor na categorização", () => {
   it("só título, descrição e partes dos tickets, campo a campo; nada de responsável, comentário, área, endereço ou nome do Linear", async () => {
     wireFakes(s);
+    // O nome do projeto não vai ao provedor (ADR 0056): a procura do Linear nunca recebe o nome do projeto.
+    await q("update projects set name = 'Zxqv Projeto Secreto' where id = $1::uuid", [open()]);
     const data = linearTeam();
     const solta1 = data.issues.find((issue) => issue.id === "s1");
     Object.assign(solta1 ?? {}, { assignee: ASSIGNEE, url: "https://linear.app/acme/issue/ENG-5/solta-1" });

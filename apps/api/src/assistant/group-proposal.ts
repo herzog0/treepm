@@ -24,13 +24,19 @@ export type GroupProposalResult = {
 export type ProposeInput = {
   draft: TicketDraft;
   outcome: Pick<PlacementOutcome, "uncertain" | "stoppedEarly" | "scope">;
-  /** Raiz do projeto (título: nome do projeto) ou agrupador de destino; o resumo é resolvido só se a verificação acontecer. */
+  /** Raiz do projeto (título: `PROVIDER_ROOT_LABEL`, nunca o nome do projeto) ou agrupador de destino; o resumo é resolvido só se a verificação acontecer. */
   destination: { kind: "root"; title: string } | { kind: "group"; title: string; summary: () => Promise<string> };
   looseTickets: readonly LooseTicket[];
   affinity: AffinityJudge;
   namer: GroupNamer;
   timeoutMs?: number;
 };
+
+/**
+ * O que os provedores de IA recebem no lugar do nome do projeto quando o destino é a raiz (ADR 0056: o nome do projeto não vai
+ * ao provedor). Constante única; a tela e as respostas à pessoa continuam mostrando o nome de verdade.
+ */
+export const PROVIDER_ROOT_LABEL = "Raiz do projeto";
 
 const skipped = (reason: ProposalSkip | null): GroupProposalResult => ({ groupProposal: null, groupProposalSkipped: reason });
 

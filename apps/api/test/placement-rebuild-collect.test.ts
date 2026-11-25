@@ -227,13 +227,12 @@ describe("esboço do projeto para o Claude", () => {
     { id: "gA", title: "Login", description: "", tickets: [] },
     { id: "gC", title: "Relatórios", description: "Painéis", tickets: ["Exportar CSV"] },
   ];
-  const input = { projectName: "Meu projeto", groups, excludeGroupId: null, newTicket: { title: "Novo", description: "Algo" } };
+  const input = { groups, excludeGroupId: null, newTicket: { title: "Novo", description: "Algo" } };
   it("opções g1… na ordem recebida, sem ids, tickets na ordem dada, sem descrição vazia", () => {
     const { content, optionIds } = buildClaudeProject(input);
     expect(optionIds).toEqual(["gB", "gA", "gC"]);
     expect(JSON.parse(content)).toEqual({
       project: {
-        name: "Meu projeto",
         groups: [
           { option: "g1", title: "Pagamentos", description: "Tudo de cobrança", tickets: ["Cobrar cartão", "Estornar"] },
           { option: "g2", title: "Login", tickets: [] },
@@ -243,6 +242,7 @@ describe("esboço do projeto para o Claude", () => {
       new_ticket: { title: "Novo", description: "Algo" },
     });
     expect(content).not.toMatch(/gA|gB|gC/);
+    expect(content).not.toContain("name");
   });
   it("o negativo não leva o agrupador original e renumera as opções", () => {
     const { content, optionIds } = buildClaudeProject({ ...input, excludeGroupId: "gB" });

@@ -54,13 +54,13 @@ O assistente só funciona na organização depois que um administrador o ativa.
 
 **O que é enviado, e para quem:**
 
-- **Texto de tickets e de conversas com o assistente**, para a Anthropic e a TypeSafe: chaves (como `PROJ-12`), títulos, descrições, a situação e a prioridade de cada ticket, a marca de ideia, a posição dele na árvore, as ligações entre tickets, a nota de resumo de um agrupador e o nome do projeto. A TypeSafe recebe só parte disso (títulos, trechos de descrição, a nota do agrupador e o nome do projeto).
+- **Texto de tickets e de conversas com o assistente**, para a Anthropic e a TypeSafe: chaves (como `PROJ-12`), títulos, descrições, a situação e a prioridade de cada ticket, a marca de ideia, a posição dele na árvore, as ligações entre tickets e a nota de resumo de um agrupador. A TypeSafe recebe só parte disso (títulos, trechos de descrição e a nota do agrupador).
 - **Título e descrição de tickets e do rascunho em criação**, para a Voyage AI, que gera os vetores da busca por significado.
 - **Trechos de código do repositório ligado:** a leitura de código ainda não está disponível, e hoje nada é enviado. Quando estiver, os trechos irão só para a Anthropic, e só se um administrador autorizar em um aceite separado.
 
 Tickets importados do Linear são tickets como os outros: o título e a descrição deles seguem as mesmas regras.
 
-**O que não é enviado por nós:** nome, e-mail ou outro identificador de pessoa; quem é responsável por cada ticket (o assistente pode listar os tickets atribuídos a quem pergunta, sem identificar a pessoa); comentários; conversas entre pessoas; o histórico de atividade; identificadores internos; a chave de API do Linear e os dados de origem no Linear (identificador, endereço, workspace e time). Atenção: o que alguém escrever dentro do texto de um ticket vai junto com esse texto, inclusive nomes e e-mails que estejam em descrições importadas.
+**O que não é enviado por nós:** nome, e-mail ou outro identificador de pessoa; quem é responsável por cada ticket (o assistente pode listar os tickets atribuídos a quem pergunta, sem identificar a pessoa); comentários; conversas entre pessoas; o histórico de atividade; identificadores internos; o nome do projeto (vai só a chave dele); a chave de API do Linear e os dados de origem no Linear (identificador, endereço, workspace e time). Atenção: o que alguém escrever dentro do texto de um ticket vai junto com esse texto, inclusive nomes e e-mails que estejam em descrições importadas.
 
 **O que cada provedor declara fazer com os dados** (consultado em 21 de novembro de 2026, e em 23 de novembro de 2026 no caso da Voyage AI; vale o que estiver publicado nas páginas deles):
 

@@ -347,7 +347,7 @@ async function collectOne(
   let outlineFields: Pick<CollectRecord, "d" | "dNeg"> | Record<string, never> = {};
   if (ctx.claudeOutline) {
     const outline = buildOutline(gabarito.tickets, ticket.id);
-    const claude = (excludeGroupId: string | null) => askClaude(ctx, kit, { projectName: gabarito.project.name, groups: outline, excludeGroupId, newTicket: draft });
+    const claude = (excludeGroupId: string | null) => askClaude(ctx, kit, { groups: outline, excludeGroupId, newTicket: draft });
     const d = await claude(null);
     const dNeg = negativeCandidates.length > 0 ? await claude(originalGroupId) : null;
     outlineFields = { d, dNeg };

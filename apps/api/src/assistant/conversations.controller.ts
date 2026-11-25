@@ -270,10 +270,10 @@ export class TicketConversationsController {
         draft: placementDraft(conversation),
         triage: { title: conversation.draftTitle, description: conversation.draftDescription ?? "", partTitles: childrenOf(conversation).map((child) => child.title) },
         projectKey: project.key,
+        projectName: project.name,
         mark: draftMarkOf(conversation),
         snapshot: {
           projectId: conversation.projectId,
-          projectName: project.name,
           tickets,
           notes: tree.notes,
         },
@@ -305,7 +305,7 @@ export class TicketConversationsController {
       if (doubt) {
         const step = outcome.trace.steps.find((candidate) => candidate.parentId === doubt?.parentId);
         const unjudged = seen.snapshot.tickets.filter((t) => t.parentId === doubt?.parentId && seen.snapshot.tickets.some((k) => k.parentId === t.id)).map((t) => t.id);
-        question = buildQuestion({ doubt, stepCandidates: doubt.kind === "related" ? [] : (step?.candidates ?? []), choice, unjudged, byId: nodes, projectName: seen.snapshot.projectName });
+        question = buildQuestion({ doubt, stepCandidates: doubt.kind === "related" ? [] : (step?.candidates ?? []), choice, unjudged, byId: nodes, projectName: seen.projectName });
       }
       // A proposta de agrupador (feita sobre o palpite, como antes da ADR 0054) vem antes de a pergunta marcar o destino como incerto.
       const proposalBase = outcome;
