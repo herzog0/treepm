@@ -129,11 +129,11 @@
     },
     "peopleSwitch": {
       "label": "People and conversations",
-      "hint": "With the switch on, the AI clients of anyone holding a token with this scope receive the names of people, assignees, comments and the conversations of the project the person takes part in, including messages from other people. TreePM does not control what the client and its provider do with it. It needs MCP access to be on."
+      "hint": "With the switch on, the AI clients of anyone holding a token with this scope receive the names of people, assignees, comments, the history of tickets and the conversations of the project the person takes part in, including messages from other people. TreePM does not control what the client and its provider do with it. It needs MCP access to be on."
     },
     "people": {
       "label": "People and conversations",
-      "hint": "The AI client will receive the names of people, assignees, comments and the conversations of the project you take part in, including messages from other people, and can set assignees if the token can also write. It applies on every call, as long as the organization switch stays on.",
+      "hint": "The AI client will receive the names of people, assignees, comments, the history of tickets and the conversations of the project you take part in, including messages from other people, and can set assignees if the token can also write. It applies on every call, as long as the organization switch stays on.",
       "off": "The people and conversations scope is off for the organization: an administrator has to turn it on before you can create a token with it."
     }
   },

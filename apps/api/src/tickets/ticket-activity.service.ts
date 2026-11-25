@@ -83,13 +83,32 @@ export function encodeCursor(pos: Position): string {
   return Buffer.from(JSON.stringify(pos), "utf8").toString("base64url");
 }
 
-const cursorSchema = z.object({ t: z.number().int(), e: z.string().min(1), s: z.number().int() }).strict();
-function decodeCursor(raw: string): Position {
+/**
+ * O cursor, conferido inteiro por esquema estrito (revisão de segurança, TREEPM-495): instante que o PostgreSQL aceita (anos 1 a 9999),
+ * id de evento ou de comentário e posição pequena. Fora disso é entrada inválida, nunca uma falha do banco.
+ */
+const cursorSchema = z
+  .object({
+    t: z.number().int().min(-62_135_596_800_000).max(253_402_300_799_999),
+    e: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),
+    s: z.number().int().min(0).max(10_000),
+  })
+  .strict();
+
+/** O cursor decodificado, ou `null` quando não vale. A leitura do MCP confere o cursor da tela que leva dentro do dela por aqui. */
+export function parseActivityCursor(raw: string): Position | null {
   try {
-    return cursorSchema.parse(JSON.parse(Buffer.from(raw, "base64url").toString("utf8")));
+    const parsed = cursorSchema.safeParse(JSON.parse(Buffer.from(raw, "base64url").toString("utf8")));
+    return parsed.success ? parsed.data : null;
   } catch {
-    throw new BadRequestException({ code: "validation_error", message: "Entrada inválida: before." });
+    return null;
   }
+}
+
+function decodeCursor(raw: string): Position {
+  const cursor = parseActivityCursor(raw);
+  if (cursor === null) throw new BadRequestException({ code: "validation_error", message: "Entrada inválida: before." });
+  return cursor;
 }
 
 /** Entradas de um evento, da mais nova para a mais antiga; payload fora do esperado só descarta a entrada. */

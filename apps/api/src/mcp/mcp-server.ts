@@ -8,6 +8,8 @@ import { PEOPLE_READ_TOOL_DEFINITIONS, PEOPLE_TOOL_DEFINITIONS, ProjectTools, TO
 import type { PeopleSource, RunInTenant, ToolContext } from "./mcp-tools.js";
 import { PEOPLE_WRITE_TOOL_DEFINITIONS, WRITE_TOOL_DEFINITIONS, WRITE_TOOL_NAMES, WriteTools, refusalMessage } from "./mcp-write-tools.js";
 import type { WriteContext, WriteServices } from "./mcp-write-tools.js";
+import { PEOPLE_COMMENT_TOOL_DEFINITIONS, PeopleReadTools } from "./mcp-people-read.js";
+import type { PeopleReadServices } from "./mcp-people-read.js";
 
 const ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 const WRITE_ANNOTATIONS = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
@@ -59,6 +61,7 @@ export function createProjectServer(
   context: ToolContext,
   write?: { services: WriteServices; context: WriteContext },
   peopleSource?: PeopleSource,
+  reads?: PeopleReadServices,
 ): McpServer {
   const server = new McpServer(
     { name: "treepm", version: "0.1.0" },
@@ -82,6 +85,15 @@ export function createProjectServer(
   server.registerTool("get_work_queue", { ...register.get_work_queue, annotations: ANNOTATIONS }, (input) => guarded("get_work_queue", () => tools.getWorkQueue(input)));
   server.registerTool("get_project_overview", { ...register.get_project_overview, annotations: ANNOTATIONS }, () => guarded("get_project_overview", () => tools.getProjectOverview()));
   if (people) server.registerTool("list_people", { ...PEOPLE_READ_TOOL_DEFINITIONS.list_people, annotations: ANNOTATIONS }, () => guarded("list_people", () => tools.listPeople()));
+  // Comentários, histórico e conversas (ADR 0062, fatia 3): só leitura, só com o alcance de pessoas efetivo.
+  if (people && reads) {
+    const readers = new PeopleReadTools(run, reads, { ...context, people }, (key) => tools.ticketNumber(key));
+    const defs = PEOPLE_COMMENT_TOOL_DEFINITIONS;
+    server.registerTool("list_comments", { ...defs.list_comments, annotations: ANNOTATIONS }, (input) => guarded("list_comments", () => readers.listComments(input)));
+    server.registerTool("get_ticket_history", { ...defs.get_ticket_history, annotations: ANNOTATIONS }, (input) => guarded("get_ticket_history", () => readers.getTicketHistory(input)));
+    server.registerTool("list_conversations", { ...defs.list_conversations, annotations: ANNOTATIONS }, (input) => guarded("list_conversations", () => readers.listConversations(input)));
+    server.registerTool("get_conversation", { ...defs.get_conversation, annotations: ANNOTATIONS }, (input) => guarded("get_conversation", () => readers.getConversation(input)));
+  }
   // Escrita (ADR 0043): só para token de escrita com a chave da organização ligada. Fora disso as ferramentas nem existem.
   if (write) {
     const writer = new WriteTools(run, write.services, tools, write.context);

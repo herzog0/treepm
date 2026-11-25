@@ -114,7 +114,10 @@ export interface PersonLink {
   readonly end: number;
 }
 
-const PERSON_LINK = /\[@((?:[^[\]\\\n]|\\.)*)\]\(person:([A-Za-z0-9_-]+)\)/gi;
+/** O que vem depois do `]` de um elo de pessoa: `(person:id)`, sem diferenciar maiúsculas em `person`. */
+const PERSON_LINK_TAIL = /\(person:([A-Za-z0-9_-]+)\)/iy;
+/** O que encerra uma linha para o `.` de uma expressão regular sem a marca `s`. */
+const LINE_END = new Set(["\n", "\r", "\u2028", "\u2029"]);
 
 /** O elo de pessoa como é guardado: `[@Nome](person:id)`. Colchetes, parênteses e barra invertida do nome são escapados; quebra de linha vira espaço. */
 export function personLink(id: string, name: string): string {
@@ -127,12 +130,41 @@ export function personLink(id: string, name: string): string {
  * código não escondem um elo (é o que o servidor confere contra as pessoas marcadas, e a web faz igual).
  */
 export function scanPersonLinks(text: string): PersonLink[] {
-  return Array.from(text.matchAll(PERSON_LINK), (match) => ({
-    id: match[2] as string,
-    name: (text.slice(match.index + 2, match.index + 2 + (match[1] as string).length)).replace(/\\(.)/g, "$1"),
-    start: match.index,
-    end: match.index + match[0].length,
-  }));
+  // Faz o mesmo que `/\[@((?:[^[\]\\\n]|\\.)*)\]\(person:([A-Za-z0-9_-]+)\)/gi`, em tempo linear (revisão de segurança, TREEPM-495). O nome
+  // aceita `\[` escapado, então a expressão, recomeçando em cada `[@`, ia até o fim em `[@a\[@a\[…`. A varredura que começa num `[@` passa
+  // pelo `[@` seguinte (só escapado, senão pararia nele) numa fronteira de item e termina no mesmo lugar: todos os `[@` até ali casam ou
+  // falham juntos, e cada trecho é olhado uma vez. `mentions-linear.test.ts` compara com a expressão em milhares de textos.
+  const links: PersonLink[] = [];
+  let index = 0;
+  for (;;) {
+    const start = text.indexOf("[@", index);
+    if (start < 0) return links;
+    let end = start + 2;
+    while (end < text.length) {
+      const char = text[end] as string;
+      if (char === "[" || char === "]" || char === "\n") break;
+      if (char === "\\") {
+        if (end + 1 < text.length && !LINE_END.has(text[end + 1] as string)) {
+          end += 2;
+          continue;
+        }
+        break;
+      }
+      end += 1;
+    }
+    if (text[end] === "]") {
+      PERSON_LINK_TAIL.lastIndex = end + 1;
+      const tail = PERSON_LINK_TAIL.exec(text);
+      if (tail) {
+        const close = end + 1 + tail[0].length;
+        links.push({ id: tail[1] as string, name: text.slice(start + 2, end).replace(/\\(.)/g, "$1"), start, end: close });
+        index = close;
+        continue;
+      }
+    }
+    // Nenhum `[@` daqui até `end` casa; um `[` parado em `end` pode abrir o próximo.
+    index = Math.max(end, start + 1);
+  }
 }
 
 /** Os ids de pessoa que o texto cita, sem repetição e na ordem em que aparecem. */
@@ -144,9 +176,11 @@ export const hasPersonLink = (text: string): boolean => scanPersonLinks(text).le
  * O teste estrito que recusa nome de pessoa em formato de menção (nome + id) onde o texto vai a um provedor de IA ou às leituras do
  * MCP. Olha o texto cru, sem exceção para código, citação ou lista, sem diferenciar maiúsculas e tolerando espaços: qualquer destino
  * `person:` (em link, em referência, em `href` ou em autolink) conta. Recusar a mais é aceitável; deixar passar não. É outro teste que
- * o da tela, que decide o que desenhar.
+ * o da tela, que decide o que desenhar. Tempo linear no tamanho do texto (revisão de segurança, TREEPM-495): nenhum quantificador fica
+ * ao lado de outro sobre a mesma classe (`\s*<?\s*` virou `\s*(?:<\s*)?`, que reconhece o mesmo); `mentions-linear.test.ts` mede e
+ * compara com as expressões antigas.
  */
-export const mentionsPersonRaw = (text: string): boolean => /\]\(\s*person:/i.test(text) || /\]:\s*<?\s*person:/i.test(text) || /href\s*=\s*["']?\s*person:/i.test(text) || /<\s*person:/i.test(text);
+export const mentionsPersonRaw = (text: string): boolean => /\]\(\s*person:/i.test(text) || /\]:\s*(?:<\s*)?person:/i.test(text) || /href\s*=\s*(?:["']\s*)?person:/i.test(text) || /<\s*person:/i.test(text);
 
 /** Os ids que um texto cru cita em destinos `](person:…)`, mesmo mal formados (id vazio entra como ""): a base do `mention_mismatch`. */
 export function rawPersonRefIds(text: string): string[] {
@@ -155,11 +189,16 @@ export function rawPersonRefIds(text: string): string[] {
 
 /** Troca cada elo de pessoa (ou só os das pessoas em `only`) pelo `@Nome` simples. */
 export function withoutPersonLinks(text: string, only?: ReadonlySet<string>): string {
-  let result = text;
-  for (const link of scanPersonLinks(text).reverse()) {
-    if (only === undefined || only.has(link.id)) result = `${result.slice(0, link.start)}@${link.name}${result.slice(link.end)}`;
+  // Montado por pedaços, numa passada: refazer o texto inteiro a cada elo era quadrático.
+  const parts: string[] = [];
+  let at = 0;
+  for (const link of scanPersonLinks(text)) {
+    if (only !== undefined && !only.has(link.id)) continue;
+    parts.push(text.slice(at, link.start), `@${link.name}`);
+    at = link.end;
   }
-  return result;
+  parts.push(text.slice(at));
+  return parts.join("");
 }
 
 /** Como `withoutPersonLinks` para todos os elos, repetido até estabilizar: um elo dentro do nome de outro (`[@\[@Bob\]\(person:id\)](person:x)`) não sobra. */

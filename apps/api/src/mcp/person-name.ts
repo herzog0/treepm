@@ -19,13 +19,18 @@ export type PersonNameSource = { id: string; displayName: string; email: string;
 const EMAIL_SHAPE = /[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/;
 const CLERK_ID_SHAPE = /^(user|org|usr)_[A-Za-z0-9]{8,}$/i;
 
-/** O nome que pode sair: o de exibição, ou o rótulo neutro se for vazio, o e-mail ou o id externo da pessoa, ou tiver forma de um dos dois. */
+/**
+ * O nome que pode sair: o de exibição, ou o rótulo neutro se for vazio, o e-mail ou o id externo da pessoa, se tiver forma de um dos dois,
+ * ou se tiver um destino `person:` (forma de menção).
+ */
 export function mcpPersonName(person: PersonNameSource): string {
   const name = person.displayName.trim();
   const lower = name.toLowerCase();
   if (name === "") return UNNAMED_PERSON;
   if (lower === person.email.trim().toLowerCase() || lower === person.clerkUserId.trim().toLowerCase()) return UNNAMED_PERSON;
   if (EMAIL_SHAPE.test(name) || CLERK_ID_SHAPE.test(name)) return UNNAMED_PERSON;
+  // Nome em forma de menção (`[@x](person:<uuid>)` e afins) levaria o id de outra pessoa junto (revisão de segurança, TREEPM-495).
+  if (/person:/i.test(name)) return UNNAMED_PERSON;
   return name;
 }
 
