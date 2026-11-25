@@ -89,7 +89,7 @@ describe("Configurações › MCP: o alcance do token", () => {
     expect(group.getByRole("radio", { name: "Só leitura" })).toBeChecked();
     expect(within(section()).getByText(/consulta os tickets do projeto/)).toBeInTheDocument();
     await user.click(group.getByRole("radio", { name: "Leitura e escrita" }));
-    expect(within(section()).getByText(/criar tickets, mudar a situação e a prioridade, editar título e descrição, mover tickets na árvore, mexer em dependências, comentar e marcar trabalho em andamento, com as permissões da sua própria conta/)).toBeInTheDocument();
+    expect(within(section()).getByText(/criar tickets, mudar a situação e a prioridade, editar título e descrição, mover tickets na árvore, mexer em dependências, sincronizar com o Linear, comentar e marcar trabalho em andamento, com as permissões da sua própria conta/)).toBeInTheDocument();
   });
 
   it("creates a read token without sending a scope, and a write token with it", async () => {

@@ -2,18 +2,22 @@
 import { describe, expect, it } from "vitest";
 import { seedProject, useMcpHarness } from "./mcp-support.js";
 import type { ToolResponse } from "./mcp-support.js";
-import { sessionHeader } from "./helpers.js";
+import { LINEAR_CONFIG, sessionHeader } from "./helpers.js";
 import { ORG, OTHER_ORG, as } from "./world.js";
 import type { Who } from "./world.js";
 
 // ADR 0062, fatia 2 (TREEPM-494): o terceiro alcance do MCP, "pessoas e conversas": chave da organização, alcance do token,
-// `list_people`, os responsáveis nas leituras e `set_ticket_assignees`.
-const h = useMcpHarness();
+// `list_people`, os responsáveis nas leituras e `set_ticket_assignees`. Com a ligação do Linear configurada (fatia 4): as três
+// ferramentas do Linear existem e entram na garantia central.
+const h = useMcpHarness(LINEAR_CONFIG);
 const priv = () => h.world().projects.priv;
 const open = () => h.world().projects.org;
 const P = () => h.world().people;
 
 const PEOPLE_TOOLS = ["list_people", "set_ticket_assignees", "list_comments", "get_ticket_history", "list_conversations", "get_conversation"];
+const LINEAR_TOOLS = ["get_linear_status", "start_linear_sync", "continue_linear_sync"];
+/** Uma rodada aberta do Linear, iniciada por uma pessoa com nome (semeada em `populate`). */
+const RUN_ID = "0190a1b2-0000-7000-8000-00000000abcd";
 const NAMES: Record<string, string> = { admin: "Zelda Quimera", manager: "Orfeu Calcanhotto", contributor: "Brunilda Tamanduá", reader: "Xerxes Pimenteira", plain: "Ulisses Ventania", teamAdmin: "Hortência Bambolê", target: "Cássio Trovoada" };
 
 async function keys(on: { write?: boolean; people?: boolean; mcp?: boolean } = {}): Promise<void> {
@@ -154,13 +158,17 @@ describe("garantia central: sem o alcance efetivo, nenhuma resposta tem nome, id
     get_ticket_history: [{ key: "PRIV-3" }, { key: "PRIV-1" }],
     list_conversations: [{}],
     get_conversation: [{ id: "00000000-0000-4000-8000-0000000000aa" }],
+    // As do Linear (ADR 0062, seção 5): projeto ligado, rodada aberta por uma pessoa com nome; sem o alcance, quem iniciou não sai.
+    get_linear_status: [{}],
+    start_linear_sync: [{}],
+    continue_linear_sync: [{ runId: RUN_ID }],
   };
   const forbidden = (): string[] => [...Object.values(P()), P().admin, ...Object.values(NAMES), ...Object.keys(NAMES).map((who) => `${who}@exemplo.test`), "@exemplo.test"];
 
   async function sweep(token: string, label: string): Promise<void> {
     // Dado de pessoa em todo canto que o MCP poderia ler: comentário, responsável, atividade.
     const surfaces: string[] = [];
-    const every = new Set([...(await names(token)), ...PEOPLE_TOOLS]);
+    const every = new Set([...(await names(token)), ...PEOPLE_TOOLS, ...LINEAR_TOOLS]);
     for (const name of every) {
       const calls = CALLS[name];
       expect(calls, `a ferramenta ${name} precisa de chamadas neste teste`).toBeDefined();
@@ -176,6 +184,11 @@ describe("garantia central: sem o alcance efetivo, nenhuma resposta tem nome, id
   async function populate(): Promise<void> {
     await h.pool.query("insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body) select $1, project_id, id, $2, 'comentário de Xerxes Pimenteira' from tickets where project_id = $3 and number = 3", [ORG, P().reader, priv()]);
     await h.pool.query("insert into activity_events (org_id, actor_person_id, kind, subject_type, subject_id, payload) select $1, $2, 'ticket.updated', 'ticket', id, '{}'::jsonb from tickets where project_id = $3 and number = 3", [ORG, P().manager, priv()]);
+    await h.pool.query(
+      "insert into project_external_sources (org_id, project_id, provider, external_workspace_id, external_workspace_name, external_team_id, external_team_key, external_team_name, linked_by_person_id) values ($1,$2,'linear','ws-1','Acme','team-eng','ENG','Engenharia',$3)",
+      [ORG, priv(), P().manager],
+    );
+    await h.pool.query("insert into external_import_runs (org_id, id, project_id, provider, started_by_person_id, mode, phase) values ($1,$2,$3,'linear',$4,'reimport','issues')", [ORG, RUN_ID, priv(), P().manager]);
   }
 
   it("token sem o alcance (leitura e escrita), com a chave da organização ligada", async () => {
@@ -203,6 +216,9 @@ describe("garantia central: sem o alcance efetivo, nenhuma resposta tem nome, id
     const { token } = await setup({ scope: "write", people: true });
     const res = await h.tool(token, "PRIV", "get_ticket", { key: "PRIV-1" });
     expect(JSON.stringify(res.raw)).toContain(NAMES["contributor"]);
+    await populate();
+    const status = await h.tool(token, "PRIV", "get_linear_status", {});
+    expect(status.data?.run?.startedBy).toEqual({ id: P().manager, name: NAMES["manager"] });
   });
 });
 
@@ -485,7 +501,16 @@ describe("e-mail e id do Clerk nunca saem, nem com o alcance (revisão de segura
     const { token } = await setup({ scope: "write" });
     await provision();
     await h.pool.query("insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body) select $1, project_id, id, $2, 'oi' from tickets where project_id = $3 and number = 3", [ORG, P().reader, priv()]);
-    const every = new Set([...(await names(token)), ...PEOPLE_TOOLS]);
+    // Projeto ligado ao Linear com rodada aberta por quem tem o e-mail no lugar do nome: `startedBy` também passa pelo rótulo neutro.
+    await h.pool.query(
+      "insert into project_external_sources (org_id, project_id, provider, external_workspace_id, external_workspace_name, external_team_id, external_team_key, external_team_name, linked_by_person_id) values ($1,$2,'linear','ws-1','Acme','team-eng','ENG','Engenharia',$3)",
+      [ORG, priv(), P().manager],
+    );
+    await h.pool.query("insert into external_import_runs (org_id, id, project_id, provider, started_by_person_id, mode, phase) select $1, $2, $3, 'linear', id, 'reimport', 'issues' from people where org_id = $1 and clerk_user_id = 'user_semnome'", [ORG, RUN_ID, priv()]);
+    const every = new Set([...(await names(token)), ...PEOPLE_TOOLS, ...LINEAR_TOOLS]);
+    for (const name of [...PEOPLE_TOOLS, ...LINEAR_TOOLS]) expect(every.has(name)).toBe(true);
+    const status = await h.tool(token, "PRIV", "get_linear_status", {});
+    expect(status.data?.run?.startedBy?.name, status.text).toBe("Unnamed person");
     const emailish = /[\w.+-]+@[\w-]+\.[\w.-]+/;
     const idish = /user_[A-Za-z0-9]{4,}|\bu_[a-z]+\b/;
     for (const name of every) {
@@ -514,6 +539,9 @@ const CALLS_FOR_SWEEP: Record<string, Record<string, unknown>[]> = {
   add_dependency: [{ key: "PRIV-3", dependsOn: "PRIV-2" }],
   remove_dependency: [{ key: "PRIV-3", dependsOn: "PRIV-2" }],
   set_ticket_assignees: [{ key: "PRIV-3", personIds: [] }],
+  list_comments: [{ key: "PRIV-3" }],
+  get_ticket_history: [{ key: "PRIV-3" }],
+  continue_linear_sync: [{ runId: RUN_ID }],
 };
 
 describe("uuid em maiúsculas (revisão de segurança)", () => {

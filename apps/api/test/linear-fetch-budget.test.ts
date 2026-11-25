@@ -140,3 +140,28 @@ describe("fetchProjects", () => {
     expect(progress.size).toBe(25);
   });
 });
+
+// M8 item 7 (TREEPM-496): o prazo do passo conduzido pelo MCP vale para as páginas de projetos e de issues.
+describe("prazo do passo pelo MCP (deadline)", () => {
+  it("nenhuma página começa se o prazo inteiro dela não cabe; depois de uma falha, para com a falha anterior guardada", async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    let calls = 0;
+    const fetchProjects = projectsWith(async () => {
+      calls += 1;
+      throw new Error("não devia chamar");
+    });
+    const bound = fetchProjects as unknown as (k: string, t: string, r: unknown, p: { size: number }, deadline?: number) => Promise<unknown>;
+    await expect(bound("k", "t", run(), { size: 0 }, now + 9_999)).rejects.toMatchObject({ name: "StepOutOfTime", lastError: null });
+    expect(calls).toBe(0);
+    const fetchIssues = serviceWith(async () => {
+      calls += 1;
+      now += 4_000;
+      throw new LinearError("linear_timeout");
+    }) as unknown as (k: string, t: string, r: unknown, p: { size: number }, deadline?: number) => Promise<unknown>;
+    const progress = { size: 0 };
+    await expect(fetchIssues("k", "t", run(), progress, now + 15_000)).rejects.toMatchObject({ name: "StepOutOfTime", lastError: { code: "linear_timeout" } });
+    expect(calls).toBe(2); // 0 → 4 s → 8 s; a 3ª começaria em 8 s e só terminaria em 18 s > 15 s
+    expect(progress.size).toBe(12);
+  });
+});

@@ -790,8 +790,9 @@ describe("M6: comentários e rotas da tela", () => {
     const giant = `${"c".repeat(79_900)}${personLink(P().target, "x@y.test")}${"d".repeat(120_000)}`;
     const area = (await h.rows("insert into areas (org_id, name) values ($1,$2) returning id", [ORG, giant]))[0]?.["id"] as string;
     const contribution = (await h.rows("insert into ticket_contributions (org_id, project_id, ticket_id, area_id, text, created_by_person_id) values ($1,$2,$3,$4,'texto',$5) returning id", [ORG, priv(), await ticketId(3), area, P().manager]))[0]?.["id"] as string;
-    await h.pool.query("insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body, contribution_id) values ($1,$2,$3,$4,'oi',$5)", [ORG, priv(), await ticketId(3), P().manager, contribution]);
-    await comment(3, P().reader, "depois");
+    // Datas distintas: com as duas em `now()` a ordem dependia do id (TREEPM-509).
+    await h.pool.query("insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body, contribution_id, created_at) values ($1,$2,$3,$4,'oi',$5,'2026-01-01T00:00:00Z')", [ORG, priv(), await ticketId(3), P().manager, contribution]);
+    await comment(3, P().reader, "depois", { at: "2026-01-01T00:00:01Z" });
     const res = await call(token, "list_comments", { key: "PRIV-3", limit: 1 });
     expect(res.isError, res.text.slice(0, 200)).toBe(false);
     expect(res.text.length).toBeLessThanOrEqual(80_000);

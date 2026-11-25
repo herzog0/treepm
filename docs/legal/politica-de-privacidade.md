@@ -72,7 +72,7 @@ O administrador pode desativar o assistente ou a leitura de código a qualquer m
 
 ## 5. Acesso por clientes de IA (MCP)
 
-Se a organização permitir, você pode conectar um cliente de IA seu a um projeto, com um token pessoal. Nesse caso, os dados do projeto que o cliente pedir saem do TreePM para o cliente que **você** escolheu e para o provedor dele. Nós não controlamos o que eles fazem com esses dados.
+Se a organização permitir, você pode conectar um cliente de IA seu a um projeto, com um token pessoal. Nesse caso, os dados do projeto que o cliente pedir saem do TreePM para o cliente que **você** escolheu e para o provedor dele. Nós não controlamos o que eles fazem com esses dados. Para um ticket importado do Linear, isso inclui o identificador e o endereço dele no Linear; e, para um projeto ligado a um time do Linear, a chave e o nome do time.
 
 Por padrão, o que sai pelo MCP não inclui nome, identificador nem e-mail de pessoa. Se um administrador ligar a permissão "Pessoas e conversas" e o seu token a incluir, o cliente passa a receber também:
 

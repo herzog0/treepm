@@ -127,10 +127,32 @@ function ensureNoOwnKey(text: string, projectKey: string): string {
   return result;
 }
 
-/** O endereço de origem só vale se for do Linear (`https://linear.app/`) e curto; senão o atalho some (nulo). */
+/**
+ * O endereço de origem só vale com forma validada (revisão de segurança, TREEPM-496): quem lê a resposta do MCP é um modelo, e um
+ * endereço com texto livre vindo do Linear seria um caminho de injeção de instruções. Vale só `https://linear.app/…`, curto, sem
+ * espaço, quebra de linha, caractere de controle (inclusive os de Unicode) nem barra invertida, e que `new URL()` aceite com o host
+ * EXATAMENTE `linear.app` (sem porta, usuário ou senha). A conferência é na cadeia CRUA: `new URL()` tira tabulação e quebra de linha
+ * e codifica o espaço, então aceitaria `https://linear.app/x\nSYSTEM: …`. Fora disso, nulo (o atalho some). Vale na gravação e na
+ * leitura: valor antigo fora da forma não é regravado, só deixa de sair.
+ */
 export const LINEAR_URL_MAX = 500;
+// eslint-disable-next-line no-control-regex -- é justamente o que se recusa
+const URL_FORBIDDEN = /[\s\u0000-\u001f\u007f-\u009f\u2028\u2029\\]/u;
 export function safeLinearUrl(url: string | null | undefined): string | null {
-  return typeof url === "string" && url.length <= LINEAR_URL_MAX && url.startsWith("https://linear.app/") ? url : null;
+  if (typeof url !== "string" || url.length > LINEAR_URL_MAX || !url.startsWith("https://linear.app/") || URL_FORBIDDEN.test(url)) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  return parsed.protocol === "https:" && parsed.host === "linear.app" && parsed.username === "" && parsed.password === "" ? url : null;
+}
+
+/** A chave de uma issue do Linear (`ENG-12`): letras e dígitos ASCII (até 10), hífen e o número (até 9 dígitos). Fora disso, nulo. */
+const LINEAR_KEY_SHAPE = /^[A-Za-z0-9]{1,10}-[0-9]{1,9}$/;
+export function safeLinearKey(key: string | null | undefined): string | null {
+  return typeof key === "string" && LINEAR_KEY_SHAPE.test(key) ? key : null;
 }
 
 /** Situação do projeto do Linear (`status.type`) para a do ticket que o representa: concluído, cancelado, em andamento; o resto fica a fazer. */

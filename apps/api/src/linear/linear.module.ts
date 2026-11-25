@@ -36,6 +36,7 @@ import { CREDENTIAL_CIPHER, LINEAR_CLIENT, LINEAR_FETCH } from "./ports.js";
       useFactory: (config: AppConfig) => (config.CREDENTIALS_ENCRYPTION_KEY ? new CredentialCipher(Buffer.from(config.CREDENTIALS_ENCRYPTION_KEY, "base64")) : null),
     },
   ],
-  exports: [LinearService],
+  // O MCP (ADR 0062, seção 5) sincroniza pelo mesmo serviço da tela.
+  exports: [LinearService, LinearImportService],
 })
 export class LinearModule {}

@@ -113,3 +113,12 @@ Mover entre projetos fica fora: o token é de um projeto.
 - Todo texto que sai passa por um limpador (menção de pessoa vira `@Nome`, sem identificador) ou tem formato fechado, e isso é garantido por tipo. Nome de pessoa com forma de menção também vira "Unnamed person".
 - Ler pelo MCP não marca nada como lido nem reabre conversa.
 - A revisão de segurança achou expressões de busca de custo quadrático na limpeza de menções (uma chamada de 4,9 s de processador com texto hostil). Foram reescritas em tempo linear, no MCP e no domínio, o que também protege a tela ao salvar descrição e mensagem.
+
+## Como ficou (fatia 4, 2026-11-25)
+
+- `get_ticket` traz `linear: { key, url }` para ticket importado; as listas não. `get_linear_status` diz se o projeto está ligado, a chave e o nome do time, a última sincronização e, para quem pode importar, a rodada aberta.
+- `start_linear_sync` e `continue_linear_sync` são escritas e chamam o mesmo serviço da tela, com a chave do Linear de quem tem o token. Um passo por chamada, dentro do prazo do MCP; a resposta diz o que fazer em seguida. Sincronizar pelo MCP dá o mesmo resultado que pela tela (teste de paridade).
+- A primeira importação de um projeto continua só na tela; a procura do lugar pela IA não é exposta.
+- **Texto vindo do Linear não sai cru para o cliente de IA.** Quem lê a resposta é um modelo, e um nome ou endereço malicioso seria uma instrução injetada. Nenhuma frase de erro leva texto do Linear; o endereço só sai com host exato `linear.app` e sem espaço nem controle; a chave só no formato de identificador; o nome do time passa pelo limpador comum, cortado em 80. A mesma validação de endereço e de identificador vale na gravação, para a tela.
+- A checagem de permissão do passo vem antes da trava de "passo em andamento", na tela e no MCP.
+- Revisão de segurança independente com reprodução: sem bloqueio; sete correções aplicadas. Fica a `TREEPM-510` (prazo próprio para a abertura da sincronização).

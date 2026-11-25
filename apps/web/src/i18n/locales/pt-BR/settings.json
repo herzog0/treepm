@@ -108,14 +108,14 @@
     },
     "writeSwitch": {
       "label": "Permitir escrita por MCP",
-      "hint": "Com a chave ligada, os tokens de leitura e escrita poderão criar tickets, mudar a situação e a prioridade, editar título e descrição, mover tickets na árvore, mexer em dependências, comentar e marcar trabalho em andamento, com as permissões da pessoa de cada token. Com ela desligada, nenhum token escreve, qualquer que seja o alcance."
+      "hint": "Com a chave ligada, os tokens de leitura e escrita poderão criar tickets, mudar a situação e a prioridade, editar título e descrição, mover tickets na árvore, mexer em dependências, sincronizar com o Linear, comentar e marcar trabalho em andamento, com as permissões da pessoa de cada token. Com ela desligada, nenhum token escreve, qualquer que seja o alcance."
     },
     "scope": {
       "label": "Alcance",
       "read": "Só leitura",
       "write": "Leitura e escrita",
       "readHint": "O cliente de IA só consulta os tickets do projeto.",
-      "writeHint": "O cliente de IA poderá, além de consultar, criar tickets, mudar a situação e a prioridade, editar título e descrição, mover tickets na árvore, mexer em dependências, comentar e marcar trabalho em andamento, com as permissões da sua própria conta.",
+      "writeHint": "O cliente de IA poderá, além de consultar, criar tickets, mudar a situação e a prioridade, editar título e descrição, mover tickets na árvore, mexer em dependências, sincronizar com o Linear, comentar e marcar trabalho em andamento, com as permissões da sua própria conta.",
       "writeOff": "A escrita por MCP está desligada na organização: este token só vai escrever quando um administrador ligar a chave."
     },
     "tokensOff": "O acesso por MCP está desligado. Ligue-o em Clientes de IA (MCP) para criar tokens.",
