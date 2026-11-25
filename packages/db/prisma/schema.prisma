@@ -878,6 +878,15 @@ model TicketExternalRef {
   firstImportedAt   DateTime  @default(now()) @map("first_imported_at") @db.Timestamptz(3)
   lastImportedAt    DateTime  @default(now()) @map("last_imported_at") @db.Timestamptz(3)
   missingSince      DateTime? @map("missing_since") @db.Timestamptz(3)
+  /// A rodada em que a origem foi vista pela última vez (sem chave estrangeira; migration 0039).
+  lastSeenRunId     String?   @map("last_seen_run_id") @db.Uuid
+  /// A reimportação viu o pai (ou o projeto) mudar no Linear e a fase `hierarchy` ainda não decidiu.
+  hierarchyPending  Boolean   @default(false) @map("hierarchy_pending")
+  /// A fase `statuses` precisa avaliar a origem: a situação do Linear mudou, o ticket está em desvio (aplicada ≠ desejada por invariante) ou a hierarquia o tocou.
+  statusPending     Boolean   @default(false) @map("status_pending")
+  /// Controle da rodada em andamento na fase `statuses` (qual rodada e as marcas 1 atualizado, 2 mexido, 4 avaliado, 8 o Linear mudou a situação).
+  statusRunId       String?   @map("status_run_id") @db.Uuid
+  statusRunFlags    Int       @default(0) @map("status_run_flags") @db.SmallInt
 
   organization Organization @relation(fields: [orgId], references: [orgId])
   ticket       Ticket       @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
@@ -885,6 +894,7 @@ model TicketExternalRef {
   @@id([orgId, ticketId])
   @@unique([orgId, provider, kind, externalId], map: "ticket_external_refs_external_key")
   @@index([orgId, projectId])
+  @@index([orgId, projectId, ticketId], map: "ticket_external_refs_project_ticket_idx")
   @@map("ticket_external_refs")
 }
 
@@ -898,7 +908,7 @@ model ExternalImportRun {
   startedByPersonId  String    @map("started_by_person_id") @db.Uuid
   /// first | reimport (check no banco)
   mode               String
-  /// projects | issues | hierarchy | mentions | categorize | done | failed (check no banco)
+  /// projects | issues | hierarchy | statuses | mentions | missing | categorize | done | failed (check no banco)
   phase              String
   cursor             String?
   destinationTicketId String?  @map("destination_ticket_id") @db.Uuid
@@ -911,6 +921,10 @@ model ExternalImportRun {
   pageSize           Int       @default(50) @map("page_size")
   /// Passos seguidos que falharam com o mesmo código (zera no primeiro que grava).
   errorStreak        Int       @default(0) @map("error_streak")
+  /// Teto de itens por passo das fases em lote (nulo = o normal de cada fase): cai à metade quando a transação estoura.
+  batchSize          Int?      @map("batch_size")
+  /// Passos bem-sucedidos seguidos desde a última redução de tamanho: só cresce de novo depois de três.
+  sizeStreak         Int       @default(0) @map("size_streak")
   /// Um destino foi escolhido ao abrir: se `destination_ticket_id` virar nulo, o ticket foi apagado.
   hasDestination     Boolean   @default(false) @map("has_destination")
   startedAt          DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)

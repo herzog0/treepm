@@ -190,13 +190,15 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
   };
   const ref = (target: ActivityTicketRef) => <TicketRef target={target} onOpen={onOpenTicket} />;
   const who = <strong />;
+  // Entrada automática (reimportação do Linear) usa as frases "automaticamente", como a situação já faz.
+  const automatic = entry.type !== "status_changed" && entry.automatic === true ? "automatic" : undefined;
   const noActor = entry.actor === null ? "noActor" : undefined;
   const values: Record<string, string> = { actor: entry.actor?.displayName ?? "" };
   const render = (key: string, extra: { context?: string | undefined; values?: Record<string, string>; components?: Record<string, ReactElement> } = {}) => (
     <Trans
       t={t}
       i18nKey={`activity.${key}` as never}
-      context={extra.context ?? noActor}
+      context={extra.context ?? automatic ?? noActor}
       values={{ ...values, ...extra.values }}
       components={{ who, name: <strong />, ...extra.components }}
     />

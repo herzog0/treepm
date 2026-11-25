@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import type { ApiClient, Me, Person, Project, Team, TicketDetail, TicketStatus, TicketSummary } from "../api/client.js";
 import { assistantEnabled, githubEnabled } from "../api/client.js";
 import { useAgentWorkActive } from "../map/agentWork.js";
-import { formatClock, formatDateTime } from "../i18n/format.js";
+import { formatClock, formatDate, formatDateTime } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { TicketCode } from "../github/TicketCode.js";
 import { safeLinearUrl } from "./linearLink.js";
@@ -77,7 +77,7 @@ function linearAction(detail: TicketDetail): HeaderActions["linear"] {
   const source = detail.externalSource;
   if (!source) return undefined;
   // Sem endereço (o servidor não soube montá-lo) ou com um que não é do Linear: a origem aparece, mas sem link.
-  return { key: source.key, url: source.url === null ? null : safeLinearUrl(source.url) };
+  return { key: source.key, url: source.url === null ? null : safeLinearUrl(source.url), missingSince: source.missingSince ?? null };
 }
 
 interface HeaderActions {
@@ -86,7 +86,7 @@ interface HeaderActions {
   /** Só para quem pode excluir. */
   remove?: { busy: boolean; onConfirm: () => void };
   /** De onde o ticket veio no Linear (ADR 0060): `url` já é segura (só `https://linear.app/…`); `key` é nula num projeto do Linear. */
-  linear?: { key: string | null; url: string | null };
+  linear?: { key: string | null; url: string | null; missingSince: string | null };
   /** Só para quem edita um ticket comum (ADR 0042); `error` é a recusa da API, mostrada junto do menu. */
   makeIdea?: { busy: boolean; error: string | null; onClick: () => void };
 }
@@ -94,7 +94,7 @@ interface HeaderActions {
 type CopyState = "idle" | "copied" | "failed";
 
 function Header({ projectKey, keyText, path, onClose, actions }: { projectKey: string; keyText: string; path: string; onClose: () => void; actions?: HeaderActions }) {
-  const { t } = useTranslation("ticket");
+  const { t, i18n } = useTranslation("ticket");
   const chats = useChats();
   const [copy, setCopy] = useState<CopyState>("idle");
   useEffect(() => {
@@ -140,6 +140,15 @@ function Header({ projectKey, keyText, path, onClose, actions }: { projectKey: s
               >
                 {actions.linear.key === null ? t("linear.view") : t("linear.viewKey", { key: actions.linear.key })}
               </a>
+            )}
+            {actions.linear?.missingSince != null && (
+              <span className="ticket-linear-missing">
+                <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 1.8 14.6 13.4H1.4Z" />
+                  <path d="M8 6.4v3.2M8 11.6v.1" />
+                </svg>
+                <span>{t("linear.missingSince", { date: formatDate(i18n.language as Language, actions.linear.missingSince) })}</span>
+              </span>
             )}
             {chats && (
               <button type="button" className="ticket-chat-button" onClick={() => chats.openTicket(actions.ticketId)}>

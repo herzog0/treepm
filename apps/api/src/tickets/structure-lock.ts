@@ -24,6 +24,18 @@ export const structureLock = {
 /** Transações que pegaram a trava: só nelas o estouro do prazo da transação vira `structure_busy`. */
 const structureTransactions = new WeakSet<object>();
 
+/** Transações que já tinham a trava quando estouraram: o prazo estourou com a transação TRABALHANDO, não esperando. */
+const lockedTransactions = new WeakSet<object>();
+
+/** Os 409 `structure_busy` que são "a minha transação estourou depois de pegar a trava" (e não "outro segura a trava"). */
+const expiredWhileWorking = new WeakSet<object>();
+
+/**
+ * `true` quando o erro é o estouro do prazo de uma transação que já tinha a trava de estrutura (lenta demais: quem chama deve reduzir
+ * o trabalho). `false` para a espera pela trava que outro segura (repetir, sem culpa do tamanho).
+ */
+export const isStructureExpiredWhileWorking = (error: unknown): boolean => typeof error === "object" && error !== null && expiredWhileWorking.has(error);
+
 /** O 409 `structure_busy`: a espera pela trava, ou pela fila que vem antes dela, estourou. */
 export const structureBusy = (): ConflictException =>
   new ConflictException({
@@ -52,7 +64,11 @@ export async function withStructureTimeoutTranslation<T>(body: (watch: (tx: Tena
       current = tx;
     });
   } catch (error) {
-    if (current !== undefined && structureTransactions.has(current) && isTransactionTimeout(error)) throw structureBusy();
+    if (current !== undefined && structureTransactions.has(current) && isTransactionTimeout(error)) {
+      const busy = structureBusy();
+      if (lockedTransactions.has(current)) expiredWhileWorking.add(busy);
+      throw busy;
+    }
     throw error;
   }
 }
@@ -88,5 +104,6 @@ export async function lockProjectStructure(tx: TenantClient, projectId: string):
     }
     throw error;
   }
+  lockedTransactions.add(tx);
   await tx.$executeRaw`select set_config('lock_timeout', ${previous}, true)`;
 }

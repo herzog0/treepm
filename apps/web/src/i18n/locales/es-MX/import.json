@@ -102,8 +102,10 @@
       "projects": "Proyectos de Linear",
       "issues": "Issues",
       "hierarchy": "Ligar sub-issues a sus padres",
+      "statuses": "Actualizando situaciones",
       "mentions": "Ligando menciones",
-      "list": "Fases de la importación"
+      "list": "Fases de la importación",
+      "missing": "Verificando lo que desapareció de Linear"
     },
     "phaseState": {
       "done": "hecho",
@@ -117,7 +119,10 @@
       "mentions": "Ligando las menciones entre los tickets.",
       "done": "Importación terminada.",
       "waiting": "Linear pidió esperar.",
-      "abandoned": "Importación abandonada."
+      "abandoned": "Importación abandonada.",
+      "missing": "Verificando lo que desapareció de Linear.",
+      "reimportDone": "Reimportación terminada.",
+      "statuses": "Actualizando las situaciones."
     },
     "waiting": "Linear pidió esperar. La importación regresa a las {{time}}.",
     "retrying": "Linear no respondió. Intentando de nuevo en un momento…",
@@ -137,8 +142,16 @@
       "flattenedNote": "Aplanados: quedaron un nivel arriba del original por el límite de profundidad del árbol.",
       "skippedNote": "Omitidos: no pudieron ligarse a sus padres (por ejemplo, un ciclo en la jerarquía).",
       "openMap": "Abrir en el mapa",
-      "noReimport": "Importar de nuevo aún no está disponible.",
-      "counts": "Conteos de la importación"
+      "counts": "Conteos de la importación",
+      "reimportTitle": "Reimportación terminada",
+      "new": "Nuevos",
+      "updated": "Actualizados",
+      "keptTouched": "Conservados porque se editaron aquí",
+      "keptMoved": "Conservados donde los moviste",
+      "missing": "No encontrados en Linear",
+      "descriptionUnavailable": "Algunas descripciones eran demasiado grandes y no se volvieron a leer.",
+      "missingNotChecked": "No fue posible verificar lo que desapareció, porque algunos elementos llegaron en un formato inválido.",
+      "assigneeEmailUnavailableReimport": "Linear no permitió leer los correos de los responsables; los responsables no se actualizaron."
     },
     "abandon": {
       "button": "Abandonar importación",
@@ -150,6 +163,21 @@
       "previous_one": "Importación anterior abandonada: {{count}} creado",
       "previous_many": "Importación anterior abandonada: {{count}} creados",
       "previous_other": "Importación anterior abandonada: {{count}} creados"
+    },
+    "preview": {
+      "label": "Va a traer",
+      "issues_one": "{{count}} issue",
+      "issues_other": "{{count}} issues",
+      "issues_many": "{{count}} issues"
+    },
+    "reimporting": "Reimportando…",
+    "last": {
+      "title": "Última importación · {{when}}",
+      "rule": "Reimportar solo actualiza lo que cambió en Linear y nadie tocó aquí, no mueve lo que se acomodó en el árbol, y lo que desapareció de Linear se queda como está.",
+      "reimport": "Reimportar ahora",
+      "changeDestination": "Cambiar destino de las issues nuevas",
+      "destination": "Destino de las issues nuevas",
+      "titleUndated": "Última importación"
     }
   }
 }

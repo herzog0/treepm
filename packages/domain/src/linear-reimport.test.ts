@@ -1,0 +1,74 @@
+import { describe, expect, it } from "vitest";
+import { decideLinearField, decideLinearStatus, sameLinearValue } from "./linear-reimport.js";
+import type { TicketStatus } from "./tickets.js";
+
+// ADR 0060, seção 5: só se aplica o campo que mudou no Linear E não foi mexido no TreePM.
+describe("decideLinearField (tabela)", () => {
+  const cases: { name: string; incoming: unknown; previousSource: unknown; current: unknown; applied: unknown; expected: { changedInLinear: boolean; touchedHere: boolean; apply: boolean } }[] = [
+    { name: "nada mudou em lugar nenhum", incoming: "a", previousSource: "a", current: "a", applied: "a", expected: { changedInLinear: false, touchedHere: false, apply: false } },
+    { name: "mudou só no Linear: aplica", incoming: "b", previousSource: "a", current: "a", applied: "a", expected: { changedInLinear: true, touchedHere: false, apply: true } },
+    { name: "mexido só aqui: mantém", incoming: "a", previousSource: "a", current: "c", applied: "a", expected: { changedInLinear: false, touchedHere: true, apply: false } },
+    { name: "mudou nos dois: mantém o daqui", incoming: "b", previousSource: "a", current: "c", applied: "a", expected: { changedInLinear: true, touchedHere: true, apply: false } },
+    { name: "o TreePM aplicou valor diferente do que veio e o Linear não mudou: não oscila", incoming: "done", previousSource: "done", current: "todo", applied: "todo", expected: { changedInLinear: false, touchedHere: false, apply: false } },
+    { name: "mudou no Linear e o TreePM está no valor aplicado (diferente do de origem): aplica", incoming: "x", previousSource: "done", current: "todo", applied: "todo", expected: { changedInLinear: true, touchedHere: false, apply: true } },
+    { name: "volta ao valor antigo no Linear depois de mexido aqui: nada (o retrato de origem acompanha)", incoming: "a", previousSource: "b", current: "c", applied: "a", expected: { changedInLinear: true, touchedHere: true, apply: false } },
+    { name: "números", incoming: 300, previousSource: 200, current: 200, applied: 200, expected: { changedInLinear: true, touchedHere: false, apply: true } },
+    { name: "nulo para valor (responsável)", incoming: ["p1"], previousSource: [], current: [], applied: [], expected: { changedInLinear: true, touchedHere: false, apply: true } },
+    { name: "conjuntos sem ordem: mesma coisa", incoming: ["b", "a"], previousSource: ["a", "b"], current: ["b", "a"], applied: ["a", "b"], expected: { changedInLinear: false, touchedHere: false, apply: false } },
+    { name: "responsável tirado aqui: mexido", incoming: ["p1"], previousSource: ["p1"], current: [], applied: ["p1"], expected: { changedInLinear: false, touchedHere: true, apply: false } },
+  ];
+  for (const c of cases) {
+    it(c.name, () => {
+      expect(decideLinearField({ incoming: c.incoming, previousSource: c.previousSource, current: c.current, applied: c.applied })).toEqual(c.expected);
+    });
+  }
+});
+
+describe("sameLinearValue", () => {
+  it("compara texto, número, nulo e conjuntos", () => {
+    expect(sameLinearValue("a", "a")).toBe(true);
+    expect(sameLinearValue("a", "b")).toBe(false);
+    expect(sameLinearValue(null, null)).toBe(true);
+    expect(sameLinearValue(null, "")).toBe(false);
+    expect(sameLinearValue(["a", "b"], ["b", "a"])).toBe(true);
+    expect(sameLinearValue(["a"], ["a", "b"])).toBe(false);
+    expect(sameLinearValue(0, 0)).toBe(true);
+  });
+});
+
+import { reimportedStatus } from "./linear-reimport.js";
+describe("reimportedStatus (invariantes)", () => {
+  it("dentro de ideia a situação não muda", () => {
+    expect(reimportedStatus({ target: "done", current: "todo", insideIdea: true, hasOpenChildren: false })).toBe("todo");
+  });
+  it("concluído com filho aberto mantém a situação de hoje (nunca rebaixa em andamento a fazer)", () => {
+    expect(reimportedStatus({ target: "done", current: "in_progress", insideIdea: false, hasOpenChildren: true })).toBe("in_progress");
+    expect(reimportedStatus({ target: "done", current: "todo", insideIdea: false, hasOpenChildren: true })).toBe("todo");
+  });
+  it("concluído sem filho aberto conclui; cancelado com filho aberto cancela", () => {
+    expect(reimportedStatus({ target: "done", current: "todo", insideIdea: false, hasOpenChildren: false })).toBe("done");
+    expect(reimportedStatus({ target: "cancelled", current: "todo", insideIdea: false, hasOpenChildren: true })).toBe("cancelled");
+  });
+});
+
+// L14: a situação converge. Desejada = a do Linear mapeada; mexida aqui = atual ≠ aplicada; só uma invariante a impede, e então o
+// ticket fica em desvio (aplicada ≠ desejada) e é reavaliado em toda reimportação.
+describe("decideLinearStatus (tabela)", () => {
+  type Row = { name: string; desired: TicketStatus; previousSource: TicketStatus; current: TicketStatus; applied: TicketStatus; insideIdea?: boolean; hasOpenChildren?: boolean; expected: ReturnType<typeof decideLinearStatus> };
+  const cases: Row[] = [
+    { name: "tudo igual: nada", desired: "todo", previousSource: "todo", current: "todo", applied: "todo", expected: { touchedHere: false, changedInLinear: false, outcome: "none", target: "todo", deviation: false } },
+    { name: "Linear mudou e ninguém mexeu: aplica", desired: "done", previousSource: "todo", current: "todo", applied: "todo", expected: { touchedHere: false, changedInLinear: true, outcome: "apply", target: "done", deviation: false } },
+    { name: "mexido aqui: não toca (e conta mexido quando o Linear mudou)", desired: "done", previousSource: "todo", current: "in_progress", applied: "todo", expected: { touchedHere: true, changedInLinear: true, outcome: "kept", target: "in_progress", deviation: false } },
+    { name: "mexido aqui e o Linear não mudou: não toca, nada a contar", desired: "todo", previousSource: "todo", current: "in_progress", applied: "todo", expected: { touchedHere: true, changedInLinear: false, outcome: "kept", target: "in_progress", deviation: false } },
+    { name: "concluído com filho aberto, em andamento: fica em andamento (não é rebaixado) e em desvio", desired: "done", previousSource: "done", current: "in_progress", applied: "in_progress", hasOpenChildren: true, expected: { touchedHere: false, changedInLinear: false, outcome: "blocked", target: "in_progress", deviation: true } },
+    { name: "desvio sem mudança no Linear, filhos fecharam: assume a desejada", desired: "done", previousSource: "done", current: "todo", applied: "todo", expected: { touchedHere: false, changedInLinear: false, outcome: "apply", target: "done", deviation: false } },
+    { name: "dentro de ideia: não muda e fica em desvio", desired: "done", previousSource: "todo", current: "todo", applied: "todo", insideIdea: true, expected: { touchedHere: false, changedInLinear: true, outcome: "blocked", target: "todo", deviation: true } },
+    { name: "cancelado com filho aberto: aplica (só concluído é barrado)", desired: "cancelled", previousSource: "todo", current: "todo", applied: "todo", hasOpenChildren: true, expected: { touchedHere: false, changedInLinear: true, outcome: "apply", target: "cancelled", deviation: false } },
+    { name: "mexido aqui E em desvio: mexido vence, não é desvio por invariante", desired: "done", previousSource: "done", current: "in_progress", applied: "todo", hasOpenChildren: true, expected: { touchedHere: true, changedInLinear: false, outcome: "kept", target: "in_progress", deviation: false } },
+  ];
+  for (const c of cases) {
+    it(c.name, () => {
+      expect(decideLinearStatus({ desired: c.desired, previousSource: c.previousSource, current: c.current, applied: c.applied, insideIdea: c.insideIdea ?? false, hasOpenChildren: c.hasOpenChildren ?? false })).toEqual(c.expected);
+    });
+  }
+});

@@ -172,6 +172,10 @@ export class LinearService {
       const projects = await tx.project.findMany({ where: { orgId: current.organization.orgId, id: { in: sources.map((source) => source.projectId) } } });
       const visible = new Map(this.authorization.visible(current.actor, projects).map((project) => [project.id, project]));
       const byTeam = new Map(sources.map((source) => [source.externalTeamId, source.projectId]));
+      // O fim da última rodada concluída de cada projeto que a pessoa enxerga (a mais recente primeiro).
+      const finished = visible.size === 0 ? [] : await tx.externalImportRun.findMany({ where: { orgId: current.organization.orgId, projectId: { in: [...visible.keys()] }, phase: "done" }, orderBy: [{ finishedAt: "desc" }, { id: "desc" }], select: { projectId: true, finishedAt: true } });
+      const lastImported = new Map<string, Date>();
+      for (const run of finished) if (run.finishedAt !== null && !lastImported.has(run.projectId)) lastImported.set(run.projectId, run.finishedAt);
       return teams.map((team) => {
         const projectId = byTeam.get(team.id);
         const project = projectId === undefined ? undefined : visible.get(projectId);
@@ -181,6 +185,7 @@ export class LinearService {
           name: team.name,
           linkedProject: project ? { id: project.id, name: project.name } : null,
           linkedElsewhere: projectId !== undefined && !project,
+          lastImportedAt: project ? (lastImported.get(project.id)?.toISOString() ?? null) : null,
         };
       });
     });

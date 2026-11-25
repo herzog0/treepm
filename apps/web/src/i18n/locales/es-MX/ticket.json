@@ -238,7 +238,15 @@
     "via": "por MCP",
     "viaTitle": "Hecho por una llamada MCP, con el token de la persona",
     "priorityChanged": "<who>{{actor}}</who> cambió la prioridad de <name>{{from}}</name> a <name>{{to}}</name>",
-    "priorityChanged_noActor": "Prioridad cambiada de <name>{{from}}</name> a <name>{{to}}</name>"
+    "priorityChanged_noActor": "Prioridad cambiada de <name>{{from}}</name> a <name>{{to}}</name>",
+    "titleChanged_automatic": "Título cambiado automáticamente de «{{from}}» a «{{to}}»",
+    "descriptionChanged_automatic": "Descripción editada automáticamente",
+    "priorityChanged_automatic": "Prioridad cambiada automáticamente de <name>{{from}}</name> a <name>{{to}}</name>",
+    "parentMoved_automatic": "Movido automáticamente dentro de <to>{{to}}</to>",
+    "parentRemoved_automatic": "Sacado automáticamente de <from>{{from}}</from>",
+    "parentChanged_automatic": "Movido automáticamente de <from>{{from}}</from> a dentro de <to>{{to}}</to>",
+    "assigneeAdded_automatic": "<name>{{person}}</name> agregado automáticamente como responsable",
+    "assigneeRemoved_automatic": "<name>{{person}}</name> quitado automáticamente de los responsables"
   },
   "contributions": {
     "heading": "Áreas",
@@ -300,6 +308,7 @@
     "viewKeyLabel": "Ver {{key}} en Linear (se abre en otra pestaña)",
     "viewLabel": "Ver en Linear (se abre en otra pestaña)",
     "plain": "Linear",
-    "plainKey": "Linear · {{key}}"
+    "plainKey": "Linear · {{key}}",
+    "missingSince": "No encontrada en Linear desde {{date}}"
   }
 }

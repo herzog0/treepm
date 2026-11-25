@@ -136,6 +136,12 @@ describe("Importação do Linear › abandonar", () => {
     expect(screen.getByRole("button", { name: "Abandonar importação" })).toBeInTheDocument();
   });
 
+  it("passo lento demais (step_too_slow, errorStreak 3): frase própria e 'Abandonar' em destaque", async () => {
+    setup({ existing: { phase: "issues", errorStreak: 3 }, script: [{ error: ["unavailable", "step_too_slow"] }] });
+    expect(await screen.findByRole("alert")).toHaveTextContent("O passo está demorando demais mesmo no menor tamanho. Abandone esta importação e abra outra.");
+    expect(screen.getByRole("button", { name: "Abandonar importação" })).toHaveClass("is-prominent");
+  });
+
   it("se a rodada já tinha terminado (linear_run_finished), mostra a frase e relê", async () => {
     const { hold } = held();
     const { client } = setup({ existing: { phase: "issues" }, script: [{ hold }] });
@@ -172,7 +178,7 @@ describe("Importação do Linear › resumo, linhas novas", () => {
 
   it("sem o aviso quando o e-mail estava disponível", async () => {
     setup(done({ issuesCreated: 10 }));
-    await screen.findByRole("heading", { name: "Importação concluída" });
+    await screen.findByRole("heading", { name: "Última importação" });
     expect(screen.queryByText(/e-mails dos responsáveis/)).not.toBeInTheDocument();
   });
 });

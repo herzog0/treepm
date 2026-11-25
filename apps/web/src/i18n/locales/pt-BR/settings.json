@@ -252,7 +252,8 @@
       "elsewhere": "Já ligado a um projeto que você não enxerga",
       "unavailable": "indisponível",
       "openImport": "Abrir importação",
-      "openImportLabel": "Abrir a importação do projeto {{project}}"
+      "openImportLabel": "Abrir a importação do projeto {{project}}",
+      "lastImport": "última importação {{when}}"
     },
     "dialog": {
       "title": "Ligar {{project}} ao time {{team}}?",

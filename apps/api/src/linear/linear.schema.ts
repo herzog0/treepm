@@ -24,6 +24,8 @@ export type TeamOutput = {
   linkedProject: null | { id: string; name: string };
   /** O time já está ligado a um projeto que a pessoa não enxerga (sem nome). */
   linkedElsewhere: boolean;
+  /** O fim da última importação concluída do projeto ligado, quando a pessoa enxerga o projeto; senão `null`. */
+  lastImportedAt: string | null;
 };
 
 export type ProjectLinearOutput = {

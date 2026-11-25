@@ -108,6 +108,42 @@ describe("importação em passos do Linear (ADR 0060, seção 3)", () => {
     const failedView = { ...runView, phase: "failed", done: true, errorStreak: 0, pageSize: 50, lastErrorCode: "step_failed" };
     expect(await setup({ run: failedView }).client.getCurrentLinearRun(ID)).toEqual({ ok: true, data: { run: failedView } });
   });
+  it("aceita a fase 'missing' e os contadores e booleanos da reimportação", async () => {
+    const view = { ...runView, mode: "reimport", phase: "missing", pageSize: 50, counts: { updated: 3, keptTouched: 1, keptMoved: 2, elsewhere: 1, missing: 4, missingProjects: 1, descriptionUnavailable: true, missingNotChecked: true } };
+    expect(await setup(view).client.stepLinearRun(ID, ID)).toEqual({ ok: true, data: view });
+  });
+  it("aceita a fase 'statuses' (reimportação: atualizando situações)", async () => {
+    const view = { ...runView, mode: "reimport", phase: "statuses", pageSize: 50, counts: { updated: 1 } };
+    expect(await setup(view).client.stepLinearRun(ID, ID)).toEqual({ ok: true, data: view });
+  });
+  it("a rodada atual traz a última concluída (lastFinished), que pode ser nula", async () => {
+    const finished = { ...runView, phase: "done", done: true, pageSize: 50, finishedAt: "2026-11-22T10:00:00.000Z" };
+    expect(await setup({ run: null, lastFinished: finished }).client.getCurrentLinearRun(ID)).toEqual({ ok: true, data: { run: null, lastFinished: finished } });
+    expect(await setup({ run: null, lastFinished: null }).client.getCurrentLinearRun(ID)).toEqual({ ok: true, data: { run: null, lastFinished: null } });
+  });
+  it("abre a reimportação sem destino (herda): o corpo não leva a chave", async () => {
+    const { client, fetchImpl } = setup(runView, 201);
+    await client.openLinearRun(ID, {});
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/projects/${ID}/linear/runs`, method: "POST", body: {} });
+  });
+  it("lê a prévia: quantas issues vêm, ou nulo quando o Linear não disse", async () => {
+    const { client, fetchImpl } = setup({ issueCount: 412 });
+    expect(await client.getLinearPreview(ID)).toEqual({ ok: true, data: { issueCount: 412 } });
+    expect(lastCall(fetchImpl)).toMatchObject({ path: `/api/projects/${ID}/linear/preview`, method: "GET" });
+    expect(await setup({ issueCount: null }).client.getLinearPreview(ID)).toEqual({ ok: true, data: { issueCount: null } });
+  });
+  it("os times trazem a data da última importação (ou nula)", async () => {
+    const withDate = { ...team, lastImportedAt: "2026-11-22T10:00:00.000Z" };
+    expect(await setup([withDate, { ...team, id: "t2", lastImportedAt: null }]).client.listLinearTeams()).toMatchObject({ ok: true, data: [{ lastImportedAt: "2026-11-22T10:00:00.000Z" }, { lastImportedAt: null }] });
+    // servidor antigo, sem o campo: segue valendo
+    expect((await setup([team]).client.listLinearTeams()).ok).toBe(true);
+  });
+  it("a origem do ticket traz missingSince", async () => {
+    const detail = { id: ID, projectId: ID, number: 1, parentId: null, progress: null, idea: null, assigneeIds: [], descriptionExcerpt: "", agentWork: null, key: "TREEPM-1", title: "a", status: "todo", description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: ID, createdAt: "x", updatedAt: "x" };
+    const source = { provider: "linear", key: "ENG-123", url: null, missingSince: "2026-11-20T10:00:00.000Z" };
+    const result = await setup({ ...detail, externalSource: source }).client.getTicket(ID);
+    expect(result.ok && result.data.externalSource).toEqual(source);
+  });
   it("abandona a rodada", async () => {
     const abandoned = { ...runView, phase: "failed", done: true, errorStreak: 0, pageSize: 50 };
     const { client, fetchImpl } = setup(abandoned);
@@ -137,7 +173,7 @@ describe("frases dos erros do Linear", () => {
     "linear_key_invalid", "linear_unavailable", "linear_not_connected", "linear_not_configured", "linear_confirmation_mismatch",
     "linear_already_linked", "linear_team_in_use", "linear_team_not_found", "project_archived", "not_while_acting_as",
     "linear_run_open", "linear_reimport_not_available", "linear_step_in_progress", "structure_busy", "linear_not_linked", "linear_workspace_mismatch", "linear_team_not_visible",
-    "linear_destination_invalid", "linear_run_finished", "step_failed",
+    "linear_destination_invalid", "linear_run_finished", "step_failed", "step_too_slow",
   ])("%s tem frase própria, não a genérica", (code) => {
     const text = phrase(code);
     expect(text).not.toBe(describeApiError(i18n.t, { kind: "unavailable" }));

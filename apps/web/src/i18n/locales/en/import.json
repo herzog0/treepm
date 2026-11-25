@@ -97,8 +97,10 @@
       "projects": "Linear projects",
       "issues": "Issues",
       "hierarchy": "Link sub-issues to their parents",
+      "statuses": "Updating statuses",
       "mentions": "Linking mentions",
-      "list": "Import phases"
+      "list": "Import phases",
+      "missing": "Checking what disappeared from Linear"
     },
     "phaseState": {
       "done": "done",
@@ -112,7 +114,10 @@
       "mentions": "Linking the mentions between tickets.",
       "done": "Import finished.",
       "waiting": "Linear asked to wait.",
-      "abandoned": "Import abandoned."
+      "abandoned": "Import abandoned.",
+      "missing": "Checking what disappeared from Linear.",
+      "reimportDone": "Reimport finished.",
+      "statuses": "Updating the statuses."
     },
     "waiting": "Linear asked to wait. The import resumes at {{time}}.",
     "retrying": "Linear did not respond. Trying again shortly…",
@@ -132,8 +137,16 @@
       "flattenedNote": "Flattened: placed one level above the original because of the tree depth limit.",
       "skippedNote": "Skipped: could not be linked to their parents (for example, a cycle in the hierarchy).",
       "openMap": "Open on the map",
-      "noReimport": "Importing again is not available yet.",
-      "counts": "Import counts"
+      "counts": "Import counts",
+      "reimportTitle": "Reimport finished",
+      "new": "New",
+      "updated": "Updated",
+      "keptTouched": "Kept because they were edited here",
+      "keptMoved": "Kept where you moved them",
+      "missing": "Not found in Linear",
+      "descriptionUnavailable": "Some descriptions were too large and were not read again.",
+      "missingNotChecked": "Could not check what disappeared, because some items came in an invalid format.",
+      "assigneeEmailUnavailableReimport": "Linear did not allow reading the assignees’ e-mails; assignees were not updated."
     },
     "abandon": {
       "button": "Abandon import",
@@ -144,6 +157,20 @@
       "previous_zero": "Previous import abandoned: {{count}} created",
       "previous_one": "Previous import abandoned: {{count}} created",
       "previous_other": "Previous import abandoned: {{count}} created"
+    },
+    "preview": {
+      "label": "Will bring",
+      "issues_one": "{{count}} issue",
+      "issues_other": "{{count}} issues"
+    },
+    "reimporting": "Reimporting…",
+    "last": {
+      "title": "Last import · {{when}}",
+      "rule": "Reimporting only updates what changed in Linear and nobody touched here, does not move what was reorganized in the tree, and what disappeared from Linear stays as it is.",
+      "reimport": "Reimport now",
+      "changeDestination": "Change destination for new issues",
+      "destination": "Destination for new issues",
+      "titleUndated": "Last import"
     }
   }
 }

@@ -547,9 +547,9 @@ export class TicketsService {
           to: { select: { id: true, number: true, title: true, status: true } },
         },
       }),
-      tx.ticketExternalRef.findFirst({ where: { ticketId: id }, select: { provider: true, externalKey: true, externalUrl: true } }),
+      tx.ticketExternalRef.findFirst({ where: { ticketId: id }, select: { provider: true, externalKey: true, externalUrl: true, missingSince: true } }),
     ]);
-    const externalSource: ExternalSourceView | null = origin ? { provider: "linear", key: origin.externalKey, url: safeLinearUrl(origin.externalUrl) } : null;
+    const externalSource: ExternalSourceView | null = origin ? { provider: "linear", key: origin.externalKey, url: safeLinearUrl(origin.externalUrl), missingSince: origin.missingSince ? origin.missingSince.toISOString() : null } : null;
     const branchProgress = branches.get(id)?.progress ?? null;
     const progress = new Map(branchProgress ? [[id, branchProgress] as const] : []);
     const ideaRoot = branches.get(id)?.ideaRoot ?? null;

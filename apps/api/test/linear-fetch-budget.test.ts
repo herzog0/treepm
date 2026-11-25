@@ -7,7 +7,7 @@ import type { LinearClient } from "../src/linear/ports.js";
 type Fetcher = (key: string, teamId: string, run: unknown, progress: { size: number }) => Promise<{ page: unknown; nextPageSize: number; withoutDescription: boolean }>;
 const run = (pageSize = 50) => ({ cursor: null, pageSize, counts: {} });
 function serviceWith(listTeamIssues: LinearClient["listTeamIssues"]) {
-  const service = new LinearImportService({ listTeamIssues } as unknown as LinearClient, null as never, null as never, null as never, null as never);
+  const service = new LinearImportService({ listTeamIssues } as unknown as LinearClient, null as never, null as never, null as never, null as never, null as never);
   return (service as unknown as { fetchIssues: Fetcher }).fetchIssues.bind(service);
 }
 const okPage = { nodes: [], nextCursor: null, skippedInvalid: 0, emailUnavailable: false };
@@ -26,7 +26,7 @@ describe("fetchIssues", () => {
     const result = await fetchIssues("k", "t", run(), progress);
     expect(asked).toEqual([50, 25, 12, 6]);
     expect(progress.size).toBe(6);
-    expect(result.nextPageSize).toBe(6);
+    expect(result).toMatchObject({ reduced: true, usedSize: 6 });
   });
 
   it("no máximo 6 chamadas por passo: ao estourar termina em erro, com o tamanho alcançado em progress", async () => {

@@ -71,6 +71,7 @@
       "linear_destination_invalid": "The destination is no longer valid: abandon this import and start another one with a different destination.",
       "linear_run_finished": "This import has already finished and cannot be abandoned.",
       "step_failed": "The import failed on a step and could not move on. Try again; if it keeps failing, abandon it and start another.",
+      "step_too_slow": "The step is taking too long even at the smallest size. Abandon this import and open another.",
       "test_people_total_limit": "This organization already has 100 test people, deactivated ones included. Reactivate one instead of creating another.",
       "display_name_taken": "An active person already has that name (case and accents do not count). Pick another name.",
       "invalid_display_name": "The name cannot contain invisible or control characters."
