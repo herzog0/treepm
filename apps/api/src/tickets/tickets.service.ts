@@ -2,7 +2,7 @@ import { lockProjectStructure } from "./structure-lock.js";
 import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import type { z } from "zod";
-import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, createsDependencyCycle, descriptionExcerpt, mentionsPersonRaw, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
+import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, createsDependencyCycle, descriptionExcerpt, mentionsPersonRaw, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, safeLinearUrl, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
 import type { Actor, IdeaStage, TicketNode, TicketStatus, ticketProgress } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
@@ -14,7 +14,7 @@ import { AgentWorkService } from "./agent-work.service.js";
 import { ideaRootOfTicket } from "./idea-root.js";
 import { MAX_TREE_DEPTH, scopeOf } from "./ticket-scope.js";
 import { ideaStageSchema, ticketDetailSchema, ticketStatusSchema } from "./tickets.schema.js";
-import type { AgentWork, EffectivePriorityView, TicketDetail, TicketIdea, TicketPage, TicketSummary, updateTicketSchema } from "./tickets.schema.js";
+import type { AgentWork, EffectivePriorityView, ExternalSourceView, TicketDetail, TicketIdea, TicketPage, TicketSummary, updateTicketSchema } from "./tickets.schema.js";
 import { readContributions } from "./ticket-contributions.read.js";
 import { readBranchOf } from "./ticket-reads.js";
 import { touchProjectVersion } from "./project-version.js";
@@ -136,11 +136,13 @@ export function toDetail(project: Pick<ProjectRow, "key">, row: TicketDetailRow,
   now: number = Date.now(),
   agentWorkBy: { id: string; displayName: string; avatarUrl: string | null } | null = null,
   effectivePriority: EffectivePriorityView = { value: row.priority ?? 0, from: null },
+  externalSource: ExternalSourceView | null = null,
 ): TicketDetail {
   const link = (from: MentionedByRow) => ({ id: from.id, key: `${project.key}-${from.number}`, title: from.title, status: from.status });
   return parseOutput(ticketDetailSchema, {
     ...toSummary(project, { ...row, blocked: dependsOn.some((link) => !isFinished(statusOf(link))) }, progress, idea, now),
     effectivePriority,
+    externalSource,
     agentWork: toAgentWork(row, now) && agentWorkBy ? { ...(toAgentWork(row, now) as AgentWork), by: agentWorkBy } : null,
     description: row.description,
     mentionedBy: mentionedBy.map(link),
@@ -413,10 +415,10 @@ export class TicketsService {
    * pode diferir e um ticket citante ficar sem a trava antecipada; o caso restante é aceito (só vira 409 `concurrent_update`
    * retentável, nunca dado errado).
    */
-  async lockLinkedTickets(tx: TenantClient, project: ProjectRow, parentId: string | null, descriptions: readonly string[]): Promise<void> {
+  async lockLinkedTickets(tx: TenantClient, project: ProjectRow, parentId: string | null, descriptions: readonly string[], extraParentIds: readonly string[] = []): Promise<void> {
     const first = await this.peekNextNumber(tx, project);
     const fresh = new Set(descriptions.map((_d, at) => first + at));
-    const ids = new Set<string>(parentId === null ? [] : [parentId]);
+    const ids = new Set<string>([...(parentId === null ? [] : [parentId]), ...extraParentIds]);
     const mentioned = new Set<number>();
     for (const description of descriptions) for (const number of this.mentionedNumbers(project, { id: "", number: -1, description })) mentioned.add(number);
     if (mentioned.size > 0) {
@@ -432,6 +434,15 @@ export class TicketsService {
     });
     for (const candidate of candidates) if (this.mentionedNumbers(project, candidate).some((number) => fresh.has(number))) ids.add(candidate.id);
     if (ids.size > 0) await tx.$queryRaw`select id from tickets where id = any(${[...ids]}::uuid[]) order by id for key share`;
+  }
+
+  /**
+   * Trava `for key share`, em ordem de id (ADR 0046), os tickets que vão ganhar filhos: só os pais. A importação do Linear usa isto
+   * no lugar de `lockLinkedTickets`, que ainda procura nas descrições do projeto inteiro quem cita as chaves novas: o texto importado
+   * não cita ninguém, e as descrições antigas que citam números recém-criados são ligadas numa fase própria, em lotes.
+   */
+  async lockTickets(tx: TenantClient, ids: readonly string[]): Promise<void> {
+    if (ids.length > 0) await tx.$queryRaw`select id from tickets where id = any(${[...new Set(ids)]}::uuid[]) order by id for key share`;
   }
 
   /** O próximo número do projeto, lido SEM trava: só para o texto de um evento escrito antes da reserva (ver `create`). */
@@ -521,7 +532,7 @@ export class TicketsService {
   async detail(tx: TenantClient, project: ProjectRow, id: string): Promise<TicketDetail> {
     // Progresso e situação de ideia vêm só do ramo do ticket (descendentes e ancestrais), não do projeto inteiro.
     // Progresso e ideia vêm da MESMA consulta (`readBranchOf`): um instantâneo só, então uma escrita concorrente não faz um discordar do outro.
-    const [row, branches, mentions, dependencies] = await Promise.all([
+    const [row, branches, mentions, dependencies, origin] = await Promise.all([
       tx.ticket.findFirstOrThrow({ where: { id }, include: { assignees: { select: { personId: true } } } }),
       readBranchOf(tx, scopeOf(project), [id]),
       tx.ticketRelation.findMany({
@@ -536,7 +547,9 @@ export class TicketsService {
           to: { select: { id: true, number: true, title: true, status: true } },
         },
       }),
+      tx.ticketExternalRef.findFirst({ where: { ticketId: id }, select: { provider: true, externalKey: true, externalUrl: true } }),
     ]);
+    const externalSource: ExternalSourceView | null = origin ? { provider: "linear", key: origin.externalKey, url: safeLinearUrl(origin.externalUrl) } : null;
     const branchProgress = branches.get(id)?.progress ?? null;
     const progress = new Map(branchProgress ? [[id, branchProgress] as const] : []);
     const ideaRoot = branches.get(id)?.ideaRoot ?? null;
@@ -552,7 +565,7 @@ export class TicketsService {
     // A prioridade que vale sai da MESMA consulta recursiva do ramo (a subida pelos ancestrais já está nela): um instantâneo só.
     const source = branches.get(id)?.prioritySource ?? null;
     const effective = source ? { value: source.value, from: { id: source.id, key: `${project.key}-${source.number}` } } : { value: 0, from: null };
-    return toDetail(project, row, progress, idea, mentionedBy, dependsOn, blocks, now, by, effective);
+    return toDetail(project, row, progress, idea, mentionedBy, dependsOn, blocks, now, by, effective, externalSource);
   }
 
   /**

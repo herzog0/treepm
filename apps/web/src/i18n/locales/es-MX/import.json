@@ -54,5 +54,102 @@
     "importCount_one": "Importar {{count}} ticket",
     "importCount_many": "Importar {{count}} tickets",
     "importCount_other": "Importar {{count}} tickets"
+  },
+  "linear": {
+    "tabs": {
+      "label": "Origen de la importación",
+      "list": "Por lista",
+      "linear": "Desde Linear"
+    },
+    "title": "Importar desde Linear",
+    "intro": "Trae a este proyecto las issues del equipo de Linear ligado a él. La importación solo lee Linear; no se escribe nada allá.",
+    "loading": "Consultando la conexión con Linear…",
+    "retry": "Intentar de nuevo",
+    "openSettings": "Abrir Configuración → Linear",
+    "actingAs": "Actuando como otra persona, la importación de Linear no está disponible: la clave es personal. Vuelve a ser tú.",
+    "unlinked": {
+      "title": "Este proyecto aún no está ligado a Linear",
+      "canLink": "Liga el proyecto a un equipo de Linear en Configuración → Linear. La ligadura es permanente y evita duplicar issues en una próxima importación.",
+      "cannotLink": "Un administrador del proyecto debe ligarlo a un equipo de Linear, en Configuración → Linear."
+    },
+    "noKey": {
+      "title": "Falta tu clave de Linear",
+      "body": "Para importar en este proyecto, conecta tu clave del workspace {{workspace}} en Configuración → Linear."
+    },
+    "wrongKey": {
+      "title": "Tu clave no sirve para este proyecto",
+      "body": "Está ligado al equipo {{team}} del workspace {{workspace}}. En Configuración → Linear, usa una clave de ese workspace que vea el equipo."
+    },
+    "source": "Origen",
+    "destination": "Destino",
+    "root": "Raíz del proyecto",
+    "change": "Cambiar",
+    "picker": {
+      "label": "Elegir el destino",
+      "filter": "Filtrar tickets",
+      "empty": "No se encontraron tickets.",
+      "loading": "Cargando tickets…",
+      "failed": "No se pudieron cargar los tickets."
+    },
+    "start": "Importar",
+    "starting": "Abriendo…",
+    "how": "La importación avanza en pasos cortos. Si la pestaña se cierra, continúa donde se quedó cuando alguien vuelva a esta pantalla. Si Linear pide esperar, la pantalla muestra la hora en que regresa.",
+    "running": "Importando…",
+    "progress": "{{done}} de {{total}}",
+    "canClose": "puedes cerrar esta pantalla",
+    "bar": "Progreso de la importación",
+    "phase": {
+      "projects": "Proyectos de Linear",
+      "issues": "Issues",
+      "hierarchy": "Ligar sub-issues a sus padres",
+      "mentions": "Ligando menciones",
+      "list": "Fases de la importación"
+    },
+    "phaseState": {
+      "done": "hecho",
+      "doing": "en curso",
+      "todo": "por venir"
+    },
+    "announce": {
+      "projects": "Importando los proyectos de Linear.",
+      "issues": "Importando las issues.",
+      "hierarchy": "Ligando las sub-issues a sus padres.",
+      "mentions": "Ligando las menciones entre los tickets.",
+      "done": "Importación terminada.",
+      "waiting": "Linear pidió esperar.",
+      "abandoned": "Importación abandonada."
+    },
+    "waiting": "Linear pidió esperar. La importación regresa a las {{time}}.",
+    "retrying": "Linear no respondió. Intentando de nuevo en un momento…",
+    "gaveUp": "Linear no respondió y la importación se detuvo. Lo ya importado se queda; continúa donde se quedó.",
+    "continue": "Continuar",
+    "done": {
+      "title": "Importación terminada",
+      "created": "Creados",
+      "existing": "Ya existían",
+      "elsewhere": "En otro proyecto",
+      "flattened": "Aplanados",
+      "skipped": "Omitidos",
+      "skippedInvalid": "Ignorados por formato inválido",
+      "withoutDescription": "Sin descripción (demasiado grande)",
+      "movedOutOfIdea": "Sacados de dentro de una idea",
+      "assigneeEmailUnavailable": "Linear no dejó leer los correos de los responsables; nadie fue asignado.",
+      "flattenedNote": "Aplanados: quedaron un nivel arriba del original por el límite de profundidad del árbol.",
+      "skippedNote": "Omitidos: no pudieron ligarse a sus padres (por ejemplo, un ciclo en la jerarquía).",
+      "openMap": "Abrir en el mapa",
+      "noReimport": "Importar de nuevo aún no está disponible.",
+      "counts": "Conteos de la importación"
+    },
+    "abandon": {
+      "button": "Abandonar importación",
+      "confirmLabel": "Confirmar abandono",
+      "confirmBody": "Lo que ya se importó se queda en el proyecto. Esta importación se detiene aquí y puedes empezar otra después.",
+      "confirm": "Abandonar",
+      "back": "Volver",
+      "previous_zero": "Importación anterior abandonada: {{count}} creados",
+      "previous_one": "Importación anterior abandonada: {{count}} creado",
+      "previous_many": "Importación anterior abandonada: {{count}} creados",
+      "previous_other": "Importación anterior abandonada: {{count}} creados"
+    }
   }
 }

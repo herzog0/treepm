@@ -79,6 +79,8 @@ model Organization {
   organizationConsents       OrganizationConsent[]
   externalCredentials        ExternalCredential[]
   projectExternalSources     ProjectExternalSource[]
+  ticketExternalRefs         TicketExternalRef[]
+  externalImportRuns         ExternalImportRun[]
 
   @@map("organizations")
 }
@@ -123,6 +125,7 @@ model Person {
   consentsWithdrawn      OrganizationConsent[]      @relation("ConsentWithdrawnBy")
   externalCredentials    ExternalCredential[]
   externalSourcesLinked  ProjectExternalSource[]    @relation("ExternalSourceLinkedBy")
+  externalImportRunsStarted ExternalImportRun[]     @relation("ImportRunStartedBy")
 
   @@id([orgId, id])
   @@unique([orgId, clerkUserId])
@@ -199,6 +202,7 @@ model Project {
   repositories        ProjectRepository[]
   accessTokens        AccessToken[]
   externalSource      ProjectExternalSource?
+  externalImportRuns  ExternalImportRun[]
 
   @@id([orgId, id])
   @@unique([orgId, key])
@@ -276,6 +280,8 @@ model Ticket {
   comments             TicketComment[]
   contributions        TicketContribution[]
   conversations        Conversation[]
+  externalRefs         TicketExternalRef[]
+  importRunsAsDestination ExternalImportRun[]
 
   @@id([orgId, id])
   @@unique([orgId, projectId, id])
@@ -848,4 +854,75 @@ model ProjectExternalSource {
   @@id([orgId, projectId])
   @@unique([orgId, provider, externalWorkspaceId, externalTeamId])
   @@map("project_external_sources")
+}
+
+/// A origem de um ticket no provedor (ADR 0060, seção 5; migration 0038). Única na ORGANIZAÇÃO por provedor, tipo e id externo. Os dois
+/// retratos guardam o que veio do provedor e o que foi aplicado aqui; nenhum e-mail do provedor entra. Sem DELETE para a aplicação
+/// (some com o ticket).
+model TicketExternalRef {
+  orgId             String    @map("org_id")
+  ticketId          String    @map("ticket_id") @db.Uuid
+  projectId         String    @map("project_id") @db.Uuid
+  /// linear (check no banco)
+  provider          String
+  /// issue | project (check no banco)
+  kind              String
+  externalId        String    @map("external_id")
+  externalKey       String?   @map("external_key")
+  externalUrl       String?   @map("external_url")
+  externalParentId  String?   @map("external_parent_id")
+  externalProjectId String?   @map("external_project_id")
+  sourceSnapshot    Json      @map("source_snapshot")
+  appliedSnapshot   Json      @map("applied_snapshot")
+  externalUpdatedAt DateTime? @map("external_updated_at") @db.Timestamptz(3)
+  firstImportedAt   DateTime  @default(now()) @map("first_imported_at") @db.Timestamptz(3)
+  lastImportedAt    DateTime  @default(now()) @map("last_imported_at") @db.Timestamptz(3)
+  missingSince      DateTime? @map("missing_since") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  ticket       Ticket       @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+
+  @@id([orgId, ticketId])
+  @@unique([orgId, provider, kind, externalId], map: "ticket_external_refs_external_key")
+  @@index([orgId, projectId])
+  @@map("ticket_external_refs")
+}
+
+/// Uma rodada de importação de um projeto ligado (ADR 0060, seção 3; migration 0038). No máximo uma não terminada por projeto (índice
+/// único parcial, só no SQL). A aplicação lê, cria e atualiza; não apaga.
+model ExternalImportRun {
+  orgId              String    @map("org_id")
+  id                 String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId          String    @map("project_id") @db.Uuid
+  provider           String
+  startedByPersonId  String    @map("started_by_person_id") @db.Uuid
+  /// first | reimport (check no banco)
+  mode               String
+  /// projects | issues | hierarchy | mentions | categorize | done | failed (check no banco)
+  phase              String
+  cursor             String?
+  destinationTicketId String?  @map("destination_ticket_id") @db.Uuid
+  categorize         Boolean   @default(false)
+  counts             Json      @default("{}")
+  totalExpected      Int?      @map("total_expected")
+  waitUntil          DateTime? @map("wait_until") @db.Timestamptz(3)
+  lastErrorCode      String?   @map("last_error_code")
+  /// Itens por página de issues (1 a 250): cai à metade quando a resposta estoura o teto do corpo.
+  pageSize           Int       @default(50) @map("page_size")
+  /// Passos seguidos que falharam com o mesmo código (zera no primeiro que grava).
+  errorStreak        Int       @default(0) @map("error_streak")
+  /// Um destino foi escolhido ao abrir: se `destination_ticket_id` virar nulo, o ticket foi apagado.
+  hasDestination     Boolean   @default(false) @map("has_destination")
+  startedAt          DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  finishedAt         DateTime? @map("finished_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  project      Project      @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
+  startedBy    Person       @relation("ImportRunStartedBy", fields: [orgId, startedByPersonId], references: [orgId, id])
+  destination  Ticket?      @relation(fields: [orgId, projectId, destinationTicketId], references: [orgId, projectId, id], onDelete: SetNull)
+
+  @@id([orgId, id])
+  @@index([orgId, projectId, startedAt])
+  @@map("external_import_runs")
 }

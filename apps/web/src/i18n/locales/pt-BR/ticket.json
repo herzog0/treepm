@@ -293,5 +293,13 @@
     "decrease": "Diminuir a prioridade",
     "invalid": "A prioridade é um número inteiro de -999 a 999.",
     "inherited": "vale {{value}}, de"
+  },
+  "linear": {
+    "view": "Ver no Linear",
+    "viewKey": "Ver no Linear · {{key}}",
+    "viewKeyLabel": "Ver {{key}} no Linear (abre em outra aba)",
+    "viewLabel": "Ver no Linear (abre em outra aba)",
+    "plain": "Linear",
+    "plainKey": "Linear · {{key}}"
   }
 }

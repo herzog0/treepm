@@ -49,5 +49,101 @@
     "importing": "Importing…",
     "importCount_one": "Import {{count}} ticket",
     "importCount_other": "Import {{count}} tickets"
+  },
+  "linear": {
+    "tabs": {
+      "label": "Import source",
+      "list": "From a list",
+      "linear": "From Linear"
+    },
+    "title": "Import from Linear",
+    "intro": "Bring the issues of the Linear team linked to this project. The import only reads Linear; nothing is written there.",
+    "loading": "Checking the link with Linear…",
+    "retry": "Try again",
+    "openSettings": "Open Settings → Linear",
+    "actingAs": "While acting as someone else, the Linear import is not available: the key is personal. Go back to being yourself.",
+    "unlinked": {
+      "title": "This project is not linked to Linear yet",
+      "canLink": "Link the project to a Linear team in Settings → Linear. The link is permanent, and it is what avoids duplicating issues in a later import.",
+      "cannotLink": "A project administrator needs to link it to a Linear team, in Settings → Linear."
+    },
+    "noKey": {
+      "title": "Your Linear key is missing",
+      "body": "To import into this project, connect your key for the {{workspace}} workspace in Settings → Linear."
+    },
+    "wrongKey": {
+      "title": "Your key does not work for this project",
+      "body": "It is linked to the {{team}} team of the {{workspace}} workspace. In Settings → Linear, use a key from that workspace that can see the team."
+    },
+    "source": "Source",
+    "destination": "Destination",
+    "root": "Project root",
+    "change": "Change",
+    "picker": {
+      "label": "Choose the destination",
+      "filter": "Filter tickets",
+      "empty": "No tickets found.",
+      "loading": "Loading tickets…",
+      "failed": "Could not load the tickets."
+    },
+    "start": "Import",
+    "starting": "Opening…",
+    "how": "The import moves in short steps. If the tab closes, it continues where it stopped when someone comes back to this screen. If Linear asks to wait, the screen shows the time it comes back.",
+    "running": "Importing…",
+    "progress": "{{done}} of {{total}}",
+    "canClose": "you can close this screen",
+    "bar": "Import progress",
+    "phase": {
+      "projects": "Linear projects",
+      "issues": "Issues",
+      "hierarchy": "Link sub-issues to their parents",
+      "mentions": "Linking mentions",
+      "list": "Import phases"
+    },
+    "phaseState": {
+      "done": "done",
+      "doing": "in progress",
+      "todo": "upcoming"
+    },
+    "announce": {
+      "projects": "Importing the Linear projects.",
+      "issues": "Importing the issues.",
+      "hierarchy": "Linking sub-issues to their parents.",
+      "mentions": "Linking the mentions between tickets.",
+      "done": "Import finished.",
+      "waiting": "Linear asked to wait.",
+      "abandoned": "Import abandoned."
+    },
+    "waiting": "Linear asked to wait. The import resumes at {{time}}.",
+    "retrying": "Linear did not respond. Trying again shortly…",
+    "gaveUp": "Linear did not respond and the import stopped. What was already imported stays; it continues where it stopped.",
+    "continue": "Continue",
+    "done": {
+      "title": "Import finished",
+      "created": "Created",
+      "existing": "Already existed",
+      "elsewhere": "In another project",
+      "flattened": "Flattened",
+      "skipped": "Skipped",
+      "skippedInvalid": "Skipped for invalid format",
+      "withoutDescription": "No description (too large)",
+      "movedOutOfIdea": "Moved out of an idea",
+      "assigneeEmailUnavailable": "Linear did not let us read the assignees' e-mails; nobody was assigned.",
+      "flattenedNote": "Flattened: placed one level above the original because of the tree depth limit.",
+      "skippedNote": "Skipped: could not be linked to their parents (for example, a cycle in the hierarchy).",
+      "openMap": "Open on the map",
+      "noReimport": "Importing again is not available yet.",
+      "counts": "Import counts"
+    },
+    "abandon": {
+      "button": "Abandon import",
+      "confirmLabel": "Confirm abandoning",
+      "confirmBody": "What was already imported stays in the project. This import stops here and you can start another one later.",
+      "confirm": "Abandon",
+      "back": "Back",
+      "previous_zero": "Previous import abandoned: {{count}} created",
+      "previous_one": "Previous import abandoned: {{count}} created",
+      "previous_other": "Previous import abandoned: {{count}} created"
+    }
   }
 }

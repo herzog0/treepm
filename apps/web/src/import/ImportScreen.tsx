@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
-import type { ApiClient, ImportItem, Me, TicketStatus } from "../api/client.js";
+import type { ApiClient, ImportItem, LinearConnection, Me, TicketStatus } from "../api/client.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { useTranslation } from "react-i18next";
 import { LoadError } from "../LoadError.js";
@@ -8,6 +8,8 @@ import { StatusMark } from "../map/StatusMark.js";
 import { useStatusText } from "../map/nodeContent.js";
 import { useAction } from "../panel/useAction.js";
 import { parseTicketList, useTicketListIssueText } from "../tickets/parseTicketList.js";
+import { safe } from "../panel/safe.js";
+import { LinearImportPanel } from "./LinearImport.js";
 import { canCreateTickets } from "./permissions.js";
 import "./import.css";
 import { useDescribeApiError } from "../api/errorText.js";
@@ -18,6 +20,8 @@ export interface ImportScreenProps {
   projectId: string | null;
   /** Volta ao mapa: pelo "Cancelar", pelo "Voltar ao mapa" ou depois de importar. */
   onExit: () => void;
+  /** Leva às Configurações → Linear (a ligação do projeto e a chave pessoal moram lá). */
+  onOpenSettings?: () => void;
 }
 
 const MARKERS: readonly { marker: string; status: TicketStatus }[] = [
@@ -74,7 +78,7 @@ function Unavailable({ message, onExit }: { message: string; onExit: () => void 
   );
 }
 
-export function ImportScreen({ client, me, projectId, onExit }: ImportScreenProps) {
+export function ImportScreen({ client, me, projectId, onExit, onOpenSettings }: ImportScreenProps) {
   const { t } = useTranslation("import");
   const projects = useApiResource(() => client.listProjects());
   const project = projects.state.status === "ready" ? (projects.state.data.find((entry) => entry.id === projectId) ?? null) : null;
@@ -89,7 +93,7 @@ export function ImportScreen({ client, me, projectId, onExit }: ImportScreenProp
         <Unavailable message={t("unavailable.noPermission")} onExit={onExit} />
       )}
       {project && canCreateTickets(me, project) && (
-        <ImportForm client={client} projectId={project.id} projectKey={project.key} projectName={project.name} onExit={onExit} />
+        <ImportForm client={client} projectId={project.id} projectKey={project.key} projectName={project.name} onExit={onExit} {...(onOpenSettings ? { onOpenSettings } : {})} />
       )}
     </main>
   );
@@ -101,9 +105,102 @@ interface ImportFormProps {
   projectKey: string;
   projectName: string;
   onExit: () => void;
+  onOpenSettings?: () => void;
 }
 
-function ImportForm({ client, projectId, projectKey, projectName, onExit }: ImportFormProps) {
+type Tab = "list" | "linear";
+type LinearEntry = { status: "loading" } | { status: "off" } | { status: "on"; connection: LinearConnection; initialTab: Tab };
+
+/**
+ * Se a importação do Linear (ADR 0060) aparece nesta tela: só quando o servidor a tem configurada. A aba inicial é a do Linear
+ * quando a pessoa veio das Configurações (`#linear`) ou quando já há uma rodada aberta no projeto, que a tela retoma sozinha.
+ * Qualquer falha ao perguntar deixa a tela como era, só com a lista.
+ */
+function useLinearEntry(client: ApiClient, projectId: string): LinearEntry {
+  const [entry, setEntry] = useState<LinearEntry>({ status: "loading" });
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const connection = await safe(() => client.getLinearConnection());
+      if (!active) return;
+      if (!connection.ok || !connection.data.configured) return setEntry({ status: "off" });
+      const current = await safe(() => client.getCurrentLinearRun(projectId));
+      if (!active) return;
+      const open = current.ok && current.data.run !== null && !current.data.run.done;
+      setEntry({ status: "on", connection: connection.data, initialTab: open || window.location.hash === "#linear" ? "linear" : "list" });
+    })();
+    return () => {
+      active = false;
+    };
+  }, [client, projectId]);
+  return entry;
+}
+
+function ImportForm({ client, projectId, projectKey, projectName, onExit, onOpenSettings }: ImportFormProps) {
+  const { t } = useTranslation("import");
+  const entry = useLinearEntry(client, projectId);
+  // Sem Linear a tela é a de sempre; com ele, espera a pergunta (rápida) para já abrir na aba certa.
+  if (entry.status === "loading") return <p role="status">{t("loading")}</p>;
+  return <ImportTabs client={client} projectId={projectId} projectKey={projectKey} projectName={projectName} onExit={onExit} onOpenSettings={onOpenSettings} entry={entry} />;
+}
+
+interface ImportTabsProps extends ImportFormProps {
+  entry: Exclude<LinearEntry, { status: "loading" }>;
+}
+
+function ImportTabs({ client, projectId, projectKey, projectName, onExit, onOpenSettings, entry }: ImportTabsProps) {
+  const { t } = useTranslation("import");
+  const [tab, setTab] = useState<Tab>(entry.status === "on" ? entry.initialTab : "list");
+  const tabsId = useId();
+  const onLinear = entry.status === "on" && tab === "linear";
+  return (
+    <>
+      <header className="import-header">
+        <nav className="import-path" aria-label={t("header.path")}>
+          <code>{projectKey}</code>
+          <span>{projectName}</span>
+        </nav>
+        <h1>{onLinear ? t("linear.title") : t("header.title")}</h1>
+        <p>{onLinear ? t("linear.intro") : t("header.intro")}</p>
+        {entry.status === "on" && (
+          <div className="import-tabs" role="tablist" aria-label={t("linear.tabs.label")}>
+            {(["list", "linear"] as const).map((id) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                id={`${tabsId}-${id}`}
+                aria-selected={tab === id}
+                aria-controls={`${tabsId}-panel-${id}`}
+                tabIndex={tab === id ? 0 : -1}
+                onClick={() => setTab(id)}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                  event.preventDefault();
+                  const next = id === "list" ? "linear" : "list";
+                  setTab(next);
+                  document.getElementById(`${tabsId}-${next}`)?.focus();
+                }}
+              >
+                {t(id === "list" ? "linear.tabs.list" : "linear.tabs.linear")}
+              </button>
+            ))}
+          </div>
+        )}
+      </header>
+      <div id={`${tabsId}-panel-list`} role={entry.status === "on" ? "tabpanel" : undefined} aria-labelledby={entry.status === "on" ? `${tabsId}-list` : undefined} hidden={onLinear}>
+        <ListImport client={client} projectId={projectId} onExit={onExit} />
+      </div>
+      {entry.status === "on" && (
+        <div id={`${tabsId}-panel-linear`} role="tabpanel" aria-labelledby={`${tabsId}-linear`} hidden={!onLinear}>
+          {onLinear && <LinearImportPanel client={client} projectId={projectId} connection={entry.connection} onExit={onExit} onOpenSettings={onOpenSettings ?? onExit} />}
+        </div>
+      )}
+    </>
+  );
+}
+
+function ListImport({ client, projectId, onExit }: { client: ApiClient; projectId: string; onExit: () => void }) {
   const { t } = useTranslation("import");
   const describeError = useDescribeApiError();
   const describeIssue = useTicketListIssueText();
@@ -137,15 +234,6 @@ function ImportForm({ client, projectId, projectKey, projectName, onExit }: Impo
 
   return (
     <>
-      <header className="import-header">
-        <nav className="import-path" aria-label={t("header.path")}>
-          <code>{projectKey}</code>
-          <span>{projectName}</span>
-        </nav>
-        <h1>{t("header.title")}</h1>
-        <p>{t("header.intro")}</p>
-      </header>
-
       <div className="import-columns">
         <section className="import-input" aria-labelledby="import-list-label">
           <div className="import-label-row">

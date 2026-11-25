@@ -20,14 +20,14 @@ const teams = [
   makeLinearTeam("OPS", "Operações", { linkedElsewhere: true }),
 ];
 
-function setup(options: { me?: Me; linear?: FakeLinear | undefined; tweak?: (client: ReturnType<typeof makeClient>) => void } = {}) {
+function setup(options: { me?: Me; linear?: FakeLinear | undefined; onOpenImport?: (projectId: string) => void; tweak?: (client: ReturnType<typeof makeClient>) => void } = {}) {
   window.location.hash = "linear";
   const me = options.me ?? makeMe();
   const client = makeClient({ me, projects, ...(options.linear ? { linear: options.linear } : {}) });
   options.tweak?.(client);
   render(
     <MemoryPreferencesProvider onSave={vi.fn()}>
-      <SettingsScreen client={client} me={me} />
+      <SettingsScreen client={client} me={me} {...(options.onOpenImport ? { onOpenImport: options.onOpenImport } : {})} />
     </MemoryPreferencesProvider>,
   );
   return { client };
@@ -344,5 +344,27 @@ describe("Configurações › Linear › ligar um projeto", () => {
     await userEvent.tab({ shift: true });
     expect(document.activeElement).toBe(submit);
     expect(cancel).toBeInTheDocument();
+  });
+});
+
+describe("Configurações › Linear › Abrir importação", () => {
+  it("o time ligado a um projeto ganha o botão, que leva à importação desse projeto", async () => {
+    const onOpenImport = vi.fn();
+    setup({ linear: connected(), onOpenImport });
+    const row = (await screen.findByText("Engenharia")).closest("li")!;
+    await userEvent.click(within(row).getByRole("button", { name: "Abrir a importação do projeto TreePM" }));
+    expect(onOpenImport).toHaveBeenCalledWith("p9");
+  });
+
+  it("times livres ou de projeto que a pessoa não enxerga não têm o botão", async () => {
+    setup({ linear: connected(), onOpenImport: vi.fn() });
+    await screen.findByText("Design");
+    expect(screen.getAllByRole("button", { name: /Abrir a importação/ })).toHaveLength(1);
+  });
+
+  it("sem o atalho de navegação, o botão não aparece", async () => {
+    setup({ linear: connected() });
+    await screen.findByText("Engenharia");
+    expect(screen.queryByRole("button", { name: /Abrir a importação/ })).not.toBeInTheDocument();
   });
 });

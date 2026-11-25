@@ -42,7 +42,7 @@ export function useLinearConnection(client: ApiClient | undefined, me: Me | null
 export type LinearState = ReturnType<typeof useLinearConnection>;
 
 /** Seção "Linear" das Configurações: a chave pessoal e os times que ela enxerga, de onde se liga um projeto (ADR 0060). */
-export function LinearSettings({ client, me, linear }: { client: ApiClient; me: Me; linear: LinearState }) {
+export function LinearSettings({ client, me, linear, onOpenImport }: { client: ApiClient; me: Me; linear: LinearState; onOpenImport?: ((projectId: string) => void) | undefined }) {
   const { t } = useTranslation("settings");
   if (me.actingAs != null) {
     // A chave é pessoal: agindo como outra pessoa nenhuma rota do Linear vale, e a tela nem pergunta.
@@ -55,7 +55,7 @@ export function LinearSettings({ client, me, linear }: { client: ApiClient; me: 
   return (
     <>
       <KeyCard client={client} linear={linear} />
-      {linear.connection !== null && <TeamsCard key={`${linear.connection.workspace.id}|${linear.connection.connectedAt}`} client={client} me={me} linear={linear} connection={linear.connection} />}
+      {linear.connection !== null && <TeamsCard key={`${linear.connection.workspace.id}|${linear.connection.connectedAt}`} client={client} me={me} linear={linear} connection={linear.connection} onOpenImport={onOpenImport} />}
       <p className="linear-footnote">{t("linear.key.footnote")}</p>
     </>
   );
@@ -161,7 +161,7 @@ function KeyForm({ client, guide, onConnected, onCancel }: { client: ApiClient; 
   );
 }
 
-function TeamsCard({ client, me, linear, connection }: { client: ApiClient; me: Me; linear: LinearState; connection: NonNullable<Connection> }) {
+function TeamsCard({ client, me, linear, connection, onOpenImport }: { client: ApiClient; me: Me; linear: LinearState; connection: NonNullable<Connection>; onOpenImport: ((projectId: string) => void) | undefined }) {
   const { t } = useTranslation("settings");
   const describeError = useDescribeApiError();
   const titleId = useId();
@@ -211,7 +211,7 @@ function TeamsCard({ client, me, linear, connection }: { client: ApiClient; me: 
         {state.status === "ready" && state.data.length > 0 && (
           <ul ref={listRef} tabIndex={-1} className="linear-teams" aria-labelledby={titleId}>
             {state.data.map((team) => (
-              <TeamRow key={team.id} team={team} onLink={(opener) => setLinking({ team, opener })} />
+              <TeamRow key={team.id} team={team} onLink={(opener) => setLinking({ team, opener })} onOpenImport={onOpenImport} />
             ))}
           </ul>
         )}
@@ -221,7 +221,7 @@ function TeamsCard({ client, me, linear, connection }: { client: ApiClient; me: 
   );
 }
 
-function TeamRow({ team, onLink }: { team: LinearTeam; onLink: (opener: HTMLElement) => void }) {
+function TeamRow({ team, onLink, onOpenImport }: { team: LinearTeam; onLink: (opener: HTMLElement) => void; onOpenImport: ((projectId: string) => void) | undefined }) {
   const { t } = useTranslation("settings");
   const linked = team.linkedProject !== null;
   const name = (
@@ -237,7 +237,13 @@ function TeamRow({ team, onLink }: { team: LinearTeam; onLink: (opener: HTMLElem
         title={linked ? <>{name}{" "}<span className="linear-badge linear-badge-lock">{t("linear.teams.permanent")}</span></> : <span className={team.linkedElsewhere ? "linear-team-off" : undefined}>{name}</span>}
         hint={linked ? t("linear.teams.linkedTo", { project: team.linkedProject!.name }) : team.linkedElsewhere ? t("linear.teams.elsewhere") : t("linear.teams.free")}
         control={
-          linked ? undefined : team.linkedElsewhere ? (
+          linked ? (
+            onOpenImport ? (
+              <button type="button" aria-label={t("linear.teams.openImportLabel", { project: team.linkedProject!.name })} onClick={() => onOpenImport(team.linkedProject!.id)}>
+                {t("linear.teams.openImport")}
+              </button>
+            ) : undefined
+          ) : team.linkedElsewhere ? (
             <span className="linear-badge">{t("linear.teams.unavailable")}</span>
           ) : (
             <button type="button" className="primary" aria-label={t("linear.teams.linkLabel", { key: team.key })} onClick={(event) => onLink(event.currentTarget)}>

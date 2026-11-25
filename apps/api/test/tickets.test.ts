@@ -50,6 +50,7 @@ describe("criação e leitura", () => {
       priority: 0,
       blocked: false,
       effectivePriority: { value: 0, from: null },
+      externalSource: null,
       idea: null,
       descriptionExcerpt: "",
       createdByPersonId: h.world().people.admin,

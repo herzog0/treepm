@@ -33,6 +33,8 @@ export interface SectionContext {
   /** A chave do Linear da pessoa e se o servidor o tem configurado (ADR 0060). */
   linear: LinearState;
   tokenDraft: McpTokenDraft;
+  /** Abre a importação do Linear de um projeto (a casca leva à tela, no projeto certo). */
+  onOpenImport: ((projectId: string) => void) | undefined;
   onConsentChange: (() => void) | undefined;
   /** Id do título da seção aberta (para nomear listas e grupos). */
   titleId: string;
@@ -137,6 +139,6 @@ export const DEFAULT_SETTINGS_SECTIONS: readonly SettingsSection[] = [
     lead: (t) => t("sections.linear.lead"),
     adminTag: false,
     available: (context) => withApi(context) && context.linear.configured,
-    render: ({ client, me, linear }) => <LinearSettings client={client!} me={me!} linear={linear} />,
+    render: ({ client, me, linear, onOpenImport }) => <LinearSettings client={client!} me={me!} linear={linear} onOpenImport={onOpenImport} />,
   },
 ];

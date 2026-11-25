@@ -250,7 +250,9 @@
       "link": "Ligar a un proyecto…",
       "linkLabel": "Ligar el equipo {{key}} a un proyecto",
       "elsewhere": "Ya ligado a un proyecto que no ves",
-      "unavailable": "no disponible"
+      "unavailable": "no disponible",
+      "openImport": "Abrir importación",
+      "openImportLabel": "Abrir la importación del proyecto {{project}}"
     },
     "dialog": {
       "title": "¿Ligar {{project}} al equipo {{team}}?",

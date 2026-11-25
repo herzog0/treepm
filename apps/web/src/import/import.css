@@ -45,3 +45,70 @@
   .import-path code, .import-legend code, .import-tree-row small { font-size: 12px; }
   .import-tree-row { min-height: 44px; }
 }
+
+/* Abas "Por lista" e "Do Linear" (ADR 0060). */
+.import-tabs { display: flex; gap: 4px; margin-top: 8px; border-bottom: 1px solid var(--tp-divider); }
+.import-tabs [role="tab"] { min-height: 36px; padding: 0 14px; border: 0; border-top: 2px solid transparent; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--tp-text-2); font: inherit; cursor: pointer; }
+.import-tabs [role="tab"][aria-selected="true"] { border-bottom-color: var(--tp-accent); color: var(--tp-text); font-weight: 600; }
+.import-tabs [role="tab"]:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: -2px; }
+.limp-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+
+/* A importação do Linear: cartões na largura da coluna, medidas dos tokens. */
+.linear-import { display: grid; gap: 16px; max-width: 720px; }
+.linear-import-card { display: grid; gap: 14px; min-width: 0; padding: 16px; border: 1px solid var(--tp-divider); border-radius: var(--tp-radius-panel); background: var(--tp-surface); }
+.linear-import-card h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.linear-import-notice p { margin: 0; color: var(--tp-text-2); line-height: 1.5; }
+.linear-import-facts { display: grid; gap: 12px; margin: 0; }
+.linear-import-facts > div { display: grid; grid-template-columns: minmax(0, 88px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.linear-import-facts dt { color: var(--tp-text-3); font-size: 12px; font-weight: 500; line-height: 32px; }
+.linear-import-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; line-height: 32px; }
+.linear-import-facts code, .linear-import-key { color: var(--tp-text-3); font-family: var(--tp-font-mono); font-size: 12px; }
+.linear-import-destination { display: grid; gap: 8px; }
+.linear-import-destination-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.linear-import-picker { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-field); background: var(--tp-card); line-height: 1.4; }
+.linear-import-picker-list { display: grid; max-height: 220px; overflow: auto; gap: 2px; }
+.linear-import-picker-list button { display: flex; justify-content: flex-start; gap: 8px; border-color: transparent; background: transparent; text-align: left; }
+.linear-import-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.linear-import-how { margin: 0; color: var(--tp-text-3); font-size: 12px; line-height: 1.5; }
+.linear-import-running { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 12px; }
+.linear-import-running .linear-import-count { min-width: 8ch; color: var(--tp-text-2); font-variant-numeric: tabular-nums; }
+.linear-import-close { justify-self: end; color: var(--tp-text-3); font-size: 12px; }
+.linear-import-bar { position: relative; height: 6px; overflow: hidden; border-radius: 3px; background: var(--tp-divider); }
+.linear-import-bar > span { display: block; height: 100%; border-radius: 3px; background: var(--tp-accent); transition: width 0.3s ease; }
+.linear-import-bar.is-indeterminate > span { width: 30%; animation: linear-import-slide 1.4s ease-in-out infinite; }
+@keyframes linear-import-slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .linear-import-bar.is-indeterminate > span { width: 100%; animation: none; opacity: 0.5; } .linear-import-bar > span { transition: none; } }
+.linear-import-phases { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.linear-import-phases li { display: flex; align-items: center; gap: 8px; min-height: 24px; color: var(--tp-text-3); }
+.linear-import-phases li[data-state="done"] { color: var(--tp-text-2); }
+.linear-import-phases li[data-state="done"] .linear-import-mark { color: var(--tp-done); }
+.linear-import-phases li[data-state="doing"] { color: var(--tp-text); }
+.linear-import-phases li[data-state="doing"] .linear-import-mark { color: var(--tp-accent-soft); }
+.linear-import-mark { width: 16px; text-align: center; }
+.linear-import-note { margin: 0; color: var(--tp-text-2); line-height: 1.5; }
+.linear-import-problem { display: grid; gap: 10px; }
+.linear-import-problem p { margin: 0; line-height: 1.5; }
+.linear-import-counts { display: flex; flex-wrap: wrap; gap: 12px 28px; margin: 0; }
+.linear-import-counts > div { display: flex; flex-direction: column; gap: 2px; }
+.linear-import-counts dt { order: 2; color: var(--tp-text-3); font-size: 12px; }
+.linear-import-counts dd { order: 1; margin: 0; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) {
+  .import-tabs [role="tab"] { min-height: 44px; }
+  .linear-import-card button { min-height: 44px; }
+  .linear-import-picker-list button { min-height: 44px; }
+  .linear-import-facts > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .linear-import-facts dt, .linear-import-facts dd { line-height: 1.4; }
+  .linear-import-running { grid-template-columns: auto 1fr; }
+  .linear-import-close { grid-column: 1 / -1; justify-self: start; }
+  .linear-import-picker input { min-height: 44px; font-size: 16px; }
+}
+/* Abandonar a importação (ADR 0060): discreto durante a rodada, em destaque quando continuar não adianta. */
+.linear-import-previous { margin: 0; padding: 8px 12px; border-left: 2px solid var(--tp-review); border-radius: var(--tp-radius-control); background: var(--tp-bar); color: var(--tp-text-2); line-height: 1.5; }
+.linear-import-warning { padding: 8px 12px; border-left: 2px solid var(--tp-review); border-radius: var(--tp-radius-control); background: var(--tp-bar); }
+.linear-import-abandon { display: grid; gap: 8px; justify-items: start; padding-top: 12px; border-top: 1px solid var(--tp-divider); }
+.linear-import-abandon-button.text { min-height: 28px; padding: 0 4px; border-color: transparent; background: transparent; color: var(--tp-text-2); font-size: 12px; text-decoration: underline; cursor: pointer; }
+.linear-import-abandon-button.is-prominent { border-color: var(--tp-danger-border); background: var(--tp-danger-surface); color: var(--tp-danger-text); }
+.linear-import-abandon-confirm { display: grid; gap: 10px; width: 100%; box-sizing: border-box; padding: 12px; border: 1px solid var(--tp-danger-border); border-radius: var(--tp-radius-field); background: var(--tp-danger-surface); }
+.linear-import-abandon-confirm p { margin: 0; line-height: 1.5; }
+.linear-import-abandon-confirm button.destructive { border-color: var(--tp-danger-border); color: var(--tp-danger-text); }
+@media (max-width: 720px) { .linear-import-abandon-button.text { min-height: 44px; padding: 0 8px; font-size: 14px; } }

@@ -78,11 +78,66 @@ describe("rotas do Linear (ADR 0060)", () => {
   });
 });
 
+const runView = {
+  id: ID, projectId: ID, mode: "first", phase: "issues", done: false, categorize: false, categorizeAvailable: false,
+  errorStreak: 0, pageSize: 50, counts: { issuesCreated: 10, issuesSeen: 10 }, totalExpected: 412, waitUntil: null, lastErrorCode: null, destinationTicketId: null,
+  startedBy: { id: ID }, startedAt: "2026-11-24T10:00:00.000Z", updatedAt: "2026-11-24T10:01:00.000Z", finishedAt: null,
+};
+
+describe("importação em passos do Linear (ADR 0060, seção 3)", () => {
+  it("abre a rodada com o destino", async () => {
+    const { client, fetchImpl } = setup(runView, 201);
+    expect(await client.openLinearRun(ID, { destinationTicketId: null })).toEqual({ ok: true, data: runView });
+    expect(lastCall(fetchImpl)).toEqual({ path: `/api/projects/${ID}/linear/runs`, method: "POST", body: { destinationTicketId: null } });
+  });
+  it("lê a rodada atual, que pode não existir", async () => {
+    const { client, fetchImpl } = setup({ run: runView });
+    expect(await client.getCurrentLinearRun(ID)).toEqual({ ok: true, data: { run: runView } });
+    expect(lastCall(fetchImpl)).toMatchObject({ path: `/api/projects/${ID}/linear/runs/current`, method: "GET" });
+    expect(await setup({ run: null }).client.getCurrentLinearRun(ID)).toEqual({ ok: true, data: { run: null } });
+  });
+  it("dá um passo", async () => {
+    const { client, fetchImpl } = setup({ ...runView, waitUntil: "2026-11-24T10:05:00.000Z" });
+    const result = await client.stepLinearRun(ID, ID);
+    expect(result).toMatchObject({ ok: true, data: { waitUntil: "2026-11-24T10:05:00.000Z" } });
+    expect(lastCall(fetchImpl)).toMatchObject({ path: `/api/projects/${ID}/linear/runs/${ID}/step`, method: "POST" });
+  });
+  it("aceita a fase 'mentions', a falha, os contadores novos e o booleano em counts", async () => {
+    const view = { ...runView, phase: "mentions", errorStreak: 3, pageSize: 50, counts: { issuesCreated: 10, skippedInvalid: 2, withoutDescription: 1, movedOutOfIdea: 4, assigneeEmailUnavailable: true } };
+    expect(await setup(view).client.stepLinearRun(ID, ID)).toEqual({ ok: true, data: view });
+    const failedView = { ...runView, phase: "failed", done: true, errorStreak: 0, pageSize: 50, lastErrorCode: "step_failed" };
+    expect(await setup({ run: failedView }).client.getCurrentLinearRun(ID)).toEqual({ ok: true, data: { run: failedView } });
+  });
+  it("abandona a rodada", async () => {
+    const abandoned = { ...runView, phase: "failed", done: true, errorStreak: 0, pageSize: 50 };
+    const { client, fetchImpl } = setup(abandoned);
+    expect(await client.abandonLinearRun(ID, ID)).toEqual({ ok: true, data: abandoned });
+    expect(lastCall(fetchImpl)).toMatchObject({ path: `/api/projects/${ID}/linear/runs/${ID}/abandon`, method: "POST" });
+  });
+  it("o detalhe aceita origem do Linear sem endereço (url nula)", async () => {
+    const detail = { id: ID, projectId: ID, number: 1, parentId: null, progress: null, idea: null, assigneeIds: [], descriptionExcerpt: "", agentWork: null, key: "TREEPM-1", title: "a", status: "todo", description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: ID, createdAt: "x", updatedAt: "x" };
+    const source = { provider: "linear", key: "ENG-123", url: null };
+    const result = await setup({ ...detail, externalSource: source }).client.getTicket(ID);
+    expect(result.ok && result.data.externalSource).toEqual(source);
+  });
+  it("uma rodada fora do contrato vira indisponível", async () => {
+    expect(await setup({ ...runView, phase: "nope" }).client.stepLinearRun(ID, ID)).toEqual({ ok: false, error: { kind: "unavailable" } });
+  });
+  it("o detalhe do ticket traz a origem do Linear, ou nenhuma", async () => {
+    const detail = { id: ID, projectId: ID, number: 1, parentId: null, progress: null, idea: null, assigneeIds: [], descriptionExcerpt: "", agentWork: null, key: "TREEPM-1", title: "a", status: "todo", description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: ID, createdAt: "x", updatedAt: "x" };
+    const source = { provider: "linear", key: "ENG-123", url: "https://linear.app/acme/issue/ENG-123/x" };
+    const withSource = await setup({ ...detail, externalSource: source }).client.getTicket(ID);
+    expect(withSource.ok && withSource.data.externalSource).toEqual(source);
+  });
+});
+
 describe("frases dos erros do Linear", () => {
   const phrase = (code: string, details?: Record<string, unknown>) => describeApiError(i18n.t, { kind: "unavailable", code, ...(details ? { details } : {}) });
   it.each([
     "linear_key_invalid", "linear_unavailable", "linear_not_connected", "linear_not_configured", "linear_confirmation_mismatch",
     "linear_already_linked", "linear_team_in_use", "linear_team_not_found", "project_archived", "not_while_acting_as",
+    "linear_run_open", "linear_reimport_not_available", "linear_step_in_progress", "structure_busy", "linear_not_linked", "linear_workspace_mismatch", "linear_team_not_visible",
+    "linear_destination_invalid", "linear_run_finished", "step_failed",
   ])("%s tem frase própria, não a genérica", (code) => {
     const text = phrase(code);
     expect(text).not.toBe(describeApiError(i18n.t, { kind: "unavailable" }));
