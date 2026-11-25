@@ -13,7 +13,7 @@ const priv = () => h.world().projects.priv;
 const open = () => h.world().projects.org;
 const P = () => h.world().people;
 
-const PEOPLE_TOOLS = ["list_people", "set_ticket_assignees"];
+const PEOPLE_TOOLS = ["list_people", "set_ticket_assignees", "list_comments", "get_ticket_history", "list_conversations", "get_conversation"];
 const NAMES: Record<string, string> = { admin: "Zelda Quimera", manager: "Orfeu Calcanhotto", contributor: "Brunilda Tamanduá", reader: "Xerxes Pimenteira", plain: "Ulisses Ventania", teamAdmin: "Hortência Bambolê", target: "Cássio Trovoada" };
 
 async function keys(on: { write?: boolean; people?: boolean; mcp?: boolean } = {}): Promise<void> {
@@ -150,6 +150,10 @@ describe("garantia central: sem o alcance efetivo, nenhuma resposta tem nome, id
     // Ferramentas do alcance: pedidas sem ele, a resposta é "não existe" e nada mais.
     list_people: [{}],
     set_ticket_assignees: [{ key: "PRIV-3", personIds: [] }],
+    list_comments: [{ key: "PRIV-3" }, { key: "PRIV-99" }],
+    get_ticket_history: [{ key: "PRIV-3" }, { key: "PRIV-1" }],
+    list_conversations: [{}],
+    get_conversation: [{ id: "00000000-0000-4000-8000-0000000000aa" }],
   };
   const forbidden = (): string[] => [...Object.values(P()), P().admin, ...Object.values(NAMES), ...Object.keys(NAMES).map((who) => `${who}@exemplo.test`), "@exemplo.test"];
 

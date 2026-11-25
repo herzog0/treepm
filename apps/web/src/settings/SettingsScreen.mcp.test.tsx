@@ -559,7 +559,7 @@ describe("Configurações › MCP: o alcance \"Pessoas e conversas\" (ADR 0062)"
     expect(toggle).not.toBeChecked();
     const switches = within(section()).getAllByRole("switch").map((entry) => entry.getAttribute("id"));
     expect(switches).toHaveLength(3);
-    expect(within(section()).getByText(/nomes de pessoas, responsáveis, comentários e as conversas do projeto de que a pessoa participa, inclusive mensagens de outras pessoas/)).toBeInTheDocument();
+    expect(within(section()).getByText(/nomes de pessoas, responsáveis, comentários, o histórico dos tickets e as conversas do projeto de que a pessoa participa, inclusive mensagens de outras pessoas/)).toBeInTheDocument();
     expect(within(section()).getByText(/não controla o que o cliente e o provedor dele fazem/)).toBeInTheDocument();
     await user.click(toggle);
     expect(client.setMcpPeopleEnabled).toHaveBeenCalledWith(true);

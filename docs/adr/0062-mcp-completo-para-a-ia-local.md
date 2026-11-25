@@ -103,3 +103,13 @@ Mover entre projetos fica fora: o token é de um projeto.
 - Definir responsáveis trava a linha do ticket, na tela e no MCP: duas definições simultâneas terminam em uma das duas listas. Identificador de pessoa em maiúsculas é normalizado nas duas portas.
 - Limites conhecidos: a memória de até 5 minutos da participação no Clerk (ADR 0038) vale também para a leitura de nomes; a escrita não a usa. Um responsável que saiu da organização continua aparecendo pelo nome no ticket, como na tela. Pessoas de teste aparecem em `list_people`, como na tela.
 - Em projeto privado, quem só tem acesso por um time ligado ao projeto não pode ser responsável nem aparece em `list_people`; é a regra da tela, e a dúvida foi levada a Teodoro.
+
+## Como ficou (fatia 3, 2026-11-25)
+
+- Quatro leituras, só com o alcance de pessoas: `list_comments`, `get_ticket_history`, `list_conversations`, `get_conversation`. Paginadas por cursor, com teto de 80.000 caracteres por resposta; item maior que o teto sai cortado com `truncated: true`.
+- Conversas: só as do projeto do token de que a pessoa participa, pela mesma regra da barra lateral, inclusive as fechadas. O recorte olha também a conversa de origem, porque uma thread do Meu chat que cita um ticket ganha o projeto no banco. Recusa idêntica para conversa inexistente, alheia, de outro projeto ou do Meu chat.
+- Thread de criação de ticket: saem o título e o estado, não a descrição do rascunho. Resumos gerados por IA não saem.
+- Histórico: sai por lista do que pode sair, por tipo de evento; tipo desconhecido sai só com o tipo e a data.
+- Todo texto que sai passa por um limpador (menção de pessoa vira `@Nome`, sem identificador) ou tem formato fechado, e isso é garantido por tipo. Nome de pessoa com forma de menção também vira "Unnamed person".
+- Ler pelo MCP não marca nada como lido nem reabre conversa.
+- A revisão de segurança achou expressões de busca de custo quadrático na limpeza de menções (uma chamada de 4,9 s de processador com texto hostil). Foram reescritas em tempo linear, no MCP e no domínio, o que também protege a tela ao salvar descrição e mensagem.

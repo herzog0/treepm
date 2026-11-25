@@ -18,6 +18,8 @@ import { AuthorizationService } from "../access/authorization.service.js";
 import { ProjectQueryService } from "../query/project-query.service.js";
 import { AgentWorkService } from "../tickets/agent-work.service.js";
 import { TicketCommentsService } from "../tickets/ticket-comments.service.js";
+import { TicketActivityService } from "../tickets/ticket-activity.service.js";
+import { ConversationService } from "../assistant/conversation.service.js";
 import { withStructureTimeoutTranslation } from "../tickets/structure-lock.js";
 import { TicketsService } from "../tickets/tickets.service.js";
 import { isConnectionWaitTimeout } from "../common/connection-wait.js";
@@ -91,6 +93,8 @@ export class McpGateway {
     @Inject(TicketCommentsService) private readonly comments: TicketCommentsService,
     @Inject(AgentWorkService) private readonly agentWork: AgentWorkService,
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
+    @Inject(TicketActivityService) private readonly ticketActivity: TicketActivityService,
+    @Inject(ConversationService) private readonly conversations: ConversationService,
   ) {
     this.ipLimiter = new RateLimiter(clock, IP_LIMIT_PER_MINUTE, IP_WINDOW_MS);
     this.writeLimiter = new RateLimiter(clock, WRITE_LIMIT_PER_MINUTE, IP_WINDOW_MS);
@@ -111,7 +115,7 @@ export class McpGateway {
       // As ferramentas de escrita só existem para token de escrita com a chave da organização ligada (ADR 0043).
       const canWrite = resolved.scope === "write" && resolved.writeEnabled;
       const services = { tickets: this.tickets, comments: this.comments, agentWork: this.agentWork, authorization: this.authorization };
-      return createProjectServer(run, this.query, base, canWrite ? { services, context: { ...base, tokenId: resolved.tokenId, fresh: resolved.fresh } } : undefined, resolved.people ? { assignablePeople: (tx, projectId) => this.tickets.assignablePeople(tx, projectId) } : undefined);
+      return createProjectServer(run, this.query, base, canWrite ? { services, context: { ...base, tokenId: resolved.tokenId, fresh: resolved.fresh } } : undefined, resolved.people ? { assignablePeople: (tx, projectId) => this.tickets.assignablePeople(tx, projectId) } : undefined, resolved.people ? { activity: this.ticketActivity, conversations: this.conversations, authorization: this.authorization } : undefined);
     };
     this.handler = createMcpHandler(factory, {
       legacy: "stateless",

@@ -87,6 +87,23 @@ type TicketRef = { id: string; key: string; title: string; projectId: string; ar
 /** O começo da mensagem para a lista: o elo de pessoa vira `@Nome` antes do corte, para o corte não partir um elo no meio. */
 const previewOf = (body: string): string => withoutPersonLinks(body).slice(0, PREVIEW_MAX);
 
+/** Uma conversa como o MCP a entrega (ADR 0062): ids de pessoa e texto cru; quem monta a resposta resolve os nomes e limpa as menções. */
+export type McpConversation = {
+  id: string;
+  kind: "ticket" | "general" | "thread";
+  purpose: "people" | "topic" | "creation" | null;
+  ticketKey: string | null;
+  title: string | null;
+  /** A mensagem que abriu a thread (cru), para o título quando a thread não tem um. */
+  openingBody: string | null;
+  participantIds: string[];
+  lastActivityAt: Date;
+  closed: boolean;
+  parentId: string | null;
+  creation: { state: string; ticketKey: string | null } | null;
+};
+export type McpMessage = { id: string; seq: bigint; authorPersonId: string | null; createdAt: Date; marker: "creation_opened" | null; body: string };
+
 type Stats = { unread: number; replyCount: number; lastReadSeq: bigint; preview: string | null; closed: boolean };
 
 /** O que a primeira transação da mensagem ao assistente leu: o que vai ao provedor e o que conferir na volta. */
@@ -498,6 +515,94 @@ export class ConversationService {
       },
       threads: threadIds.flatMap((id) => (cards.get(id) ? [cards.get(id) as ThreadCard] : [])),
     });
+  }
+
+  // ---- leitura para o MCP (ADR 0062, fatia 3) ----------------------------------------------------------------
+
+  /**
+   * O que a barra já filtra (participa, projeto que a pessoa enxerga, thread de criação só aberta) e mais o recorte do MCP: só o PROJETO do
+   * token, pela própria conversa e pela principal de onde ela descende (a thread de Meu chat tem projeto quando cita ticket, mas a raiz não).
+   * `null` quando a pessoa já não enxerga o projeto. É a UMA regra que a lista e a leitura do MCP usam.
+   */
+  private async mcpScope(tx: TenantClient, principal: Principal, projectId: string) {
+    const { visibleProjects, where } = await this.barFilter(tx, principal);
+    if (!visibleProjects.includes(projectId)) return null;
+    return { AND: [{ participants: { some: { personId: principal.person.id } } }, where, { projectId }, { root: { projectId } }] };
+  }
+
+  /** As conversas dadas (já dentro do recorte), como o MCP as entrega: nada de nome, só ids de pessoa; o texto vai cru para o MCP limpar. */
+  private async mcpCards(tx: TenantClient, principal: Principal, projectId: string, scope: NonNullable<Awaited<ReturnType<ConversationService["mcpScope"]>>>, convs: readonly NodeRow[]): Promise<McpConversation[]> {
+    const ids = convs.map((c) => c.id);
+    const [parts, stats, creations, refs] = await Promise.all([
+      this.participantsOf(tx, ids),
+      this.stats(tx, principal.person.id, ids),
+      // Pelo MCP, o rascunho só vale se for do projeto do token: de outro projeto (só com dado plantado), a thread some, sem título nem estado.
+      this.creationInfo(tx, principal, convs.filter((c) => c.purpose === "creation"), projectId),
+      this.ticketRefs(tx, convs.flatMap((c) => (c.ticketId ? [c.ticketId] : []))),
+    ]);
+    const openings = await tx.conversationMessage.findMany({ where: { id: { in: convs.flatMap((c) => (c.openingMessageId ? [c.openingMessageId] : [])) } }, select: { id: true, body: true } });
+    const openingBody = new Map(openings.map((m) => [m.id, m.body]));
+    // O pai só é dito quando a pessoa também lê o pai (e ele está no mesmo recorte): quem entrou numa thread sem ver a de cima não o descobre.
+    const parentIds = [...new Set(convs.flatMap((c) => (c.parentId ? [c.parentId] : [])))];
+    const readable = new Set((parentIds.length === 0 ? [] : await tx.conversation.findMany({ where: { AND: [{ id: { in: parentIds } }, scope] }, select: { id: true } })).map((c) => c.id));
+    return convs.flatMap((c): McpConversation[] => {
+      const creation = creations.get(c.id);
+      if (creation?.hidden) return [];
+      const marker = c.openingMessageId && !creation ? (openingBody.get(c.openingMessageId) ?? null) : null;
+      return [
+        {
+          id: c.id,
+          kind: c.kind as McpConversation["kind"],
+          purpose: c.purpose as McpConversation["purpose"],
+          ticketKey: c.ticketId ? (refs.get(c.ticketId)?.key ?? null) : null,
+          title: creation ? creation.title : c.title,
+          openingBody: marker,
+          participantIds: parts.get(c.id) ?? [],
+          lastActivityAt: c.lastActivityAt,
+          closed: stats.get(c.id)?.closed ?? false,
+          parentId: c.parentId && readable.has(c.parentId) ? c.parentId : null,
+          creation: creation ? { state: creation.block.state, ticketKey: creation.block.ticket?.key ?? null } : null,
+        },
+      ];
+    });
+  }
+
+  /** As conversas do projeto do token de que a pessoa participa (inclusive as que fechou), da mais recente para a mais antiga. */
+  async mcpList(tx: TenantClient, principal: Principal, projectId: string, page: { after: { at: Date; id: string } | null; limit: number }): Promise<{ items: McpConversation[]; more: boolean }> {
+    const scope = await this.mcpScope(tx, principal, projectId);
+    if (scope === null) return { items: [], more: false };
+    const keyset = page.after ? [{ OR: [{ lastActivityAt: { lt: page.after.at } }, { lastActivityAt: page.after.at, id: { lt: page.after.id } }] }] : [];
+    const rows = await tx.conversation.findMany({ where: { AND: [scope, ...keyset] }, orderBy: [{ lastActivityAt: "desc" }, { id: "desc" }], take: page.limit + 1, select: ConversationService.NODE_SELECT });
+    const shown = rows.slice(0, page.limit);
+    return { items: await this.mcpCards(tx, principal, projectId, scope, shown), more: rows.length > page.limit };
+  }
+
+  /**
+   * Uma conversa e as mensagens dela, da mais antiga para a mais nova, pelas mesmas regras da lista. Conversa que não existe, de outra pessoa,
+   * de outro projeto, do Meu chat ou que a pessoa não lê: o MESMO 404.
+   */
+  async mcpMessages(tx: TenantClient, principal: Principal, projectId: string, id: string, page: { afterSeq: bigint | null; limit: number }): Promise<{ conversation: McpConversation; messages: McpMessage[]; more: boolean }> {
+    const resolved = await this.access.resolve(tx, principal, id);
+    const scope = await this.mcpScope(tx, principal, projectId);
+    if (scope === null) throw notFound();
+    const inScope = await tx.conversation.findFirst({ where: { AND: [{ id }, scope] }, select: ConversationService.NODE_SELECT });
+    if (!inScope) throw notFound();
+    const [conversation] = await this.mcpCards(tx, principal, projectId, scope, [inScope]);
+    if (!conversation) throw notFound();
+    const conv = resolved.conv;
+    const after = page.afterSeq === null ? {} : { seq: { gt: page.afterSeq } };
+    const rows = await tx.conversationMessage.findMany({
+      where: { AND: [{ OR: [{ conversationId: conv.id }, ...(conv.openingMessageId ? [{ id: conv.openingMessageId }] : [])] }, after] },
+      orderBy: { seq: "asc" },
+      take: page.limit + 1,
+      select: MSG_SELECT,
+    });
+    const messages = rows.slice(0, page.limit).map((row): McpMessage => {
+      const marked = row.authorPersonId === null && row.body.startsWith(CREATION_OPENED_PREFIX);
+      // O marcador guarda o id da thread e o pedido: sai só o tipo, nunca o texto.
+      return { id: row.id, seq: row.seq, authorPersonId: row.authorPersonId, createdAt: row.createdAt, marker: marked ? "creation_opened" : null, body: marked ? "" : row.body };
+    });
+    return { conversation, messages, more: rows.length > page.limit };
   }
 
   // ---- abrir (ou obter) as conversas principais -------------------------------------------------------------
@@ -1039,7 +1144,7 @@ export class ConversationService {
     return new Set(rows.map((r) => r.id));
   }
 
-  private async creationInfo(tx: TenantClient, principal: Principal, rows: readonly CreationLink[]): Promise<Map<string, CreationInfo>> {
+  private async creationInfo(tx: TenantClient, principal: Principal, rows: readonly CreationLink[], onlyProjectId?: string): Promise<Map<string, CreationInfo>> {
     const out = new Map<string, CreationInfo>();
     if (rows.length === 0) return out;
     const seeing = await this.visibleProjectIds(tx, principal);
@@ -1057,7 +1162,8 @@ export class ConversationService {
         continue;
       }
       // Quem não enxerga o projeto AGORA não lê chave, título nem projeto: só o estado (a thread em si responde 404).
-      const hidden = !seeing.includes(tc.projectId);
+      // `onlyProjectId` (o MCP): rascunho de outro projeto que o do token conta como escondido.
+      const hidden = !seeing.includes(tc.projectId) || (onlyProjectId !== undefined && tc.projectId !== onlyProjectId);
       let state: CreationBlock["state"] = "created";
       let ticket: CreationBlock["ticket"] = null;
       if (tc.status === "ticket_created") {
