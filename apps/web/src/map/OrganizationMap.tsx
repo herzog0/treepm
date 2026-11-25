@@ -59,7 +59,7 @@ interface MapViewProps {
   people: readonly Person[];
   ticketsByProject: Readonly<Record<string, readonly TicketSummary[]>>;
   onChanged: () => void;
-  onImport: ((projectId: string) => void) | undefined;
+  onImport: ((projectId: string, mode?: "sync") => void) | undefined;
   openTicketId: string | null;
   onOpenTicketChange: (ticketId: string | null) => void;
   focusTicketId: string | null;
@@ -645,7 +645,7 @@ export interface OrganizationMapProps {
   client: ApiClient;
   me: Me;
   /** Abre a tela de importação do projeto (ADR 0025). Sem ela, o painel não oferece a ação. */
-  onImport?: (projectId: string) => void;
+  onImport?: (projectId: string, mode?: "sync") => void;
   /** Ticket aberto na página (`?ticket=` da URL). Sem esta prop, o mapa guarda o estado sozinho. */
   openTicketId?: string | null;
   onOpenTicketChange?: (ticketId: string | null) => void;

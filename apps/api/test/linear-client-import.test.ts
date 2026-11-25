@@ -60,18 +60,18 @@ describe("HttpLinearClient.listTeamProjects", () => {
   it("uma página de 50 projetos do time, com o cursor da seguinte", async () => {
     const { client: c, fake } = client([{ body: projectsBody([{ id: "p1", name: "Alfa", url: "https://linear.app/acme/project/alfa" }], true, "cur-2") }]);
     const page = await c.listTeamProjects(KEY, "team-eng", null);
-    expect(page).toEqual({ nodes: [{ id: "p1", name: "Alfa", url: "https://linear.app/acme/project/alfa", statusType: null }], nextCursor: "cur-2", skippedInvalid: 0 });
+    expect(page).toEqual({ nodes: [{ id: "p1", name: "Alfa", url: "https://linear.app/acme/project/alfa", statusType: null, description: null, content: null, priority: 0, lead: null }], nextCursor: "cur-2", skippedInvalid: 0, emailUnavailable: false });
     expect(LINEAR_IMPORT_PAGE_SIZE).toBe(50);
-    expect(fake.calls[0]!.variables).toEqual({ id: "team-eng", after: null });
-    expect(fake.calls[0]!.query).toMatch(/projects\(first:\s*50/);
+    expect(fake.calls[0]!.variables).toEqual({ id: "team-eng", after: null, first: 50 });
+    expect(fake.calls[0]!.query).toMatch(/projects\(first:\s*\$first/);
     expect(fake.calls[0]!.query).toMatch(/status\s*\{\s*type\s*\}/);
     expect(fake.calls[0]!.query).not.toMatch(/includeArchived:\s*true/);
   });
 
   it("última página não tem cursor; cursor volta nos argumentos", async () => {
     const { client: c, fake } = client([{ body: projectsBody([], false, "ignorado") }]);
-    expect(await c.listTeamProjects(KEY, "team-eng", "cur-2")).toEqual({ nodes: [], nextCursor: null, skippedInvalid: 0 });
-    expect(fake.calls[0]!.variables).toEqual({ id: "team-eng", after: "cur-2" });
+    expect(await c.listTeamProjects(KEY, "team-eng", "cur-2")).toEqual({ nodes: [], nextCursor: null, skippedInvalid: 0, emailUnavailable: false });
+    expect(fake.calls[0]!.variables).toEqual({ id: "team-eng", after: "cur-2", first: 50 });
   });
 
   it("hasNextPage sem cursor não gira para sempre: vira linear_unavailable", async () => {
@@ -110,6 +110,12 @@ describe("HttpLinearClient.listTeamIssues", () => {
       parentId: "iss-0",
       projectId: "p1",
       assignee: { id: "u1", email: "Ana@Acme.io" },
+      createdAt: null,
+      startedAt: null,
+      completedAt: null,
+      canceledAt: null,
+      previousIdentifiers: [],
+      creator: null,
     });
     expect(page.nodes[1]).toMatchObject({ id: "iss-2", trashed: true, assignee: null, parentId: null, projectId: null });
   });

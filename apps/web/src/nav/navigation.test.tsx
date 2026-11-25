@@ -1,7 +1,7 @@
 import { act, render, renderHook, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
-import { AppNav, chatTicketTarget, useView, viewHref } from "./navigation.js";
+import { AppNav, chatTicketTarget, importTarget, useView, viewHref } from "./navigation.js";
 
 function setUrl(url: string) {
   window.history.replaceState(null, "", url);
@@ -95,6 +95,9 @@ describe("import route", () => {
     expect(viewHref("import", "https://x.test/app?view=settings#linear", "p1", { section: "linear" })).toBe("/app?view=import&project=p1#linear");
     expect(viewHref("map", "https://x.test/app?view=import&project=p1#linear")).toBe("/app");
     expect(viewHref("import", "https://x.test/app?view=settings#linear", "p1")).toBe("/app?view=import&project=p1");
+    // "Sincronizar com o Linear" (ADR 0061) chega por `#linear-sync`, e a âncora também não vaza para o mapa.
+    expect(viewHref("import", "https://x.test/app?view=settings#linear", "p1", { section: "linear-sync" })).toBe("/app?view=import&project=p1#linear-sync");
+    expect(viewHref("map", "https://x.test/app?view=import&project=p1#linear-sync")).toBe("/app");
     expect(viewHref("teams", "https://x.test/app?view=import&project=p1")).toBe("/app?view=teams");
   });
 
@@ -292,5 +295,17 @@ describe("âncora das Configurações (#ia, #github, #mcp)", () => {
     expect(result.current[0]).toBe("settings");
     expect(window.location.search).toBe("?view=settings");
     expect(window.location.hash).toBe("#github");
+  });
+});
+
+describe("importTarget (Sincronizar com o Linear, ADR 0061)", () => {
+  it("o botão de sincronizar vai para a aba do Linear já sincronizando, venha de onde vier", () => {
+    expect(importTarget("sync")).toEqual({ section: "linear-sync" });
+    expect(importTarget("sync", true)).toEqual({ section: "linear-sync" });
+  });
+
+  it("sem o modo: das Configurações abre a aba do Linear; do painel do projeto, a tela como sempre", () => {
+    expect(importTarget(undefined, true)).toEqual({ section: "linear" });
+    expect(importTarget()).toEqual({});
   });
 });

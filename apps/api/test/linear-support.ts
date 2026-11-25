@@ -46,18 +46,30 @@ export type FakeIssue = {
   trashed?: boolean;
   updatedAt?: string;
   url?: string;
+  /** Os campos da sincronização (ADR 0061). */
+  createdAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  canceledAt?: string | null;
+  previousIdentifiers?: string[];
+  creator?: { id: string; name: string; email: string } | null;
 };
+export type FakeProject = { id: string; name: string; url?: string; status?: string; description?: string; content?: string | null; priority?: number; lead?: { id: string; email: string } | null };
 /** O que a consulta de issues pediu (lido do texto e das variáveis da chamada). */
 export type FakeIssueAsk = { first: number; after: string | null; withDescription: boolean; withEmail: boolean };
 export type FakeTeamData = {
-  projects: { id: string; name: string; url?: string; status?: string }[];
+  projects: FakeProject[];
   issues: FakeIssue[];
   /** Responde no lugar do mundo (corpo enorme, erro de campo, limite...); `undefined` deixa o mundo responder. Só para issues. */
   override?: (call: LinearCall, ask: FakeIssueAsk) => LinearReply | undefined;
+  /** Responde no lugar do mundo para projetos (corpo enorme, erro de campo...); `undefined` deixa o mundo responder. */
+  projectsOverride?: (call: LinearCall, ask: FakeProjectAsk) => LinearReply | undefined;
   /** Chamado antes de cada resposta de issues (para mexer no mundo ENTRE páginas). */
   onIssuesPage?: (ask: FakeIssueAsk) => void;
 };
 export const PAGE = 50;
+/** O que a consulta de projetos pediu: o tamanho da página, o que ela traria (ids) e se pediu o conteúdo longo e o e-mail do líder. */
+export type FakeProjectAsk = { first: number; ids: string[]; withContent: boolean; withEmail: boolean };
 
 export const fakeIssueNode = (issue: FakeIssue, index = 0) => ({
   id: issue.id,
@@ -72,7 +84,27 @@ export const fakeIssueNode = (issue: FakeIssue, index = 0) => ({
   parent: issue.parent ? { id: issue.parent } : null,
   project: issue.project ? { id: issue.project } : null,
   assignee: issue.assignee ?? null,
+  createdAt: issue.createdAt === undefined ? "2026-03-03T10:00:00.000Z" : issue.createdAt,
+  startedAt: issue.startedAt ?? null,
+  completedAt: issue.completedAt ?? null,
+  canceledAt: issue.canceledAt ?? null,
+  previousIdentifiers: issue.previousIdentifiers ?? [],
+  creator: issue.creator ?? null,
 });
+
+export const fakeProjectNode = (p: FakeProject, withContent: boolean, withEmail: boolean): Record<string, unknown> => {
+  const node: Record<string, unknown> = {
+    id: p.id,
+    name: p.name,
+    url: p.url ?? `https://linear.app/acme/project/${p.id}`,
+    status: { type: p.status ?? "backlog" },
+    description: p.description ?? "",
+    priority: p.priority ?? 0,
+    lead: p.lead ? (withEmail ? p.lead : { id: p.lead.id }) : null,
+  };
+  if (withContent) node["content"] = p.content ?? null;
+  return node;
+};
 
 const pageOf = <T>(items: T[], after: unknown, key: "projects" | "issues", size = PAGE) => {
   const start = typeof after === "string" ? Number(after) : 0;
@@ -90,7 +122,14 @@ export function linearImportWorld(world: LinearWorld, data: Record<string, FakeT
     const team = data[id];
     if (entry !== undefined && typeof entry !== "string" && team !== undefined) {
       if (call.query.includes("issueCount")) return { body: { data: { team: { issueCount: team.issues.filter((issue) => !issue.trashed).length } } } };
-      if (call.query.includes("projects(")) return { body: pageOf(team.projects.map((p) => ({ id: p.id, name: p.name, url: p.url ?? `https://linear.app/acme/project/${p.id}`, status: { type: p.status ?? "backlog" } })), call.variables["after"], "projects") };
+      if (call.query.includes("projects(")) {
+        const first = Number(call.variables["first"] ?? PAGE);
+        const start = typeof call.variables["after"] === "string" ? Number(call.variables["after"]) : 0;
+        const ask: FakeProjectAsk = { first, ids: team.projects.slice(start, start + first).map((p) => p.id), withContent: /\bcontent\b/.test(call.query), withEmail: /lead \{ id email \}/.test(call.query) };
+        const custom = team.projectsOverride?.(call, ask);
+        if (custom !== undefined) return custom;
+        return { body: pageOf(team.projects.map((p) => fakeProjectNode(p, ask.withContent, ask.withEmail)), call.variables["after"], "projects", first) };
+      }
       if (call.query.includes("issues(")) {
         const ask: FakeIssueAsk = {
           first: Number(call.variables["first"] ?? PAGE),
@@ -106,6 +145,7 @@ export function linearImportWorld(world: LinearWorld, data: Record<string, FakeT
           const node: Record<string, unknown> = fakeIssueNode(issue, index);
           if (!ask.withDescription) delete node["description"];
           if (!ask.withEmail && node["assignee"]) node["assignee"] = { id: (node["assignee"] as { id: string }).id };
+          if (!ask.withEmail && node["creator"]) node["creator"] = { id: (node["creator"] as { id: string }).id, name: (node["creator"] as { name: string }).name };
           return node;
         });
         return { body: pageOf(nodes, call.variables["after"], "issues", ask.first) };

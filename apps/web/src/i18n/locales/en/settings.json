@@ -259,9 +259,10 @@
       "linkLabel": "Link team {{key}} to a project",
       "elsewhere": "Already linked to a project you cannot see",
       "unavailable": "unavailable",
-      "openImport": "Open import",
-      "openImportLabel": "Open the import for project {{project}}",
-      "lastImport": "last import {{when}}"
+      "sync": "Sync with Linear",
+      "syncLabel": "Sync with Linear: project {{project}}",
+      "lastSync": "Last sync: {{when}}",
+      "lastSyncBy": "Last sync: {{when}}, by {{name}}"
     },
     "dialog": {
       "title": "Link {{project}} to team {{team}}?",

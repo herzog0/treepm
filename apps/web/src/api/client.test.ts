@@ -235,6 +235,14 @@ describe("describeApiError", () => {
   });
 });
 
+describe("listTickets › chaves do Linear (ADR 0061)", () => {
+  it("keeps externalKeys of the tickets that have an origin, and nothing for the others", async () => {
+    const { client } = setup(() => Response.json([{ ...ticketSummary, externalKeys: ["ENG-123", "OPS-45"] }, { ...ticketSummary, id: "other" }]));
+    const result = await client.listTickets(ID);
+    expect(result.ok && result.data.map((ticket) => ticket.externalKeys)).toEqual([["ENG-123", "OPS-45"], undefined]);
+  });
+});
+
 describe("listTicketsIfChanged (ADR 0046)", () => {
   const withTag = (tag: string | null) => () => {
     const headers = new Headers(tag === null ? {} : { ETag: tag });

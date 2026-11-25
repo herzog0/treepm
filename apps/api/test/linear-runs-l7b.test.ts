@@ -257,7 +257,7 @@ describe("M5: endereço de origem só do Linear e curto", () => {
       lp1: null,
     });
     const detail = await h.call("GET", `/api/tickets/${(await byExt()).get("i2")!["id"]}`, as("admin"));
-    expect(detail.body.externalSource).toEqual({ provider: "linear", key: "ENG-2", url: null, missingSince: null });
+    expect(detail.body.externalSource).toEqual({ provider: "linear", key: "ENG-2", url: null, missingSince: null, createdAt: expect.any(String), startedAt: null, completedAt: null, canceledAt: null, creator: null });
   });
 
   it("na saída: um endereço ruim que já esteja no banco não sai", async () => {
@@ -265,7 +265,7 @@ describe("M5: endereço de origem só do Linear e curto", () => {
     await finish(runId);
     const id = (await byExt()).get("i1")!["id"];
     await h.pool.query("update ticket_external_refs set external_url = 'javascript:alert(1)' where ticket_id = $1::uuid", [id]);
-    expect((await h.call("GET", `/api/tickets/${id}`, as("admin"))).body.externalSource).toEqual({ provider: "linear", key: "ENG-1", url: null, missingSince: null });
+    expect((await h.call("GET", `/api/tickets/${id}`, as("admin"))).body.externalSource).toEqual({ provider: "linear", key: "ENG-1", url: null, missingSince: null, createdAt: expect.any(String), startedAt: null, completedAt: null, canceledAt: null, creator: null });
   });
 });
 

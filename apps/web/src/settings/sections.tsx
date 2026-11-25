@@ -8,7 +8,7 @@ import type { LanguagePreference } from "../i18n/languages.js";
 import type { Preferences } from "../preferences/model.js";
 import { AiPrivacySettings } from "./AiPrivacySettings.js";
 import { LinearSettings } from "./LinearSettings.js";
-import type { LinearState } from "./LinearSettings.js";
+import type { LinearState, OpenImport } from "./LinearSettings.js";
 import { PeopleSettings, peopleAvailable } from "./PeopleSettings.js";
 import { McpAccessSection, McpTokensSection } from "./McpSettings.js";
 import type { McpSwitches, McpTokenDraft } from "./McpSettings.js";
@@ -34,7 +34,7 @@ export interface SectionContext {
   linear: LinearState;
   tokenDraft: McpTokenDraft;
   /** Abre a importação do Linear de um projeto (a casca leva à tela, no projeto certo). */
-  onOpenImport: ((projectId: string) => void) | undefined;
+  onOpenImport: OpenImport | undefined;
   onConsentChange: (() => void) | undefined;
   /** Id do título da seção aberta (para nomear listas e grupos). */
   titleId: string;

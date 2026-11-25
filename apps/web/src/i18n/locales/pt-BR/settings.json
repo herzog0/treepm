@@ -261,9 +261,10 @@
       "linkLabel": "Ligar o time {{key}} a um projeto",
       "elsewhere": "Já ligado a um projeto que você não enxerga",
       "unavailable": "indisponível",
-      "openImport": "Abrir importação",
-      "openImportLabel": "Abrir a importação do projeto {{project}}",
-      "lastImport": "última importação {{when}}"
+      "sync": "Sincronizar com o Linear",
+      "syncLabel": "Sincronizar com o Linear: projeto {{project}}",
+      "lastSync": "Última sincronização: {{when}}",
+      "lastSyncBy": "Última sincronização: {{when}}, por {{name}}"
     },
     "dialog": {
       "title": "Ligar {{project}} ao time {{team}}?",

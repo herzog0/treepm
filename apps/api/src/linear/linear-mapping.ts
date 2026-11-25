@@ -1,5 +1,5 @@
 import type { TicketStatus } from "@treepm/domain";
-import { cleanLinearText, mapLinearDescription, mapLinearPriority, mapLinearStatus, mapLinearTitle } from "@treepm/domain";
+import { cleanLinearText, linearPreviousKeys, mapLinearDescription, mapLinearPriority, mapLinearStatus, mapLinearTitle } from "@treepm/domain";
 import type { LinearIssueNode } from "./ports.js";
 
 /** O que a gravação precisa de uma issue já mapeada: pura função da issue e da chave do projeto de destino (sem banco, sem rede). */
@@ -11,15 +11,21 @@ export type MappedIssue = {
   identifier: string;
   /** O que veio do Linear (retrato de origem), sem controles; o e-mail do responsável nunca entra. */
   source: { title: string; description: string | null; stateType: string; assigneeExternalId: string | null; priority: number };
+  /** Os identificadores antigos, já limpos; e o criador sem e-mail (ADR 0061). */
+  previousKeys: string[];
+  creator: { id: string; name: string } | null;
 };
 
 export function mapLinearIssue(node: LinearIssueNode, projectKey: string): MappedIssue {
+  const identifier = cleanLinearText(node.identifier).slice(0, 100);
   return {
     title: mapLinearTitle(node.title, node.identifier),
     description: mapLinearDescription(node.description, projectKey),
     status: mapLinearStatus(node.stateType),
     priority: mapLinearPriority(node.priority),
-    identifier: cleanLinearText(node.identifier).slice(0, 100),
+    identifier,
+    previousKeys: linearPreviousKeys(node.previousIdentifiers, identifier),
+    creator: node.creator ? { id: node.creator.id, name: node.creator.name } : null,
     source: {
       title: cleanLinearText(node.title),
       description: node.description === null ? null : cleanLinearText(node.description),

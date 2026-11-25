@@ -94,3 +94,27 @@ describe("searchTickets", () => {
     });
   });
 });
+
+describe("searchTickets › chaves do Linear (ADR 0061)", () => {
+  const tickets = byProject(
+    ["p1", [
+      makeTicket("a", "p1", 10, "Importado do Linear", { key: "TREEPM-10", externalKeys: ["ENG-123", "OPS-45", "OPS-9"] }),
+      makeTicket("b", "p1", 11, "Outro", { key: "TREEPM-11", externalKeys: ["ENG-124"] }),
+      makeTicket("c", "p1", 12, "Criado aqui", { key: "TREEPM-12" }),
+    ]],
+  );
+
+  it("acha o ticket pela chave do Linear de hoje e pelas antigas, sem maiúsculas", () => {
+    expect(ids(searchTickets("ENG-123", tickets))).toEqual(["a"]);
+    expect(ids(searchTickets("ops-45", tickets))).toEqual(["a"]);
+    expect(ids(searchTickets("OPS-9", tickets))).toEqual(["a"]);
+  });
+
+  it("a chave tem que ser inteira: 'ENG-12' não acha ENG-123", () => {
+    expect(ids(searchTickets("ENG-12", tickets))).toEqual([]);
+  });
+
+  it("ticket sem chaves do Linear continua achado pela chave do TreePM", () => {
+    expect(ids(searchTickets("treepm-12", tickets))).toEqual(["c"]);
+  });
+});

@@ -20,7 +20,7 @@ export interface SidePanelProps {
   /** Chamado depois de qualquer alteração no servidor, para o mapa recarregar os projetos. */
   onChanged: () => void;
   /** Abre a tela de importação de um projeto; sem ela, o detalhe do projeto não oferece a ação. */
-  onImportProject?: (projectId: string) => void;
+  onImportProject?: (projectId: string, mode?: "sync") => void;
   /** Abre a criação de um ticket na raiz do projeto; sem ela, o detalhe do projeto não oferece a ação. */
   onCreateTicket?: (projectId: string) => void;
   assistantAvailable?: boolean;

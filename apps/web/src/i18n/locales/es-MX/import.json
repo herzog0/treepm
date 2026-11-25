@@ -121,7 +121,7 @@
       "waiting": "Linear pidió esperar.",
       "abandoned": "Importación abandonada.",
       "missing": "Verificando lo que desapareció de Linear.",
-      "reimportDone": "Reimportación terminada.",
+      "reimportDone": "Sincronización terminada.",
       "statuses": "Actualizando las situaciones."
     },
     "waiting": "Linear pidió esperar. La importación regresa a las {{time}}.",
@@ -143,12 +143,15 @@
       "skippedNote": "Omitidos: no pudieron ligarse a sus padres (por ejemplo, un ciclo en la jerarquía).",
       "openMap": "Abrir en el mapa",
       "counts": "Conteos de la importación",
-      "reimportTitle": "Reimportación terminada",
+      "reimportTitle": "Sincronización terminada",
       "new": "Nuevos",
       "updated": "Actualizados",
       "keptTouched": "Conservados porque se editaron aquí",
       "keptMoved": "Conservados donde los moviste",
       "missing": "No encontrados en Linear",
+      "filled_one": "{{count}} campo completado en tickets que ya existían",
+      "filled_many": "{{count}} campos completados en tickets que ya existían",
+      "filled_other": "{{count}} campos completados en tickets que ya existían",
       "descriptionUnavailable": "Algunas descripciones eran demasiado grandes y no se volvieron a leer.",
       "missingNotChecked": "No fue posible verificar lo que desapareció, porque algunos elementos llegaron en un formato inválido.",
       "assigneeEmailUnavailableReimport": "Linear no permitió leer los correos de los responsables; los responsables no se actualizaron."
@@ -170,11 +173,11 @@
       "issues_other": "{{count}} issues",
       "issues_many": "{{count}} issues"
     },
-    "reimporting": "Reimportando…",
+    "reimporting": "Sincronizando…",
     "last": {
       "title": "Última importación · {{when}}",
-      "rule": "Reimportar solo actualiza lo que cambió en Linear y nadie tocó aquí, no mueve lo que se acomodó en el árbol, y lo que desapareció de Linear se queda como está.",
-      "reimport": "Reimportar ahora",
+      "rule": "Sincronizar solo actualiza lo que cambió en Linear y nadie tocó aquí, no mueve lo que se acomodó en el árbol, y lo que desapareció de Linear se queda como está.",
+      "reimport": "Sincronizar ahora",
       "changeDestination": "Cambiar destino de las issues nuevas",
       "destination": "Destino de las issues nuevas",
       "titleUndated": "Última importación"
@@ -210,7 +213,7 @@
         "confirm": "Abandonar",
         "back": "Volver"
       },
-      "reimportBlocked": "Reimportar no está disponible mientras la búsqueda del lugar de los elementos está en curso.",
+      "reimportBlocked": "Sincronizar no está disponible mientras la búsqueda del lugar de los elementos está en curso.",
       "doneTitle": "Búsqueda terminada",
       "abandonedTitle": "Búsqueda abandonada",
       "nothing": "No se decidió ningún elemento.",

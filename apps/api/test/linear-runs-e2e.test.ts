@@ -178,7 +178,7 @@ describe("GET /api/tickets/:id traz a origem para 'Ver no Linear · ENG-123'", (
     const t = await byExt();
     const res = await h.call("GET", `/api/tickets/${t.get("i20")?.id}`, as("admin"));
     expect(res.status).toBe(200);
-    expect(res.body.externalSource).toEqual({ provider: "linear", key: "ENG-20", url: "https://linear.app/acme/issue/ENG-20", missingSince: null });
+    expect(res.body.externalSource).toEqual({ provider: "linear", key: "ENG-20", url: "https://linear.app/acme/issue/ENG-20", missingSince: null, createdAt: expect.any(String), startedAt: null, completedAt: null, canceledAt: null, creator: null });
     const text = JSON.stringify(res.body);
     expect(text).not.toContain("u-admin");
     expect(text).not.toMatch(/snapshot|externalId|external_id/i);

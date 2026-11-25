@@ -126,7 +126,7 @@
       "waiting": "O Linear pediu para esperar.",
       "abandoned": "Importação abandonada.",
       "missing": "Verificando o que sumiu do Linear.",
-      "reimportDone": "Reimportação concluída.",
+      "reimportDone": "Sincronização concluída.",
       "statuses": "Atualizando as situações."
     },
     "waiting": "O Linear pediu para esperar. A importação volta às {{time}}.",
@@ -148,12 +148,15 @@
       "skippedNote": "Pulados: não puderam ser ligados aos pais (por exemplo, um ciclo na hierarquia).",
       "openMap": "Abrir no mapa",
       "counts": "Contagens da importação",
-      "reimportTitle": "Reimportação concluída",
+      "reimportTitle": "Sincronização concluída",
       "new": "Novos",
       "updated": "Atualizados",
       "keptTouched": "Mantidos porque foram mexidos aqui",
       "keptMoved": "Mantidos onde você os moveu",
       "missing": "Não encontrados no Linear",
+      "filled_one": "{{count}} campo preenchido em tickets que já existiam",
+      "filled_many": "{{count}} campos preenchidos em tickets que já existiam",
+      "filled_other": "{{count}} campos preenchidos em tickets que já existiam",
       "descriptionUnavailable": "Algumas descrições eram grandes demais e não foram relidas.",
       "missingNotChecked": "Não foi possível conferir o que sumiu, porque alguns itens vieram em formato inválido.",
       "assigneeEmailUnavailableReimport": "O Linear não deixou ler os e-mails dos responsáveis; os responsáveis não foram atualizados."
@@ -175,11 +178,11 @@
       "issues_other": "{{count}} issues",
       "issues_many": "{{count}} issues"
     },
-    "reimporting": "Reimportando…",
+    "reimporting": "Sincronizando…",
     "last": {
       "title": "Última importação · {{when}}",
-      "rule": "Reimportar só atualiza o que mudou no Linear e ninguém mexeu aqui, não move o que foi arrumado na árvore, e o que sumiu do Linear fica como está.",
-      "reimport": "Reimportar agora",
+      "rule": "Sincronizar só atualiza o que mudou no Linear e ninguém mexeu aqui, não move o que foi arrumado na árvore, e o que sumiu do Linear fica como está.",
+      "reimport": "Sincronizar agora",
       "changeDestination": "Mudar destino das issues novas",
       "destination": "Destino das issues novas",
       "titleUndated": "Última importação"
@@ -215,7 +218,7 @@
         "confirm": "Abandonar",
         "back": "Voltar"
       },
-      "reimportBlocked": "Reimportar fica indisponível enquanto a procura do lugar dos itens está em andamento.",
+      "reimportBlocked": "Sincronizar fica indisponível enquanto a procura do lugar dos itens está em andamento.",
       "doneTitle": "Procura concluída",
       "abandonedTitle": "Procura abandonada",
       "nothing": "Nenhum item foi decidido.",

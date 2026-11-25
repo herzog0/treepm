@@ -261,9 +261,10 @@
       "linkLabel": "Ligar el equipo {{key}} a un proyecto",
       "elsewhere": "Ya ligado a un proyecto que no ves",
       "unavailable": "no disponible",
-      "openImport": "Abrir importación",
-      "openImportLabel": "Abrir la importación del proyecto {{project}}",
-      "lastImport": "última importación {{when}}"
+      "sync": "Sincronizar con Linear",
+      "syncLabel": "Sincronizar con Linear: proyecto {{project}}",
+      "lastSync": "Última sincronización: {{when}}",
+      "lastSyncBy": "Última sincronización: {{when}}, por {{name}}"
     },
     "dialog": {
       "title": "¿Ligar {{project}} al equipo {{team}}?",

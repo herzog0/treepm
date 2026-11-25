@@ -111,3 +111,21 @@ describe("searchTickets", () => {
     });
   });
 });
+
+// ADR 0061, seção 4: a chave que o ticket tinha no Linear (a de hoje e as antigas) também acha o ticket, no mesmo nível da chave.
+describe("searchTickets: chaves externas", () => {
+  const list: Item[] = [make("a", 1, "Primeiro", { externalKeys: ["ENG-45", "OPS-3"] }), make("b", 2, "ENG 45 no título"), make("c", 3, "Terceiro")];
+  it("acha pela chave de hoje do Linear e por uma antiga, sem diferenciar maiúsculas", () => {
+    expect(ids(search("eng-45", list))).toEqual(["a"]);
+    expect(ids(search("OPS-3", list))).toEqual(["a"]);
+    expect(ids(search("ops-4", list))).toEqual([]);
+  });
+  it("só vale para uma palavra; a chave externa fica no nível da chave, antes do título", () => {
+    const withTitle = [make("t", 9, "OPS-3 no título"), ...list];
+    expect(ids(search("OPS-3", withTitle))).toEqual(["a", "t"]);
+    expect(ids(search("ENG 45", list))).toEqual(["b"]);
+  });
+  it("sem chaves externas nada muda", () => {
+    expect(ids(search("terceiro", list))).toEqual(["c"]);
+  });
+});

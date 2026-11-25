@@ -76,3 +76,45 @@ export function decideLinearStatus(input: { desired: TicketStatus; previousSourc
   if (target === input.current) return { touchedHere, changedInLinear, outcome: "blocked", target, deviation: true };
   return { touchedHere, changedInLinear, outcome: "apply", target, deviation: false };
 }
+
+export type LinearLateDecision = {
+  /**
+   * `fill`: sem retrato e vazio aqui, aplica o valor do Linear (e grava os dois lados). `synced`: sem retrato e nada a decidir (os dois
+   * lados já são iguais, ou nenhum tem valor): só grava os dois lados. `hold`: sem retrato e já preenchido aqui com outro valor: o
+   * daqui fica e o campo passa a "mantido daqui". `held`: já mantido daqui, nada é aplicado. `regular`: com retrato, a regra de sempre.
+   */
+  action: "fill" | "synced" | "hold" | "held" | "regular";
+  apply: boolean;
+  /** O campo passa a ser "mantido daqui" nesta rodada. */
+  hold: boolean;
+  /** O Linear tem um valor diferente do daqui e o daqui foi mantido (para a contagem `keptTouched`). */
+  kept: boolean;
+};
+
+/**
+ * A regra do campo sem retrato (ADR 0061, seção 2), pura. "Sem retrato" é o par que não existe no retrato de origem (`hasSnapshot`
+ * falso). `held` é a marca "mantido daqui": vence a regra geral para sempre, mesmo que o Linear mude, e só uma pessoa a tira (nesta
+ * fatia ninguém a tira). Os campos `changedInLinear` e `touchedHere` vêm de `decideLinearField` e só valem com retrato.
+ * `incomingDiffers`: o valor que o Linear traria, já mapeado, difere do que o TreePM tem hoje.
+ */
+export function decideLinearLateField(input: {
+  hasSnapshot: boolean;
+  held: boolean;
+  changedInLinear: boolean;
+  touchedHere: boolean;
+  currentEmpty: boolean;
+  incomingEmpty: boolean;
+  incomingDiffers: boolean;
+}): LinearLateDecision {
+  if (input.held) return { action: "held", apply: false, hold: false, kept: input.changedInLinear };
+  if (input.hasSnapshot) return { action: "regular", apply: input.changedInLinear && !input.touchedHere, hold: false, kept: input.changedInLinear && input.touchedHere };
+  if (!input.incomingDiffers) return { action: "synced", apply: false, hold: false, kept: false };
+  if (input.currentEmpty && !input.incomingEmpty) return { action: "fill", apply: true, hold: false, kept: false };
+  return { action: "hold", apply: false, hold: true, kept: true };
+}
+
+/** A lista de campos "mantidos daqui" depois de acrescentar `field`: sem repetir, em ordem, ignorando o que não for texto. */
+export function heldFieldsAfter(current: unknown, field: string): string[] {
+  const list = Array.isArray(current) ? current.filter((item): item is string => typeof item === "string") : [];
+  return [...new Set([...list, field])].sort();
+}

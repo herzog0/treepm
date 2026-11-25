@@ -19,6 +19,8 @@ export interface LinearImportProps {
   projectId: string;
   /** A ligação da pessoa com o Linear, como a casca da importação a leu: a chave é pessoal. */
   connection: LinearConnection;
+  /** Chegou pelo botão "Sincronizar com o Linear": o cartão da última importação já inicia a rodada, uma vez só (ADR 0061). */
+  startSync?: boolean;
   /** Volta ao mapa (depois de concluir). */
   onExit: () => void;
   /** Leva às Configurações → Linear. */
@@ -66,7 +68,7 @@ export function LinearImportPanel(props: LinearImportProps) {
   return <ConnectedPanel {...props} />;
 }
 
-function ConnectedPanel({ client, projectId, connection, onExit, onOpenSettings, onOpenTicket }: LinearImportProps) {
+function ConnectedPanel({ client, projectId, connection, startSync = false, onExit, onOpenSettings, onOpenTicket }: LinearImportProps) {
   const { t } = useTranslation("import");
   const source = useApiResource(() => safe(() => client.getProjectLinear(projectId)));
   const [announcement, setAnnouncement] = useState("");
@@ -108,7 +110,7 @@ function ConnectedPanel({ client, projectId, connection, onExit, onOpenSettings,
       {source.state.status === "ready" && run.load.status === "loading" && <p className="import-muted">{t("linear.loading")}</p>}
       {source.state.status === "ready" && run.load.status === "error" && <LoadFailed error={run.load.error} onRetry={run.reload} />}
       {source.state.status === "ready" && run.load.status === "ready" && link && (
-        <Body client={client} projectId={projectId} link={link} connection={connection} keyOk={keyOk} run={run} categorize={categorize} onExit={onExit} onOpenSettings={onOpenSettings} onOpenTicket={onOpenTicket} />
+        <Body client={client} projectId={projectId} link={link} connection={connection} keyOk={keyOk} startSync={startSync} run={run} categorize={categorize} onExit={onExit} onOpenSettings={onOpenSettings} onOpenTicket={onOpenTicket} />
       )}
     </section>
   );
@@ -127,7 +129,7 @@ function LoadFailed({ error, onRetry }: { error: ApiError; onRetry: () => void }
 
 type RunHook = ReturnType<typeof useLinearRun>;
 
-function Body({ client, projectId, link, connection, keyOk, run, categorize, onExit, onOpenSettings, onOpenTicket }: { client: ApiClient; projectId: string; link: ProjectLinear; connection: LinearConnection; keyOk: boolean; run: RunHook; categorize: CategorizeHook; onExit: () => void; onOpenSettings: () => void; onOpenTicket: (ticketId: string) => void }) {
+function Body({ client, projectId, link, connection, keyOk, startSync, run, categorize, onExit, onOpenSettings, onOpenTicket }: { client: ApiClient; projectId: string; link: ProjectLinear; connection: LinearConnection; keyOk: boolean; startSync: boolean; run: RunHook; categorize: CategorizeHook; onExit: () => void; onOpenSettings: () => void; onOpenTicket: (ticketId: string) => void }) {
   const { t } = useTranslation("import");
   const current = run.run;
   const last = run.lastFinished;
@@ -156,7 +158,7 @@ function Body({ client, projectId, link, connection, keyOk, run, categorize, onE
         </Notice>
       )}
       {link.source !== null && (current === null || isFailed(current)) && keyOk && last === null && <StartCard client={client} projectId={projectId} link={link} run={run} previous={current} />}
-      {link.source !== null && keyOk && idle && !finishedHere && last !== null && <ReimportCard client={client} projectId={projectId} run={run} last={last} categorize={categorize} onExit={onExit} onOpenTicket={onOpenTicket} />}
+      {link.source !== null && keyOk && idle && !finishedHere && last !== null && <ReimportCard client={client} projectId={projectId} run={run} last={last} startSync={startSync} categorize={categorize} onExit={onExit} onOpenTicket={onOpenTicket} />}
       {current !== null && !current.done && <ProgressCard run={current} loop={run.loop} onResume={run.resume} onOpenSettings={onOpenSettings} onAbandon={run.abandon} />}
       {finishedHere && <SummaryCard client={client} projectId={projectId} run={current} categorize={categorize} onExit={onExit} onOpenTicket={onOpenTicket} />}
     </>
@@ -280,7 +282,7 @@ function DestinationPanel({ id, client, projectId, onChoose, onCancel }: { id: s
  * "Última importação · há 2 dias": depois de uma importação concluída, as contagens dela e o botão "Reimportar agora". O destino
  * das issues novas não é perguntado (o servidor herda o da primeira rodada); um controle discreto abre o mesmo seletor.
  */
-function ReimportCard({ client, projectId, run, last, categorize, onExit, onOpenTicket }: { client: ApiClient; projectId: string; run: RunHook; last: LinearRun; categorize: CategorizeHook; onExit: () => void; onOpenTicket: (ticketId: string) => void }) {
+function ReimportCard({ client, projectId, run, last, startSync, categorize, onExit, onOpenTicket }: { client: ApiClient; projectId: string; run: RunHook; last: LinearRun; startSync: boolean; categorize: CategorizeHook; onExit: () => void; onOpenTicket: (ticketId: string) => void }) {
   const { t, i18n } = useTranslation("import");
   const language = i18n.language as Language;
   const describeError = useDescribeApiError();
@@ -299,6 +301,16 @@ function ReimportCard({ client, projectId, run, last, categorize, onExit, onOpen
     setChoosing(false);
     setTimeout(() => opener.current?.focus(), 0);
   };
+  // O botão "Sincronizar com o Linear" (ADR 0061) chega por `#linear-sync` e pede a rodada uma vez só: o endereço volta a `#linear`,
+  // para recarregar a página não sincronizar de novo. Com a procura do lugar dos itens aberta o servidor recusaria: fica o cartão, com a explicação.
+  const requested = useRef(false);
+  useEffect(() => {
+    // Espera a procura dizer se está aberta (a pergunta é rápida); aberta, o pedido se perde, não fica de espreita.
+    if (!startSync || requested.current || categorize.load.status === "loading") return;
+    requested.current = true;
+    if (window.location.hash === "#linear-sync") window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}#linear`);
+    if (!arranging) void reimport();
+  });
   return (
     <div className="linear-import-card">
       <h3>{when === "" ? t("linear.last.titleUndated") : t("linear.last.title", { when })}</h3>
@@ -468,6 +480,7 @@ function RunSummary({ run }: { run: LinearRun }) {
       </dl>
       {shown.some((row) => row.key === "flattened") && <p className="linear-import-how">{t("linear.done.flattenedNote")}</p>}
       {shown.some((row) => row.key === "skipped") && <p className="linear-import-how">{t("linear.done.skippedNote")}</p>}
+      {count(run, "filled") > 0 && <p className="linear-import-note">{t("linear.done.filled", { count: count(run, "filled") })}</p>}
       {run.counts["assigneeEmailUnavailable"] === true && <p className="linear-import-note linear-import-warning">{t(reimport ? "linear.done.assigneeEmailUnavailableReimport" : "linear.done.assigneeEmailUnavailable")}</p>}
       {run.counts["descriptionUnavailable"] === true && <p className="linear-import-note linear-import-warning">{t("linear.done.descriptionUnavailable")}</p>}
       {run.counts["missingNotChecked"] === true && <p className="linear-import-note linear-import-warning">{t("linear.done.missingNotChecked")}</p>}

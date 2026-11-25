@@ -12,6 +12,7 @@ const files = (dir: string): string[] => readdirSync(dir).flatMap((name) => (sta
 const ALLOWED: Record<string, string> = {
   "tickets/tickets.schema.ts: description: z.string(),": "saída (detalhe do ticket)",
   "linear/linear-client.ts: description: z.string().nullable().optional(),": "leitura da resposta do Linear (entrada de rede, não de pessoa); o texto passa por mapLinearDescription, que neutraliza menção, antes de virar ticket",
+  "linear/linear-client.ts: description: z.string().nullable().optional().catch(null),": "leitura da resposta do Linear (entrada de rede, não de pessoa); o texto passa por mapLinearDescription, que neutraliza menção, antes de virar ticket",
   "query/query.schema.ts: description: z.string(),": "saída (leitura)",
   "mcp/mcp-tools.ts: description: z.string().describe(\"Full description, never cut.\"),": "saída da leitura do MCP",
   "assistant/conversations.schema.ts: description: z.string().max(MAX_SUGGESTED_DESCRIPTION_CHARS).default(\"\"),": "sugestão do assistente (saída); a criação reenvia pelo esquema comum",

@@ -550,9 +550,22 @@ export class TicketsService {
           to: { select: { id: true, number: true, title: true, status: true } },
         },
       }),
-      tx.ticketExternalRef.findFirst({ where: { ticketId: id }, select: { provider: true, externalKey: true, externalUrl: true, missingSince: true } }),
+      tx.ticketExternalRef.findFirst({ where: { ticketId: id }, select: { provider: true, externalKey: true, externalUrl: true, missingSince: true, externalCreatedAt: true, externalStartedAt: true, externalCompletedAt: true, externalCanceledAt: true, creatorPersonId: true, externalCreatorName: true } }),
     ]);
-    const externalSource: ExternalSourceView | null = origin ? { provider: "linear", key: origin.externalKey, url: safeLinearUrl(origin.externalUrl), missingSince: origin.missingSince ? origin.missingSince.toISOString() : null } : null;
+    const iso = (date: Date | null): string | null => (date ? date.toISOString() : null);
+    const externalSource: ExternalSourceView | null = origin
+      ? {
+          provider: "linear",
+          key: origin.externalKey,
+          url: safeLinearUrl(origin.externalUrl),
+          missingSince: iso(origin.missingSince),
+          createdAt: iso(origin.externalCreatedAt),
+          startedAt: iso(origin.externalStartedAt),
+          completedAt: iso(origin.externalCompletedAt),
+          canceledAt: iso(origin.externalCanceledAt),
+          creator: origin.creatorPersonId !== null ? { personId: origin.creatorPersonId } : origin.externalCreatorName !== null ? { name: origin.externalCreatorName } : null,
+        }
+      : null;
     const branchProgress = branches.get(id)?.progress ?? null;
     const progress = new Map(branchProgress ? [[id, branchProgress] as const] : []);
     const ideaRoot = branches.get(id)?.ideaRoot ?? null;

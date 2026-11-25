@@ -342,6 +342,32 @@ function AgentWorkRow({ detail, onEnd, busy }: { detail: TicketDetail; onEnd: ((
   );
 }
 
+/**
+ * De quando e de quem veio o ticket no Linear (ADR 0061): criação (com o autor, pela pessoa do TreePM ou pelo nome no Linear) e
+ * as datas de início, conclusão e cancelamento que existirem. Texto secundário; ticket sem origem, ou de uma API antiga sem os
+ * campos, não escreve nada. Pessoa que não está na lista some (a data fica sem autor), nunca um nome inventado.
+ */
+function LinearOrigin({ detail, people }: { detail: TicketDetail; people: readonly Person[] }) {
+  const { t, i18n } = useTranslation("ticket");
+  const source = detail.externalSource;
+  if (!source) return null;
+  const language = i18n.language as Language;
+  const date = (iso: string) => formatDate(language, iso);
+  const creator = source.creator ?? null;
+  const author = creator === null ? null : "personId" in creator ? (people.find((person) => person.id === creator.personId)?.displayName ?? null) : t("linear.origin.externalName", { name: creator.name });
+  const lines: string[] = [];
+  if (source.createdAt) lines.push(author === null ? t("linear.origin.created", { date: date(source.createdAt) }) : t("linear.origin.createdBy", { date: date(source.createdAt), name: author }));
+  if (source.startedAt) lines.push(t("linear.origin.started", { date: date(source.startedAt) }));
+  if (source.completedAt) lines.push(t("linear.origin.completed", { date: date(source.completedAt) }));
+  if (source.canceledAt) lines.push(t("linear.origin.canceled", { date: date(source.canceledAt) }));
+  if (lines.length === 0) return null;
+  return (
+    <ul className="ticket-linear-origin">
+      {lines.map((line) => <li key={line}>{line}</li>)}
+    </ul>
+  );
+}
+
 function ReadyTicket({ client, me, projects, detail, list, people, teams, reloadDetail, reloadList, onOpenTicket, onClose, onChanged, onRemoved, onShowOnMap, onStartCreate, listedAgentWork }: ReadyProps) {
   const { t } = useTranslation("ticket");
   const { t: tMap } = useTranslation("map");
@@ -457,6 +483,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
           {agentEnding.error && <p role="alert" className="ticket-error">{describeError(agentEnding.error)}</p>}
           {removal.error && <p role="alert" className="ticket-error">{describeError(removal.error, "remove")}</p>}
           <TitleField ref={title} client={client} detail={detail} canEdit={canEdit} onSaved={refresh} />
+          <LinearOrigin detail={detail} people={people} />
           <dl className="ticket-fields">
             <div className="ticket-row">
               <dt>{t(idea?.root === true ? "fields.idea" : "fields.status")}</dt>

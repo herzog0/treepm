@@ -112,7 +112,7 @@ interface ImportFormProps {
 }
 
 type Tab = "list" | "linear";
-type LinearEntry = { status: "loading" } | { status: "off" } | { status: "on"; connection: LinearConnection; initialTab: Tab };
+type LinearEntry = { status: "loading" } | { status: "off" } | { status: "on"; connection: LinearConnection; initialTab: Tab; sync: boolean };
 
 /**
  * Se a importação do Linear (ADR 0060) aparece nesta tela: só quando o servidor a tem configurada. A aba inicial é a do Linear
@@ -130,7 +130,9 @@ function useLinearEntry(client: ApiClient, projectId: string): LinearEntry {
       const current = await safe(() => client.getCurrentLinearRun(projectId));
       if (!active) return;
       const open = current.ok && current.data.run !== null && !current.data.run.done;
-      setEntry({ status: "on", connection: connection.data, initialTab: open || window.location.hash === "#linear" ? "linear" : "list" });
+      // `#linear-sync`: o botão "Sincronizar com o Linear" (ADR 0061); abre na aba do Linear e já inicia a rodada.
+      const sync = window.location.hash === "#linear-sync";
+      setEntry({ status: "on", connection: connection.data, initialTab: open || sync || window.location.hash === "#linear" ? "linear" : "list", sync });
     })();
     return () => {
       active = false;
@@ -196,7 +198,7 @@ function ImportTabs({ client, projectId, projectKey, projectName, onExit, onOpen
       </div>
       {entry.status === "on" && (
         <div id={`${tabsId}-panel-linear`} role="tabpanel" aria-labelledby={`${tabsId}-linear`} hidden={!onLinear}>
-          {onLinear && <LinearImportPanel client={client} projectId={projectId} connection={entry.connection} onExit={onExit} onOpenSettings={onOpenSettings ?? onExit} onOpenTicket={onOpenTicket ?? onExit} />}
+          {onLinear && <LinearImportPanel client={client} projectId={projectId} connection={entry.connection} startSync={entry.sync} onExit={onExit} onOpenSettings={onOpenSettings ?? onExit} onOpenTicket={onOpenTicket ?? onExit} />}
         </div>
       )}
     </>

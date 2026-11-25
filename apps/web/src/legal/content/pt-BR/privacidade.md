@@ -22,11 +22,11 @@ Tratamos os dados de conta e o conteúdo para cumprir o contrato com você e com
 | Preferências (idioma) | Você | Lembrar as suas escolhas |
 | Dados de repositórios ligados (nome da conta do GitHub, identificador da instalação, nome e identificador do repositório, se é privado, branch padrão, branches e pull requests, sem conteúdo de arquivos) | GitHub, quando a organização liga | Mostrar o código relacionado a cada ticket |
 | Chave de API do Linear (guardada cifrada; só os quatro caracteres finais ficam visíveis) | Você, ao conectar | Ler do Linear, em seu nome, o que você pede para importar |
-| Conteúdo importado do Linear (título, descrição, situação, prioridade, hierarquia, identificador e endereço de cada issue e de cada projeto; o identificador do responsável no Linear; o identificador e o nome do workspace e do time ligados; as datas de atualização e de importação) | Linear, quando você importa | Criar e atualizar os tickets correspondentes |
+| Conteúdo importado do Linear (título, descrição, situação, prioridade, hierarquia, identificador e endereço de cada issue e de cada projeto; a descrição, o líder e a prioridade de cada projeto; os identificadores do responsável, do criador e do líder no Linear; o nome de exibição do criador, quando ele não corresponde a uma pessoa do TreePM; os identificadores antigos da issue; as datas de criação, início, conclusão e cancelamento; o identificador e o nome do workspace e do time ligados; as datas de atualização e de importação) | Linear, quando você importa | Criar e atualizar os tickets correspondentes |
 | Tokens de acesso por MCP (guardados de forma que não permite recuperar o token; ficam visíveis o nome, os caracteres iniciais, a validade e o último uso) | Você, ao criar | Autenticar o seu cliente de IA |
 | Dados técnicos da sessão (cookies de autenticação, endereço IP, registros de erro), tratados em parte pelos fornecedores de login e de servidores | O seu navegador | Manter você conectado e proteger o serviço |
 
-Na importação do Linear, o e-mail dos usuários de lá é lido apenas para encontrar a pessoa correspondente no TreePM e definir o responsável do ticket. Esse e-mail não é guardado.
+Na importação do Linear, o e-mail dos usuários de lá é lido apenas para encontrar a pessoa correspondente no TreePM (o responsável, o criador e o líder do projeto). Esse e-mail não é guardado.
 
 Não usamos cookies de publicidade nem ferramentas de análise de terceiros.
 
@@ -60,7 +60,7 @@ O assistente só funciona na organização depois que um administrador o ativa.
 
 Tickets importados do Linear são tickets como os outros: o título e a descrição deles seguem as mesmas regras.
 
-**O que não é enviado por nós:** nome, e-mail ou outro identificador de pessoa; quem é responsável por cada ticket (o assistente pode listar os tickets atribuídos a quem pergunta, sem identificar a pessoa); comentários; conversas entre pessoas; o histórico de atividade; identificadores internos; o nome do projeto (vai só a chave dele); a chave de API do Linear e os dados de origem no Linear (identificador, endereço, workspace e time). Atenção: o que alguém escrever dentro do texto de um ticket vai junto com esse texto, inclusive nomes e e-mails que estejam em descrições importadas.
+**O que não é enviado por nós:** nome, e-mail ou outro identificador de pessoa; quem é responsável por cada ticket (o assistente pode listar os tickets atribuídos a quem pergunta, sem identificar a pessoa); comentários; conversas entre pessoas; o histórico de atividade; identificadores internos; o nome do projeto (vai só a chave dele); a chave de API do Linear e os dados de origem no Linear (identificador, endereço, workspace, time, criador e datas). Atenção: o que alguém escrever dentro do texto de um ticket vai junto com esse texto, inclusive nomes e e-mails que estejam em descrições importadas.
 
 **O que cada provedor declara fazer com os dados** (consultado em 21 de novembro de 2026, e em 23 de novembro de 2026 no caso da Voyage AI; vale o que estiver publicado nas páginas deles):
 

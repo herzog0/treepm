@@ -240,5 +240,6 @@ button.ticket-comment-area:hover { border-color: var(--tp-border-strong, var(--t
 .ticket-page .ticket-linear-missing { display: inline-flex; align-items: center; gap: 5px; box-sizing: border-box; min-height: 28px; padding: 0 8px; border: 1px dashed var(--tp-border-strong, var(--tp-border)); border-radius: var(--tp-radius-control); font: 400 12px/1.2 var(--tp-font); color: var(--tp-text); }
 .ticket-page .ticket-linear-missing svg { flex: none; color: var(--tp-danger-text); }
 @media (max-width: 720px) { .ticket-page .ticket-linear-missing { min-height: 44px; } }
+.ticket-page .ticket-linear-origin { list-style: none; margin: 6px 0 14px; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 14px; font: 400 12px/1.4 var(--tp-font); color: var(--tp-text-2); }
 .ticket-page .ticket-chat-button:hover { background: var(--tp-selected); border-color: var(--tp-border-strong); }
 @media (max-width: 720px) { .ticket-page .ticket-chat-button { min-height: 44px; } }

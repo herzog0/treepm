@@ -66,3 +66,77 @@ describe("fetchIssues", () => {
     expect(progress.size).toBe(25);
   });
 });
+
+// Item 1 da S3: a página de projetos reduz como a de issues; só um projeto sozinho ainda estourando perde o conteúdo.
+type ProjectFetcher = (key: string, teamId: string, run: unknown, progress: { size: number }) => Promise<{ page: { nodes: { id: string }[] }; reduced: boolean; usedSize: number; summaryOnly: string[] }>;
+function projectsWith(listTeamProjects: LinearClient["listTeamProjects"]) {
+  const service = new LinearImportService({ listTeamProjects } as unknown as LinearClient, null as never, null as never, null as never, null as never, null as never);
+  return (service as unknown as { fetchProjects: ProjectFetcher }).fetchProjects.bind(service);
+}
+const projectsPage = (ids: string[]) => ({ nodes: ids.map((id) => ({ id })), nextCursor: null, skippedInvalid: 0, emailUnavailable: false });
+
+describe("fetchProjects", () => {
+  it("estouro do corpo reduz a página à metade até caber, mantendo o conteúdo", async () => {
+    const asked: { first: number; withContent: boolean }[] = [];
+    const fetchProjects = projectsWith((async (_k, _t, _a, options) => {
+      asked.push({ first: options?.first ?? 0, withContent: options?.withContent !== false });
+      if ((options?.first ?? 0) > 12) throw new LinearError("linear_response_too_large");
+      return projectsPage(["p"]);
+    }) as LinearClient["listTeamProjects"]);
+    const progress = { size: 0 };
+    const result = await fetchProjects("k", "t", run(), progress);
+    expect(asked).toEqual([
+      { first: 50, withContent: true },
+      { first: 25, withContent: true },
+      { first: 12, withContent: true },
+    ]);
+    expect(progress.size).toBe(12);
+    expect(result).toMatchObject({ reduced: true, usedSize: 12, summaryOnly: [] });
+  });
+
+  it("com 1 projeto ainda estourando, dispensa o conteúdo SÓ dele (no passo seguinte, já com a página em 1)", async () => {
+    const fetchProjects = projectsWith((async (_k, _t, _a, options) => {
+      if (options?.withContent !== false) throw new LinearError("linear_timeout");
+      return projectsPage(["gigante"]);
+    }) as LinearClient["listTeamProjects"]);
+    const result = await fetchProjects("k", "t", run(1), { size: 0 });
+    expect(result).toMatchObject({ summaryOnly: ["gigante"], usedSize: 1 });
+  });
+
+  it("no máximo 6 chamadas por passo: de 50 a 1 são 6; a sem conteúdo fica para o passo seguinte, com o tamanho guardado", async () => {
+    let calls = 0;
+    const fetchProjects = projectsWith((async () => {
+      calls += 1;
+      throw new LinearError("linear_response_too_large");
+    }) as LinearClient["listTeamProjects"]);
+    const progress = { size: 0 };
+    await expect(fetchProjects("k", "t", run(), progress)).rejects.toMatchObject({ code: "linear_response_too_large" });
+    expect(calls).toBe(STEP_MAX_CALLS);
+    expect(progress.size).toBe(1);
+  });
+
+  it("no máximo 25 s por passo", async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    let calls = 0;
+    const fetchProjects = projectsWith((async () => {
+      calls += 1;
+      now += 10_000;
+      throw new LinearError("linear_timeout");
+    }) as LinearClient["listTeamProjects"]);
+    const progress = { size: 0 };
+    await expect(fetchProjects("k", "t", run(), progress)).rejects.toMatchObject({ code: "linear_timeout" });
+    expect(calls).toBe(2);
+    expect(progress.size).toBe(12);
+  });
+
+  it("outro erro propaga na hora, mantendo a redução já feita", async () => {
+    const fetchProjects = projectsWith((async (_k, _t, _a, options) => {
+      if ((options?.first ?? 0) === 50) throw new LinearError("linear_timeout");
+      throw new LinearError("linear_rate_limited", 5);
+    }) as LinearClient["listTeamProjects"]);
+    const progress = { size: 0 };
+    await expect(fetchProjects("k", "t", run(), progress)).rejects.toMatchObject({ code: "linear_rate_limited" });
+    expect(progress.size).toBe(25);
+  });
+});
