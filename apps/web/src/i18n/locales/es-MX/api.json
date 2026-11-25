@@ -71,6 +71,7 @@
       "linear_destination_invalid": "El destino ya no sirve: abandona esta importación y empieza otra eligiendo otro destino.",
       "linear_run_finished": "Esta importación ya terminó y no se puede abandonar.",
       "step_failed": "La importación falló en un paso y no pudo avanzar. Inténtalo de nuevo; si sigue fallando, abandónala y empieza otra.",
+      "step_too_slow": "El paso tarda demasiado incluso en el tamaño más pequeño. Abandona esta importación y abre otra.",
       "test_people_total_limit": "Esta organización ya tiene 100 personas de prueba, contando las desactivadas. Reactiva una en lugar de crear otra.",
       "display_name_taken": "Ya existe una persona activa con ese nombre (mayúsculas y acentos no cuentan). Elige otro nombre.",
       "invalid_display_name": "El nombre no puede tener caracteres invisibles ni de control."

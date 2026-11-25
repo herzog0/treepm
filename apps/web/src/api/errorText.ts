@@ -14,7 +14,7 @@ const KNOWN_CODES = new Set([
   "test_people_total_limit", "display_name_taken", "invalid_display_name",
   "linear_key_invalid", "linear_unavailable", "linear_not_connected", "linear_not_configured", "linear_confirmation_mismatch", "linear_already_linked", "linear_team_in_use", "linear_team_not_found", "not_while_acting_as",
   "linear_run_open", "linear_reimport_not_available", "linear_step_in_progress", "linear_not_linked", "linear_workspace_mismatch", "linear_team_not_visible",
-  "linear_destination_invalid", "linear_run_finished", "step_failed",
+  "linear_destination_invalid", "linear_run_finished", "step_failed", "step_too_slow",
 ] as const);
 type KnownCode = typeof KNOWN_CODES extends Set<infer C> ? C : never;
 

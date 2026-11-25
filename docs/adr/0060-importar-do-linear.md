@@ -142,3 +142,19 @@ Diferenças em relação ao desenho: "Abrir importação", a data da última imp
 Diferenças em relação ao desenho: "Vai trazer N issues" só aparece depois de abrir a rodada (o total vem do servidor nesse momento); a atividade da importação é registrada, mas nenhuma tela mostra atividades de projeto; a linha "Mantidos onde você os moveu" do resumo entra com a fatia 3.
 
 Ordem de publicação: a migration `0038` precisa estar aplicada antes do código, porque o detalhe de todo ticket consulta a tabela de origens.
+
+### Fatia 3: reimportação (2026-11-25, `TREEPM-424`)
+
+- **Banco (migration `0039_linear_reimport`):** a rodada ganha as fases `statuses` e `missing` e o tamanho de lote; a origem ganha a rodada em que foi vista, as marcas de hierarquia e de situação pendentes e o controle da rodada de situação. Sem preenchimento: o que a fatia 2 gravou já serve.
+- **Abrir:** num projeto com importação concluída, abrir uma rodada abre uma reimportação, que herda o destino da primeira (só vale para issue nova sem pai e sem projeto). Fases: `projects`, `issues`, `hierarchy`, `statuses`, `mentions`, `missing`, `done`.
+- **Título, descrição, prioridade e responsável** são decididos na leitura das páginas, pela regra da seção 5: aplica só o que mudou no Linear e não foi mexido aqui. Responsável que a primeira importação não conseguiu casar (e-mail ilegível) é atribuído quando o e-mail passa a ser legível.
+- **Situação tem fase própria** (`statuses`), depois da hierarquia e de baixo para cima, lendo o estado do momento. Para ticket não mexido aqui, a situação é a do Linear, a menos que uma regra da árvore impeça (concluído com filho aberto, dentro de ideia): aí ele fica como está, sem ser rebaixado, e é reavaliado a cada reimportação até poder assumir. Decidir a situação na ordem em que as páginas chegam foi tentado e descartado: deixava pais rebaixados para sempre e, num caso, sobrescrevia edição da pessoa.
+- **Hierarquia:** só move (não decide situação) e só o que foi visto na rodada: ticket criado nela, ou cujo pai mudou no Linear e continua onde a importação o tinha posto. O que foi arrumado à mão fica.
+- **Não encontradas:** fase `missing` marca `missing_since` nas origens não vistas e não toca o ticket; só roda quando o time foi percorrido inteiro. A página do ticket avisa "Não encontrada no Linear desde…".
+- **Eventos:** cada mudança da reimportação é um evento automático; a linha do tempo marca como automáticas também as mudanças de título, descrição, prioridade, pai e responsável.
+- **Passo lento:** o estouro real do prazo da gravação reduz o lote (25 na fase de situações) e, no menor tamanho, conta como erro para a tela oferecer "Abandonar". Árvore ocupada por outra operação só repete.
+- **Tela:** cartão "Última importação" com as contagens e "Reimportar agora", "Vai trazer N issues" antes de importar, resumo da reimportação, e a data da última importação nas Configurações.
+
+Limites conhecidos, registrados como tickets: um pai reaberto pela regra da árvore por ação de pessoa passa a contar como mexido aqui (`TREEPM-446`); o custo da fase de situações em projetos muito grandes (`TREEPM-447`); pequenos desvios de contagem (`TREEPM-448`).
+
+Publicação: a `0039` antes do código, e nunca com uma reimportação aberta rodando em instância antiga.

@@ -239,6 +239,8 @@ export interface FakeLinear {
   projects?: Record<string, ProjectLinear>;
   /** A importação em passos (ADR 0060, seção 3): uma rodada simulada projetos → issues → hierarquia → concluída. */
   run?: FakeLinearRun;
+  /** A prévia "vai trazer N issues" (`GET …/linear/preview`): um número, `null` (o Linear não disse) ou um erro `[tipo, código]`. Padrão: o total da rodada simulada. */
+  preview?: number | null | { error: [Parameters<typeof failed>[0], string?] };
 }
 
 /** Um desfecho de passo do `FakeLinear`, consumido na ordem das chamadas; esgotada a lista, os passos andam normalmente. */
@@ -262,6 +264,8 @@ export interface FakeLinearRun {
   existing?: Partial<LinearRun>;
   /** Desfechos dos passos, um por chamada. */
   script?: FakeLinearStep[];
+  /** Contagens que uma REIMPORTAÇÃO simulada acrescenta ao concluir (`updated`, `keptTouched`, `keptMoved`, `missing`, booleanos de aviso…). */
+  reimportCounts?: Record<string, number | boolean>;
   /** Erro de `POST …/linear/runs`; vale uma vez só. */
   openError?: [Parameters<typeof failed>[0], string?];
 }
@@ -296,7 +300,7 @@ export const makeLinearConnection = (extra: Partial<NonNullable<LinearConnection
   ...extra,
 });
 
-const LINEAR_NAMES = ["connectLinear", "disconnectLinear", "listLinearTeams", "getProjectLinear", "linkProjectToLinear", "openLinearRun", "getCurrentLinearRun", "stepLinearRun", "abandonLinearRun"] as const;
+const LINEAR_NAMES = ["connectLinear", "disconnectLinear", "listLinearTeams", "getProjectLinear", "getLinearPreview", "linkProjectToLinear", "openLinearRun", "getCurrentLinearRun", "stepLinearRun", "abandonLinearRun"] as const;
 
 /**
  * As rotas do Linear do contrato da ADR 0060, em memória: a chave nunca volta (só os 4 últimos caracteres), agindo como outra
@@ -322,6 +326,8 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
   const archived = (projectId: string) => data.projects?.find((entry) => entry.id === projectId)?.archivedAt != null;
   const runConfig = linear.run ?? {};
   const runs = new Map<string, LinearRun>();
+  /** A última rodada concluída de cada projeto (o `lastFinished` do servidor): uma rodada abandonada não a muda. */
+  const finishedRuns = new Map<string, LinearRun>();
   const script = [...(runConfig.script ?? [])];
   let openError = runConfig.openError;
   const total = runConfig.total === undefined ? 12 : runConfig.total;
@@ -333,6 +339,7 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
     if (!runConfig.existing) return null;
     const seeded = makeLinearRun({ projectId, ...runConfig.existing });
     runs.set(projectId, seeded);
+    if (seeded.done && seeded.phase === "done") finishedRuns.set(projectId, seeded);
     return seeded;
   };
   const advance = (run: LinearRun): LinearRun => {
@@ -349,11 +356,18 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
       if (counts["issuesSeen"] >= all) phase = "hierarchy";
     } else if (phase === "hierarchy") {
       counts["parentsLinked"] = Math.floor((total ?? 12) / 3);
+      // Reimportação: a situação é decidida numa fase própria, depois de os pais estarem ligados.
+      phase = run.mode === "reimport" ? "statuses" : "mentions";
+    } else if (phase === "statuses") {
       phase = "mentions";
     } else if (phase === "mentions") {
+      // Reimportação: depois das menções vem a conferência do que sumiu do Linear.
+      phase = run.mode === "reimport" ? "missing" : "done";
+    } else if (phase === "missing") {
       phase = "done";
     }
     const finished = phase === "done";
+    if (finished && run.mode === "reimport") Object.assign(counts, runConfig.reimportCounts ?? {});
     return { ...run, phase, counts, waitUntil: null, lastErrorCode: null, done: finished, updatedAt: stamp(), finishedAt: finished ? stamp() : null };
   };
   const view = (projectId: string): ProjectLinear => {
@@ -397,6 +411,13 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
       return ok(teams.map((team) => ({ ...team })));
     }),
     getProjectLinear: vi.fn(async (projectId: string) => refuse() ?? ok(view(projectId))),
+    getLinearPreview: vi.fn(async () => {
+      const problem = refuse();
+      if (problem) return problem;
+      const preview = linear.preview;
+      if (preview !== null && typeof preview === "object") return failed(...preview.error);
+      return ok({ issueCount: preview === undefined ? total : preview });
+    }),
     // Como o servidor: sem ligação 409 `linear_not_linked`; com rodada aberta 409 `linear_run_open`; depois de concluída, `linear_reimport_not_available`.
     openLinearRun: vi.fn(async (projectId: string, body: { destinationTicketId?: string | null }) => {
       const problem = refuse();
@@ -409,8 +430,9 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
       if (sources.get(projectId)?.source == null) return failed("conflict", "linear_not_linked");
       const last = lastRun(projectId);
       if (last && !last.done) return failed("conflict", "linear_run_open");
-      if (last && last.phase === "done") return failed("conflict", "linear_reimport_not_available");
-      const created = makeLinearRun({ projectId, id: `run-${runs.size + 1}`, totalExpected: total, destinationTicketId: body.destinationTicketId ?? null, startedBy: { id: me.person.id }, startedAt: stamp(), updatedAt: stamp() });
+      // Depois de uma importação concluída, abrir é reimportar; sem destino no corpo ele é herdado da primeira rodada concluída.
+      const done = finishedRuns.get(projectId) ?? (last && last.phase === "done" ? last : null);
+      const created = makeLinearRun({ projectId, id: `run-${runs.size + 1}`, mode: done ? "reimport" : "first", totalExpected: total, destinationTicketId: body.destinationTicketId === undefined ? (done?.destinationTicketId ?? null) : body.destinationTicketId, startedBy: { id: me.person.id }, startedAt: stamp(), updatedAt: stamp() });
       runs.set(projectId, created);
       return ok<LinearRun>({ ...created, counts: { ...created.counts } });
     }),
@@ -418,7 +440,8 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
       const problem = refuse();
       if (problem) return problem;
       const last = lastRun(projectId);
-      return ok({ run: last ? { ...last, counts: { ...last.counts } } : null });
+      const finished = finishedRuns.get(projectId);
+      return ok({ run: last ? { ...last, counts: { ...last.counts } } : null, lastFinished: finished ? { ...finished, counts: { ...finished.counts } } : null });
     }),
     stepLinearRun: vi.fn(async (projectId: string, runId: string) => {
       const problem = refuse();
@@ -435,6 +458,7 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
       }
       const advanced = run.done ? run : advance(runs.get(projectId) ?? run);
       runs.set(projectId, advanced);
+      if (advanced.done && advanced.phase === "done") finishedRuns.set(projectId, advanced);
       return ok<LinearRun>({ ...advanced, counts: { ...advanced.counts } });
     }),
     // Como o servidor: abandona a rodada aberta (fase `failed`, `done`); concluída, 409 `linear_run_finished`.

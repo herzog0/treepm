@@ -90,14 +90,15 @@ describe("POST /api/projects/:id/linear/runs", () => {
     expect(await q("select 1 from external_import_runs")).toHaveLength(1);
   });
 
-  it("projeto com rodada concluída → 409 linear_reimport_not_available (a reimportação é a fatia 3)", async () => {
+  it("projeto com rodada concluída → abre a reimportação (mode reimport), uma só por vez", async () => {
     await linkWithData(h, put, open(), data());
     const first = await runs(open());
     await h.pool.query("update external_import_runs set phase = 'done', finished_at = now() where id = $1::uuid", [first.body.id]);
     const res = await runs(open());
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe("linear_reimport_not_available");
-    expect(await q("select 1 from external_import_runs")).toHaveLength(1);
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ mode: "reimport", phase: "projects" });
+    expect((await runs(open())).status).toBe(409);
+    expect(await q("select 1 from external_import_runs")).toHaveLength(2);
   });
 
   it("recusa quem não pode importar (404 sem ver o projeto, 403 vendo), projeto arquivado e 'entrar como'", async () => {
@@ -129,12 +130,18 @@ describe("POST /api/projects/:id/linear/runs", () => {
 describe("GET /api/projects/:id/linear/runs/current", () => {
   it("sem rodada → { run: null }; com rodada aberta → ela; depois de concluída → a última", async () => {
     await linkWithData(h, put, open(), data());
-    expect((await current(open())).body).toEqual({ run: null });
+    expect((await current(open())).body).toEqual({ run: null, lastFinished: null });
     const first = await runs(open());
     expect((await current(open())).body.run.id).toBe(first.body.id);
     await h.pool.query("update external_import_runs set phase = 'done', finished_at = now() where id = $1::uuid", [first.body.id]);
     const last = (await current(open())).body.run;
     expect(last).toMatchObject({ id: first.body.id, phase: "done", done: true });
+    // A última concluída vem junto (a tela diz "Reimportação · há 2 dias"), mesmo com outra rodada aberta.
+    expect((await current(open())).body.lastFinished).toMatchObject({ id: first.body.id, phase: "done" });
+    const reimport = await runs(open());
+    const both = (await current(open())).body;
+    expect(both.run.id).toBe(reimport.body.id);
+    expect(both.lastFinished.id).toBe(first.body.id);
   });
 
   it("exige a permissão de importar, vê só o próprio projeto e recusa organização errada", async () => {

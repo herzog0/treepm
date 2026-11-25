@@ -67,13 +67,13 @@ describe("A1.1 abandonar a rodada", () => {
     expect((await q("select count(distinct external_id)::int n, count(*)::int c from ticket_external_refs where project_id = $1::uuid", [open()]))[0]).toEqual({ n: 61, c: 61 });
   });
 
-  it("a rodada concluída não se abandona (409) e continua valendo linear_reimport_not_available; abandonar duas vezes é inofensivo", async () => {
+  it("a rodada concluída não se abandona (409) e a próxima rodada é uma reimportação", async () => {
     const runId = await begin(team(issues(3)));
     await finish(runId);
     const late = await abandon(runId);
     expect(late.status).toBe(409);
     expect(late.body.error.code).toBe("linear_run_finished");
-    expect((await post("")).body.error.code).toBe("linear_reimport_not_available");
+    expect((await post("")).body.mode).toBe("reimport");
   });
 
   it("abandonar duas vezes devolve a rodada; outra rodada/projeto e permissão", async () => {
@@ -127,11 +127,14 @@ describe("A1.3 página grande demais", () => {
     expect(res.body.counts.issuesCreated).toBe(6);
     expect((await run(runId))["page_size"]).toBe(6);
     expect(res.body.pageSize).toBe(6);
-    // o passo seguinte parte do tamanho guardado e já sobe (6 → 12), sem insistir no que falha
+    // L14: o tamanho reduzido por estouro NÃO volta ao dobro no passo seguinte: só cresce depois de três passos seguidos bons (6 → 12)
     asks.length = 0;
     const next = await step(runId);
     expect(asks[0]).toBe(6);
-    expect(next.body.pageSize).toBe(12);
+    expect(next.body.pageSize).toBe(6);
+    expect((await step(runId)).body.pageSize).toBe(6);
+    expect(asks.slice(-1)[0]).toBe(6);
+    expect((await step(runId)).body.pageSize).toBe(12);
     // L9: leva a rodada até o fim: nenhuma issue se perdeu nem repetiu por causa da mudança de tamanho
     const last = await finish(runId);
     expect(last.counts).toMatchObject({ issuesCreated: 60, issuesSeen: 60 });

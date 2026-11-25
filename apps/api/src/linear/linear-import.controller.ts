@@ -11,6 +11,23 @@ import { openRunBodySchema } from "./linear-import.schema.js";
 import type { RunView } from "./linear-import.schema.js";
 import { LinearImportService } from "./linear-import.service.js";
 
+/** Antes de importar: quantas issues o time ligado tem (ADR 0060, seção 3). A mesma permissão de importar. */
+@Controller("projects/:projectId/linear")
+@UseGuards(LinearEnabledGuard)
+export class LinearPreviewController {
+  constructor(@Inject(LinearImportService) private readonly service: LinearImportService) {}
+
+  @Get("preview")
+  @OwnTransactions()
+  preview(
+    @Tenant() tenant: TenantRunner,
+    @CurrentPrincipal() principal: Principal,
+    @Param("projectId", new ZodPipe(idSchema)) projectId: string,
+  ): Promise<{ issueCount: number | null }> {
+    return this.service.preview(tenant, principal, projectId);
+  }
+}
+
 /**
  * A importação do Linear em passos (ADR 0060, seção 3). A tela abre a rodada e chama o passo em laço. O passo vai ao Linear fora de
  * transação, então as rotas abrem as próprias transações (`@OwnTransactions`); a fila de estrutura é tomada só em volta da gravação.
@@ -38,7 +55,7 @@ export class LinearImportController {
     @Tenant() tenant: TenantRunner,
     @CurrentPrincipal() principal: Principal,
     @Param("projectId", new ZodPipe(idSchema)) projectId: string,
-  ): Promise<{ run: RunView | null }> {
+  ): Promise<{ run: RunView | null; lastFinished: RunView | null }> {
     return this.service.current(tenant, principal, projectId);
   }
 

@@ -125,7 +125,7 @@ const ticketDetailSchema = ticketSummarySchema.extend({
   canEndAgentWork: z.boolean().optional(),
   description: z.string(),
   /** De onde o ticket veio (ADR 0060): o Linear, com a chave da issue (`null` num projeto do Linear) e o endereço. Ausente: sem origem externa. */
-  externalSource: z.object({ provider: z.literal("linear"), key: z.string().nullable(), url: z.string().nullable() }).nullable().optional(),
+  externalSource: z.object({ provider: z.literal("linear"), key: z.string().nullable(), url: z.string().nullable(), missingSince: z.string().nullable().optional() }).nullable().optional(),
   /** Quem lê pode aceitar e descartar a ideia (gestor do projeto, ADR 0042); ausente = não. */
   canTriageIdea: z.boolean().optional(),
   /** Os tickets do projeto que mencionam este na descrição, em ordem de número (ADR 0037). */
@@ -281,6 +281,8 @@ const linearTeamSchema = z.object({
   linkedProject: z.object({ id: z.string(), name: z.string() }).nullable(),
   /** Ligado a um projeto que ela não enxerga (sem nome). */
   linkedElsewhere: z.boolean(),
+  /** Quando o time teve a última importação concluída; ausente ou nulo: nunca. */
+  lastImportedAt: z.string().nullable().optional(),
 });
 const projectLinearSchema = z.object({
   source: z
@@ -300,7 +302,7 @@ const linearRunSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   mode: z.enum(["first", "reimport"]),
-  phase: z.enum(["projects", "issues", "hierarchy", "mentions", "categorize", "done", "failed"]),
+  phase: z.enum(["projects", "issues", "hierarchy", "statuses", "mentions", "categorize", "missing", "done", "failed"]),
   done: z.boolean(),
   categorize: z.boolean(),
   categorizeAvailable: z.boolean(),
@@ -316,7 +318,10 @@ const linearRunSchema = z.object({
   updatedAt: z.string(),
   finishedAt: z.string().nullable(),
 });
-const currentLinearRunSchema = z.object({ run: linearRunSchema.nullable() });
+/** `lastFinished`: a última rodada concluída (a reimportação mostra as contagens dela); ausente num servidor antigo. */
+const currentLinearRunSchema = z.object({ run: linearRunSchema.nullable(), lastFinished: linearRunSchema.nullable().optional() });
+/** Quantas issues a importação traria; `null` quando o Linear não disse (nunca bloqueia o botão). */
+const linearPreviewSchema = z.object({ issueCount: z.number().nullable() });
 const projectRepositorySchema = githubRepositorySchema.extend({ id: z.string(), linkedAt: z.string() });
 const codeRefreshSchema = z.object({
   refreshed: z.boolean(),
@@ -348,7 +353,7 @@ const contributionAreaRef = z.object({ id: z.string(), name: z.string() }).nulla
 /** A área de um comentário: `id` é o da contribuição, nulo quando ela foi removida (o nome ficou guardado); `null` no comentário do ticket. */
 const commentAreaRef = z.object({ id: z.string().nullable(), name: z.string() }).nullable();
 /** `via: "mcp"`: a entrada foi gravada por uma chamada MCP (ADR 0043); ausente = feita à mão. */
-const activityBase = { id: z.string(), occurredAt: z.string(), actor: activityPersonSchema.nullable(), via: z.enum(["mcp"]).nullish() };
+const activityBase = { id: z.string(), occurredAt: z.string(), actor: activityPersonSchema.nullable(), via: z.enum(["mcp"]).nullish(), /** A reimportação do Linear gravou a mudança (ADR 0060); em `status_changed` é obrigatório. */ automatic: z.literal(true).optional() };
 const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("created") }),
   z.object({ ...activityBase, type: z.literal("title_changed"), from: z.string(), to: z.string() }),
@@ -495,9 +500,10 @@ export type LinearConnection = z.output<typeof linearConnectionSchema>;
 export type LinearTeam = z.output<typeof linearTeamSchema>;
 export type ProjectLinear = z.output<typeof projectLinearSchema>;
 export type LinearRun = z.output<typeof linearRunSchema>;
+export type LinearPreview = z.output<typeof linearPreviewSchema>;
 export type CurrentLinearRun = z.output<typeof currentLinearRunSchema>;
 export interface OpenLinearRunBody {
-  /** O ticket onde as issues entram; nulo ou ausente: a raiz do projeto. */
+  /** O ticket onde as issues novas entram; nulo: a raiz do projeto; ausente: herda o destino da primeira importação. */
   destinationTicketId?: string | null;
 }
 export interface LinkProjectToLinearBody {
@@ -817,6 +823,7 @@ export function createApiClient({ getToken, fetch: fetchImpl, actAsId = null }: 
     getProjectLinear: (projectId: string) => request("GET", `${project(projectId)}/linear`, projectLinearSchema),
     openLinearRun: (projectId: string, body: OpenLinearRunBody) => request("POST", `${project(projectId)}/linear/runs`, linearRunSchema, body),
     getCurrentLinearRun: (projectId: string) => request("GET", `${project(projectId)}/linear/runs/current`, currentLinearRunSchema),
+    getLinearPreview: (projectId: string) => request("GET", `${project(projectId)}/linear/preview`, linearPreviewSchema),
     stepLinearRun: (projectId: string, runId: string) => request("POST", `${project(projectId)}/linear/runs/${runId}/step`, linearRunSchema),
     /** Desiste da rodada aberta: o que já foi importado fica e dá para começar outra (ADR 0060). */
     abandonLinearRun: (projectId: string, runId: string) => request("POST", `${project(projectId)}/linear/runs/${runId}/abandon`, linearRunSchema),

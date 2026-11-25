@@ -116,4 +116,54 @@ describe.skipIf(!DIR)("capturas da importação do Linear (ADR 0060)", () => {
     release();
     view.screen.unmount();
   });
+
+  // Fatia 3: reimportação (ADR 0060, seção 5).
+  const reimport = (run: object = {}) => ({
+    connection,
+    projects: { p1: LINKED },
+    run: {
+      total: 4,
+      projects: 0,
+      existing: { phase: "done" as const, done: true, mode: "reimport" as const, finishedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(), destinationTicketId: null, counts: { projectsCreated: 1, issuesCreated: 8, updated: 23, keptTouched: 5, keptMoved: 3, missing: 2 } },
+      ...run,
+    } as never,
+  });
+
+  it("reimportação: última importação, durante e resumo", async () => {
+    const card = await mountImport({ linear: reimport() });
+    await settle(400);
+    await shot("13-ultima-importacao");
+    card.screen.unmount();
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => { release = resolve; });
+    const view = await mountImport({ linear: reimport({ script: ["ok", "ok", "ok", "ok", "ok", { hold }] }) });
+    await userEvent.click(button("Reimportar agora"));
+    await settle(600);
+    await shot("14-reimportando");
+    release();
+    view.screen.unmount();
+    await settle(100);
+    await mountImport({ linear: reimport({ reimportCounts: { updated: 23, keptTouched: 5, keptMoved: 3, missing: 2, elsewhere: 1, descriptionUnavailable: true } }) });
+    await userEvent.click(button("Reimportar agora"));
+    await settle(800);
+    await shot("15-resumo-reimportacao");
+  });
+
+  it("ticket com 'Não encontrada no Linear'", async () => {
+    await page.viewport(1440, 900);
+    const project = makeProject("p1", "DES", "Design");
+    const summary = makeTicket("t1", "p1", 88, "Revisar a paleta do mapa", { key: "DES-88" });
+    const client = makeClient({ projects: [project], tickets: { p1: [summary] } });
+    Object.assign(client, {
+      getTicket: async () => ok({ ...summary, description: "Importado do Linear.", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-11-24T10:00:00.000Z", updatedAt: "2026-11-24T10:00:00.000Z", externalSource: { provider: "linear", key: "DES-88", url: "https://linear.app/acme/issue/DES-88/revisar-a-paleta", missingSince: "2026-11-20T15:00:00.000Z" } }),
+    });
+    await render(
+      <div style={{ display: "grid", height: "100dvh" }}>
+        <TicketPage client={client} me={makePanelMe("admin")} projects={[project]} ticketId="t1" creating={null} onOpenTicket={() => undefined} onClose={() => undefined} onChanged={() => undefined} onRemoved={() => undefined} onStartCreate={() => undefined} onCancelCreate={() => undefined} onCreated={() => undefined} />
+      </div>,
+    );
+    await document.fonts.ready;
+    await settle(500);
+    await shot("16-ticket-nao-encontrada");
+  });
 });

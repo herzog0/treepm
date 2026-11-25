@@ -153,7 +153,7 @@ export const effectivePrioritySchema = z.object({ value: ticketPrioritySchema, f
 export type EffectivePriorityView = z.output<typeof effectivePrioritySchema>;
 
 /** De onde o ticket veio (ADR 0060): só o que a tela mostra em "Ver no Linear · ENG-123"; nunca retratos nem ids do provedor. */
-export const externalSourceSchema = z.object({ provider: z.literal("linear"), key: z.string().nullable(), url: z.string().nullable() });
+export const externalSourceSchema = z.object({ provider: z.literal("linear"), key: z.string().nullable(), url: z.string().nullable(), missingSince: z.string().nullable() });
 export type ExternalSourceView = z.output<typeof externalSourceSchema>;
 
 export const ticketDetailSchema = ticketSummarySchema.extend({

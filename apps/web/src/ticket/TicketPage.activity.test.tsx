@@ -85,6 +85,33 @@ describe("seção Atividade: frases", () => {
     expect(text).toMatch(expected);
   });
 
+  // Reimportação do Linear (ADR 0060 seção 5): entrada `automatic: true` diz que foi automática, como a situação já diz.
+  it.each([
+    [entry<"title_changed">({ type: "title_changed", from: "x", to: "y", automatic: true, actor: null }), /^Título mudado automaticamente de «x» para «y»/],
+    [entry<"description_changed">({ type: "description_changed", automatic: true, actor: null }), /^Descrição editada automaticamente/],
+    [entry<"priority_changed">({ type: "priority_changed", from: 1, to: 2, automatic: true, actor: null }), /^Prioridade mudada automaticamente de 1 para 2/],
+    [entry<"parent_changed">({ type: "parent_changed", from: null, to: ref(12, "Título"), automatic: true, actor: null }), /^Movido automaticamente para dentro de ALFA-12 Título/],
+    [entry<"parent_changed">({ type: "parent_changed", from: ref(12), to: null, automatic: true, actor: null }), /^Tirado automaticamente de dentro de ALFA-12 Título 12/],
+    [entry<"parent_changed">({ type: "parent_changed", from: ref(12), to: ref(13), automatic: true, actor: null }), /^Movido automaticamente de ALFA-12 Título 12 para dentro de ALFA-13 Título 13/],
+    [entry<"assignee_added">({ type: "assignee_added", person: bruno, automatic: true, actor: null }), /^Bruno adicionado automaticamente como responsável/],
+    [entry<"assignee_removed">({ type: "assignee_removed", person: bruno, automatic: true, actor: null }), /^Bruno tirado automaticamente dos responsáveis/],
+    [entry<"title_changed">({ type: "title_changed", from: "x", to: "y" }), /^Ana mudou o título de «x» para «y»/],
+  ])("automática: %j", async (item, expected) => {
+    setup({ "": page([item]) });
+    const [text] = await texts();
+    expect(text).toMatch(expected);
+  });
+
+  it.each([
+    ["en", "Activity", /^Title changed automatically from “x” to “y”/],
+    ["es-MX", "Actividad", /^Título cambiado automáticamente de «x» a «y»/],
+  ] as const)("automática em %s", async (language, region, expected) => {
+    await setTestLanguage(language);
+    setup({ "": page([entry<"title_changed">({ type: "title_changed", from: "x", to: "y", automatic: true, actor: null })]) });
+    const view = within(await screen.findByRole("region", { name: region }));
+    expect(textOf(await view.findByRole("listitem"))).toMatch(expected);
+  });
+
   it("entrada sem autor usa uma frase sem sujeito", async () => {
     setup({ "": page([
       entry<"created">({ type: "created", actor: null }),

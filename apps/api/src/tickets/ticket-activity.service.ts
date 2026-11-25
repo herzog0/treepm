@@ -66,12 +66,13 @@ type Data =
   | { type: "idea_stage_changed"; from: z.output<typeof ideaStageSchema>; to: z.output<typeof ideaStageSchema> }
   | { type: "comment"; comment: CommentRow };
 /** Entrada ainda sem os ids resolvidos. `pos` é a posição na ordem total (instante, evento, campo). */
-type Draft = { id: string; type: Data["type"]; actorId: string | null; occurredAt: number; pos: Position; data: Data; contributionId?: string; via?: "mcp" };
+type Draft = { id: string; type: Data["type"]; actorId: string | null; occurredAt: number; pos: Position; data: Data; contributionId?: string; via?: "mcp"; automatic?: true };
 
 const idOrNull = z.uuid().nullable();
 const fromTo = <T extends z.ZodType>(schema: T) => z.object({ from: schema, to: schema });
 const issueKey = /^[A-Za-z][A-Za-z0-9]*-(\d+)$/;
 const isMcp = (payload: unknown): boolean => typeof payload === "object" && payload !== null && (payload as Record<string, unknown>)["via"] === "mcp";
+const isAutomatic = (payload: unknown): boolean => typeof payload === "object" && payload !== null && (payload as Record<string, unknown>)["automatic"] === true;
 const refOf = (id: string | null): RefDraft | null => (id === null ? null : { id, key: null, number: null });
 
 function compare(a: Position, b: Position): number {
@@ -103,6 +104,7 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
     data,
     ...(contributionId === undefined ? {} : { contributionId }),
     ...(isMcp(row.payload) ? { via: "mcp" as const } : {}),
+    ...(row.kind === "ticket.updated" && isAutomatic(row.payload) ? { automatic: true as const } : {}),
   });
   const payload = row.payload;
   if (row.kind === "ticket.created") return [make(0, row.id, { type: "created" })];
@@ -137,6 +139,16 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
           if (v.success) out.push(make(index, id, { type: "parent_changed", from: refOf(v.data.from), to: refOf(v.data.to) }));
         }
       });
+      // Troca de responsáveis dentro de um `ticket.updated` (a reimportação do Linear): as mesmas entradas de `ticket.assignee_added/removed`.
+      if (fields.data.includes("assignees")) {
+        const v = fromTo(z.array(z.uuid())).safeParse(p["assignees"]);
+        if (v.success) {
+          const added = v.data.to.filter((id) => !v.data.from.includes(id));
+          const removed = v.data.from.filter((id) => !v.data.to.includes(id));
+          added.forEach((personId, k) => out.push(make(FIELD_ORDER.length + k, `${row.id}:assignee_added:${personId}`, { type: "assignee_added", personId })));
+          removed.forEach((personId, k) => out.push(make(FIELD_ORDER.length + added.length + k, `${row.id}:assignee_removed:${personId}`, { type: "assignee_removed", personId })));
+        }
+      }
       return out.reverse();
     }
     case "ticket.assignee_added":
@@ -378,7 +390,7 @@ export class TicketActivityService {
     const person = (id: string | null) => (id ? (personById.get(id) ?? null) : null);
 
     return drafts.map((d): ActivityEntry => {
-      const common = { id: d.id, occurredAt: new Date(d.occurredAt).toISOString(), actor: person(d.actorId), ...(d.via ? { via: d.via } : {}) };
+      const common = { id: d.id, occurredAt: new Date(d.occurredAt).toISOString(), actor: person(d.actorId), ...(d.via ? { via: d.via } : {}), ...(d.automatic ? { automatic: true as const } : {}) };
       const data = d.data;
       switch (data.type) {
         case "created":

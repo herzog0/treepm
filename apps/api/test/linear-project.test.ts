@@ -45,8 +45,8 @@ describe("GET /api/linear/teams", () => {
     const res = await h.call("GET", "/api/linear/teams", as("admin"));
     expect(res.status).toBe(200);
     expect(res.body).toEqual([
-      { ...TEAM_ENG, linkedProject: null, linkedElsewhere: false },
-      { ...TEAM_OPS, linkedProject: null, linkedElsewhere: false },
+      { ...TEAM_ENG, linkedProject: null, linkedElsewhere: false, lastImportedAt: null },
+      { ...TEAM_OPS, linkedProject: null, linkedElsewhere: false, lastImportedAt: null },
     ]);
   });
 
@@ -55,11 +55,11 @@ describe("GET /api/linear/teams", () => {
     await put("plain", KEY); // não enxerga o projeto privado
     await put("contributor", KEY);
     const seen = await h.call("GET", "/api/linear/teams", as("contributor"));
-    expect(seen.body[0]).toEqual({ ...TEAM_ENG, linkedProject: { id: priv(), name: "Privado" }, linkedElsewhere: false });
+    expect(seen.body[0]).toEqual({ ...TEAM_ENG, linkedProject: { id: priv(), name: "Privado" }, linkedElsewhere: false, lastImportedAt: null });
     const hidden = await h.call("GET", "/api/linear/teams", as("plain"));
-    expect(hidden.body[0]).toEqual({ ...TEAM_ENG, linkedProject: null, linkedElsewhere: true });
+    expect(hidden.body[0]).toEqual({ ...TEAM_ENG, linkedProject: null, linkedElsewhere: true, lastImportedAt: null });
     expect(JSON.stringify(hidden.body)).not.toContain("Privado");
-    expect(hidden.body[1]).toEqual({ ...TEAM_OPS, linkedProject: null, linkedElsewhere: false });
+    expect(hidden.body[1]).toEqual({ ...TEAM_OPS, linkedProject: null, linkedElsewhere: false, lastImportedAt: null });
   });
 
   it("não confunde o mesmo id de time em outro workspace", async () => {
@@ -67,7 +67,7 @@ describe("GET /api/linear/teams", () => {
     world({ [KEY_B]: { workspace: OTHER_WS, teams: [TEAM_ENG] } });
     await put("admin", KEY_B);
     const res = await h.call("GET", "/api/linear/teams", as("admin"));
-    expect(res.body).toEqual([{ ...TEAM_ENG, linkedProject: null, linkedElsewhere: false }]);
+    expect(res.body).toEqual([{ ...TEAM_ENG, linkedProject: null, linkedElsewhere: false, lastImportedAt: null }]);
   });
 
   it("chave revogada no Linear: 422 linear_key_invalid; Linear fora do ar: 503", async () => {

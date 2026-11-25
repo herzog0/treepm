@@ -42,6 +42,8 @@ export interface UseLinearRunOptions {
 export function useLinearRun(client: ApiClient, projectId: string, { enabled }: UseLinearRunOptions) {
   const [load, setLoad] = useState<RunLoad>({ status: "loading" });
   const [run, setRunState] = useState<LinearRun | null>(null);
+  /** A última rodada concluída (a reimportação mostra "Última importação · há 2 dias" com as contagens dela). */
+  const [lastFinished, setLastFinished] = useState<LinearRun | null>(null);
   const [loop, setLoop] = useState<LoopState>({ kind: "idle" });
   const [version, setVersion] = useState(0);
   const [resumeToken, setResumeToken] = useState(0);
@@ -57,6 +59,7 @@ export function useLinearRun(client: ApiClient, projectId: string, { enabled }: 
       if (!active) return;
       if (result.ok) {
         setRun(result.data.run);
+        setLastFinished(result.data.lastFinished ?? null);
         setLoad({ status: "ready" });
       } else setLoad({ status: "error", error: result.error });
     });
@@ -100,6 +103,7 @@ export function useLinearRun(client: ApiClient, projectId: string, { enabled }: 
           failures = 0;
           setRun(result.data);
           if (result.data.done) {
+            if (result.data.phase === "done") setLastFinished(result.data);
             setLoop({ kind: "idle" });
             return;
           }
@@ -169,5 +173,5 @@ export function useLinearRun(client: ApiClient, projectId: string, { enabled }: 
     setLoad({ status: "loading" });
     setVersion((current) => current + 1);
   }, []);
-  return { load, run, loop, open, abandon, resume, reload };
+  return { load, run, lastFinished, loop, open, abandon, resume, reload };
 }

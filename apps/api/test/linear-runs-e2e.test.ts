@@ -151,11 +151,11 @@ describe("importação completa do time (120 issues, 3 projetos, 3 páginas)", (
     expect(JSON.stringify(rows[0]?.payload)).not.toMatch(/@/);
   });
 
-  it("segunda rodada no projeto concluído → 409 linear_reimport_not_available", async () => {
+  it("segunda rodada no projeto concluído abre uma reimportação (fatia 3)", async () => {
     await importAll();
     const res = await post("");
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe("linear_reimport_not_available");
+    expect(res.status).toBe(201);
+    expect(res.body.mode).toBe("reimport");
   });
 
   it("com destino: tudo o que não tem pai nem projeto entra sob o destino, e a árvore fica dentro dele", async () => {
@@ -178,7 +178,7 @@ describe("GET /api/tickets/:id traz a origem para 'Ver no Linear · ENG-123'", (
     const t = await byExt();
     const res = await h.call("GET", `/api/tickets/${t.get("i20")?.id}`, as("admin"));
     expect(res.status).toBe(200);
-    expect(res.body.externalSource).toEqual({ provider: "linear", key: "ENG-20", url: "https://linear.app/acme/issue/ENG-20" });
+    expect(res.body.externalSource).toEqual({ provider: "linear", key: "ENG-20", url: "https://linear.app/acme/issue/ENG-20", missingSince: null });
     const text = JSON.stringify(res.body);
     expect(text).not.toContain("u-admin");
     expect(text).not.toMatch(/snapshot|externalId|external_id/i);

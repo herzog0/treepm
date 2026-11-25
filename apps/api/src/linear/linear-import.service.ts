@@ -2,17 +2,20 @@ import { ConflictException, HttpException, Inject, Injectable, Logger, NotFoundE
 import type { Prisma, TenantClient } from "@treepm/db";
 import type { TicketStatus } from "@treepm/domain";
 import type { LinearParentMove } from "@treepm/domain";
-import { cleanLinearText, isFinished, linearInitialParent, mapLinearProjectStatus, mapLinearTitle, matchLinearAssignee, planLinearParents, safeLinearUrl } from "@treepm/domain";
+import { cleanLinearText, decideLinearField, decideLinearStatus, isFinished, linearInitialParent, mapLinearDescription, mapLinearPriority, mapLinearProjectStatus, mapLinearStatus, mapLinearTitle, matchLinearAssignee, planLinearParents, safeLinearUrl, sameLinearValue } from "@treepm/domain";
 import { refuseWhileActingAs } from "../access/act-as.js";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { isUniqueViolation } from "../common/conflict.js";
+import { isConnectionWaitTimeout } from "../common/connection-wait.js";
+import { isStructureExpiredWhileWorking } from "../tickets/structure-lock.js";
 import { retryableConflict } from "../common/error.filter.js";
 import type { TenantRunner } from "../db/own-transactions.js";
 import { touchProjectVersion } from "../tickets/project-version.js";
 import { structureKey, withStructureSlot } from "../tickets/structure-queue.js";
 import { MAX_TREE_DEPTH } from "../tickets/ticket-scope.js";
+import { AgentWorkService } from "../tickets/agent-work.service.js";
 import { TicketsService } from "../tickets/tickets.service.js";
 import type { ProjectRow, TicketRow } from "../tickets/tickets.service.js";
 import { LINEAR_TIMEOUT_MS } from "./linear-client.js";
@@ -32,6 +35,13 @@ const MAX_WAIT_SECONDS = 3600;
 const DEFAULT_WAIT_SECONDS = 60;
 /** Tickets da rodada que a fase `mentions` olha por passo. */
 export const MENTIONS_BATCH = 200;
+/** Origens que a fase `missing` olha por passo. */
+export const MISSING_BATCH = 500;
+/** Origens pendentes de situação que a fase `statuses` decide por passo. */
+export const STATUSES_BATCH = 25;
+/** O tamanho do lote de uma fase em lote: o normal dela, ou o teto que a rodada guarda depois de uma transação estourada. */
+const BATCH_OF_PHASE: Record<string, number | undefined> = { hierarchy: HIERARCHY_BATCH, statuses: STATUSES_BATCH, mentions: MENTIONS_BATCH, missing: MISSING_BATCH };
+const batchOf = (run: { batchSize: number | null }, normal: number): number => Math.max(1, Math.min(normal, run.batchSize ?? normal));
 /** Páginas da repescagem (volta ao começo da lista depois do último cursor): um teto, para uma lista que nunca para de crescer não prender a rodada. */
 const MAX_SWEEP_PAGES = 40;
 /** Itens por página de issues quando nada estourou. */
@@ -61,9 +71,20 @@ const COUNT_KEYS = [
   "withoutDescription",
   "movedOutOfIdea",
   "keptMoved",
+  // Reimportação (ADR 0060, seção 5).
+  "updated",
+  "keptTouched",
+  "unchanged",
+  "elsewhere",
+  "missing",
+  "missingProjects",
 ] as const;
-/** `assigneeEmailUnavailable`: o Linear recusou o e-mail dos responsáveis nesta rodada; ninguém foi atribuído. */
-type Counts = Record<(typeof COUNT_KEYS)[number], number> & { assigneeEmailUnavailable?: true };
+/**
+ * `assigneeEmailUnavailable`: o Linear recusou o e-mail dos responsáveis nesta rodada; ninguém foi atribuído.
+ * `descriptionUnavailable`: alguma página veio sem descrição (issue enorme); a descrição desses tickets não foi tocada na reimportação.
+ * `missingNotChecked`: a leitura pulou itens fora do formato; por isso a fase `missing` não marcou nada.
+ */
+type Counts = Record<(typeof COUNT_KEYS)[number], number> & { assigneeEmailUnavailable?: true; descriptionUnavailable?: true; missingNotChecked?: true };
 const zeroCounts = (): Counts => Object.fromEntries(COUNT_KEYS.map((key) => [key, 0])) as unknown as Counts;
 const readCounts = (raw: unknown): Counts => {
   const counts = zeroCounts();
@@ -73,6 +94,8 @@ const readCounts = (raw: unknown): Counts => {
       if (typeof value === "number" && Number.isFinite(value)) counts[key] = value;
     }
     if ((raw as Record<string, unknown>)["assigneeEmailUnavailable"] === true) counts.assigneeEmailUnavailable = true;
+    if ((raw as Record<string, unknown>)["descriptionUnavailable"] === true) counts.descriptionUnavailable = true;
+    if ((raw as Record<string, unknown>)["missingNotChecked"] === true) counts.missingNotChecked = true;
   }
   return counts;
 };
@@ -114,6 +137,8 @@ type RunRow = {
   waitUntil: Date | null;
   lastErrorCode: string | null;
   pageSize: number;
+  batchSize: number | null;
+  sizeStreak: number;
   errorStreak: number;
   hasDestination: boolean;
   startedByPersonId: string;
@@ -130,6 +155,72 @@ const validDate = (value: string): Date | null => {
 };
 
 const isTerminal = (phase: string): boolean => phase === "done" || phase === "failed";
+
+const text = (value: unknown): string => (typeof value === "string" ? value : "");
+
+/**
+ * O controle da rodada na fase `statuses` (colunas `status_run_id` e `status_run_flags` da origem; só vale quando o id é o da rodada
+ * em andamento): o que a fase `issues` já contou do ticket nesta rodada e o que a fase `statuses` já avaliou.
+ */
+const FLAG_UPDATED = 1;
+const FLAG_KEPT = 2;
+const FLAG_EVALUATED = 4;
+const FLAG_STATUS_CHANGED = 8;
+/** A chave da situação no retrato de origem: `stateType` na issue, `statusType` no projeto do Linear. */
+const statusKeyOf = (kind: string): "stateType" | "statusType" => (kind === "project" ? "statusType" : "stateType");
+const mapRawStatus = (kind: string, raw: unknown): TicketStatus => (kind === "project" ? mapLinearProjectStatus(typeof raw === "string" ? raw : null) : mapLinearStatus(typeof raw === "string" ? raw : ""));
+/** Só as chaves de `patch` cujo valor difere do de `current` (um retrato só é regravado quando algo mudou). */
+const changedKeys = (current: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(patch).filter(([key, value]) => JSON.stringify(current[key] ?? null) !== JSON.stringify(value ?? null)));
+
+/** A issue como a reimportação a compara: o que chega e o retrato de origem, os dois mapeados com a regra de hoje. */
+function issueIncoming(node: LinearIssueNode, mapped: MappedIssue, ref: RefRow, projectKey: string, withoutDescription: boolean): Incoming {
+  const source = (ref.sourceSnapshot ?? {}) as Record<string, unknown>;
+  return {
+    key: mapped.identifier,
+    url: safeLinearUrl(node.url),
+    updatedAt: validDate(node.updatedAt),
+    parentId: node.parentId,
+    projectId: node.projectId,
+    title: mapped.title,
+    description: withoutDescription ? null : mapped.description,
+    status: mapped.status,
+    priority: mapped.priority,
+    assignee: { externalId: mapped.source.assigneeExternalId, email: node.assignee?.email ?? null, emailReadable: node.assignee === null || node.assignee.email !== null },
+    source: mapped.source,
+    previous: {
+      title: mapLinearTitle(text(source["title"]), node.identifier),
+      description: mapLinearDescription(typeof source["description"] === "string" ? source["description"] : null, projectKey),
+      status: mapLinearStatus(text(source["stateType"])),
+      priority: mapLinearPriority(typeof source["priority"] === "number" ? source["priority"] : 0),
+      assigneeExternalId: typeof source["assigneeExternalId"] === "string" ? source["assigneeExternalId"] : null,
+    },
+  };
+}
+
+/** O retrato de origem do projeto (`name`, `statusType`) mapeado com a regra de hoje. */
+function withProjectPrevious(incoming: Incoming, ref: RefRow): Incoming {
+  const source = (ref.sourceSnapshot ?? {}) as Record<string, unknown>;
+  return { ...incoming, previous: { ...incoming.previous, title: mapLinearTitle(text(source["name"]), "Projeto do Linear"), status: mapLinearProjectStatus(typeof source["statusType"] === "string" ? source["statusType"] : null) } };
+}
+
+/** O projeto do Linear que virou ticket pai: só título e situação. */
+function projectIncoming(node: LinearProjectNode): Incoming {
+  return {
+    key: null,
+    url: safeLinearUrl(node.url),
+    updatedAt: null,
+    parentId: undefined,
+    projectId: null,
+    title: mapLinearTitle(node.name, "Projeto do Linear"),
+    description: undefined,
+    status: mapLinearProjectStatus(node.statusType),
+    priority: null,
+    assignee: null,
+    source: { name: cleanLinearText(node.name), statusType: node.statusType === null ? null : cleanLinearText(node.statusType) },
+    previous: { title: "", description: "", status: "todo", priority: null, assigneeExternalId: null },
+  };
+}
 
 const view = (row: RunRow): RunView => ({
   id: row.id,
@@ -165,10 +256,50 @@ type NewTicket = {
   ref: { kind: "issue" | "project"; externalId: string; externalKey: string | null; externalUrl: string | null; externalParentId: string | null; externalProjectId: string | null; source: Prisma.InputJsonObject; externalUpdatedAt: Date | null };
 };
 
+/** A origem de um ticket como a reimportação a lê. */
+type RefRow = {
+  ticketId: string;
+  kind: string;
+  statusPending: boolean;
+  projectId: string;
+  externalId: string;
+  externalKey: string | null;
+  externalUrl: string | null;
+  externalParentId: string | null;
+  externalProjectId: string | null;
+  sourceSnapshot: Prisma.JsonValue;
+  appliedSnapshot: Prisma.JsonValue;
+  lastSeenRunId: string | null;
+  statusRunId: string | null;
+  statusRunFlags: number;
+};
+type TicketNow = { id: string; number: number; title: string; description: string; status: string; priority: number; parentId: string | null; ideaStage: string | null; assigneeIds: string[] };
+/**
+ * O que chega do Linear para uma origem que já existe, com os dois lados já MAPEADOS do mesmo jeito (o retrato de origem guarda o
+ * texto cru; mapeá-lo com a regra de hoje evita ler uma mudança da regra de mapeamento como "mudou no Linear").
+ */
+type Incoming = {
+  key: string | null;
+  url: string | null;
+  updatedAt: Date | null;
+  parentId: string | null | undefined;
+  projectId: string | null;
+  title: string;
+  /** `null` = esta leitura não trouxe a descrição; `undefined` = o projeto do Linear não tem descrição. */
+  description: string | null | undefined;
+  status: TicketStatus;
+  /** `null` = projeto do Linear (não tem prioridade nem responsável). */
+  priority: number | null;
+  assignee: { externalId: string | null; email: string | null; emailReadable: boolean } | null;
+  /** O retrato de origem novo (cru, sem e-mail). */
+  source: Prisma.InputJsonObject;
+  previous: { title: string; description: string; status: TicketStatus; priority: number | null; assigneeExternalId: string | null };
+};
+
 /** Fase de passo que vai à rede. */
 type Fetched =
   | { phase: "projects"; page: LinearPage<LinearProjectNode> }
-  | { phase: "issues"; page: LinearIssuesPage; /** A página mapeada FORA da transação (função pura), com a chave do projeto lida no começo do passo. */ mapped: Map<string, MappedIssue>; mappedFor: string; /** O tamanho de página que vale daqui em diante. */ nextPageSize: number; /** A página veio sem descrição (a issue sozinha estourava o teto). */ withoutDescription: boolean };
+  | { phase: "issues"; page: LinearIssuesPage; /** A página mapeada FORA da transação (função pura), com a chave do projeto lida no começo do passo. */ mapped: Map<string, MappedIssue>; mappedFor: string; /** O passo precisou reduzir a página (o Linear estourou o teto ou o prazo) e o tamanho que deu certo. */ reduced: boolean; usedSize: number; /** A página veio sem descrição (a issue sozinha estourava o teto). */ withoutDescription: boolean };
 
 /** O Linear limitou: o código 429 de `linearHttp` ou do `requireLinearAccess`, com a espera pedida. */
 function rateLimitWait(error: unknown): number | null {
@@ -195,6 +326,7 @@ export class LinearImportService {
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(ActivityService) private readonly activity: ActivityService,
     @Inject(TicketsService) private readonly tickets: TicketsService,
+    @Inject(AgentWorkService) private readonly agentWork: AgentWorkService,
   ) {}
 
   // ---- guarda comum ----
@@ -214,22 +346,46 @@ export class LinearImportService {
 
   // ---- abrir e ler ----
 
-  async current(tenant: TenantRunner, principal: Principal, projectId: string): Promise<{ run: RunView | null }> {
+  async current(tenant: TenantRunner, principal: Principal, projectId: string): Promise<{ run: RunView | null; lastFinished: RunView | null }> {
     refuseWhileActingAs(principal);
     return tenant.run(async (tx, current) => {
       await this.guard(tx, current, projectId, { writable: false });
-      const open = await tx.externalImportRun.findFirst({ where: { orgId: current.organization.orgId, projectId, phase: { notIn: ["done", "failed"] } } });
-      const run = (open as RunRow | null) ?? (await this.lastRun(tx, current.organization.orgId, projectId));
-      return { run: run ? view(run) : null };
+      const orgId = current.organization.orgId;
+      const open = await tx.externalImportRun.findFirst({ where: { orgId, projectId, phase: { notIn: ["done", "failed"] } } });
+      const run = (open as RunRow | null) ?? (await this.lastRun(tx, orgId, projectId));
+      // A última concluída (para a tela dizer "Reimportação · há 2 dias"), mesmo quando a rodada atual é outra.
+      const finished = (await tx.externalImportRun.findFirst({ where: { orgId, projectId, phase: "done" }, orderBy: [{ finishedAt: "desc" }, { id: "desc" }] })) as RunRow | null;
+      return { run: run ? view(run) : null, lastFinished: finished ? view(finished) : null };
     });
+  }
+
+  /** Quantas issues o time ligado tem, para a tela dizer antes de importar. Qualquer falha do Linear (chave, limite, queda) vira `null`. */
+  async preview(tenant: TenantRunner, principal: Principal, projectId: string): Promise<{ issueCount: number | null }> {
+    refuseWhileActingAs(principal);
+    await tenant.run(async (tx, current) => {
+      await this.guard(tx, current, projectId, { writable: false });
+    });
+    let access: { key: string; source: { externalTeamId: string } };
+    try {
+      access = await this.linear.requireLinearAccess(tenant, principal, projectId);
+    } catch (error) {
+      // Chave ausente ou de outro workspace (4xx) continua erro; o Linear fora do ar ou limitando só tira a contagem.
+      if (error instanceof HttpException && (error.getStatus() >= 500 || error.getStatus() === 429)) return { issueCount: null };
+      throw error;
+    }
+    try {
+      return { issueCount: await this.client.countTeamIssues(access.key, access.source.externalTeamId) };
+    } catch (error) {
+      if (!(error instanceof LinearError)) throw error;
+      return { issueCount: null };
+    }
   }
 
   async open(tenant: TenantRunner, principal: Principal, projectId: string, body: { destinationTicketId?: string | null; categorize?: boolean }): Promise<RunView> {
     refuseWhileActingAs(principal);
-    const destination = body.destinationTicketId ?? null;
     await tenant.run(async (tx, current) => {
       const project = await this.guard(tx, current, projectId, { writable: true });
-      await this.checkOpenable(tx, current, project, destination);
+      await this.checkOpenable(tx, current, project, body.destinationTicketId);
     });
     // O Linear (rede) fora de transação: a chave de QUEM abre tem de funcionar e enxergar o time; a contagem é só para a tela.
     const { key, source } = await this.linear.requireLinearAccess(tenant, principal, projectId);
@@ -243,14 +399,14 @@ export class LinearImportService {
     try {
       return await tenant.run(async (tx, current) => {
         const project = await this.guard(tx, current, projectId, { writable: true });
-        await this.checkOpenable(tx, current, project, destination);
+        const { mode, destination } = await this.checkOpenable(tx, current, project, body.destinationTicketId);
         const row = await tx.externalImportRun.create({
           data: {
             orgId: current.organization.orgId,
             projectId,
             provider: PROVIDER,
             startedByPersonId: current.person.id,
-            mode: "first",
+            mode,
             phase: "projects",
             destinationTicketId: destination,
             hasDestination: destination !== null,
@@ -271,19 +427,36 @@ export class LinearImportService {
     }
   }
 
-  /** O projeto está ligado, não tem rodada aberta nem concluída e o destino serve. */
-  private async checkOpenable(tx: TenantClient, principal: Principal, project: ProjectRow, destination: string | null): Promise<void> {
+  /**
+   * O projeto está ligado, não tem rodada aberta e o destino serve. Com uma rodada `done` no projeto a nova é a reimportação
+   * (`reimport`); o destino que vale para ela é o da PRIMEIRA concluída, a menos que o corpo traga outro (`undefined` herda;
+   * `null` é a raiz). O herdado que não serve mais (ticket apagado, ou dentro de uma ideia) recusa: nunca cai na raiz em silêncio.
+   */
+  private async checkOpenable(tx: TenantClient, principal: Principal, project: ProjectRow, requested: string | null | undefined): Promise<{ mode: "first" | "reimport"; destination: string | null }> {
     const orgId = principal.organization.orgId;
     const source = await tx.projectExternalSource.findUnique({ where: { orgId_projectId: { orgId, projectId: project.id } } });
     if (!source) throw new ConflictException({ code: "linear_not_linked", message: "Este projeto não está ligado a um time do Linear." });
     const last = await this.lastRun(tx, orgId, project.id);
     const openRun = last && !isTerminal(last.phase) ? last : null;
     if (openRun) throw runOpen(openRun);
-    // Rodada concluída: a segunda é a reimportação, que é a fatia 3.
-    if (await tx.externalImportRun.findFirst({ where: { orgId, projectId: project.id, phase: "done" }, select: { id: true } })) {
-      throw new ConflictException({ code: "linear_reimport_not_available", message: "Este projeto já foi importado do Linear. Importar de novo ainda não está disponível." });
+    const firstDone = (await tx.externalImportRun.findFirst({ where: { orgId, projectId: project.id, phase: "done" }, orderBy: [{ startedAt: "asc" }, { id: "asc" }] })) as RunRow | null;
+    const mode = firstDone ? "reimport" : "first";
+    if (requested !== undefined) {
+      if (requested !== null) await this.requireDestination(tx, project, requested);
+      return { mode, destination: requested };
     }
-    if (destination !== null) await this.requireDestination(tx, project, destination);
+    if (!firstDone || !firstDone.hasDestination) return { mode, destination: null };
+    // A primeira importação tinha um destino: ele continua valendo (a rodada concluída não o guarda se o ticket foi apagado).
+    const inherited = firstDone.destinationTicketId;
+    const invalid = (): ConflictException => new ConflictException({ code: "linear_destination_invalid", message: "O destino da primeira importação não está mais disponível. Escolha outro destino para esta importação." });
+    if (inherited === null) throw invalid();
+    try {
+      await this.requireDestination(tx, project, inherited);
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof ConflictException) throw invalid();
+      throw error;
+    }
+    return { mode, destination: inherited };
   }
 
   /** O destino é um ticket do projeto (404) e não está dentro de uma ideia (409): as regras da importação por lista. */
@@ -365,9 +538,14 @@ export class LinearImportService {
       return await (key === undefined ? write() : withStructureSlot(key, write));
     } catch (error) {
       // Falha na gravação (destino inválido, queda do banco, limite de tempo da transação): fica registrada na rodada, que segue aberta.
-      const code = this.errorCode(error) ?? "step_failed";
-      // Impasse e prazo de transação (os que o filtro de erros traduz em `concurrent_update`) se repetem sozinhos: não contam.
-      if (!RETRYABLE_CODES.has(code) && !isTransient(error)) await this.noteError(tenant, seen, code);
+      // Transação que estourou o prazo (P2028 de transação já aberta): o passo seguinte começa com a metade do tamanho; com tamanho 1 e
+      // ainda estourando, conta na sequência de erros (a tela oferece "Abandonar"). A espera por uma conexão do pool (o outro P2028)
+      // não é culpa do tamanho do passo: só se repete.
+      const expired = isStructureExpiredWhileWorking(error) || ((error as { code?: unknown } | null)?.code === "P2028" && !isConnectionWaitTimeout(error));
+      const code = expired ? "step_too_slow" : (this.errorCode(error) ?? "step_failed");
+      if (expired) {
+        if (!(await this.shrinkStep(tenant, seen))) await this.noteError(tenant, seen, code);
+      } else if (!RETRYABLE_CODES.has(code) && !isTransient(error)) await this.noteError(tenant, seen, code);
       throw error;
     }
   }
@@ -396,7 +574,8 @@ export class LinearImportService {
    * Uma página de issues no tamanho que a rodada guarda. Se a resposta estoura o teto do corpo ou o prazo, repete com a metade (50,
    * 25, 12, 6, 3, 1); com 1 e ainda falhando, busca aquela issue SEM descrição. Um passo faz no máximo `STEP_MAX_CALLS` chamadas e
    * `STEP_MAX_MS`: ao estourar, termina em erro, mas o tamanho alcançado já está em `progress.size` (gravado pelo chamador). O que
-   * deu certo vira o tamanho da rodada (e sobe de novo na página seguinte, para uma issue enorme não prender o resto numa página de 1).
+   * deu certo vira o tamanho da rodada, e só volta a crescer (ao dobro) depois de três passos seguidos bem-sucedidos sem reduzir
+   * (`size_streak`): voltar ao dobro no passo seguinte repetiria o estouro.
    */
   private async fetchIssues(key: string, teamId: string, run: RunRow, progress: { size: number }): Promise<Omit<Extract<Fetched, { phase: "issues" }>, "mapped" | "mappedFor">> {
     const { after } = parseIssuesCursor(run.cursor);
@@ -412,7 +591,7 @@ export class LinearImportService {
       if (lastError !== null && (calls >= STEP_MAX_CALLS || Date.now() - startedAt + LINEAR_TIMEOUT_MS > STEP_MAX_MS)) throw lastError;
       try {
         const page = await this.client.listTeamIssues(key, teamId, after, { first: size, withDescription, withEmail });
-        return { phase: "issues", page, nextPageSize: reduced ? size : Math.min(size * 2, FULL_PAGE), withoutDescription: !withDescription };
+        return { phase: "issues", page, reduced, usedSize: size, withoutDescription: !withDescription };
       } catch (error) {
         if (!(error instanceof LinearError) || (error.code !== "linear_response_too_large" && error.code !== "linear_timeout")) throw error;
         lastError = error;
@@ -437,11 +616,39 @@ export class LinearImportService {
       const waitUntil = new Date(Date.now() + seconds * 1000);
       await tx.externalImportRun.updateMany({
         where: { orgId: current.organization.orgId, id: run.id, phase: run.phase, cursor: run.cursor },
-        data: { waitUntil, lastErrorCode: "linear_rate_limited", errorStreak: 0, pageSize: Math.min(run.pageSize, pageSize) },
+        data: { waitUntil, lastErrorCode: "linear_rate_limited", errorStreak: 0, pageSize: Math.min(run.pageSize, pageSize), ...(pageSize < run.pageSize ? { sizeStreak: 0 } : {}) },
       });
       const fresh = (await tx.externalImportRun.findFirstOrThrow({ where: { orgId: current.organization.orgId, id: run.id } })) as RunRow;
       return view(fresh);
     });
+  }
+
+  /**
+   * Transação estourada (P2028): a próxima começa com a metade do tamanho do passo (a página de issues, ou o lote das outras fases) em
+   * vez de repetir igual, e a contagem dos passos bons recomeça. Devolve `false` quando o passo já estava no tamanho 1 (não há mais o que
+   * reduzir: quem chama conta o erro). Nunca atrapalha a resposta ao erro.
+   */
+  private async shrinkStep(tenant: TenantRunner, run: RunRow): Promise<boolean> {
+    const issues = run.phase === "issues";
+    const normal = BATCH_OF_PHASE[run.phase];
+    if (!issues && normal === undefined) return true; // `projects` e as demais não têm lote a reduzir: só se repetem
+    const effective = issues ? Math.min(run.pageSize, FULL_PAGE) : batchOf(run, normal as number);
+    if (effective <= 1) return false;
+    const next = Math.max(1, Math.floor(effective / 2));
+    try {
+      await tenant.run(async (tx, current) => {
+        if (issues) {
+          await tx.$executeRaw`update external_import_runs set page_size = least(page_size, ${next}::int), size_streak = 0, updated_at = now()
+            where org_id = ${current.organization.orgId} and id = ${run.id}::uuid and phase = ${run.phase} and cursor is not distinct from ${run.cursor}::text`;
+        } else {
+          await tx.$executeRaw`update external_import_runs set batch_size = least(coalesce(batch_size, ${next}::int), ${next}::int), size_streak = 0, updated_at = now()
+            where org_id = ${current.organization.orgId} and id = ${run.id}::uuid and phase = ${run.phase} and cursor is not distinct from ${run.cursor}::text`;
+        }
+      });
+    } catch (error) {
+      this.logger.warn(`não foi possível reduzir o passo da rodada (${error instanceof Error ? error.name : "erro"})`);
+    }
+    return true;
   }
 
   /**
@@ -451,7 +658,7 @@ export class LinearImportService {
   private async noteError(tenant: TenantRunner, run: RunRow, code: string, pageSize: number = run.pageSize): Promise<void> {
     try {
       await tenant.run(async (tx, current) => {
-        await tx.$executeRaw`update external_import_runs set last_error_code = ${code}, error_streak = case when last_error_code = ${code} then error_streak + 1 else 1 end, page_size = least(page_size, ${pageSize}::int), updated_at = now()
+        await tx.$executeRaw`update external_import_runs set last_error_code = ${code}, error_streak = case when last_error_code = ${code} then error_streak + 1 else 1 end, size_streak = case when ${pageSize}::int < page_size then 0 else size_streak end, page_size = least(page_size, ${pageSize}::int), updated_at = now()
           where org_id = ${current.organization.orgId} and id = ${run.id}::uuid and phase = ${run.phase} and cursor is not distinct from ${run.cursor}::text`;
       });
     } catch (error) {
@@ -486,6 +693,8 @@ export class LinearImportService {
     let phase = run.phase;
     let cursor: string | null = run.cursor;
     let pageSize = run.pageSize;
+    let batchSize = run.batchSize;
+    let sizeStreak = run.sizeStreak;
     let finished: Date | null = null;
 
     if (run.phase === "projects" && fetched?.phase === "projects") {
@@ -494,7 +703,12 @@ export class LinearImportService {
     } else if (run.phase === "issues" && fetched?.phase === "issues") {
       const { sweep, known } = parseIssuesCursor(run.cursor);
       const fresh = await this.importIssues(tx, principal, project, run, fetched, counts, sweep > 0);
-      pageSize = fetched.nextPageSize;
+      if (fetched.reduced) [pageSize, sizeStreak] = [fetched.usedSize, 0];
+      else if (run.pageSize < FULL_PAGE) {
+        // Só cresce depois de três passos seguidos bons no tamanho de agora.
+        sizeStreak += 1;
+        if (sizeStreak >= 3) [pageSize, sizeStreak] = [Math.min(run.pageSize * 2, FULL_PAGE), 0];
+      }
       const next = fetched.page.nextCursor;
       if (sweep === 0) {
         // Acabou a leitura principal: repescagem, do começo (mais novas primeiro), até haver `SWEEP_MIN_PAGE` issues conhecidas seguidas.
@@ -507,29 +721,79 @@ export class LinearImportService {
       }
     } else if (run.phase === "hierarchy") {
       const next = await this.linkHierarchy(tx, principal, project, run, counts);
-      [phase, cursor] = next === null ? ["mentions", null] : ["hierarchy", next];
+      [phase, cursor] = next === null ? [run.mode === "reimport" ? "statuses" : "mentions", null] : ["hierarchy", next];
+    } else if (run.phase === "statuses") {
+      const next = await this.applyStatuses(tx, principal, project, run, counts);
+      [phase, cursor] = next === null ? ["mentions", null] : ["statuses", next];
     } else if (run.phase === "mentions") {
       const next = await this.linkMentions(tx, project, run);
-      if (next === null) {
-        // A categorização (fatia 4) entra aqui; nesta fatia a rodada vai direto a `done`.
-        phase = "done";
-        cursor = null;
-        finished = new Date();
-        await this.activity.record(tx, principal, {
-          kind: "ticket.imported_from_linear",
-          subjectType: "project",
-          subjectId: projectId,
-          payload: { provider: PROVIDER, runId: run.id, mode: run.mode, counts: { ...counts } },
-        });
-      } else cursor = next;
+      if (next !== null) cursor = next;
+      else if (run.mode === "reimport") [phase, cursor] = ["missing", null];
+      else ({ phase, cursor, finished } = await this.finishRun(tx, principal, projectId, run, counts));
+    } else if (run.phase === "missing") {
+      const next = await this.markMissing(tx, project, run, counts);
+      if (next !== null) cursor = next;
+      else ({ phase, cursor, finished } = await this.finishRun(tx, principal, projectId, run, counts));
     } else {
       throw new Error(`fase inesperada da importação: ${run.phase}`);
     }
+    if (BATCH_OF_PHASE[run.phase] !== undefined && batchSize !== null) {
+      // O teto do lote, reduzido por uma transação estourada, só volta a crescer depois de três passos seguidos bons.
+      sizeStreak += 1;
+      if (sizeStreak >= 3) [batchSize, sizeStreak] = [batchSize * 2 >= (BATCH_OF_PHASE[run.phase] as number) ? null : batchSize * 2, 0];
+    }
     const updated = await tx.externalImportRun.update({
       where: { orgId_id: { orgId: principal.organization.orgId, id: run.id } },
-      data: { phase, cursor, pageSize, counts: { ...counts }, waitUntil: null, lastErrorCode: null, errorStreak: 0, finishedAt: finished },
+      data: { phase, cursor, pageSize, batchSize, sizeStreak, counts: { ...counts }, waitUntil: null, lastErrorCode: null, errorStreak: 0, finishedAt: finished },
     });
     return view(updated as RunRow);
+  }
+
+  /** Fim da rodada: a categorização (fatia 4) entra aqui; por enquanto vai direto a `done`. */
+  private async finishRun(tx: TenantClient, principal: Principal, projectId: string, run: RunRow, counts: Counts): Promise<{ phase: string; cursor: string | null; finished: Date }> {
+    await this.activity.record(tx, principal, {
+      kind: "ticket.imported_from_linear",
+      subjectType: "project",
+      subjectId: projectId,
+      payload: { provider: PROVIDER, runId: run.id, mode: run.mode, counts: { ...counts } },
+    });
+    return { phase: "done", cursor: null, finished: new Date() };
+  }
+
+  // ---- fase missing ----
+
+  /**
+   * Marca as origens DESTE projeto que a rodada não viu (`last_seen_run_id` diferente da rodada) com `missing_since = agora`, se ainda
+   * nulo; o ticket não é alterado. Só chega aqui uma rodada que percorreu o time inteiro (uma rodada abandonada nunca marca nada).
+   * Se a leitura pulou itens fora do formato (`skippedInvalid`), o time não foi percorrido por inteiro: nada é marcado e a rodada
+   * diz isso (`missingNotChecked`). Issue na lixeira não conta como vista; origem em outro projeto do TreePM não é tocada. Em lotes
+   * de `MISSING_BATCH`, por `ticket_id`. Issues e projetos do Linear em contadores próprios (`missing`, `missingProjects`).
+   */
+  private async markMissing(tx: TenantClient, project: ProjectRow, run: RunRow, counts: Counts): Promise<string | null> {
+    if (counts.skippedInvalid > 0) {
+      counts.missingNotChecked = true;
+      return null;
+    }
+    // Guarda de sanidade: uma rodada que não viu NENHUMA issue, num projeto que tem origens, é leitura vazia e não "tudo sumiu". Aceito de
+    // propósito: um time que de fato foi esvaziado no Linear não marca nada como não encontrado (o custo é não avisar; o contrário, marcar
+    // tudo por uma leitura vazia, esconderia o projeto inteiro).
+    if (run.cursor === null && counts.issuesSeen === 0 && (await tx.ticketExternalRef.findFirst({ where: { projectId: project.id, provider: PROVIDER, kind: "issue" }, select: { ticketId: true } }))) {
+      counts.missingNotChecked = true;
+      return null;
+    }
+    const batch = await tx.ticketExternalRef.findMany({
+      where: { projectId: project.id, provider: PROVIDER, OR: [{ lastSeenRunId: null }, { lastSeenRunId: { not: run.id } }], ...(run.cursor === null ? {} : { ticketId: { gt: run.cursor } }) },
+      orderBy: { ticketId: "asc" },
+      take: batchOf(run, MISSING_BATCH),
+      select: { ticketId: true, kind: true },
+    });
+    if (batch.length === 0) return null;
+    await tx.ticketExternalRef.updateMany({ where: { ticketId: { in: batch.map((row) => row.ticketId) }, missingSince: null }, data: { missingSince: new Date() } });
+    for (const row of batch) {
+      if (row.kind === "issue") counts.missing += 1;
+      else counts.missingProjects += 1;
+    }
+    return batch.length < batchOf(run, MISSING_BATCH) ? null : (batch[batch.length - 1] as { ticketId: string }).ticketId;
   }
 
   // ---- fase projects ----
@@ -538,14 +802,20 @@ export class LinearImportService {
     const unique = [...new Map(page.nodes.map((node) => [node.id, node])).values()];
     counts.skippedInvalid += page.skippedInvalid;
     counts.projectsSeen += unique.length;
-    const existing = await this.existingRefs(tx, "project", unique.map((node) => node.id));
+    const existing = await this.existingRefRows(tx, "project", unique.map((node) => node.id));
+    const reimport = run.mode === "reimport";
     const fresh: LinearProjectNode[] = [];
+    const known: { ref: RefRow; incoming: Incoming }[] = [];
     for (const node of unique) {
       const found = existing.get(node.id);
       if (found === undefined) fresh.push(node);
-      else if (found === project.id) counts.projectsExisting += 1;
+      else if (reimport) {
+        if (found.projectId === project.id) known.push({ ref: found, incoming: withProjectPrevious(projectIncoming(node), found) });
+        else counts.elsewhere += 1;
+      } else if (found.projectId === project.id) counts.projectsExisting += 1;
       else counts.projectsElsewhere += 1;
     }
+    if (known.length > 0) await this.reimportExisting(tx, principal, project, run, known, counts, async () => null);
     const items: NewTicket[] = fresh.map((node) => ({
       title: mapLinearTitle(node.name, "Projeto do Linear"),
       description: "",
@@ -567,13 +837,18 @@ export class LinearImportService {
     if (!sweeping) counts.skippedInvalid += page.skippedInvalid;
     if (page.emailUnavailable) counts.assigneeEmailUnavailable = true;
     const live = unique.filter((node) => !node.trashed);
-    const existing = await this.existingRefs(tx, "issue", live.map((node) => node.id));
+    const existing = await this.existingRefRows(tx, "issue", live.map((node) => node.id));
+    const reimport = run.mode === "reimport";
     const fresh: LinearIssueNode[] = [];
+    const known: { ref: RefRow; node: LinearIssueNode }[] = [];
     for (const node of live) {
       const found = existing.get(node.id);
       if (found === undefined) fresh.push(node);
-      else if (!sweeping) {
-        if (found === project.id) counts.issuesExisting += 1;
+      else if (reimport) {
+        if (found.projectId === project.id) known.push({ ref: found, node });
+        else if (!sweeping) counts.elsewhere += 1;
+      } else if (!sweeping) {
+        if (found.projectId === project.id) counts.issuesExisting += 1;
         else counts.issuesElsewhere += 1;
       }
     }
@@ -589,7 +864,18 @@ export class LinearImportService {
     );
     const assignee = await this.assigneeResolver(tx, project);
     // A chave do projeto pode ter mudado entre o começo do passo e a gravação (raro): remapeia só nesse caso.
-    const mapped = fetched.mappedFor === project.key ? fetched.mapped : mapLinearIssuePage(fresh, project.key);
+    const mapped = fetched.mappedFor === project.key ? fetched.mapped : mapLinearIssuePage(live, project.key);
+    if (known.length > 0) {
+      await this.reimportExisting(
+        tx,
+        principal,
+        project,
+        run,
+        known.map(({ ref, node }) => ({ ref, incoming: issueIncoming(node, mapped.get(node.id) as MappedIssue, ref, project.key, fetched.withoutDescription) })),
+        counts,
+        assignee,
+      );
+    }
     const items: NewTicket[] = [];
     for (const node of fresh) {
       const issue = mapped.get(node.id) as MappedIssue;
@@ -650,7 +936,7 @@ export class LinearImportService {
     const parents = [...new Set(items.flatMap((item) => (item.parentId === null ? [] : [item.parentId])))].sort();
     await this.tickets.lockTickets(tx, parents);
     const needReopen = parents.filter((parent) => items.some((item) => item.parentId === parent && !isFinished(item.status as TicketStatus)));
-    if (needReopen.length > 0) await this.reopenParents(tx, principal, project, needReopen, `${project.key}-${await this.tickets.peekNextNumber(tx, project)}`, counts);
+    if (needReopen.length > 0) await this.reopenParents(tx, principal, project, needReopen, `${project.key}-${await this.tickets.peekNextNumber(tx, project)}`, counts, run.startedAt);
     const first = await this.tickets.allocateNumbers(tx, project, items.length);
     const generated = await tx.$queryRaw<{ id: string }[]>`select app_uuid_v7() as id from generate_series(1, ${items.length}::int)`;
     const rows: TicketRow[] = items.map((item, index) => ({
@@ -698,9 +984,18 @@ export class LinearImportService {
           sourceSnapshot: item.ref.source,
           appliedSnapshot: { title: row.title, description: row.description, status: row.status, assigneeIds: item.assigneeIds, priority: row.priority ?? 0, parentId: row.parentId },
           externalUpdatedAt: item.ref.externalUpdatedAt,
+          // Criada nesta rodada: já vista (senão a fase `missing` a marcaria como não encontrada).
+          lastSeenRunId: run.id,
+          // Toda issue criada nasce pendente de hierarquia: só a fase `hierarchy` a limpa (uma rodada abandonada não a perde).
+          hierarchyPending: item.ref.kind === "issue",
         };
       }),
     });
+    // Issue nova que é o pai de origens já guardadas (o pai estava em outro time e chegou agora): essas também ficam pendentes.
+    const newIssueIds = items.filter((item) => item.ref.kind === "issue").map((item) => item.ref.externalId);
+    if (run.mode === "reimport" && newIssueIds.length > 0) {
+      await tx.$executeRaw`update ticket_external_refs set hierarchy_pending = true where org_id = ${project.orgId} and project_id = ${project.id}::uuid and provider = ${PROVIDER} and kind = 'issue' and not hierarchy_pending and external_parent_id = any(${newIssueIds}::text[])`;
+    }
     return rows;
   }
 
@@ -733,7 +1028,7 @@ export class LinearImportService {
    * já concluído muda em silêncio (nasceu assim); o que alguém concluiu no TreePM é reaberto pelo caminho de sempre, com evento
    * automático. O retrato aplicado acompanha, para a reimportação não ler isso como edição de quem usa o TreePM.
    */
-  private async reopenParents(tx: TenantClient, principal: Principal, project: ProjectRow, parentIds: readonly string[], causedBy: string, counts: Counts, movingTo: ReadonlyMap<string, string> = new Map()): Promise<void> {
+  private async reopenParents(tx: TenantClient, principal: Principal, project: ProjectRow, parentIds: readonly string[], causedBy: string, counts: Counts, since: Date, movingTo: ReadonlyMap<string, string> = new Map()): Promise<void> {
     for (const start of parentIds) {
       // A cadeia de concluídos de baixo para cima, já como ficará depois das descidas do plano (`movingTo`: ticket → pai novo).
       const chain: { id: string; number: number }[] = [];
@@ -747,13 +1042,16 @@ export class LinearImportService {
         cursor = movingTo.get(row.id) ?? row.parentId;
       }
       if (chain.length === 0) continue;
-      const applied = new Map(
-        (await tx.ticketExternalRef.findMany({ where: { ticketId: { in: chain.map((item) => item.id) } }, select: { ticketId: true, appliedSnapshot: true } })).map((row) => [row.ticketId, (row.appliedSnapshot as { status?: unknown } | null)?.status]),
+      // Só o que a PRÓPRIA rodada criou concluído (e ninguém mexeu depois) muda em silêncio; qualquer outro ticket (com ou sem origem) tem evento.
+      const bornHere = new Set(
+        (await tx.ticketExternalRef.findMany({ where: { ticketId: { in: chain.map((item) => item.id) }, firstImportedAt: { gte: since } }, select: { ticketId: true, appliedSnapshot: true } }))
+          // ...e ainda concluído como nasceu: se alguém o concluiu depois, o evento é devido.
+          .filter((row) => (row.appliedSnapshot as { status?: unknown } | null)?.status === "done")
+          .map((row) => row.ticketId),
       );
       for (const item of chain) {
         await tx.ticket.update({ where: { orgId_id: { orgId: project.orgId, id: item.id } }, data: { status: "todo" } });
-        // O que a própria rodada criou já concluído muda em silêncio (nasceu assim); o que alguém concluiu no TreePM tem evento automático.
-        if (applied.get(item.id) !== "done") {
+        if (!bornHere.has(item.id)) {
           await this.activity.record(tx, principal, {
             kind: "ticket.updated",
             subjectType: "ticket",
@@ -767,15 +1065,259 @@ export class LinearImportService {
     }
   }
 
+  /**
+   * O retrato aplicado acompanha uma reabertura por invariante SÓ para quem não tinha sido mexido (aplicada = concluído = atual antes da
+   * reabertura): quem foi concluído à mão tem aplicada diferente de concluído, e ela fica como estava, para a reimportação continuar
+   * lendo a edição da pessoa. Quem acompanha passa a estar em desvio (aplicada ≠ desejada): a fase `statuses` o reavalia.
+   */
   private async markTodo(tx: TenantClient, project: ProjectRow, ids: string[]): Promise<void> {
-    await tx.$executeRaw`update ticket_external_refs set applied_snapshot = jsonb_set(applied_snapshot, '{status}', '"todo"') where org_id = ${project.orgId} and ticket_id = any(${ids}::uuid[])`;
+    await tx.$executeRaw`update ticket_external_refs set applied_snapshot = jsonb_set(applied_snapshot, '{status}', '"todo"'), status_pending = true
+      where org_id = ${project.orgId} and ticket_id = any(${ids}::uuid[]) and applied_snapshot->>'status' = 'done'`;
   }
 
-  /** O que já tem origem na ORGANIZAÇÃO (RLS) para os ids externos dados: id externo → projeto do TreePM onde o ticket está. */
-  private async existingRefs(tx: TenantClient, kind: "issue" | "project", externalIds: string[]): Promise<Map<string, string>> {
+  /** As origens já guardadas (com os retratos) para os ids externos dados, em toda a organização (RLS): id externo → linha. */
+  private async existingRefRows(tx: TenantClient, kind: "issue" | "project", externalIds: string[]): Promise<Map<string, RefRow>> {
     if (externalIds.length === 0) return new Map();
-    const rows = await tx.ticketExternalRef.findMany({ where: { provider: PROVIDER, kind, externalId: { in: externalIds } }, select: { externalId: true, projectId: true } });
-    return new Map(rows.map((row) => [row.externalId, row.projectId]));
+    const rows = await tx.ticketExternalRef.findMany({
+      where: { provider: PROVIDER, kind, externalId: { in: externalIds } },
+      select: { ticketId: true, kind: true, statusPending: true, projectId: true, externalId: true, externalKey: true, externalUrl: true, externalParentId: true, externalProjectId: true, sourceSnapshot: true, appliedSnapshot: true, lastSeenRunId: true, statusRunId: true, statusRunFlags: true },
+    });
+    return new Map(rows.map((row) => [row.externalId, row as RefRow]));
+  }
+
+  // ---- reimportação: o que já tem origem (ADR 0060, seção 5) ----
+
+  /**
+   * Aplica a regra por campo aos tickets que JÁ têm origem neste projeto: só se aplica o que mudou no Linear e não foi mexido aqui.
+   * A decisão é tomada DENTRO da transação, com os tickets da página travados em ordem de id (uma edição simultânea não é
+   * sobrescrita). A origem vista nesta rodada não é revista (a repescagem relê páginas): conta uma vez só.
+   *
+   * A SITUAÇÃO não é aplicada aqui (a árvore ainda não está no lugar e a regra "concluído com filho aberto" olha os filhos): o retrato
+   * de origem avança já (é o que o Linear diz) e a origem fica `status_pending` quando o Linear mudou a situação, quando já está em
+   * desvio (aplicada ≠ desejada sem que ninguém tenha mexido) ou quando já estava pendente; só a fase `statuses` aplica e desliga a
+   * marca. Por isso uma rodada abandonada, ou um ticket da fatia 2, converge sem preenchimento. Os retratos são gravados por MESCLA
+   * (só as chaves decididas, e só quando mudaram), nunca por uma cópia inteira lida antes. O retrato de origem não avança nos campos
+   * que esta leitura não trouxe (descrição que veio vazia por causa do tamanho; responsável cujo e-mail não veio): a mudança não se perde.
+   */
+  private async reimportExisting(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, entries: readonly { ref: RefRow; incoming: Incoming }[], counts: Counts, resolveAssignee: (email: string | null) => Promise<string | null>): Promise<void> {
+    const todo = entries.filter((entry) => entry.ref.lastSeenRunId !== run.id);
+    if (todo.length === 0) return;
+    const orgId = project.orgId;
+    const ids = [...new Set(todo.map((entry) => entry.ref.ticketId))].sort();
+    await tx.$queryRaw`select id from tickets where org_id = ${orgId} and id = any(${ids}::uuid[]) order by id for update`;
+    const rows = await this.readTickets(tx, ids);
+    const now = new Date();
+    let touchedProject = false;
+    for (const { ref, incoming } of todo) {
+      const row = rows.get(ref.ticketId);
+      if (!row) continue;
+      const applied = (ref.appliedSnapshot ?? {}) as Record<string, unknown>;
+      const source = (ref.sourceSnapshot ?? {}) as Record<string, unknown>;
+      const key = `${project.key}-${row.number}`;
+      const data: { title?: string; description?: string; priority?: number } = {};
+      const changes: Record<string, { from: unknown; to: unknown }> = {};
+      const appliedPatch: Record<string, unknown> = {};
+      const sourcePatch: Record<string, unknown> = { ...incoming.source };
+      let keptTouched = false;
+
+      const title = decideLinearField({ incoming: incoming.title, previousSource: incoming.previous.title, current: row.title, applied: (applied["title"] as string | undefined) ?? row.title });
+      keptTouched ||= title.changedInLinear && title.touchedHere;
+      if (title.apply) {
+        data.title = incoming.title;
+        changes["title"] = { from: row.title, to: incoming.title };
+        appliedPatch["title"] = incoming.title;
+      }
+
+      if (incoming.description === undefined) {
+        // Projeto do Linear: não tem descrição.
+      } else if (incoming.description === null) {
+        // Esta leitura não trouxe a descrição: o campo não é tocado e o retrato de origem não avança.
+        delete sourcePatch["description"];
+        counts.descriptionUnavailable = true;
+      } else {
+        const description = decideLinearField({ incoming: incoming.description, previousSource: incoming.previous.description, current: row.description, applied: (applied["description"] as string | undefined) ?? row.description });
+        keptTouched ||= description.changedInLinear && description.touchedHere;
+        if (description.apply) {
+          data.description = incoming.description;
+          appliedPatch["description"] = incoming.description;
+        }
+      }
+
+      if (incoming.priority !== null) {
+        const priority = decideLinearField({ incoming: incoming.priority, previousSource: incoming.previous.priority as number, current: row.priority, applied: (applied["priority"] as number | undefined) ?? row.priority });
+        keptTouched ||= priority.changedInLinear && priority.touchedHere;
+        if (priority.apply) {
+          data.priority = incoming.priority;
+          changes["priority"] = { from: row.priority, to: incoming.priority };
+          appliedPatch["priority"] = incoming.priority;
+        }
+      }
+
+      let newAssignees: string[] | null = null;
+      if (incoming.assignee !== null) {
+        const appliedAssignees = Array.isArray(applied["assigneeIds"]) ? (applied["assigneeIds"] as string[]) : row.assigneeIds;
+        const assignee = decideLinearField<string | null, string[]>({ incoming: incoming.assignee.externalId, previousSource: incoming.previous.assigneeExternalId, current: row.assigneeIds, applied: appliedAssignees });
+        if (assignee.changedInLinear && incoming.assignee.externalId !== null && !incoming.assignee.emailReadable) {
+          // O e-mail não veio nesta rodada: o campo não é tocado e o retrato de origem não avança (a mudança não se perde).
+          delete sourcePatch["assigneeExternalId"];
+        } else {
+          keptTouched ||= assignee.changedInLinear && assignee.touchedHere;
+          // O e-mail que antes não vinha e agora é legível: sem responsável aqui, nem na importação, e com responsável no Linear, atribui.
+          const becameReadable = incoming.assignee.externalId !== null && incoming.assignee.emailReadable && row.assigneeIds.length === 0 && appliedAssignees.length === 0;
+          if (assignee.apply || becameReadable) {
+            const personId = incoming.assignee.externalId === null ? null : await resolveAssignee(incoming.assignee.email);
+            const wanted = personId === null ? [] : [personId];
+            appliedPatch["assigneeIds"] = wanted;
+            if (!sameLinearValue(wanted, row.assigneeIds)) newAssignees = wanted;
+          }
+        }
+      }
+
+      // A situação: não é aplicada aqui. O Linear mudou, ou o ticket já está em desvio (aplicada ≠ desejada e ninguém mexeu) → a fase `statuses` avalia.
+      const appliedStatus = ((applied["status"] as string | undefined) ?? row.status) as TicketStatus;
+      const statusChanged = incoming.status !== incoming.previous.status;
+      const queueStatus = ref.statusPending || statusChanged || (row.status === appliedStatus && appliedStatus !== incoming.status);
+
+      const changed = Object.keys(data).length > 0 || newAssignees !== null;
+      if (changed) {
+        if (Object.keys(data).length > 0) await tx.ticket.update({ where: { orgId_id: { orgId, id: row.id } }, data });
+        if (newAssignees !== null) {
+          await tx.ticketAssignee.deleteMany({ where: { orgId, ticketId: row.id } });
+          if (newAssignees.length > 0) await tx.ticketAssignee.createMany({ data: newAssignees.map((personId) => ({ orgId, ticketId: row.id, personId })) });
+          changes["assignees"] = { from: row.assigneeIds, to: newAssignees };
+        }
+        const fields = [...(data.title !== undefined ? ["title"] : []), ...(data.description !== undefined ? ["description"] : []), ...(data.priority !== undefined ? ["priority"] : []), ...(newAssignees !== null ? ["assignees"] : [])];
+        // UM evento automático por ticket e por rodada (a situação, quando muda, tem o seu na fase `statuses`), sem notificar ninguém.
+        await this.activity.record(tx, principal, { kind: "ticket.updated", subjectType: "ticket", subjectId: row.id, payload: { key, fields, ...changes, automatic: true, source: "linear_reimport", runId: run.id } });
+        touchedProject = true;
+        counts.updated += 1;
+      }
+      if (keptTouched) counts.keptTouched += 1;
+      // Com a situação mudando no Linear, quem conta é a fase `statuses` (uma atualização por ticket, mesmo com campos e situação juntos).
+      if (!changed && !keptTouched && !statusChanged) counts.unchanged += 1;
+
+      const parentChanged = incoming.parentId !== undefined && (incoming.parentId !== ref.externalParentId || incoming.projectId !== ref.externalProjectId);
+      await tx.ticketExternalRef.update({
+        where: { orgId_ticketId: { orgId, ticketId: row.id } },
+        data: {
+          externalKey: incoming.key,
+          externalUrl: incoming.url,
+          externalUpdatedAt: incoming.updatedAt,
+          lastSeenRunId: run.id,
+          lastImportedAt: now,
+          missingSince: null,
+          ...(queueStatus && !ref.statusPending ? { statusPending: true } : {}),
+          // O que esta fase já contou do ticket, para a fase `statuses` não contar de novo; só quando há algo a dizer (rodada quieta não grava).
+          ...(queueStatus && (changed || keptTouched || statusChanged) ? { statusRunId: run.id, statusRunFlags: (changed ? FLAG_UPDATED : 0) | (keptTouched ? FLAG_KEPT : 0) | (statusChanged ? FLAG_STATUS_CHANGED : 0) } : {}),
+          ...(parentChanged ? { externalParentId: incoming.parentId, externalProjectId: incoming.projectId, hierarchyPending: true } : {}),
+        },
+      });
+      // Os retratos: só as chaves que mudaram, mescladas na linha de hoje.
+      await this.mergeSnapshots(tx, orgId, row.id, { source: changedKeys(source, sourcePatch), applied: changedKeys(applied, appliedPatch) });
+    }
+    if (touchedProject) await touchProjectVersion(tx, project.id);
+  }
+
+  /**
+   * Escritor único dos retratos: mescla (`||`) só as chaves dadas na linha de hoje, numa instrução só (uma cópia lida antes nunca
+   * volta a ser gravada por cima). Sem chave nenhuma, não grava.
+   */
+  private async mergeSnapshots(tx: TenantClient, orgId: string, ticketId: string, parts: { source: Record<string, unknown>; applied: Record<string, unknown> }): Promise<void> {
+    const source = Object.keys(parts.source).length > 0 ? JSON.stringify(parts.source) : null;
+    const applied = Object.keys(parts.applied).length > 0 ? JSON.stringify(parts.applied) : null;
+    if (source === null && applied === null) return;
+    await tx.$executeRaw`update ticket_external_refs set
+        source_snapshot = case when ${source}::text is null then source_snapshot else source_snapshot || ${source}::jsonb end,
+        applied_snapshot = case when ${applied}::text is null then applied_snapshot else applied_snapshot || ${applied}::jsonb end
+      where org_id = ${orgId} and ticket_id = ${ticketId}::uuid`;
+  }
+
+  /** Os tickets, com os responsáveis, como a decisão por campo os lê (depois da trava de linha). */
+  private async readTickets(tx: TenantClient, ids: readonly string[]): Promise<Map<string, TicketNow>> {
+    const rows = await tx.ticket.findMany({ where: { id: { in: [...ids] } }, select: { id: true, number: true, title: true, description: true, status: true, priority: true, parentId: true, ideaStage: true, assignees: { select: { personId: true } } } });
+    return new Map(rows.map((row) => [row.id, { id: row.id, number: row.number, title: row.title, description: row.description, status: row.status, priority: row.priority, parentId: row.parentId, ideaStage: row.ideaStage, assigneeIds: row.assignees.map((a) => a.personId).sort() }]));
+  }
+
+  // ---- fase statuses ----
+
+  /**
+   * A situação dos tickets que já existiam, DEPOIS de a árvore estar no lugar, como UMA regra (`decideLinearStatus`): a desejada é a
+   * do Linear mapeada (o retrato de origem já avançou); quem foi mexido aqui (atual ≠ aplicada) não se toca; os outros assumem a
+   * desejada, a menos que uma invariante impeça (concluído com filho aberto; dentro de ideia), e então ficam como estão e EM DESVIO,
+   * avaliados de novo em toda reimportação, até poderem assumir. A lista de trabalho é: origens vistas nesta rodada (quem sumiu do
+   * Linear não é tocado), marcadas `status_pending` (o Linear mudou, desvio, ou a hierarquia tocou) e ainda não avaliadas nesta
+   * rodada, do mais fundo para o mais raso, e é RECALCULADA a cada passo (sem cursor de profundidade: um ticket que muda de nível
+   * entre dois passos não é pulado). Para cada uma lê o ticket e o retrato DE AGORA e grava, na mesma transação, a situação, o retrato
+   * aplicado, o evento e a marca. Terminando aberto, o ticket reabre os ancestrais concluídos (mesmo sem ter mudado: um ticket aberto
+   * que desceu para baixo de um concluído). O cursor só conta os passos (o passo repetido por resposta perdida não grava de novo).
+   */
+  private async applyStatuses(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, counts: Counts): Promise<string | null> {
+    const orgId = project.orgId;
+    const size = batchOf(run, STATUSES_BATCH);
+    // A profundidade de cada pendente = quantos ancestrais tem (subindo a árvore, no máximo `MAX_TREE_DEPTH` passos).
+    const batch = await tx.$queryRaw<{ ticketId: string; depth: number }[]>`
+      with recursive up as (
+        select r.ticket_id as origin, t.parent_id as pid, 0 as step
+          from ticket_external_refs r join tickets t on t.org_id = r.org_id and t.id = r.ticket_id
+         where r.org_id = ${orgId} and r.project_id = ${project.id}::uuid and r.status_pending and r.last_seen_run_id = ${run.id}::uuid
+           and (r.status_run_id is distinct from ${run.id}::uuid or (r.status_run_flags & ${FLAG_EVALUATED}::int) = 0)
+        union all
+        select up.origin, t.parent_id, up.step + 1 from up join tickets t on t.org_id = ${orgId} and t.project_id = ${project.id}::uuid and t.id = up.pid where up.step < ${MAX_TREE_DEPTH}::int
+      ), depths as (select origin as "ticketId", (count(*) filter (where pid is not null))::int as depth from up group by origin)
+      select "ticketId", depth from depths order by depth desc, "ticketId" asc limit ${size}::int`;
+    if (batch.length === 0) return null;
+    await tx.$queryRaw`select id from tickets where org_id = ${orgId} and id = any(${batch.map((item) => item.ticketId).sort()}::uuid[]) order by id for update`;
+    let touched = false;
+    for (const { ticketId } of batch) {
+      // Lido AGORA (as reaberturas dos itens anteriores deste lote já mudaram retratos e situações).
+      const ref = await tx.ticketExternalRef.findUnique({ where: { orgId_ticketId: { orgId, ticketId } }, select: { kind: true, statusPending: true, sourceSnapshot: true, appliedSnapshot: true, statusRunId: true, statusRunFlags: true } });
+      const row = (await this.readTickets(tx, [ticketId])).get(ticketId);
+      if (!ref || !row || !ref.statusPending) continue;
+      const source = (ref.sourceSnapshot ?? {}) as Record<string, unknown>;
+      const applied = (ref.appliedSnapshot ?? {}) as Record<string, unknown>;
+      const flags = ref.statusRunId === run.id ? ref.statusRunFlags : 0;
+      const linearChanged = (flags & FLAG_STATUS_CHANGED) !== 0;
+      const desired = mapRawStatus(ref.kind, source[statusKeyOf(ref.kind)]);
+      const current = row.status as TicketStatus;
+      const appliedStatus = ((applied["status"] as string | undefined) ?? row.status) as TicketStatus;
+      // Só quem vai de fato tentar assumir a desejada precisa saber de ideia e de filho aberto.
+      const trying = current === appliedStatus && desired !== current;
+      let inIdea: boolean | null = null;
+      const insideIdea = async (): Promise<boolean> => (inIdea ??= row.ideaStage !== null || (row.parentId !== null && (await this.parentsInIdeas(tx, project, [row.parentId])).has(row.parentId)));
+      const hasOpenChildren = trying && desired === "done" && (await tx.ticket.count({ where: { parentId: row.id, status: { notIn: ["done", "cancelled"] }, ideaStage: null } })) > 0;
+      // `previousSource: desired`: se o Linear mudou a situação nesta rodada quem sabe é a marca da fase `issues` (o retrato de origem já avançou).
+      const decision = decideLinearStatus({ desired, previousSource: desired, current, applied: appliedStatus, insideIdea: trying ? await insideIdea() : false, hasOpenChildren });
+      const key = `${project.key}-${row.number}`;
+      let updated = false;
+      const appliedPatch: Record<string, unknown> = {};
+      if (decision.outcome === "apply") {
+        // Ticket que volta a ficar aberto reabre o pai concluído (ADR 0034); fora do processo (ideia) nada reabre.
+        if (!isFinished(decision.target) && row.parentId !== null) await this.reopenParents(tx, principal, project, [row.parentId], key, counts, run.startedAt);
+        // O marcador de trabalho pela IA acaba antes: o banco recusa concluído ou cancelado com marcador.
+        if (decision.target === "done" || decision.target === "cancelled") await this.agentWork.clearTicket(tx, principal, project.key, row.id, "finished");
+        await tx.ticket.update({ where: { orgId_id: { orgId, id: row.id } }, data: { status: decision.target } });
+        await this.activity.record(tx, principal, { kind: "ticket.updated", subjectType: "ticket", subjectId: row.id, payload: { key, fields: ["status"], status: { from: row.status, to: decision.target }, automatic: true, source: "linear_reimport", runId: run.id } });
+        appliedPatch["status"] = decision.target;
+        updated = true;
+        touched = true;
+      } else if (!isFinished(current) && row.parentId !== null && !(await insideIdea())) {
+        // O ticket aberto que a hierarquia pôs embaixo de um concluído (ou que já estava): a invariante manda reabrir os ancestrais.
+        await this.reopenParents(tx, principal, project, [row.parentId], key, counts, run.startedAt);
+      }
+      // A marca acaba, salvo o desvio: aplicada ≠ desejada por invariante, avaliada de novo na rodada seguinte.
+      const stillPending = decision.outcome === "blocked";
+      await tx.ticketExternalRef.update({
+        where: { orgId_ticketId: { orgId, ticketId } },
+        data: { ...(stillPending ? {} : { statusPending: false }), statusRunId: run.id, statusRunFlags: flags | FLAG_EVALUATED },
+      });
+      await this.mergeSnapshots(tx, orgId, ticketId, { source: {}, applied: appliedPatch });
+      const kept = decision.touchedHere && linearChanged;
+      if (updated && (flags & FLAG_UPDATED) === 0) counts.updated += 1;
+      if (kept && (flags & FLAG_KEPT) === 0) counts.keptTouched += 1;
+      if (linearChanged && !updated && !kept && (flags & (FLAG_UPDATED | FLAG_KEPT)) === 0) counts.unchanged += 1;
+    }
+    if (touched) await touchProjectVersion(tx, project.id);
+    return batch.length < size ? null : String(Number(run.cursor ?? 0) + 1);
   }
 
   // ---- fase hierarchy ----
@@ -787,34 +1329,79 @@ export class LinearImportService {
    */
   private async linkHierarchy(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, counts: Counts): Promise<string | null> {
     const orgId = project.orgId;
+    // Na reimportação os candidatos são só os pendentes: os criados em qualquer rodada (inclusive abandonada) e os que a leitura das
+    // issues marcou (o pai ou o projeto mudou no Linear, ou o pai chegou agora): sem mudança no Linear a reimportação não toca na
+    // hierarquia. Só esta fase limpa a marca. E só quem foi VISTO nesta rodada: quem sumiu do Linear (ou foi à lixeira) não é movido
+    // com base no que o Linear dizia antes; a marca dele fica para quando reaparecer.
+    const reimport = run.mode === "reimport";
+    const after = run.cursor === null ? {} : { ticketId: { gt: run.cursor } };
     const batch = await tx.ticketExternalRef.findMany({
-      where: { projectId: project.id, kind: "issue", externalParentId: { not: null }, ...(run.cursor === null ? {} : { ticketId: { gt: run.cursor } }) },
+      where: reimport
+        ? { projectId: project.id, kind: "issue", hierarchyPending: true, lastSeenRunId: run.id, ...after }
+        : { projectId: project.id, kind: "issue", externalParentId: { not: null }, ...after },
       orderBy: { ticketId: "asc" },
-      take: HIERARCHY_BATCH,
-      select: { ticketId: true, externalParentId: true, firstImportedAt: true, appliedSnapshot: true },
+      take: batchOf(run, HIERARCHY_BATCH),
+      select: { ticketId: true, externalParentId: true, externalProjectId: true, firstImportedAt: true, appliedSnapshot: true },
     });
-    if (batch.length === 0) return null;
+    if (batch.length === 0) {
+      // A primeira importação decide só quem tem pai no Linear: a marca dos demais (nascida com a origem) sai ao fim da fase.
+      if (!reimport) await tx.ticketExternalRef.updateMany({ where: { projectId: project.id, hierarchyPending: true }, data: { hierarchyPending: false } });
+      return null;
+    }
     const parentRefs = await tx.ticketExternalRef.findMany({
-      where: { projectId: project.id, kind: "issue", externalId: { in: [...new Set(batch.map((row) => row.externalParentId as string))] } },
+      where: { projectId: project.id, kind: "issue", externalId: { in: [...new Set(batch.flatMap((row) => (row.externalParentId === null ? [] : [row.externalParentId])))] } },
       select: { externalId: true, ticketId: true },
     });
     const parentTicket = new Map(parentRefs.map((row) => [row.externalId, row.ticketId]));
-    const wanted = batch.flatMap((row) => {
-      const parentId = parentTicket.get(row.externalParentId as string);
-      return parentId === undefined ? [] : [{ row, parentId }];
+    // Reimportação: o alvo de uma issue é o ticket da issue-pai, senão o do projeto do Linear, senão o destino da rodada (nulo = raiz).
+    const projectTicket = new Map(
+      reimport
+        ? (await tx.ticketExternalRef.findMany({ where: { projectId: project.id, kind: "project", externalId: { in: [...new Set(batch.flatMap((row) => (row.externalProjectId === null ? [] : [row.externalProjectId])))] } }, select: { externalId: true, ticketId: true } })).map((row) => [row.externalId, row.ticketId] as const)
+        : [],
+    );
+    // Destino escolhido que foi apagado no meio da rodada (a chave estrangeira o zerou): quem de fato iria para ele fica onde está.
+    const destinationGone = run.hasDestination && run.destinationTicketId === null;
+    const wanted: { row: (typeof batch)[number]; parentId: string | null; needsDestination: boolean }[] = batch.flatMap((row) => {
+      const viaParent = row.externalParentId === null ? undefined : parentTicket.get(row.externalParentId);
+      if (!reimport) return viaParent === undefined ? [] : [{ row, parentId: viaParent, needsDestination: false }];
+      const viaProject = row.externalProjectId === null ? undefined : projectTicket.get(row.externalProjectId);
+      const target = viaParent ?? viaProject;
+      return [{ row, parentId: target ?? run.destinationTicketId, needsDestination: target === undefined && destinationGone }];
     });
+    /** Os que precisavam do destino apagado: contam em `skipped` e a marca de hierarquia deles NÃO é limpa (uma rodada com destino válido os decide). */
+    const stuck = new Set<string>();
+    /** A hierarquia da reimportação só MOVE: a situação (reabrir ancestrais, concluir quem estava em desvio) é da fase `statuses`; aqui se marcam os tocados. */
+    const touchedByMoves = new Set<string>();
+    const toRoot: string[] = [];
+    const inSync: string[] = [];
+    /** Os que já existiam antes desta rodada e vão mudar de pai: cada um ganha o evento automático e o fim do marcador da IA, como numa edição. */
+    const existed = new Set<string>();
+    const fromParent = new Map<string, string | null>();
     if (wanted.length > 0) {
       // A floresta inteira do projeto: a profundidade e o ciclo contam a partir da raiz de verdade, não do destino.
       const rows = await tx.$queryRaw<{ id: string; parent_id: string | null; status: string; number: number }[]>`select id, parent_id, status, number from tickets where org_id = ${orgId} and project_id = ${project.id}::uuid`;
       // O que alguém arrumou à mão fica (ADR 0060, seção 5): só desce o ticket criado NESTA rodada, ou cujo pai atual ainda é o que a
       // importação deu a ele (`applied_snapshot.parentId`). Ticket movido no TreePM fica onde está e conta em `keptMoved`.
       const currentParent = new Map(rows.map((row) => [row.id, row.parent_id]));
-      const requests = wanted.flatMap(({ row, parentId }) => {
+      const requests = wanted.flatMap(({ row, parentId, needsDestination }) => {
         const appliedParent = (row.appliedSnapshot as { parentId?: unknown } | null)?.parentId ?? null;
         const createdNow = row.firstImportedAt.getTime() >= run.startedAt.getTime();
         const current = currentParent.get(row.ticketId) ?? null;
         if (!createdNow && current !== appliedParent) {
           if (current !== parentId) counts.keptMoved += 1; // já estar no pai do Linear não é "arrumado à mão contra o Linear"
+          else inSync.push(row.ticketId);
+          return [];
+        }
+        if (needsDestination) {
+          counts.skipped += 1;
+          stuck.add(row.ticketId);
+          return [];
+        }
+        if (!createdNow) fromParent.set(row.ticketId, current);
+        if (!createdNow) existed.add(row.ticketId);
+        if (current !== null) touchedByMoves.add(current);
+        if (parentId === null) {
+          if (current !== null) toRoot.push(row.ticketId);
           return [];
         }
         return [{ id: row.ticketId, parentId }];
@@ -843,19 +1430,62 @@ export class LinearImportService {
         // Os pais são travados em ordem de id (a mesma ordem da criação), antes de qualquer reabertura.
         await this.tickets.lockTickets(tx, [...new Set(moves.map((move) => move.parentId))].sort());
         const open = moves.filter((move) => !isFinished((info.get(move.id)?.status ?? "todo") as TicketStatus));
-        const needReopen = [...new Set(open.map((move) => move.parentId))].sort();
-        if (needReopen.length > 0) await this.reopenParents(tx, principal, project, needReopen, `${project.key}-${info.get((open[0] as { id: string }).id)?.number}`, counts, new Map(moves.map((move) => [move.id, move.parentId])));
+        const needReopen = reimport ? [] : [...new Set(open.map((move) => move.parentId))].sort();
+        if (needReopen.length > 0) await this.reopenParents(tx, principal, project, needReopen, `${project.key}-${info.get((open[0] as { id: string }).id)?.number}`, counts, run.startedAt, new Map(moves.map((move) => [move.id, move.parentId])));
         const applied = await applyParentMoves(tx, orgId, moves);
         // O gatilho de ciclo do banco recusou o item sozinho: ele fica onde está e conta em `skipped`; o passo segue.
         const stayed = new Set(applied.skipped);
+        const intoIdea = await this.parentsInIdeas(tx, project, [...new Set(moves.map((move) => move.parentId))]);
+        for (const move of moves) {
+          if (stayed.has(move.id) || !existed.has(move.id) || fromParent.get(move.id) === move.parentId) continue;
+          await this.recordParentMove(tx, principal, project, run, info.get(move.id)?.number ?? 0, move.id, fromParent.get(move.id) ?? null, move.parentId);
+          // Entrando numa ideia o marcador da IA acaba junto, com a subárvore (como em `updateTicket`).
+          if (intoIdea.has(move.parentId)) await this.agentWork.clearSubtree(tx, principal, project, move.id, "idea");
+        }
+        for (const move of moves) {
+          if (stayed.has(move.id)) continue;
+          touchedByMoves.add(move.id);
+          touchedByMoves.add(move.parentId);
+        }
         counts.skipped += plan.skipped.length + stayed.size;
         counts.flattened += moves.filter((move) => move.flattened && !stayed.has(move.id)).length;
         counts.parentsLinked += moves.length - stayed.size;
         await touchProjectVersion(tx, project.id);
       } else counts.skipped += plan.skipped.length;
     }
+    if (toRoot.length > 0) {
+      await tx.$executeRaw`update tickets set parent_id = null, updated_at = now() where org_id = ${orgId} and id = any(${toRoot}::uuid[])`;
+      const numbers = new Map((await tx.ticket.findMany({ where: { id: { in: toRoot } }, select: { id: true, number: true } })).map((row) => [row.id, row.number] as const));
+      for (const id of toRoot) {
+        touchedByMoves.add(id);
+        if (existed.has(id)) await this.recordParentMove(tx, principal, project, run, numbers.get(id) ?? 0, id, fromParent.get(id) ?? null, null);
+      }
+      counts.parentsLinked += toRoot.length;
+      await touchProjectVersion(tx, project.id);
+    }
+    // O retrato aplicado acompanha o pai de hoje dos que foram à raiz ou já estavam onde o Linear pede.
+    const synced = [...toRoot, ...inSync];
+    if (synced.length > 0) {
+      await tx.$executeRaw`update ticket_external_refs r set applied_snapshot = jsonb_set(r.applied_snapshot, '{parentId}', coalesce(to_jsonb(t.parent_id::text), 'null'::jsonb)) from tickets t where r.org_id = ${orgId} and t.org_id = r.org_id and t.id = r.ticket_id and r.ticket_id = any(${synced}::uuid[]) and (r.applied_snapshot->>'parentId') is distinct from t.parent_id::text`;
+    }
+    if (reimport) {
+      await tx.ticketExternalRef.updateMany({ where: { ticketId: { in: batch.map((row) => row.ticketId).filter((id) => !stuck.has(id)) }, hierarchyPending: true }, data: { hierarchyPending: false } });
+      // O ticket movido, o pai novo e o pai antigo entram na lista da fase `statuses` (os nativos, sem origem, nada têm a marcar).
+      if (touchedByMoves.size > 0) await tx.ticketExternalRef.updateMany({ where: { projectId: project.id, ticketId: { in: [...touchedByMoves] }, statusPending: false }, data: { statusPending: true } });
+    }
     const last = (batch[batch.length - 1] as { ticketId: string }).ticketId;
-    return batch.length < HIERARCHY_BATCH ? null : last;
+    if (batch.length < batchOf(run, HIERARCHY_BATCH) && !reimport) await tx.ticketExternalRef.updateMany({ where: { projectId: project.id, hierarchyPending: true }, data: { hierarchyPending: false } });
+    return batch.length < batchOf(run, HIERARCHY_BATCH) ? null : last;
+  }
+
+  /** O evento automático de uma mudança de pai de ticket que já existia (o mesmo `ticket.updated` de uma edição), sem notificar ninguém. */
+  private async recordParentMove(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, number: number, ticketId: string, from: string | null, to: string | null): Promise<void> {
+    await this.activity.record(tx, principal, {
+      kind: "ticket.updated",
+      subjectType: "ticket",
+      subjectId: ticketId,
+      payload: { key: `${project.key}-${number}`, fields: ["parentId"], parentId: { from, to }, automatic: true, source: "linear_reimport", runId: run.id },
+    });
   }
 
   /**
@@ -893,10 +1523,10 @@ export class LinearImportService {
     const batch = await tx.$queryRaw<{ id: string; number: number }[]>`
       select t.id, t.number from tickets t join ticket_external_refs r on r.org_id = t.org_id and r.ticket_id = t.id
        where t.org_id = ${project.orgId} and t.project_id = ${project.id}::uuid and t.number > ${Number.isFinite(after) ? after : 0}::int
-       order by t.number limit ${MENTIONS_BATCH}`;
+       order by t.number limit ${batchOf(run, MENTIONS_BATCH)}`;
     if (batch.length === 0) return null;
     await this.tickets.backfillMentionsTo(tx, project, batch);
     await touchProjectVersion(tx, project.id);
-    return batch.length < MENTIONS_BATCH ? null : String((batch[batch.length - 1] as { number: number }).number);
+    return batch.length < batchOf(run, MENTIONS_BATCH) ? null : String((batch[batch.length - 1] as { number: number }).number);
   }
 }

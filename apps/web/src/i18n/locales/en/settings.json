@@ -250,7 +250,8 @@
       "elsewhere": "Already linked to a project you cannot see",
       "unavailable": "unavailable",
       "openImport": "Open import",
-      "openImportLabel": "Open the import for project {{project}}"
+      "openImportLabel": "Open the import for project {{project}}",
+      "lastImport": "last import {{when}}"
     },
     "dialog": {
       "title": "Link {{project}} to team {{team}}?",

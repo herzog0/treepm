@@ -149,6 +149,39 @@ describe("Importação do Linear › antes de importar", () => {
     expect(screen.getByText(/A importação anda em passos curtos/)).toBeInTheDocument();
   });
 
+  it("diz quantas issues vêm ('Vai trazer 412 issues'), pela prévia do servidor", async () => {
+    const { client } = setup({ linear: { connection: makeLinearConnection(), projects: { p1: LINKED }, preview: 412 } });
+    await openLinear();
+    const card = (await screen.findByRole("button", { name: "Importar" })).closest(".linear-import-card") as HTMLElement;
+    expect(await within(card).findByText("Vai trazer")).toBeInTheDocument();
+    expect(card).toHaveTextContent("412 issues");
+    expect(client.getLinearPreview).toHaveBeenCalledWith("p1");
+  });
+
+  it("no singular: '1 issue'", async () => {
+    setup({ linear: { connection: makeLinearConnection(), projects: { p1: LINKED }, preview: 1 } });
+    await openLinear();
+    expect(await screen.findByText("1 issue")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["nula (o Linear não disse)", null],
+    ["com erro", { error: ["unavailable", "linear_unavailable"] as ["unavailable", string] }],
+  ])("prévia %s: sem número, e o botão segue livre", async (_name, preview) => {
+    setup({ linear: { connection: makeLinearConnection(), projects: { p1: LINKED }, preview } });
+    await openLinear();
+    expect(await screen.findByRole("button", { name: "Importar" })).toBeEnabled();
+    await waitFor(() => expect(screen.queryByText("Vai trazer")).not.toBeInTheDocument());
+    expect(screen.queryByText(/\d+ issues?$/)).not.toBeInTheDocument();
+  });
+
+  it("a prévia lenta não segura o botão", async () => {
+    const { client } = setup();
+    vi.mocked(client.getLinearPreview).mockReturnValue(new Promise(() => {}));
+    await openLinear();
+    expect(await screen.findByRole("button", { name: "Importar" })).toBeEnabled();
+  });
+
   it("importa na raiz por padrão, na ordem das fases, e termina no resumo", async () => {
     const { client } = setup();
     await openLinear();
@@ -330,16 +363,17 @@ describe("Importação do Linear › durante", () => {
 describe("Importação do Linear › resumo", () => {
   it("mostra só as contagens maiores que zero, além de 'criados', e 'Abrir no mapa'", async () => {
     const counts = { projectsCreated: 6, issuesCreated: 406, issuesExisting: 3, issuesElsewhere: 0, flattened: 2, skipped: 0 };
-    const { onExit } = setup({ linear: { connection: makeLinearConnection(), projects: { p1: LINKED }, run: { existing: { phase: "done", done: true, counts, finishedAt: "2026-11-24T13:00:00.000Z" } } } });
+    const { onExit } = setup({ linear: { connection: makeLinearConnection(), projects: { p1: LINKED }, run: { existing: { phase: "done", done: true, counts, finishedAt: new Date(Date.now() - 3 * 86_400_000).toISOString() } } } });
     await openLinear();
-    expect(await screen.findByRole("heading", { name: "Importação concluída" })).toBeInTheDocument();
+    // Ao voltar à tela com a importação já concluída, o que vale é o cartão da última importação (com as mesmas contagens).
+    expect(await screen.findByRole("heading", { name: "Última importação · há 3 dias" })).toBeInTheDocument();
     const list = screen.getByLabelText("Contagens da importação");
     expect(within(list).getByText("Criados").nextSibling).toHaveTextContent("412");
     expect(within(list).getByText("Já existiam").nextSibling).toHaveTextContent("3");
     expect(within(list).getByText("Achatados").nextSibling).toHaveTextContent("2");
     expect(within(list).queryByText("Em outro projeto")).not.toBeInTheDocument();
     expect(within(list).queryByText("Pulados")).not.toBeInTheDocument();
-    expect(screen.getByText("Reimportar ainda não está disponível.")).toBeInTheDocument();
+    expect(screen.queryByText("Reimportar ainda não está disponível.")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Importar" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Abrir no mapa" }));
     expect(onExit).toHaveBeenCalledTimes(1);
@@ -355,8 +389,8 @@ describe("Importação do Linear › resumo", () => {
 
 describe("Importação do Linear › idiomas", () => {
   it.each([
-    ["en", "From Linear", "Import finished"],
-    ["es-MX", "Desde Linear", "Importación terminada"],
+    ["en", "From Linear", "Last import"],
+    ["es-MX", "Desde Linear", "Última importación"],
   ] as const)("em %s", async (language, tab, done) => {
     await setTestLanguage(language);
     setup({ linear: { connection: makeLinearConnection(), projects: { p1: LINKED }, run: { existing: { phase: "done", done: true, counts: { issuesCreated: 4 } } } } });

@@ -26,7 +26,9 @@ const commentAreaSchema = z.object({ id: z.string().nullable(), name: z.string()
 
 /** `via: "mcp"` quando a entrada veio de uma chamada MCP (ADR 0043); ausente quando foi feita à mão. */
 const viaSchema = z.literal("mcp").optional();
-const base = { id: z.string(), occurredAt: z.string(), actor: personSchema.nullable(), via: viaSchema };
+/** `automatic: true` quando a mudança veio de um processo (reabertura de pai, reimportação do Linear), não de uma pessoa; ausente quando foi feita à mão. */
+const automaticSchema = z.boolean().optional();
+const base = { id: z.string(), occurredAt: z.string(), actor: personSchema.nullable(), via: viaSchema, automatic: automaticSchema };
 
 /**
  * Entradas da atividade do ticket. Os dados do tipo ficam no mesmo nível de `id`, `occurredAt` e `actor`.

@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { ApiClient, LinearConnection, LinearTeam, Me } from "../api/client.js";
 import { useDescribeApiError } from "../api/errorText.js";
 import { useApiResource } from "../api/useApiResource.js";
-import { formatDate } from "../i18n/format.js";
+import { formatActivityTime, formatDate } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
@@ -222,8 +222,9 @@ function TeamsCard({ client, me, linear, connection, onOpenImport }: { client: A
 }
 
 function TeamRow({ team, onLink, onOpenImport }: { team: LinearTeam; onLink: (opener: HTMLElement) => void; onOpenImport: ((projectId: string) => void) | undefined }) {
-  const { t } = useTranslation("settings");
+  const { t, i18n } = useTranslation("settings");
   const linked = team.linkedProject !== null;
+  const lastImport = linked && team.lastImportedAt != null ? t("linear.teams.lastImport", { when: formatActivityTime(i18n.language as Language, team.lastImportedAt, new Date()) }) : null;
   const name = (
     <>
       <span className="linear-key">{team.key}</span>
@@ -235,7 +236,7 @@ function TeamRow({ team, onLink, onOpenImport }: { team: LinearTeam; onLink: (op
     <li>
       <SettingsRow
         title={linked ? <>{name}{" "}<span className="linear-badge linear-badge-lock">{t("linear.teams.permanent")}</span></> : <span className={team.linkedElsewhere ? "linear-team-off" : undefined}>{name}</span>}
-        hint={linked ? t("linear.teams.linkedTo", { project: team.linkedProject!.name }) : team.linkedElsewhere ? t("linear.teams.elsewhere") : t("linear.teams.free")}
+        hint={linked ? `${t("linear.teams.linkedTo", { project: team.linkedProject!.name })}${lastImport === null ? "" : ` · ${lastImport}`}` : team.linkedElsewhere ? t("linear.teams.elsewhere") : t("linear.teams.free")}
         control={
           linked ? (
             onOpenImport ? (

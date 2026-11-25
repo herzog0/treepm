@@ -5,6 +5,7 @@ import type { Me } from "../api/client.js";
 import { MemoryPreferencesProvider } from "../preferences/context.js";
 import { makeClient, makeLinearConnection, makeLinearTeam, makeMe, makeProject } from "../test/fakes.js";
 import type { FakeLinear } from "../test/fakes.js";
+import { setTestLanguage } from "../test/i18n.js";
 import { SettingsScreen } from "./SettingsScreen.js";
 
 const KEY = "lin_api_SEGREDO_a1b2";
@@ -38,6 +39,49 @@ const connected = (extra: Partial<FakeLinear> = {}): FakeLinear => ({ connection
 afterEach(() => {
   window.location.hash = "";
   vi.restoreAllMocks();
+});
+
+describe("Configurações › Linear › última importação do time", () => {
+  const DAY = 86_400_000;
+  const withImport = (when: string | null) => [makeLinearTeam("ENG", "Engenharia", { linkedProject: { id: "p9", name: "TreePM" }, lastImportedAt: when }), makeLinearTeam("DES", "Design", { lastImportedAt: new Date().toISOString() })];
+
+  it("o time ligado mostra 'última importação há 3 dias'; sem data ou sem ligação, nada", async () => {
+    setup({ linear: connected({ teams: withImport(new Date(Date.now() - 3 * DAY).toISOString()) }) });
+    const list = await within(await section()).findByRole("list", { name: "Times que a sua chave enxerga" });
+    const [eng, des] = within(list).getAllByRole("listitem");
+    expect(eng).toHaveTextContent("Ligado ao projeto TreePM · última importação há 3 dias");
+    expect(des).not.toHaveTextContent("última importação");
+  });
+
+  it("sem importação concluída, o texto não aparece", async () => {
+    setup({ linear: connected({ teams: withImport(null) }) });
+    const list = await within(await section()).findByRole("list", { name: "Times que a sua chave enxerga" });
+    expect(list).not.toHaveTextContent("última importação");
+  });
+
+  it.each([
+    ["en", "Linked to project TreePM · last import 3 days ago"],
+    ["es-MX", "última importación hace 3 días"],
+  ] as const)("em %s", async (language, text) => {
+    await setTestLanguage(language);
+    try {
+      setup({ linear: connected({ teams: withImport(new Date(Date.now() - 3 * DAY).toISOString()) }) });
+      expect(await screen.findByText(new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))).toBeInTheDocument();
+    } finally {
+      await setTestLanguage("pt-BR");
+    }
+  });
+
+  it("relógio falso: 'ontem' e data absoluta a partir de sete dias", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-25T12:00:00.000Z"));
+    try {
+      setup({ linear: connected({ teams: withImport("2026-11-24T09:00:00.000Z") }) });
+      expect(await within(await section()).findByText(/última importação ontem/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("Configurações › Linear › visibilidade", () => {

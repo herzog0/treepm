@@ -196,3 +196,50 @@ describe("useLinearRun: o laço de passos", () => {
     expect(hook.result.current.run?.done).toBe(true);
   });
 });
+
+describe("useLinearRun: reimportação (ADR 0060, seção 5)", () => {
+  const FIRST = { phase: "done" as const, done: true, finishedAt: "2026-11-22T12:00:00.000Z", destinationTicketId: "t9", counts: { issuesCreated: 12, projectsCreated: 3 } };
+
+  it("lê a última rodada concluída como lastFinished", async () => {
+    const { hook } = setup({ existing: FIRST });
+    await flush();
+    expect(hook.result.current.lastFinished).toMatchObject({ phase: "done", finishedAt: "2026-11-22T12:00:00.000Z" });
+    expect(hook.result.current.run?.done).toBe(true);
+  });
+
+  it("sem importação concluída, lastFinished é nulo", async () => {
+    const { hook } = setup();
+    await flush();
+    expect(hook.result.current.lastFinished).toBeNull();
+  });
+
+  it("abre sem destino (herda), anda pelas fases incluindo 'missing' e atualiza lastFinished ao concluir", async () => {
+    const phases: string[] = [];
+    const { client, hook } = setup({ existing: FIRST, total: 4, pageSize: 5, reimportCounts: { updated: 2, keptMoved: 1 } });
+    const step = client.stepLinearRun;
+    client.stepLinearRun = vi.fn(async (...args: Parameters<ApiClient["stepLinearRun"]>) => {
+      const result = await step(...args);
+      if (result.ok) phases.push(result.data.phase);
+      return result;
+    });
+    await flush();
+    let opened: Awaited<ReturnType<typeof hook.result.current.open>> | undefined;
+    await act(async () => { opened = await hook.result.current.open({}); });
+    expect(client.openLinearRun).toHaveBeenCalledWith("p1", {});
+    expect(opened?.ok && opened.data).toMatchObject({ mode: "reimport", destinationTicketId: "t9" });
+    await advance(10);
+    expect(phases).toEqual(["issues", "hierarchy", "statuses", "mentions", "missing", "done"]);
+    expect(hook.result.current.run).toMatchObject({ done: true, mode: "reimport", counts: { updated: 2, keptMoved: 1 } });
+    expect(hook.result.current.lastFinished).toMatchObject({ mode: "reimport", id: hook.result.current.run?.id });
+  });
+
+  it("uma rodada abandonada não muda lastFinished", async () => {
+    const { hook } = setup({ existing: FIRST }, { enabled: false });
+    await flush();
+    const before = hook.result.current.lastFinished;
+    await act(async () => { await hook.result.current.open({}); });
+    await act(async () => { await hook.result.current.abandon(); });
+    expect(hook.result.current.run?.phase).toBe("failed");
+    expect(hook.result.current.lastFinished).toEqual(before);
+  });
+});
