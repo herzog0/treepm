@@ -7,7 +7,7 @@
 
 Teodoro quer trabalhar os tickets pela IA dele (Claude Code), gastando a assinatura e não chave de API. Em 2026-11-24 descartou um aplicativo de mesa e escolheu ampliar o MCP. Hoje o servidor tem cinco leituras (`search_tickets`, `get_ticket`, `list_tickets`, `get_work_queue`, `get_project_overview`) e cinco escritas (`create_ticket`, `update_ticket_status`, `set_ticket_priority`, `add_comment`, `set_agent_work`), com token por pessoa e por projeto e duas chaves da organização, leitura e escrita, desligadas por padrão.
 
-Até aqui o MCP nunca entregou dado de pessoa: nem nome, nem responsável, nem comentário, nem conversa. Foi regra de Teodoro, repetida em várias ADRs. O pedido de agora inclui responsáveis, comentários e conversas, e isso não se entrega sem nome de gente. **Leitura da coordenação, a confirmar com ele antes da fatia 2:** ele disse "quero tudo isso", e não, com essas palavras, que nomes e mensagens de outras pessoas passam a sair pelo MCP. O dado sai do TreePM para o cliente que a própria pessoa escolheu, não para os provedores de IA do TreePM; o aceite de IA da organização continua sem relação com o MCP.
+Até aqui o MCP nunca entregou dado de pessoa: nem nome, nem responsável, nem comentário, nem conversa. Foi regra de Teodoro, repetida em várias ADRs. O pedido de agora inclui responsáveis, comentários e conversas, e isso não se entrega sem nome de gente. Teodoro confirmou em 2026-11-25, perguntado com essas palavras: "confirmo, pode sair nomes e mensagens pelo mcp".
 
 ## Decisão
 
@@ -22,7 +22,7 @@ Até aqui o MCP nunca entregou dado de pessoa: nem nome, nem responsável, nem c
 | Ferramenta | O que faz |
 | --- | --- |
 | `update_ticket` | Muda título e descrição. A descrição segue as regras da tela: recusa menção de pessoa, respeita os limites, refaz as menções de ticket. |
-| `move_ticket` | Pedido expresso de Teodoro ("quero que o mcp possa mudar o pai de um ticket, ou seja, mover ele pela árvore"). Muda o pai (outro ticket do mesmo projeto, ou a raiz). Mesmas regras de estrutura da tela: sem ciclo, limite de profundidade, reabertura do ancestral concluído, regras de ideia. |
+| `move_ticket` | Pedido expresso de Teodoro ("quero que o mcp possa mudar o pai de um ticket, ou seja, mover ele pela árvore"). Muda o pai (outro ticket do mesmo projeto, ou a raiz). Mesmas regras de estrutura da tela: sem ciclo, reabertura do ancestral concluído, regras de ideia. |
 | `add_dependency`, `remove_dependency` | Cria e remove "depende de" entre dois tickets do projeto, com a recusa de ciclo que a tela tem. |
 
 Mover entre projetos fica fora: o token é de um projeto.
@@ -84,3 +84,12 @@ Mover entre projetos fica fora: o token é de um projeto.
 
 - Com o terceiro alcance ligado, nomes, comentários e mensagens de outras pessoas saem do TreePM para o cliente de IA de quem tem o token e para o provedor desse cliente. O TreePM não controla o que eles fazem com isso; a tela de tokens e os documentos legais dizem isso com clareza.
 - O MCP passa a ser uma segunda porta para quase tudo o que a tela faz com tickets. A regra de sempre vale mais ainda: nenhuma ferramenta tem regra própria, todas chamam o serviço da tela.
+
+## Como ficou (fatia 1, 2026-11-25)
+
+- Ferramentas novas, todas de escrita: `update_ticket`, `move_ticket`, `add_dependency`, `remove_dependency`. Devolvem o ticket no formato de `get_ticket`.
+- As regras de dependência saíram do controlador HTTP para o serviço; editar e mover já usavam o serviço da tela. `move_ticket` espera na mesma fila de estrutura e pega a mesma trava que a tela.
+- A regra "limite de profundidade" não existe ao mover pela tela (só na importação), então o MCP também não a aplica: a ADR dizia o contrário.
+- Estrutura ocupada responde "tente de novo em instantes" também no MCP. O erro genérico das escritas diz que nada foi alterado. Título, descrição e comentário recusam o caractere nulo nas duas portas (antes dava erro 500).
+- Tokens de escrita já emitidos ganham as quatro ferramentas sem novo aceite; os Termos e a tela de tokens dizem o que o alcance faz.
+- Revisão de segurança independente, com reprodução: sem bloqueio. Ficou a `TREEPM-499` (grafias exóticas de menção de pessoa que escapam da recusa, nas duas portas).

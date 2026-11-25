@@ -18,6 +18,7 @@ import { AuthorizationService } from "../access/authorization.service.js";
 import { ProjectQueryService } from "../query/project-query.service.js";
 import { AgentWorkService } from "../tickets/agent-work.service.js";
 import { TicketCommentsService } from "../tickets/ticket-comments.service.js";
+import { withStructureTimeoutTranslation } from "../tickets/structure-lock.js";
 import { TicketsService } from "../tickets/tickets.service.js";
 import { isConnectionWaitTimeout } from "../common/connection-wait.js";
 import { createProjectServer } from "./mcp-server.js";
@@ -94,7 +95,14 @@ export class McpGateway {
     this.ipLimiter = new RateLimiter(clock, IP_LIMIT_PER_MINUTE, IP_WINDOW_MS);
     this.writeLimiter = new RateLimiter(clock, WRITE_LIMIT_PER_MINUTE, IP_WINDOW_MS);
     this.personWriteLimiter = new RateLimiter(clock, WRITE_LIMIT_PER_PERSON_PER_MINUTE, IP_WINDOW_MS);
-    const run: RunInTenant = (principal, fn) => this.tenants.run({ orgId: principal.session.orgId, userId: principal.session.userId }, fn);
+    // Como a porta HTTP (`TenantInterceptor`): a transação que estoura o prazo depois de pegar a trava de estrutura vira 409 `structure_busy`.
+    const run: RunInTenant = (principal, fn) =>
+      withStructureTimeoutTranslation((watch) =>
+        this.tenants.run({ orgId: principal.session.orgId, userId: principal.session.userId }, (tx) => {
+          watch(tx);
+          return fn(tx);
+        }),
+      );
     const factory: McpServerFactory = (ctx) => {
       const resolved = ctx.authInfo?.extra?.["resolved"] as Resolved | undefined;
       if (!resolved) throw new Error("Requisição MCP sem identidade resolvida.");

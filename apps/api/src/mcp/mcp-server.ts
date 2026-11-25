@@ -6,12 +6,13 @@ import { isConnectionWaitTimeout } from "../common/connection-wait.js";
 import type { ProjectQueryService } from "../query/project-query.service.js";
 import { ProjectTools, TOOL_DEFINITIONS, ToolInputError } from "./mcp-tools.js";
 import type { RunInTenant, ToolContext } from "./mcp-tools.js";
-import { WRITE_TOOL_DEFINITIONS, WriteTools, refusalMessage } from "./mcp-write-tools.js";
+import { WRITE_TOOL_DEFINITIONS, WRITE_TOOL_NAMES, WriteTools, refusalMessage } from "./mcp-write-tools.js";
 import type { WriteContext, WriteServices } from "./mcp-write-tools.js";
 
 const ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 const WRITE_ANNOTATIONS = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
 const GENERIC_ERROR = "Something went wrong while reading the project. Try again.";
+const GENERIC_WRITE_ERROR = "Something went wrong and nothing was changed.";
 const SERVER_BUSY = "The server is busy. Try again in a moment.";
 const MAX_MESSAGE = 200;
 
@@ -44,7 +45,7 @@ export async function guarded(name: string, work: () => Promise<Record<string, u
     if (refusal !== null) return toolError(refusal);
     // Falha de verdade (banco, bug): fica no log só com a mensagem, sem argumentos nem resultados; o cliente recebe uma frase genérica.
     logger.error(`tool ${name} failed: ${error instanceof Error ? error.name : "UnknownError"}`);
-    return toolError(GENERIC_ERROR);
+    return toolError((WRITE_TOOL_NAMES as readonly string[]).includes(name) ? GENERIC_WRITE_ERROR : GENERIC_ERROR);
   }
 }
 
@@ -79,6 +80,10 @@ export function createProjectServer(run: RunInTenant, query: ProjectQueryService
     server.registerTool("add_comment", { ...WRITE_TOOL_DEFINITIONS.add_comment, annotations: WRITE_ANNOTATIONS }, (input) => guarded("add_comment", () => writer.addComment(input)));
     server.registerTool("set_ticket_priority", { ...WRITE_TOOL_DEFINITIONS.set_ticket_priority, annotations: WRITE_ANNOTATIONS }, (input) => guarded("set_ticket_priority", () => writer.setTicketPriority(input)));
     server.registerTool("create_ticket", { ...WRITE_TOOL_DEFINITIONS.create_ticket, annotations: WRITE_ANNOTATIONS }, (input) => guarded("create_ticket", () => writer.createTicket(input)));
+    server.registerTool("update_ticket", { ...WRITE_TOOL_DEFINITIONS.update_ticket, annotations: WRITE_ANNOTATIONS }, (input) => guarded("update_ticket", () => writer.updateTicket(input)));
+    server.registerTool("move_ticket", { ...WRITE_TOOL_DEFINITIONS.move_ticket, annotations: WRITE_ANNOTATIONS }, (input) => guarded("move_ticket", () => writer.moveTicket(input)));
+    server.registerTool("add_dependency", { ...WRITE_TOOL_DEFINITIONS.add_dependency, annotations: WRITE_ANNOTATIONS }, (input) => guarded("add_dependency", () => writer.addDependency(input)));
+    server.registerTool("remove_dependency", { ...WRITE_TOOL_DEFINITIONS.remove_dependency, annotations: WRITE_ANNOTATIONS }, (input) => guarded("remove_dependency", () => writer.removeDependency(input)));
     server.registerTool("set_agent_work", { ...WRITE_TOOL_DEFINITIONS.set_agent_work, annotations: WRITE_ANNOTATIONS }, (input) => guarded("set_agent_work", () => writer.setAgentWork(input)));
   }
   return server;

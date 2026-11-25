@@ -15,10 +15,12 @@ export const ideaStageSchema = z.enum(IDEA_STAGES);
  */
 export const PERSON_MENTION_NOT_ALLOWED = "person_mention_not_allowed";
 export const noPersonMention = { message: "person_mention_not_allowed", params: { code: PERSON_MENTION_NOT_ALLOWED } } as const;
-export const ticketTitleSchema = z.string().trim().min(1).max(200).refine((text) => !mentionsPersonRaw(text), noPersonMention);
+/** O PostgreSQL não guarda o caractere nulo (`\u0000`) em texto: vira entrada inválida (400) nas duas portas, não erro 500 na gravação. */
+const noNullChar = (text: string): boolean => !text.includes("\u0000");
+export const ticketTitleSchema = z.string().trim().min(1).max(200).refine(noNullChar, "O texto não pode ter o caractere nulo.").refine((text) => !mentionsPersonRaw(text), noPersonMention);
 /** Tamanho máximo da descrição de um ticket, em caracteres (ADR 0024). */
 export const MAX_TICKET_DESCRIPTION = 20_000;
-export const ticketDescriptionSchema = z.string().max(MAX_TICKET_DESCRIPTION).refine((text) => !mentionsPersonRaw(text), noPersonMention);
+export const ticketDescriptionSchema = z.string().max(MAX_TICKET_DESCRIPTION).refine(noNullChar, "O texto não pode ter o caractere nulo.").refine((text) => !mentionsPersonRaw(text), noPersonMention);
 /** Prioridade (ADR 0047): inteiro de -999 a 999; maior primeiro. */
 export const ticketPrioritySchema = z.number().int().min(PRIORITY_MIN).max(PRIORITY_MAX);
 const titleSchema = ticketTitleSchema;

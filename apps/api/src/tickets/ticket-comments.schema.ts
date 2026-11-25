@@ -4,7 +4,7 @@ import { idSchema } from "../common/schemas.js";
 
 /** Corpo do comentário: aparado, de 1 a 10.000 caracteres (ADR 0040). */
 export const commentBodySchema = z.string().transform((raw, ctx) => {
-  const body = commentBodyOf(raw);
+  const body = raw.includes("\u0000") ? null : commentBodyOf(raw); // o PostgreSQL não guarda o caractere nulo em texto
   if (body === null) {
     ctx.addIssue({ code: "custom", message: "O comentário precisa ter de 1 a 10.000 caracteres." });
     return z.NEVER;
