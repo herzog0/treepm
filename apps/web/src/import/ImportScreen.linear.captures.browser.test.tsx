@@ -137,14 +137,14 @@ describe.skipIf(!DIR)("capturas da importação do Linear (ADR 0060)", () => {
     let release!: () => void;
     const hold = new Promise<void>((resolve) => { release = resolve; });
     const view = await mountImport({ linear: reimport({ script: ["ok", "ok", "ok", "ok", "ok", { hold }] }) });
-    await userEvent.click(button("Reimportar agora"));
+    await userEvent.click(button("Sincronizar agora"));
     await settle(600);
     await shot("14-reimportando");
     release();
     view.screen.unmount();
     await settle(100);
     await mountImport({ linear: reimport({ reimportCounts: { updated: 23, keptTouched: 5, keptMoved: 3, missing: 2, elsewhere: 1, descriptionUnavailable: true } }) });
-    await userEvent.click(button("Reimportar agora"));
+    await userEvent.click(button("Sincronizar agora"));
     await settle(800);
     await shot("15-resumo-reimportacao");
   });

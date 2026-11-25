@@ -9,6 +9,7 @@ import { IdeasScreen } from "./ideas/IdeasScreen.js";
 import { ImportScreen } from "./import/ImportScreen.js";
 import type { CommandRequest } from "./map/commandRequest.js";
 import { OrganizationMap } from "./map/OrganizationMap.js";
+import { importTarget } from "./nav/navigation.js";
 import type { NavigateFn, View } from "./nav/navigation.js";
 import { scheduleDescriptionEditorPreload } from "./ticket/description/RichDescription.js";
 import { SettingsScreen } from "./settings/SettingsScreen.js";
@@ -57,7 +58,7 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
   useEffect(() => (view === "map" ? scheduleDescriptionEditorPreload() : undefined), [view]);
 
   // As configurações são da pessoa, não da organização: não esperam a API.
-  if (view === "settings") return <main className="tenant-settings"><SettingsScreen client={client} me={state.status === "ready" ? state.data : null} onConsentChange={reload} {...(onNavigate ? { onOpenImport: (id: string) => onNavigate("import", id, { section: "linear" }) } : {})} /></main>;
+  if (view === "settings") return <main className="tenant-settings"><SettingsScreen client={client} me={state.status === "ready" ? state.data : null} onConsentChange={reload} {...(onNavigate ? { onOpenImport: (id: string, mode?: "sync") => onNavigate("import", id, importTarget(mode, true)) } : {})} /></main>;
   if (state.status === "loading") return <p className="map-state" role="status">{t("loading.organization")}</p>;
   if (state.status === "error") {
     return (
@@ -96,7 +97,7 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
       <OrganizationMap
         client={client}
         me={state.data}
-        {...(onNavigate ? { onImport: (id: string) => onNavigate("import", id) } : {})}
+        {...(onNavigate ? { onImport: (id: string, mode?: "sync") => onNavigate("import", id, importTarget(mode)) } : {})}
         {...(ticketId !== undefined && onOpenTicket ? { openTicketId: ticketId, onOpenTicketChange: onOpenTicket } : {})}
         {...(focusTicketId && onFocusHandled ? { focusTicketId, onFocusHandled } : {})}
         {...(commandRequest && onCommandHandled ? { commandRequest, onCommandHandled } : {})}

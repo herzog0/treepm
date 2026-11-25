@@ -61,8 +61,8 @@ describe("lista do mapa", () => {
     expect(result.status).toBe(200);
     expect(result.body).toHaveLength(N);
     expect(Math.max(...queries.map((q) => q.params))).toBeLessThanOrEqual(5);
-    // As leituras de ticket e de pessoa da lista: uma de tickets e uma de responsáveis por projeto.
-    expect(queries.filter((q) => /tickets/.test(q.text)).length, JSON.stringify(queries.map((q) => [q.text.slice(0, 90), q.rows, q.params]))).toBeLessThanOrEqual(3);
+    // As leituras de ticket e de pessoa da lista: uma de tickets, uma de responsáveis e uma das chaves do Linear (ADR 0061), todas por projeto.
+    expect(queries.filter((q) => /tickets/.test(q.text)).length, JSON.stringify(queries.map((q) => [q.text.slice(0, 90), q.rows, q.params]))).toBeLessThanOrEqual(4);
     // 601 pontos de código por ticket, no pior caso 4 bytes cada em JSON escapado; o resto das colunas cabe em ~700 caracteres.
     expect(chars).toBeLessThan(N * 700 + N * 601 + 20_000);
     expect(chars).toBeLessThan(GIANT);

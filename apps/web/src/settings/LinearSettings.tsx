@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import type { ApiClient, LinearConnection, LinearTeam, Me } from "../api/client.js";
+import type { ApiClient, LinearConnection, LinearTeam, Me, Person, Project } from "../api/client.js";
 import { useDescribeApiError } from "../api/errorText.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { formatActivityTime, formatDate } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
+import { canCreateTickets } from "../import/permissions.js";
 import { ConfirmAction } from "../panel/ConfirmAction.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
@@ -15,6 +16,8 @@ import { SettingsCard, SettingsLoading, SettingsNote, SettingsRow } from "./part
 import "./linear.css";
 
 type Connection = LinearConnection["connection"];
+/** Leva à tela de importação do projeto; `"sync"` já inicia a sincronização com o Linear (ADR 0061). */
+export type OpenImport = (projectId: string, mode?: "sync") => void;
 
 /**
  * O que a casca sabe do Linear (ADR 0060): se o servidor o tem configurado (decide se a seção aparece) e a chave da pessoa.
@@ -42,7 +45,7 @@ export function useLinearConnection(client: ApiClient | undefined, me: Me | null
 export type LinearState = ReturnType<typeof useLinearConnection>;
 
 /** Seção "Linear" das Configurações: a chave pessoal e os times que ela enxerga, de onde se liga um projeto (ADR 0060). */
-export function LinearSettings({ client, me, linear, onOpenImport }: { client: ApiClient; me: Me; linear: LinearState; onOpenImport?: ((projectId: string) => void) | undefined }) {
+export function LinearSettings({ client, me, linear, onOpenImport }: { client: ApiClient; me: Me; linear: LinearState; onOpenImport?: OpenImport | undefined }) {
   const { t } = useTranslation("settings");
   if (me.actingAs != null) {
     // A chave é pessoal: agindo como outra pessoa nenhuma rota do Linear vale, e a tela nem pergunta.
@@ -161,12 +164,16 @@ function KeyForm({ client, guide, onConnected, onCancel }: { client: ApiClient; 
   );
 }
 
-function TeamsCard({ client, me, linear, connection, onOpenImport }: { client: ApiClient; me: Me; linear: LinearState; connection: NonNullable<Connection>; onOpenImport: ((projectId: string) => void) | undefined }) {
+function TeamsCard({ client, me, linear, connection, onOpenImport }: { client: ApiClient; me: Me; linear: LinearState; connection: NonNullable<Connection>; onOpenImport: OpenImport | undefined }) {
   const { t } = useTranslation("settings");
   const describeError = useDescribeApiError();
   const titleId = useId();
   const listRef = useRef<HTMLUListElement>(null);
   const { state, reload, retry } = useApiResource(() => safe(() => client.listLinearTeams()));
+  // Quem pode sincronizar um projeto ligado (como na tela de importar) e os nomes de quem sincronizou por último; sem eles, o botão e o nome não aparecem.
+  const projects = useApiResource(() => safe(() => client.listProjects()));
+  const people = useApiResource(() => safe(() => client.listPeople()));
+  const importable = new Map<string, Project>((projects.state.status === "ready" ? projects.state.data : []).filter((project) => canCreateTickets(me, project)).map((project) => [project.id, project]));
   const [linking, setLinking] = useState<{ team: LinearTeam; opener: HTMLElement } | null>(null);
   const refocus = useRef(false);
 
@@ -211,7 +218,7 @@ function TeamsCard({ client, me, linear, connection, onOpenImport }: { client: A
         {state.status === "ready" && state.data.length > 0 && (
           <ul ref={listRef} tabIndex={-1} className="linear-teams" aria-labelledby={titleId}>
             {state.data.map((team) => (
-              <TeamRow key={team.id} team={team} onLink={(opener) => setLinking({ team, opener })} onOpenImport={onOpenImport} />
+              <TeamRow key={team.id} client={client} team={team} canSync={team.linkedProject !== null && importable.has(team.linkedProject.id)} people={people.state.status === "ready" ? people.state.data : []} onLink={(opener) => setLinking({ team, opener })} onOpenImport={onOpenImport} />
             ))}
           </ul>
         )}
@@ -221,10 +228,19 @@ function TeamsCard({ client, me, linear, connection, onOpenImport }: { client: A
   );
 }
 
-function TeamRow({ team, onLink, onOpenImport }: { team: LinearTeam; onLink: (opener: HTMLElement) => void; onOpenImport: ((projectId: string) => void) | undefined }) {
+/** "Última sincronização: há 3 dias, por Ana": o nome é de quem iniciou a última rodada concluída; sem ele (ou fora da lista) fica só a data. */
+function SyncedHint({ client, projectId, when, people }: { client: ApiClient; projectId: string; when: string; people: readonly Person[] }) {
+  const { t } = useTranslation("settings");
+  const current = useApiResource(() => safe(() => client.getCurrentLinearRun(projectId)));
+  const startedBy = current.state.status === "ready" ? current.state.data.lastFinished?.startedBy.id : undefined;
+  const name = startedBy === undefined ? undefined : people.find((person) => person.id === startedBy)?.displayName;
+  return <>{name === undefined ? t("linear.teams.lastSync", { when }) : t("linear.teams.lastSyncBy", { when, name })}</>;
+}
+
+function TeamRow({ client, team, canSync, people, onLink, onOpenImport }: { client: ApiClient; team: LinearTeam; canSync: boolean; people: readonly Person[]; onLink: (opener: HTMLElement) => void; onOpenImport: OpenImport | undefined }) {
   const { t, i18n } = useTranslation("settings");
   const linked = team.linkedProject !== null;
-  const lastImport = linked && team.lastImportedAt != null ? t("linear.teams.lastImport", { when: formatActivityTime(i18n.language as Language, team.lastImportedAt, new Date()) }) : null;
+  const when = linked && team.lastImportedAt != null ? formatActivityTime(i18n.language as Language, team.lastImportedAt, new Date()) : null;
   const name = (
     <>
       <span className="linear-key">{team.key}</span>
@@ -232,16 +248,22 @@ function TeamRow({ team, onLink, onOpenImport }: { team: LinearTeam; onLink: (op
       <span>{team.name}</span>
     </>
   );
+  const linkedHint = linked ? (
+    <>
+      {t("linear.teams.linkedTo", { project: team.linkedProject!.name })}
+      {when !== null && <> · {canSync ? <SyncedHint client={client} projectId={team.linkedProject!.id} when={when} people={people} /> : t("linear.teams.lastSync", { when })}</>}
+    </>
+  ) : null;
   return (
     <li>
       <SettingsRow
         title={linked ? <>{name}{" "}<span className="linear-badge linear-badge-lock">{t("linear.teams.permanent")}</span></> : <span className={team.linkedElsewhere ? "linear-team-off" : undefined}>{name}</span>}
-        hint={linked ? `${t("linear.teams.linkedTo", { project: team.linkedProject!.name })}${lastImport === null ? "" : ` · ${lastImport}`}` : team.linkedElsewhere ? t("linear.teams.elsewhere") : t("linear.teams.free")}
+        hint={linked ? linkedHint : team.linkedElsewhere ? t("linear.teams.elsewhere") : t("linear.teams.free")}
         control={
           linked ? (
-            onOpenImport ? (
-              <button type="button" aria-label={t("linear.teams.openImportLabel", { project: team.linkedProject!.name })} onClick={() => onOpenImport(team.linkedProject!.id)}>
-                {t("linear.teams.openImport")}
+            onOpenImport && canSync ? (
+              <button type="button" className="primary" aria-label={t("linear.teams.syncLabel", { project: team.linkedProject!.name })} onClick={() => onOpenImport(team.linkedProject!.id, "sync")}>
+                {t("linear.teams.sync")}
               </button>
             ) : undefined
           ) : team.linkedElsewhere ? (

@@ -116,7 +116,7 @@
       "waiting": "Linear asked to wait.",
       "abandoned": "Import abandoned.",
       "missing": "Checking what disappeared from Linear.",
-      "reimportDone": "Reimport finished.",
+      "reimportDone": "Sync finished.",
       "statuses": "Updating the statuses."
     },
     "waiting": "Linear asked to wait. The import resumes at {{time}}.",
@@ -138,12 +138,14 @@
       "skippedNote": "Skipped: could not be linked to their parents (for example, a cycle in the hierarchy).",
       "openMap": "Open on the map",
       "counts": "Import counts",
-      "reimportTitle": "Reimport finished",
+      "reimportTitle": "Sync finished",
       "new": "New",
       "updated": "Updated",
       "keptTouched": "Kept because they were edited here",
       "keptMoved": "Kept where you moved them",
       "missing": "Not found in Linear",
+      "filled_one": "{{count}} field filled in a ticket that already existed",
+      "filled_other": "{{count}} fields filled in tickets that already existed",
       "descriptionUnavailable": "Some descriptions were too large and were not read again.",
       "missingNotChecked": "Could not check what disappeared, because some items came in an invalid format.",
       "assigneeEmailUnavailableReimport": "Linear did not allow reading the assignees’ e-mails; assignees were not updated."
@@ -163,11 +165,11 @@
       "issues_one": "{{count}} issue",
       "issues_other": "{{count}} issues"
     },
-    "reimporting": "Reimporting…",
+    "reimporting": "Syncing…",
     "last": {
       "title": "Last import · {{when}}",
-      "rule": "Reimporting only updates what changed in Linear and nobody touched here, does not move what was reorganized in the tree, and what disappeared from Linear stays as it is.",
-      "reimport": "Reimport now",
+      "rule": "Syncing only updates what changed in Linear and nobody touched here, does not move what was reorganized in the tree, and what disappeared from Linear stays as it is.",
+      "reimport": "Sync now",
       "changeDestination": "Change destination for new issues",
       "destination": "Destination for new issues",
       "titleUndated": "Last import"
@@ -201,7 +203,7 @@
         "confirm": "Abandon",
         "back": "Back"
       },
-      "reimportBlocked": "Reimporting is unavailable while the search for the items' places is running.",
+      "reimportBlocked": "Syncing is unavailable while the search for the items' places is running.",
       "doneTitle": "Search finished",
       "abandonedTitle": "Search abandoned",
       "nothing": "No item was decided.",

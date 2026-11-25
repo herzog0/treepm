@@ -40,13 +40,13 @@ afterEach(() => {
 });
 
 describe("Reimportação › o cartão da última importação", () => {
-  it("em vez do aviso de indisponível, mostra 'Última importação · há 3 dias', as contagens e 'Reimportar agora'", async () => {
+  it("em vez do aviso de indisponível, mostra 'Última importação · há 3 dias', as contagens e 'Sincronizar agora'", async () => {
     setup({ existing: finished() });
     expect(await screen.findByRole("heading", { name: "Última importação · há 3 dias" })).toBeInTheDocument();
     expect(screen.queryByText("Reimportar ainda não está disponível.")).not.toBeInTheDocument();
     const list = screen.getByLabelText("Contagens da importação");
     expect(within(list).getByText("Criados").nextSibling).toHaveTextContent("412");
-    expect(screen.getByRole("button", { name: "Reimportar agora" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Sincronizar agora" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Importar" })).not.toBeInTheDocument();
   });
 
@@ -66,12 +66,12 @@ describe("Reimportação › o cartão da última importação", () => {
     expect(within(list).getByText("Não encontrados no Linear").nextSibling).toHaveTextContent("2");
   });
 
-  it("reimporta sem perguntar o destino (o corpo vai sem destinationTicketId) e mostra 'Reimportando…'", async () => {
+  it("reimporta sem perguntar o destino (o corpo vai sem destinationTicketId) e mostra 'Sincronizando…'", async () => {
     const { client } = setup({ existing: finished(), total: 4, script: [{ hold: new Promise<void>(() => {}) }] });
     expect(screen.queryByText("Destino")).not.toBeInTheDocument();
-    await userEvent.click(await screen.findByRole("button", { name: "Reimportar agora" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     expect(client.openLinearRun).toHaveBeenCalledWith("p1", {});
-    expect(await screen.findByRole("heading", { name: "Reimportando…" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sincronizando…" })).toBeInTheDocument();
   });
 
   it("'Mudar destino das issues novas' abre o mesmo seletor, e a escolha vai no corpo", async () => {
@@ -80,7 +80,7 @@ describe("Reimportação › o cartão da última importação", () => {
     const picker = await screen.findByRole("group", { name: "Escolher o destino" });
     await userEvent.click(await within(picker).findByRole("button", { name: /ENG-2/ }));
     expect(screen.getByText("Fase dois")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Reimportar agora" }));
+    await userEvent.click(screen.getByRole("button", { name: "Sincronizar agora" }));
     expect(client.openLinearRun).toHaveBeenCalledWith("p1", { destinationTicketId: "t2" });
   });
 
@@ -89,7 +89,7 @@ describe("Reimportação › o cartão da última importação", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Mudar destino das issues novas" }));
     const picker = await screen.findByRole("group", { name: "Escolher o destino" });
     await userEvent.click(await within(picker).findByRole("button", { name: "Raiz do projeto" }));
-    await userEvent.click(screen.getByRole("button", { name: "Reimportar agora" }));
+    await userEvent.click(screen.getByRole("button", { name: "Sincronizar agora" }));
     expect(client.openLinearRun).toHaveBeenCalledWith("p1", { destinationTicketId: null });
   });
 
@@ -101,18 +101,18 @@ describe("Reimportação › o cartão da última importação", () => {
 
   it("abandonar a reimportação devolve o cartão da última concluída, que não muda", async () => {
     setup({ existing: finished(), script: [{ hold: new Promise<void>(() => {}) }] });
-    await userEvent.click(await screen.findByRole("button", { name: "Reimportar agora" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     await userEvent.click(await screen.findByRole("button", { name: "Abandonar importação" }));
     await userEvent.click(await screen.findByRole("button", { name: "Abandonar" }));
     expect(await screen.findByRole("heading", { name: "Última importação · há 3 dias" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reimportar agora" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Sincronizar agora" })).toBeEnabled();
   });
 
   it("erro ao abrir mostra a frase e deixa tentar de novo", async () => {
     setup({ existing: finished(), openError: ["conflict", "linear_destination_invalid"] });
-    await userEvent.click(await screen.findByRole("button", { name: "Reimportar agora" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     expect(await screen.findByRole("alert")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reimportar agora" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Sincronizar agora" })).toBeEnabled();
   });
 });
 
@@ -138,8 +138,8 @@ describe("Reimportação › data relativa (relógio falso)", () => {
 describe("Reimportação › durante e resumo", () => {
   it("anda pelas fases, com 'Verificando o que sumiu do Linear' no fim, e termina no resumo da reimportação", async () => {
     const { client } = setup({ existing: finished(), total: 4, reimportCounts: { updated: 3, keptTouched: 2, keptMoved: 1, missing: 4, missingProjects: 1, elsewhere: 1 } });
-    await userEvent.click(await screen.findByRole("button", { name: "Reimportar agora" }));
-    expect(await screen.findByRole("heading", { name: "Reimportação concluída" })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    expect(await screen.findByRole("heading", { name: "Sincronização concluída" })).toBeInTheDocument();
     const list = screen.getByLabelText("Contagens da importação");
     // Novos = issuesCreated + projectsCreated da rodada simulada (3 projetos + 4 issues).
     expect(within(list).getByText("Novos").nextSibling).toHaveTextContent("7");
@@ -148,14 +148,14 @@ describe("Reimportação › durante e resumo", () => {
     expect(within(list).getByText("Mantidos onde você os moveu").nextSibling).toHaveTextContent("1");
     expect(within(list).getByText("Não encontrados no Linear").nextSibling).toHaveTextContent("5");
     expect(within(list).getByText("Em outro projeto").nextSibling).toHaveTextContent("1");
-    expect(screen.queryByRole("button", { name: "Reimportar agora" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sincronizar agora" })).not.toBeInTheDocument();
     expect(client.stepLinearRun).toHaveBeenCalled();
   });
 
   it("a lista de fases tem 'Verificando o que sumiu do Linear' só na reimportação", async () => {
     const hold = new Promise<void>(() => {});
     setup({ existing: finished(), script: ["ok", { hold }] });
-    await userEvent.click(await screen.findByRole("button", { name: "Reimportar agora" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     const phases = await screen.findByRole("list", { name: "Fases da importação" });
     const items = within(phases).getAllByRole("listitem");
     expect(items).toHaveLength(6);
@@ -172,11 +172,11 @@ describe("Reimportação › durante e resumo", () => {
     const hold = new Promise<void>((resolve) => { release = resolve; });
     // projetos, issues (1 página), hierarquia, e a quarta etapa fica segurada em "statuses".
     setup({ existing: finished(), total: 2, projects: 0, script: ["ok", "ok", "ok", { hold }] });
-    await userEvent.click(await screen.findByRole("button", { name: "Reimportar agora" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     const region = (await screen.findAllByRole("status")).find((node) => node.classList.contains("linear-import-status"))!;
     await waitFor(() => expect(region).toHaveTextContent("Atualizando as situações."));
     release();
-    await screen.findByRole("heading", { name: "Reimportação concluída" });
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
   });
 
   it("a primeira importação não tem essa fase", async () => {
@@ -188,7 +188,7 @@ describe("Reimportação › durante e resumo", () => {
 
   it("só mostra as linhas maiores que zero, além de Novos e Atualizados", async () => {
     setup({ existing: finished(), total: 0, projects: 0, reimportCounts: {} });
-    await userEvent.click(await screen.findByRole("button", { name: "Reimportar agora" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     const list = await screen.findByLabelText("Contagens da importação");
     expect(within(list).getByText("Novos")).toBeInTheDocument();
     expect(within(list).getByText("Atualizados")).toBeInTheDocument();
@@ -197,17 +197,38 @@ describe("Reimportação › durante e resumo", () => {
 
   it("os avisos: e-mail, descrições grandes e o que sumiu que não pôde ser conferido", async () => {
     setup({ existing: finished(), reimportCounts: { assigneeEmailUnavailable: true, descriptionUnavailable: true, missingNotChecked: true } });
-    await userEvent.click(await screen.findByRole("button", { name: "Reimportar agora" }));
-    await screen.findByRole("heading", { name: "Reimportação concluída" });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
     expect(screen.getByText(/não deixou ler os e-mails dos responsáveis/)).toBeInTheDocument();
     expect(screen.getByText("Algumas descrições eram grandes demais e não foram relidas.")).toBeInTheDocument();
     expect(screen.getByText("Não foi possível conferir o que sumiu, porque alguns itens vieram em formato inválido.")).toBeInTheDocument();
   });
 
+  it("'N campos preenchidos em tickets que já existiam' aparece com o plural certo e some quando é zero", async () => {
+    setup({ existing: finished(), reimportCounts: { updated: 1, filled: 12 } });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    expect(screen.getByText("12 campos preenchidos em tickets que já existiam")).toBeInTheDocument();
+  });
+
+  it("um só campo preenchido: singular", async () => {
+    setup({ existing: finished(), reimportCounts: { filled: 1 } });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    expect(screen.getByText("1 campo preenchido em tickets que já existiam")).toBeInTheDocument();
+  });
+
+  it("sem campos preenchidos (zero ou ausente) a linha não aparece", async () => {
+    setup({ existing: finished(), reimportCounts: { updated: 1, filled: 0 } });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    expect(screen.queryByText(/campos? preenchidos?/)).not.toBeInTheDocument();
+  });
+
   it("sem avisos quando os booleanos não vêm", async () => {
     setup({ existing: finished(), reimportCounts: { updated: 1 } });
-    await userEvent.click(await screen.findByRole("button", { name: "Reimportar agora" }));
-    await screen.findByRole("heading", { name: "Reimportação concluída" });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
     expect(screen.queryByText(/grandes demais/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Não foi possível conferir/)).not.toBeInTheDocument();
   });
@@ -222,19 +243,34 @@ describe("Reimportação › durante e resumo", () => {
     let release!: () => void;
     const hold = new Promise<void>((resolve) => { release = resolve; });
     setup({ existing: finished(), total: 2, projects: 0, script: ["ok", "ok", "ok", "ok", "ok", { hold }] });
-    await userEvent.click(await screen.findByRole("button", { name: "Reimportar agora" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     const region = (await screen.findAllByRole("status")).find((node) => node.classList.contains("linear-import-status"))!;
     await waitFor(() => expect(region).toHaveTextContent("Verificando o que sumiu do Linear."));
     release();
-    await screen.findByRole("heading", { name: "Reimportação concluída" });
-    await waitFor(() => expect(region).toHaveTextContent("Reimportação concluída."));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    await waitFor(() => expect(region).toHaveTextContent("Sincronização concluída."));
+  });
+});
+
+describe("Reimportação › campos preenchidos nos idiomas", () => {
+  it.each([
+    ["en", 3, "3 fields filled in tickets that already existed"],
+    ["en", 1, "1 field filled in a ticket that already existed"],
+    ["es-MX", 3, "3 campos completados en tickets que ya existían"],
+    ["es-MX", 1, "1 campo completado en tickets que ya existían"],
+  ] as const)("em %s com %i", async (language, filled, text) => {
+    await setTestLanguage(language);
+    setup({ existing: finished(), total: 2, reimportCounts: { filled } });
+    await userEvent.click(await screen.findByRole("button", { name: language === "en" ? "Sync now" : "Sincronizar ahora" }));
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    await setTestLanguage("pt-BR");
   });
 });
 
 describe("Reimportação › idiomas", () => {
   it.each([
-    ["en", "Last import · 3 days ago", "Reimport now", "Reimport finished"],
-    ["es-MX", "Última importación · hace 3 días", "Reimportar ahora", "Reimportación terminada"],
+    ["en", "Last import · 3 days ago", "Sync now", "Sync finished"],
+    ["es-MX", "Última importación · hace 3 días", "Sincronizar ahora", "Sincronización terminada"],
   ] as const)("em %s", async (language, title, button, done) => {
     await setTestLanguage(language);
     setup({ existing: finished(), total: 2 });

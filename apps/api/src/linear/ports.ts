@@ -36,8 +36,25 @@ export type LinearIdentity = { workspace: LinearWorkspace; viewer: { id: string 
 /** Uma página de uma listagem do Linear: `nextCursor` é nulo na última; `skippedInvalid` conta os nós que não passaram na validação (pulados um a um). */
 export type LinearPage<T> = { nodes: T[]; nextCursor: string | null; skippedInvalid: number };
 
-/** Um projeto do Linear que pertence ao time; `statusType` é o `status.type` do projeto (nulo se não veio). */
-export type LinearProjectNode = { id: string; name: string; url: string; statusType: string | null };
+/**
+ * Um projeto do Linear que pertence ao time; `statusType` é o `status.type` do projeto (nulo se não veio). `description` é o resumo e
+ * `content` o texto longo (nulo quando a leitura não o pediu); `lead.email` só serve para casar uma pessoa e nunca é guardado.
+ */
+export type LinearProjectNode = {
+  id: string;
+  name: string;
+  url: string;
+  statusType: string | null;
+  description: string | null;
+  content: string | null;
+  priority: number;
+  lead: { id: string; email: string | null } | null;
+};
+
+/** Opções da leitura de projetos: `first` itens (padrão 50), sem o conteúdo longo (corpo grande demais), sem o e-mail do líder (campo recusado). */
+export type LinearProjectsOptions = { first?: number; withContent?: boolean; withEmail?: boolean };
+/** `emailUnavailable`: o Linear recusou `email` e a página veio sem ele. */
+export type LinearProjectsPage = LinearPage<LinearProjectNode> & { emailUnavailable: boolean };
 
 /** Opções da leitura de issues: `first` itens (padrão 50), sem a descrição (issue enorme), sem o e-mail do responsável (campo recusado). */
 export type LinearIssuesOptions = { first?: number; withDescription?: boolean; withEmail?: boolean };
@@ -61,6 +78,15 @@ export type LinearIssueNode = {
   parentId: string | null;
   projectId: string | null;
   assignee: { id: string; email: string | null } | null;
+  /** As datas do Linear (ADR 0061); nulas quando não há ou o servidor não as trouxe. */
+  createdAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  canceledAt: string | null;
+  /** Os identificadores que a issue já teve (trocou de time). */
+  previousIdentifiers: string[];
+  /** Quem criou no Linear; o e-mail só serve para casar uma pessoa e nunca é guardado. */
+  creator: { id: string; name: string; email: string | null } | null;
 };
 
 /** A porta do Linear desta fatia. A chave é sempre argumento: o cliente não guarda nada entre chamadas. */
@@ -73,7 +99,7 @@ export interface LinearClient {
   /** Quantas issues o time tem (sem arquivadas), numa chamada barata. */
   countTeamIssues(apiKey: string, teamId: string): Promise<number>;
   /** Uma página (50) dos projetos do time. */
-  listTeamProjects(apiKey: string, teamId: string, after: string | null): Promise<LinearPage<LinearProjectNode>>;
+  listTeamProjects(apiKey: string, teamId: string, after: string | null, options?: LinearProjectsOptions): Promise<LinearProjectsPage>;
   /** Uma página (50) das issues do time, sem arquivadas. */
   listTeamIssues(apiKey: string, teamId: string, after: string | null, options?: LinearIssuesOptions): Promise<LinearIssuesPage>;
 }

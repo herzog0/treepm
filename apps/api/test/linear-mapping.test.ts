@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mapLinearIssue, mapLinearIssuePage } from "../src/linear/linear-mapping.js";
 import type { LinearIssueNode } from "../src/linear/ports.js";
 
-const node = (over: Partial<LinearIssueNode> = {}): LinearIssueNode => ({ id: "i1", identifier: "ENG-1", url: "https://linear.app/a/issue/ENG-1", title: "Título", description: null, priority: 2, updatedAt: "2026-01-01T00:00:00Z", trashed: false, stateType: "started", parentId: null, projectId: null, assignee: null, ...over });
+const node = (over: Partial<LinearIssueNode> = {}): LinearIssueNode => ({ id: "i1", identifier: "ENG-1", url: "https://linear.app/a/issue/ENG-1", title: "Título", description: null, priority: 2, updatedAt: "2026-01-01T00:00:00Z", trashed: false, stateType: "started", parentId: null, projectId: null, assignee: null, createdAt: null, startedAt: null, completedAt: null, canceledAt: null, previousIdentifiers: [], creator: null, ...over });
 
 describe("L9 item 1: o mapeamento de uma issue é pura função e rápido", () => {
   const inputs: Record<string, string> = {

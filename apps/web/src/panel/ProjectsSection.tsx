@@ -14,7 +14,7 @@ export interface ProjectsSectionProps {
   projects: readonly Project[];
   selectedProject: Project | null;
   onChanged: () => void;
-  onImportProject?: ((projectId: string) => void) | undefined;
+  onImportProject?: ((projectId: string, mode?: "sync") => void) | undefined;
   onCreateTicket?: ((projectId: string) => void) | undefined;
   /** Com o assistente ligado, o botão flutuante do mapa é a ação principal e a criação manual vira secundária. */
   assistantAvailable?: boolean | undefined;

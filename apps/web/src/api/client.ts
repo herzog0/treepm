@@ -94,6 +94,8 @@ const ticketSummarySchema = z.object({
   assigneeIds: z.array(z.string()),
   /** Primeiros caracteres da descrição, para o card em "detalhe" do mapa (ADR 0027). */
   descriptionExcerpt: z.string(),
+  /** As chaves do Linear do ticket, a de hoje e as antigas (ADR 0061); só a lista da tela as traz, e só para quem tem origem. A busca da barra as usa. */
+  externalKeys: z.array(z.string()).optional(),
   agentWork: agentWorkSchema,
   /**
    * Prioridade PRÓPRIA (ADR 0047): inteiro de -999 a 999; maior primeiro. A API sempre manda; é opcional aqui só para os ~30 dados
@@ -125,7 +127,21 @@ const ticketDetailSchema = ticketSummarySchema.extend({
   canEndAgentWork: z.boolean().optional(),
   description: z.string(),
   /** De onde o ticket veio (ADR 0060): o Linear, com a chave da issue (`null` num projeto do Linear) e o endereço. Ausente: sem origem externa. */
-  externalSource: z.object({ provider: z.literal("linear"), key: z.string().nullable(), url: z.string().nullable(), missingSince: z.string().nullable().optional() }).nullable().optional(),
+  externalSource: z
+    .object({
+      provider: z.literal("linear"),
+      key: z.string().nullable(),
+      url: z.string().nullable(),
+      missingSince: z.string().nullable().optional(),
+      /** As datas do Linear e quem criou lá (ADR 0061); ausentes numa API antiga. `creator`: a pessoa do TreePM que casou OU o nome no Linear. */
+      createdAt: z.string().nullable().optional(),
+      startedAt: z.string().nullable().optional(),
+      completedAt: z.string().nullable().optional(),
+      canceledAt: z.string().nullable().optional(),
+      creator: z.union([z.object({ personId: z.string() }), z.object({ name: z.string() })]).nullable().optional(),
+    })
+    .nullable()
+    .optional(),
   /** Quem lê pode aceitar e descartar a ideia (gestor do projeto, ADR 0042); ausente = não. */
   canTriageIdea: z.boolean().optional(),
   /** Os tickets do projeto que mencionam este na descrição, em ordem de número (ADR 0037). */

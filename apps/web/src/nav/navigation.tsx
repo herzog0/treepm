@@ -60,9 +60,9 @@ function parseRoute(search: string): Route {
 export function viewHref(view: View, href: string = window.location.href, projectId: string | null = null, target: MapTarget = {}): string {
   const url = new URL(href);
   if (view === "settings" || url.searchParams.get("view") === "settings") url.hash = view === "settings" && target.section ? target.section : "";
-  // A importação abre na aba do Linear por `#linear`; a âncora não sai dela (como a das Configurações).
+  // A importação abre na aba do Linear por `#linear` (e já sincroniza por `#linear-sync`); a âncora não sai dela (como a das Configurações).
   if (view === "import" && target.section) url.hash = target.section;
-  else if (view !== "import" && url.searchParams.get("view") === "import" && url.hash === "#linear") url.hash = "";
+  else if (view !== "import" && url.searchParams.get("view") === "import" && (url.hash === "#linear" || url.hash === "#linear-sync")) url.hash = "";
   url.searchParams.delete("project");
   url.searchParams.delete("ticket");
   url.searchParams.delete("focus");
@@ -74,6 +74,9 @@ export function viewHref(view: View, href: string = window.location.href, projec
   if (view === "map" && target.focusId !== undefined) url.searchParams.set("focus", target.focusId);
   return `${url.pathname}${url.search}${url.hash}`;
 }
+
+/** Para onde "Sincronizar com o Linear" leva (ADR 0061): a importação do projeto na aba do Linear, já sincronizando; sem o modo, na aba que a pessoa escolheu antes. */
+export const importTarget = (mode?: "sync", fromSettings = false): MapTarget => (mode === "sync" ? { section: "linear-sync" } : fromSettings ? { section: "linear" } : {});
 
 /** URL relativa do mapa com o ticket aberto (ou sem ele): preserva os outros parâmetros e o hash. */
 export function ticketHref(ticketId: string | null, href: string = window.location.href): string {

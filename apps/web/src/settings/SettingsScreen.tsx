@@ -5,6 +5,7 @@ import type { LanguagePreference } from "../i18n/languages.js";
 import { usePreferences } from "../preferences/context.js";
 import type { Preferences } from "../preferences/model.js";
 import { useLinearConnection } from "./LinearSettings.js";
+import type { OpenImport } from "./LinearSettings.js";
 import { useMcpSwitches, useMcpTokenDraft } from "./McpSettings.js";
 import { DEFAULT_SETTINGS_SECTIONS, SETTINGS_GROUPS } from "./sections.js";
 import type { SectionContext, SettingsSection } from "./sections.js";
@@ -33,7 +34,7 @@ export function SettingsScreen({ client, me, onConsentChange, onOpenImport, sect
   me?: Me | null | undefined;
   onConsentChange?: (() => void) | undefined;
   /** Leva à importação do projeto (o botão "Abrir importação" do time ligado, na seção Linear). */
-  onOpenImport?: ((projectId: string) => void) | undefined;
+  onOpenImport?: OpenImport | undefined;
   sections?: readonly SettingsSection[] | undefined;
 } = {}) {
   const { t } = useTranslation("settings");

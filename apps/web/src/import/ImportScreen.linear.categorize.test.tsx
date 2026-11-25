@@ -165,15 +165,15 @@ describe("Arrumar na árvore › durante", () => {
     expect(announcements).toEqual(["Procurando o lugar dos itens.", "Procura do lugar dos itens concluída."]);
   });
 
-  it("'Reimportar agora' fica desabilitado, com a explicação, enquanto a procura está aberta", async () => {
+  it("'Sincronizar agora' fica desabilitado, com a explicação, enquanto a procura está aberta", async () => {
     const gate = hold();
     setup({ candidates: 12, script: [{ hold: gate.promise }] });
     await userEvent.click((await block()).getByRole("button", { name: "Procurar o lugar de 12 itens" }));
-    const reimport = await screen.findByRole("button", { name: "Reimportar agora" });
+    const reimport = await screen.findByRole("button", { name: "Sincronizar agora" });
     expect(reimport).toBeDisabled();
-    expect(reimport).toHaveAccessibleDescription(/Reimportar fica indisponível enquanto a procura/);
+    expect(reimport).toHaveAccessibleDescription(/Sincronizar fica indisponível enquanto a procura/);
     act(() => gate.release());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Reimportar agora" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Sincronizar agora" })).toBeEnabled());
   });
 
   it("espera dita pela IA: mostra 'aguardando' e não dá outro passo antes da hora", async () => {
@@ -248,7 +248,7 @@ describe("Arrumar na árvore › durante", () => {
 describe("Arrumar na árvore › reimportar com a procura aberta", () => {
   it("o servidor recusa com linear_categorize_open: a tela mostra a frase e aponta para o bloco 'Arrumar na árvore'", async () => {
     setup({ candidates: 12 }, { linear: { run: { existing: finishedImport, openError: ["conflict", "linear_categorize_open"] } } });
-    await userEvent.click(await screen.findByRole("button", { name: "Reimportar agora" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/Arrumar na árvore/);
     expect(alert).not.toHaveTextContent(/Abra a tela de importação/);

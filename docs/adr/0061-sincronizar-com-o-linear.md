@@ -34,7 +34,9 @@ A reimportação compara cada campo com o retrato da última importação. Um at
 - **Sem retrato e já preenchido no TreePM** (alguém pôs um valor aqui antes de o atributo ser sincronizado): o valor do TreePM fica. O retrato grava o lado do Linear e marca o campo como "mantido daqui", e ele não volta a ser sobrescrito sozinho.
 - **Com retrato:** a regra da ADR 0060 (só muda o que mudou lá e não foi mexido aqui).
 
-"Vazio" é definido por atributo na fatia dele (texto vazio, lista vazia, nulo). Prioridade 0 e situação não contam como vazio: os dois já têm retrato desde a primeira importação.
+"Vazio" é definido por atributo na fatia dele (texto vazio, lista vazia, nulo). Nas issues, prioridade e situação já têm retrato desde a primeira importação e seguem a regra antiga. No ticket de projeto, que nasceu sem esses campos, prioridade 0 conta como vazio enquanto não houver retrato.
+
+Sem retrato não há como distinguir "nunca teve" de "limparam de propósito": um ticket de projeto que alguém preencheu e depois esvaziou antes da primeira sincronização é preenchido de novo, uma vez. Depois disso o retrato existe e a limpeza é respeitada.
 
 ### 3. Coisas que são muitas por ticket têm origem própria
 
@@ -73,7 +75,8 @@ Comentário e evento têm autor. No Linear o autor pode não ter conta aqui, ou 
 ### 6. Texto que vem de fora, IA e MCP
 
 - O corpo de comentário importado passa pela mesma neutralização da descrição (ADR 0060, seção 4): nada vira menção de pessoa, e os limites de tamanho do TreePM valem.
-- **Nada do que esta ADR traz vai a provedor de IA, à Voyage ou ao MCP.** Comentários já ficam fora; nome de autor do Linear, datas e identificadores antigos também. Cada fatia futura declara o mesmo ponto para o atributo dela, e o padrão é fora.
+- **O que é dado da origem não vai a provedor de IA, à Voyage nem ao MCP:** nome de criador ou de autor do Linear, datas, identificadores antigos. Comentários já ficam fora.
+- **Uma exceção, que não é categoria nova:** a descrição do projeto do Linear vira a descrição do ticket pai e, como toda descrição de ticket, vai aos provedores quando o assistente está ativo, neutralizada e cortada como as demais. Cada fatia futura declara o mesmo ponto para o atributo dela, e o padrão é fora.
 - Conteúdo de documentos do Linear (`TREEPM-476`) é categoria nova de dado: antes de qualquer envio a provedor, Teodoro é avisado.
 
 ### 7. Custo no Linear e fases da rodada
@@ -107,3 +110,15 @@ Depois, fora desta ADR: situações novas (ADR própria e desenho), etiquetas e 
 - Um ticket importado passa a carregar texto de outras pessoas que nunca entraram no TreePM (comentários), com o nome delas.
 - A reimportação fica mais longa: uma fase a mais por tipo de item.
 - A regra do campo sem retrato vale para todo atributo futuro; nenhuma fatia nova precisa redecidir o que fazer com tickets já importados.
+
+## Como ficou (fatia 1, 2026-11-25)
+
+- Migration `0043_linear_sync_fields`: a origem do ticket guarda as datas de criação, início, conclusão e cancelamento, os identificadores antigos e o criador (pessoa do TreePM quando o e-mail casa; senão o nome de exibição no Linear).
+- O ticket de projeto ganha descrição, líder e prioridade. A regra do campo sem retrato está em `decideLinearLateField`; "mantido daqui" é a lista `heldHere` no retrato aplicado.
+- O resumo da rodada ganhou "campos preenchidos em tickets que já existiam".
+- Botão "Sincronizar com o Linear" em Configurações → Linear (na linha do time ligado, com a última sincronização) e no painel do projeto, ao lado de "Importar lista". Os dois abrem a tela de andamento que já existia, já iniciando a rodada. Onde a tela dizia "Reimportar", diz "Sincronizar".
+- A página do ticket mostra "Criado no Linear em…, por…" e as datas, em texto secundário.
+- A busca da barra acha o ticket pela chave do Linear, a atual e as antigas. As chaves vão só na lista de tickets que a tela carrega (cerca de 7 KB comprimidos a mais a cada 2.000 tickets importados); assistente, Voyage e MCP não as recebem.
+- Página de projetos grande demais é reduzida à metade até 1; só então o texto longo daquele projeto é dispensado e o resumo entra no lugar, se o ticket ainda não tinha descrição.
+- Consequência a saber: issues sem prioridade herdam a prioridade do ticket do projeto, e sobem ou descem na fila de trabalho com ela.
+- Revisão independente com reprodução: sem bloqueio; cinco correções aplicadas.

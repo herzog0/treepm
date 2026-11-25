@@ -4,6 +4,8 @@ export interface SearchableTicket {
   readonly number: number;
   readonly title: string;
   readonly descriptionExcerpt: string;
+  /** As chaves que o ticket tem ou teve no provedor externo (ADR 0061): batem como a chave, para uma palavra só. */
+  readonly externalKeys?: readonly string[];
 }
 
 /** Sem maiúsculas nem acentos: a comparação da busca. */
@@ -64,7 +66,7 @@ export function searchTickets<T extends SearchableTicket>(text: string, tickets:
     const folded = foldedOf(ticket);
     const title = folded.title;
     const tier =
-      single && ((folded.key ??= foldForSearch(ticket.key)) === needle || (numeric !== null && ticket.number === numeric))
+      single && ((folded.key ??= foldForSearch(ticket.key)) === needle || (numeric !== null && ticket.number === numeric) || (ticket.externalKeys !== undefined && ticket.externalKeys.some((external) => foldForSearch(external) === needle)))
         ? 0
         : title.startsWith(needle)
           ? 1

@@ -63,6 +63,7 @@
     "newTicket": "New ticket",
     "newTicketNoAssistant": "Create without the assistant",
     "import": "Import list",
+    "syncLinear": "Sync with Linear",
     "visibilityLine": "Visibility: {{value}}",
     "manage": {
       "nameLabel": "Project name",

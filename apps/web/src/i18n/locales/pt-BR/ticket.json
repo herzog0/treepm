@@ -309,6 +309,14 @@
     "viewLabel": "Ver no Linear (abre em outra aba)",
     "plain": "Linear",
     "plainKey": "Linear · {{key}}",
-    "missingSince": "Não encontrada no Linear desde {{date}}"
+    "missingSince": "Não encontrada no Linear desde {{date}}",
+    "origin": {
+      "createdBy": "Criado no Linear em {{date}}, por {{name}}",
+      "created": "Criado no Linear em {{date}}",
+      "externalName": "{{name}} (no Linear)",
+      "started": "Iniciado em {{date}}",
+      "completed": "Concluído em {{date}}",
+      "canceled": "Cancelado em {{date}}"
+    }
   }
 }

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Me } from "../api/client.js";
 import { MemoryPreferencesProvider } from "../preferences/context.js";
-import { makeClient, makeLinearConnection, makeLinearTeam, makeMe, makeProject } from "../test/fakes.js";
+import { makeClient, makeLinearConnection, makeLinearTeam, makeMe, makePerson, makeProject } from "../test/fakes.js";
 import type { FakeLinear } from "../test/fakes.js";
 import { setTestLanguage } from "../test/i18n.js";
 import { SettingsScreen } from "./SettingsScreen.js";
@@ -16,15 +16,15 @@ const projects = [
   makeProject("p3", "OLD", "Antigo", { archivedAt: "2026-11-01T00:00:00.000Z" }),
 ];
 const teams = [
-  makeLinearTeam("ENG", "Engenharia", { linkedProject: { id: "p9", name: "TreePM" } }),
+  makeLinearTeam("ENG", "Engenharia", { linkedProject: { id: "p1", name: "Alfa" } }),
   makeLinearTeam("DES", "Design"),
   makeLinearTeam("OPS", "Operações", { linkedElsewhere: true }),
 ];
 
-function setup(options: { me?: Me; linear?: FakeLinear | undefined; onOpenImport?: (projectId: string) => void; tweak?: (client: ReturnType<typeof makeClient>) => void } = {}) {
+function setup(options: { me?: Me; linear?: FakeLinear | undefined; onOpenImport?: (projectId: string, mode?: "sync") => void; tweak?: (client: ReturnType<typeof makeClient>) => void } = {}) {
   window.location.hash = "linear";
   const me = options.me ?? makeMe();
-  const client = makeClient({ me, projects, ...(options.linear ? { linear: options.linear } : {}) });
+  const client = makeClient({ me, projects, people: [makePerson("person-1", "Ana"), makePerson("person-2", "Beto")], ...(options.linear ? { linear: options.linear } : {}) });
   options.tweak?.(client);
   render(
     <MemoryPreferencesProvider onSave={vi.fn()}>
@@ -41,27 +41,27 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("Configurações › Linear › última importação do time", () => {
+describe("Configurações › Linear › última sincronização do time", () => {
   const DAY = 86_400_000;
-  const withImport = (when: string | null) => [makeLinearTeam("ENG", "Engenharia", { linkedProject: { id: "p9", name: "TreePM" }, lastImportedAt: when }), makeLinearTeam("DES", "Design", { lastImportedAt: new Date().toISOString() })];
+  const withImport = (when: string | null) => [makeLinearTeam("ENG", "Engenharia", { linkedProject: { id: "p1", name: "Alfa" }, lastImportedAt: when }), makeLinearTeam("DES", "Design", { lastImportedAt: new Date().toISOString() })];
 
-  it("o time ligado mostra 'última importação há 3 dias'; sem data ou sem ligação, nada", async () => {
+  it("o time ligado mostra 'Última sincronização: há 3 dias'; sem data ou sem ligação, nada", async () => {
     setup({ linear: connected({ teams: withImport(new Date(Date.now() - 3 * DAY).toISOString()) }) });
     const list = await within(await section()).findByRole("list", { name: "Times que a sua chave enxerga" });
     const [eng, des] = within(list).getAllByRole("listitem");
-    expect(eng).toHaveTextContent("Ligado ao projeto TreePM · última importação há 3 dias");
-    expect(des).not.toHaveTextContent("última importação");
+    expect(eng).toHaveTextContent("Ligado ao projeto Alfa · Última sincronização: há 3 dias");
+    expect(des).not.toHaveTextContent("sincronização");
   });
 
   it("sem importação concluída, o texto não aparece", async () => {
     setup({ linear: connected({ teams: withImport(null) }) });
     const list = await within(await section()).findByRole("list", { name: "Times que a sua chave enxerga" });
-    expect(list).not.toHaveTextContent("última importação");
+    expect(list).not.toHaveTextContent("sincronização");
   });
 
   it.each([
-    ["en", "Linked to project TreePM · last import 3 days ago"],
-    ["es-MX", "última importación hace 3 días"],
+    ["en", "Linked to project Alfa · Last sync: 3 days ago"],
+    ["es-MX", "Última sincronización: hace 3 días"],
   ] as const)("em %s", async (language, text) => {
     await setTestLanguage(language);
     try {
@@ -77,7 +77,7 @@ describe("Configurações › Linear › última importação do time", () => {
     vi.setSystemTime(new Date("2026-11-25T12:00:00.000Z"));
     try {
       setup({ linear: connected({ teams: withImport("2026-11-24T09:00:00.000Z") }) });
-      expect(await within(await section()).findByText(/última importação ontem/)).toBeInTheDocument();
+      expect(await within(await section()).findByText(/Última sincronização: ontem/)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -235,7 +235,7 @@ describe("Configurações › Linear › times", () => {
     expect(eng).toHaveTextContent("ENG");
     expect(eng).toHaveTextContent("Engenharia");
     expect(eng).toHaveTextContent("ligação permanente");
-    expect(eng).toHaveTextContent("Ligado ao projeto TreePM");
+    expect(eng).toHaveTextContent("Ligado ao projeto Alfa");
     expect(within(eng!).queryByRole("button")).not.toBeInTheDocument();
     expect(des).toHaveTextContent("Ainda não ligado a nenhum projeto");
     expect(within(des!).getByRole("button", { name: "Ligar o time DES a um projeto" })).toHaveTextContent("Ligar a um projeto…");
@@ -391,24 +391,86 @@ describe("Configurações › Linear › ligar um projeto", () => {
   });
 });
 
-describe("Configurações › Linear › Abrir importação", () => {
-  it("o time ligado a um projeto ganha o botão, que leva à importação desse projeto", async () => {
+describe("Configurações › Linear › Sincronizar com o Linear (ADR 0061)", () => {
+  const DAY = 86_400_000;
+  const ago = (days: number) => new Date(Date.now() - days * DAY).toISOString();
+  const synced = (extra: Parameters<typeof makeLinearTeam>[2] = {}) => [makeLinearTeam("ENG", "Engenharia", { linkedProject: { id: "p1", name: "Alfa" }, lastImportedAt: ago(3), ...extra }), makeLinearTeam("DES", "Design")];
+  const lastRun = (startedBy = "person-2") => ({ existing: { phase: "done" as const, done: true, finishedAt: ago(3), startedBy: { id: startedBy } } });
+  const admin = () => makeMe({ clerk: "admin" });
+
+  it("o time ligado a um projeto que a pessoa pode importar ganha 'Sincronizar com o Linear', que leva ao projeto já sincronizando", async () => {
     const onOpenImport = vi.fn();
-    setup({ linear: connected(), onOpenImport });
+    setup({ me: admin(), linear: connected({ teams: synced(), run: lastRun() }), onOpenImport });
     const row = (await screen.findByText("Engenharia")).closest("li")!;
-    await userEvent.click(within(row).getByRole("button", { name: "Abrir a importação do projeto TreePM" }));
-    expect(onOpenImport).toHaveBeenCalledWith("p9");
+    const button = within(row).getByRole("button", { name: "Sincronizar com o Linear: projeto Alfa" });
+    expect(button).toHaveTextContent("Sincronizar com o Linear");
+    expect(button).toHaveClass("primary");
+    await userEvent.click(button);
+    expect(onOpenImport).toHaveBeenCalledWith("p1", "sync");
+  });
+
+  it("mostra 'Última sincronização: há 3 dias, por <pessoa>' com o nome de quem iniciou a última rodada", async () => {
+    setup({ me: admin(), linear: connected({ teams: synced(), run: lastRun("person-2") }), onOpenImport: vi.fn() });
+    const row = (await screen.findByText("Engenharia")).closest("li")!;
+    await waitFor(() => expect(row).toHaveTextContent("Última sincronização: há 3 dias, por Beto"));
+  });
+
+  it("pessoa que não está na lista: só a data, sem inventar nome", async () => {
+    setup({ me: admin(), linear: connected({ teams: synced(), run: lastRun("person-99") }), onOpenImport: vi.fn() });
+    const row = (await screen.findByText("Engenharia")).closest("li")!;
+    await waitFor(() => expect(row).toHaveTextContent("Última sincronização: há 3 dias"));
+    expect(row).not.toHaveTextContent(", por");
+  });
+
+  it("time ligado que nunca foi importado: o botão continua (leva à importação), sem texto de data", async () => {
+    setup({ me: admin(), linear: connected({ teams: synced({ lastImportedAt: null }) }), onOpenImport: vi.fn() });
+    const row = (await screen.findByText("Engenharia")).closest("li")!;
+    expect(within(row).getByRole("button", { name: "Sincronizar com o Linear: projeto Alfa" })).toBeInTheDocument();
+    expect(row).not.toHaveTextContent("Última sincronização");
+  });
+
+  it("quem não pode importar no projeto (só lê) não vê o botão", async () => {
+    const reader = makeMe({ clerk: "member" });
+    setup({ me: reader, linear: connected({ teams: synced() }), onOpenImport: vi.fn() });
+    const row = (await screen.findByText("Engenharia")).closest("li")!;
+    await waitFor(() => expect(row).toHaveTextContent("Última sincronização"));
+    expect(within(row).queryByRole("button", { name: /Sincronizar/ })).not.toBeInTheDocument();
+  });
+
+  it("gestor do projeto vê o botão; projeto arquivado, não", async () => {
+    const manager = makeMe({ clerk: "member" });
+    manager.roles.projects = [{ projectId: "p1", role: "manager" }, { projectId: "p3", role: "manager" }];
+    setup({ me: manager, linear: connected({ teams: [makeLinearTeam("ENG", "Engenharia", { linkedProject: { id: "p1", name: "Alfa" } }), makeLinearTeam("OLD", "Antigo", { linkedProject: { id: "p3", name: "Antigo" } })] }), onOpenImport: vi.fn() });
+    const eng = (await screen.findByText("Engenharia")).closest("li")!;
+    const old = (await screen.findByText("Antigo", { selector: "span" })).closest("li")!;
+    await waitFor(() => expect(within(eng).getByRole("button", { name: /Sincronizar com o Linear/ })).toBeInTheDocument());
+    expect(within(old).queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("times livres ou de projeto que a pessoa não enxerga não têm o botão", async () => {
-    setup({ linear: connected(), onOpenImport: vi.fn() });
+    setup({ me: admin(), linear: connected({ teams: [...synced(), makeLinearTeam("OPS", "Operações", { linkedElsewhere: true })] }), onOpenImport: vi.fn() });
     await screen.findByText("Design");
-    expect(screen.getAllByRole("button", { name: /Abrir a importação/ })).toHaveLength(1);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /Sincronizar com o Linear/ })).toHaveLength(1));
   });
 
   it("sem o atalho de navegação, o botão não aparece", async () => {
-    setup({ linear: connected() });
+    setup({ me: admin(), linear: connected({ teams: synced() }) });
     await screen.findByText("Engenharia");
-    expect(screen.queryByRole("button", { name: /Abrir a importação/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Sincronizar/ })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["en", "Sync with Linear: project Alfa", "Last sync: 3 days ago, by Beto"],
+    ["es-MX", "Sincronizar con Linear: proyecto Alfa", "Última sincronización: hace 3 días, por Beto"],
+  ] as const)("em %s", async (language, label, text) => {
+    await setTestLanguage(language);
+    try {
+      setup({ me: admin(), linear: connected({ teams: synced(), run: lastRun() }), onOpenImport: vi.fn() });
+      const row = (await screen.findByText("Engenharia")).closest("li")!;
+      expect(within(row).getByRole("button", { name: label })).toBeInTheDocument();
+      await waitFor(() => expect(row).toHaveTextContent(text));
+    } finally {
+      await setTestLanguage("pt-BR");
+    }
   });
 });

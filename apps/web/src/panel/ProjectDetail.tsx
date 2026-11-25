@@ -21,7 +21,7 @@ interface ProjectDetailProps {
   onChanged: () => void;
   onBack: () => void;
   /** Abre a tela de importação deste projeto; sem ela a ação não aparece. */
-  onImport?: ((projectId: string) => void) | undefined;
+  onImport?: ((projectId: string, mode?: "sync") => void) | undefined;
   /** Abre a página do ticket em modo de criação, na raiz deste projeto, do tipo pedido; sem ela as ações não aparecem. */
   onCreateTicket?: ((projectId: string) => void) | undefined;
   assistantAvailable?: boolean | undefined;
@@ -39,6 +39,10 @@ export function ProjectDetail({ client, me, project, onChanged, onBack, onImport
     me.roles.projects.some((entry) => entry.projectId === project.id && entry.role === "manager");
   const people = useApiResource(() => safe(() => client.listPeople()));
   const teams = useApiResource(() => safe(() => client.listTeams()));
+  // "Sincronizar com o Linear" (ADR 0061) só para quem pode importar, em projeto ligado a um time; sem Linear no servidor a pergunta falha e o botão não aparece.
+  const importable = canCreateTickets(me, project) && onImport !== undefined;
+  const linear = useApiResource(() => (importable ? safe(() => client.getProjectLinear(project.id)) : Promise.resolve({ ok: true as const, data: null })));
+  const linked = linear.state.status === "ready" && linear.state.data !== null && linear.state.data.source !== null;
 
   return (
     <section aria-labelledby="project-title">
@@ -57,6 +61,11 @@ export function ProjectDetail({ client, me, project, onChanged, onBack, onImport
           {onCreateTicket && (
             <button type="button" className={`panel-new-ticket ${assistantAvailable ? "" : "primary"}`} onClick={() => onCreateTicket(project.id)}>
               {assistantAvailable ? t("detail.newTicketNoAssistant") : t("detail.newTicket")}
+            </button>
+          )}
+          {onImport && linked && (
+            <button type="button" className="panel-import" onClick={() => onImport(project.id, "sync")}>
+              {t("detail.syncLinear")}
             </button>
           )}
           {onImport && (

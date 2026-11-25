@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { LinearError } from "./ports.js";
-import type { LinearClient, LinearFailureCode, LinearIdentity, LinearIssuesOptions, LinearIssuesPage, LinearPage, LinearProjectNode, LinearTeam } from "./ports.js";
+import type { LinearClient, LinearFailureCode, LinearIdentity, LinearIssuesOptions, LinearIssuesPage, LinearProjectsOptions, LinearProjectsPage, LinearTeam } from "./ports.js";
 
 export { LinearError } from "./ports.js";
 
@@ -40,10 +40,12 @@ const TEAMS_QUERY = "query Teams($after: String) { teams(first: 100, after: $aft
 const TEAM_QUERY = "query Team($id: String!) { team(id: $id) { id key name } }";
 
 const COUNT_QUERY = "query TeamIssueCount($id: String!) { team(id: $id) { issueCount(includeArchived: false) } }";
-const PROJECTS_QUERY = `query TeamProjects($id: String!, $after: String) { team(id: $id) { projects(first: ${LINEAR_IMPORT_PAGE_SIZE}, after: $after) { nodes { id name url status { type } } pageInfo { hasNextPage endCursor } } } }`;
+/** Projetos: resumo, conteúdo longo (some na repetição por corpo grande), prioridade e líder (o e-mail só para casar a pessoa). */
+const projectsQuery = (withContent: boolean, withEmail: boolean): string =>
+  `query TeamProjects($id: String!, $after: String, $first: Int!) { team(id: $id) { projects(first: $first, after: $after) { nodes { id name url description ${withContent ? "content " : ""}priority status { type } lead { id${withEmail ? " email" : ""} } } pageInfo { hasNextPage endCursor } } } }`;
 /** Mais novas primeiro (`createdAt`, o padrão do Linear, dito aqui para a repescagem poder confiar). Sem `children` nem `labels`. */
 const issuesQuery = (withDescription: boolean, withEmail: boolean): string =>
-  `query TeamIssues($id: String!, $after: String, $first: Int!) { team(id: $id) { issues(first: $first, after: $after, includeArchived: false, orderBy: createdAt) { nodes { id identifier url title ${withDescription ? "description " : ""}priority updatedAt trashed state { type } parent { id } project { id } assignee { id${withEmail ? " email" : ""} } } pageInfo { hasNextPage endCursor } } } }`;
+  `query TeamIssues($id: String!, $after: String, $first: Int!) { team(id: $id) { issues(first: $first, after: $after, includeArchived: false, orderBy: createdAt) { nodes { id identifier url title ${withDescription ? "description " : ""}priority updatedAt createdAt startedAt completedAt canceledAt previousIdentifiers trashed state { type } parent { id } project { id } assignee { id${withEmail ? " email" : ""} } creator { id name${withEmail ? " email" : ""} } } pageInfo { hasNextPage endCursor } } } }`;
 
 const cut = (value: string, max: number): string => (value.length > max ? value.slice(0, max) : value);
 
@@ -66,7 +68,17 @@ const teamsSchema = z.object({
 
 const pageInfoSchema = z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() });
 const countSchema = z.object({ data: z.object({ team: z.object({ issueCount: z.number().int().min(0) }) }) });
-const projectNodeSchema = z.object({ id: z.string().min(1), name: z.string(), url: z.string(), status: z.object({ type: z.string() }).nullable().optional() });
+const projectNodeSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  url: z.string(),
+  status: z.object({ type: z.string() }).nullable().optional(),
+  // Os campos da sincronização (ADR 0061) NUNCA derrubam o nó: se vierem malformados, valem como ausentes (os antigos continuam estritos).
+  description: z.string().nullable().optional().catch(null),
+  content: z.string().nullable().optional().catch(null),
+  priority: z.number().nullable().optional().catch(null),
+  lead: z.object({ id: z.string().min(1), email: z.string().nullable().optional().catch(null) }).nullable().optional().catch(null),
+});
 // Os nós são validados um a um (um nó ruim não derruba a página); só o envelope é exigido por inteiro.
 const projectsSchema = z.object({ data: z.object({ team: z.object({ projects: z.object({ nodes: z.array(z.unknown()), pageInfo: pageInfoSchema }) }) }) });
 const issueNodeSchema = z.object({
@@ -82,6 +94,14 @@ const issueNodeSchema = z.object({
   parent: z.object({ id: z.string().min(1) }).nullable().optional(),
   project: z.object({ id: z.string().min(1) }).nullable().optional(),
   assignee: z.object({ id: z.string().min(1), email: z.string().nullable().optional() }).nullable().optional(),
+  // Os campos da sincronização (ADR 0061) são opcionais: um nó de um servidor que não os traz continua valendo.
+  // ...e, se vierem malformados, valem como ausentes: o nó entra sem eles.
+  createdAt: z.string().nullable().optional().catch(null),
+  startedAt: z.string().nullable().optional().catch(null),
+  completedAt: z.string().nullable().optional().catch(null),
+  canceledAt: z.string().nullable().optional().catch(null),
+  previousIdentifiers: z.array(z.string()).nullable().optional().catch(null),
+  creator: z.object({ id: z.string().min(1), name: z.string().nullable().optional().catch(null), email: z.string().nullable().optional().catch(null) }).nullable().optional().catch(null),
 });
 const issuesSchema = z.object({ data: z.object({ team: z.object({ issues: z.object({ nodes: z.array(z.unknown()), pageInfo: pageInfoSchema }) }) }) });
 
@@ -242,16 +262,44 @@ export class HttpLinearClient implements LinearClient {
     return parsed.data.data.team.issueCount;
   }
 
-  async listTeamProjects(apiKey: string, teamId: string, after: string | null): Promise<LinearPage<LinearProjectNode>> {
-    const body = await this.request(apiKey, PROJECTS_QUERY, { id: teamId, after }, this.timeoutMs, false, LINEAR_IMPORT_MAX_BODY_BYTES);
+  async listTeamProjects(apiKey: string, teamId: string, after: string | null, options: LinearProjectsOptions = {}): Promise<LinearProjectsPage> {
+    const first = Math.min(Math.max(Math.trunc(options.first ?? LINEAR_IMPORT_PAGE_SIZE), 1), 250);
+    const withContent = options.withContent !== false;
+    let withEmail = options.withEmail !== false;
+    let emailUnavailable = false;
+    let body: unknown;
+    for (;;) {
+      try {
+        body = await this.request(apiKey, projectsQuery(withContent, withEmail), { id: teamId, after, first }, this.timeoutMs, false, LINEAR_IMPORT_MAX_BODY_BYTES, withEmail);
+        break;
+      } catch (error) {
+        // O Linear recusou o `email` do líder (permissão da chave): repete sem ele, uma vez, e avisa a importação.
+        if (withEmail && error instanceof LinearError && error.code === "linear_email_unavailable") {
+          withEmail = false;
+          emailUnavailable = true;
+          continue;
+        }
+        throw error;
+      }
+    }
     const parsed = projectsSchema.safeParse(body);
     if (!parsed.success) throw new LinearError("linear_unavailable");
     const { nodes, pageInfo } = parsed.data.data.team.projects;
     const { valid, skipped } = validNodes(projectNodeSchema, nodes);
     return {
-      nodes: valid.map((node) => ({ id: node.id, name: node.name, url: node.url, statusType: node.status?.type ?? null })),
+      nodes: valid.map((node) => ({
+        id: node.id,
+        name: node.name,
+        url: node.url,
+        statusType: node.status?.type ?? null,
+        description: node.description ?? null,
+        content: node.content ?? null,
+        priority: Math.round(node.priority ?? 0),
+        lead: node.lead ? { id: node.lead.id, email: node.lead.email ?? null } : null,
+      })),
       nextCursor: nextCursor(pageInfo),
       skippedInvalid: skipped,
+      emailUnavailable,
     };
   }
 
@@ -293,6 +341,12 @@ export class HttpLinearClient implements LinearClient {
         parentId: node.parent?.id ?? null,
         projectId: node.project?.id ?? null,
         assignee: node.assignee ? { id: node.assignee.id, email: node.assignee.email ?? null } : null,
+        createdAt: node.createdAt ?? null,
+        startedAt: node.startedAt ?? null,
+        completedAt: node.completedAt ?? null,
+        canceledAt: node.canceledAt ?? null,
+        previousIdentifiers: node.previousIdentifiers ?? [],
+        creator: node.creator ? { id: node.creator.id, name: node.creator.name ?? "", email: node.creator.email ?? null } : null,
       })),
       nextCursor: nextCursor(pageInfo),
       skippedInvalid: skipped,

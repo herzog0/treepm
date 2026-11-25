@@ -2,7 +2,7 @@ import { ConflictException, HttpException, Inject, Injectable, Logger, NotFoundE
 import type { Prisma, TenantClient } from "@treepm/db";
 import type { TicketStatus } from "@treepm/domain";
 import type { LinearParentMove } from "@treepm/domain";
-import { cleanLinearText, decideLinearField, decideLinearStatus, isFinished, linearInitialParent, mapLinearDescription, mapLinearPriority, mapLinearProjectStatus, mapLinearStatus, mapLinearTitle, matchLinearAssignee, planLinearParents, safeLinearUrl, sameLinearValue } from "@treepm/domain";
+import { cleanLinearText, decideLinearField, decideLinearLateField, decideLinearStatus, heldFieldsAfter, isFinished, linearCreatorColumns, linearInitialParent, mapLinearDescription, mapLinearPriority, mapLinearProjectStatus, mapLinearStatus, mapLinearTitle, matchLinearAssignee, planLinearParents, safeLinearUrl, sameLinearValue } from "@treepm/domain";
 import { refuseWhileActingAs } from "../access/act-as.js";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
@@ -20,7 +20,7 @@ import { TicketsService } from "../tickets/tickets.service.js";
 import type { ProjectRow, TicketRow } from "../tickets/tickets.service.js";
 import { LINEAR_TIMEOUT_MS } from "./linear-client.js";
 import { LINEAR_CLIENT, LinearError } from "./ports.js";
-import type { LinearClient, LinearIssueNode, LinearIssuesPage, LinearPage, LinearProjectNode } from "./ports.js";
+import type { LinearClient, LinearIssueNode, LinearIssuesPage, LinearProjectNode, LinearProjectsPage } from "./ports.js";
 import { applyParentMoves } from "./linear-moves.js";
 import { mapLinearIssuePage } from "./linear-mapping.js";
 import type { MappedIssue } from "./linear-mapping.js";
@@ -78,6 +78,8 @@ const COUNT_KEYS = [
   "elsewhere",
   "missing",
   "missingProjects",
+  // Sincronização (ADR 0061): campos preenchidos pela primeira vez em tickets já importados.
+  "filled",
 ] as const;
 /**
  * `assigneeEmailUnavailable`: o Linear recusou o e-mail dos responsáveis nesta rodada; ninguém foi atribuído.
@@ -188,6 +190,7 @@ function issueIncoming(node: LinearIssueNode, mapped: MappedIssue, ref: RefRow, 
     priority: mapped.priority,
     assignee: { externalId: mapped.source.assigneeExternalId, email: node.assignee?.email ?? null, emailReadable: node.assignee === null || node.assignee.email !== null },
     source: mapped.source,
+    origin: issueOrigin(node, mapped),
     previous: {
       title: mapLinearTitle(text(source["title"]), node.identifier),
       description: mapLinearDescription(typeof source["description"] === "string" ? source["description"] : null, projectKey),
@@ -198,14 +201,38 @@ function issueIncoming(node: LinearIssueNode, mapped: MappedIssue, ref: RefRow, 
   };
 }
 
-/** O retrato de origem do projeto (`name`, `statusType`) mapeado com a regra de hoje. */
-function withProjectPrevious(incoming: Incoming, ref: RefRow): Incoming {
+/** O retrato de origem do projeto (`name`, `statusType` e, desde a ADR 0061, descrição, responsável e prioridade) mapeado com a regra de hoje. */
+function withProjectPrevious(incoming: Incoming, ref: RefRow, projectKey: string): Incoming {
   const source = (ref.sourceSnapshot ?? {}) as Record<string, unknown>;
-  return { ...incoming, previous: { ...incoming.previous, title: mapLinearTitle(text(source["name"]), "Projeto do Linear"), status: mapLinearProjectStatus(typeof source["statusType"] === "string" ? source["statusType"] : null) } };
+  return {
+    ...incoming,
+    previous: {
+      title: mapLinearTitle(text(source["name"]), "Projeto do Linear"),
+      description: mapLinearDescription(typeof source["description"] === "string" ? source["description"] : null, projectKey),
+      status: mapLinearProjectStatus(typeof source["statusType"] === "string" ? source["statusType"] : null),
+      priority: mapLinearPriority(typeof source["priority"] === "number" ? source["priority"] : 0),
+      assigneeExternalId: typeof source["assigneeExternalId"] === "string" ? source["assigneeExternalId"] : null,
+    },
+  };
 }
 
-/** O projeto do Linear que virou ticket pai: só título e situação. */
-function projectIncoming(node: LinearProjectNode): Incoming {
+/**
+ * O texto do projeto do Linear: o conteúdo longo quando existe, senão o resumo (ADR 0061, seção 4). `summaryOnly`: o conteúdo DESTE
+ * projeto teve de ser dispensado (grande demais, sozinho na página): vale o resumo. `null`: não há texto a aplicar nesta leitura (o
+ * conteúdo foi dispensado e o ticket já tem o retrato da descrição: o resumo apagaria o conteúdo longo que ele guarda).
+ */
+function projectText(node: LinearProjectNode, summaryOnly: boolean, hasDescriptionSnapshot: boolean): string | null {
+  if (summaryOnly) return hasDescriptionSnapshot ? null : node.description ?? "";
+  return node.content !== null && node.content.trim() !== "" ? node.content : node.description ?? "";
+}
+
+/**
+ * O projeto do Linear que virou ticket pai: título, situação e, desde a ADR 0061, descrição, líder e prioridade. `summaryOnly`: o
+ * conteúdo longo deste projeto foi dispensado (corpo grande demais); ver `projectText`.
+ */
+function projectIncoming(node: LinearProjectNode, projectKey: string, summaryOnly: boolean, hasDescriptionSnapshot = false): Incoming {
+  const raw = projectText(node, summaryOnly, hasDescriptionSnapshot);
+  const lead = node.lead;
   return {
     key: null,
     url: safeLinearUrl(node.url),
@@ -213,12 +240,57 @@ function projectIncoming(node: LinearProjectNode): Incoming {
     parentId: undefined,
     projectId: null,
     title: mapLinearTitle(node.name, "Projeto do Linear"),
-    description: undefined,
+    description: raw === null ? null : mapLinearDescription(raw, projectKey),
     status: mapLinearProjectStatus(node.statusType),
-    priority: null,
-    assignee: null,
-    source: { name: cleanLinearText(node.name), statusType: node.statusType === null ? null : cleanLinearText(node.statusType) },
+    priority: mapLinearPriority(node.priority),
+    assignee: { externalId: lead ? cleanLinearText(lead.id) : null, email: lead?.email ?? null, emailReadable: lead === null || lead.email !== null },
+    source: {
+      name: cleanLinearText(node.name),
+      statusType: node.statusType === null ? null : cleanLinearText(node.statusType),
+      description: raw === null ? null : cleanLinearText(raw),
+      assigneeExternalId: lead ? cleanLinearText(lead.id) : null,
+      priority: node.priority,
+    },
+    origin: null,
     previous: { title: "", description: "", status: "todo", priority: null, assigneeExternalId: null },
+  };
+}
+
+/** As colunas da origem que vêm do Linear (ADR 0061, seção 2), prontas para gravar; o criador é decidido na gravação (precisa do casamento por e-mail). */
+type OriginData = {
+  externalCreatedAt: Date | null;
+  externalStartedAt: Date | null;
+  externalCompletedAt: Date | null;
+  externalCanceledAt: Date | null;
+  externalPreviousKeys: string[];
+  creator: { id: string; name: string } | null;
+  creatorEmail: string | null;
+  creatorEmailReadable: boolean;
+};
+function issueOrigin(node: LinearIssueNode, mapped: MappedIssue): OriginData {
+  const date = (value: string | null): Date | null => (value === null ? null : validDate(value));
+  return {
+    externalCreatedAt: date(node.createdAt),
+    externalStartedAt: date(node.startedAt),
+    externalCompletedAt: date(node.completedAt),
+    externalCanceledAt: date(node.canceledAt),
+    externalPreviousKeys: mapped.previousKeys,
+    creator: mapped.creator,
+    creatorEmail: node.creator?.email ?? null,
+    creatorEmailReadable: node.creator === null || node.creator.email !== null,
+  };
+}
+/** O resultado de `OriginData` em colunas: o e-mail some aqui (só decide a pessoa). */
+async function originColumns(origin: OriginData, existingPersonId: string | null, resolvePerson: (email: string | null) => Promise<string | null>): Promise<Record<string, unknown>> {
+  const matched = origin.creator !== null && origin.creatorEmailReadable ? await resolvePerson(origin.creatorEmail) : null;
+  const creator = linearCreatorColumns({ creator: origin.creator, emailReadable: origin.creatorEmailReadable, matchedPersonId: matched, existingPersonId });
+  return {
+    externalCreatedAt: origin.externalCreatedAt,
+    externalStartedAt: origin.externalStartedAt,
+    externalCompletedAt: origin.externalCompletedAt,
+    externalCanceledAt: origin.externalCanceledAt,
+    externalPreviousKeys: origin.externalPreviousKeys,
+    ...creator,
   };
 }
 
@@ -253,12 +325,14 @@ type NewTicket = {
   priority: number;
   parentId: string | null;
   assigneeIds: string[];
-  ref: { kind: "issue" | "project"; externalId: string; externalKey: string | null; externalUrl: string | null; externalParentId: string | null; externalProjectId: string | null; source: Prisma.InputJsonObject; externalUpdatedAt: Date | null };
+  ref: { kind: "issue" | "project"; externalId: string; externalKey: string | null; externalUrl: string | null; externalParentId: string | null; externalProjectId: string | null; source: Prisma.InputJsonObject; externalUpdatedAt: Date | null; origin?: Record<string, unknown> };
 };
 
 /** A origem de um ticket como a reimportação a lê. */
 type RefRow = {
   ticketId: string;
+  /** As chaves que a issue já teve, como guardadas (a lista da tela as leva para a busca; ver `tickets/external-keys.ts`). */
+  externalPreviousKeys?: string[];
   kind: string;
   statusPending: boolean;
   projectId: string;
@@ -272,6 +346,9 @@ type RefRow = {
   lastSeenRunId: string | null;
   statusRunId: string | null;
   statusRunFlags: number;
+  /** Para saber se a origem já tinha os atributos do Linear (ADR 0061) e se a pessoa casada do criador continua valendo. */
+  externalCreatedAt: Date | null;
+  creatorPersonId: string | null;
 };
 type TicketNow = { id: string; number: number; title: string; description: string; status: string; priority: number; parentId: string | null; ideaStage: string | null; assigneeIds: string[] };
 /**
@@ -293,12 +370,14 @@ type Incoming = {
   assignee: { externalId: string | null; email: string | null; emailReadable: boolean } | null;
   /** O retrato de origem novo (cru, sem e-mail). */
   source: Prisma.InputJsonObject;
+  /** As colunas de origem da issue (datas, criador, chaves antigas); `null` no projeto do Linear. */
+  origin: OriginData | null;
   previous: { title: string; description: string; status: TicketStatus; priority: number | null; assigneeExternalId: string | null };
 };
 
 /** Fase de passo que vai à rede. */
 type Fetched =
-  | { phase: "projects"; page: LinearPage<LinearProjectNode> }
+  | { phase: "projects"; page: LinearProjectsPage; reduced: boolean; usedSize: number; /** Projetos cujo conteúdo longo teve de ser dispensado (sozinhos na página e ainda grandes demais): vale o resumo. */ summaryOnly: string[] }
   | { phase: "issues"; page: LinearIssuesPage; /** A página mapeada FORA da transação (função pura), com a chave do projeto lida no começo do passo. */ mapped: Map<string, MappedIssue>; mappedFor: string; /** O passo precisou reduzir a página (o Linear estourou o teto ou o prazo) e o tamanho que deu certo. */ reduced: boolean; usedSize: number; /** A página veio sem descrição (a issue sozinha estourava o teto). */ withoutDescription: boolean };
 
 /** O Linear limitou: o código 429 de `linearHttp` ou do `requireLinearAccess`, com a espera pedida. */
@@ -563,7 +642,7 @@ export class LinearImportService {
     const progress = { size: run.pageSize };
     try {
       const { key, source } = await this.linear.requireLinearAccess(tenant, principal, projectId);
-      if (run.phase === "projects") return { fetched: { phase: "projects", page: await this.client.listTeamProjects(key, source.externalTeamId, run.cursor) } };
+      if (run.phase === "projects") return { fetched: await this.fetchProjects(key, source.externalTeamId, run, progress) };
       const issues = await this.fetchIssues(key, source.externalTeamId, run, progress);
       // O mapeamento da página (função pura) roda aqui, FORA da transação de gravação.
       return { fetched: { ...issues, mapped: mapLinearIssuePage(issues.page.nodes, projectKey), mappedFor: projectKey } };
@@ -574,6 +653,38 @@ export class LinearImportService {
       const code = this.errorCode(http);
       if (code !== null) await this.noteError(tenant, run, code, progress.size);
       throw http;
+    }
+  }
+
+  /**
+   * Uma página de projetos, no tamanho que a rodada guarda, com as mesmas regras das issues: se a resposta estoura o teto do corpo ou
+   * o prazo, repete com a metade (50, 25, 12, 6, 3, 1) e o que deu certo vira o tamanho da rodada. Só com UM projeto na página e ainda
+   * estourando, dispensa o conteúdo longo DELE (`summaryOnly`): o resumo vira a descrição e os outros projetos nunca perdem o conteúdo.
+   * Um passo faz no máximo `STEP_MAX_CALLS` chamadas e `STEP_MAX_MS`; ao estourar termina em erro com o tamanho alcançado em `progress.size`.
+   */
+  private async fetchProjects(key: string, teamId: string, run: RunRow, progress: { size: number }): Promise<Extract<Fetched, { phase: "projects" }>> {
+    const withEmail = readCounts(run.counts).assigneeEmailUnavailable !== true;
+    let size = Math.min(Math.max(run.pageSize, 1), FULL_PAGE);
+    progress.size = size;
+    let reduced = false;
+    let withContent = true;
+    const startedAt = Date.now();
+    let lastError: LinearError | null = null;
+    for (let calls = 0; ; calls += 1) {
+      if (lastError !== null && (calls >= STEP_MAX_CALLS || Date.now() - startedAt + LINEAR_TIMEOUT_MS > STEP_MAX_MS)) throw lastError;
+      try {
+        const page = await this.client.listTeamProjects(key, teamId, run.cursor, { first: size, withContent, withEmail });
+        return { phase: "projects", page, reduced, usedSize: size, summaryOnly: withContent ? [] : page.nodes.map((node) => node.id) };
+      } catch (error) {
+        if (!(error instanceof LinearError) || (error.code !== "linear_response_too_large" && error.code !== "linear_timeout")) throw error;
+        lastError = error;
+        if (size > 1) {
+          size = Math.max(1, Math.floor(size / 2));
+          reduced = true;
+          progress.size = size;
+        } else if (withContent) withContent = false;
+        else throw error;
+      }
     }
   }
 
@@ -705,17 +816,13 @@ export class LinearImportService {
     let finished: Date | null = null;
 
     if (run.phase === "projects" && fetched?.phase === "projects") {
-      await this.importProjects(tx, principal, project, run, fetched.page, counts);
+      await this.importProjects(tx, principal, project, run, fetched.page, new Set(fetched.summaryOnly), counts);
       [phase, cursor] = fetched.page.nextCursor === null ? ["issues", null] : ["projects", fetched.page.nextCursor];
+      [pageSize, sizeStreak] = this.nextPageSize(run, fetched, sizeStreak);
     } else if (run.phase === "issues" && fetched?.phase === "issues") {
       const { sweep, known } = parseIssuesCursor(run.cursor);
       const fresh = await this.importIssues(tx, principal, project, run, fetched, counts, sweep > 0);
-      if (fetched.reduced) [pageSize, sizeStreak] = [fetched.usedSize, 0];
-      else if (run.pageSize < FULL_PAGE) {
-        // Só cresce depois de três passos seguidos bons no tamanho de agora.
-        sizeStreak += 1;
-        if (sizeStreak >= 3) [pageSize, sizeStreak] = [Math.min(run.pageSize * 2, FULL_PAGE), 0];
-      }
+      [pageSize, sizeStreak] = this.nextPageSize(run, fetched, sizeStreak);
       const next = fetched.page.nextCursor;
       if (sweep === 0) {
         // Acabou a leitura principal: repescagem, do começo (mais novas primeiro), até haver `SWEEP_MIN_PAGE` issues conhecidas seguidas.
@@ -754,6 +861,14 @@ export class LinearImportService {
       data: { phase, cursor, pageSize, batchSize, sizeStreak, counts: { ...counts }, waitUntil: null, lastErrorCode: null, errorStreak: 0, finishedAt: finished },
     });
     return view(updated as RunRow);
+  }
+
+  /** O tamanho de página da rodada depois de um passo bom: o que deu certo se reduziu; só cresce (ao dobro) depois de três passos seguidos bons. */
+  private nextPageSize(run: RunRow, fetched: { reduced: boolean; usedSize: number }, sizeStreak: number): [number, number] {
+    if (fetched.reduced) return [fetched.usedSize, 0];
+    if (run.pageSize >= FULL_PAGE) return [run.pageSize, sizeStreak];
+    const streak = sizeStreak + 1;
+    return streak >= 3 ? [Math.min(run.pageSize * 2, FULL_PAGE), 0] : [run.pageSize, streak];
   }
 
   /** Fim da rodada: a categorização (fatia 4) entra aqui; por enquanto vai direto a `done`. */
@@ -805,10 +920,12 @@ export class LinearImportService {
 
   // ---- fase projects ----
 
-  private async importProjects(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, page: LinearPage<LinearProjectNode>, counts: Counts): Promise<void> {
+  private async importProjects(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, page: LinearProjectsPage, summaryOnly: ReadonlySet<string>, counts: Counts): Promise<void> {
     const unique = [...new Map(page.nodes.map((node) => [node.id, node])).values()];
     counts.skippedInvalid += page.skippedInvalid;
+    if (page.emailUnavailable) counts.assigneeEmailUnavailable = true;
     counts.projectsSeen += unique.length;
+    if (unique.some((node) => summaryOnly.has(node.id))) counts.descriptionUnavailable = true;
     const existing = await this.existingRefRows(tx, "project", unique.map((node) => node.id));
     const reimport = run.mode === "reimport";
     const fresh: LinearProjectNode[] = [];
@@ -817,21 +934,29 @@ export class LinearImportService {
       const found = existing.get(node.id);
       if (found === undefined) fresh.push(node);
       else if (reimport) {
-        if (found.projectId === project.id) known.push({ ref: found, incoming: withProjectPrevious(projectIncoming(node), found) });
+        if (found.projectId === project.id) known.push({ ref: found, incoming: withProjectPrevious(projectIncoming(node, project.key, summaryOnly.has(node.id), "description" in ((found.sourceSnapshot ?? {}) as Record<string, unknown>)), found, project.key) });
         else counts.elsewhere += 1;
       } else if (found.projectId === project.id) counts.projectsExisting += 1;
       else counts.projectsElsewhere += 1;
     }
-    if (known.length > 0) await this.reimportExisting(tx, principal, project, run, known, counts, async () => null);
-    const items: NewTicket[] = fresh.map((node) => ({
-      title: mapLinearTitle(node.name, "Projeto do Linear"),
-      description: "",
-      status: mapLinearProjectStatus(node.statusType),
-      priority: 0,
-      parentId: run.destinationTicketId,
-      assigneeIds: [],
-      ref: { kind: "project", externalId: node.id, externalKey: null, externalUrl: safeLinearUrl(node.url), externalParentId: null, externalProjectId: null, source: { name: cleanLinearText(node.name), statusType: node.statusType === null ? null : cleanLinearText(node.statusType) }, externalUpdatedAt: null },
-    }));
+    // O líder só precisa do casamento por e-mail se há projeto a criar ou a reimportar.
+    const lead = known.length > 0 || fresh.length > 0 ? await this.assigneeResolver(tx, project) : async () => null;
+    if (known.length > 0) await this.reimportExisting(tx, principal, project, run, known, counts, lead);
+    const items: NewTicket[] = [];
+    for (const node of fresh) {
+      const incoming = projectIncoming(node, project.key, summaryOnly.has(node.id));
+      const leadId = node.lead ? await lead(node.lead.email) : null;
+      items.push({
+        title: mapLinearTitle(node.name, "Projeto do Linear"),
+        // Um projeto novo nasce com o texto que houver: o conteúdo longo, ou o resumo se o conteúdo teve de ser dispensado.
+        description: mapLinearDescription(projectText(node, summaryOnly.has(node.id), false), project.key),
+        status: mapLinearProjectStatus(node.statusType),
+        priority: mapLinearPriority(node.priority),
+        parentId: run.destinationTicketId,
+        assigneeIds: leadId === null ? [] : [leadId],
+        ref: { kind: "project", externalId: node.id, externalKey: null, externalUrl: safeLinearUrl(node.url), externalParentId: null, externalProjectId: null, source: incoming.source, externalUpdatedAt: null },
+      });
+    }
     counts.projectsCreated += (await this.createTickets(tx, principal, project, run, items, counts)).length;
   }
 
@@ -887,6 +1012,7 @@ export class LinearImportService {
     for (const node of fresh) {
       const issue = mapped.get(node.id) as MappedIssue;
       const assigneeId = node.assignee ? await assignee(node.assignee.email) : null;
+      const origin = await originColumns(issueOrigin(node, issue), null, assignee);
       items.push({
         title: issue.title,
         description: issue.description,
@@ -904,6 +1030,7 @@ export class LinearImportService {
           // O e-mail do Linear nunca entra aqui: só o id do responsável no Linear. Nada de controle nem byte nulo (o JSONB os recusa).
           source: issue.source,
           externalUpdatedAt: validDate(node.updatedAt),
+          origin,
         },
       });
     }
@@ -991,6 +1118,7 @@ export class LinearImportService {
           sourceSnapshot: item.ref.source,
           appliedSnapshot: { title: row.title, description: row.description, status: row.status, assigneeIds: item.assigneeIds, priority: row.priority ?? 0, parentId: row.parentId },
           externalUpdatedAt: item.ref.externalUpdatedAt,
+          ...item.ref.origin,
           // Criada nesta rodada: já vista (senão a fase `missing` a marcaria como não encontrada).
           lastSeenRunId: run.id,
           // Toda issue criada nasce pendente de hierarquia: só a fase `hierarchy` a limpa (uma rodada abandonada não a perde).
@@ -1087,7 +1215,7 @@ export class LinearImportService {
     if (externalIds.length === 0) return new Map();
     const rows = await tx.ticketExternalRef.findMany({
       where: { provider: PROVIDER, kind, externalId: { in: externalIds } },
-      select: { ticketId: true, kind: true, statusPending: true, projectId: true, externalId: true, externalKey: true, externalUrl: true, externalParentId: true, externalProjectId: true, sourceSnapshot: true, appliedSnapshot: true, lastSeenRunId: true, statusRunId: true, statusRunFlags: true },
+      select: { ticketId: true, kind: true, statusPending: true, projectId: true, externalId: true, externalKey: true, externalUrl: true, externalParentId: true, externalProjectId: true, sourceSnapshot: true, appliedSnapshot: true, lastSeenRunId: true, statusRunId: true, statusRunFlags: true, externalCreatedAt: true, externalPreviousKeys: true, creatorPersonId: true },
     });
     return new Map(rows.map((row) => [row.externalId, row as RefRow]));
   }
@@ -1126,6 +1254,14 @@ export class LinearImportService {
       const appliedPatch: Record<string, unknown> = {};
       const sourcePatch: Record<string, unknown> = { ...incoming.source };
       let keptTouched = false;
+      /** Campos preenchidos pela primeira vez nesta rodada e os que passaram a "mantido daqui" (ADR 0061, seção 2). */
+      let filledFields = 0;
+      let heldFields: unknown = applied["heldHere"];
+      const heldNow = new Set(Array.isArray(heldFields) ? (heldFields as unknown[]).filter((item): item is string => typeof item === "string") : []);
+      const hold = (field: string): void => {
+        heldFields = heldFieldsAfter(heldFields, field);
+        appliedPatch["heldHere"] = heldFields;
+      };
 
       const title = decideLinearField({ incoming: incoming.title, previousSource: incoming.previous.title, current: row.title, applied: (applied["title"] as string | undefined) ?? row.title });
       keptTouched ||= title.changedInLinear && title.touchedHere;
@@ -1143,21 +1279,28 @@ export class LinearImportService {
         counts.descriptionUnavailable = true;
       } else {
         const description = decideLinearField({ incoming: incoming.description, previousSource: incoming.previous.description, current: row.description, applied: (applied["description"] as string | undefined) ?? row.description });
-        keptTouched ||= description.changedInLinear && description.touchedHere;
-        if (description.apply) {
+        const late = decideLinearLateField({ hasSnapshot: "description" in source, held: heldNow.has("description"), changedInLinear: description.changedInLinear, touchedHere: description.touchedHere, currentEmpty: row.description === "", incomingEmpty: incoming.description === "", incomingDiffers: incoming.description !== row.description });
+        keptTouched ||= late.kept;
+        if (late.apply) {
           data.description = incoming.description;
           appliedPatch["description"] = incoming.description;
-        }
+          if (late.action === "fill") filledFields += 1;
+        } else if (late.action === "synced" || late.hold) appliedPatch["description"] = row.description;
+        if (late.hold) hold("description");
       }
 
       if (incoming.priority !== null) {
         const priority = decideLinearField({ incoming: incoming.priority, previousSource: incoming.previous.priority as number, current: row.priority, applied: (applied["priority"] as number | undefined) ?? row.priority });
-        keptTouched ||= priority.changedInLinear && priority.touchedHere;
-        if (priority.apply) {
+        // Sem retrato (só o ticket de projeto de antes da ADR 0061): prioridade 0 vale como vazia, só nesta primeira vez.
+        const late = decideLinearLateField({ hasSnapshot: typeof source["priority"] === "number", held: heldNow.has("priority"), changedInLinear: priority.changedInLinear, touchedHere: priority.touchedHere, currentEmpty: row.priority === 0, incomingEmpty: incoming.priority === 0, incomingDiffers: incoming.priority !== row.priority });
+        keptTouched ||= late.kept;
+        if (late.apply) {
           data.priority = incoming.priority;
           changes["priority"] = { from: row.priority, to: incoming.priority };
           appliedPatch["priority"] = incoming.priority;
-        }
+          if (late.action === "fill") filledFields += 1;
+        } else if (late.action === "synced" || late.hold) appliedPatch["priority"] = row.priority;
+        if (late.hold) hold("priority");
       }
 
       let newAssignees: string[] | null = null;
@@ -1167,6 +1310,21 @@ export class LinearImportService {
         if (assignee.changedInLinear && incoming.assignee.externalId !== null && !incoming.assignee.emailReadable) {
           // O e-mail não veio nesta rodada: o campo não é tocado e o retrato de origem não avança (a mudança não se perde).
           delete sourcePatch["assigneeExternalId"];
+        } else if (heldNow.has("assignees")) {
+          // Mantido daqui: o Linear pode mudar à vontade, o responsável do TreePM fica.
+          keptTouched ||= assignee.changedInLinear;
+        } else if (!("assigneeExternalId" in source)) {
+          // Sem retrato (o líder do projeto do Linear, de antes da ADR 0061): a regra do campo sem retrato.
+          const personId = incoming.assignee.externalId === null ? null : await resolveAssignee(incoming.assignee.email);
+          const wanted = personId === null ? [] : [personId];
+          const late = decideLinearLateField({ hasSnapshot: false, held: false, changedInLinear: assignee.changedInLinear, touchedHere: assignee.touchedHere, currentEmpty: row.assigneeIds.length === 0, incomingEmpty: wanted.length === 0, incomingDiffers: !sameLinearValue(wanted, row.assigneeIds) });
+          keptTouched ||= late.kept;
+          appliedPatch["assigneeIds"] = late.apply ? wanted : row.assigneeIds;
+          if (late.apply) {
+            newAssignees = wanted;
+            filledFields += 1;
+          }
+          if (late.hold) hold("assignees");
         } else {
           keptTouched ||= assignee.changedInLinear && assignee.touchedHere;
           // O e-mail que antes não vinha e agora é legível: sem responsável aqui, nem na importação, e com responsável no Linear, atribui.
@@ -1201,7 +1359,13 @@ export class LinearImportService {
       }
       if (keptTouched) counts.keptTouched += 1;
       // Com a situação mudando no Linear, quem conta é a fase `statuses` (uma atualização por ticket, mesmo com campos e situação juntos).
-      if (!changed && !keptTouched && !statusChanged) counts.unchanged += 1;
+      // As colunas de origem da issue (datas, criador, chaves antigas): regravadas a cada sincronização; o que passa de vazio a preenchido conta em `filled`.
+      const originData = incoming.origin === null ? null : await originColumns(incoming.origin, ref.creatorPersonId, resolveAssignee);
+      const filledOrigin = originData !== null && ref.externalCreatedAt === null && originData["externalCreatedAt"] !== null;
+      // A lista da tela carrega as chaves do Linear (a busca acha `ENG-45`): chave nova ou antiga que mudou também muda a versão do projeto.
+      if (incoming.key !== ref.externalKey || (originData !== null && !sameLinearValue(originData["externalPreviousKeys"] as string[], ref.externalPreviousKeys ?? []))) touchedProject = true;
+      counts.filled += filledFields + (filledOrigin ? 1 : 0);
+      if (!changed && !keptTouched && !statusChanged && filledFields === 0 && !filledOrigin) counts.unchanged += 1;
 
       const parentChanged = incoming.parentId !== undefined && (incoming.parentId !== ref.externalParentId || incoming.projectId !== ref.externalProjectId);
       await tx.ticketExternalRef.update({
@@ -1217,6 +1381,7 @@ export class LinearImportService {
           // O que esta fase já contou do ticket, para a fase `statuses` não contar de novo; só quando há algo a dizer (rodada quieta não grava).
           ...(queueStatus && (changed || keptTouched || statusChanged) ? { statusRunId: run.id, statusRunFlags: (changed ? FLAG_UPDATED : 0) | (keptTouched ? FLAG_KEPT : 0) | (statusChanged ? FLAG_STATUS_CHANGED : 0) } : {}),
           ...(parentChanged ? { externalParentId: incoming.parentId, externalProjectId: incoming.projectId, hierarchyPending: true } : {}),
+          ...originData,
         },
       });
       // Os retratos: só as chaves que mudaram, mescladas na linha de hoje.

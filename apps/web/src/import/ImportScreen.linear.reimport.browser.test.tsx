@@ -89,9 +89,9 @@ afterEach(async () => {
 describe.each([[1440, 900], [720, 900], [390, 844]])("reimportação com %i px de largura", (width, height) => {
   it("cartão da última importação: sem rolagem horizontal, contraste, botões centrados e alvos de toque", async () => {
     await mountImport({ width, height, linear: card() });
-    await expect.poll(() => byText("button", "Reimportar agora")).toBeTruthy();
+    await expect.poll(() => byText("button", "Sincronizar agora")).toBeTruthy();
     noHorizontalScroll();
-    for (const label of ["Reimportar agora", "Abrir no mapa", "Mudar destino das issues novas"]) {
+    for (const label of ["Sincronizar agora", "Abrir no mapa", "Mudar destino das issues novas"]) {
       const button = byText("button", label);
       expect(button, label).toBeTruthy();
       expectTextCentered(button, label);
@@ -111,11 +111,11 @@ describe.each([[1440, 900], [720, 900], [390, 844]])("reimportação com %i px d
   it("reimportando: as seis fases cabem e nada rola para o lado", async () => {
     const { promise, release } = hold();
     const view = await mountImport({ width, height, linear: card({ script: ["ok", "ok", "ok", "ok", "ok", { hold: promise }] }) });
-    await userEvent.click(byText("button", "Reimportar agora"));
+    await userEvent.click(byText("button", "Sincronizar agora"));
     await expect.poll(() => all(".linear-import-phases li").length).toBe(6);
     await expect.poll(() => all(".linear-import-phases li")[5]?.getAttribute("data-state")).toBe("doing");
     noHorizontalScroll();
-    expect(q("h3").textContent).toBe("Reimportando…");
+    expect(q("h3").textContent).toBe("Sincronizando…");
     for (const element of all(".linear-import-phases li, .linear-import-close, h3")) expect(contrastOf(element)).toBeGreaterThanOrEqual(4.5);
     release();
     view.screen.unmount();
@@ -123,8 +123,8 @@ describe.each([[1440, 900], [720, 900], [390, 844]])("reimportação com %i px d
 
   it("resumo da reimportação: linhas, avisos e botão cabem", async () => {
     await mountImport({ width, height, linear: card({ reimportCounts: lastRun().counts }) });
-    await userEvent.click(byText("button", "Reimportar agora"));
-    await expect.poll(() => byText("h3", "Reimportação concluída")).toBeTruthy();
+    await userEvent.click(byText("button", "Sincronizar agora"));
+    await expect.poll(() => byText("h3", "Sincronização concluída")).toBeTruthy();
     noHorizontalScroll();
     expect(all(".linear-import-counts > div").length).toBe(6);
     expectTextCentered(byText("button", "Abrir no mapa"), "Abrir no mapa");

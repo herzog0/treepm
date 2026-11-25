@@ -893,6 +893,19 @@ model TicketExternalRef {
   /// Controle da rodada em andamento na fase `statuses` (qual rodada e as marcas 1 atualizado, 2 mexido, 4 avaliado, 8 o Linear mudou a situação).
   statusRunId       String?   @map("status_run_id") @db.Uuid
   statusRunFlags    Int       @default(0) @map("status_run_flags") @db.SmallInt
+  /// As datas do Linear (migration 0043; ADR 0061): ficam na origem, o ticket mantém as dele.
+  externalCreatedAt   DateTime? @map("external_created_at") @db.Timestamptz(3)
+  externalStartedAt   DateTime? @map("external_started_at") @db.Timestamptz(3)
+  externalCompletedAt DateTime? @map("external_completed_at") @db.Timestamptz(3)
+  externalCanceledAt  DateTime? @map("external_canceled_at") @db.Timestamptz(3)
+  /// Identificadores que a issue já teve no Linear (trocou de time); a busca por chave os acha.
+  externalPreviousKeys String[] @default([]) @map("external_previous_keys")
+  /// O id do criador no Linear (nunca o e-mail).
+  externalCreatorId   String?   @map("external_creator_id")
+  /// O nome de exibição do criador no Linear: só quando não há pessoa casada.
+  externalCreatorName String?   @map("external_creator_name")
+  /// A pessoa do TreePM que casou com o criador por e-mail único (a chave estrangeira zera só esta coluna, só no SQL).
+  creatorPersonId     String?   @map("creator_person_id") @db.Uuid
 
   organization Organization @relation(fields: [orgId], references: [orgId])
   ticket       Ticket       @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)

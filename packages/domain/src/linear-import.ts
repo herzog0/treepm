@@ -186,6 +186,35 @@ export function matchLinearAssignee(email: string | null, people: readonly Assig
   return eligible.length === 1 ? (eligible[0] as AssigneeCandidate).id : null;
 }
 
+/** Limites do que se guarda do Linear na origem (ADR 0061): nome do criador, id do usuário e identificador antigo. */
+export const LINEAR_CREATOR_NAME_MAX = 120;
+export const LINEAR_EXTERNAL_ID_MAX = 200;
+export const LINEAR_PREVIOUS_KEY_MAX = 100;
+export const LINEAR_PREVIOUS_KEYS_MAX = 50;
+
+/**
+ * As colunas do criador na origem (ADR 0061, seção 5). O e-mail só serve para casar `matchedPersonId` e nunca chega aqui. Com pessoa
+ * casada guarda a pessoa (o nome vem dela); sem ela, o nome de exibição cortado. `emailReadable` falso: o e-mail não veio nesta rodada,
+ * então uma pessoa que já estava casada não é rebaixada a nome (como o responsável).
+ */
+export function linearCreatorColumns(input: {
+  creator: { readonly id: string; readonly name: string } | null;
+  emailReadable: boolean;
+  matchedPersonId: string | null;
+  existingPersonId: string | null;
+}): { externalCreatorId: string | null; externalCreatorName: string | null; creatorPersonId: string | null } {
+  if (input.creator === null) return { externalCreatorId: null, externalCreatorName: null, creatorPersonId: null };
+  const person = input.emailReadable ? input.matchedPersonId : input.existingPersonId;
+  const name = cutTo(sanitize(input.creator.name).trim(), LINEAR_CREATOR_NAME_MAX);
+  return { externalCreatorId: cutTo(sanitize(input.creator.id), LINEAR_EXTERNAL_ID_MAX), externalCreatorName: person === null && name !== "" ? name : null, creatorPersonId: person };
+}
+
+/** Os identificadores antigos da issue, limpos, sem repetir, sem o de hoje e em número limitado. */
+export function linearPreviousKeys(previous: readonly string[], current: string): string[] {
+  const keys = previous.map((key) => cutTo(sanitize(key).trim(), LINEAR_PREVIOUS_KEY_MAX)).filter((key) => key !== "" && key !== current);
+  return [...new Set(keys)].slice(0, LINEAR_PREVIOUS_KEYS_MAX);
+}
+
 /**
  * Onde o ticket de uma issue nasce, antes de o pai chegar (a fase `hierarchy` o leva para baixo do pai, se ele vier): o ticket do
  * projeto do Linear, se esse projeto virou ticket; senão o destino da rodada (`null` = raiz do projeto). O pai vence o projeto, mas

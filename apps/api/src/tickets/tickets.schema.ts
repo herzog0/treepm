@@ -155,7 +155,19 @@ export const effectivePrioritySchema = z.object({ value: ticketPrioritySchema, f
 export type EffectivePriorityView = z.output<typeof effectivePrioritySchema>;
 
 /** De onde o ticket veio (ADR 0060): só o que a tela mostra em "Ver no Linear · ENG-123"; nunca retratos nem ids do provedor. */
-export const externalSourceSchema = z.object({ provider: z.literal("linear"), key: z.string().nullable(), url: z.string().nullable(), missingSince: z.string().nullable() });
+export const externalSourceSchema = z.object({
+  provider: z.literal("linear"),
+  key: z.string().nullable(),
+  url: z.string().nullable(),
+  missingSince: z.string().nullable(),
+  /** As datas do Linear (ADR 0061); nulas quando não há. */
+  createdAt: z.string().nullable(),
+  startedAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  canceledAt: z.string().nullable(),
+  /** Quem criou no Linear: a pessoa do TreePM que casou OU o nome de exibição do Linear, nunca os dois; nulo sem criador. Nada do id do Linear nem e-mail. */
+  creator: z.union([z.object({ personId: z.string() }).strict(), z.object({ name: z.string() }).strict()]).nullable(),
+});
 export type ExternalSourceView = z.output<typeof externalSourceSchema>;
 
 export const ticketDetailSchema = ticketSummarySchema.extend({

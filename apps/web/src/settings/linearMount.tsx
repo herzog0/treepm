@@ -6,7 +6,7 @@ import "../theme.css";
 import "../styles.css";
 import "../controls.css";
 import { MemoryPreferencesProvider } from "../preferences/context.js";
-import { makeClient, makeLinearConnection, makeLinearTeam, makeMe, makeProject } from "../test/fakes.js";
+import { makeClient, makeLinearConnection, makeLinearTeam, makeMe, makePerson, makeProject } from "../test/fakes.js";
 import type { FakeLinear } from "../test/fakes.js";
 import { SettingsScreen } from "./SettingsScreen.js";
 
@@ -21,16 +21,16 @@ export const TEAMS = [
 
 export const PROJECTS = [makeProject("p1", "TREEPM", "TreePM"), makeProject("p2", "SITE", "Site institucional")];
 
-export async function mountLinear(options: { width?: number; height?: number; linear?: FakeLinear } = {}) {
+export async function mountLinear(options: { width?: number; height?: number; linear?: FakeLinear; openImport?: boolean } = {}) {
   await page.viewport(options.width ?? 1440 - 296, options.height ?? 900);
   window.location.hash = "linear";
   const me = makeMe({ clerk: "admin", mcp: true, github: true });
-  const client = makeClient({ me, projects: PROJECTS, linear: options.linear ?? { connection: makeLinearConnection(), teams: TEAMS } });
+  const client = makeClient({ me, projects: PROJECTS, people: [makePerson("person-1", "Ana")], linear: options.linear ?? { connection: makeLinearConnection(), teams: TEAMS } });
   const screen = await render(
     <div style={{ display: "grid", height: "100dvh", gridTemplateRows: "minmax(0, 1fr)" }}>
       <main className="tenant-settings" style={{ minWidth: 0, minHeight: 0, overflow: "auto" }}>
         <MemoryPreferencesProvider onSave={vi.fn()}>
-          <SettingsScreen client={client} me={me} />
+          <SettingsScreen client={client} me={me} {...(options.openImport ? { onOpenImport: () => undefined } : {})} />
         </MemoryPreferencesProvider>
       </main>
     </div>,
