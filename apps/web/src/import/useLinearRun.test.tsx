@@ -46,7 +46,7 @@ describe("useLinearRun: o laço de passos", () => {
     await flush();
     await act(async () => { await hook.result.current.open({ destinationTicketId: null }); });
     await advance(10);
-    expect(phases).toEqual(["issues", "issues", "issues", "hierarchy", "mentions", "done"]);
+    expect(phases).toEqual(["issues", "issues", "issues", "hierarchy", "mentions", "comments", "done"]);
     expect(overlapped).toBe(false);
     expect(hook.result.current.run?.done).toBe(true);
     expect(hook.result.current.loop).toEqual({ kind: "idle" });
@@ -124,7 +124,7 @@ describe("useLinearRun: o laço de passos", () => {
     act(() => hook.result.current.resume());
     await advance(10);
     expect(hook.result.current.run?.done).toBe(true);
-    expect((client.stepLinearRun as ReturnType<typeof vi.fn>).mock.calls.length).toBe(5 + 5);
+    expect((client.stepLinearRun as ReturnType<typeof vi.fn>).mock.calls.length).toBe(5 + 6);
   });
 
   it("erro de chave para o laço e guarda o erro; 'Continuar' retoma", async () => {
@@ -228,7 +228,7 @@ describe("useLinearRun: reimportação (ADR 0060, seção 5)", () => {
     expect(client.openLinearRun).toHaveBeenCalledWith("p1", {});
     expect(opened?.ok && opened.data).toMatchObject({ mode: "reimport", destinationTicketId: "t9" });
     await advance(10);
-    expect(phases).toEqual(["issues", "hierarchy", "statuses", "mentions", "missing", "done"]);
+    expect(phases).toEqual(["issues", "hierarchy", "statuses", "mentions", "comments", "missing", "done"]);
     expect(hook.result.current.run).toMatchObject({ done: true, mode: "reimport", counts: { updated: 2, keptMoved: 1 } });
     expect(hook.result.current.lastFinished).toMatchObject({ mode: "reimport", id: hook.result.current.run?.id });
   });

@@ -424,7 +424,10 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
     } else if (phase === "statuses") {
       phase = "mentions";
     } else if (phase === "mentions") {
-      // Reimportação: depois das menções vem a conferência do que sumiu do Linear.
+      // Depois das menções vêm os comentários do Linear (ADR 0061, fatia 2), nos dois modos.
+      phase = "comments";
+    } else if (phase === "comments") {
+      // Reimportação: depois dos comentários vem a conferência do que sumiu do Linear.
       phase = run.mode === "reimport" ? "missing" : "done";
     } else if (phase === "missing") {
       phase = "done";

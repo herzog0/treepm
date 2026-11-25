@@ -32,6 +32,7 @@ const READ_KINDS = [
   "ticket.idea_reopened",
   "ticket.agent_work_started",
   "ticket.agent_work_ended",
+  "ticket.comments_imported_from_linear",
 ];
 
 /** Ordem fixa das entradas de um `ticket.updated`, da mais antiga para a mais nova. */
@@ -64,9 +65,10 @@ type Data =
   | { type: "agent_work_ended"; reason: "agent" | "person" | "finished" | "idea" | "archived" }
   | { type: "idea_registered" | "idea_accepted" | "idea_discarded" | "idea_reopened" }
   | { type: "idea_stage_changed"; from: z.output<typeof ideaStageSchema>; to: z.output<typeof ideaStageSchema> }
+  | { type: "comments_imported"; count: number }
   | { type: "comment"; comment: CommentRow };
 /** Entrada ainda sem os ids resolvidos. `pos` é a posição na ordem total (instante, evento, campo). */
-type Draft = { id: string; type: Data["type"]; actorId: string | null; occurredAt: number; pos: Position; data: Data; contributionId?: string; via?: "mcp"; automatic?: true };
+type Draft = { id: string; type: Data["type"]; actorId: string | null; occurredAt: number; pos: Position; data: Data; contributionId?: string; via?: "mcp"; automatic?: true; runId?: string | null; count?: number };
 
 const idOrNull = z.uuid().nullable();
 const fromTo = <T extends z.ZodType>(schema: T) => z.object({ from: schema, to: schema });
@@ -123,7 +125,7 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
     data,
     ...(contributionId === undefined ? {} : { contributionId }),
     ...(isMcp(row.payload) ? { via: "mcp" as const } : {}),
-    ...(row.kind === "ticket.updated" && isAutomatic(row.payload) ? { automatic: true as const } : {}),
+    ...((row.kind === "ticket.updated" || row.kind === "ticket.comments_imported_from_linear") && isAutomatic(row.payload) ? { automatic: true as const } : {}),
   });
   const payload = row.payload;
   if (row.kind === "ticket.created") return [make(0, row.id, { type: "created" })];
@@ -189,6 +191,11 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
     case "ticket.agent_work_ended": {
       const v = z.object({ reason: z.enum(["agent", "person", "finished", "idea", "archived"]) }).safeParse(p);
       return v.success ? [make(0, row.id, { type: "agent_work_ended", reason: v.data.reason })] : [];
+    }
+    case "ticket.comments_imported_from_linear": {
+      // Uma rodada grava um evento por ticket por página (C2, item 6): `runId` e `count` deixam a junção somá-los numa entrada.
+      const v = z.object({ count: z.number().int().min(1), runId: z.uuid().optional() }).safeParse(p);
+      return v.success ? [{ ...make(0, row.id, { type: "comments_imported", count: v.data.count }), runId: v.data.runId ?? null, count: v.data.count }] : [];
     }
     case "ticket.idea_registered":
       return [make(0, row.id, { type: "idea_registered" })];
@@ -316,7 +323,7 @@ export class TicketActivityService {
 
     const shown = merged.slice(0, limit);
     const more = merged.length > limit;
-    const entries = shown.map(({ entry, oldest }) => ({ ...entry, id: oldest.id }));
+    const entries = shown.map(({ entry, oldest, count }) => ({ ...entry, id: oldest.id, ...(entry.data.type === "comments_imported" && count !== undefined ? { data: { ...entry.data, count } } : {}) }));
     const lastShown = shown[shown.length - 1];
     const before = more && lastShown ? encodeCursor(lastShown.oldest.pos) : null;
     // A conversa de uma área (`contribution`) segue a regra de comentar numa área: o leitor comenta no ticket, não nela.
@@ -421,6 +428,8 @@ export class TicketActivityService {
           return { ...common, type: data.type };
         case "agent_work_started":
           return { ...common, type: data.type, until: data.until };
+        case "comments_imported":
+          return { ...common, type: data.type, count: data.count };
         case "agent_work_ended":
           return { ...common, type: data.type, reason: data.reason };
         case "idea_stage_changed":

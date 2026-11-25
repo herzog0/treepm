@@ -66,6 +66,39 @@ export type FakeTeamData = {
   projectsOverride?: (call: LinearCall, ask: FakeProjectAsk) => LinearReply | undefined;
   /** Chamado antes de cada resposta de issues (para mexer no mundo ENTRE páginas). */
   onIssuesPage?: (ask: FakeIssueAsk) => void;
+  /** Comentários das issues do time (ADR 0061, fatia 2), já na ordem do Linear (mais novos primeiro); ausente = nenhum. */
+  comments?: FakeComment[];
+  /** Responde no lugar do mundo para comentários (limite, corpo enorme...); `undefined` deixa o mundo responder. */
+  commentsOverride?: (call: LinearCall, ask: FakeCommentAsk) => LinearReply | undefined;
+};
+/** Um comentário do Linear: `user` com e-mail (o mundo o tira quando a consulta não pede), robô, usuário de fora, ou nenhum (apagado). */
+export type FakeComment = {
+  id: string;
+  issue: string;
+  body?: string;
+  createdAt?: string;
+  editedAt?: string | null;
+  updatedAt?: string;
+  parent?: { id: string; body: string } | null;
+  user?: { id: string; name: string; email: string | null } | null;
+  bot?: string;
+  external?: string;
+};
+export type FakeCommentAsk = { first: number; after: string | null; withEmail: boolean; withBody: boolean; withParentBody: boolean };
+export const fakeCommentNode = (c: FakeComment, ask: Pick<FakeCommentAsk, "withEmail" | "withBody" | "withParentBody">): Record<string, unknown> => {
+  const node: Record<string, unknown> = {
+    id: c.id,
+    createdAt: c.createdAt ?? "2026-03-05T10:00:00.000Z",
+    editedAt: c.editedAt ?? null,
+    updatedAt: c.updatedAt ?? c.editedAt ?? c.createdAt ?? "2026-03-05T10:00:00.000Z",
+    issue: { id: c.issue },
+    parent: c.parent ? (ask.withParentBody ? c.parent : { id: c.parent.id }) : null,
+    user: c.user ? (ask.withEmail ? c.user : { id: c.user.id, name: c.user.name }) : null,
+    externalUser: c.external ? { name: c.external } : null,
+    botActor: c.bot ? { name: c.bot } : null,
+  };
+  if (ask.withBody) node["body"] = c.body ?? `Comentário ${c.id}`;
+  return node;
 };
 export const PAGE = 50;
 /** O que a consulta de projetos pediu: o tamanho da página, o que ela traria (ids) e se pediu o conteúdo longo e o e-mail do líder. */
@@ -129,6 +162,21 @@ export function linearImportWorld(world: LinearWorld, data: Record<string, FakeT
         const custom = team.projectsOverride?.(call, ask);
         if (custom !== undefined) return custom;
         return { body: pageOf(team.projects.map((p) => fakeProjectNode(p, ask.withContent, ask.withEmail)), call.variables["after"], "projects", first) };
+      }
+      if (call.query.includes("comments(")) {
+        const ask: FakeCommentAsk = {
+          first: Number(call.variables["first"] ?? PAGE),
+          after: typeof call.variables["after"] === "string" ? call.variables["after"] : null,
+          withEmail: /user \{ id name email \}/.test(call.query),
+          withBody: /\bid body createdAt\b/.test(call.query),
+          withParentBody: /parent \{ id body \}/.test(call.query),
+        };
+        const custom = team.commentsOverride?.(call, ask);
+        if (custom !== undefined) return custom;
+        const all = (team.comments ?? []).map((c) => fakeCommentNode(c, ask));
+        const start = ask.after === null ? 0 : Number(ask.after);
+        const end = start + ask.first;
+        return { body: { data: { comments: { nodes: all.slice(start, end), pageInfo: { hasNextPage: end < all.length, endCursor: end < all.length ? String(end) : null } } } } };
       }
       if (call.query.includes("issues(")) {
         const ask: FakeIssueAsk = {

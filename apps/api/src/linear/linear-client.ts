@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { LinearError } from "./ports.js";
-import type { LinearClient, LinearFailureCode, LinearIdentity, LinearIssuesOptions, LinearIssuesPage, LinearProjectsOptions, LinearProjectsPage, LinearTeam } from "./ports.js";
+import type { LinearClient, LinearCommentAuthor, LinearCommentsOptions, LinearCommentsPage, LinearFailureCode, LinearIdentity, LinearIssuesOptions, LinearIssuesPage, LinearProjectsOptions, LinearProjectsPage, LinearTeam } from "./ports.js";
 
 export { LinearError } from "./ports.js";
 
@@ -46,6 +46,13 @@ const projectsQuery = (withContent: boolean, withEmail: boolean): string =>
 /** Mais novas primeiro (`createdAt`, o padrão do Linear, dito aqui para a repescagem poder confiar). Sem `children` nem `labels`. */
 const issuesQuery = (withDescription: boolean, withEmail: boolean): string =>
   `query TeamIssues($id: String!, $after: String, $first: Int!) { team(id: $id) { issues(first: $first, after: $after, includeArchived: false, orderBy: createdAt) { nodes { id identifier url title ${withDescription ? "description " : ""}priority updatedAt createdAt startedAt completedAt canceledAt previousIdentifiers trashed state { type } parent { id } project { id } assignee { id${withEmail ? " email" : ""} } creator { id name${withEmail ? " email" : ""} } } pageInfo { hasNextPage endCursor } } } }`;
+
+/**
+ * Comentários: consulta de RAIZ filtrada pelas issues do time (`TeamFilter.id` é `IDComparator`, cujo `eq` é `ID`: por isso `$id: ID!`).
+ * Mais novos primeiro (`createdAt`, o padrão). O corpo do pai vem junto, para a citação não depender da ordem das páginas.
+ */
+const commentsQuery = (withBody: boolean, withParentBody: boolean, withEmail: boolean): string =>
+  `query TeamComments($id: ID!, $after: String, $first: Int!) { comments(first: $first, after: $after, filter: { issue: { team: { id: { eq: $id } } } }) { nodes { id ${withBody ? "body " : ""}createdAt editedAt updatedAt issue { id } parent { id${withParentBody ? " body" : ""} } user { id name${withEmail ? " email" : ""} } externalUser { name } botActor { name } } pageInfo { hasNextPage endCursor } } }`;
 
 const cut = (value: string, max: number): string => (value.length > max ? value.slice(0, max) : value);
 
@@ -104,6 +111,35 @@ const issueNodeSchema = z.object({
   creator: z.object({ id: z.string().min(1), name: z.string().nullable().optional().catch(null), email: z.string().nullable().optional().catch(null) }).nullable().optional().catch(null),
 });
 const issuesSchema = z.object({ data: z.object({ team: z.object({ issues: z.object({ nodes: z.array(z.unknown()), pageInfo: pageInfoSchema }) }) }) });
+
+/**
+ * Um id do Linear que vai para consulta, origem e `applied` (C2, item 5): UUID no Linear de verdade; aqui, tamanho razoável e só letras,
+ * dígitos, `-` e `_` (nada de controle, nulo ou espaço). Fora disso o nó é pulado e contado, em vez de derrubar o passo inteiro.
+ */
+const linearId = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/);
+// Os nós de comentário: `id`, `issue` e o id do usuário obrigatórios e bem formados (senão o nó é pulado e contado em `commentsInvalid`);
+// o resto que vier malformado vale como ausente (o pai inválido vira "sem pai": a resposta perde só a citação).
+const commentNodeSchema = z.object({
+  id: linearId,
+  body: z.string().nullable().optional(),
+  createdAt: z.string(),
+  editedAt: z.string().nullable().optional().catch(null),
+  updatedAt: z.string(),
+  issue: z.object({ id: linearId }),
+  parent: z.object({ id: linearId, body: z.string().nullable().optional().catch(null) }).nullable().optional().catch(null),
+  user: z.object({ id: linearId, name: z.string().nullable().optional().catch(null), email: z.string().nullable().optional().catch(null) }).nullable().optional(),
+  externalUser: z.object({ name: z.string().nullable().optional().catch(null) }).nullable().optional().catch(null),
+  botActor: z.object({ name: z.string().nullable().optional().catch(null) }).nullable().optional().catch(null),
+});
+const commentsSchema = z.object({ data: z.object({ comments: z.object({ nodes: z.array(z.unknown()), pageInfo: pageInfoSchema }) }) });
+
+/** Quem escreveu: o usuário vence; sem ele, o usuário de fora sincronizado; sem os dois, o robô; nada → autor apagado. */
+function commentAuthor(node: z.output<typeof commentNodeSchema>): LinearCommentAuthor {
+  if (node.user) return { kind: "user", id: node.user.id, name: node.user.name ?? "", email: node.user.email ?? null };
+  if (node.externalUser && typeof node.externalUser.name === "string") return { kind: "external", name: node.externalUser.name };
+  if (node.botActor) return { kind: "bot", name: node.botActor.name ?? null };
+  return null;
+}
 
 /** Valida cada nó sozinho: devolve os válidos e quantos foram pulados. */
 function validNodes<S extends z.ZodType>(schema: S, nodes: readonly unknown[]): { valid: z.output<S>[]; skipped: number } {
@@ -265,23 +301,10 @@ export class HttpLinearClient implements LinearClient {
   async listTeamProjects(apiKey: string, teamId: string, after: string | null, options: LinearProjectsOptions = {}): Promise<LinearProjectsPage> {
     const first = Math.min(Math.max(Math.trunc(options.first ?? LINEAR_IMPORT_PAGE_SIZE), 1), 250);
     const withContent = options.withContent !== false;
-    let withEmail = options.withEmail !== false;
-    let emailUnavailable = false;
-    let body: unknown;
-    for (;;) {
-      try {
-        body = await this.request(apiKey, projectsQuery(withContent, withEmail), { id: teamId, after, first }, this.timeoutMs, false, LINEAR_IMPORT_MAX_BODY_BYTES, withEmail);
-        break;
-      } catch (error) {
-        // O Linear recusou o `email` do líder (permissão da chave): repete sem ele, uma vez, e avisa a importação.
-        if (withEmail && error instanceof LinearError && error.code === "linear_email_unavailable") {
-          withEmail = false;
-          emailUnavailable = true;
-          continue;
-        }
-        throw error;
-      }
-    }
+    const withEmail = options.withEmail !== false;
+    // O Linear recusou o `email` (permissão da chave) → `linear_email_unavailable`: quem chama repete sem ele, contando a chamada no
+    // orçamento do passo, e grava a recusa na hora (C2, item 4).
+    const body = await this.request(apiKey, projectsQuery(withContent, withEmail), { id: teamId, after, first }, this.timeoutMs, false, LINEAR_IMPORT_MAX_BODY_BYTES, withEmail);
     const parsed = projectsSchema.safeParse(body);
     if (!parsed.success) throw new LinearError("linear_unavailable");
     const { nodes, pageInfo } = parsed.data.data.team.projects;
@@ -299,30 +322,16 @@ export class HttpLinearClient implements LinearClient {
       })),
       nextCursor: nextCursor(pageInfo),
       skippedInvalid: skipped,
-      emailUnavailable,
     };
   }
 
   async listTeamIssues(apiKey: string, teamId: string, after: string | null, options: LinearIssuesOptions = {}): Promise<LinearIssuesPage> {
     const first = Math.min(Math.max(Math.trunc(options.first ?? LINEAR_IMPORT_PAGE_SIZE), 1), 250);
     const withDescription = options.withDescription !== false;
-    let withEmail = options.withEmail !== false;
-    let emailUnavailable = false;
-    let body: unknown;
-    for (;;) {
-      try {
-        body = await this.request(apiKey, issuesQuery(withDescription, withEmail), { id: teamId, after, first }, this.timeoutMs, false, LINEAR_IMPORT_MAX_BODY_BYTES, withEmail);
-        break;
-      } catch (error) {
-        // O Linear recusou o campo `email` (permissão da chave): repete sem ele, uma vez, e avisa a importação.
-        if (withEmail && error instanceof LinearError && error.code === "linear_email_unavailable") {
-          withEmail = false;
-          emailUnavailable = true;
-          continue;
-        }
-        throw error;
-      }
-    }
+    const withEmail = options.withEmail !== false;
+    // O Linear recusou o `email` (permissão da chave) → `linear_email_unavailable`: quem chama repete sem ele, contando a chamada no
+    // orçamento do passo, e grava a recusa na hora (C2, item 4).
+    const body = await this.request(apiKey, issuesQuery(withDescription, withEmail), { id: teamId, after, first }, this.timeoutMs, false, LINEAR_IMPORT_MAX_BODY_BYTES, withEmail);
     const parsed = issuesSchema.safeParse(body);
     if (!parsed.success) throw new LinearError("linear_unavailable");
     const { nodes, pageInfo } = parsed.data.data.team.issues;
@@ -350,7 +359,34 @@ export class HttpLinearClient implements LinearClient {
       })),
       nextCursor: nextCursor(pageInfo),
       skippedInvalid: skipped,
-      emailUnavailable,
+    };
+  }
+
+  async listTeamComments(apiKey: string, teamId: string, after: string | null, options: LinearCommentsOptions = {}): Promise<LinearCommentsPage> {
+    const first = Math.min(Math.max(Math.trunc(options.first ?? LINEAR_IMPORT_PAGE_SIZE), 1), 250);
+    const withBody = options.withBody !== false;
+    const withParentBody = withBody && options.withParentBody !== false;
+    const withEmail = options.withEmail !== false;
+    // O Linear recusou o `email` (permissão da chave) → `linear_email_unavailable`: quem chama repete sem ele, contando a chamada no
+    // orçamento do passo, e grava a recusa na hora (C2, item 4).
+    const body = await this.request(apiKey, commentsQuery(withBody, withParentBody, withEmail), { id: teamId, after, first }, this.timeoutMs, false, LINEAR_IMPORT_MAX_BODY_BYTES, withEmail);
+    const parsed = commentsSchema.safeParse(body);
+    if (!parsed.success) throw new LinearError("linear_unavailable");
+    const { nodes, pageInfo } = parsed.data.data.comments;
+    const { valid, skipped } = validNodes(commentNodeSchema, nodes);
+    return {
+      nodes: valid.map((node) => ({
+        id: node.id,
+        body: node.body ?? null,
+        createdAt: node.createdAt,
+        editedAt: node.editedAt ?? null,
+        updatedAt: node.updatedAt,
+        issueId: node.issue.id,
+        parent: node.parent ? { id: node.parent.id, body: node.parent.body ?? null } : null,
+        author: commentAuthor(node),
+      })),
+      nextCursor: nextCursor(pageInfo),
+      skippedInvalid: skipped,
     };
   }
 

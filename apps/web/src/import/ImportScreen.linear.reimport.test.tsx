@@ -158,7 +158,7 @@ describe("Reimportação › durante e resumo", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     const phases = await screen.findByRole("list", { name: "Fases da importação" });
     const items = within(phases).getAllByRole("listitem");
-    expect(items).toHaveLength(6);
+    expect(items).toHaveLength(7);
     expect(within(phases).getByText(/Verificando o que sumiu do Linear/)).toBeInTheDocument();
     // "Atualizando situações" fica entre ligar sub-issues e as menções.
     const names = items.map((item) => item.textContent ?? "");
@@ -182,7 +182,8 @@ describe("Reimportação › durante e resumo", () => {
   it("a primeira importação não tem essa fase", async () => {
     setup({ existing: { phase: "issues", counts: { issuesSeen: 2 } }, script: [{ hold: new Promise<void>(() => {}) }] });
     const phases = await screen.findByRole("list", { name: "Fases da importação" });
-    expect(within(phases).getAllByRole("listitem")).toHaveLength(4);
+    expect(within(phases).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(phases).queryByText(/Verificando o que sumiu do Linear/)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Importando…" })).toBeInTheDocument();
   });
 
@@ -209,6 +210,22 @@ describe("Reimportação › durante e resumo", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     await screen.findByRole("heading", { name: "Sincronização concluída" });
     expect(screen.getByText("12 campos preenchidos em tickets que já existiam")).toBeInTheDocument();
+  });
+
+  it("comentários trazidos e mantidos porque foram editados aqui (ADR 0061, fatia 2), com plural; zero não aparece", async () => {
+    setup({ existing: finished(), reimportCounts: { updated: 1, commentsCreated: 12, commentsKeptEdited: 1 } });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    expect(screen.getByText("12 comentários trazidos do Linear")).toBeInTheDocument();
+    expect(screen.getByText("1 comentário mantido porque foi editado aqui")).toBeInTheDocument();
+  });
+
+  it("um comentário trazido: singular; nenhum mantido: a linha some", async () => {
+    setup({ existing: finished(), reimportCounts: { updated: 1, commentsCreated: 1, commentsKeptEdited: 0 } });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    expect(screen.getByText("1 comentário trazido do Linear")).toBeInTheDocument();
+    expect(screen.queryByText(/mantido porque foi editado/)).not.toBeInTheDocument();
   });
 
   it("um só campo preenchido: singular", async () => {
@@ -242,7 +259,7 @@ describe("Reimportação › durante e resumo", () => {
   it("a região de status anuncia a fase 'missing'", async () => {
     let release!: () => void;
     const hold = new Promise<void>((resolve) => { release = resolve; });
-    setup({ existing: finished(), total: 2, projects: 0, script: ["ok", "ok", "ok", "ok", "ok", { hold }] });
+    setup({ existing: finished(), total: 2, projects: 0, script: ["ok", "ok", "ok", "ok", "ok", "ok", { hold }] });
     await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     const region = (await screen.findAllByRole("status")).find((node) => node.classList.contains("linear-import-status"))!;
     await waitFor(() => expect(region).toHaveTextContent("Verificando o que sumiu do Linear."));

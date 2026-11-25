@@ -3,6 +3,7 @@ import { Logger } from "@nestjs/common";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MINUTE } from "./access-token-support.js";
+import { TOKEN_PREFIX, parseToken } from "../src/access-tokens/token.js";
 import { TEST_CONFIG } from "./helpers.js";
 import { BAD_ORIGIN, MODERN, SITE_ORIGIN, rpcBody, rpcHeaders, seedProject, useMcpHarness } from "./mcp-support.js";
 import { OTHER_ORG, as } from "./world.js";
@@ -279,7 +280,10 @@ describe("log", () => {
     await seedProject(h.pool, h.world().projects.priv, h.world().people.manager, h.world().people.contributor);
     await h.pool.query("update tickets set title = 'TITULO-QUE-NAO-PODE-NO-LOG' where project_id = $1 and number = 4", [h.world().projects.priv]);
     const { token, id } = await h.issue("contributor");
-    const secret = token.split("_").at(-1) ?? "";
+    // O segredo INTEIRO, pelo próprio formato do token (TREEPM-507): `split("_")` dava um só caractere quando o segredo sorteado tinha `_`
+    // perto do fim, e esse caractere aparecia em qualquer palavra do log.
+    const secret = parseToken(token)?.secret ?? "";
+    expect(secret).toHaveLength(43);
     await h.tool(token, "PRIV", "search_tickets", { query: "ARGUMENTO-QUE-NAO-PODE-NO-LOG" });
     await h.tool(token, "PRIV", "get_ticket", { key: "PRIV-4" });
     await h.rpc(token, "PRIV", "tools/list");
@@ -293,7 +297,10 @@ describe("log", () => {
     expect(log).toMatch(/\d+ ?ms/);
     expect(log).toMatch(/\d+ ?(bytes|B)\b/);
     expect(log).not.toContain(token);
+    expect(log).not.toContain(token.slice(TOKEN_PREFIX.length));
     expect(log).not.toContain(secret);
+    // Nenhum trecho de 12 caracteres seguidos do segredo (um pedaço dele também seria vazamento).
+    for (let at = 0; at + 12 <= secret.length; at += 1) expect(log, `segredo[${String(at)}…]`).not.toContain(secret.slice(at, at + 12));
     expect(log.toLowerCase()).not.toContain("bearer");
     expect(log).not.toContain("authorization");
     expect(log).not.toContain("ARGUMENTO-QUE-NAO-PODE-NO-LOG");

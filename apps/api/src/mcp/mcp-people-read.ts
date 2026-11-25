@@ -12,7 +12,7 @@ import { MAX_RESULT_CHARS, ToolInputError } from "./mcp-tools.js";
 import type { RunInTenant, ToolContext } from "./mcp-tools.js";
 import { cleanMentions, countFitting, fitPage, shrinkItem } from "./mcp-text.js";
 import type { CleanText } from "./mcp-text.js";
-import { PERSON_NAME_SELECT, mcpPersonRef } from "./person-name.js";
+import { PERSON_NAME_SELECT, mcpLinearAuthorRef, mcpPersonRef } from "./person-name.js";
 
 /**
  * Comentários, histórico e conversas pelo MCP (ADR 0062, seção 4, fatia 3). Só leitura e só com o alcance "pessoas e conversas" efetivo.
@@ -33,13 +33,15 @@ export const getConversationInput = z.strictObject({ id: z.string().trim().max(6
 const personRef = z.strictObject({ id: z.string().describe("Person id."), name: z.string() });
 const next = z.string().nullable().describe("Pass as `after` to get the next page; null when there is no more.");
 const truncated = z.literal(true).optional().describe("Present when this item alone was larger than one answer can carry: its longest text was cut (it ends with …) or its longest list was shortened.");
+/** O autor de um comentário trazido do Linear que não é pessoa do TreePM: sem id, com "(Linear)" no nome. */
+const linearAuthorRef = z.strictObject({ id: z.null().describe("No TreePM person: the author wrote it in Linear."), name: z.string() });
 const commentSchema = z.strictObject({
   id: z.string(),
-  author: personRef.nullable(),
+  author: z.union([personRef, linearAuthorRef]).nullable(),
   createdAt: z.string(),
   editedAt: z.string().nullable(),
   body: z.string().describe("The comment text. A mention of a person is written as @Name; a mention of a ticket stays as its key."),
-  via: z.literal("mcp").optional().describe("Present when the comment was written through MCP."),
+  via: z.enum(["mcp", "linear"]).optional().describe("mcp: written through MCP; linear: brought from Linear by a sync."),
   area: z.string().optional().describe("Present on a comment written in an area's conversation: the area name."),
   truncated,
 });
@@ -193,6 +195,8 @@ export const HISTORY_FIELDS: FieldsOf = {
   created: () => ({}),
   title_changed: (entry, c) => ({ from: c.text(entry.from), to: c.text(entry.to) }),
   description_changed: () => ({}),
+  // Só a contagem: nada do Linear (nome, corpo, id) vai junto.
+  comments_imported: (entry) => ({ count: entry.count }),
   status_changed: (entry, c) => ({ from: entry.from, to: entry.to, automatic: entry.automatic, causedBy: c.ticket(entry.causedBy) }),
   priority_changed: (entry) => ({ from: entry.from, to: entry.to }),
   parent_changed: (entry, c) => ({ from: c.ticket(entry.from), to: c.ticket(entry.to) }),
@@ -221,7 +225,7 @@ export const HISTORY_FIELDS: FieldsOf = {
  * O que sai de cada item. Todo texto livre é `CleanText` (só o limpador o produz): um campo novo de texto livre não compila sem passar por
  * ele. O resto é de formato fechado: id, data ISO, enum, chave de ticket lida do banco, pessoa por `person-name.ts`.
  */
-export type CommentOut = { id: string; author: Ref | null; createdAt: string; editedAt: string | null; body: CleanText; via?: "mcp"; area?: CleanText; truncated?: true };
+export type CommentOut = { id: string; author: Ref | { id: null; name: string } | null; createdAt: string; editedAt: string | null; body: CleanText; via?: "mcp" | "linear"; area?: CleanText; truncated?: true };
 export type MessageOut = { id: string; kind: "message" | "creation_opened"; author: Ref | "assistant" | null; at: string; body?: CleanText; truncated?: true };
 export type ConversationOut = {
   id: string;
@@ -274,16 +278,16 @@ export class PeopleReadTools {
       const rows = await tx.ticketComment.findMany({ where: { AND: [{ ticketId: ticket.id, removedAt: null }, ...keyset] }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: limit + 1, select: commentSelect });
       // Corta pelo texto cru e só então limpa: só os comentários que vão sair passam pelo limpador.
       const page = await fitPage(rows.slice(0, limit), BUDGET, (row) => ({ id: row.id, author: row.authorPersonId, body: row.body, area: commentArea(row)?.name ?? null }), async (some) => {
-        const [refs, clean] = await Promise.all([personRefs(tx, some.map((row) => row.authorPersonId)), textCleaner(tx, some.flatMap((row) => [row.body, commentArea(row)?.name ?? ""]))]);
+        const [refs, clean] = await Promise.all([personRefs(tx, some.flatMap((row) => (row.authorPersonId === null ? [] : [row.authorPersonId]))), textCleaner(tx, some.flatMap((row) => [row.body, commentArea(row)?.name ?? ""]))]);
         return some.map((row): CommentOut => {
           const name = commentArea(row)?.name;
           return {
             id: row.id,
-            author: refs.get(row.authorPersonId) ?? null,
+            author: row.authorPersonId === null ? (row.via === "linear" ? mcpLinearAuthorRef(row.externalAuthorName) : null) : (refs.get(row.authorPersonId) ?? null),
             createdAt: row.createdAt.toISOString(),
             editedAt: row.editedAt ? row.editedAt.toISOString() : null,
             body: clean(row.body),
-            ...(row.via === "mcp" ? { via: "mcp" as const } : {}),
+            ...(row.via === "mcp" || row.via === "linear" ? { via: row.via } : {}),
             ...(name === undefined ? {} : { area: clean(name) }),
           };
         });

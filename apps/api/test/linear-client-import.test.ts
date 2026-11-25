@@ -60,7 +60,7 @@ describe("HttpLinearClient.listTeamProjects", () => {
   it("uma página de 50 projetos do time, com o cursor da seguinte", async () => {
     const { client: c, fake } = client([{ body: projectsBody([{ id: "p1", name: "Alfa", url: "https://linear.app/acme/project/alfa" }], true, "cur-2") }]);
     const page = await c.listTeamProjects(KEY, "team-eng", null);
-    expect(page).toEqual({ nodes: [{ id: "p1", name: "Alfa", url: "https://linear.app/acme/project/alfa", statusType: null, description: null, content: null, priority: 0, lead: null }], nextCursor: "cur-2", skippedInvalid: 0, emailUnavailable: false });
+    expect(page).toEqual({ nodes: [{ id: "p1", name: "Alfa", url: "https://linear.app/acme/project/alfa", statusType: null, description: null, content: null, priority: 0, lead: null }], nextCursor: "cur-2", skippedInvalid: 0 });
     expect(LINEAR_IMPORT_PAGE_SIZE).toBe(50);
     expect(fake.calls[0]!.variables).toEqual({ id: "team-eng", after: null, first: 50 });
     expect(fake.calls[0]!.query).toMatch(/projects\(first:\s*\$first/);
@@ -70,7 +70,7 @@ describe("HttpLinearClient.listTeamProjects", () => {
 
   it("última página não tem cursor; cursor volta nos argumentos", async () => {
     const { client: c, fake } = client([{ body: projectsBody([], false, "ignorado") }]);
-    expect(await c.listTeamProjects(KEY, "team-eng", "cur-2")).toEqual({ nodes: [], nextCursor: null, skippedInvalid: 0, emailUnavailable: false });
+    expect(await c.listTeamProjects(KEY, "team-eng", "cur-2")).toEqual({ nodes: [], nextCursor: null, skippedInvalid: 0 });
     expect(fake.calls[0]!.variables).toEqual({ id: "team-eng", after: "cur-2", first: 50 });
   });
 
@@ -170,11 +170,11 @@ describe("HttpLinearClient.listTeamIssues", () => {
     expect(query).not.toContain("email");
   });
 
-  it("L7: erro de campo em `email` repete a consulta sem e-mail e avisa; erro de outro campo não", async () => {
+  it("L7: erro de campo em `email` vira linear_email_unavailable (o passo repete sem e-mail); erro de outro campo não", async () => {
     const emailError = { errors: [{ message: "You do not have permission to see email", path: ["team", "issues", "nodes", 0, "assignee", "email"], extensions: { code: "FORBIDDEN" } }], data: null };
     const { client: c, fake } = client([{ body: emailError }, { body: issuesBody([issue({ assignee: { id: "u1" } })]) }]);
-    const page = await c.listTeamIssues(KEY, "t", null);
-    expect(page.emailUnavailable).toBe(true);
+    await expect(c.listTeamIssues(KEY, "t", null)).rejects.toMatchObject({ code: "linear_email_unavailable" });
+    const page = await c.listTeamIssues(KEY, "t", null, { withEmail: false });
     expect(page.nodes[0]?.assignee).toEqual({ id: "u1", email: null });
     expect(fake.calls).toHaveLength(2);
     expect(fake.calls[0]!.query).toContain("assignee { id email }");
@@ -200,7 +200,9 @@ describe("HttpLinearClient.listTeamIssues", () => {
     // consultas que não são de issues não olham o e-mail: um erro com caminho em `email` é só o erro de sempre
     const emailPath = { errors: [{ message: "x", path: ["viewer", "email"], extensions: { code: "INTERNAL_SERVER_ERROR" } }], data: null };
     expect((await failureOf(() => client([{ body: emailPath }]).client.whoami(KEY))).code).toBe("linear_unavailable");
-    expect((await failureOf(() => client([{ body: emailPath }]).client.listTeamProjects(KEY, "t", null))).code).toBe("linear_unavailable");
+    // A de projetos pede o e-mail do líder (ADR 0061): o caminho em `email` é a recusa, que o passo trata (C2, item 4).
+    expect((await failureOf(() => client([{ body: emailPath }]).client.listTeamProjects(KEY, "t", null))).code).toBe("linear_email_unavailable");
+    expect((await failureOf(() => client([{ body: emailPath }]).client.listTeamProjects(KEY, "t", null, { withEmail: false }))).code).toBe("linear_unavailable");
     expect((await failureOf(() => client([{ body: emailPath }]).client.listTeams(KEY))).code).toBe("linear_unavailable");
   });
 

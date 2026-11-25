@@ -18,10 +18,10 @@ import { mcpPersonRef } from "./person-name.js";
  * categorização (que usa os provedores de IA do TreePM) ficam só na tela. Tudo o que o cliente lê é em inglês.
  */
 
-const PHASES = ["projects", "issues", "hierarchy", "statuses", "mentions", "missing", "categorize", "done", "failed"] as const;
+const PHASES = ["projects", "issues", "hierarchy", "statuses", "mentions", "comments", "missing", "categorize", "done", "failed"] as const;
 const progressFields = {
   id: z.string().describe("Sync run id; pass it to continue_linear_sync."),
-  phase: z.enum(PHASES).describe("Where the sync is: projects, issues, hierarchy, statuses, mentions, missing; done when it finished, failed when it was stopped on the TreePM screen."),
+  phase: z.enum(PHASES).describe("Where the sync is: projects, issues, hierarchy, statuses, mentions, comments, missing; done when it finished, failed when it was stopped on the TreePM screen."),
   done: z.boolean().describe("True when the sync run is over (done or failed)."),
   counts: z.record(z.string(), z.union([z.number(), z.boolean()])).describe("Counts so far (tickets created, updated, kept and so on)."),
   waitUntil: z.string().nullable().describe("Set while Linear asked to slow down: do not continue before this time."),

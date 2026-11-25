@@ -178,7 +178,10 @@ describe("ticket_comments: privilégio mínimo do papel da aplicação", () => {
     const [row] = await comment(ORG_K1, k1.project, t, k1.person, "x");
     const other = await ticketIn(ORG_K1, k1.project, k1.person);
     for (const set of ["author_person_id = '" + second + "'::uuid", "ticket_id = '" + other + "'::uuid", "created_at = now()", "project_id = project_id", "id = gen_random_uuid()"]) {
-      await expect(asTenant(prisma, ORG_K1, (tx) => tx.$executeRawUnsafe(`update ticket_comments set ${set} where id = '${row?.id}'::uuid`)), set).rejects.toThrow(/permission denied/i);
+      await expect(asTenant(prisma, ORG_K1, (tx) => tx.$executeRawUnsafe(`update ticket_comments set ${set} where id = '${row?.id}'::uuid`)), set).rejects.toThrow(
+        // Desde a 0044 o autor tem UPDATE (só para promover o autor do Linear a pessoa); o gatilho recusa em todo comentário escrito no TreePM.
+        set.startsWith("author_person_id") ? /autor de um coment/i : /permission denied/i,
+      );
     }
     await asTenant(prisma, ORG_K1, (tx) => tx.$executeRaw`update ticket_comments set body = 'y', edited_at = now() where id = ${row?.id}::uuid`);
     expect(await commentsOf(t)).toBe(1);

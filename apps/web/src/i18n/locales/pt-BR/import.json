@@ -109,6 +109,7 @@
       "hierarchy": "Ligar sub-issues aos pais",
       "statuses": "Atualizando situações",
       "mentions": "Ligando menções",
+      "comments": "Trazendo comentários",
       "list": "Fases da importação",
       "missing": "Verificando o que sumiu do Linear"
     },
@@ -122,6 +123,7 @@
       "issues": "Importando as issues.",
       "hierarchy": "Ligando as sub-issues aos pais.",
       "mentions": "Ligando as menções entre os tickets.",
+      "comments": "Trazendo os comentários das issues.",
       "done": "Importação concluída.",
       "waiting": "O Linear pediu para esperar.",
       "abandoned": "Importação abandonada.",
@@ -159,7 +161,13 @@
       "filled_other": "{{count}} campos preenchidos em tickets que já existiam",
       "descriptionUnavailable": "Algumas descrições eram grandes demais e não foram relidas.",
       "missingNotChecked": "Não foi possível conferir o que sumiu, porque alguns itens vieram em formato inválido.",
-      "assigneeEmailUnavailableReimport": "O Linear não deixou ler os e-mails dos responsáveis; os responsáveis não foram atualizados."
+      "assigneeEmailUnavailableReimport": "O Linear não deixou ler os e-mails dos responsáveis; os responsáveis não foram atualizados.",
+      "commentsCreated_one": "{{count}} comentário trazido do Linear",
+      "commentsCreated_other": "{{count}} comentários trazidos do Linear",
+      "commentsCreated_many": "{{count}} comentários trazidos do Linear",
+      "commentsKeptEdited_one": "{{count}} comentário mantido porque foi editado aqui",
+      "commentsKeptEdited_other": "{{count}} comentários mantidos porque foram editados aqui",
+      "commentsKeptEdited_many": "{{count}} comentários mantidos porque foram editados aqui"
     },
     "abandon": {
       "button": "Abandonar importação",

@@ -186,7 +186,11 @@ describe("as leituras que alimentam a IA e o MCP não conhecem os atributos novo
 
   it("o MCP lê da origem do ticket só a chave e o endereço (ADR 0062, seção 5), e de nenhum outro jeito", () => {
     const mcp = walk(join(SRC, "mcp"));
-    const used = new Set(mcp.flatMap((file) => [...readFileSync(file, "utf8").matchAll(/\bexternal[A-Z_]\w*/g)].map((m) => m[0])));
+    // `externalAuthorName` é do COMENTÁRIO trazido do Linear (ADR 0061, fatia 2), não da origem do ticket: sai só em `list_comments`,
+    // atrás do alcance de pessoas, como "Nome (Linear)". Fica de fora da conta, mas só pode aparecer nesse arquivo.
+    const authorFiles = mcp.filter((file) => /\bexternalAuthorName\b/.test(readFileSync(file, "utf8"))).map((file) => file.slice(SRC.length + 1));
+    expect(authorFiles).toEqual(["mcp/mcp-people-read.ts"]);
+    const used = new Set(mcp.flatMap((file) => [...readFileSync(file, "utf8").matchAll(/\bexternal[A-Z_]\w*/g)].map((m) => m[0])).filter((name) => name !== "externalAuthorName"));
     // Exatamente as duas colunas: nem criador, nem datas, nem chaves antigas, nem id, workspace ou time do Linear.
     expect([...used].sort()).toEqual(["externalKey", "externalUrl"]);
     // E só por uma consulta com `select` explícito dessas duas (nunca a linha inteira da origem).

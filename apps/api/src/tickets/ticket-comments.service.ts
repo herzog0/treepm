@@ -1,5 +1,5 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { TenantClient } from "@treepm/db";
+import type { Prisma, TenantClient } from "@treepm/db";
 import { canEditComment, canRemoveComment } from "@treepm/domain";
 import type { Actor } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
@@ -17,7 +17,10 @@ export type Viewer = { personId: string; actor: Actor };
 type Author = { id: string; displayName: string; avatarUrl: string | null };
 type CommentRow = {
   id: string;
-  authorPersonId: string;
+  /** Nulo só no comentário trazido do Linear de quem não casou com uma pessoa do TreePM (ADR 0061). */
+  authorPersonId: string | null;
+  /** O nome de exibição no Linear desse autor; os dois nulos = autor apagado no Linear. */
+  externalAuthorName: string | null;
   body: string;
   createdAt: Date;
   editedAt: Date | null;
@@ -26,15 +29,16 @@ type CommentRow = {
   contribution: { id: string; area: { name: string } } | null;
   /** O nome da área que a contribuição removida tinha; nulo enquanto a contribuição existe. */
   areaName: string | null;
-  /** `mcp` quando o comentário veio de uma chamada MCP (ADR 0043). */
+  /** `mcp` quando o comentário veio de uma chamada MCP (ADR 0043); `linear` quando foi trazido do Linear (ADR 0061). */
   via: string | null;
 };
 
 /** `canEdit` e `canRemove` de um comentário para quem lê: comentário removido e projeto arquivado não têm ação. */
-export function commentRights(viewer: Viewer, project: Pick<ProjectRow, "id" | "archivedAt">, comment: Pick<CommentRow, "authorPersonId" | "removedAt">): { canEdit: boolean; canRemove: boolean } {
+export function commentRights(viewer: Viewer, project: Pick<ProjectRow, "id" | "archivedAt">, comment: Pick<CommentRow, "authorPersonId" | "removedAt" | "via">): { canEdit: boolean; canRemove: boolean } {
   const open = comment.removedAt === null && project.archivedAt === null;
   return {
-    canEdit: open && canEditComment(viewer.actor, project.id, comment.authorPersonId, viewer.personId),
+    // Comentário trazido do Linear não é editado no TreePM (o texto é do Linear); pode ser removido e não volta.
+    canEdit: open && comment.via !== "linear" && canEditComment(viewer.actor, project.id, comment.authorPersonId, viewer.personId),
     canRemove: open && canRemoveComment(viewer.actor, project.id, comment.authorPersonId, viewer.personId),
   };
 }
@@ -55,7 +59,9 @@ export function toCommentEntry(row: CommentRow, author: Author | null, rights: {
     actor: author,
     body: removed ? null : row.body,
     area: commentArea(row),
-    ...(row.via === "mcp" ? { via: "mcp" as const } : {}),
+    ...(row.via === "mcp" || row.via === "linear" ? { via: row.via } : {}),
+    // Autor do Linear sem pessoa do TreePM: o nome de exibição de lá (nulo = apagado lá). Nunca e-mail.
+    ...(row.via === "linear" && row.authorPersonId === null ? { externalAuthor: { name: row.externalAuthorName } } : {}),
     editedAt: row.editedAt ? row.editedAt.toISOString() : null,
     removed,
     ...rights,
@@ -66,6 +72,7 @@ export function toCommentEntry(row: CommentRow, author: Author | null, rights: {
 export const commentSelect = {
   id: true,
   authorPersonId: true,
+  externalAuthorName: true,
   body: true,
   createdAt: true,
   editedAt: true,
@@ -139,6 +146,7 @@ export class TicketCommentsService {
     this.authorization.editComment(principal.actor, project.id, comment.authorPersonId, principal.person.id);
     this.requireActive(project);
     if (comment.removedAt !== null) throw this.removed();
+    if (comment.via === "linear") throw new ConflictException({ code: "comment_imported", message: "Comentário trazido do Linear não é editado no TreePM." });
     if (comment.body === body) return this.entry(principal, project, comment);
     // A guarda `removedAt: null` fecha a corrida com uma remoção concorrente: se perdeu, nada é gravado.
     const editedAt = new Date();
@@ -165,12 +173,36 @@ export class TicketCommentsService {
       data: { body: "", removedAt: new Date(), removedByPersonId: principal.person.id },
     });
     if (gone.count === 0) return;
+    if (comment.via === "linear") await this.forgetLinearText(tx, principal.organization.orgId, commentId);
     await this.activity.record(tx, principal, {
       kind: "ticket.comment_removed",
       subjectType: "ticket",
       subjectId: ticket.id,
       payload: { key: `${project.key}-${ticket.number}`, commentId, ...this.contributionPart(comment) },
     });
+  }
+
+  /**
+   * Comentário trazido do Linear removido aqui (C2, item 2): a origem passa a dizer "removido aqui" (a sincronização não o traz de volta)
+   * e as respostas importadas dele perdem a linha de citação do começo, que repetia o texto removido. A retirada não conta como "editado
+   * aqui" (`edited_at` não muda), e só mexe em resposta cuja origem diz que o corpo começa com a citação deste pai.
+   */
+  private async forgetLinearText(tx: TenantClient, orgId: string, commentId: string): Promise<void> {
+    const ref = await tx.externalItemRef.findFirst({ where: { provider: "linear", kind: "comment", localId: commentId }, select: { id: true, externalId: true, ticketId: true } });
+    if (ref === null) return;
+    await tx.externalItemRef.update({ where: { orgId_id: { orgId, id: ref.id } }, data: { localId: null, removedHereAt: new Date() } });
+    const replies = await tx.externalItemRef.findMany({
+      where: { provider: "linear", kind: "comment", ticketId: ref.ticketId, localId: { not: null }, applied: { path: ["parentId"], equals: ref.externalId } },
+      select: { id: true, localId: true, applied: true },
+    });
+    for (const reply of replies) {
+      const applied = reply.applied as Record<string, unknown>;
+      if (applied["quoted"] !== true || reply.localId === null) continue;
+      const local = await tx.ticketComment.findFirst({ where: { id: reply.localId, removedAt: null }, select: { body: true } });
+      const body = local?.body.replace(/^> [^\n]*\n\n/, "");
+      if (local && body !== undefined && body !== local.body && body.trim() !== "") await tx.ticketComment.update({ where: { orgId_id: { orgId, id: reply.localId } }, data: { body } });
+      await tx.externalItemRef.update({ where: { orgId_id: { orgId, id: reply.id } }, data: { applied: { ...applied, quoted: false } as Prisma.InputJsonObject } });
+    }
   }
 
   /** O id da contribuição no evento, quando o comentário é de uma área. Nunca o corpo nem o nome. */

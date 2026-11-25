@@ -131,10 +131,10 @@ export class AuthorizationService {
   commentTicket(actor: Actor, projectId: string): void {
     this.require(canCommentTicket(actor, projectId));
   }
-  editComment(actor: Actor, projectId: string, authorPersonId: string, personId: string): void {
+  editComment(actor: Actor, projectId: string, authorPersonId: string | null, personId: string): void {
     this.require(canEditComment(actor, projectId, authorPersonId, personId));
   }
-  removeComment(actor: Actor, projectId: string, authorPersonId: string, personId: string): void {
+  removeComment(actor: Actor, projectId: string, authorPersonId: string | null, personId: string): void {
     this.require(canRemoveComment(actor, projectId, authorPersonId, personId));
   }
   editContributions(actor: Actor, projectId: string): void {

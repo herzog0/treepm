@@ -104,3 +104,19 @@ describe("mergeDescriptionEdits with contribution text edits (ADR 0041)", () => 
     expect(ids(mergeDescriptionEdits([text("a", null, 5), text("b", null, 4)]))).toEqual(["a<a", "b<b"]);
   });
 });
+
+// C2, item 6: os eventos "N comentários trazidos do Linear" de uma rodada são gravados um por página; a linha do tempo os soma.
+describe("comments_imported da mesma rodada", () => {
+  const imported = (id: string, runId: string, count: number, minutes: number): MergeableEntry & { id: string } => ({ id, type: "comments_imported", actorId: "ana", occurredAt: minutes * MIN, runId, count });
+  it("vizinhos da mesma rodada viram uma entrada com a soma; outra rodada não junta, qualquer que seja a distância", () => {
+    const merged = mergeDescriptionEdits([imported("c", "r2", 4, 300), imported("b", "r1", 50, 61), imported("a", "r1", 30, 1)]);
+    expect(ids(merged)).toEqual(["c<c", "b<a"]);
+    expect(merged.map((m) => m.count)).toEqual([4, 80]);
+  });
+  it("outra entrada no meio desfaz a sequência; sem rodada nunca junta", () => {
+    const merged = mergeDescriptionEdits([imported("c", "r1", 1, 3), other("x", 2), imported("a", "r1", 2, 1)]);
+    expect(ids(merged)).toEqual(["c<c", "x<x", "a<a"]);
+    const noRun = { id: "n", type: "comments_imported", actorId: "ana", occurredAt: 0, count: 1 } as MergeableEntry & { id: string };
+    expect(ids(mergeDescriptionEdits([{ ...noRun, id: "m" }, noRun]))).toEqual(["m<m", "n<n"]);
+  });
+});

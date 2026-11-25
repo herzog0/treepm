@@ -20,12 +20,15 @@ export function canCommentTicket(actor: Actor, projectId: string): boolean {
   return actor.clerkRole === "admin" || actor.projectRoles.has(projectId);
 }
 
-/** Edita só o autor, e só enquanto ainda pode comentar; gestor e administrador não editam texto alheio. */
-export function canEditComment(actor: Actor, projectId: string, authorPersonId: string, readerPersonId: string): boolean {
-  return authorPersonId === readerPersonId && canCommentTicket(actor, projectId);
+/**
+ * Edita só o autor, e só enquanto ainda pode comentar; gestor e administrador não editam texto alheio. Sem autor do TreePM (comentário
+ * trazido do Linear de quem não casou), ninguém edita.
+ */
+export function canEditComment(actor: Actor, projectId: string, authorPersonId: string | null, readerPersonId: string): boolean {
+  return authorPersonId !== null && authorPersonId === readerPersonId && canCommentTicket(actor, projectId);
 }
 
 /** Remove o autor (mesmo sem poder mais comentar) ou quem gere o projeto (gestor ou administrador). */
-export function canRemoveComment(actor: Actor, projectId: string, authorPersonId: string, readerPersonId: string): boolean {
-  return authorPersonId === readerPersonId || canManageProject(actor, projectId);
+export function canRemoveComment(actor: Actor, projectId: string, authorPersonId: string | null, readerPersonId: string): boolean {
+  return (authorPersonId !== null && authorPersonId === readerPersonId) || canManageProject(actor, projectId);
 }

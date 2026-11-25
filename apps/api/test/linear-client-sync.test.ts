@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HttpLinearClient, LinearError, LINEAR_IMPORT_PAGE_SIZE } from "../src/linear/linear-client.js";
+import { points } from "./linear-complexity.js";
 import { linearFakeFetch } from "./linear-fake-fetch.js";
 import type { LinearCall, LinearReply } from "./linear-fake-fetch.js";
 
@@ -27,55 +28,6 @@ const issue = (over: Record<string, unknown> = {}) => ({
 const issuesBody = (nodes: unknown[]) => ({ data: { team: { issues: { nodes, pageInfo: { hasNextPage: false, endCursor: null } } } } });
 const projectsBody = (nodes: unknown[]) => ({ data: { team: { projects: { nodes, pageInfo: { hasNextPage: false, endCursor: null } } } } });
 
-/**
- * Pontos de complexidade pela regra documentada do Linear: campo escalar 0,1; objeto 1; conexão multiplica o que está dentro de
- * `nodes` pelo tamanho da página. Conservador: cada campo com chaves vale 1 mais o que tem dentro (`nodes` conta como o objeto do item).
- */
-function points(query: string, variables: Record<string, number>): number {
-  // Tira o cabeçalho (`query Nome($a: T)`) e fica só a seleção da raiz, sem as chaves de fora.
-  const start = query.indexOf("{");
-  const text = query.slice(start + 1, query.lastIndexOf("}"));
-  let index = 0;
-  const skipSpaces = (): void => {
-    while (index < text.length && /[\s,]/.test(text[index] as string)) index += 1;
-  };
-  /** O custo dos campos do nível, e o de `nodes` à parte (só ele é multiplicado pelo tamanho da página). */
-  const selection = (): { others: number; nodes: number } => {
-    let others = 0;
-    let nodes = 0;
-    for (;;) {
-      skipSpaces();
-      if (index >= text.length) return { others, nodes };
-      if (text[index] === "}") {
-        index += 1;
-        return { others, nodes };
-      }
-      const name = /^[A-Za-z_]\w*/.exec(text.slice(index))?.[0];
-      if (name === undefined) throw new Error(`consulta fora do formato perto de: ${text.slice(index, index + 20)}`);
-      index += name.length;
-      skipSpaces();
-      let args = "";
-      if (text[index] === "(") {
-        const end = text.indexOf(")", index);
-        args = text.slice(index + 1, end);
-        index = end + 1;
-        skipSpaces();
-      }
-      if (text[index] === "{") {
-        index += 1;
-        const inner = selection();
-        const first = /first:\s*(\$?\w+)/.exec(args)?.[1];
-        const size = first === undefined ? 1 : first.startsWith("$") ? (variables[first.slice(1)] as number) : Number(first);
-        const cost = 1 + inner.others + size * inner.nodes;
-        if (name === "nodes") nodes += cost;
-        else others += cost;
-      } else others += 0.1;
-    }
-  };
-  const root = selection();
-  return Math.round((root.others + root.nodes) * 10) / 10;
-}
-
 describe("a consulta de issues", () => {
   it("pede datas, criador e identificadores antigos, com e-mail do criador nas mesmas condições do responsável", async () => {
     const { client: c, fake } = client([{ body: issuesBody([issue()]) }]);
@@ -86,11 +38,11 @@ describe("a consulta de issues", () => {
     expect(query).toMatch(/assignee \{ id email \}/);
   });
 
-  it("sem e-mail (permissão recusada), repete sem o e-mail do criador e do responsável juntos", async () => {
+  it("sem e-mail (permissão recusada), o cliente avisa e o passo repete sem o e-mail do criador e do responsável juntos", async () => {
     const denied = { body: { errors: [{ message: "x", path: ["team", "issues", "nodes", 0, "creator", "email"], extensions: { code: "FORBIDDEN" } }] } };
     const { client: c, fake } = client([denied, { body: issuesBody([issue({ creator: { id: "u-1", name: "Ana" } })]) }]);
-    const page = await c.listTeamIssues(KEY, "team-eng", null);
-    expect(page.emailUnavailable).toBe(true);
+    await expect(c.listTeamIssues(KEY, "team-eng", null)).rejects.toMatchObject({ code: "linear_email_unavailable" });
+    const page = await c.listTeamIssues(KEY, "team-eng", null, { withEmail: false });
     expect(fake.calls[1]!.query).toMatch(/creator \{ id name \}/);
     expect(fake.calls[1]!.query).not.toMatch(/email/);
     expect(page.nodes[0]!.creator).toEqual({ id: "u-1", name: "Ana", email: null });
@@ -128,7 +80,6 @@ describe("a consulta de projetos", () => {
     const { client: c } = client([{ body: projectsBody([full, { id: "p2", name: "Beta", url: "https://linear.app/acme/project/beta" }]) }]);
     const page = await c.listTeamProjects(KEY, "team-eng", null);
     expect(page.skippedInvalid).toBe(0);
-    expect(page.emailUnavailable).toBe(false);
     expect(page.nodes[0]).toEqual({ id: "p1", name: "Alfa", url: "https://linear.app/acme/project/alfa", statusType: "started", description: "resumo", content: "conteúdo longo", priority: 2, lead: { id: "u-1", email: "lider@acme.test" } });
     expect(page.nodes[1]).toEqual({ id: "p2", name: "Beta", url: "https://linear.app/acme/project/beta", statusType: null, description: null, content: null, priority: 0, lead: null });
   });
@@ -140,11 +91,11 @@ describe("a consulta de projetos", () => {
     expect(fake.calls[0]!.query).toMatch(/\bdescription\b/);
   });
 
-  it("e-mail do líder recusado: repete sem o e-mail uma vez e avisa; outra falha não é engolida", async () => {
+  it("e-mail do líder recusado: o cliente avisa (o passo repete sem o e-mail); outra falha não é engolida", async () => {
     const denied = { body: { errors: [{ message: "x", path: ["team", "projects", "nodes", 0, "lead", "email"], extensions: { code: "FORBIDDEN" } }] } };
     const { client: c, fake } = client([denied, { body: projectsBody([{ id: "p1", name: "Alfa", url: "https://linear.app/acme/project/alfa", lead: { id: "u-1" } }]) }]);
-    const page = await c.listTeamProjects(KEY, "team-eng", null);
-    expect(page.emailUnavailable).toBe(true);
+    await expect(c.listTeamProjects(KEY, "team-eng", null)).rejects.toMatchObject({ code: "linear_email_unavailable" });
+    const page = await c.listTeamProjects(KEY, "team-eng", null, { withEmail: false });
     expect(fake.calls[1]!.query).toMatch(/lead \{ id \}/);
     expect(page.nodes[0]!.lead).toEqual({ id: "u-1", email: null });
     const down = client([{ status: 503, body: {} }]);

@@ -122,3 +122,14 @@ Depois, fora desta ADR: situações novas (ADR própria e desenho), etiquetas e 
 - Página de projetos grande demais é reduzida à metade até 1; só então o texto longo daquele projeto é dispensado e o resumo entra no lugar, se o ticket ainda não tinha descrição.
 - Consequência a saber: issues sem prioridade herdam a prioridade do ticket do projeto, e sobem ou descem na fila de trabalho com ela.
 - Revisão independente com reprodução: sem bloqueio; cinco correções aplicadas.
+
+## Como ficou (fatia 2, comentários, 2026-11-25)
+
+- Migration `0044_linear_comments`: tabela `external_item_refs` (origem por item, hoje só comentários), `ticket_comments` com autor opcional, `external_author_name` e `via = 'linear'`. A migration zera os nomes de criador já gravados em forma de e-mail; é a única linha que altera dado.
+- Fase nova `comments` na rodada, pela consulta de raiz filtrada pelo time, 50 por página (367 pontos de complexidade). Cabe no orçamento de chamadas e de tempo do passo, também quando conduzida pelo MCP.
+- O comentário entra com a data original e o selo "do Linear". Resposta entra em sequência, com uma linha de citação do pai. Não pode ser editado aqui; removido aqui, não volta, e a citação dele sai das respostas.
+- **O autor acompanha o casamento atual**, nos dois sentidos: a cada sincronização com e-mail legível, é a pessoa do TreePM que casa ou, se nenhuma casa, o nome no Linear. Em rodada sem e-mail legível o autor não muda. Comentário escrito no TreePM nunca troca de autor. Substituiu a ideia inicial de promover uma vez e nunca mais mudar, que a revisão mostrou não ter volta.
+- **Nome de exibição que é um e-mail não é guardado**, nem para autor de comentário nem para criador de ticket. Achado da revisão, que bloqueou a fatia.
+- O texto do comentário não fica em nenhuma cópia fora do próprio comentário: a origem guarda só uma marca do corpo.
+- Um registro na linha do tempo por ticket e por página ("N comentários trazidos do Linear"), somados na leitura. Os comentários ficam fora da IA; pelo MCP saem só com o alcance de pessoas.
+- Fica como está, por ora: comentários mais antigos que a importação aparecem acima do registro "criado" na linha do tempo.

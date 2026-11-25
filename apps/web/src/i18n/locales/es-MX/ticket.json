@@ -203,7 +203,9 @@
       "by": "Comentario de {{name}}",
       "gone": "comentario eliminado",
       "openArea": "Abrir la conversación del área {{area}}",
-      "areaGone": "Área quitada; el comentario se queda en el ticket"
+      "areaGone": "Área quitada; el comentario se queda en el ticket",
+      "linearAuthor": "{{name}} (en Linear)",
+      "linearAuthorUnknown": "Persona de Linear"
     },
     "contributionAdded": "<who>{{actor}}</who> agregó el área <name>{{area}}</name>",
     "contributionAdded_noActor": "Área <name>{{area}}</name> agregada",
@@ -246,7 +248,12 @@
     "parentRemoved_automatic": "Sacado automáticamente de <from>{{from}}</from>",
     "parentChanged_automatic": "Movido automáticamente de <from>{{from}}</from> a dentro de <to>{{to}}</to>",
     "assigneeAdded_automatic": "<name>{{person}}</name> agregado automáticamente como responsable",
-    "assigneeRemoved_automatic": "<name>{{person}}</name> quitado automáticamente de los responsables"
+    "assigneeRemoved_automatic": "<name>{{person}}</name> quitado automáticamente de los responsables",
+    "viaLinear": "de Linear",
+    "viaLinearTitle": "Traído de Linear por una sincronización",
+    "commentsImported_one": "{{count}} comentario traído de Linear",
+    "commentsImported_other": "{{count}} comentarios traídos de Linear",
+    "commentsImported_many": "{{count}} comentarios traídos de Linear"
   },
   "contributions": {
     "heading": "Áreas",

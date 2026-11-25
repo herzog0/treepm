@@ -203,7 +203,9 @@
       "by": "Comment by {{name}}",
       "gone": "comment removed",
       "openArea": "Open the conversation of area {{area}}",
-      "areaGone": "Area removed; the comment stays on the ticket"
+      "areaGone": "Area removed; the comment stays on the ticket",
+      "linearAuthor": "{{name}} (on Linear)",
+      "linearAuthorUnknown": "Linear user"
     },
     "contributionAdded": "<who>{{actor}}</who> added the area <name>{{area}}</name>",
     "contributionAdded_noActor": "Area <name>{{area}}</name> added",
@@ -246,7 +248,11 @@
     "parentRemoved_automatic": "Taken out of <from>{{from}}</from> automatically",
     "parentChanged_automatic": "Moved automatically from <from>{{from}}</from> to inside <to>{{to}}</to>",
     "assigneeAdded_automatic": "<name>{{person}}</name> added automatically as an assignee",
-    "assigneeRemoved_automatic": "<name>{{person}}</name> removed automatically from the assignees"
+    "assigneeRemoved_automatic": "<name>{{person}}</name> removed automatically from the assignees",
+    "viaLinear": "from Linear",
+    "viaLinearTitle": "Brought from Linear by a sync",
+    "commentsImported_one": "{{count}} comment brought from Linear",
+    "commentsImported_other": "{{count}} comments brought from Linear"
   },
   "contributions": {
     "heading": "Areas",

@@ -53,13 +53,11 @@ export type LinearProjectNode = {
 
 /** Opções da leitura de projetos: `first` itens (padrão 50), sem o conteúdo longo (corpo grande demais), sem o e-mail do líder (campo recusado). */
 export type LinearProjectsOptions = { first?: number; withContent?: boolean; withEmail?: boolean };
-/** `emailUnavailable`: o Linear recusou `email` e a página veio sem ele. */
-export type LinearProjectsPage = LinearPage<LinearProjectNode> & { emailUnavailable: boolean };
+export type LinearProjectsPage = LinearPage<LinearProjectNode>;
 
 /** Opções da leitura de issues: `first` itens (padrão 50), sem a descrição (issue enorme), sem o e-mail do responsável (campo recusado). */
 export type LinearIssuesOptions = { first?: number; withDescription?: boolean; withEmail?: boolean };
-/** `emailUnavailable`: o Linear recusou `email` e a página veio sem ele. */
-export type LinearIssuesPage = LinearPage<LinearIssueNode> & { emailUnavailable: boolean };
+export type LinearIssuesPage = LinearPage<LinearIssueNode>;
 
 /**
  * Uma issue como a importação a lê. O e-mail do responsável só serve para casar com uma pessoa do TreePM: quem recebe não o grava
@@ -89,6 +87,27 @@ export type LinearIssueNode = {
   creator: { id: string; name: string; email: string | null } | null;
 };
 
+/**
+ * O autor de um comentário do Linear: o usuário (o e-mail só serve para casar uma pessoa e nunca é guardado), o usuário de fora sincronizado
+ * (Slack e afins: só o nome), o robô de uma integração (só o nome), ou `null` (autor apagado no Linear).
+ */
+export type LinearCommentAuthor = { kind: "user"; id: string; name: string; email: string | null } | { kind: "external"; name: string } | { kind: "bot"; name: string | null } | null;
+
+/** Um comentário de issue do time (ADR 0061, fatia 2). `body` é nulo quando a leitura não o pediu; `parent.body` também. */
+export type LinearCommentNode = {
+  id: string;
+  body: string | null;
+  createdAt: string;
+  editedAt: string | null;
+  updatedAt: string;
+  issueId: string;
+  parent: { id: string; body: string | null } | null;
+  author: LinearCommentAuthor;
+};
+/** Opções da leitura de comentários: `first` (padrão 50); sem o corpo do pai, sem o corpo (página enorme), sem o e-mail (campo recusado). */
+export type LinearCommentsOptions = { first?: number; withParentBody?: boolean; withBody?: boolean; withEmail?: boolean };
+export type LinearCommentsPage = LinearPage<LinearCommentNode>;
+
 /** A porta do Linear desta fatia. A chave é sempre argumento: o cliente não guarda nada entre chamadas. */
 export interface LinearClient {
   whoami(apiKey: string): Promise<LinearIdentity>;
@@ -102,4 +121,6 @@ export interface LinearClient {
   listTeamProjects(apiKey: string, teamId: string, after: string | null, options?: LinearProjectsOptions): Promise<LinearProjectsPage>;
   /** Uma página (50) das issues do time, sem arquivadas. */
   listTeamIssues(apiKey: string, teamId: string, after: string | null, options?: LinearIssuesOptions): Promise<LinearIssuesPage>;
+  /** Uma página (50) dos comentários das issues do time, pela consulta de raiz `comments` (mais novos primeiro). */
+  listTeamComments(apiKey: string, teamId: string, after: string | null, options?: LinearCommentsOptions): Promise<LinearCommentsPage>;
 }
