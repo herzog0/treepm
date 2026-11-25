@@ -262,14 +262,14 @@ export class LinearCategorizeService {
         return { view: await this.view(tx, await this.finish(tx, run)) };
       }
       const [row] = await tx.$queryRaw<{ title: string; description: string; number: number }[]>`select title, description, number from tickets where org_id = ${orgId} and id = ${item.ticketId}::uuid`;
-      return { work: { projectName: (await tx.project.findFirstOrThrow({ where: { orgId, id: projectId }, select: { name: true } })).name, run, item, tree, ticket: row as { title: string; description: string; number: number } } };
+      return { work: { run, item, tree, ticket: row as { title: string; description: string; number: number } } };
     });
   }
 
   private async stepOnce(tenant: TenantRunner, principal: Principal, projectId: string, runId: string): Promise<CategorizeView> {
     const read = await this.stepRead(tenant, projectId, runId);
     if (!("work" in read) || read.work === undefined) return (read as { view: CategorizeView }).view;
-    const { projectName, run, item, tree, ticket } = read.work;
+    const { run, item, tree, ticket } = read.work;
     // Configuração e aceite antes de qualquer envio: sem eles o passo responde o erro do portão e a rodada fica como está.
     const providers = await this.gate.open(tenant);
 
@@ -284,7 +284,7 @@ export class LinearCategorizeService {
     // O mesmo filtro vale para o que os OUTROS tickets mostram ao provedor (a árvore e os relacionados): texto com menção de pessoa é
     // neutralizado (o ticket continua na árvore, para os filhos não ficarem órfãos). Pelas rotas normais ele nem existe (ADR 0058).
     const clean = (ticketOfTree: TreeTicket): TreeTicket => (mentionsPersonRaw(ticketOfTree.title) || mentionsPersonRaw(ticketOfTree.description) ? { ...ticketOfTree, title: "Sem título", description: "" } : ticketOfTree);
-    const snapshot: PlacementSnapshot = { projectId, projectName, tickets: tree.tickets.filter((candidate) => !subtree.has(candidate.id)).map(clean), notes: new Map([...tree.notes].filter(([, note]) => !mentionsPersonRaw(note))) };
+    const snapshot: PlacementSnapshot = { projectId, tickets: tree.tickets.filter((candidate) => !subtree.has(candidate.id)).map(clean), notes: new Map([...tree.notes].filter(([, note]) => !mentionsPersonRaw(note))) };
     const draft = { title: draftText.title, description: partTitles.length === 0 ? draftText.description : `${draftText.description === "" ? "" : `${draftText.description}\n\n`}Partes:\n${partTitles.map((title) => `- ${title}`).join("\n")}` };
     try {
       const searched = await runPlacement(this.placement, {

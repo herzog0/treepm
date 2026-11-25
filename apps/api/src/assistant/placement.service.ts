@@ -8,7 +8,7 @@ import { judgeInputFits } from "./jev-branch-judge.js";
 import { relatedInputFits } from "./jev-related-judge.js";
 import { resolvePlacement } from "./related-placement.js";
 import type { JudgedRelated, PlacementResolved } from "./related-placement.js";
-import { proposeGroup } from "./group-proposal.js";
+import { PROVIDER_ROOT_LABEL, proposeGroup } from "./group-proposal.js";
 import type { GroupProposalResult } from "./group-proposal.js";
 import { AssistantUnavailableError } from "./ports.js";
 import type { TriageNumbers } from "./placement-decision.js";
@@ -26,7 +26,7 @@ export type TreeTicket = { id: string; parentId: string | null; number: number; 
  * A árvore do projeto como a procura a vê (já sem ideias, ADR 0043) e as notas escritas por pessoa, por ticket. Uma leitura
  * de cada por procura; o texto de cada candidato é montado daqui (ADR 0052), nada é guardado nem escrito.
  */
-export type PlacementSnapshot = { projectId: string; projectName: string; tickets: TreeTicket[]; notes: Map<string, string> };
+export type PlacementSnapshot = { projectId: string; tickets: TreeTicket[]; notes: Map<string, string> };
 
 /**
  * Procura do caminho de um rascunho na árvore do projeto (ADR 0029). Quem chama já leu a árvore e as notas (`snapshot`)
@@ -129,7 +129,7 @@ export class PlacementService {
       outcome,
       destination:
         destinationTicket === undefined
-          ? { kind: "root", title: snapshot.projectName }
+          ? { kind: "root", title: PROVIDER_ROOT_LABEL }
           : {
               kind: "group",
               title: destinationTicket.title,

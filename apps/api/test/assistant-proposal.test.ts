@@ -3,6 +3,7 @@ import { AI_CONFIG, openApiTransactions } from "./helpers.js";
 import { seedGroups, seedTree } from "./assistant-tree.js";
 import type { Tree } from "./assistant-tree.js";
 import { useHarness } from "./harness.js";
+import { PROVIDER_ROOT_LABEL } from "../src/assistant/group-proposal.js";
 import { as } from "./world.js";
 import type { Who } from "./world.js";
 
@@ -13,7 +14,6 @@ const rows = async (sql: string, params: unknown[] = []) => (await h.pool.query(
 const open = async (who: Who = "contributor") =>
   (await h.call("POST", `/api/projects/${priv()}/ticket-conversations`, as(who), { message: "Quero corrigir o login" })).body.id as string;
 const placement = (id: string, body?: unknown) => h.call("POST", `/api/ticket-conversations/${id}/placement`, as("contributor"), body);
-const projectName = async () => (await rows("select name from projects where id = $1", [priv()]))[0].name as string;
 const addTicket = async (title: string, parentId: string | null, description = "") => {
   const number = (await rows("select next_ticket_number as n from projects where id = $1", [priv()]))[0].n as number;
   await h.pool.query("update projects set next_ticket_number = next_ticket_number + 1 where id = $1", [priv()]);
@@ -59,14 +59,14 @@ describe("placement — proposta de agrupador na raiz", () => {
     expect(res.body.groupProposalSkipped).toBeNull();
   });
 
-  it("a afinidade vai ao Jev com o nome do projeto como destino e o rascunho", async () => {
+  it("a afinidade vai ao Jev com o rótulo neutro da raiz como destino (nunca o nome do projeto) e o rascunho", async () => {
     const id = await start();
     settleAtRoot();
     await placement(id);
     expect(h.affinity().calls).toHaveLength(1);
     expect(h.affinity().calls[0]).toEqual({
       draft: { title: "Rascunho 1", description: "Quero corrigir o login" },
-      destination: { title: await projectName() },
+      destination: { title: PROVIDER_ROOT_LABEL },
       tickets: [{ id: tree.loose, title: "Solto", descriptionExcerpt: "" }],
     });
   });
@@ -78,6 +78,21 @@ describe("placement — proposta de agrupador na raiz", () => {
     const res = await placement(id);
     expect(res.body.groupProposal.tickets.map((t: { id: string }) => t.id)).toEqual([tree.loose]);
     expect(h.namer().calls[0]).toMatchObject({ newTicket: { title: "Rascunho 1" }, existingTickets: [{ title: "Solto" }] });
+  });
+
+  it("o nome do projeto não sai em nenhum pedido a provedor, só o rótulo neutro", async () => {
+    const SECRET = "Zxqv Projeto Secreto";
+    await h.pool.query("update projects set name = $2 where id = $1", [priv(), SECRET]);
+    const id = await start();
+    settleAtRoot();
+    affinityScores({ [tree.loose]: 0.95 });
+    const res = await placement(id);
+    expect(res.body.groupProposal).not.toBeNull();
+    expect(h.affinity().calls).toHaveLength(1);
+    expect(h.namer().calls).toHaveLength(1);
+    expect(h.namer().calls[0]?.destinationTitle).toBe(PROVIDER_ROOT_LABEL);
+    const sent = JSON.stringify([h.judge().calls, h.related().calls, h.affinity().calls, h.namer().calls, h.conversation().calls, h.embedder().calls, h.summarizer().calls]);
+    expect(sent).not.toContain("Zxqv");
   });
 
   it("ninguém passa do limiar: sem proposta e sem motivo, e o Claude não é chamado", async () => {

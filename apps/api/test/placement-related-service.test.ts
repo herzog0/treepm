@@ -9,7 +9,7 @@ import type { SemanticSearch } from "../src/assistant/semantic-triage.js";
 const service = new PlacementService();
 const draft = { title: "Webhook de saída", description: "Avisar outro sistema", partTitles: [] as string[] };
 const ticket = (n: number, title: string) => ({ id: `t${n}`, parentId: null, number: n, title, description: "", status: "todo" });
-const snapshotOf = (tickets: ReturnType<typeof ticket>[]): PlacementSnapshot => ({ projectId: "p", projectName: "P", tickets, notes: new Map() });
+const snapshotOf = (tickets: ReturnType<typeof ticket>[]): PlacementSnapshot => ({ projectId: "p", tickets, notes: new Map() });
 
 describe("findRelated", () => {
   it("corta os de menor pontuação quando a requisição não cabe", async () => {

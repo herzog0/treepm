@@ -12,7 +12,7 @@ for (let i = 0; i < 60; i++) {
   tickets.push(ticket(`g${i}`, null, `Agrupador ${i}`, `Descrição do agrupador ${i}. `.repeat(12)));
   for (let k = 0; k < 30; k++) tickets.push(ticket(`g${i}k${k}`, `g${i}`, `Filho número ${k} do agrupador ${i}`));
 }
-const snapshot: PlacementSnapshot = { projectId: "p", projectName: "P", tickets, notes: new Map() };
+const snapshot: PlacementSnapshot = { projectId: "p", tickets, notes: new Map() };
 const draft = { title: "Algo novo", description: "Algo novo no sistema", children: [] };
 
 const judge = (seen: { sizes: number[] }): BranchJudge => ({

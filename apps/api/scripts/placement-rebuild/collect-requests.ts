@@ -17,7 +17,6 @@ export type OutlineGroup = { id: string; title: string; description: string; tic
  * ordem do número); `optionIds[i]` é o id que `g{i+1}` representa. Nenhum id sai na mensagem.
  */
 export function buildClaudeProject(input: {
-  projectName: string;
   groups: readonly OutlineGroup[];
   /** Coleta D−: o agrupador original do ticket não entra no esboço. */
   excludeGroupId: string | null;
@@ -26,7 +25,6 @@ export function buildClaudeProject(input: {
   const listed = input.groups.filter((group) => group.id !== input.excludeGroupId);
   const content = {
     project: {
-      name: input.projectName,
       groups: listed.map((group, index) => ({
         option: `g${index + 1}`,
         title: group.title,
