@@ -10,7 +10,16 @@
     "retry": "Try again",
     "unread_one": "{{count}} unread",
     "unread_other": "{{count}} unread",
-    "assignedHint": "You are the assignee"
+    "assignedHint": "You are the assignee",
+    "close": "Close conversation: {{name}}",
+    "undo": "Undo",
+    "closedSection": "Closed ({{count}})",
+    "closedLabel": "Closed conversations",
+    "reopen": "Reopen",
+    "closeFailed": "Could not close the conversation.",
+    "reopenNamed": "Reopen: {{name}}",
+    "closedNotice": "Conversation closed.",
+    "closedNoticeMany": "{{count}} conversations closed."
   },
   "chat": {
     "openTicket": "Open ticket {{key}}, {{title}}",
@@ -50,23 +59,32 @@
     "unread_one": "{{count}} unread",
     "unread_other": "{{count}} unread",
     "reply": "Reply in the thread",
-    "replyPlaceholder": "Reply to everyone in the thread, or use @ to open another thread",
+    "replyPlaceholder": "Reply to the people in the thread, or use @ to call someone",
     "opened": "Thread opened."
   },
   "composer": {
     "label": "Message",
     "placeholder": "Talk to the assistant, use @ to call someone or # to cite a ticket",
-    "placeholderThreads": "Use @ to open a thread with other people",
+    "placeholderThreads": "Use @ to call someone: a person who is not in the conversation opens a thread",
     "send": "Send",
     "sendThread": "Open thread",
-    "pills": "People mentioned",
-    "removeMention": "Remove mention of {{name}}",
-    "refused": "cannot be mentioned here",
     "count": "{{length}} of {{max}}",
     "over": "{{length}} of {{max}}: over the limit",
-    "opensThread": "This message opens a thread with {{names}}. Whoever is already in this conversation takes part too.",
-    "noMoreLevels": "This conversation is at the last level: you cannot open another thread inside it.",
-    "willLabel": "What will happen"
+    "noMoreLevels": "This conversation is at the last level: here you can only mention people who are already in it.",
+    "willLabel": "What will happen",
+    "newThread": "New thread",
+    "newThreadIn": "New thread in {{key}}",
+    "with": "with {{names}}",
+    "joinAlong_one": "{{names}} joins in",
+    "joinAlong_other": "{{names}} join in",
+    "refuseProjectOne": "{{names}} cannot see this ticket’s project.",
+    "refuseProjectMany": "{{names}} cannot see this ticket’s project.",
+    "refuseLevelsOne": "{{names}} is not in this conversation, and it is at the last level.",
+    "refuseLevelsMany": "{{names}} are not in this conversation, and it is at the last level.",
+    "refuseApiOne": "{{names}} cannot be mentioned here.",
+    "refuseApiMany": "{{names}} cannot be mentioned here.",
+    "removeMention": "Remove {{name}}",
+    "willOpen": "This message opens a thread with {{names}}."
   },
   "row": {
     "general": "My chat",
@@ -109,11 +127,11 @@
     "loading": "Loading people…",
     "failed": "Could not load the people.",
     "pathSeparator": " › ",
-    "sub": "{{path}} · {{state}}"
+    "sub": "{{path}} · {{state}}",
+    "noLevels": "Last level: only people already in it"
   },
   "will": {
     "toTicket": "Goes to the conversation of {{key}}.",
-    "ticketAndThread": "Opens the conversation of {{key}} and, inside it, a thread with {{names}}.",
     "reference": "Stays in this conversation. The assistant reads the cited tickets.",
     "referenceThread": "Stays in this thread. The cited tickets are only a reference.",
     "checking": "Checking the cited tickets…",
@@ -165,5 +183,10 @@
     "discardedBody": "Draft discarded. Nothing was created.",
     "fallbackTitle": "New ticket",
     "newBadge": "new"
+  },
+  "closedBand": {
+    "text": "You closed this conversation",
+    "reopen": "Reopen",
+    "reopenNamed": "Reopen: {{name}}"
   }
 }

@@ -165,7 +165,7 @@ export class TicketConversationsController {
   ): Promise<ConversationDetail> {
     const { conversation: provider } = await this.gate.open(tenant);
     const seen = await tenant.run(async (tx, principal) => {
-      const { conversation } = await this.requireWritable(tx, principal, id);
+      const { conversation } = await this.requireWritable(tx, principal, id, { reopens: true });
       const messages = await tx.ticketConversationMessage.findMany({
         where: { conversationId: id },
         orderBy: { position: "asc" },
@@ -182,7 +182,7 @@ export class TicketConversationsController {
     const turn = await this.drafts.ask(provider, { history, draft: current, groups: seen.groups });
     return tenant.run(async (tx, principal) => {
       await tx.$queryRaw`select 1 from ticket_conversations where id = ${id}::uuid for update`; // serializa turnos concorrentes
-      const { conversation } = await this.requireWritable(tx, principal, id);
+      const { conversation } = await this.requireWritable(tx, principal, id, { reopens: true });
       const count = await tx.ticketConversationMessage.count({ where: { conversationId: id } });
       if (count !== seen.messages.length) {
         throw new ConflictException({
@@ -202,7 +202,7 @@ export class TicketConversationsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(draftBodySchema)) body: z.output<typeof draftBodySchema>,
   ): Promise<ConversationDetail> {
-    const { conversation } = await this.requireWritable(tx, principal, id);
+    const { conversation } = await this.requireWritable(tx, principal, id, { reopens: true });
     await tx.ticketConversation.update({
       where: { orgId_id: { orgId: conversation.orgId, id } },
       data: {
@@ -251,7 +251,7 @@ export class TicketConversationsController {
   ): Promise<z.output<typeof placementOutcomeSchema>> {
     const { judge, affinity, related, namer, embedder, semantic: settings, doubt: doubtConfig } = await this.gate.open(tenant);
     const seen = await tenant.run(async (tx, principal) => {
-      const { conversation } = await this.requireWritable(tx, principal, id);
+      const { conversation } = await this.requireWritable(tx, principal, id, { reopens: true });
       if (conversation.draftTitle === null) throw this.draftRequired();
       const [project, tree] = await Promise.all([
         tx.project.findFirstOrThrow({ where: { id: conversation.projectId }, select: { name: true, key: true } }),
@@ -411,7 +411,7 @@ export class TicketConversationsController {
     try {
       const record = decisionOf(outcome, new Map(snapshot.tickets.map((t) => [t.id, t.number])), extras);
       const withDoubt = await tenant.run(async (tx, principal) => {
-        await this.requireWritable(tx, principal, id);
+        await this.requireWritable(tx, principal, id, { reopens: true });
         return saveDecision(tx, { orgId: principal.organization.orgId, projectId: snapshot.projectId, conversationId: id, record });
       });
       // Banco sem a coluna `triage`: a decisão ficou sem a dúvida e a criação por `search` seria recusada, como se não tivesse sido guardada.
@@ -605,6 +605,8 @@ export class TicketConversationsController {
     if (conversation.status !== "open") {
       throw new ConflictException({ code: "conversation_closed", message: "A conversa já foi encerrada." });
     }
+    // A repetição idempotente (acima) não reabre; quem de fato cria o ticket volta a ver a thread de criação.
+    await this.threads.reopen(tx, principal, id);
     if (conversation.draftTitle === null) throw this.draftRequired();
     // ADR 0054 (adendo): `search` só vale para o destino confirmado da última procura guardada para este rascunho; as outras escolhas são da pessoa.
     if (body.placedBy === "search") await this.requireConfirmedSearch(tx, id, conversation, body.parentId);
@@ -882,13 +884,17 @@ export class TicketConversationsController {
     return conversation;
   }
 
-  /** Conversa própria, projeto visível e liberado para escrita, e conversa ainda aberta. */
-  private async requireWritable(tx: TenantClient, principal: Principal, id: string) {
+  /**
+   * Conversa própria, projeto visível e liberado para escrita, e conversa ainda aberta. `reopens`: a rota é de quem escreve ou decide
+   * (mensagem, rascunho, destino): a thread de criação que a pessoa fechou volta à barra. Abrir para olhar (`elaboration`) não reabre.
+   */
+  private async requireWritable(tx: TenantClient, principal: Principal, id: string, options: { reopens: boolean } = { reopens: false }) {
     const conversation = await this.findOwn(tx, principal, id);
     const project = await this.drafts.requireWritableProject(tx, principal, conversation.projectId);
     if (conversation.status !== "open") {
       throw new ConflictException({ code: "conversation_closed", message: "A conversa já foi encerrada." });
     }
+    if (options.reopens) await this.threads.reopen(tx, principal, id);
     return { conversation, project };
   }
 

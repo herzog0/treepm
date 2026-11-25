@@ -26,11 +26,11 @@ describe("o convidado e a linha do ticket sem conversa", () => {
     const view = await panel();
     await waitFor(() => expect(client.getTicketConversationView).toHaveBeenCalled());
     expect(client.openTicketConversation).not.toHaveBeenCalled();
-    expect(await within(view).findByRole("button", { name: /Thread com/ })).toBeInTheDocument();
+    expect(await within(view).findByRole("button", { name: /^Thread com/ })).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/segredo|secreta|Bia, olha/);
     // Só o cartão da thread dele: nenhuma mensagem de cima, nenhum "Carregar anteriores".
     expect(within(view).queryByRole("button", { name: "Carregar mensagens anteriores" })).toBeNull();
-    expect(within(view).getAllByRole("button", { name: /Thread com/ })).toHaveLength(1);
+    expect(within(view).getAllByRole("button", { name: /^Thread com/ })).toHaveLength(1);
   });
 });
 
@@ -43,11 +43,11 @@ describe("o chat geral que ainda não existe", () => {
       },
     });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
+    await user.click(await screen.findByRole("button", { name: /^Meu chat/ }));
     const view = await panel();
-    expect(await within(view).findByRole("button", { name: /Thread com Bia/ })).toBeInTheDocument();
+    expect(await within(view).findByRole("button", { name: /^Thread com Bia/ })).toBeInTheDocument();
     expect(client.openGeneralConversation).not.toHaveBeenCalled();
-    await user.click(within(view).getByRole("button", { name: /Thread com Bia/ }));
+    await user.click(within(view).getByRole("button", { name: /^Thread com Bia/ }));
     expect(await within(await panel()).findByText("me diz")).toBeInTheDocument();
   });
 });
@@ -67,11 +67,11 @@ describe("o que falha na leitura tenta de novo", () => {
     });
     const user = userEvent.setup();
     // Sem saber quem é, a barra nomeia a primeira pessoa da thread, que é a própria.
-    expect(await screen.findByRole("button", { name: /Thread com Ana/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^Thread com Ana/ })).toBeInTheDocument();
     meDown = false;
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: /Thread com Ana/ })).toBeNull());
-    expect(screen.getAllByRole("button", { name: /Thread com Bia/ }).length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Thread com Ana/ })).toBeNull());
+    expect(screen.getAllByRole("button", { name: /^Thread com Bia/ }).length).toBeGreaterThan(0);
     expect(vi.mocked(client.getMe).mock.calls.length).toBeGreaterThan(1);
   });
 
@@ -79,12 +79,12 @@ describe("o que falha na leitura tenta de novo", () => {
     const { client } = renderChats({ seed: (c) => void c.seedGeneral([{ person: "oi", assistant: "olá" }]) });
     vi.mocked(client.listTickets).mockResolvedValueOnce({ ok: false, error: { kind: "unavailable" } } as ApiResult<never>);
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
+    await user.click(await screen.findByRole("button", { name: /^Meu chat/ }));
     await write("Como está o #");
     expect(await screen.findByText("Não foi possível carregar os tickets.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Tentar de novo" }));
     typeInComposer("ALFA-1");
-    expect(await within(screen.getByRole("listbox", { name: "Tickets" })).findByRole("option", { name: /ALFA-1/ })).toBeInTheDocument();
+    expect(await within(screen.getByRole("listbox", { name: "Tickets" })).findByRole("option", { name: /^ALFA-1/ })).toBeInTheDocument();
   });
 
   it("uma leitura atrasada (e velha) não sobrescreve uma mais nova", async () => {
@@ -139,7 +139,7 @@ describe("o cabeçalho de uma thread sem ticket", () => {
       },
     });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Thread com Bia/ }));
+    await user.click(await screen.findByRole("button", { name: /^Thread com Bia/ }));
     const view = await panel();
     await within(view).findByRole("navigation", { name: "Onde você está" });
     expect(view.querySelector(".chat-header .chat-ticket-title")).toHaveTextContent("Meu chat");

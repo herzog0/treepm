@@ -6,7 +6,7 @@ import { setTestLanguage } from "../test/i18n.js";
 import { ALFA2, renderChats } from "./chatTesting.js";
 import { linkOf, mention } from "./mentionTesting.js";
 import type { ChatSetup } from "./chatTesting.js";
-import { composerNow, composerShown, fillComposer, typeInComposer } from "./composerTesting.js";
+import { composerNow, composerShown, fillComposer, pressInComposer, typeInComposer, newThreadHead } from "./composerTesting.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -101,9 +101,10 @@ describe("mentions", () => {
     await user.click(within(picker).getByRole("option", { name: "Bia" }));
     expect(screen.queryByRole("listbox", { name: "Pessoas" })).toBeNull();
     expect(field()).toHaveFocus();
-    expect(screen.getByRole("button", { name: "Remover menção a Bia" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Remover menção a Bia" }));
-    expect(screen.queryByRole("button", { name: "Remover menção a Bia" })).toBeNull();
+    expect(newThreadHead()).toHaveTextContent("Bia");
+    pressInComposer("Backspace");
+    if (newThreadHead() !== null) pressInComposer("Backspace");
+    expect(newThreadHead()?.textContent ?? "").not.toContain("Bia");
   });
 
   it("in a private project only people who see it can be chosen; the others show dimmed, with the reason", async () => {
@@ -134,11 +135,11 @@ describe("mentions", () => {
     await mention("Bia");
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
     await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledWith(chat.principalOf("t1")!, { body: `Bia, pode olhar? ${linkOf("person-2", "Bia")}`, mentions: ["person-2"] }, expect.anything()));
-    expect(await within(panel()).findByRole("button", { name: /Thread com Bia/ })).toBeInTheDocument();
+    expect(await within(panel()).findByRole("button", { name: /^Thread com Bia/ })).toBeInTheDocument();
     expect(chat.conversationOf("t1").filter((message) => message.authorId === null)).toHaveLength(0);
     expect(screen.queryByText("Resposta do assistente.")).toBeNull();
     expect(composerShown()).toBe("");
-    expect(screen.queryByRole("button", { name: /Remover menção/ })).toBeNull();
+    expect(newThreadHead()).toBeNull();
   });
 
   it("never searches the text for names: a pasted \"@Bia\" stays text and goes to the assistant without mentions", async () => {
@@ -160,7 +161,7 @@ describe("mentions", () => {
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Alguém marcado não pode participar desta conversa");
     expect(composerShown()).toBe("Oi @Caio ");
-    expect(screen.getByRole("button", { name: "Remover menção a Caio" })).toBeInTheDocument();
+    expect(newThreadHead()).toHaveTextContent("Caio");
   });
 });
 
@@ -201,7 +202,7 @@ describe("failures talking to the assistant", () => {
     await mention("Bia");
     expect(composerShown()).toBe("Oi assistente @Bia ");
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
-    expect(await within(panel()).findByRole("button", { name: /Thread com Bia/ })).toBeInTheDocument();
+    expect(await within(panel()).findByRole("button", { name: /^Thread com Bia/ })).toBeInTheDocument();
     expect(chat.conversationOf("t1").filter((message) => message.authorId === null)).toHaveLength(0);
   });
 
@@ -278,7 +279,7 @@ describe("reading", () => {
   it("opening a thread marks it as read up to its newest reply", async () => {
     const user = userEvent.setup();
     const { client } = renderChats({ seed: (chat) => chat.receiveThread("t1", { from: "person-2", body: "Raiz", replies: [{ from: "person-2", body: "Resposta" }] }) });
-    await user.click(await screen.findByRole("button", { name: /Thread com Bia/ }));
+    await user.click(await screen.findByRole("button", { name: /^Thread com Bia/ }));
     await within(panel()).findByText("Resposta");
     await waitFor(() => expect(client.markConversationRead).toHaveBeenCalledWith(expect.any(String), { upTo: "c2" }));
   });

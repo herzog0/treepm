@@ -93,15 +93,15 @@ describe("conversa pela barra, 1440×900", () => {
     expect(rowOf("ALFA-1").getAttribute("aria-current")).toBe("true");
   });
 
-  it("mostra o aviso 'Esta mensagem abre uma thread com…' só quando alguém é marcado", async () => {
+  it("mostra o cabeçalho 'Nova thread · com …' só quando alguém de fora é marcado (ADR 0059)", async () => {
     await page.viewport(1440, 900);
     await mountConversations({ seed: (chat) => chat.seedConversation("t1", [{ person: "oi", assistant: "olá" }]) });
     await openRow("ALFA-1");
     await userEvent.fill(page.getByRole("combobox", { name: "Mensagem" }), "Bia, olha");
-    expect(q(".chat-thread-notice")?.textContent).toBe("");
+    expect(q(".chat-newthread-head")).toBeNull();
     await userEvent.keyboard("{Home}@");
     await page.getByRole("listbox", { name: "Pessoas" }).getByRole("option", { name: "Bia Nogueira" }).click();
-    await poll(() => q(".chat-thread-notice")?.textContent ?? "").toContain("abre uma thread com Bia Nogueira");
+    await poll(() => q(".chat-newthread-head")?.textContent ?? "").toContain("com Bia Nogueira");
   });
 });
 
@@ -181,8 +181,9 @@ describe("contraste dos textos novos (tema escuro, o único do app), mínimo 4.5
     await page.getByRole("listbox", { name: "Pessoas" }).getByRole("option", { name: "Caio" }).click();
     // O item da pessoa já está no campo (ADR 0058): o texto continua depois dele, sem trocar o conteúdo.
     await userEvent.keyboard("Caio, e você?");
-    await poll(() => q(".chat-thread-notice")).not.toBeNull();
-    expectContrast(".chat-thread-notice");
+    await poll(() => q(".chat-newthread-head")).not.toBeNull();
+    expectContrast(".chat-newthread-head");
+    expectContrast(".chat-newthread-head span");
   });
 
   it("o aviso do último nível ('levels note') tem contraste", async () => {

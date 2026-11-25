@@ -46,9 +46,9 @@ export function conversationRoutes(app: INestApplication): string[] {
   return out.sort();
 }
 /** Rotas que recebem o id de uma conversa: quem não participa recebe 404. */
-const BY_ID = ["GET /conversations/:id", "POST /conversations/:id/messages", "POST /conversations/:id/participants", "POST /conversations/:id/read", "DELETE /conversations/:id/messages"];
+const BY_ID = ["GET /conversations/:id", "POST /conversations/:id/messages", "POST /conversations/:id/participants", "POST /conversations/:id/read", "DELETE /conversations/:id/messages", "POST /conversations/:id/close", "POST /conversations/:id/reopen"];
 /** Rotas "minhas": só devolvem o que é da própria pessoa. */
-const MINE = ["GET /conversations", "POST /conversations/general", "GET /tickets/:ticketId/conversation", "POST /tickets/:ticketId/conversation"];
+const MINE = ["GET /conversations", "GET /conversations/closed", "POST /conversations/general", "GET /tickets/:ticketId/conversation", "POST /tickets/:ticketId/conversation"];
 
 type Call = ReturnType<Harness["call"]>;
 /** Uma sondagem por rota por id: a lista de rotas enumerada tem de ter exatamente estas chaves, ou o teste falha. */
@@ -58,10 +58,13 @@ const PROBES: Record<string, (h: Harness, id: string, who: Who | "target", reade
   "POST /conversations/:id/participants": (h, id, who, reader) => h.call("POST", `/api/conversations/${id}/participants`, as(who), { personIds: [reader] }),
   "POST /conversations/:id/read": (h, id, who) => h.call("POST", `/api/conversations/${id}/read`, as(who), {}),
   "DELETE /conversations/:id/messages": (h, id, who) => h.call("DELETE", `/api/conversations/${id}/messages`, as(who)),
+  "POST /conversations/:id/close": (h, id, who) => h.call("POST", `/api/conversations/${id}/close`, as(who)),
+  "POST /conversations/:id/reopen": (h, id, who) => h.call("POST", `/api/conversations/${id}/reopen`, as(who)),
 };
 /** Uma sondagem por rota "minha": devolvem só o que é da própria pessoa. */
 const MINE_PROBES: Record<string, (h: Harness, who: Who | "target", ticket: string) => Call> = {
   "GET /conversations": (h, who) => h.call("GET", "/api/conversations", as(who)),
+  "GET /conversations/closed": (h, who) => h.call("GET", "/api/conversations/closed", as(who)),
   "POST /conversations/general": (h, who) => h.call("POST", "/api/conversations/general", as(who)),
   "GET /tickets/:ticketId/conversation": (h, who, ticket) => h.call("GET", `/api/tickets/${ticket}/conversation`, as(who)),
   "POST /tickets/:ticketId/conversation": (h, who, ticket) => h.call("POST", `/api/tickets/${ticket}/conversation`, as(who)),

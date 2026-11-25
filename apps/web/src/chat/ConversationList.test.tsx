@@ -10,7 +10,7 @@ const level = (row: HTMLElement) => row.style.getPropertyValue("--conv-level");
 describe("the conversations tree in the sidebar", () => {
   it("shows @Name, never the raw person link, in the preview and in the label", async () => {
     renderChats({ seed: (chat) => chat.receiveThread("t1", { from: "person-2", body: `Oi ${personLink("person-3", "Caio")}, olha isto`, replies: [] }) });
-    await screen.findByRole("button", { name: /ALFA-1/ });
+    await screen.findByRole("button", { name: /^ALFA-1/ });
     const text = document.body.textContent ?? "";
     expect(text).toContain("@Caio");
     expect(text).not.toContain("person:");
@@ -27,12 +27,12 @@ describe("the conversations tree in the sidebar", () => {
 
   it("shows one row per ticket with the key before the title, the unread count and the unread rows in bold", async () => {
     renderChats({ tickets: [ALFA1, ALFA2], seed: (chat) => chat.receiveThread("t2", { from: "person-2", body: "Olha isto", replies: [{ from: "person-2", body: "e isto" }] }) });
-    const second = await screen.findByRole("button", { name: /ALFA-2/ });
+    const second = await screen.findByRole("button", { name: /^ALFA-2/ });
     expect(second.querySelector(".conv-title")!.textContent).toBe("ALFA-2 Publicar a versão");
-    const thread = await screen.findByRole("button", { name: /Thread com Bia/ });
+    const thread = await screen.findByRole("button", { name: /^Thread com Bia/ });
     expect(within(thread).getByText("2 não lidas")).toBeInTheDocument();
     expect(thread).toHaveClass("is-unread");
-    const first = screen.getByRole("button", { name: /ALFA-1/ });
+    const first = screen.getByRole("button", { name: /^ALFA-1/ });
     expect(within(first).getByRole("img", { name: "Você é responsável" })).toBeInTheDocument();
     expect(first).not.toHaveTextContent("Responsável");
     expect(first).not.toHaveClass("is-unread");
@@ -47,15 +47,15 @@ describe("the conversations tree in the sidebar", () => {
         chat.openThreadIn(first, { from: "person-2", body: "Caio, e você?", to: ["person-3"] });
       },
     });
-    const ticket = await screen.findByRole("button", { name: /ALFA-1/ });
-    const first = await screen.findByRole("button", { name: /Thread com Bia(?! \+)/ });
-    const second = await screen.findByRole("button", { name: /Thread com Bia \+1/ });
+    const ticket = await screen.findByRole("button", { name: /^ALFA-1/ });
+    const first = await screen.findByRole("button", { name: /^Thread com Bia(?! \+)/ });
+    const second = await screen.findByRole("button", { name: /^Thread com Bia \+1/ });
     expect(level(ticket)).toBe("0");
     expect(level(first)).toBe("1");
     expect(level(second)).toBe("2");
     // A thread de dentro mora na lista da thread de cima, que mora na lista do ticket.
-    expect(second.closest("ul")!.closest("li")!.querySelector(":scope > button")).toBe(first);
-    expect(first.closest("ul")!.closest("li")!.querySelector(":scope > button")).toBe(ticket);
+    expect(second.closest("ul")!.closest("li")!.querySelector(":scope > .conv-line > button.conv-row")).toBe(first);
+    expect(first.closest("ul")!.closest("li")!.querySelector(":scope > .conv-line > button.conv-row")).toBe(ticket);
   });
 
   it("stops growing the indentation after the fifth level (the tree can be deeper than ten)", async () => {
@@ -65,29 +65,29 @@ describe("the conversations tree in the sidebar", () => {
         for (let depth = 1; depth <= 8; depth++) parent = chat.openThreadIn(parent, { from: "person-1", body: `nível ${depth}`, to: ["person-2"] });
       },
     });
-    await screen.findByRole("button", { name: /ALFA-1/ });
-    await screen.findAllByRole("button", { name: /Thread com Bia/ });
+    await screen.findByRole("button", { name: /^ALFA-1/ });
+    await screen.findAllByRole("button", { name: /^Thread com Bia/ });
     const levels = rowsOf().filter((row) => /Thread/.test(row.textContent ?? "")).map(level);
     expect(levels).toEqual(["1", "2", "3", "4", "5", "5", "5", "5"]);
   });
 
   it("paints the dot with the situation of the ticket", async () => {
     renderChats({ tickets: [{ ...ALFA1, status: "in_progress" }, { ...ALFA2, assignedToMe: true, status: "todo", blocked: true }] });
-    const doing = (await screen.findByRole("button", { name: /ALFA-1/ })).querySelector<HTMLElement>(".conv-dot")!;
-    const blocked = screen.getByRole("button", { name: /ALFA-2/ }).querySelector<HTMLElement>(".conv-dot")!;
+    const doing = (await screen.findByRole("button", { name: /^ALFA-1/ })).querySelector<HTMLElement>(".conv-dot")!;
+    const blocked = screen.getByRole("button", { name: /^ALFA-2/ }).querySelector<HTMLElement>(".conv-dot")!;
     expect(doing.style.background).toBe("var(--tp-doing)");
     expect(blocked.style.background).toBe("var(--tp-blocked)");
   });
 
   it("marks the same color on the thread row as on its card (stable by the thread id)", async () => {
     renderChats({ seed: (chat) => chat.receiveThread("t2", { from: "person-2", body: "Olha isto" }) });
-    const row = await screen.findByRole("button", { name: /Thread com Bia/ });
+    const row = await screen.findByRole("button", { name: /^Thread com Bia/ });
     expect(row.querySelector<HTMLElement>(".conv-thread-mark")!.style.background).toMatch(/^var\(--tp-thread-[1-6]\)$/);
   });
 
   it("totals the conversations with unread messages in the section header, and says nothing when there is none", async () => {
     renderChats({ tickets: [ALFA1, ALFA2] });
-    await screen.findByRole("button", { name: /ALFA-1/ });
+    await screen.findByRole("button", { name: /^ALFA-1/ });
     expect(document.querySelector(".conv-section-total")).toBeNull();
     cleanup();
     renderChats({
@@ -103,20 +103,20 @@ describe("the conversations tree in the sidebar", () => {
   it("opens the conversation of the row and marks that row as the current one", async () => {
     renderChats({ seed: (chat) => chat.seedConversation("t1", [{ person: "oi", assistant: "olá" }]) });
     const user = userEvent.setup();
-    const row = await screen.findByRole("button", { name: /ALFA-1/ });
+    const row = await screen.findByRole("button", { name: /^ALFA-1/ });
     expect(row).not.toHaveAttribute("aria-current");
     await user.click(row);
     expect(await screen.findByRole("complementary", { name: "Conversa" })).toBeVisible();
     expect(row).toHaveAttribute("aria-current", "true");
-    expect(screen.getByRole("button", { name: /Meu chat/ })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("button", { name: /^Meu chat/ })).not.toHaveAttribute("aria-current");
   });
 
   it("clicking a row that has no conversation yet only reads: no conversation is created, nothing is marked as read", async () => {
     const { client } = renderChats();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
+    await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
     expect(await screen.findByRole("complementary", { name: "Conversa" })).toBeVisible();
-    await user.click(screen.getByRole("button", { name: /Meu chat/ }));
+    await user.click(screen.getByRole("button", { name: /^Meu chat/ }));
     expect(client.getTicketConversationView).toHaveBeenCalled();
     expect(client.openTicketConversation).not.toHaveBeenCalled();
     expect(client.openGeneralConversation).not.toHaveBeenCalled();
@@ -128,8 +128,8 @@ describe("the conversations tree in the sidebar", () => {
   it("moves between all the rows with the arrows, and Enter opens the focused row", async () => {
     renderChats({ seed: (chat) => chat.receiveThread("t2", { from: "person-2", body: "Olha isto" }) });
     const user = userEvent.setup();
-    const [general] = [await screen.findByRole("button", { name: /Meu chat/ })];
-    await screen.findByRole("button", { name: /Thread com Bia/ });
+    const [general] = [await screen.findByRole("button", { name: /^Meu chat/ })];
+    await screen.findByRole("button", { name: /^Thread com Bia/ });
     general.focus();
     await user.keyboard("{ArrowDown}");
     expect(rowsOf()[1]).toHaveFocus();
@@ -152,12 +152,12 @@ describe("the conversations tree in the sidebar", () => {
         chat.openThreadIn(first, { from: "person-2", body: "Caio, e você?", to: ["person-3"], replies: [{ from: "person-2", body: "resposta do Bia" }] });
       },
     });
-    const thread = await screen.findByRole("button", { name: /Thread com/ });
+    const thread = await screen.findByRole("button", { name: /^Thread com/ });
     const rows = rowsOf().map((row) => row.textContent);
     expect(rows).toHaveLength(3); // chat geral, o ticket e a thread dele
     expect(level(thread)).toBe("1");
     expect(thread).toHaveTextContent("resposta do Bia");
-    const ticket = screen.getByRole("button", { name: /ALFA-1/ });
+    const ticket = screen.getByRole("button", { name: /^ALFA-1/ });
     expect(ticket).toHaveTextContent(/^ALFA-1 Corrigir o login/);
     expect(ticket).not.toHaveTextContent(/segredo|secreta|Bia, olha/);
     expect(document.body).not.toHaveTextContent(/segredo|secreta|Bia, olha/);

@@ -760,6 +760,8 @@ model ConversationParticipant {
   addedByPersonId String?  @map("added_by_person_id") @db.Uuid
   /// Tudo com `seq` até aqui já foi lido por esta pessoa nesta conversa
   lastReadSeq     BigInt   @default(0) @map("last_read_seq")
+  /// A pessoa fechou a conversa quando a última mensagem dela tinha este `seq` (nulo = aberta); volta sozinha com mensagem de outro depois disso (ADR 0059)
+  closedSeq       BigInt?  @map("closed_seq")
   addedAt         DateTime @default(now()) @map("added_at") @db.Timestamptz(3)
 
   organization Organization @relation(fields: [orgId], references: [orgId])

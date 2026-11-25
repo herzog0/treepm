@@ -24,6 +24,11 @@ export class CreationThreads {
     return this.conversations.creationThreadExists(tx, ticketConversationId);
   }
 
+  /** A pessoa agiu no rascunho: a thread dele, se ela a tinha fechado, volta à barra. */
+  reopen(tx: TenantClient, principal: Principal, ticketConversationId: string): Promise<void> {
+    return this.conversations.reopenCreationOf(tx, principal.person.id, ticketConversationId);
+  }
+
   copyToTicket(tx: TenantClient, principal: Principal, input: { ticketConversationId: string; ticketId: string }): Promise<void> {
     return this.conversations.copyCreationToTicket(tx, principal, input);
   }

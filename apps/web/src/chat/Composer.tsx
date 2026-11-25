@@ -1,14 +1,15 @@
 import { useId, useMemo } from "react";
 import type { RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { personIdsIn } from "@treepm/domain";
+import { personIdsIn, scanPersonLinks } from "@treepm/domain";
 import type { Person, TicketSummary } from "../api/client.js";
 import { formatNumber } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import type { TicketPool } from "./ChatsContext.js";
 import { ComposerEditor } from "./ComposerEditor.js";
-import type { ComposerHandle } from "./ComposerEditor.js";
 import { TestBadge } from "../people/TestBadge.js";
+import type { ComposerHandle } from "./ComposerEditor.js";
+import { Initials } from "./MessageText.js";
 
 /** Limite da API (`body`, 1 a 4.000) e onde o contador aparece. */
 export const CHAT_BODY_MAX = 4000;
@@ -20,11 +21,27 @@ export interface Draft {
   mentions: string[];
 }
 
+const NO_PEOPLE: readonly string[] = [];
+/** "Alice e Bob": a lista de nomes no idioma da tela. */
+const listOf = (language: string, names: readonly string[]): string => new Intl.ListFormat(language, { style: "long", type: "conjunction" }).format(names);
+
 const SendIcon = () => (
   <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
   </svg>
 );
+
+/** A thread que a mensagem vai abrir (ADR 0059): quando alguma pessoa marcada não participa da conversa, o campo mostra a thread que vai nascer. */
+export interface NewThread {
+  /** O ticket citado no Meu chat (`TREEPM-88`): o cabeçalho diz "Nova thread em TREEPM-88". */
+  ticketKey: string | null;
+  /** Quem vai participar, para os avatares: quem já estava na conversa e quem foi marcado. */
+  members: readonly { id: string; name: string }[];
+  /** As pessoas de fora marcadas (o "com Carla"). */
+  outsiders: readonly { id: string; name: string; isTest?: boolean }[];
+  /** Quem já estava na conversa além da própria pessoa ("Alice e Bob entram junto"). */
+  joining: readonly { id: string; name: string }[];
+}
 
 interface ComposerProps {
   /** Nome acessível do campo: "Mensagem" no chat, "Responder na thread" na thread. */
@@ -33,7 +50,7 @@ interface ComposerProps {
   draft: Draft;
   onDraft: (draft: Draft) => void;
   /** Quem se pode procurar no `@`: quem não pode ser marcado aqui (não enxerga o projeto do ticket) vem com `blocked`. */
-  people: readonly { person: Person; blocked: boolean }[];
+  people: readonly { person: Person; blocked: boolean; reason?: "project" | "levels" }[];
   peopleStatus: "loading" | "ready" | "error";
   /** Os tickets que a pessoa enxerga, para o `#`; `onNeedTickets` pede que carreguem e `onRetryTickets` tenta de novo. */
   tickets: TicketPool;
@@ -48,8 +65,10 @@ interface ComposerProps {
   thread: boolean;
   /** Marcar alguém abre uma thread aqui dentro; falso no último nível (o `@` não abre o seletor, e a nota explica). */
   canOpenThread: boolean;
-  /** A linha acima do botão que diz o que vai acontecer ao enviar; `null` quando não há nada a dizer. */
+  /** A linha acima do botão que diz o que vai acontecer ao enviar (a mensagem vai para o ticket, o assistente lê os tickets citados); `null` quando não há nada a dizer. */
   notice: string | null;
+  /** A thread que a mensagem vai abrir, ou `null` quando é uma mensagem comum. */
+  newThread: NewThread | null;
   /** Há uma mensagem ao assistente esperando a resposta (não impede abrir thread). */
   assistantBusy: boolean;
   /** Há uma mensagem de thread sendo enviada. */
@@ -76,7 +95,7 @@ function pathOf(ticket: TicketSummary, byId: ReadonlyMap<string, TicketSummary>,
  * colados ao ponto do texto (ADR 0056); a pessoa marcada fica no meio do texto como item indivisível (ADR 0058), e a faixa "vai participar"
  * mostra as mesmas pessoas: o documento é a fonte única.
  */
-export function Composer({ label, placeholder, draft, onDraft, people, peopleStatus, tickets, projectNames, onNeedTickets, onRetryTickets, names, canAssistant, thread, canOpenThread, notice, assistantBusy, threadBusy, readOnly, refused, fieldRef, onNewTicket, onSend }: ComposerProps) {
+export function Composer({ label, placeholder, draft, onDraft, people, peopleStatus, tickets, projectNames, onNeedTickets, onRetryTickets, names, canAssistant, thread, canOpenThread, notice, newThread, assistantBusy, threadBusy, readOnly, refused, fieldRef, onNewTicket, onSend }: ComposerProps) {
   const { t, i18n } = useTranslation("chat");
   const language = i18n.language as Language;
   const id = useId();
@@ -89,6 +108,19 @@ export function Composer({ label, placeholder, draft, onDraft, people, peopleSta
   const byId = useMemo(() => new Map(tickets.status === "ready" ? Object.values(tickets.byProject).flat().map((ticket) => [ticket.id, ticket] as const) : []), [tickets]);
   const pathOfTicket = (ticket: TicketSummary) => pathOf(ticket, byId, projectNames.get(ticket.projectId) ?? "", t("picker.pathSeparator"));
 
+  // Uma frase por motivo, cada uma com os seus nomes: sem acesso ao projeto, conversa no último nível e recusa do servidor.
+  const refusals = useMemo(() => {
+    const reasonOf = (personId: string) => people.find((entry) => entry.person.id === personId && entry.blocked)?.reason;
+    const ofKind = (match: (personId: string) => boolean) => draft.mentions.filter(match);
+    const noProject = ofKind((personId) => reasonOf(personId) === "project");
+    const noLevel = ofKind((personId) => reasonOf(personId) === "levels");
+    const other = ofKind((personId) => reasonOf(personId) === undefined && refused.includes(personId));
+    return [
+      { kind: "Project" as const, ids: noProject },
+      { kind: "Levels" as const, ids: noLevel },
+      { kind: "Api" as const, ids: other },
+    ].filter((group) => group.ids.length > 0);
+  }, [people, draft.mentions, refused]);
   const canNewTicket = onNewTicket !== undefined && !mentioning && !readOnly && draft.text.trim() !== "" && !over && !assistantBusy;
   const submit = () => {
     if (canSend) onSend(draft);
@@ -96,28 +128,41 @@ export function Composer({ label, placeholder, draft, onDraft, people, peopleSta
 
   return (
     <form
-      className="chat-composer"
+      className={`chat-composer ${newThread !== null ? "is-new-thread" : ""}`}
       onSubmit={(event) => {
         event.preventDefault();
         submit();
       }}
     >
-      {mentioning && (
-        <ul className="chat-pills" aria-label={t("composer.pills")}>
-          {draft.mentions.map((personId) => {
-            const name = names.get(personId) ?? personId;
-            return (
-              <li key={personId} className={refused.includes(personId) || unseen.includes(personId) ? "is-refused" : undefined}>
-                <span>{name}<TestBadge person={people.find((entry) => entry.person.id === personId)?.person} /></span>
-                {(refused.includes(personId) || unseen.includes(personId)) && <small>{unseen.includes(personId) ? t("picker.noProject") : t("composer.refused")}</small>}
-                <button type="button" aria-label={t("composer.removeMention", { name })} onClick={() => fieldRef.current?.removePerson(personId)}>
-                  <svg aria-hidden="true" width="10" height="10" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m3 3 8 8M11 3l-8 8" /></svg>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+      {/* A região existe vazia desde o início e recebe a frase depois: o cabeçalho de baixo é desenho, esta é a leitura dele. */}
+      <p className="chat-visually-hidden" role="status">
+        {newThread !== null ? t("composer.willOpen", { names: listOf(language, newThread.outsiders.map((person) => person.name)) }) : ""}
+      </p>
+      {newThread !== null && (
+        <div className="chat-newthread-head">
+          <svg className="chat-newthread-branch" aria-hidden="true" viewBox="0 0 16 16"><path d="M4 2v7a3 3 0 003 3h6M10 9l3 3-3 3" /></svg>
+          <span>{newThread.ticketKey === null ? t("composer.newThread") : t("composer.newThreadIn", { key: newThread.ticketKey })}</span>
+          <span className="chat-newthread-avatars" aria-hidden="true">
+            {newThread.members.slice(0, 5).map((member) => <Initials key={member.id} name={member.name} />)}
+          </span>
+          <span>{t("composer.with", { names: listOf(language, newThread.outsiders.map((person) => person.name)) })}</span>
+          {newThread.outsiders.filter((person) => person.isTest === true).map((person) => <TestBadge key={person.id} person={person} />)}
+          {newThread.joining.length > 0 && <small>{t("composer.joinAlong", { count: newThread.joining.length, names: listOf(language, newThread.joining.map((person) => person.name)) })}</small>}
+        </div>
       )}
+      {refusals.map((group) => {
+        const nameOf = (personId: string) => names.get(personId) ?? scanPersonLinks(draft.text).find((link) => link.id === personId)?.name ?? "";
+        return (
+          <p key={group.kind} aria-live="polite" className="chat-thread-notice is-refused">
+            <span>{t(`composer.refuse${group.kind}${group.ids.length === 1 ? "One" : "Many"}`, { names: listOf(language, group.ids.map(nameOf)) })}</span>
+            {group.ids.map((personId) => (
+              <button key={personId} type="button" className="chat-text-button" onClick={() => fieldRef.current?.removePerson(personId)}>
+                {t("composer.removeMention", { name: nameOf(personId) })}
+              </button>
+            ))}
+          </p>
+        );
+      })}
       <p className="chat-thread-notice" role="status" aria-label={t("composer.willLabel")}>{notice ?? ""}</p>
       {!canOpenThread && <p id={offId} className="chat-levels-note">{t("composer.noMoreLevels")}</p>}
       <div className="chat-composer-row">
@@ -137,7 +182,7 @@ export function Composer({ label, placeholder, draft, onDraft, people, peopleSta
             pathOf={pathOfTicket}
             onNeedTickets={onNeedTickets}
             onRetryTickets={onRetryTickets}
-            canOpenThread={canOpenThread}
+            outsideIds={newThread === null ? NO_PEOPLE : newThread.outsiders.map((person) => person.id)}
           />
           {draft.text.length >= WARN_AT && (
             <p className={`chat-count ${over ? "is-over" : ""}`}>
@@ -151,7 +196,7 @@ export function Composer({ label, placeholder, draft, onDraft, people, peopleSta
               {t("creation.newTicket")}
             </button>
           )}
-          {mentioning ? (
+          {newThread !== null ? (
             <button type="submit" className="chat-send is-thread" disabled={!canSend}>{t("composer.sendThread")}</button>
           ) : (
             <button type="submit" className="chat-send" aria-label={t("composer.send")} disabled={!canSend}>

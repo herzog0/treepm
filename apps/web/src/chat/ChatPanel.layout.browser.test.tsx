@@ -37,7 +37,7 @@ const rect = (selector: string) => q(selector)!.getBoundingClientRect();
 /** No celular a lista está dentro da gaveta: abre a gaveta antes de escolher a conversa. */
 async function openChat() {
   if (window.innerWidth <= 720) await page.getByRole("button", { name: /^Abrir o menu/ }).click();
-  await page.getByRole("button", { name: /ALFA-1/ }).click();
+  await page.getByRole("button", { name: /^ALFA-1/ }).click();
   await settle();
 }
 

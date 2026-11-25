@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApiResult } from "../api/client.js";
 import { ALFA1, renderChats } from "./chatTesting.js";
 import { mention } from "./mentionTesting.js";
-import { composer, composerShown, typeInComposer } from "./composerTesting.js";
+import { composer, composerShown, newThreadHead, typeInComposer } from "./composerTesting.js";
 
 const panel = () => screen.findByRole("complementary", { name: "Conversa" });
 const refuse = (code: string, details?: Record<string, unknown>, kind = "conflict"): ApiResult<never> =>
@@ -33,7 +33,7 @@ describe("a recusa do servidor tem texto próprio na tela", () => {
     expect(await within(await panel()).findByRole("alert")).toHaveTextContent(text);
     // A mensagem não se perde: continua no campo, com a pessoa marcada.
     expect(composerShown()).toBe("Bia, olha @Bia ");
-    expect(screen.getByText(/abre uma thread com Bia/)).toBeInTheDocument();
+    expect(newThreadHead()).toHaveTextContent(/com Bia/);
     // O texto do cartão não nomeia ninguém.
     if (code === "participant_cannot_view_ticket") expect(document.body).not.toHaveTextContent(/Caio|Duda/);
   });
@@ -51,15 +51,16 @@ describe("a recusa do servidor tem texto próprio na tela", () => {
     expect(alert).toHaveTextContent(/não pode participar desta conversa/);
     // O texto serve a qualquer conversa: não fala de "este ticket".
     expect(alert).not.toHaveTextContent(/este ticket/);
-    const caio = screen.getByText("Caio").closest("li")!;
-    expect(caio).toHaveTextContent("não pode ser marcada aqui");
-    expect(screen.getByText("Bia").closest("li")).not.toHaveTextContent("não pode ser marcada aqui");
+    const refusedLine = document.querySelector<HTMLElement>(".chat-thread-notice.is-refused")!;
+    expect(refusedLine).toHaveTextContent("Caio");
+    expect(refusedLine).toHaveTextContent("não pode ser marcada aqui");
+    expect(refusedLine).not.toHaveTextContent("Bia");
   });
 
   it("mention_not_allowed no chat geral sem ticket também não fala de ticket", async () => {
     const { client } = renderChats({ seed: (c) => void c.seedGeneral([{ person: "oi", assistant: "olá" }]) });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
+    await user.click(await screen.findByRole("button", { name: /^Meu chat/ }));
     await write("oi");
     await mention("Bia");
     vi.mocked(client.sendChatMessage).mockResolvedValueOnce(refuse("mention_not_allowed", { personIds: ["person-2"] }));
@@ -73,7 +74,7 @@ describe("a recusa do servidor tem texto próprio na tela", () => {
   ])("ao incluir pessoas: %s (a janela fica aberta e o foco volta ao botão ao fechar)", async (code, text) => {
     const { client } = renderChats({ seed: ownedThread });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Thread com Bia/ }));
+    await user.click(await screen.findByRole("button", { name: /^Thread com Bia/ }));
     const open = await screen.findByRole("button", { name: "Incluir pessoas" });
     await user.click(open);
     const dialog = await screen.findByRole("dialog", { name: "Incluir pessoas na thread" });
@@ -92,7 +93,7 @@ describe("a recusa do servidor tem texto próprio na tela", () => {
   it("incluir pessoas nunca mostra um id cru quando a pessoa não está no diretório", async () => {
     const { client } = renderChats({ seed: ownedThread });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Thread com Bia/ }));
+    await user.click(await screen.findByRole("button", { name: /^Thread com Bia/ }));
     await user.click(await screen.findByRole("button", { name: "Incluir pessoas" }));
     const dialog = await screen.findByRole("dialog", { name: "Incluir pessoas na thread" });
     await user.click(within(dialog).getByRole("checkbox", { name: "Caio" }));
@@ -222,7 +223,7 @@ describe("thread em projeto arquivado", () => {
   it("avisa que o projeto está arquivado e só deixa ler", async () => {
     renderChats({ tickets: [{ ...ALFA1, archived: true }], seed: ownedThread });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Thread com Bia/ }));
+    await user.click(await screen.findByRole("button", { name: /^Thread com Bia/ }));
     const view = await panel();
     expect(await within(view).findByText("O projeto está arquivado e só aceita leitura.")).toBeInTheDocument();
     expect(within(view).queryByRole("button", { name: "Incluir pessoas" })).toBeNull();

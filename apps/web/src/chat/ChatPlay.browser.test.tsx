@@ -164,7 +164,7 @@ describe("cabeçalho do chat com a página do ticket já aberta (ajuste 3, ADR 0
     await screen.getByRole("button", { name: /ALFA · Projeto Alfa/ }).click();
     await screen.getByRole("button", { name: "Explorar ramo" }).click();
     await settle();
-    await screen.getByRole("button", { name: /ALFA-2 · Publicação/ }).click();
+    await screen.getByRole("button", { name: /^ALFA-2 · Publicação/ }).click();
     await expect.element(screen.getByRole("heading", { level: 1, name: "Publicação" })).toBeVisible();
     await settle();
     // A conversa do ALFA-2 abre antes de medir: o mapa já encolheu e a câmera já se enquadrou na largura que sobra.

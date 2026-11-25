@@ -84,3 +84,11 @@ export const reply = post;
 export const view = (h: Harness, who: Who | "target", conversation: string, query = "") => h.call("GET", `/api/conversations/${conversation}${query}`, as(who));
 export const ticketView = (h: Harness, who: Who | "target", ticket: string, query = "") => h.call("GET", `/api/tickets/${ticket}/conversation${query}`, as(who));
 export const errorCode = (res: { body: { error?: { code: string } } }) => res.body.error?.code;
+
+let extraPeople = 0;
+/** Uma pessoa nova da organização A, administradora (enxerga tudo): para marcar alguém de fora a cada nível sem esgotar o elenco. */
+export async function newOutsider(pool: pg.Pool): Promise<string> {
+  extraPeople += 1;
+  const tag = `extra${extraPeople}_${Date.now()}`;
+  return (await pool.query<{ id: string }>("insert into people (org_id, clerk_user_id, display_name, email, clerk_role) values ('org_A',$1,$2,$3,'admin') returning id", [`u_${tag}`, `Nome ${tag}`, `${tag}@exemplo.test`])).rows[0]!.id;
+}

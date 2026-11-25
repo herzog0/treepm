@@ -26,6 +26,31 @@
 .conv-section-head { display: flex; align-items: center; gap: 8px; padding: 18px 24px 8px; color: var(--tp-side-text-3); }
 .conv-section-head h2 { flex: 1; margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .conv-section-total { color: var(--tp-side-text); font-size: 11px; font-weight: 600; }
+/* Fechar (ADR 0059): o × mora sobre a hora, aparece ao passar o mouse e ao focar a linha pelo teclado, e não desloca o título. */
+.conv-line { position: relative; }
+.conv-close { position: absolute; top: 6px; right: 8px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 1px solid var(--tp-side-text-3); border-radius: 6px; background: var(--tp-side-hover); color: var(--tp-side-strong); cursor: pointer; opacity: 0; pointer-events: none; }
+.conv-line:hover .conv-close, .conv-line:focus-within .conv-close { opacity: 1; pointer-events: auto; }
+/* A hora e o contador somem por inteiro (sem deslocar o título): o × ocupa o lugar deles, sem cobrir só parte de nada. */
+.conv-line:hover :is(.conv-time, .conv-aside), .conv-line:focus-within :is(.conv-time, .conv-aside) { visibility: hidden; }
+.conv-close:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
+/* O aviso fica sempre à vista, no pé da área que rola; a região de leitura existe vazia e recebe o aviso. */
+.conv-toast-region { position: sticky; bottom: 0; z-index: 2; background: var(--tp-side-bg, inherit); }
+.conv-toast-region:empty { display: none; }
+.conv-toast { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 12px 4px; padding: 9px 12px; border: 1px solid var(--tp-side-text-3); border-radius: 10px; background: var(--tp-side-hover); color: var(--tp-side-strong); font-size: 13px; }
+.conv-toast button { min-height: 28px; padding: 0 6px; border: 0; background: transparent; color: var(--tp-accent-soft); font: inherit; font-weight: 700; cursor: pointer; }
+.conv-closed { margin: 8px 12px 0; border-top: 1px solid var(--tp-side-hover); padding-top: 4px; }
+.conv-closed-toggle { display: inline-flex; min-height: 32px; align-items: center; padding: 4px 12px; border: 0; border-radius: var(--tp-radius-field); background: transparent; color: var(--tp-accent-soft); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.conv-closed-toggle:hover { background: var(--tp-side-hover); }
+.conv-closed-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.conv-closed-row { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 2px 12px; color: var(--tp-side-text-2); font-size: 13px; }
+.conv-closed-row { flex-wrap: wrap; }
+.conv-closed-open { display: flex; flex: 1; flex-direction: column; min-width: 0; align-items: flex-start; padding: 2px 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.conv-closed-open:hover .conv-closed-title { text-decoration: underline; }
+.conv-closed-title { max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-closed-context, .conv-closed-hint { color: var(--tp-side-text-3); font-size: 12px; }
+.conv-closed-hint { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-closed-row .conv-hint { flex-basis: 100%; padding: 0 0 4px; }
+.conv-closed-row .chat-text-button { flex: none; }
 .conv-hint { margin: 0; padding: 4px 24px 12px; color: var(--tp-side-text-3); font-size: 12.5px; }
 .conv-list, .conv-children { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .conv-list { padding: 0 12px 8px; }
@@ -67,9 +92,20 @@
 @media (max-width: 720px) {
   .sidebar-new, .sidebar-search, .sidebar .app-nav a, .conv-row { min-height: 44px; }
   .sidebar-settings { width: 44px; height: 44px; }
+  /* Sem mouse não há hover: o × fica sempre à vista, com alvo de 44 px, e a linha cede o espaço dele. */
+  .conv-line { padding-right: 44px; }
+  .conv-close { top: 0; right: 0; width: 44px; height: 44px; border: 0; background: transparent; opacity: 1; pointer-events: auto; }
+  .conv-line:hover :is(.conv-time, .conv-aside), .conv-line:focus-within :is(.conv-time, .conv-aside) { visibility: visible; }
   .conv-time, .conv-key, .conv-badge, .conv-preview, .conv-section-head h2, .conv-section-total, .sidebar-search kbd { font-size: 12px; }
   .sidebar-account .cl-userButtonTrigger { min-width: 44px; min-height: 44px; }
   .sidebar-org .cl-organizationSwitcherTrigger { min-height: 44px; }
+}
+
+/* Tela de toque larga: sem hover o × também fica sempre à vista, como até 720 px. */
+@media (hover: none) {
+  .conv-line { padding-right: 44px; }
+  .conv-close { top: 0; right: 0; width: 44px; height: 44px; border: 0; background: transparent; opacity: 1; pointer-events: auto; }
+  .conv-line:hover :is(.conv-time, .conv-aside), .conv-line:focus-within :is(.conv-time, .conv-aside) { visibility: visible; }
 }
 
 /* A thread de criação (ADR 0056): "+" em contorno tracejado amarelo e o selo do estado, sempre dito por palavra (não só por cor). */

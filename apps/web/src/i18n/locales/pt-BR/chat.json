@@ -11,7 +11,16 @@
     "unread_one": "{{count}} não lida",
     "unread_many": "{{count}} não lidas",
     "unread_other": "{{count}} não lidas",
-    "assignedHint": "Você é responsável"
+    "assignedHint": "Você é responsável",
+    "close": "Fechar conversa: {{name}}",
+    "undo": "Desfazer",
+    "closedSection": "Fechadas ({{count}})",
+    "closedLabel": "Conversas fechadas",
+    "reopen": "Reabrir",
+    "closeFailed": "Não foi possível fechar a conversa.",
+    "reopenNamed": "Reabrir: {{name}}",
+    "closedNotice": "Conversa fechada.",
+    "closedNoticeMany": "{{count}} conversas fechadas."
   },
   "chat": {
     "openTicket": "Abrir o ticket {{key}}, {{title}}",
@@ -53,23 +62,33 @@
     "unread_many": "{{count}} não lidas",
     "unread_other": "{{count}} não lidas",
     "reply": "Responder na thread",
-    "replyPlaceholder": "Responda para quem participa da thread, ou use @ para abrir outra thread",
+    "replyPlaceholder": "Responda para quem participa da thread, ou use @ para chamar alguém",
     "opened": "Thread aberta."
   },
   "composer": {
     "label": "Mensagem",
     "placeholder": "Fale com o assistente, use @ para chamar alguém ou # para citar um ticket",
-    "placeholderThreads": "Use @ para abrir uma thread com outras pessoas",
+    "placeholderThreads": "Use @ para chamar alguém: quem não está na conversa abre uma thread",
     "send": "Enviar",
     "sendThread": "Abrir thread",
-    "pills": "Pessoas mencionadas",
-    "removeMention": "Remover menção a {{name}}",
-    "refused": "não pode ser marcada aqui",
     "count": "{{length}} de {{max}}",
     "over": "{{length}} de {{max}}: passou do limite",
-    "opensThread": "Esta mensagem abre uma thread com {{names}}. Quem já está nesta conversa também participa.",
-    "noMoreLevels": "Esta conversa está no último nível: não dá para abrir outra thread aqui dentro.",
-    "willLabel": "O que vai acontecer"
+    "noMoreLevels": "Esta conversa está no último nível: aqui só dá para marcar quem já participa.",
+    "willLabel": "O que vai acontecer",
+    "newThread": "Nova thread",
+    "newThreadIn": "Nova thread em {{key}}",
+    "with": "com {{names}}",
+    "joinAlong_one": "{{names}} entra junto",
+    "joinAlong_many": "{{names}} entram junto",
+    "joinAlong_other": "{{names}} entram junto",
+    "refuseProjectOne": "{{names}} não enxerga o projeto deste ticket.",
+    "refuseProjectMany": "{{names}} não enxergam o projeto deste ticket.",
+    "refuseLevelsOne": "{{names}} não participa desta conversa, e ela está no último nível.",
+    "refuseLevelsMany": "{{names}} não participam desta conversa, e ela está no último nível.",
+    "refuseApiOne": "{{names}} não pode ser marcada aqui.",
+    "refuseApiMany": "{{names}} não podem ser marcadas aqui.",
+    "removeMention": "Tirar {{name}}",
+    "willOpen": "Esta mensagem abre uma thread com {{names}}."
   },
   "row": {
     "general": "Meu chat",
@@ -112,11 +131,11 @@
     "loading": "Carregando as pessoas…",
     "failed": "Não foi possível carregar as pessoas.",
     "pathSeparator": " › ",
-    "sub": "{{path}} · {{state}}"
+    "sub": "{{path}} · {{state}}",
+    "noLevels": "Último nível: só quem já participa"
   },
   "will": {
     "toTicket": "Vai para a conversa do {{key}}.",
-    "ticketAndThread": "Abre a conversa do {{key}} e, dentro dela, uma thread com {{names}}.",
     "reference": "Fica nesta conversa. O assistente lê os tickets citados.",
     "referenceThread": "Fica nesta thread. Os tickets citados são só referência.",
     "checking": "Conferindo os tickets citados…",
@@ -168,5 +187,10 @@
     "discardedBody": "Rascunho descartado. Nada foi criado.",
     "fallbackTitle": "Novo ticket",
     "newBadge": "novo"
+  },
+  "closedBand": {
+    "text": "Você fechou esta conversa",
+    "reopen": "Reabrir",
+    "reopenNamed": "Reabrir: {{name}}"
   }
 }

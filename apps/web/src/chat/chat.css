@@ -10,7 +10,7 @@
 .chat-header { display: flex; flex: none; align-items: flex-start; gap: 8px; padding: 14px 12px 10px 14px; }
 .chat-icon-button { display: grid; place-items: center; flex: none; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--tp-radius-control); background: transparent; color: var(--tp-side-text-2); cursor: pointer; }
 .chat-icon-button:hover { background: var(--tp-side-hover); color: var(--tp-side-strong); }
-.chat-text-button { padding: 2px 6px; border: 0; background: transparent; color: var(--tp-accent-soft); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; }
+.chat-text-button { display: inline-flex; align-items: center; justify-content: center; padding: 2px 6px; border: 0; background: transparent; color: var(--tp-accent-soft); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; }
 .chat-hint { margin: 0; padding: 12px 14px; color: var(--tp-side-text-3); font-size: 12.5px; }
 
 .chat-ticket { display: flex; flex: 1; flex-direction: column; min-height: 0; }
@@ -54,6 +54,21 @@
 .chat-add-people { position: relative; }
 .chat-add-people .chat-picker { right: auto; left: 0; top: calc(100% + 6px); bottom: auto; width: 260px; }
 .chat-picker label { display: flex; align-items: center; gap: 8px; min-height: 32px; cursor: pointer; }
+/* A thread que vai nascer (ADR 0059): o campo ganha o contorno e o cabeçalho do cartão de thread. */
+.chat-composer { --composer-thread: var(--tp-thread-2); }
+.chat-composer.is-new-thread { border: 2px solid var(--composer-thread); padding: 0 0 8px; gap: 0; overflow: hidden; background: color-mix(in srgb, var(--composer-thread) 8%, var(--tp-conv-field)); }
+.chat-composer.is-new-thread > :not(.chat-newthread-head) { margin-inline: 8px; }
+.chat-composer.is-new-thread .chat-composer-row { margin-top: 8px; }
+.chat-newthread-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 9px 12px; background: color-mix(in srgb, var(--composer-thread) 22%, var(--tp-conv-field)); color: var(--tp-text); font-size: 13px; font-weight: 700; }
+.chat-newthread-branch { flex: none; width: 14px; height: 14px; fill: none; stroke: var(--composer-thread); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chat-newthread-avatars { display: inline-flex; }
+.chat-newthread-avatars > * + * { margin-left: -5px; }
+.chat-newthread-head small { margin-left: auto; color: var(--tp-text); font-size: 12px; font-weight: 500; }
+.chat-composer.is-new-thread .chat-send.is-thread { background: var(--composer-thread); color: var(--tp-thread-ink); }
+.chat-composer.is-new-thread .chat-send.is-thread:disabled { background: var(--tp-selected); color: var(--tp-text-3); }
+.chat-composer-editor .tiptap .mention-person.is-outside { background: var(--composer-thread); color: var(--tp-thread-ink); }
+.chat-thread-notice.is-refused { color: var(--tp-danger-text); }
+.chat-closed-band { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 20px 8px; padding: 8px 12px; border: 1px solid var(--tp-border-strong); border-radius: 10px; background: var(--tp-selected); color: var(--tp-text-2); font-size: 13px; }
 .chat-thread-notice { margin: 0; color: var(--tp-text-2); font-size: 12px; }
 /* A linha de aviso fica sempre montada (o leitor de tela só anuncia o que muda numa região que já existe): vazia, não ocupa lugar. */
 .chat-thread-notice:empty { display: block; min-height: 0; height: 0; overflow: hidden; }
@@ -62,10 +77,6 @@
 .chat-count.is-over { color: var(--tp-danger-text); }
 
 .chat-composer { flex: none; display: grid; gap: 6px; margin: 0 20px 20px; padding: 8px; border: 1px solid var(--tp-conv-field-border); border-radius: 12px; background: var(--tp-conv-field); }
-.chat-pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.chat-pills li { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border: 1px solid var(--tp-border-strong); border-radius: 14px; background: var(--tp-selected); font-size: 12px; }
-.chat-pills li.is-refused { border-color: var(--tp-danger-text); }
-.chat-pills button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--tp-text-2); cursor: pointer; }
 .chat-composer-row { display: flex; align-items: flex-end; gap: 8px; }
 .chat-composer-field { display: grid; flex: 1; min-width: 0; }
 /* O campo de escrever é o editor (ADR 0058): a mesma caixa de antes (duas linhas de altura, cresce até o limite e rola), com o desenho de menção da descrição. */
@@ -111,7 +122,6 @@
   .creation-project-pick button { min-height: 44px; }
   .chat-composer { margin: 0 12px 12px; }
   .chat-composer .description.chat-composer-editor .tiptap { font-size: 16px; }
-  .chat-pills button { width: 44px; height: 44px; margin: -11px -4px -11px 0; }
 }
 
 /* A bolinha da situação na lista de tickets: a mesma da barra lateral (`.conv-dot`), não a marca do mapa, que parece uma caixa de seleção. */

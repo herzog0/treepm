@@ -3,7 +3,7 @@ import { render } from "vitest-browser-react";
 import { page, userEvent } from "vitest/browser";
 import type { ApiClient, TicketDetail, TicketSummary } from "../api/client.js";
 import { settle } from "../layout/layoutMeasure.js";
-import { mountConversations, rowOf } from "../chat/conversationHarness.js";
+import { mountConversations, rowOf, seedDeep } from "../chat/conversationHarness.js";
 import { makePanelMe, makePerson } from "../panel/testing.js";
 import { makeClient, makeProject, makeTicket, ok } from "../test/fakes.js";
 import { TicketPage } from "../ticket/TicketPage.js";
@@ -62,12 +62,13 @@ describe("na conversa, com o teclado de verdade", () => {
     await poll(() => q(".mention-list")).not.toBeNull();
     await userEvent.keyboard("{Enter}");
     await poll(() => q(".chat-composer .mention-person")).not.toBeNull();
-    expect(all(".chat-pills li")).toHaveLength(1);
+    // A faixa de pastilhas saiu (ADR 0059): a pessoa de fora aparece no cabeçalho da thread que vai nascer.
+    expect(all(".chat-newthread-head")).toHaveLength(1);
     // O cursor está depois do espaço que o seguiu: Backspace apaga o espaço, o seguinte, o item todo.
     await userEvent.keyboard("{Backspace}{Backspace}");
     expect(q(".chat-composer .mention-person")).toBeNull();
     expect(plain(composer())).toBe("oi ");
-    expect(all(".chat-pills li")).toHaveLength(0);
+    expect(all(".chat-newthread-head")).toHaveLength(0);
     // Delete pela frente: de novo o item, e o cursor volta para antes dele.
     await userEvent.keyboard("@");
     await poll(() => q(".mention-list")).not.toBeNull();
@@ -75,7 +76,7 @@ describe("na conversa, com o teclado de verdade", () => {
     expect(q(".chat-composer .mention-person")).not.toBeNull();
     await userEvent.keyboard("{Delete}");
     expect(q(".chat-composer .mention-person")).toBeNull();
-    expect(all(".chat-pills li")).toHaveLength(0);
+    expect(all(".chat-newthread-head")).toHaveLength(0);
     noSideScroll();
   });
 
@@ -88,7 +89,7 @@ describe("na conversa, com o teclado de verdade", () => {
     await poll(() => plain(composer())).toBe("@Bia oi");
     expect(q(".mention-list")).toBeNull();
     expect(q(".chat-composer .mention-person")).toBeNull();
-    expect(all(".chat-pills li")).toHaveLength(0);
+    expect(all(".chat-newthread-head")).toHaveLength(0);
     const messages = all(".chat-message").length;
     composer().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }));
     await settle(300);
@@ -249,13 +250,49 @@ describe("o mesmo desenho no comentário e na conversa", () => {
     const inChat = { ticket: look(q(".chat-composer .description-mention")!), person: look(q(".chat-composer .mention-person")!) };
     // O tamanho da letra e da linha do campo pode ser outro; o que é do item (marca, cores, raio, fundo) não.
     for (const kind of ["ticket", "person"] as const) {
-      expect(inChat[kind].background, kind).toBe(inComment[kind].background);
-      expect(inChat[kind].color, kind).toBe(inComment[kind].color);
+      // A pessoa de fora, no campo da conversa, leva a cor da thread que vai nascer (ADR 0059): só a cor muda; medidas e raio continuam os mesmos.
+      if (kind === "ticket") {
+        expect(inChat[kind].background, kind).toBe(inComment[kind].background);
+        expect(inChat[kind].color, kind).toBe(inComment[kind].color);
+      }
       expect(inChat[kind].radius, kind).toBe(inComment[kind].radius);
       expect(inChat[kind].padding, kind).toBe(inComment[kind].padding);
     }
+    expect(q(".chat-composer .mention-person")!.classList.contains("is-outside")).toBe(true);
+    expect(inChat.person.background).not.toBe(inComment.person.background);
     expect(inChat.ticket.markSize).toBe(inComment.ticket.markSize);
     expect(inChat.ticket.markBorder).toBe(inComment.ticket.markBorder);
     expect(inChat.ticket.titleColor).toBe(inComment.ticket.titleColor);
+  });
+  it("quem já participa da conversa tem o mesmo desenho (cor inclusive) da menção no comentário; só a de fora (is-outside) difere", async () => {
+    await openComment();
+    await userEvent.keyboard("@");
+    await poll(() => q(".mention-list")).not.toBeNull();
+    await userEvent.keyboard("{Enter}");
+    await poll(() => q(".ticket-comment-composer .mention-person")).not.toBeNull();
+    const inComment = look(q(".ticket-comment-composer .mention-person")!);
+    const bia = q(".ticket-comment-composer .mention-person")!.textContent;
+    document.body.replaceChildren();
+    // Numa thread com a Bia, marcar a Bia (que já participa) é mensagem comum: o item é igual ao do comentário.
+    await mountConversations({ seed: (chat) => seedDeep(chat, 1) });
+    await poll(() => document.querySelectorAll("button.conv-row").length).toBeGreaterThanOrEqual(3);
+    rowOf(/^Thread com Bia Nogueira(?! \+)/).click();
+    await poll(() => q(".chat-composer [role=combobox]")).not.toBeNull();
+    await settle(500);
+    await userEvent.click(composer());
+    await userEvent.keyboard("@");
+    await page.getByRole("listbox", { name: "Pessoas" }).getByRole("option", { name: "Bia Nogueira" }).click();
+    await poll(() => q(".chat-composer .mention-person")).not.toBeNull();
+    const inside = q(".chat-composer .mention-person")!;
+    expect(inside.classList.contains("is-outside")).toBe(false);
+    expect(q(".chat-newthread-head")).toBeNull();
+    const seen = look(inside);
+    for (const key of ["radius", "padding", "background", "color"] as const) expect(seen[key], key).toBe(inComment[key]);
+    expect(bia).toContain("@");
+    // Quem é de fora (Caio) leva a cor da thread: só ele difere.
+    await userEvent.keyboard("@");
+    await page.getByRole("listbox", { name: "Pessoas" }).getByRole("option", { name: "Caio" }).click();
+    await poll(() => q(".chat-composer .mention-person.is-outside")).not.toBeNull();
+    expect(look(q(".chat-composer .mention-person.is-outside")!).background).not.toBe(inComment.background);
   });
 });

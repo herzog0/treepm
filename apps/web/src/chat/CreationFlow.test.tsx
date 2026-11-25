@@ -45,7 +45,7 @@ describe("thread de criação", () => {
     });
     const fake = chat as unknown as { options: { assistantOpens?: (body: string) => string | null } };
     fake.options.assistantOpens = (body) => (body.startsWith("Crie") ? "Corrigir o login" : null);
-    await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
+    await user.click(await screen.findByRole("button", { name: /^Meu chat/ }));
     await composer();
     fillComposer("Crie um ticket para o login");
     await user.click(await screen.findByRole("button", { name: "Enviar" }));
@@ -67,7 +67,7 @@ describe("thread de criação", () => {
   it("'Novo ticket' junto do campo abre a thread; duplo clique não cria dois", async () => {
     const user = userEvent.setup();
     const { client } = renderChats({ seed: (fake) => void fake.seedGeneral([]), projects: [alfa], prepare: (client) => withCreationRoutes(client) });
-    await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
+    await user.click(await screen.findByRole("button", { name: /^Meu chat/ }));
     await composer();
     fillComposer("Corrigir o login");
     const button = await screen.findByRole("button", { name: "Novo ticket" });
@@ -103,7 +103,7 @@ describe("thread de criação", () => {
         client.sendChatMessage = vi.fn(async (...args: Parameters<typeof send>) => (await gate, send(...args))) as typeof send;
       },
     });
-    await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
+    await user.click(await screen.findByRole("button", { name: /^Meu chat/ }));
     await composer();
     fillComposer("Corrigir o login");
     await user.click(await screen.findByRole("button", { name: "Novo ticket" }));
@@ -147,13 +147,13 @@ describe("thread de criação", () => {
       prepare: (client) => withCreationRoutes(client),
     });
     chat.options.assistantOpens = (body) => (body.startsWith("Crie") ? "Corrigir o login" : null);
-    await user.click(await screen.findByRole("button", { name: /Dividir a migração/ }));
+    await user.click(await screen.findByRole("button", { name: /^Dividir a migração/ }));
     await composer();
     fillComposer("Crie um ticket para o login");
     await user.click(await screen.findByRole("button", { name: "Enviar" }));
     await waitFor(() => expect(sidebarRow()).toHaveLength(1));
     chat.options.assistantOpens = undefined;
-    await user.click(sidebarRow()[0]!.closest("li")!.parentElement!.closest("li")!.querySelector(":scope > button")!);
+    await user.click(sidebarRow()[0]!.closest("li")!.parentElement!.closest("li")!.querySelector(":scope > .conv-line > button")!);
     expect(await screen.findByText("Abri um rascunho de ticket")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Abrir o rascunho" })).toBeInTheDocument();
   });
@@ -198,7 +198,7 @@ describe("thread de criação", () => {
   it("a partir do chat de um ticket: nasce no projeto dele e o cartão aparece na conversa", async () => {
     const user = userEvent.setup();
     const { client } = renderChats({ tickets: [ALFA1], projects: [alfa], prepare: (client) => withCreationRoutes(client) });
-    await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
+    await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
     await composer();
     fillComposer("Também validar o logout");
     await user.click(await screen.findByRole("button", { name: "Novo ticket" }));
@@ -214,7 +214,7 @@ describe("thread de criação sem acesso", () => {
   it("falha do provedor: nada pela metade e o texto volta", async () => {
     const user = userEvent.setup();
     renderChats({ assistant: "not_configured", seed: (fake) => void fake.seedGeneral([]), projects: [alfa], prepare: (client) => withCreationRoutes(client), extra: null });
-    await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
+    await user.click(await screen.findByRole("button", { name: /^Meu chat/ }));
     expect(sidebarRow()).toHaveLength(0);
   });
 });

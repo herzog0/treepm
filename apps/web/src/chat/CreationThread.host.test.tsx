@@ -247,7 +247,7 @@ describe("thread de criação: quem vê e onde", () => {
     const { chat } = renderChats({ seed: (fake) => void fake.seedGeneral([]), projects: [], prepare: (client) => routes(client), extra: <Registrar host={null} /> });
     chat.options.creatable = { p9: "ZZZ" };
     chat.options.assistantOpens = undefined;
-    await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
+    await user.click(await screen.findByRole("button", { name: /^Meu chat/ }));
     await user.click(await screen.findByRole("button", { name: "começar" }));
     await waitFor(() => expect(sidebarRows()).toHaveLength(1));
     expect(await screen.findByText("Você não enxerga o projeto deste rascunho.")).toBeInTheDocument();

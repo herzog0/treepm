@@ -43,3 +43,17 @@ Quando a mensagem vai abrir uma thread, o próprio campo de escrita ganha o cont
 - A barra lateral passa a ter estado por pessoa além do que cada um pode ler: a árvore que o servidor monta precisa distinguir "não lê" de "fechou".
 - Marcar alguém que já está na conversa deixa de ter efeito além do destaque, enquanto não houver avisos.
 - Quem fechou uma conversa e recebe resposta nela a vê reaparecer; não existe "silenciar".
+
+## Como ficou
+
+Implementado em 2026-11-24 (`TREEPM-417`; achados da revisão em `TREEPM-418`).
+
+- **Banco:** migration `0036_conversation_closed` acrescenta `conversation_participants.closed_seq` (a posição da última mensagem quando a pessoa fechou; nulo é aberta). "Voltou sozinha" se decide na leitura: existe mensagem de outra pessoa ou do assistente depois da marca. Nenhuma linha é atualizada quando chega mensagem.
+- **API:** `POST /api/conversations/:id/close` fecha a conversa e as de dentro que a pessoa lê, e devolve em `closedIds` só o que este pedido fechou (é o que o "Desfazer" reabre; o que já estava fechado antes continua fechado). `POST …/reopen` e `GET /api/conversations/closed` completam. Quem escreve na conversa a reabre, inclusive nas rotas do rascunho de ticket; pedir um ticket novo com um rascunho fechado em aberto traz esse rascunho de volta à barra, em vez de travar em silêncio.
+- **Menções:** todas as pessoas marcadas já participam, a mensagem é comum; alguma é de fora, nasce a thread. No último nível o `@` abre e só quem já participa pode ser marcado. Onde o assistente fala, mensagem que só marca a própria pessoa é recusada (`assistant_mention_self`), e o nome em formato de menção é retirado do que vai ao provedor.
+- **Tela:** × na linha (no ponteiro ou no foco, no lugar da hora e do contador; sempre à vista em tela de toque), aviso com "Desfazer" por 8 segundos preso ao pé da lista, que acumula fechamentos seguidos e para de contar com o foco ou o ponteiro em cima; seção "Fechadas (N)" com a chave do ticket e o começo da conversa; faixa "Você fechou esta conversa" com "Reabrir". O campo ganha o contorno e o cabeçalho "Nova thread · com …" só quando alguém de fora foi marcado, e o botão vira "Abrir thread".
+- **Acessibilidade:** fechar pelo teclado leva o foco ao "Desfazer" e, depois, à linha vizinha; os avisos usam regiões que já existem vazias, para o leitor de tela anunciar; × e "Reabrir" levam o nome da conversa.
+
+Diferenças em relação ao desenho: as pastilhas de pessoa acima do campo saíram (o cabeçalho da thread que nasce faz esse papel); a lista "Fechadas" não mostra a conversa-mãe de uma thread, só o ticket, porque a lista plana do servidor não traz esse dado.
+
+Fica em aberto: o caminho em que dois pedidos simultâneos de ticket novo esbarram no mesmo rascunho fechado (`409 creation_open`) reabre o rascunho, mas não tem teste.

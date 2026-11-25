@@ -9,7 +9,7 @@ describe("Chats under StrictMode", () => {
     const { chat } = renderChats({ strict: true });
     chat.seedConversation("t1", [{ person: "Pergunta de Ana", assistant: "Resposta do assistente" }]);
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
+    await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
     const panel = await screen.findByRole("complementary", { name: "Conversa" });
     expect(await within(panel).findByText("Pergunta de Ana")).toBeInTheDocument();
     expect(within(panel).getByText("Resposta do assistente")).toBeInTheDocument();
@@ -18,7 +18,7 @@ describe("Chats under StrictMode", () => {
   it("loads the messages of a thread opened from a mention", async () => {
     renderChats({ strict: true, seed: (chat) => chat.receiveThread("t1", { from: "person-2", body: "Raiz da thread", replies: [{ from: "person-2", body: "Primeira resposta" }] }) });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Thread com Bia/ }));
+    await user.click(await screen.findByRole("button", { name: /^Thread com Bia/ }));
     const panel = await screen.findByRole("complementary", { name: "Conversa" });
     expect(await within(panel).findByText("Raiz da thread")).toBeInTheDocument();
     expect(await within(panel).findByText("Primeira resposta")).toBeInTheDocument();

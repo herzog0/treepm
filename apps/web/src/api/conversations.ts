@@ -46,6 +46,8 @@ export const threadCardSchema = z.object({
   /** O título curto da thread de assunto; `null` até o assistente dar um (a tela usa o começo da abertura). Ausente vale nulo. */
   title: z.string().nullish().transform((value) => value ?? null),
   creation: optionalCreation,
+  /** A pessoa fechou esta conversa (ADR 0059). Servidor antigo não manda: vale `false`. */
+  closed: z.boolean().nullish().transform((value) => value ?? false),
 });
 
 export const chatMessageSchema = messageBase.extend({ thread: threadCardSchema.nullable() });
@@ -72,6 +74,8 @@ export const conversationInfoSchema = z.object({
   title: z.string().nullish().transform((value) => value ?? null),
   creation: optionalCreation,
   ownedByMe: z.boolean(),
+  /** A pessoa fechou esta conversa (ADR 0059): a tela mostra a faixa "Você fechou esta conversa". */
+  closed: z.boolean().nullish().transform((value) => value ?? false),
   participants: z.array(chatPersonSchema),
   canAddParticipants: z.boolean(),
   canOpenThread: z.boolean(),
@@ -105,6 +109,9 @@ export const sendResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("creation"), message: chatMessageSchema, thread: threadCardSchema, reply: chatMessageSchema.nullish().transform((value) => value ?? null), ticketConversationId: z.string() }),
 ]);
 
+/** Fechar leva as de dentro em que a pessoa participa: `closedIds` são todas as que passaram a fechadas, a própria primeiro (ADR 0059). */
+export const closedResultSchema = z.object({ closed: z.literal(true), closedIds: z.array(z.string()) });
+export const reopenedResultSchema = z.object({ closed: z.literal(false) });
 export const readResultSchema = z.object({ lastRead: z.string().nullable(), unread: z.number() });
 export const participantsResultSchema = z.object({ participants: z.array(chatPersonSchema) });
 export const openedSchema = z.object({ id: z.string() });
@@ -129,6 +136,8 @@ export interface ConversationNode {
   title: string | null;
   /** Só nas threads de criação ainda abertas. */
   creation: z.output<typeof creationSchema> | null;
+  /** Só na lista das fechadas vem `true`; na árvore é sempre `false`. */
+  closed: boolean;
   children: ConversationNode[];
 }
 const conversationNodeSchema: z.ZodType<ConversationNode> = z.lazy(() =>
@@ -147,6 +156,7 @@ const conversationNodeSchema: z.ZodType<ConversationNode> = z.lazy(() =>
     purpose: purposeSchema.nullish().transform((value) => value ?? null),
     title: z.string().nullish().transform((value) => value ?? null),
     creation: optionalCreation,
+    closed: z.boolean().nullish().transform((value) => value ?? false),
     children: z.array(conversationNodeSchema),
   }),
 );

@@ -26,7 +26,7 @@ describe("a thread de assunto na barra lateral (ADR 0056)", () => {
     expect(row.style.getPropertyValue("--conv-level")).toBe("1");
     expect(rowsOf().map((r) => r.textContent).join("|")).not.toContain("Thread com");
     const general = rowsOf()[0]!;
-    expect(row.closest("ul")!.closest("li")!.querySelector(":scope > button")).toBe(general);
+    expect(row.closest("ul")!.closest("li")!.querySelector(":scope > .conv-line > button")).toBe(general);
   });
 
   it("sem título usa o começo da abertura (label); sem os dois, 'Assunto'", async () => {
@@ -68,7 +68,7 @@ describe("a conversa aberta de uma thread de assunto", () => {
   it("mostra a trilha e o título, diz que é só você e o assistente e não oferece 'Incluir pessoas'", async () => {
     const user = userEvent.setup();
     renderChats({ seed: (chat) => void seedTopic(chat) });
-    await user.click(await screen.findByRole("button", { name: /Dividir a migração/ }));
+    await user.click(await screen.findByRole("button", { name: /^Dividir a migração/ }));
     const trail = await screen.findByRole("navigation", { name: "Onde você está" });
     expect(within(trail).getByRole("button", { name: "Meu chat" })).toBeInTheDocument();
     expect(trail.querySelector("[aria-current=page]")).toHaveTextContent("Dividir a migração");
@@ -82,7 +82,7 @@ describe("a conversa aberta de uma thread de assunto", () => {
   it("uma mensagem sem menção fala com o assistente (pendente, resposta), com o corpo puro e sem `topic`", async () => {
     const user = userEvent.setup();
     const { client } = renderChats({ seed: (chat) => void seedTopic(chat), reply: (text) => `Eco: ${text}` });
-    await user.click(await screen.findByRole("button", { name: /Dividir a migração/ }));
+    await user.click(await screen.findByRole("button", { name: /^Dividir a migração/ }));
     await composer("Mensagem");
     typeInComposer("E o corte?");
     await user.click(screen.getByRole("button", { name: "Enviar" }));
@@ -94,7 +94,7 @@ describe("a conversa aberta de uma thread de assunto", () => {
   it("marcar uma pessoa dentro dela abre uma thread com pessoas, como em qualquer conversa", async () => {
     const user = userEvent.setup();
     renderChats({ seed: (chat) => void seedTopic(chat) });
-    await user.click(await screen.findByRole("button", { name: /Dividir a migração/ }));
+    await user.click(await screen.findByRole("button", { name: /^Dividir a migração/ }));
     await composer("Mensagem");
     typeInComposer("@Bia");
     await pickPerson("Bia");
@@ -115,7 +115,7 @@ describe("o cartão do assunto na conversa de cima", () => {
     });
     await user.click((await screen.findAllByRole("button")).find((b) => b.classList.contains("conv-row") && b.textContent?.includes("Meu chat"))!);
     const log = await screen.findByRole("log");
-    const card = await within(log).findByRole("button", { name: /Dividir a migração/ });
+    const card = await within(log).findByRole("button", { name: /^Dividir a migração/ });
     expect(card).toHaveClass("is-topic");
     expect(card.querySelector(".chat-topic-mark")).toHaveTextContent("✦");
     expect(card.querySelector(".chat-avatars")).toBeNull();

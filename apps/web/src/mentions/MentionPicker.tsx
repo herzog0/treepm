@@ -64,7 +64,7 @@ export function MentionPicker({ state, box, idPrefix, message, pathOf }: Mention
           <Initials name={person?.name ?? ""} />
           <span className="mention-option-text">
             <span className="mention-option-title">{person?.name}<TestBadge person={person ? { isTest: person.isTest } : null} /></span>
-            {person?.blocked === true && <span className="mention-option-sub">{t("picker.noProject")}</span>}
+            {person?.blocked === true && <span className="mention-option-sub">{person.reason === "levels" ? t("picker.noLevels") : t("picker.noProject")}</span>}
           </span>
         </>
       ),

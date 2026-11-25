@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, Logger, Param, Post, Query, ServiceUnavailableException, UnprocessableEntityException } from "@nestjs/common";
+import { Body, ConflictException, Controller, Delete, Get, HttpCode, Inject, Logger, Param, Post, Query, ServiceUnavailableException, UnprocessableEntityException } from "@nestjs/common";
 import { rawPersonRefIds } from "@treepm/domain";
 import type { TenantClient } from "@treepm/db";
 import { assistantSpeaksIn } from "@treepm/domain";
@@ -14,7 +14,7 @@ import { AssistantGate } from "./assistant-gate.js";
 import { ChatToolExecutor } from "./chat-tools.js";
 import { ConversationService } from "./conversation.service.js";
 import { addParticipantsBodySchema, markReadBodySchema, openedSchema, pageQuerySchema, sendMessageBodySchema, sendResultSchema } from "./conversation.schema.js";
-import type { ConversationTree, ConversationView, PageQuery, SendMessageBody, participantsResultSchema, readResultSchema } from "./conversation.schema.js";
+import type { ConversationTree, ConversationView, PageQuery, SendMessageBody, closedResultSchema, participantsResultSchema, readResultSchema, reopenedResultSchema } from "./conversation.schema.js";
 import { AssistantUnavailableError } from "./ports.js";
 import { TicketDraftService } from "./ticket-draft.service.js";
 import type { z } from "zod";
@@ -48,6 +48,12 @@ export class ConversationController {
     return parseOutput(openedSchema, await this.conversations.openGeneral(tx, principal));
   }
 
+  /** As conversas que a pessoa fechou e continuam fechadas (para reabrir). Antes de `conversations/:id`, que não aceita esta palavra. */
+  @Get("conversations/closed")
+  closedList(@Tx() tx: TenantClient, @CurrentPrincipal() principal: Principal): Promise<ConversationTree> {
+    return this.conversations.closedList(tx, principal);
+  }
+
   @Get("tickets/:ticketId/conversation")
   ticketView(
     @Tx() tx: TenantClient,
@@ -72,6 +78,18 @@ export class ConversationController {
     @Query(new ZodPipe(pageQuerySchema)) page: PageQuery,
   ): Promise<ConversationView> {
     return this.conversations.view(tx, principal, id, page);
+  }
+
+  @Post("conversations/:id/close")
+  @HttpCode(200)
+  close(@Tx() tx: TenantClient, @CurrentPrincipal() principal: Principal, @Param("id", new ZodPipe(idSchema)) id: string): Promise<z.output<typeof closedResultSchema>> {
+    return this.conversations.close(tx, principal, id);
+  }
+
+  @Post("conversations/:id/reopen")
+  @HttpCode(200)
+  reopen(@Tx() tx: TenantClient, @CurrentPrincipal() principal: Principal, @Param("id", new ZodPipe(idSchema)) id: string): Promise<z.output<typeof reopenedResultSchema>> {
+    return this.conversations.reopenOne(tx, principal, id);
   }
 
   @Post("conversations/:id/messages")
@@ -108,7 +126,9 @@ export class ConversationController {
       if (kind === "thread") throw new UnprocessableEntityException({ code: "topic_in_thread", message: "Um assunto novo só abre na conversa principal, não dentro de uma thread." });
       return this.assistantTurn(tenant, id, body.body, true, body.projectId);
     }
-    if (mentions.length > 0) return tenant.run((tx, principal) => this.conversations.openThread(tx, principal, id, body.body, mentions, body.ticketId));
+    if (mentions.length > 0) {
+      return tenant.run((tx, principal) => this.conversations.sendMentioning(tx, principal, id, body.body, mentions, body.ticketId, speaks));
+    }
     if (!speaks) return tenant.run((tx, principal) => this.conversations.postInThread(tx, principal, id, body.body));
     return this.assistantTurn(tenant, id, body.body, false, body.projectId);
   }
@@ -127,7 +147,7 @@ export class ConversationController {
         ticket: prep.context,
         history: prep.history,
         projects: prep.projects.map((project) => project.key),
-        tools: new ChatToolExecutor(tenant, this.query, prep.projects, prep.draftTool),
+        tools: new ChatToolExecutor(tenant, this.query, prep.projects, prep.draftTool, () => tenant.run((tx, principal) => this.conversations.reopenOpenCreations(tx, principal))),
         wantTitle: prep.wantTitle,
         draftTool: prep.draftTool,
       });
@@ -177,9 +197,18 @@ export class ConversationController {
     // A cota já foi cobrada na vez do assistente (caminho da ferramenta); o pedido direto cobra a sua.
     const prep = await tenant.run((tx, principal) => this.conversations.prepareCreation(tx, principal, input.id, input.projectId, { quota: input.assistant === null }));
     const turn = await this.drafts.ask(drafter, { history: [{ author: "person", body: input.request }], draft: null, groups: prep.groups });
-    const saved = await tenant.run((tx, principal) =>
-      this.conversations.recordCreation(tx, principal, { id: input.id, text: input.text, request: input.request, projectId: prep.project.id, requestedProjectId: input.projectId, turn, assistant: input.assistant }),
-    );
+    const saved = await tenant
+      .run((tx, principal) =>
+        this.conversations.recordCreation(tx, principal, { id: input.id, text: input.text, request: input.request, projectId: prep.project.id, requestedProjectId: input.projectId, turn, assistant: input.assistant }),
+      )
+      .catch(async (error: unknown) => {
+        // O 409 desfaz a transação inteira: a reabertura do rascunho fechado, que esbarrou no limite, precisa de uma transação própria.
+        if (error instanceof ConflictException && (error.getResponse() as { code?: string }).code === "creation_open") {
+          // Se a reabertura falhar, o 409 original continua sendo a resposta (como em `release`).
+          await tenant.run((tx, principal) => this.conversations.reopenOpenCreations(tx, principal)).catch(() => undefined);
+        }
+        throw error;
+      });
     return parseOutput(sendResultSchema, { kind: "creation", ...saved });
   }
 

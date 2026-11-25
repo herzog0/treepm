@@ -105,6 +105,8 @@ export const threadCardSchema = z.object({
   title: z.string().nullable(),
   /** Só nas threads de criação. */
   creation: creationSchema.nullable(),
+  /** A pessoa fechou esta thread e ela continua fechada (ADR 0059). */
+  closed: z.boolean(),
 });
 
 export const chatMessageSchema = messageBase.extend({
@@ -160,6 +162,8 @@ export const conversationInfoSchema = z.object({
   replyCount: z.number(),
   lastActivityAt: z.string(),
   trail: z.array(trailItemSchema),
+  /** A pessoa fechou esta conversa e ela continua fechada: ler não a reabre (ADR 0059). */
+  closed: z.boolean(),
 });
 
 export const conversationViewSchema = z.object({
@@ -191,6 +195,9 @@ export const sendResultSchema = z.discriminatedUnion("kind", [
 export const readResultSchema = z.object({ lastRead: z.string().nullable(), unread: z.number() });
 export const participantsResultSchema = z.object({ participants: z.array(personRefSchema) });
 export const openedSchema = z.object({ id: z.string() });
+/** Fechar leva as de dentro em que a pessoa participa: `closedIds` são só as que ESTE pedido fechou (o que já estava fechado não entra, para o "Desfazer" não reabri-lo). */
+export const closedResultSchema = z.object({ closed: z.literal(true), closedIds: z.array(z.string()) });
+export const reopenedResultSchema = z.object({ closed: z.literal(false) });
 
 export interface ConversationNodeShape {
   /** `null`: o ticket (ou o chat geral) aparece na barra, mas a pessoa ainda não tem conversa nele. */
@@ -215,6 +222,8 @@ export interface ConversationNodeShape {
   title: string | null;
   /** Só nas threads de criação ainda abertas (ADR 0056, item 5). */
   creation: z.output<typeof creationSchema> | null;
+  /** A pessoa fechou esta conversa e ela continua fechada: só `GET /conversations/closed` traz nós assim (ADR 0059). */
+  closed: boolean;
   children: ConversationNodeShape[];
 }
 export const conversationNodeSchema: z.ZodType<ConversationNodeShape> = z.lazy(() =>
@@ -233,6 +242,7 @@ export const conversationNodeSchema: z.ZodType<ConversationNodeShape> = z.lazy((
     purpose: purposeSchema.nullable(),
     title: z.string().nullable(),
     creation: creationSchema.nullable(),
+    closed: z.boolean(),
     children: z.array(conversationNodeSchema),
   }),
 );

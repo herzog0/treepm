@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { CHAT_ASSISTANT_PER_PERSON_PER_MINUTE, CHAT_MAX_MENTIONS, CHAT_THREAD_PER_PERSON_PER_MINUTE, CONVERSATION_MAX_DEPTH, CONVERSATION_MAX_PARTICIPANTS } from "@treepm/domain";
 import { AI_CONFIG } from "./helpers.js";
 import { useHarness } from "./harness.js";
-import { errorCode, openGeneral, openTicket, post, seedChatTickets, send, ticketView, view } from "./chat-support.js";
+import { errorCode, newOutsider, openGeneral, openTicket, post, seedChatTickets, send, ticketView, view } from "./chat-support.js";
 import { as } from "./world.js";
 
 const CLERK_KEY = "sk_test_fake";
@@ -121,14 +121,14 @@ describe("conversas em níveis: fluxos (ADR 0055)", () => {
     const t = await seedChatTickets(h.pool, h.world());
     let current = await openTicket(h, "manager", t.ticket);
     for (let level = 1; level <= CONVERSATION_MAX_DEPTH; level += 1) {
-      const res = await post(h, "manager", current, `nível ${level}`, [p().reader]);
+      const res = await post(h, "manager", current, `nível ${level}`, [await newOutsider(h.pool)]);
       expect(res.status, `nível ${level}`).toBe(201);
       current = res.body.thread.id;
     }
     const last = await view(h, "manager", current);
     expect(last.body.conversation.canOpenThread).toBe(false);
     expect(last.body.conversation.trail).toHaveLength(CONVERSATION_MAX_DEPTH);
-    const refused = await post(h, "manager", current, "demais", [p().reader]);
+    const refused = await post(h, "manager", current, "demais", [await newOutsider(h.pool)]);
     expect(refused.status).toBe(422);
     expect(errorCode(refused)).toBe("max_depth");
     // Sem menção, a mensagem normal no último nível funciona.
@@ -154,7 +154,8 @@ describe("conversas em níveis: fluxos (ADR 0055)", () => {
   it("menção a si mesma, acima do teto de menções e a pessoa inativa são recusadas; repetir a mesma conta uma", async () => {
     const t = await seedChatTickets(h.pool, h.world());
     const main = await openTicket(h, "manager", t.ticket);
-    expect(errorCode(await post(h, "manager", main, "oi", [p().manager]))).toBe("cannot_mention_self");
+    // A própria pessoa sai da lista (ADR 0059); só ela marcada, onde o assistente fala, é recusada (nada com elo de pessoa vai ao provedor).
+    expect(errorCode(await post(h, "manager", main, "oi", [p().manager]))).toBe("assistant_mention_self");
     expect(errorCode(await post(h, "manager", main, "oi", Array.from({ length: CHAT_MAX_MENTIONS + 1 }, () => randomUUID())))).toBe("too_many_mentions");
     expect((await post(h, "manager", main, "oi", [p().reader, p().reader])).body.thread.participants).toHaveLength(2);
     await h.pool.query("update people set active = false where id = $1", [p().contributor]);
