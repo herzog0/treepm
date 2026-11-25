@@ -178,6 +178,71 @@
       "changeDestination": "Cambiar destino de las issues nuevas",
       "destination": "Destino de las issues nuevas",
       "titleUndated": "Última importación"
+    },
+    "categorize": {
+      "title": "Acomodar en el árbol",
+      "intro_one": "{{count}} elemento que vino de Linear sigue donde la importación lo dejó. La IA puede buscar su lugar en el árbol. Si hay duda, el elemento se queda donde está, marcado para que lo revises.",
+      "intro_many": "{{count}} elementos que vinieron de Linear siguen donde la importación los dejó. La IA puede buscar el lugar de cada uno en el árbol. Si hay duda, el elemento se queda donde está, marcado para que lo revises.",
+      "intro_other": "{{count}} elementos que vinieron de Linear siguen donde la importación los dejó. La IA puede buscar el lugar de cada uno en el árbol. Si hay duda, el elemento se queda donde está, marcado para que lo revises.",
+      "batchNote": "Son {{total}} elementos; esta ronda busca los {{limit}} más antiguos y el resto queda para la siguiente.",
+      "start_one": "Buscar el lugar de {{count}} elemento",
+      "start_many": "Buscar el lugar de {{count}} elementos",
+      "start_other": "Buscar el lugar de {{count}} elementos",
+      "sends": "Se envía a la IA: título y descripción de esos tickets, los títulos de lo que hay dentro de ellos y el árbol del proyecto (títulos y fragmentos).",
+      "noConsent": "Para buscar el lugar de los elementos, la organización necesita activar el asistente de IA.",
+      "notConfigured": "La IA no está configurada en este entorno, así que no se puede buscar el lugar de los elementos.",
+      "running": "Buscando el lugar de los elementos",
+      "bar": "Progreso de la búsqueda",
+      "counts": "Conteos de la búsqueda",
+      "moved": "Movidos",
+      "toCheck": "Por revisar",
+      "kept": "Ya en su lugar",
+      "failed": "Fallas",
+      "waiting": "La IA pidió esperar. La búsqueda continúa a las {{time}}.",
+      "retrying": "La IA no respondió. Intentando de nuevo en un momento…",
+      "retryingStepFailed": "Un paso de la búsqueda falló por un error inesperado. Intentando de nuevo en un momento…",
+      "retryingRateLimited": "La IA alcanzó su límite de uso por ahora. Intentando de nuevo en un momento…",
+      "gaveUp": "La búsqueda se detuvo porque el servidor no respondió. Lo ya decidido se queda; continúa donde se detuvo.",
+      "abandon": {
+        "button": "Abandonar",
+        "confirmLabel": "Confirmar el abandono de la búsqueda",
+        "confirmBody": "Lo ya decidido se queda como está. Una nueva búsqueda solo se ocupa de lo que quedó.",
+        "confirm": "Abandonar",
+        "back": "Volver"
+      },
+      "reimportBlocked": "Reimportar no está disponible mientras la búsqueda del lugar de los elementos está en curso.",
+      "doneTitle": "Búsqueda terminada",
+      "abandonedTitle": "Búsqueda abandonada",
+      "nothing": "No se decidió ningún elemento.",
+      "summary": {
+        "moved_one": "{{count}} movido",
+        "moved_many": "{{count}} movidos",
+        "moved_other": "{{count}} movidos",
+        "toCheck": "{{count}} por revisar",
+        "kept": "{{count}} ya en su lugar",
+        "failed_one": "{{count}} falla",
+        "failed_many": "{{count}} fallas",
+        "failed_other": "{{count}} fallas"
+      },
+      "check": {
+        "show_one": "Ver el {{count}} por revisar",
+        "show_many": "Ver los {{count}} por revisar",
+        "show_other": "Ver los {{count}} por revisar",
+        "hide": "Ocultar la lista",
+        "list": "Elementos por revisar",
+        "loading": "Cargando los elementos por revisar…",
+        "empty": "Nada por revisar.",
+        "suggestion": "Sugerencia: {{path}}",
+        "none": "Sin sugerencia",
+        "dismiss": "Marcar como revisado",
+        "dismissing": "Marcando…"
+      },
+      "announce": {
+        "start": "Buscando el lugar de los elementos.",
+        "done": "Búsqueda del lugar de los elementos terminada.",
+        "abandoned": "Búsqueda abandonada.",
+        "waiting": "La IA pidió esperar."
+      }
     }
   }
 }

@@ -72,6 +72,9 @@
       "linear_run_finished": "Esta importação já terminou e não pode ser abandonada.",
       "step_failed": "A importação falhou num passo e não conseguiu andar. Tente de novo; se continuar, abandone e comece outra.",
       "step_too_slow": "O passo está demorando demais mesmo no menor tamanho. Abandone esta importação e abra outra.",
+      "linear_nothing_to_categorize": "Não há itens importados esperando um lugar na árvore.",
+      "linear_categorize_open": "Já existe uma busca de lugar em andamento neste projeto. Acompanhe ou abandone no bloco “Arrumar na árvore” desta tela de importação.",
+      "linear_import_in_progress": "Há uma importação do Linear em andamento neste projeto. Espere ela terminar para procurar o lugar dos itens.",
       "test_people_total_limit": "Esta organização já tem 100 pessoas de teste, contando as desativadas. Reative uma delas em vez de criar outra.",
       "display_name_taken": "Já existe uma pessoa ativa com esse nome (maiúsculas e acentos não diferenciam). Escolha outro nome.",
       "invalid_display_name": "O nome não pode ter caracteres invisíveis nem de controle."

@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import { createFakeChat } from "./chatFakes.js";
 import type { FakeChat } from "./chatFakes.js";
+import type { CategorizeView, ToCheckItem } from "../api/client.js";
 import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, ConversationDraftChild, GithubInstallation, GroupSummary, LinearConnection, LinearRun, LinearTeam, ProjectLinear, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, IdeaStage, TicketListUpdate, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
@@ -241,7 +242,68 @@ export interface FakeLinear {
   run?: FakeLinearRun;
   /** A prévia "vai trazer N issues" (`GET …/linear/preview`): um número, `null` (o Linear não disse) ou um erro `[tipo, código]`. Padrão: o total da rodada simulada. */
   preview?: number | null | { error: [Parameters<typeof failed>[0], string?] };
+  /** Procurar o lugar dos itens importados (ADR 0060, seção 6): a situação, a rodada em passos e a lista "a conferir". */
+  categorize?: FakeLinearCategorize;
 }
+
+/** Um desfecho de passo da categorização simulada; esgotada a lista, os passos decidem os próximos itens normalmente. */
+export type FakeCategorizeStep =
+  | "ok"
+  | { waitSeconds: number }
+  /** O passo falha com este erro (`[tipo, código]`), como o portão da IA sem aceite (403) ou sem configuração (503). */
+  | { error: [Parameters<typeof failed>[0], string?] }
+  /** O provedor da IA errou: o passo responde 200 sem avançar e com `errorStreak` maior (como o servidor). */
+  | "providerError"
+  /** Como `providerError`, com o `lastErrorCode` dado (`step_failed`, `assistant_rate_limited`…). */
+  | { providerError: string }
+  | { hold: Promise<void> };
+
+export interface FakeLinearCategorize {
+  /** Itens que entraram na raiz do destino e esperam um lugar (padrão 0: o bloco não aparece). */
+  candidates?: number;
+  /** O teto de itens por rodada que o servidor informa (padrão 200); a rodada procura no máximo isto. */
+  batchLimit?: number;
+  /** Por que a IA não está disponível; `null` (padrão) é disponível. */
+  reason?: "assistant_not_configured" | "assistant_consent_required" | null;
+  /** O que os passos decidem, em ordem, até acabarem os candidatos da rodada (padrão: tudo movido). */
+  plan?: { placed?: number; toCheck?: number; kept?: number; failed?: number };
+  /** Itens decididos por passo (padrão 4). */
+  pageSize?: number;
+  /** A rodada que já existe ao abrir a tela (parcial sobre `makeCategorizeView`). */
+  existing?: Partial<CategorizeView>;
+  /** Itens "a conferir" que a lista devolve. */
+  toCheckItems?: ToCheckItem[];
+  /** Erro de `GET …/categorize/to-check`; vale uma vez só. */
+  toCheckError?: [Parameters<typeof failed>[0], string?];
+  /** Erro de `POST …/to-check/:id/dismiss`; vale uma vez só. */
+  dismissError?: [Parameters<typeof failed>[0], string?];
+  /** Desfechos dos passos, um por chamada. */
+  script?: FakeCategorizeStep[];
+  /** Erro de `POST …/categorize`; vale uma vez só. */
+  openError?: [Parameters<typeof failed>[0], string?];
+}
+
+export const makeCategorizeView = (extra: Partial<CategorizeView> = {}): CategorizeView => ({
+  id: "cat-1",
+  projectId: "p1",
+  sourceRunId: "run-1",
+  phase: "categorize",
+  finished: false,
+  total: 12,
+  done: 0,
+  placed: 0,
+  toCheck: 0,
+  kept: 0,
+  skipped: 0,
+  failed: 0,
+  waitUntil: null,
+  lastErrorCode: null,
+  errorStreak: 0,
+  startedAt: "2026-11-25T12:00:00.000Z",
+  updatedAt: "2026-11-25T12:00:00.000Z",
+  finishedAt: null,
+  ...extra,
+});
 
 /** Um desfecho de passo do `FakeLinear`, consumido na ordem das chamadas; esgotada a lista, os passos andam normalmente. */
 export type FakeLinearStep =
@@ -300,7 +362,7 @@ export const makeLinearConnection = (extra: Partial<NonNullable<LinearConnection
   ...extra,
 });
 
-const LINEAR_NAMES = ["connectLinear", "disconnectLinear", "listLinearTeams", "getProjectLinear", "getLinearPreview", "linkProjectToLinear", "openLinearRun", "getCurrentLinearRun", "stepLinearRun", "abandonLinearRun"] as const;
+const LINEAR_NAMES = ["connectLinear", "disconnectLinear", "listLinearTeams", "getProjectLinear", "getLinearPreview", "linkProjectToLinear", "openLinearRun", "getCurrentLinearRun", "stepLinearRun", "abandonLinearRun", "getLinearCategorize", "openLinearCategorize", "stepLinearCategorize", "abandonLinearCategorize", "listLinearToCheck", "dismissLinearToCheck"] as const;
 
 /**
  * As rotas do Linear do contrato da ADR 0060, em memória: a chave nunca volta (só os 4 últimos caracteres), agindo como outra
@@ -375,7 +437,143 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
     return source ? { ...source } : { source: null, canLink: canLinkProject(projectId) && !archived(projectId), keyMatches: null };
   };
 
+
+  // Procurar o lugar dos itens importados: uma rodada por projeto, decidida em passos pela ordem de `plan`.
+  const cat = linear.categorize ?? {};
+  const catRuns = new Map<string, CategorizeView>();
+  let candidates = cat.candidates ?? 0;
+  const batchLimit = cat.batchLimit ?? 200;
+  const catReason = cat.reason ?? null;
+  const catScript = [...(cat.script ?? [])];
+  let catOpenError = cat.openError;
+  let toCheckError = cat.toCheckError;
+  let dismissError = cat.dismissError;
+  let toCheckItems = (cat.toCheckItems ?? []).map((item) => ({ ...item, suggestedPath: [...item.suggestedPath] }));
+  const plan = cat.plan ?? { placed: candidates };
+  const outcomes: ("placed" | "toCheck" | "kept" | "failed")[] = [
+    ...Array<"placed">(plan.placed ?? 0).fill("placed"), ...Array<"toCheck">(plan.toCheck ?? 0).fill("toCheck"),
+    ...Array<"kept">(plan.kept ?? 0).fill("kept"), ...Array<"failed">(plan.failed ?? 0).fill("failed"),
+  ];
+  const catPageSize = cat.pageSize ?? 4;
+  const catView = (projectId: string): CategorizeView | null => {
+    const known = catRuns.get(projectId);
+    if (known) return known;
+    if (!cat.existing) return null;
+    const seeded = makeCategorizeView({ projectId, ...cat.existing });
+    catRuns.set(projectId, seeded);
+    return seeded;
+  };
+  const copy = (view: CategorizeView): CategorizeView => ({ ...view });
+  const catOutcome = {
+    getLinearCategorize: vi.fn(async (projectId: string) => {
+      const problem = refuse();
+      if (problem) return problem;
+      const run = catView(projectId);
+      const importing = lastRun(projectId);
+      return ok({
+        available: catReason === null,
+        reason: catReason,
+        candidates: importing && !importing.done ? 0 : candidates,
+        batchLimit,
+        sourceRunId: candidates > 0 || run ? "run-1" : null,
+        run: run ? copy(run) : null,
+        toCheck: toCheckItems.length,
+      });
+    }),
+    openLinearCategorize: vi.fn(async (projectId: string) => {
+      const problem = refuse();
+      if (problem) return problem;
+      if (catOpenError) {
+        const [kind, code] = catOpenError;
+        catOpenError = undefined;
+        return failed(kind, code);
+      }
+      if (catReason === "assistant_not_configured") return failed("unavailable", "assistant_not_configured");
+      if (catReason === "assistant_consent_required") return failed("forbidden", "assistant_consent_required");
+      const importing = lastRun(projectId);
+      if (importing && !importing.done) return failed("conflict", "linear_import_in_progress");
+      const run = catView(projectId);
+      if (run && !run.finished) return failed("conflict", "linear_categorize_open");
+      if (candidates === 0) return failed("conflict", "linear_nothing_to_categorize");
+      const created = makeCategorizeView({ projectId, id: `cat-${catRuns.size + 2}`, total: Math.min(candidates, batchLimit), startedAt: stamp(), updatedAt: stamp() });
+      catRuns.set(projectId, created);
+      return ok(copy(created));
+    }),
+    stepLinearCategorize: vi.fn(async (projectId: string, runId: string) => {
+      const problem = refuse();
+      if (problem) return problem;
+      const run = catView(projectId);
+      if (!run || run.id !== runId) return failed("not_found");
+      if (catReason === "assistant_not_configured") return failed("unavailable", "assistant_not_configured");
+      if (catReason === "assistant_consent_required") return failed("forbidden", "assistant_consent_required");
+      const next = catScript.shift() ?? "ok";
+      if (next !== "ok" && typeof next === "object" && "hold" in next) await next.hold;
+      if (next !== "ok" && typeof next === "object" && "error" in next) return failed(...next.error);
+      if (next === "providerError" || (typeof next === "object" && "providerError" in next)) {
+        const errored = { ...run, errorStreak: run.errorStreak + 1, lastErrorCode: typeof next === "object" ? next.providerError : "assistant_unavailable", updatedAt: stamp() };
+        catRuns.set(projectId, errored);
+        return ok(copy(errored));
+      }
+      if (next !== "ok" && typeof next === "object" && "waitSeconds" in next) {
+        const waiting = { ...run, waitUntil: new Date(Date.now() + next.waitSeconds * 1000).toISOString() };
+        catRuns.set(projectId, waiting);
+        return ok(copy(waiting));
+      }
+      if (run.finished) return ok(copy(run));
+      const batch = outcomes.splice(0, Math.min(catPageSize, run.total - run.done));
+      const stepped = { ...run, waitUntil: null, lastErrorCode: null, errorStreak: 0, updatedAt: stamp() };
+      for (const outcome of batch) {
+        stepped.done += 1;
+        if (outcome === "placed") stepped.placed += 1;
+        else if (outcome === "toCheck") stepped.toCheck += 1;
+        else if (outcome === "kept") stepped.kept += 1;
+        else stepped.failed += 1;
+      }
+      if (batch.length === 0) stepped.done = stepped.total;
+      if (stepped.done >= stepped.total) {
+        stepped.phase = "done";
+        stepped.finished = true;
+        stepped.finishedAt = stamp();
+        candidates = 0;
+      }
+      catRuns.set(projectId, stepped);
+      return ok(copy(stepped));
+    }),
+    abandonLinearCategorize: vi.fn(async (projectId: string, runId: string) => {
+      const problem = refuse();
+      if (problem) return problem;
+      const run = catView(projectId);
+      if (!run || run.id !== runId) return failed("not_found");
+      const abandoned: CategorizeView = { ...run, phase: "failed", finished: true, errorStreak: 0, waitUntil: null, updatedAt: stamp(), finishedAt: stamp() };
+      catRuns.set(projectId, abandoned);
+      return ok(copy(abandoned));
+    }),
+    listLinearToCheck: vi.fn(async () => {
+      const problem = refuse();
+      if (problem) return problem;
+      if (toCheckError) {
+        const [kind, code] = toCheckError;
+        toCheckError = undefined;
+        return failed(kind, code);
+      }
+      return ok({ items: toCheckItems.map((item) => ({ ...item, suggestedPath: [...item.suggestedPath] })) });
+    }),
+    dismissLinearToCheck: vi.fn(async (_projectId: string, ticketId: string) => {
+      const problem = refuse();
+      if (problem) return problem;
+      if (dismissError) {
+        const [kind, code] = dismissError;
+        dismissError = undefined;
+        return failed(kind, code);
+      }
+      if (!toCheckItems.some((item) => item.ticketId === ticketId)) return failed("not_found");
+      toCheckItems = toCheckItems.filter((item) => item.ticketId !== ticketId);
+      return ok({ ok: true as const });
+    }),
+  };
+
   return {
+    ...catOutcome,
     // Como o servidor: agindo como outra pessoa responde 200, sem a conexão e com `actingAs`.
     getLinearConnection: vi.fn(async () =>
       ok<LinearConnection>(actingAs ? { configured, connection: null, actingAs: true } : { configured, connection: configured && connection !== null ? { ...connection } : null }),
@@ -430,6 +628,8 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
       if (sources.get(projectId)?.source == null) return failed("conflict", "linear_not_linked");
       const last = lastRun(projectId);
       if (last && !last.done) return failed("conflict", "linear_run_open");
+      const searching = catRuns.get(projectId);
+      if (searching && !searching.finished) return failed("conflict", "linear_categorize_open");
       // Depois de uma importação concluída, abrir é reimportar; sem destino no corpo ele é herdado da primeira rodada concluída.
       const done = finishedRuns.get(projectId) ?? (last && last.phase === "done" ? last : null);
       const created = makeLinearRun({ projectId, id: `run-${runs.size + 1}`, mode: done ? "reimport" : "first", totalExpected: total, destinationTicketId: body.destinationTicketId === undefined ? (done?.destinationTicketId ?? null) : body.destinationTicketId, startedBy: { id: me.person.id }, startedAt: stamp(), updatedAt: stamp() });

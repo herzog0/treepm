@@ -174,8 +174,9 @@ export class TicketsService {
    * (`PATCH tickets/:id`) e pelo MCP (ADR 0043). Faz tudo na ordem de sempre: visibilidade (404), permissão (403),
    * projeto arquivado (409), pai e ciclo, ideias, reabertura dos ancestrais (de baixo para cima, antes de qualquer
    * outro bloqueio), a regra 5 das ideias com a linha travada, concluir com filho aberto e, por fim, a gravação e o evento.
+   * `options.event` acrescenta campos ao evento (um processo automático marca `automatic` e a origem; nunca muda as regras acima).
    */
-  async updateTicket(tx: TenantClient, principal: Principal, id: string, body: UpdateTicketInput): Promise<TicketPage> {
+  async updateTicket(tx: TenantClient, principal: Principal, id: string, body: UpdateTicketInput, options: { event?: Record<string, unknown> } = {}): Promise<TicketPage> {
     const found = await this.findVisibleTicket(tx, principal.actor, id);
     const { project } = found;
     let { ticket } = found;
@@ -255,7 +256,7 @@ export class TicketsService {
     // Reabertura (ADR 0034): ticket aberto que entra num pai (mudou de pai ou voltou a ficar aberto) reabre o pai `done`.
     // Antes de qualquer outro bloqueio da transação, de baixo para cima. Fora do processo, nada reabre (ADR 0042).
     if (finalParent && !outside && !isFinished(finalStatus) && (data.parentId !== undefined || data.status !== undefined)) {
-      await this.reopenAncestors(tx, principal, project, finalParent, `${project.key}-${ticket.number}`);
+      await this.reopenAncestors(tx, principal, project, finalParent, `${project.key}-${ticket.number}`, options.event ?? {});
     }
     if (data.status !== undefined) {
       // Regra 5 (ADR 0042). Trava a linha e confere de novo: uma transformação em ideia que acabou de confirmar vale a partir daqui.
@@ -274,7 +275,7 @@ export class TicketsService {
         kind: "ticket.updated",
         subjectType: "ticket",
         subjectId: id,
-        payload: { key: `${project.key}-${ticket.number}`, fields, ...changes },
+        payload: { key: `${project.key}-${ticket.number}`, fields, ...changes, ...(options.event ?? {}) },
       });
     }
     // Entrando numa ideia, o marcador acaba junto, com a subárvore.
@@ -341,10 +342,10 @@ export class TicketsService {
    * Reabertura do pai concluído (ADR 0034): `parentId` acaba de ganhar (ou vai ganhar, nesta transação) um filho direto
    * aberto. Trava de baixo para cima (`for update`, um ancestral por vez, parando no primeiro que não está `done`) e
    * reabre para `todo` os que a função pura `ticketsToReopen` indicar, gravando um evento por ticket reaberto com
-   * `automatic: true` e `causedBy` (a chave do ticket que causou). Deve rodar ANTES de gravar o filho: a chave estrangeira
+   * `automatic: true` e `causedBy` (a chave do ticket que causou); `extraEvent` acrescenta a origem de um processo automático. Deve rodar ANTES de gravar o filho: a chave estrangeira
    * do pai trava a linha do pai, e travar na ordem contrária daria impasse com "concluir".
    */
-  async reopenAncestors(tx: TenantClient, principal: Principal, project: ProjectRow, parentId: string | null, causedBy: string): Promise<void> {
+  async reopenAncestors(tx: TenantClient, principal: Principal, project: ProjectRow, parentId: string | null, causedBy: string, extraEvent: Record<string, unknown> = {}): Promise<void> {
     const parents = new Map<string, string | null>();
     const statuses = new Map<string, TicketStatus>();
     const numbers = new Map<string, number>();
@@ -371,6 +372,7 @@ export class TicketsService {
           status: { from: "done", to: "todo" },
           automatic: true,
           causedBy,
+          ...extraEvent,
         },
       });
     }

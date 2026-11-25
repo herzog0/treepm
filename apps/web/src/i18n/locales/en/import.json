@@ -171,6 +171,66 @@
       "changeDestination": "Change destination for new issues",
       "destination": "Destination for new issues",
       "titleUndated": "Last import"
+    },
+    "categorize": {
+      "title": "Arrange in the tree",
+      "intro_one": "{{count}} item that came from Linear is still where the import put it. The AI can look for its place in the tree. When in doubt, the item stays where it is, marked for you to check.",
+      "intro_other": "{{count}} items that came from Linear are still where the import put them. The AI can look for the place of each one in the tree. When in doubt, the item stays where it is, marked for you to check.",
+      "batchNote": "That is {{total}} items; this round looks for the {{limit}} oldest and the rest waits for the next one.",
+      "start_one": "Look for the place of {{count}} item",
+      "start_other": "Look for the place of {{count}} items",
+      "sends": "Sent to the AI: title and description of those tickets, the titles of what is inside them, and the project tree (titles and excerpts).",
+      "noConsent": "To look for the items' places, the organization needs to turn on the AI assistant.",
+      "notConfigured": "The AI is not configured in this environment, so the items' places cannot be searched.",
+      "running": "Looking for the items' places",
+      "bar": "Search progress",
+      "counts": "Search counts",
+      "moved": "Moved",
+      "toCheck": "To check",
+      "kept": "Already in place",
+      "failed": "Failures",
+      "waiting": "The AI asked to wait. The search resumes at {{time}}.",
+      "retrying": "The AI did not answer. Trying again shortly…",
+      "retryingStepFailed": "A step of the search failed with an unexpected error. Trying again shortly…",
+      "retryingRateLimited": "The AI reached its usage limit for now. Trying again shortly…",
+      "gaveUp": "The search stopped because the server did not answer. What was already decided stays; it continues where it stopped.",
+      "abandon": {
+        "button": "Abandon",
+        "confirmLabel": "Confirm abandoning the search",
+        "confirmBody": "What was already decided stays as it is. A new search only handles what is left.",
+        "confirm": "Abandon",
+        "back": "Back"
+      },
+      "reimportBlocked": "Reimporting is unavailable while the search for the items' places is running.",
+      "doneTitle": "Search finished",
+      "abandonedTitle": "Search abandoned",
+      "nothing": "No item was decided.",
+      "summary": {
+        "moved_one": "{{count}} moved",
+        "moved_other": "{{count}} moved",
+        "toCheck": "{{count}} to check",
+        "kept": "{{count}} already in place",
+        "failed_one": "{{count}} failure",
+        "failed_other": "{{count}} failures"
+      },
+      "check": {
+        "show_one": "See the {{count}} to check",
+        "show_other": "See the {{count}} to check",
+        "hide": "Hide the list",
+        "list": "Items to check",
+        "loading": "Loading the items to check…",
+        "empty": "Nothing to check.",
+        "suggestion": "Suggestion: {{path}}",
+        "none": "No suggestion",
+        "dismiss": "Mark as checked",
+        "dismissing": "Marking…"
+      },
+      "announce": {
+        "start": "Looking for the items' places.",
+        "done": "Search for the items' places finished.",
+        "abandoned": "Search abandoned.",
+        "waiting": "The AI asked to wait."
+      }
     }
   }
 }

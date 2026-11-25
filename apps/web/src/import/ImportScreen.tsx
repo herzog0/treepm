@@ -22,6 +22,8 @@ export interface ImportScreenProps {
   onExit: () => void;
   /** Leva às Configurações → Linear (a ligação do projeto e a chave pessoal moram lá). */
   onOpenSettings?: () => void;
+  /** Abre o ticket no mapa (a lista "a conferir" da procura do lugar dos itens importados). */
+  onOpenTicket?: (ticketId: string) => void;
 }
 
 const MARKERS: readonly { marker: string; status: TicketStatus }[] = [
@@ -78,7 +80,7 @@ function Unavailable({ message, onExit }: { message: string; onExit: () => void 
   );
 }
 
-export function ImportScreen({ client, me, projectId, onExit, onOpenSettings }: ImportScreenProps) {
+export function ImportScreen({ client, me, projectId, onExit, onOpenSettings, onOpenTicket }: ImportScreenProps) {
   const { t } = useTranslation("import");
   const projects = useApiResource(() => client.listProjects());
   const project = projects.state.status === "ready" ? (projects.state.data.find((entry) => entry.id === projectId) ?? null) : null;
@@ -93,7 +95,7 @@ export function ImportScreen({ client, me, projectId, onExit, onOpenSettings }: 
         <Unavailable message={t("unavailable.noPermission")} onExit={onExit} />
       )}
       {project && canCreateTickets(me, project) && (
-        <ImportForm client={client} projectId={project.id} projectKey={project.key} projectName={project.name} onExit={onExit} {...(onOpenSettings ? { onOpenSettings } : {})} />
+        <ImportForm client={client} projectId={project.id} projectKey={project.key} projectName={project.name} onExit={onExit} {...(onOpenSettings ? { onOpenSettings } : {})} {...(onOpenTicket ? { onOpenTicket } : {})} />
       )}
     </main>
   );
@@ -106,6 +108,7 @@ interface ImportFormProps {
   projectName: string;
   onExit: () => void;
   onOpenSettings?: () => void;
+  onOpenTicket?: (ticketId: string) => void;
 }
 
 type Tab = "list" | "linear";
@@ -136,19 +139,19 @@ function useLinearEntry(client: ApiClient, projectId: string): LinearEntry {
   return entry;
 }
 
-function ImportForm({ client, projectId, projectKey, projectName, onExit, onOpenSettings }: ImportFormProps) {
+function ImportForm({ client, projectId, projectKey, projectName, onExit, onOpenSettings, onOpenTicket }: ImportFormProps) {
   const { t } = useTranslation("import");
   const entry = useLinearEntry(client, projectId);
   // Sem Linear a tela é a de sempre; com ele, espera a pergunta (rápida) para já abrir na aba certa.
   if (entry.status === "loading") return <p role="status">{t("loading")}</p>;
-  return <ImportTabs client={client} projectId={projectId} projectKey={projectKey} projectName={projectName} onExit={onExit} onOpenSettings={onOpenSettings} entry={entry} />;
+  return <ImportTabs client={client} projectId={projectId} projectKey={projectKey} projectName={projectName} onExit={onExit} onOpenSettings={onOpenSettings} onOpenTicket={onOpenTicket} entry={entry} />;
 }
 
 interface ImportTabsProps extends ImportFormProps {
   entry: Exclude<LinearEntry, { status: "loading" }>;
 }
 
-function ImportTabs({ client, projectId, projectKey, projectName, onExit, onOpenSettings, entry }: ImportTabsProps) {
+function ImportTabs({ client, projectId, projectKey, projectName, onExit, onOpenSettings, onOpenTicket, entry }: ImportTabsProps) {
   const { t } = useTranslation("import");
   const [tab, setTab] = useState<Tab>(entry.status === "on" ? entry.initialTab : "list");
   const tabsId = useId();
@@ -193,7 +196,7 @@ function ImportTabs({ client, projectId, projectKey, projectName, onExit, onOpen
       </div>
       {entry.status === "on" && (
         <div id={`${tabsId}-panel-linear`} role="tabpanel" aria-labelledby={`${tabsId}-linear`} hidden={!onLinear}>
-          {onLinear && <LinearImportPanel client={client} projectId={projectId} connection={entry.connection} onExit={onExit} onOpenSettings={onOpenSettings ?? onExit} />}
+          {onLinear && <LinearImportPanel client={client} projectId={projectId} connection={entry.connection} onExit={onExit} onOpenSettings={onOpenSettings ?? onExit} onOpenTicket={onOpenTicket ?? onExit} />}
         </div>
       )}
     </>

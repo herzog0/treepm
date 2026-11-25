@@ -112,7 +112,11 @@ describe("applyParentMoves no banco de verdade", () => {
     expect(isParentCycleError(other)).toBe(false);
   });
 
-  it("a ordem do plano que só fecha em sequência (R→B→A, com B hoje sob A) passa pelo FALLBACK e termina certa", async () => {
+  // O gatilho de ciclo confere linha a linha, e o Postgres escolhe a ordem em que o UPDATE em lote percorre as linhas: com B hoje sob A, se
+  // ele pega B→R primeiro o lote passa inteiro (sem fallback); se pega A→B primeiro o gatilho recusa e o fallback refaz na ordem do plano.
+  // Quem promete o resultado é `applyParentMoves`, nos dois caminhos; qual dos dois acontece o banco não garante, então o teste não afirma.
+  // O caminho do fallback em si (SAVEPOINT, um a um, na ordem do plano) está nos testes com transação falsa, acima, onde a recusa é certa.
+  it("a ordem do plano que só fecha em sequência (R→B→A, com B hoje sob A) termina certa, com ou sem fallback", async () => {
     const { a, b, r } = await tree();
     const prisma = h.app().get<PrismaClient>(PRISMA);
     const result = await withTenant(prisma, { orgId: ORG, userId: "u_admin" }, (tx) =>
@@ -121,7 +125,7 @@ describe("applyParentMoves no banco de verdade", () => {
         { id: a, parentId: b },
       ]),
     );
-    expect(result).toEqual({ usedFallback: true, skipped: [] });
+    expect(result.skipped).toEqual([]);
     expect(await parentOf(b)).toBe(r);
     expect(await parentOf(a)).toBe(b);
   });

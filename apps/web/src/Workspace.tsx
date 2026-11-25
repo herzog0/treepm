@@ -78,7 +78,17 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
     );
   }
   if (view === "import") {
-    return <ImportScreen client={client} me={state.data} projectId={projectId} onExit={() => onNavigate?.("map")} {...(onNavigate ? { onOpenSettings: () => onNavigate("settings", null, { section: "linear" }) } : {})} />;
+    return (
+      <AdminProvider isAdmin={state.data.roles.clerk === "admin"}>
+        <ImportScreen
+          client={client}
+          me={state.data}
+          projectId={projectId}
+          onExit={() => onNavigate?.("map")}
+          {...(onNavigate ? { onOpenSettings: () => onNavigate("settings", null, { section: "linear" }), onOpenTicket: (id: string) => onNavigate("map", null, { ticketId: id }) } : {})}
+        />
+      </AdminProvider>
+    );
   }
   return (
     <AdminProvider isAdmin={state.data.roles.clerk === "admin"}>

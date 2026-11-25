@@ -174,6 +174,7 @@ describe("frases dos erros do Linear", () => {
     "linear_already_linked", "linear_team_in_use", "linear_team_not_found", "project_archived", "not_while_acting_as",
     "linear_run_open", "linear_reimport_not_available", "linear_step_in_progress", "structure_busy", "linear_not_linked", "linear_workspace_mismatch", "linear_team_not_visible",
     "linear_destination_invalid", "linear_run_finished", "step_failed", "step_too_slow",
+    "linear_nothing_to_categorize", "linear_categorize_open", "linear_import_in_progress",
   ])("%s tem frase própria, não a genérica", (code) => {
     const text = phrase(code);
     expect(text).not.toBe(describeApiError(i18n.t, { kind: "unavailable" }));
@@ -185,5 +186,49 @@ describe("frases dos erros do Linear", () => {
   });
   it("a frase da chave inválida diz que ela foi recusada pelo Linear", () => {
     expect(phrase("linear_key_invalid")).toMatch(/Linear/);
+  });
+});
+
+const categorizeView = {
+  id: ID, projectId: ID, sourceRunId: ID, phase: "categorize", finished: false, total: 10, done: 4, placed: 2, toCheck: 1, kept: 1, skipped: 0, failed: 0,
+  waitUntil: null, lastErrorCode: null, errorStreak: 0, startedAt: "2026-11-25T10:00:00.000Z", updatedAt: "2026-11-25T10:01:00.000Z", finishedAt: null,
+};
+const base = `/api/projects/${ID}/linear/categorize`;
+
+describe("procurar o lugar dos itens importados (ADR 0060, seção 6)", () => {
+  it("lê a situação: candidatos, a rodada e quantos esperam conferência", async () => {
+    const body = { available: true, reason: null, candidates: 12, batchLimit: 200, sourceRunId: ID, run: categorizeView, toCheck: 1 };
+    const { client, fetchImpl } = setup(body);
+    expect(await client.getLinearCategorize(ID)).toEqual({ ok: true, data: body });
+    expect(lastCall(fetchImpl)).toMatchObject({ path: base, method: "GET" });
+  });
+  it.each(["assistant_not_configured", "assistant_consent_required"])("aceita o motivo %s e a ausência de rodada", async (reason) => {
+    const body = { available: false, reason, candidates: 3, batchLimit: 200, sourceRunId: null, run: null, toCheck: 0 };
+    expect(await setup(body).client.getLinearCategorize(ID)).toEqual({ ok: true, data: body });
+  });
+  it("abre a rodada, dá o passo e abandona", async () => {
+    const opened = setup(categorizeView, 201);
+    expect(await opened.client.openLinearCategorize(ID)).toEqual({ ok: true, data: categorizeView });
+    expect(lastCall(opened.fetchImpl)).toMatchObject({ path: base, method: "POST" });
+    const stepped = setup({ ...categorizeView, waitUntil: "2026-11-25T10:05:00.000Z" });
+    expect(await stepped.client.stepLinearCategorize(ID, ID)).toMatchObject({ ok: true, data: { waitUntil: "2026-11-25T10:05:00.000Z" } });
+    expect(lastCall(stepped.fetchImpl)).toMatchObject({ path: `${base}/${ID}/step`, method: "POST" });
+    const abandoned = setup({ ...categorizeView, phase: "failed", finished: true });
+    expect(await abandoned.client.abandonLinearCategorize(ID, ID)).toMatchObject({ ok: true, data: { phase: "failed", finished: true } });
+    expect(lastCall(abandoned.fetchImpl)).toMatchObject({ path: `${base}/${ID}/abandon`, method: "POST" });
+  });
+  it("lista os itens a conferir, com ou sem caminho sugerido, e marca como conferido", async () => {
+    const items = [{ ticketId: ID, key: "ENG-9", title: "Algo", suggestedPath: [{ id: ID, title: "Área" }] }, { ticketId: ID, key: "ENG-10", title: "Outro", suggestedPath: [] }];
+    const listed = setup({ items });
+    expect(await listed.client.listLinearToCheck(ID)).toEqual({ ok: true, data: { items } });
+    expect(lastCall(listed.fetchImpl)).toMatchObject({ path: `${base}/to-check`, method: "GET" });
+    const dismissed = setup({ ok: true });
+    expect(await dismissed.client.dismissLinearToCheck(ID, ID)).toEqual({ ok: true, data: { ok: true } });
+    expect(lastCall(dismissed.fetchImpl)).toMatchObject({ path: `${base}/to-check/${ID}/dismiss`, method: "POST" });
+  });
+  it("mantém o código dos erros 409, 403 e 503", async () => {
+    expect(await setup({ error: { code: "linear_nothing_to_categorize", message: "x" } }, 409).client.openLinearCategorize(ID)).toEqual({ ok: false, error: { kind: "conflict", code: "linear_nothing_to_categorize" } });
+    expect(await setup({ error: { code: "assistant_consent_required", message: "x" } }, 403).client.stepLinearCategorize(ID, ID)).toMatchObject({ ok: false, error: { code: "assistant_consent_required" } });
+    expect(await setup({ error: { code: "assistant_not_configured", message: "x" } }, 503).client.stepLinearCategorize(ID, ID)).toMatchObject({ ok: false, error: { kind: "unavailable", code: "assistant_not_configured" } });
   });
 });

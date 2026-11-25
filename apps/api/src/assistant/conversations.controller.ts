@@ -48,10 +48,10 @@ import { ELABORATION_TIMEOUT_MS } from "./claude-ticket-elaborator.js";
 import { loadPlacementTree } from "./branch-tree.js";
 import { decisionOf, errorCode, handDecisionToTicket, readDecisionSafely, recordPlacedBy, saveDecision } from "./placement-decision.js";
 import type { DecisionExtras, DoubtRecord, PlacementDecisionRecord } from "./placement-decision.js";
-import { findDoubt } from "./placement-doubt.js";
-import { buildQuestion, commonAncestor, forkOf, pathTo } from "./placement-question.js";
-import type { PlacementQuestion, QuestionNode } from "./placement-question.js";
-import { pickRelated, relatedListing } from "./related-placement.js";
+import { buildQuestion } from "./placement-question.js";
+import type { PlacementQuestion } from "./placement-question.js";
+import { relatedListing } from "./related-placement.js";
+import { runPlacement } from "./placement-run.js";
 import { linkExistingSuggestions, SUGGESTED_LOOKUP_TIMEOUT_MAX_MS } from "./suggested-links.js";
 import { SEMANTIC_TRIAGE_DEADLINE_MS, semanticSearchOf } from "./semantic-triage.js";
 import type { SemanticSearch } from "./semantic-triage.js";
@@ -64,7 +64,6 @@ import { CreationThreads } from "./creation-threads.js";
 import { TicketDraftService, childrenOf, draftMarkOf, requireScope } from "./ticket-draft.service.js";
 import type { ConversationRow } from "./ticket-draft.service.js";
 import { AssistantGate } from "./assistant-gate.js";
-import { PLACEMENT_TIMEOUT_MS } from "./placement-search.js";
 import { AssistantUnavailableError, PLACEMENT_TIMEOUTS } from "./ports.js";
 import type { ConversationDraft, DraftChild, ElaborationLink, ElaborationSuggestion, ExistingMatcher, PlacementTimeouts } from "./ports.js";
 import { QueuesStructure } from "../tickets/structure-queue.js";
@@ -281,70 +280,27 @@ export class TicketConversationsController {
       };
     });
     const startId = body.startId ?? null;
-    const nodes = new Map<string, QuestionNode>(seen.snapshot.tickets.map((t) => [t.id, { id: t.id, parentId: t.parentId, number: t.number, title: t.title }]));
     try {
-      // Os relacionados (de baixo para cima) e a descida (de cima para baixo) andam juntos; só a descida pode derrubar a procura.
-      const startedAt = Date.now();
-      const relatedAbort = new AbortController();
-      const [descent, found] = await Promise.all([
-        this.placementService
-          .search(seen.draft, seen.snapshot, {
-            judge,
-            ...(seen.scopeId ? { scopeId: seen.scopeId } : {}),
-            ...(startId ? { startId } : {}),
-            ...(this.timeouts?.descentMs ? { timeoutMs: this.timeouts.descentMs } : {}),
-          })
-          .catch((error: unknown) => {
-            // Se a descida falha, a requisição dos relacionados não fica rodando (e sendo paga).
-            relatedAbort.abort();
-            throw error;
-          }),
-        this.placementService.findRelated(seen.triage, seen.snapshot, {
-          related,
-          signal: relatedAbort.signal,
-          // O passo de vetor (ADR 0053): o `embedder` é `null` sem chave; o projeto é o da conversa, já conferido por `requireWritable`.
-          semantic: semanticSearchOf(embeddingStoreOf(tenant), embedder, seen.snapshot.projectId, settings),
-          fusion: settings.mode === "interleave" ? "interleave" : "rrf",
-          ...(this.timeouts?.relatedMs ? { timeoutMs: this.timeouts.relatedMs } : {}) }),
-      ]);
-      const picked = pickRelated(found.judged);
-      // O ramo confirmado é o limite dos relacionados (como o escopo): fora dele não geram destino; dentro dele vale tudo como hoje.
-      const placed = await this.placementService.place(descent, seen.snapshot, {
-        related: picked.related,
-        duplicateId: picked.duplicate?.id ?? null,
-        scopeId: startId ?? seen.scopeId,
+      // Os relacionados (de baixo para cima) e a descida (de cima para baixo) andam juntos, e o lugar e a dúvida saem do mesmo núcleo
+      // que a categorização do lote do Linear usa (`runPlacement`); só a descida pode derrubar a procura.
+      const run = await runPlacement(this.placementService, {
+        snapshot: seen.snapshot,
         draft: seen.draft,
+        triage: seen.triage,
         judge,
-        // A escolha usa o que sobrou do prazo da descida (teto de 10 s): descida + escolha nunca passam do prazo da descida.
-        timeoutMs: Math.max(1, (this.timeouts?.descentMs ?? PLACEMENT_TIMEOUT_MS) - (Date.now() - startedAt)),
+        related,
+        doubt: doubtConfig,
+        // O passo de vetor (ADR 0053): o `embedder` é `null` sem chave; o projeto é o da conversa, já conferido por `requireWritable`.
+        semantic: semanticSearchOf(embeddingStoreOf(tenant), embedder, seen.snapshot.projectId, settings),
+        fusion: settings.mode === "interleave" ? "interleave" : "rrf",
+        scopeId: seen.scopeId,
+        startId,
+        timeouts: this.timeouts,
       });
-      const { rule, weakAncestor } = placed;
-      // O relacionado fraco que tira o ticket da raiz também vira pergunta `related`, com os destinos em disputa como opções.
-      const choice = placed.choice ?? (weakAncestor ? { options: weakAncestor.map((optionId) => ({ id: optionId, probability: null })), top: null, descentId: null } : null);
-      let outcome = placed.outcome;
+      const { rule, choice, picked, found, nodes } = run;
+      let outcome = run.outcome;
       const listing = relatedListing(seen.snapshot.tickets, seen.projectKey, picked.related, picked.duplicate?.id ?? null);
-
-      // A dúvida mais rasa do caminho mantido (ADR 0054, item 1).
-      const origin = startId ?? seen.scopeId;
-      const chosen = outcome.trace.chosen;
-      const after = origin === null ? chosen : chosen.slice(chosen.indexOf(origin) + 1);
-      const relatedAt = (rule === "related_choice" || rule === "choice_unavailable") && choice ? commonAncestor(choice.options.map((o) => o.id), nodes) : null;
-      // Os relacionados só tiram o `which` da descida onde o caminho do vencedor se separa do da descida, e só se o vencedor é outro.
-      const winnerId = outcome.destination.parentId;
-      const divergence = rule === "related_choice" && choice?.descentId != null && winnerId !== choice.descentId ? { parentId: forkOf(choice.descentId, winnerId, nodes) } : null;
-      let doubt = findDoubt(
-        {
-          divergence,
-          steps: outcome.trace.steps,
-          walk: [origin, ...after],
-          stoppedEarly: outcome.stoppedEarly,
-          levelOffset: origin === null ? 0 : pathTo(origin, nodes).length,
-          ...(choice ? { related: { rule, choiceTop: choice.top, weak: weakAncestor !== null, parentId: relatedAt, level: pathTo(relatedAt, nodes).length + 1 } } : {}),
-        },
-        doubtConfig,
-      );
-      // A raiz nunca sai como destino confirmado: só a pessoa a escolhe (ADR 0054, item 1).
-      if (!doubt && outcome.destination.parentId === null) doubt = { level: 1, parentId: null, kind: "root" };
+      const doubt = run.doubt;
       let question: PlacementQuestion | null = null;
       if (doubt) {
         const step = outcome.trace.steps.find((candidate) => candidate.parentId === doubt?.parentId);

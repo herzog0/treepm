@@ -7,6 +7,10 @@ import { formatActivityTime, formatClock, formatNumber } from "../i18n/format.js
 import type { Language } from "../i18n/languages.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
+import { AbandonControl } from "./AbandonControl.js";
+import { ArrangeBlock, categorizeAnnouncement, isCategorizing } from "./LinearCategorize.js";
+import type { CategorizeHook } from "./LinearCategorize.js";
+import { useLinearCategorize } from "./useLinearCategorize.js";
 import { useLinearRun } from "./useLinearRun.js";
 import type { LoopState } from "./useLinearRun.js";
 
@@ -19,6 +23,8 @@ export interface LinearImportProps {
   onExit: () => void;
   /** Leva às Configurações → Linear. */
   onOpenSettings: () => void;
+  /** Abre o ticket no mapa (a lista "a conferir" depois de procurar o lugar dos itens). */
+  onOpenTicket: (ticketId: string) => void;
 }
 
 type Phase = "projects" | "issues" | "hierarchy" | "statuses" | "mentions" | "missing";
@@ -60,21 +66,37 @@ export function LinearImportPanel(props: LinearImportProps) {
   return <ConnectedPanel {...props} />;
 }
 
-function ConnectedPanel({ client, projectId, connection, onExit, onOpenSettings }: LinearImportProps) {
+function ConnectedPanel({ client, projectId, connection, onExit, onOpenSettings, onOpenTicket }: LinearImportProps) {
   const { t } = useTranslation("import");
   const source = useApiResource(() => safe(() => client.getProjectLinear(projectId)));
   const [announcement, setAnnouncement] = useState("");
   const link = source.state.status === "ready" ? source.state.data : null;
   const keyOk = connection.connection !== null && link?.source != null && link.keyMatches !== false;
   const run = useLinearRun(client, projectId, { enabled: keyOk });
+  const categorize = useLinearCategorize(client, projectId, { enabled: keyOk });
+
+  // Quem viu a importação andar e terminar: a situação da procura do lugar dos itens mudou (há itens novos na raiz).
+  const sawOpenImport = useRef(false);
+  const importFinishedKey = run.run !== null && run.run.done && run.run.phase === "done" ? `${run.run.id}:${run.run.updatedAt}` : null;
+  const { refresh } = categorize;
+  useEffect(() => {
+    if (run.run !== null && !run.run.done) sawOpenImport.current = true;
+    else if (importFinishedKey !== null && sawOpenImport.current) {
+      sawOpenImport.current = false;
+      refresh();
+    }
+  }, [run.run, importFinishedKey, refresh]);
 
   // Uma região de status que existe desde o início e só anuncia a mudança de fase e o fim, nunca cada passo.
-  const phaseKey = run.run === null ? null : run.run.done ? (isFailed(run.run) ? "abandoned" : run.run.mode === "reimport" ? "reimportDone" : "done") : run.loop.kind === "waiting" ? "waiting" : run.run.phase;
+  const importKey = run.run === null ? null : run.run.done ? (isFailed(run.run) ? "abandoned" : run.run.mode === "reimport" ? "reimportDone" : "done") : run.loop.kind === "waiting" ? "waiting" : run.run.phase;
+  const arranging = categorizeAnnouncement(categorize);
+  const phaseKey = arranging !== null ? `categorize:${arranging}` : importKey;
   const lastPhase = useRef<string | null>(null);
   useEffect(() => {
     if (phaseKey === lastPhase.current) return;
     lastPhase.current = phaseKey;
-    if (phaseKey !== null && ["projects", "issues", "hierarchy", "statuses", "mentions", "missing", "done", "reimportDone", "waiting", "abandoned"].includes(phaseKey)) setAnnouncement(t(`linear.announce.${phaseKey as "done"}`));
+    if (phaseKey !== null && phaseKey.startsWith("categorize:")) setAnnouncement(t(`linear.categorize.announce.${phaseKey.slice("categorize:".length) as "start"}`));
+    else if (phaseKey !== null && ["projects", "issues", "hierarchy", "statuses", "mentions", "missing", "done", "reimportDone", "waiting", "abandoned"].includes(phaseKey)) setAnnouncement(t(`linear.announce.${phaseKey as "done"}`));
     else setAnnouncement("");
   }, [phaseKey, t]);
 
@@ -86,7 +108,7 @@ function ConnectedPanel({ client, projectId, connection, onExit, onOpenSettings 
       {source.state.status === "ready" && run.load.status === "loading" && <p className="import-muted">{t("linear.loading")}</p>}
       {source.state.status === "ready" && run.load.status === "error" && <LoadFailed error={run.load.error} onRetry={run.reload} />}
       {source.state.status === "ready" && run.load.status === "ready" && link && (
-        <Body client={client} projectId={projectId} link={link} connection={connection} keyOk={keyOk} run={run} onExit={onExit} onOpenSettings={onOpenSettings} />
+        <Body client={client} projectId={projectId} link={link} connection={connection} keyOk={keyOk} run={run} categorize={categorize} onExit={onExit} onOpenSettings={onOpenSettings} onOpenTicket={onOpenTicket} />
       )}
     </section>
   );
@@ -105,7 +127,7 @@ function LoadFailed({ error, onRetry }: { error: ApiError; onRetry: () => void }
 
 type RunHook = ReturnType<typeof useLinearRun>;
 
-function Body({ client, projectId, link, connection, keyOk, run, onExit, onOpenSettings }: { client: ApiClient; projectId: string; link: ProjectLinear; connection: LinearConnection; keyOk: boolean; run: RunHook; onExit: () => void; onOpenSettings: () => void }) {
+function Body({ client, projectId, link, connection, keyOk, run, categorize, onExit, onOpenSettings, onOpenTicket }: { client: ApiClient; projectId: string; link: ProjectLinear; connection: LinearConnection; keyOk: boolean; run: RunHook; categorize: CategorizeHook; onExit: () => void; onOpenSettings: () => void; onOpenTicket: (ticketId: string) => void }) {
   const { t } = useTranslation("import");
   const current = run.run;
   const last = run.lastFinished;
@@ -134,9 +156,9 @@ function Body({ client, projectId, link, connection, keyOk, run, onExit, onOpenS
         </Notice>
       )}
       {link.source !== null && (current === null || isFailed(current)) && keyOk && last === null && <StartCard client={client} projectId={projectId} link={link} run={run} previous={current} />}
-      {link.source !== null && keyOk && idle && !finishedHere && last !== null && <ReimportCard client={client} projectId={projectId} run={run} last={last} onExit={onExit} />}
+      {link.source !== null && keyOk && idle && !finishedHere && last !== null && <ReimportCard client={client} projectId={projectId} run={run} last={last} categorize={categorize} onExit={onExit} onOpenTicket={onOpenTicket} />}
       {current !== null && !current.done && <ProgressCard run={current} loop={run.loop} onResume={run.resume} onOpenSettings={onOpenSettings} onAbandon={run.abandon} />}
-      {finishedHere && <SummaryCard run={current} onExit={onExit} />}
+      {finishedHere && <SummaryCard client={client} projectId={projectId} run={current} categorize={categorize} onExit={onExit} onOpenTicket={onOpenTicket} />}
     </>
   );
 }
@@ -258,7 +280,7 @@ function DestinationPanel({ id, client, projectId, onChoose, onCancel }: { id: s
  * "Última importação · há 2 dias": depois de uma importação concluída, as contagens dela e o botão "Reimportar agora". O destino
  * das issues novas não é perguntado (o servidor herda o da primeira rodada); um controle discreto abre o mesmo seletor.
  */
-function ReimportCard({ client, projectId, run, last, onExit }: { client: ApiClient; projectId: string; run: RunHook; last: LinearRun; onExit: () => void }) {
+function ReimportCard({ client, projectId, run, last, categorize, onExit, onOpenTicket }: { client: ApiClient; projectId: string; run: RunHook; last: LinearRun; categorize: CategorizeHook; onExit: () => void; onOpenTicket: (ticketId: string) => void }) {
   const { t, i18n } = useTranslation("import");
   const language = i18n.language as Language;
   const describeError = useDescribeApiError();
@@ -268,6 +290,7 @@ function ReimportCard({ client, projectId, run, last, onExit }: { client: ApiCli
   const [choosing, setChoosing] = useState(false);
   const id = useId();
   const opener = useRef<HTMLButtonElement>(null);
+  const arranging = isCategorizing(categorize);
   const when = last.finishedAt === null ? "" : formatActivityTime(language, last.finishedAt, new Date());
   const reimport = async () => {
     await action.run(() => run.open(destination === undefined ? {} : { destinationTicketId: destination?.id ?? null }));
@@ -281,16 +304,18 @@ function ReimportCard({ client, projectId, run, last, onExit }: { client: ApiCli
       <h3>{when === "" ? t("linear.last.titleUndated") : t("linear.last.title", { when })}</h3>
       <RunSummary run={last} />
       <p className="linear-import-how">{t("linear.last.rule")}</p>
+      <ArrangeBlock client={client} projectId={projectId} categorize={categorize} onOpenTicket={onOpenTicket} />
       {destination !== undefined && (
         <p className="linear-import-note">
           {t("linear.last.destination")}: {destination === null ? t("linear.root") : <><span className="linear-import-key">{destination.key}</span> <span>{destination.title}</span></>}
         </p>
       )}
       <div className="linear-import-actions">
-        <button type="button" className="primary" disabled={action.busy} onClick={() => void reimport()}>{action.busy ? t("linear.starting") : t("linear.last.reimport")}</button>
+        <button type="button" className="primary" disabled={action.busy || arranging} aria-describedby={arranging ? `${id}-blocked` : undefined} onClick={() => void reimport()}>{action.busy ? t("linear.starting") : t("linear.last.reimport")}</button>
         <button type="button" onClick={onExit}>{t("linear.done.openMap")}</button>
         {!choosing && <button ref={opener} type="button" className="text" aria-expanded={false} aria-controls={`${id}-picker`} onClick={() => setChoosing(true)}>{t("linear.last.changeDestination")}</button>}
       </div>
+      {arranging && <p id={`${id}-blocked`} className="linear-import-how">{t("linear.categorize.reimportBlocked")}</p>}
       {choosing && (
         <DestinationPanel
           id={`${id}-picker`}
@@ -381,46 +406,11 @@ function ProgressCard({ run, loop, onResume, onOpenSettings, onAbandon }: { run:
           </div>
         </div>
       )}
-      <AbandonControl prominent={prominent} onAbandon={onAbandon} />
-    </div>
-  );
-}
-
-/** "Abandonar importação": discreto durante a rodada, em destaque quando continuar não adianta; a confirmação é na própria tela. */
-function AbandonControl({ prominent, onAbandon }: { prominent: boolean; onAbandon: RunHook["abandon"] }) {
-  const { t } = useTranslation("import");
-  const describeError = useDescribeApiError();
-  const action = useAction();
-  const [confirming, setConfirming] = useState(false);
-  const opener = useRef<HTMLButtonElement>(null);
-  const confirmButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (confirming) confirmButton.current?.focus();
-  }, [confirming]);
-  const close = () => {
-    setConfirming(false);
-    // O botão que abriu a confirmação só volta ao DOM no próximo ciclo.
-    setTimeout(() => opener.current?.focus(), 0);
-  };
-  const confirm = async () => {
-    const result = await action.run(() => onAbandon());
-    if (!result.ok) setConfirming(false);
-  };
-  return (
-    <div className="linear-import-abandon">
-      {!confirming && (
-        <button ref={opener} type="button" className={`linear-import-abandon-button ${prominent ? "is-prominent" : "text"}`} onClick={() => setConfirming(true)}>{t("linear.abandon.button")}</button>
-      )}
-      {confirming && (
-        <div role="group" aria-label={t("linear.abandon.confirmLabel")} className="linear-import-abandon-confirm" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); close(); } }}>
-          <p>{t("linear.abandon.confirmBody")}</p>
-          <div className="linear-import-actions">
-            <button ref={confirmButton} type="button" className="destructive" disabled={action.busy} onClick={() => void confirm()}>{t("linear.abandon.confirm")}</button>
-            <button type="button" disabled={action.busy} onClick={close}>{t("linear.abandon.back")}</button>
-          </div>
-        </div>
-      )}
-      {action.error && <p role="alert" className="import-error-text">{describeError(action.error)}</p>}
+      <AbandonControl
+        prominent={prominent}
+        onAbandon={onAbandon}
+        text={{ button: t("linear.abandon.button"), confirmLabel: t("linear.abandon.confirmLabel"), confirmBody: t("linear.abandon.confirmBody"), confirm: t("linear.abandon.confirm"), back: t("linear.abandon.back") }}
+      />
     </div>
   );
 }
@@ -485,12 +475,13 @@ function RunSummary({ run }: { run: LinearRun }) {
   );
 }
 
-function SummaryCard({ run, onExit }: { run: LinearRun; onExit: () => void }) {
+function SummaryCard({ client, projectId, run, categorize, onExit, onOpenTicket }: { client: ApiClient; projectId: string; run: LinearRun; categorize: CategorizeHook; onExit: () => void; onOpenTicket: (ticketId: string) => void }) {
   const { t } = useTranslation("import");
   return (
     <div className="linear-import-card">
       <h3>{run.mode === "reimport" ? t("linear.done.reimportTitle") : t("linear.done.title")}</h3>
       <RunSummary run={run} />
+      <ArrangeBlock client={client} projectId={projectId} categorize={categorize} onOpenTicket={onOpenTicket} />
       <div className="linear-import-actions"><button type="button" className="primary" onClick={onExit}>{t("linear.done.openMap")}</button></div>
     </div>
   );

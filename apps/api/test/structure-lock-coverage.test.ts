@@ -203,6 +203,7 @@ const LOCK_CALLERS = new Set([
   "apps/api/src/tickets/tickets.service.ts",
   "apps/api/src/tickets/ideas.service.ts",
   "apps/api/src/linear/linear-import.service.ts",
+  "apps/api/src/linear/linear-categorize.service.ts",
   "apps/api/src/tickets/tickets.controller.ts",
   "apps/api/src/assistant/conversations.controller.ts",
 ]);
