@@ -158,3 +158,17 @@ Ordem de publicação: a migration `0038` precisa estar aplicada antes do códig
 Limites conhecidos, registrados como tickets: um pai reaberto pela regra da árvore por ação de pessoa passa a contar como mexido aqui (`TREEPM-446`); o custo da fase de situações em projetos muito grandes (`TREEPM-447`); pequenos desvios de contagem (`TREEPM-448`).
 
 Publicação: a `0039` antes do código, e nunca com uma reimportação aberta rodando em instância antiga.
+
+### Fatia 4: procurar o lugar das raízes importadas (2026-11-25, `TREEPM-425`)
+
+- **Mudança em relação à seção 6:** a categorização não é uma opção marcada antes de importar. É uma ação oferecida **depois** que a importação conclui, "Procurar o lugar de N itens na árvore", com a quantidade exata. Assim a pessoa vê o tamanho antes de gastar IA, a importação não depende de a IA estar configurada, e a ação serve ao que já foi importado.
+- **Candidatos:** ticket que veio do Linear, ainda visto lá, aberto, fora de ideia, que continua onde a importação o pôs e cujo pai não é outro ticket do Linear (a raiz do projeto ou um ticket nativo), e que ainda não teve decisão. Não depende de qual rodada o trouxe. Filhos seguem o pai. No máximo 200 por rodada, os mais antigos primeiro.
+- **A procura é a mesma da conversa de criação de ticket:** o miolo foi extraído para `apps/api/src/assistant/placement-run.ts` e as duas rotas o chamam; não há regra nem limiar duplicado (ADR 0054). Passa pelo portão da IA (configuração e aceite) a cada passo.
+- **Decisão:** segura e num ticket diferente do pai atual, move (uma edição normal, com evento automático ligado à rodada); em dúvida, sem lugar, ou quando a procura proporia um agrupador novo, **não move** e o item entra em "a conferir", com o caminho sugerido quando há. O lote nunca cria agrupador e nunca pergunta.
+- **O que vai ao provedor:** título e descrição do ticket, os títulos dos filhos diretos e a árvore do projeto (títulos e trechos), exatamente o que a conversa já envia. Não vai nada da origem no Linear (chave de API, id, identificador, endereço, workspace, time) nem dado de pessoa. Texto de ticket com menção de pessoa no formato do TreePM não é enviado nem ganha vetor na busca por significado.
+- **Banco (migration `0040_linear_categorize`):** a rodada de categorização é uma linha de `external_import_runs` com `mode = categorize` (a unicidade "uma rodada aberta por projeto" passa a valer entre importação e categorização), mais `external_categorize_items` com a lista e o estado de cada candidato. A decisão fica em `placement_decisions` com `placed_by = import`.
+- **Convivência com a reimportação:** o que a categorização moveu passa a ser o lugar aplicado; uma reimportação sem mudança no Linear não mexe, mudança de pai no Linear continua valendo, e o que a pessoa moveu depois é respeitado.
+- **Erros:** falha do provedor ou erro inesperado conta tentativa; na segunda o item fica como falho e a rodada segue (ele volta a ser candidato depois). Sempre dá para abandonar.
+- **Tela:** bloco "Arrumar na árvore" no cartão da última importação: quantidade, o que vai à IA, andamento, resumo e a lista "a conferir" com "Marcar como conferido".
+
+Fica para depois: custo estimado e aceite antes de rodar (`TREEPM-146`); os provedores reais ainda não informam o prazo de espera no limite de taxa.

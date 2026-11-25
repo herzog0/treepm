@@ -81,6 +81,7 @@ model Organization {
   projectExternalSources     ProjectExternalSource[]
   ticketExternalRefs         TicketExternalRef[]
   externalImportRuns         ExternalImportRun[]
+  externalCategorizeItems    ExternalCategorizeItem[]
 
   @@map("organizations")
 }
@@ -282,6 +283,7 @@ model Ticket {
   conversations        Conversation[]
   externalRefs         TicketExternalRef[]
   importRunsAsDestination ExternalImportRun[]
+  categorizeItems         ExternalCategorizeItem[]
 
   @@id([orgId, id])
   @@unique([orgId, projectId, id])
@@ -906,7 +908,7 @@ model ExternalImportRun {
   projectId          String    @map("project_id") @db.Uuid
   provider           String
   startedByPersonId  String    @map("started_by_person_id") @db.Uuid
-  /// first | reimport (check no banco)
+  /// first | reimport | categorize (check no banco)
   mode               String
   /// projects | issues | hierarchy | statuses | mentions | missing | categorize | done | failed (check no banco)
   phase              String
@@ -927,6 +929,8 @@ model ExternalImportRun {
   sizeStreak         Int       @default(0) @map("size_streak")
   /// Um destino foi escolhido ao abrir: se `destination_ticket_id` virar nulo, o ticket foi apagado.
   hasDestination     Boolean   @default(false) @map("has_destination")
+  /// Só no modo `categorize`: a rodada de importação concluída sobre a qual a categorização foi aberta (sem chave estrangeira; migration 0040).
+  sourceRunId        String?   @map("source_run_id") @db.Uuid
   startedAt          DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   finishedAt         DateTime? @map("finished_at") @db.Timestamptz(3)
@@ -935,8 +939,42 @@ model ExternalImportRun {
   project      Project      @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade)
   startedBy    Person       @relation("ImportRunStartedBy", fields: [orgId, startedByPersonId], references: [orgId, id])
   destination  Ticket?      @relation(fields: [orgId, projectId, destinationTicketId], references: [orgId, projectId, id], onDelete: SetNull)
+  categorizeItems ExternalCategorizeItem[]
 
   @@id([orgId, id])
   @@index([orgId, projectId, startedAt])
   @@map("external_import_runs")
+}
+
+/// A lista congelada de candidatos de uma rodada de categorização e o que a procura decidiu de cada um (ADR 0060, seção 6; migration 0040).
+/// A aplicação lê, insere e atualiza; não apaga.
+model ExternalCategorizeItem {
+  orgId         String    @map("org_id")
+  id            String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  runId         String    @map("run_id") @db.Uuid
+  projectId     String    @map("project_id") @db.Uuid
+  ticketId      String    @map("ticket_id") @db.Uuid
+  position      Int
+  /// pending | placed | to_check | kept | skipped | failed (check no banco)
+  state         String    @default("pending")
+  attempts      Int       @default(0)
+  /// Limites de taxa seguidos no mesmo candidato: na 10ª espera ele vira `failed`.
+  waits         Int       @default(0)
+  /// O pai do ticket quando foi decidido: "a conferir" só continua na lista enquanto o pai for este.
+  parentBefore  String?   @map("parent_before") @db.Uuid
+  /// O caminho sugerido (ids, da raiz ao lugar), só em `to_check`.
+  suggestedPath String[]  @default([]) @map("suggested_path") @db.Uuid
+  decidedAt     DateTime? @map("decided_at") @db.Timestamptz(3)
+  dismissedAt   DateTime? @map("dismissed_at") @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization      @relation(fields: [orgId], references: [orgId])
+  run          ExternalImportRun @relation(fields: [orgId, runId], references: [orgId, id], onDelete: Cascade)
+  ticket       Ticket            @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+
+  @@id([orgId, id])
+  @@unique([orgId, runId, ticketId], map: "external_categorize_items_run_ticket_key")
+  @@index([orgId, runId, state, position], map: "external_categorize_items_run_idx")
+  @@index([orgId, projectId, ticketId], map: "external_categorize_items_ticket_idx")
+  @@map("external_categorize_items")
 }

@@ -124,5 +124,6 @@ import { AFFINITY_JUDGE, BRANCH_JUDGE, BRANCH_SUMMARIZER, CHAT_PROVIDER, CONVERS
     // Os prazos da ADR (30 s a descida, 20 s a proposta) valem quando nada os troca; os testes trocam.
     { provide: PLACEMENT_TIMEOUTS, useValue: {} },
   ],
+  exports: [AssistantGate, PlacementService],
 })
 export class AssistantModule {}

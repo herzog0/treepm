@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { TenantClient } from "@treepm/db";
-import { ticketEmbeddingText } from "@treepm/domain";
+import { mentionsPersonRaw, ticketEmbeddingText } from "@treepm/domain";
 import type { IdeaStage, TicketStatus } from "@treepm/domain";
 import { MAX_TREE_DEPTH } from "../tickets/ticket-scope.js";
 import type { TenantRunner } from "../db/own-transactions.js";
@@ -42,12 +42,16 @@ export function ticketEmbeddingHash(ticket: EmbeddableTicket | { title: string; 
 /** O vetor como o texto que o PostgreSQL lê em `::vector`. Só números finitos. */
 const vectorLiteral = (vector: readonly number[]): string => `[${vector.join(",")}]`;
 
-/** Lê os tickets vivos do projeto com título e descrição (até 8 000 caracteres): os mesmos que a procura enxerga (`liveTickets`). */
+/**
+ * Lê os tickets vivos do projeto com título e descrição (até 8 000 caracteres): os mesmos que a procura enxerga (`liveTickets`).
+ * Texto com menção de pessoa nunca vai ao provedor de vetores (ADR 0058): pelas rotas normais ele nem existe, mas um ticket que o
+ * traga (importação, banco) fica sem vetor em vez de ser enviado.
+ */
 export async function loadEmbeddableTickets(tx: TenantClient, projectId: string): Promise<EmbeddableTicket[]> {
   const all = await tx.$queryRaw<{ id: string; parentId: string | null; title: string; description: string; status: string; ideaStage: string | null }[]>`
     select id, parent_id as "parentId", title, left(description, 8000) as description, status, idea_stage as "ideaStage"
     from tickets where project_id = ${projectId}::uuid order by number`;
-  return liveTickets(all.map((t) => ({ ...t, status: t.status as TicketStatus, ideaStage: (t.ideaStage ?? null) as IdeaStage | null }))).map(({ id, title, description }) => ({ id, title, description }));
+  return liveTickets(all.map((t) => ({ ...t, status: t.status as TicketStatus, ideaStage: (t.ideaStage ?? null) as IdeaStage | null }))).filter((t) => !mentionsPersonRaw(t.title) && !mentionsPersonRaw(t.description)).map(({ id, title, description }) => ({ id, title, description }));
 }
 
 type Stored = { model: string; dimensions: number; hash: string };

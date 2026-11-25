@@ -322,6 +322,41 @@ const linearRunSchema = z.object({
 const currentLinearRunSchema = z.object({ run: linearRunSchema.nullable(), lastFinished: linearRunSchema.nullable().optional() });
 /** Quantas issues a importação traria; `null` quando o Linear não disse (nunca bloqueia o botão). */
 const linearPreviewSchema = z.object({ issueCount: z.number().nullable() });
+/** A procura do lugar dos itens importados (ADR 0060, seção 6): a rodada como a API a devolve; só contagens, nada do texto dos tickets. */
+const categorizeViewSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  sourceRunId: z.string().nullable(),
+  phase: z.enum(["categorize", "done", "failed"]),
+  finished: z.boolean(),
+  total: z.number(),
+  done: z.number(),
+  placed: z.number(),
+  toCheck: z.number(),
+  kept: z.number(),
+  skipped: z.number(),
+  failed: z.number(),
+  waitUntil: z.string().nullable(),
+  lastErrorCode: z.string().nullable(),
+  errorStreak: z.number(),
+  startedAt: z.string(),
+  updatedAt: z.string(),
+  finishedAt: z.string().nullable(),
+});
+const categorizeOverviewSchema = z.object({
+  available: z.boolean(),
+  reason: z.enum(["assistant_not_configured", "assistant_consent_required"]).nullable(),
+  candidates: z.number(),
+  /** O teto de itens por rodada; a procura seguinte cuida do resto. */
+  batchLimit: z.number(),
+  sourceRunId: z.string().nullable(),
+  /** A rodada aberta, ou a última; `finished` diz qual. */
+  run: categorizeViewSchema.nullable(),
+  toCheck: z.number(),
+});
+const toCheckSchema = z.object({
+  items: z.array(z.object({ ticketId: z.string(), key: z.string(), title: z.string(), suggestedPath: z.array(z.object({ id: z.string(), title: z.string() })) })),
+});
 const projectRepositorySchema = githubRepositorySchema.extend({ id: z.string(), linkedAt: z.string() });
 const codeRefreshSchema = z.object({
   refreshed: z.boolean(),
@@ -501,6 +536,10 @@ export type LinearTeam = z.output<typeof linearTeamSchema>;
 export type ProjectLinear = z.output<typeof projectLinearSchema>;
 export type LinearRun = z.output<typeof linearRunSchema>;
 export type LinearPreview = z.output<typeof linearPreviewSchema>;
+export type CategorizeView = z.output<typeof categorizeViewSchema>;
+export type CategorizeOverview = z.output<typeof categorizeOverviewSchema>;
+export type ToCheckList = z.output<typeof toCheckSchema>;
+export type ToCheckItem = ToCheckList["items"][number];
 export type CurrentLinearRun = z.output<typeof currentLinearRunSchema>;
 export interface OpenLinearRunBody {
   /** O ticket onde as issues novas entram; nulo: a raiz do projeto; ausente: herda o destino da primeira importação. */
@@ -827,6 +866,13 @@ export function createApiClient({ getToken, fetch: fetchImpl, actAsId = null }: 
     stepLinearRun: (projectId: string, runId: string) => request("POST", `${project(projectId)}/linear/runs/${runId}/step`, linearRunSchema),
     /** Desiste da rodada aberta: o que já foi importado fica e dá para começar outra (ADR 0060). */
     abandonLinearRun: (projectId: string, runId: string) => request("POST", `${project(projectId)}/linear/runs/${runId}/abandon`, linearRunSchema),
+    /** Procurar o lugar das raízes da importação (ADR 0060, seção 6): a situação, a rodada em passos e a lista "a conferir". */
+    getLinearCategorize: (projectId: string) => request("GET", `${project(projectId)}/linear/categorize`, categorizeOverviewSchema),
+    openLinearCategorize: (projectId: string) => request("POST", `${project(projectId)}/linear/categorize`, categorizeViewSchema),
+    stepLinearCategorize: (projectId: string, runId: string) => request("POST", `${project(projectId)}/linear/categorize/${runId}/step`, categorizeViewSchema),
+    abandonLinearCategorize: (projectId: string, runId: string) => request("POST", `${project(projectId)}/linear/categorize/${runId}/abandon`, categorizeViewSchema),
+    listLinearToCheck: (projectId: string) => request("GET", `${project(projectId)}/linear/categorize/to-check`, toCheckSchema),
+    dismissLinearToCheck: (projectId: string, ticketId: string) => request("POST", `${project(projectId)}/linear/categorize/to-check/${ticketId}/dismiss`, z.object({ ok: z.literal(true) })),
     linkProjectToLinear: (projectId: string, body: LinkProjectToLinearBody) => request("POST", `${project(projectId)}/linear`, projectLinearSchema, body),
 
     ticketActivity: (id: string, query: { before?: string; limit?: number; contribution?: string } = {}, options: { signal?: AbortSignal } = {}) => {

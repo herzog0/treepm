@@ -112,3 +112,20 @@
 .linear-import-abandon-confirm p { margin: 0; line-height: 1.5; }
 .linear-import-abandon-confirm button.destructive { border-color: var(--tp-danger-border); color: var(--tp-danger-text); }
 @media (max-width: 720px) { .linear-import-abandon-button.text { min-height: 44px; padding: 0 8px; font-size: 14px; } }
+
+/* Arrumar na árvore (ADR 0060, seção 6): procurar o lugar dos itens que entraram na raiz do destino. */
+.linear-categorize { display: grid; gap: 12px; min-width: 0; padding-top: 14px; border-top: 1px solid var(--tp-divider); }
+.linear-categorize h4, .linear-categorize h5 { margin: 0; font-size: 14px; font-weight: 600; }
+.linear-categorize-running, .linear-categorize-summary, .linear-categorize-check { display: grid; gap: 12px; min-width: 0; }
+.linear-categorize-line { margin: 0; color: var(--tp-text-2); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.linear-categorize-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.linear-categorize-row { display: grid; gap: 4px; justify-items: start; min-width: 0; padding: 10px 12px; border: 1px solid var(--tp-divider); border-radius: var(--tp-radius-field); background: var(--tp-card); }
+.linear-categorize-row > * { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+.linear-categorize-ticket { color: var(--tp-text); line-height: 1.4; text-decoration: none; }
+.linear-categorize-ticket:hover { text-decoration: underline; }
+.linear-categorize-row button.text { min-height: 28px; padding: 0; border-color: transparent; background: transparent; color: var(--tp-text-2); font-size: 12px; text-decoration: underline; cursor: pointer; }
+@media (max-width: 720px) {
+  .linear-categorize-ticket { display: inline-flex; align-items: center; min-height: 44px; }
+  .linear-categorize-row button.text { min-height: 44px; padding: 0 8px; font-size: 14px; }
+  .linear-categorize [role="alert"] a { display: inline-flex; align-items: center; min-height: 44px; }
+}

@@ -72,6 +72,9 @@
       "linear_run_finished": "This import has already finished and cannot be abandoned.",
       "step_failed": "The import failed on a step and could not move on. Try again; if it keeps failing, abandon it and start another.",
       "step_too_slow": "The step is taking too long even at the smallest size. Abandon this import and open another.",
+      "linear_nothing_to_categorize": "There are no imported items waiting for a place in the tree.",
+      "linear_categorize_open": "A search for places is already running in this project. Follow it or abandon it in the “Arrange in the tree” block of this import screen.",
+      "linear_import_in_progress": "A Linear import is running in this project. Wait for it to finish before looking for the items' places.",
       "test_people_total_limit": "This organization already has 100 test people, deactivated ones included. Reactivate one instead of creating another.",
       "display_name_taken": "An active person already has that name (case and accents do not count). Pick another name.",
       "invalid_display_name": "The name cannot contain invisible or control characters."

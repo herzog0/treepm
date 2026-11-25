@@ -341,7 +341,7 @@ export class LinearImportService {
   }
 
   private async lastRun(tx: TenantClient, orgId: string, projectId: string): Promise<RunRow | null> {
-    return (await tx.externalImportRun.findFirst({ where: { orgId, projectId }, orderBy: [{ startedAt: "desc" }, { id: "desc" }] })) as RunRow | null;
+    return (await tx.externalImportRun.findFirst({ where: { orgId, projectId, mode: { not: "categorize" } }, orderBy: [{ startedAt: "desc" }, { id: "desc" }] })) as RunRow | null;
   }
 
   // ---- abrir e ler ----
@@ -351,10 +351,10 @@ export class LinearImportService {
     return tenant.run(async (tx, current) => {
       await this.guard(tx, current, projectId, { writable: false });
       const orgId = current.organization.orgId;
-      const open = await tx.externalImportRun.findFirst({ where: { orgId, projectId, phase: { notIn: ["done", "failed"] } } });
+      const open = await tx.externalImportRun.findFirst({ where: { orgId, projectId, mode: { not: "categorize" }, phase: { notIn: ["done", "failed"] } } });
       const run = (open as RunRow | null) ?? (await this.lastRun(tx, orgId, projectId));
       // A última concluída (para a tela dizer "Reimportação · há 2 dias"), mesmo quando a rodada atual é outra.
-      const finished = (await tx.externalImportRun.findFirst({ where: { orgId, projectId, phase: "done" }, orderBy: [{ finishedAt: "desc" }, { id: "desc" }] })) as RunRow | null;
+      const finished = (await tx.externalImportRun.findFirst({ where: { orgId, projectId, mode: { not: "categorize" }, phase: "done" }, orderBy: [{ finishedAt: "desc" }, { id: "desc" }] })) as RunRow | null;
       return { run: run ? view(run) : null, lastFinished: finished ? view(finished) : null };
     });
   }
@@ -422,6 +422,9 @@ export class LinearImportService {
         // Corrida: outra aba abriu a rodada entre a conferência e a gravação.
         const open = await tenant.run((tx, current) => this.lastRun(tx, current.organization.orgId, projectId));
         if (open && !isTerminal(open.phase)) throw runOpen(open);
+        // A corrida foi com a categorização (o índice único vale entre os modos).
+        const categorizing = await tenant.run((tx, current) => tx.externalImportRun.findFirst({ where: { orgId: current.organization.orgId, projectId, mode: "categorize", phase: "categorize" }, select: { id: true } }));
+        if (categorizing) throw new ConflictException({ code: "linear_categorize_open", message: "Já existe uma categorização em andamento neste projeto." });
       }
       throw error;
     }
@@ -439,7 +442,11 @@ export class LinearImportService {
     const last = await this.lastRun(tx, orgId, project.id);
     const openRun = last && !isTerminal(last.phase) ? last : null;
     if (openRun) throw runOpen(openRun);
-    const firstDone = (await tx.externalImportRun.findFirst({ where: { orgId, projectId: project.id, phase: "done" }, orderBy: [{ startedAt: "asc" }, { id: "asc" }] })) as RunRow | null;
+    // Uma categorização aberta também ocupa o projeto (o índice único parcial vale entre os modos): a importação espera ela terminar.
+    if (await tx.externalImportRun.findFirst({ where: { orgId, projectId: project.id, mode: "categorize", phase: "categorize" }, select: { id: true } })) {
+      throw new ConflictException({ code: "linear_categorize_open", message: "Já existe uma categorização em andamento neste projeto." });
+    }
+    const firstDone = (await tx.externalImportRun.findFirst({ where: { orgId, projectId: project.id, mode: { not: "categorize" }, phase: "done" }, orderBy: [{ startedAt: "asc" }, { id: "asc" }] })) as RunRow | null;
     const mode = firstDone ? "reimport" : "first";
     if (requested !== undefined) {
       if (requested !== null) await this.requireDestination(tx, project, requested);
@@ -479,7 +486,7 @@ export class LinearImportService {
       tenant.run(async (tx, current) => {
         await this.guard(tx, current, projectId, { writable: false });
         await this.tickets.lockStructure(tx, projectId);
-        const run = (await tx.externalImportRun.findFirst({ where: { orgId: current.organization.orgId, id: runId, projectId } })) as RunRow | null;
+        const run = (await tx.externalImportRun.findFirst({ where: { orgId: current.organization.orgId, id: runId, projectId, mode: { not: "categorize" } } })) as RunRow | null;
         if (!run) throw new NotFoundException("Importação não encontrada.");
         if (run.phase === "failed") return view(run);
         if (run.phase === "done") throw new ConflictException({ code: "linear_run_finished", message: "Esta importação já foi concluída." });
@@ -518,7 +525,7 @@ export class LinearImportService {
   private async stepOnce(tenant: TenantRunner, principal: Principal, projectId: string, runId: string): Promise<RunView> {
     const { run: seen, projectKey } = await tenant.run(async (tx, current) => {
       const project = await this.guard(tx, current, projectId, { writable: false });
-      const run = (await tx.externalImportRun.findFirst({ where: { orgId: current.organization.orgId, id: runId, projectId } })) as RunRow | null;
+      const run = (await tx.externalImportRun.findFirst({ where: { orgId: current.organization.orgId, id: runId, projectId, mode: { not: "categorize" } } })) as RunRow | null;
       if (!run) throw new NotFoundException("Importação não encontrada.");
       return { run, projectKey: project.key };
     });
@@ -683,7 +690,7 @@ export class LinearImportService {
   private async apply(tx: TenantClient, principal: Principal, projectId: string, seen: RunRow, fetched: Fetched | null): Promise<RunView> {
     const project = await this.guard(tx, principal, projectId, { writable: true });
     await this.tickets.lockStructure(tx, projectId);
-    const run = (await tx.externalImportRun.findFirst({ where: { orgId: principal.organization.orgId, id: seen.id, projectId } })) as RunRow | null;
+    const run = (await tx.externalImportRun.findFirst({ where: { orgId: principal.organization.orgId, id: seen.id, projectId, mode: { not: "categorize" } } })) as RunRow | null;
     if (!run) throw new NotFoundException("Importação não encontrada.");
     // Outro passo andou enquanto este esperava a trava (duas abas, resposta perdida): devolve o estado atual, sem gravar nada.
     if (isTerminal(run.phase) || run.phase !== seen.phase || run.cursor !== seen.cursor) return view(run);

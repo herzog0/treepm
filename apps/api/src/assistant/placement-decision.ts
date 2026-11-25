@@ -79,7 +79,7 @@ export const doubtRecordSchema = z
 export type DoubtRecord = z.output<typeof doubtRecordSchema>;
 
 /** De que tipo foi a escolha do lugar na criação (ADR 0054, adendo): a procura, uma opção da pergunta, "fica aqui", um lugar recente ou o mapa. */
-export const PLACED_BY = ["search", "option", "stay", "recent", "map"] as const;
+export const PLACED_BY = ["search", "option", "stay", "recent", "map", "import"] as const;
 export type PlacedBy = (typeof PLACED_BY)[number];
 
 export const decisionSchema = z
@@ -202,6 +202,35 @@ export async function saveDecision(
     values (${input.orgId}, ${input.projectId}::uuid, ${input.conversationId}::uuid, ${record.chosenPath}::uuid[], ${JSON.stringify(record.alternatives)}::jsonb, ${record.uncertain}, ${record.stopReason},
       ${record.scope?.ticketId ?? null}::uuid, ${record.scope?.fit ?? null}::double precision, ${JSON.stringify(record.levels)}::jsonb)`;
   return false;
+}
+
+/**
+ * A decisão de um ticket que nasceu fora da conversa (categorização do lote importado, migration 0040): uma por ticket, a nova substitui a
+ * anterior, com `placed_by = 'import'`. Só ids e números, como as da conversa.
+ */
+export async function saveTicketDecision(tx: TenantClient, input: { orgId: string; projectId: string; ticketId: string; record: PlacementDecisionRecord }): Promise<void> {
+  const { record } = input;
+  await tx.placementDecision.deleteMany({ where: { orgId: input.orgId, ticketId: input.ticketId } });
+  await tx.placementDecision.create({
+    select: { id: true },
+    data: {
+      orgId: input.orgId,
+      projectId: input.projectId,
+      ticketId: input.ticketId,
+      chosenPath: record.chosenPath,
+      alternatives: record.alternatives,
+      uncertain: record.uncertain,
+      stopReason: record.stopReason,
+      scopeTicketId: record.scope?.ticketId ?? null,
+      scopeFit: record.scope?.fit ?? null,
+      levels: record.levels,
+      related: record.related,
+      duplicateTicketId: record.duplicateTicketId,
+      placementRule: record.rule,
+      triage: packTriage(record) as Prisma.InputJsonObject,
+    },
+  });
+  await tx.$executeRaw`update placement_decisions set placed_by = 'import' where org_id = ${input.orgId} and ticket_id = ${input.ticketId}::uuid`;
 }
 
 /**

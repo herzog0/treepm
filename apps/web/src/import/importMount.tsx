@@ -8,6 +8,7 @@ import { makePanelMe } from "../panel/testing.js";
 import { makeClient, makeLinearConnection, makeProject, makeTicket } from "../test/fakes.js";
 import type { FakeLinear } from "../test/fakes.js";
 import type { ProjectLinear } from "../api/client.js";
+import { AdminProvider } from "../api/ConsentRequired.js";
 import { ImportScreen } from "./ImportScreen.js";
 
 /** Apoio dos testes de navegador da importação do Linear (medidas e capturas): monta a tela como a casca da aplicação. */
@@ -27,7 +28,11 @@ export async function mountImport(options: { width?: number; height?: number; li
   const project = makeProject("p1", "TREEPM", "TreePM");
   const tickets = [makeTicket("t1", "p1", 1, "Fundações", { key: "TREEPM-1" }), makeTicket("t2", "p1", 2, "Mapa espacial", { key: "TREEPM-2" })];
   const client = makeClient({ me, projects: [project], tickets: { p1: tickets }, linear: options.linear ?? { connection: makeLinearConnection(), projects: { p1: LINKED } } });
-  const screen = await render(<ImportScreen client={client} me={me} projectId="p1" onExit={() => undefined} onOpenSettings={() => undefined} />);
+  const screen = await render(
+    <AdminProvider isAdmin>
+      <ImportScreen client={client} me={me} projectId="p1" onExit={() => undefined} onOpenSettings={() => undefined} onOpenTicket={() => undefined} />
+    </AdminProvider>,
+  );
   await document.fonts.ready;
   await settle();
   return { screen, client };

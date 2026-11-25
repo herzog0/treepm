@@ -52,6 +52,8 @@ export class AssistantUnavailableError extends Error {
   constructor(
     /** Motivo curto e sem texto do usuário nem do modelo (para log e diagnóstico). */
     readonly reason: string,
+    /** Prazo pedido pelo provedor (limite de taxa), em segundos; só para quem quer esperar em vez de repetir (lote do Linear). */
+    readonly retryAfterSeconds?: number,
   ) {
     super("O assistente não está disponível agora.");
     this.name = "AssistantUnavailableError";

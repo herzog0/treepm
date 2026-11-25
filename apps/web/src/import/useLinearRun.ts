@@ -3,13 +3,13 @@ import type { ApiClient, ApiError, ApiResult, LinearRun, OpenLinearRunBody } fro
 import { safe } from "../panel/safe.js";
 
 /** Espera, em ms, antes de tentar de novo um passo que outra aba ou a fila de estrutura estava fazendo. */
-const BUSY_WAIT_MS = 2_000;
+export const BUSY_WAIT_MS = 2_000;
 /** O recuo do "o Linear não respondeu": 2 s, 4 s, 8 s, 16 s; na quinta falha seguida o laço para e pede "Tentar de novo". */
-const BACKOFF_START_MS = 2_000;
-const BACKOFF_CAP_MS = 30_000;
+export const BACKOFF_START_MS = 2_000;
+export const BACKOFF_CAP_MS = 30_000;
 export const MAX_UNAVAILABLE_FAILURES = 5;
 /** Códigos que dizem "outra execução está andando": não são erro, só espera curta. */
-const BUSY_CODES = new Set(["linear_step_in_progress", "structure_busy"]);
+export const BUSY_CODES = new Set(["linear_step_in_progress", "structure_busy"]);
 
 /** O que o laço está fazendo; é o que a tela mostra, além da própria rodada. */
 export type LoopState =

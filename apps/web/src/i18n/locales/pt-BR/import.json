@@ -183,6 +183,71 @@
       "changeDestination": "Mudar destino das issues novas",
       "destination": "Destino das issues novas",
       "titleUndated": "Última importação"
+    },
+    "categorize": {
+      "title": "Arrumar na árvore",
+      "intro_one": "{{count}} item que veio do Linear ainda está onde a importação o pôs. A IA pode procurar o lugar dele na árvore. Na dúvida, o item fica onde está, marcado para você conferir.",
+      "intro_many": "{{count}} itens que vieram do Linear ainda estão onde a importação os pôs. A IA pode procurar o lugar de cada um na árvore. Na dúvida, o item fica onde está, marcado para você conferir.",
+      "intro_other": "{{count}} itens que vieram do Linear ainda estão onde a importação os pôs. A IA pode procurar o lugar de cada um na árvore. Na dúvida, o item fica onde está, marcado para você conferir.",
+      "batchNote": "São {{total}} itens; esta rodada procura os {{limit}} mais antigos e o resto fica para a próxima.",
+      "start_one": "Procurar o lugar de {{count}} item",
+      "start_many": "Procurar o lugar de {{count}} itens",
+      "start_other": "Procurar o lugar de {{count}} itens",
+      "sends": "Vai à IA: título e descrição desses tickets, os títulos do que está dentro deles e a árvore do projeto (títulos e trechos).",
+      "noConsent": "Para procurar o lugar dos itens, a organização precisa liberar o assistente de IA.",
+      "notConfigured": "A IA não está configurada neste ambiente, então não dá para procurar o lugar dos itens.",
+      "running": "Procurando o lugar dos itens",
+      "bar": "Progresso da procura",
+      "counts": "Contagens da procura",
+      "moved": "Movidos",
+      "toCheck": "A conferir",
+      "kept": "Já no lugar",
+      "failed": "Falhas",
+      "waiting": "A IA pediu para esperar. A procura volta às {{time}}.",
+      "retrying": "A IA não respondeu. Tentando de novo em instantes…",
+      "retryingStepFailed": "Um passo da procura falhou por um erro inesperado. Tentando de novo em instantes…",
+      "retryingRateLimited": "A IA atingiu o limite de uso por agora. Tentando de novo em instantes…",
+      "gaveUp": "A procura parou porque o servidor não respondeu. O que já foi decidido fica; ela continua de onde parou.",
+      "abandon": {
+        "button": "Abandonar",
+        "confirmLabel": "Confirmar abandono da procura",
+        "confirmBody": "O que já foi decidido fica como está. Uma nova procura só cuida do que sobrou.",
+        "confirm": "Abandonar",
+        "back": "Voltar"
+      },
+      "reimportBlocked": "Reimportar fica indisponível enquanto a procura do lugar dos itens está em andamento.",
+      "doneTitle": "Procura concluída",
+      "abandonedTitle": "Procura abandonada",
+      "nothing": "Nenhum item foi decidido.",
+      "summary": {
+        "moved_one": "{{count}} movido",
+        "moved_many": "{{count}} movidos",
+        "moved_other": "{{count}} movidos",
+        "toCheck": "{{count}} a conferir",
+        "kept": "{{count}} já no lugar",
+        "failed_one": "{{count}} falha",
+        "failed_many": "{{count}} falhas",
+        "failed_other": "{{count}} falhas"
+      },
+      "check": {
+        "show_one": "Ver o {{count}} a conferir",
+        "show_many": "Ver os {{count}} a conferir",
+        "show_other": "Ver os {{count}} a conferir",
+        "hide": "Esconder a lista",
+        "list": "Itens a conferir",
+        "loading": "Carregando os itens a conferir…",
+        "empty": "Nada a conferir.",
+        "suggestion": "Sugestão: {{path}}",
+        "none": "Sem sugestão",
+        "dismiss": "Marcar como conferido",
+        "dismissing": "Marcando…"
+      },
+      "announce": {
+        "start": "Procurando o lugar dos itens.",
+        "done": "Procura do lugar dos itens concluída.",
+        "abandoned": "Procura abandonada.",
+        "waiting": "A IA pediu para esperar."
+      }
     }
   }
 }

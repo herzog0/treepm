@@ -6,6 +6,9 @@ import { CONFIG } from "../config.js";
 import type { AppConfig } from "../config.js";
 import { HttpLinearClient } from "./linear-client.js";
 import { LinearEnabledGuard } from "./linear-enabled.guard.js";
+import { AssistantModule } from "../assistant/assistant.module.js";
+import { LinearCategorizeController } from "./linear-categorize.controller.js";
+import { LinearCategorizeService } from "./linear-categorize.service.js";
 import { LinearImportController, LinearPreviewController } from "./linear-import.controller.js";
 import { LinearImportService } from "./linear-import.service.js";
 import { LinearController, ProjectLinearController } from "./linear.controller.js";
@@ -15,12 +18,13 @@ import { CREDENTIAL_CIPHER, LINEAR_CLIENT, LINEAR_FETCH } from "./ports.js";
 
 /** Conexão com o Linear (ADR 0060, fatia 1): chave cifrada por pessoa e vínculo permanente do projeto com um time. */
 @Module({
-  imports: [AccessModule, TicketsModule],
-  controllers: [LinearController, ProjectLinearController, LinearImportController, LinearPreviewController],
+  imports: [AccessModule, TicketsModule, AssistantModule],
+  controllers: [LinearController, ProjectLinearController, LinearImportController, LinearPreviewController, LinearCategorizeController],
   providers: [
     ActivityService,
     LinearService,
     LinearImportService,
+    LinearCategorizeService,
     LinearEnabledGuard,
     // O `fetch` do cliente é um provedor só para os testes o trocarem (nunca chamam o Linear de verdade).
     { provide: LINEAR_FETCH, useValue: (input: string | URL | Request, init?: RequestInit) => fetch(input, init) },
