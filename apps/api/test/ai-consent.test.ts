@@ -1,3 +1,4 @@
+import { AI_CONSENT_VERSION } from "@treepm/domain";
 import { describe, expect, it } from "vitest";
 import { AI_CONFIG, sessionHeader } from "./helpers.js";
 import { useHarness } from "./harness.js";
@@ -7,7 +8,7 @@ import type { Who } from "./world.js";
 const h = useHarness(AI_CONFIG, { consent: false });
 const rows = async (sql: string, params: unknown[] = []) => (await h.pool.query(sql, params)).rows;
 const errorOf = (res: { body: { error?: { code: string } } }) => res.body.error?.code;
-const VERSION = "rascunho-3";
+const VERSION = AI_CONSENT_VERSION;
 
 const state = (who: Who | "outsider" = "admin", org = "org_A") => h.call("GET", "/api/organization/ai-consent", as(who, org));
 const accept = (kind: string, who: Who | "outsider" = "admin", org = "org_A", version: string = VERSION) =>

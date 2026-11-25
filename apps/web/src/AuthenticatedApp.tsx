@@ -19,6 +19,7 @@ import { GITHUB_CALLBACK_PATH, GithubCallback } from "./github/GithubCallback.js
 import { clerkLocalization } from "./i18n/clerk.js";
 import { LanguageSync } from "./i18n/LanguageSync.js";
 import type { Language } from "./i18n/languages.js";
+import { LegalFooter } from "./legal/LegalFooter.js";
 import { Loading } from "./Loading.js";
 import { ActAsProvider, useActAs } from "./people/ActAs.js";
 import { ClerkPreferencesProvider } from "./preferences/ClerkPreferences.js";
@@ -116,6 +117,7 @@ function OrganizationGate({ appUrl }: { appUrl: string }) {
       <main className="entry-screen">
         <h1>{t("brand")}</h1>
         {isSignUp ? <SignUp routing="hash" /> : <SignIn routing="hash" />}
+        <LegalFooter />
       </main>
     );
   }

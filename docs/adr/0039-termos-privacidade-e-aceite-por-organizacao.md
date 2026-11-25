@@ -1,6 +1,6 @@
 # ADR 0039 — Termos de uso, política de privacidade e aceite por organização
 
-**Status:** Proposta da coordenação, em 2026-11-21, para cumprir a condição que Teodoro pôs ao autorizar o envio de código à Anthropic. O mecanismo abaixo pode ser implementado; **o texto dos dois documentos só é publicado depois de ele aprovar**, porque é um compromisso em nome dele. **Data:** 2026-11-21.
+**Status:** Texto aprovado por Teodoro em 2026-11-24 e publicado em 2026-11-25 (PR #116); o aceite passou à versão `2026-11-25`. Nasceu como proposta da coordenação, em 2026-11-21, para cumprir a condição que Teodoro pôs ao autorizar o envio de código à Anthropic. O mecanismo abaixo pode ser implementado; **o texto dos dois documentos só é publicado depois de ele aprovar**, porque é um compromisso em nome dele. **Data:** 2026-11-21.
 
 Completa a "Segunda fatia" da [ADR 0032](0032-ligacao-com-repositorios-github-primeiro.md), que deixou para uma ADR própria o texto, quem aceita e onde o aceite fica guardado.
 
@@ -106,3 +106,11 @@ Teodoro mandou seguir com o mecanismo em 2026-11-22 ("Pode seguir assim"). O tex
 - **Linha de comando:** a medição da procura confere o aceite da organização e recusa sem ele; o verificador de provedores, com dados fictícios, não.
 - **Leitura de código:** a função `requireCodeReadingConsent` existe e está testada, sem consumidor ainda (`TREEPM-82`).
 - **Não foi exercitado** com sessão real no navegador. As páginas `/termos` e `/privacidade` continuam só no PR #116.
+
+## Publicação (2026-11-25)
+
+- Teodoro aprovou os textos em 2026-11-24, informou os dados da empresa (responsável, endereço, e-mail, público, foro e prazo de resposta a titulares) e decidiu publicar sem revisão jurídica. Em 2026-11-25 aceitou as propostas da coordenação para o que faltava: até 30 dias de guarda depois do encerramento, registros técnicos por até 90 dias, o mesmo e-mail para pedidos de titulares e serviço sem cobrança por ora.
+- As páginas `/termos` e `/privacidade` entraram pelo PR #116. O texto vale só em português do Brasil.
+- O texto publicado acrescentou ao rascunho o que o produto ganhou desde então: importação do Linear (chave cifrada por pessoa, o que fica guardado, o que não vai à IA), comentários e conversas entre pessoas na lista de dados, e o alcance de escrita do MCP.
+- `AI_CONSENT_VERSION` passou de `rascunho-3` para `2026-11-25`. Todo aceite dado ao rascunho deixou de valer: o assistente fica desligado em cada organização até um administrador aceitar de novo.
+- Ficam como tickets, filhos de `TREEPM-87`: revisão por advogado (`TREEPM-456`), leitura do adendo da Voyage AI (`TREEPM-457`), mecanismo para os prazos de 30 e 90 dias (`TREEPM-458`) e tradução (`TREEPM-459`).

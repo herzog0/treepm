@@ -6,10 +6,10 @@ import "@fontsource/jetbrains-mono/500.css";
 import "./theme.css";
 import "./styles.css";
 import "./controls.css";
-import { App } from "./App.js";
+import { Root } from "./Root.js";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <Root />
   </React.StrictMode>,
 );

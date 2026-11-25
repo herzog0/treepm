@@ -1,3 +1,4 @@
+import { AI_CONSENT_VERSION } from "@treepm/domain";
 import type pg from "pg";
 import { sessionHeader } from "./helpers.js";
 
@@ -15,7 +16,7 @@ export type World = {
 };
 
 /** Grava, pelo papel dono, um aceite em vigor (a API só grava pelas rotas; isto é só semente de teste). */
-export async function giveConsent(pool: pg.Pool, orgId: string, personId: string, kind: "assistant" | "code_reading" = "assistant", version = "rascunho-3"): Promise<void> {
+export async function giveConsent(pool: pg.Pool, orgId: string, personId: string, kind: "assistant" | "code_reading" = "assistant", version: string = AI_CONSENT_VERSION): Promise<void> {
   await pool.query("insert into organization_consents (org_id, kind, document_version, accepted_by_person_id) values ($1,$2,$3,$4)", [orgId, kind, version, personId]);
 }
 

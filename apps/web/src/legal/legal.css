@@ -1,0 +1,53 @@
+/* Páginas públicas de Termos e Privacidade: leitura simples com o tema do app. */
+.legal-page { min-height: 100%; background: var(--tp-bg); color: var(--tp-text); }
+html:has(.legal-page), body:has(.legal-page) { height: auto; }
+body:has(.legal-page) #root { height: auto; min-height: 100%; }
+.legal-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--tp-border);
+  background: var(--tp-bar);
+}
+.legal-header a { color: var(--tp-accent-soft); text-decoration: none; }
+.legal-header a:hover, .legal-header a:focus-visible { text-decoration: underline; }
+.legal-brand { font-size: 15px; font-weight: 600; color: var(--tp-text) !important; }
+.legal-main { width: 100%; max-width: 72ch; margin: 0 auto; padding: 32px 16px 64px; }
+.legal-notice {
+  margin: 0 0 24px;
+  padding: 10px 12px;
+  border: 1px solid var(--tp-border);
+  border-radius: var(--tp-radius-field);
+  background: var(--tp-surface);
+  color: var(--tp-text-2);
+}
+.legal-document { font-size: 15px; line-height: 1.7; overflow-wrap: anywhere; }
+.legal-document h1 { margin: 0 0 16px; font-size: 26px; line-height: 1.25; font-weight: 600; }
+.legal-document h2 { margin: 32px 0 8px; font-size: 18px; line-height: 1.3; font-weight: 600; }
+.legal-document h3 { margin: 24px 0 8px; font-size: 15px; font-weight: 600; }
+.legal-document p, .legal-document ul, .legal-document ol { margin: 0 0 12px; }
+.legal-document ul, .legal-document ol { padding-left: 22px; }
+.legal-document li { margin: 4px 0; }
+.legal-document a { color: var(--tp-accent-soft); }
+.legal-document blockquote {
+  margin: 0 0 16px;
+  padding: 8px 14px;
+  border-left: 3px solid var(--tp-accent);
+  background: var(--tp-surface);
+  color: var(--tp-text-2);
+}
+.legal-document blockquote p { margin: 0; }
+.legal-document code { padding: 1px 4px; border-radius: 4px; background: var(--tp-card); font-size: 0.9em; }
+.legal-document table { display: block; max-width: 100%; margin: 0 0 16px; overflow-x: auto; border-collapse: collapse; font-size: 14px; line-height: 1.5; }
+.legal-document th, .legal-document td { padding: 8px 10px; border: 1px solid var(--tp-border); text-align: left; vertical-align: top; }
+.legal-document th { background: var(--tp-card); font-weight: 600; }
+.legal-document hr { margin: 24px 0; border: 0; border-top: 1px solid var(--tp-divider); }
+
+/* Rodapé da tela de entrada (quem ainda não entrou). */
+.legal-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; font-size: 12px; }
+.legal-footer a { color: var(--tp-text-3) !important; }
+.legal-footer a:hover, .legal-footer a:focus-visible { color: var(--tp-accent-soft) !important; }
