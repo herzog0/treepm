@@ -867,6 +867,51 @@ export class TicketsService {
   }
 
   /**
+   * "Este ticket depende de `otherId`" (ADR 0037): o caminho ÚNICO de regras, da rota HTTP e do MCP (ADR 0062). Visibilidade (404),
+   * permissão de editar (403), projeto arquivado (409), o outro ticket do MESMO projeto (404, igual a inexistente), "não depende de
+   * si mesmo" (409 `dependency_self`) e ciclo (409 `dependency_cycle`). Idempotente: ligação que já existe não gera novo evento.
+   */
+  async addDependency(tx: TenantClient, principal: Principal, id: string, otherId: string): Promise<TicketPage> {
+    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
+    this.authorization.editTicket(principal.actor, project.id);
+    this.requireActive(project);
+    const other = await this.requireSameProjectTicket(tx, project.id, otherId);
+    if (other.id === id) {
+      throw new ConflictException({ code: "dependency_self", message: "Um ticket não pode depender de si mesmo." });
+    }
+    const outcome = await this.linkDependency(tx, principal, project, ticket, other);
+    if (outcome === "cycle") {
+      throw new ConflictException({ code: "dependency_cycle", message: "Isso fecharia um ciclo de dependências.", details: { key: `${project.key}-${other.number}` } });
+    }
+    return this.detailFor(tx, project, id, principal);
+  }
+
+  /** Remove "este ticket depende de `otherId`": mesmas conferências de `addDependency`; ligação inexistente é 404. */
+  async removeDependency(tx: TenantClient, principal: Principal, id: string, otherId: string): Promise<TicketPage> {
+    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
+    this.authorization.editTicket(principal.actor, project.id);
+    this.requireActive(project);
+    const other = await this.requireSameProjectTicket(tx, project.id, otherId);
+    const removed = await tx.ticketRelation.deleteMany({ where: { fromTicketId: id, toTicketId: other.id, kind: "depends_on" } });
+    if (removed.count === 0) throw new NotFoundException({ code: "dependency_not_found", message: "Dependência não encontrada." });
+    await touchProjectVersion(tx, project.id); // ADR 0046 (rev. 3): marca porque a linha foi de fato apagada (`removed.count > 0`).
+    await this.activity.record(tx, principal, {
+      kind: "ticket.dependency_removed",
+      subjectType: "ticket",
+      subjectId: id,
+      payload: { key: `${project.key}-${ticket.number}`, dependsOnKey: `${project.key}-${other.number}`, dependsOnTicketId: other.id },
+    });
+    return this.detailFor(tx, project, id, principal);
+  }
+
+  /** Inexistente, de outra organização (RLS) ou de outro projeto: o mesmo 404 de "ticket não encontrado". */
+  private async requireSameProjectTicket(tx: TenantClient, projectId: string, ticketId: string): Promise<{ id: string; number: number }> {
+    const other = await tx.ticket.findFirst({ where: { id: ticketId, projectId }, select: { id: true, number: true } });
+    if (!other) throw new NotFoundException("Ticket não encontrado.");
+    return other;
+  }
+
+  /**
    * Confirmar uma proposta de pai novo (ADR 0031, 0034), dentro da transação da rota: confere de novo que cada ticket
    * ainda é filho de `parentId` e continua sem filhos (409 `grouping_changed`, sem criar nem mover nada), cria o
    * ticket pai (um ticket comum, situação `todo`) e move os tickets para ele. Devolve o id do pai novo, que passa a

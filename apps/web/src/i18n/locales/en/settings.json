@@ -107,14 +107,14 @@
     },
     "writeSwitch": {
       "label": "Allow MCP writes",
-      "hint": "With the switch on, read and write tokens can change ticket status, comment and mark work in progress, with the permissions of each token's person. With it off, no token writes, whatever its scope."
+      "hint": "With the switch on, read and write tokens can create tickets, change status and priority, edit title and description, move tickets in the tree, change dependencies, comment and mark work in progress, with the permissions of each token's person. With it off, no token writes, whatever its scope."
     },
     "scope": {
       "label": "Scope",
       "read": "Read only",
       "write": "Read and write",
       "readHint": "The AI client can only read the project's tickets.",
-      "writeHint": "Besides reading, the AI client will be able to change ticket status, comment and mark work in progress, with the permissions of your own account.",
+      "writeHint": "Besides reading, the AI client will be able to create tickets, change status and priority, edit title and description, move tickets in the tree, change dependencies, comment and mark work in progress, with the permissions of your own account.",
       "writeOff": "MCP writes are off for the organization: this token will only write once an administrator turns the switch on."
     },
     "tokensOff": "MCP access is off. Turn it on in AI clients (MCP) to create tokens.",

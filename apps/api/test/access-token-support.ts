@@ -1,3 +1,4 @@
+import type { LinearFetchSwitch } from "./linear-fake-fetch.js";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 import type pg from "pg";
@@ -33,6 +34,8 @@ export type TokenHarness = {
   directory: () => FakeDirectory;
   clock: FakeClock;
   world: () => World;
+  /** O `fetch` falso do Linear (nada chama o Linear de verdade). */
+  linear: () => LinearFetchSwitch;
   call: (method: string, path: string, session: string, body?: unknown) => Promise<request.Response>;
   /** Liga a chave da organização direto no banco. */
   enableMcp: (orgId?: string, enabled?: boolean) => Promise<void>;
@@ -46,9 +49,10 @@ export function useTokenHarness(config?: AppConfig): TokenHarness {
   let app: INestApplication;
   let directory: FakeDirectory;
   let world: World;
+  let linear: LinearFetchSwitch;
 
   beforeAll(async () => {
-    ({ app, directory } = await createTestApp([], config, { clock }));
+    ({ app, directory, linear } = await createTestApp([], config, { clock }));
   });
   afterAll(async () => {
     await app.close();
@@ -80,6 +84,7 @@ export function useTokenHarness(config?: AppConfig): TokenHarness {
     clock,
     world: () => world,
     call,
+    linear: () => linear,
     enableMcp: async (orgId = ORG, enabled = true) => {
       await pool.query("update organizations set mcp_enabled = $2 where org_id = $1", [orgId, enabled]);
     },

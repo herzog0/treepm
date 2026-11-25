@@ -117,7 +117,7 @@ export function linearImportWorld(world: LinearWorld, data: Record<string, FakeT
 
 /** Liga o projeto ao time como administrador (chave KEY no mundo dado) e deixa o mundo do Linear programado com os dados. */
 export async function linkWithData(
-  h: ReturnType<typeof useLinearHarness>["h"],
+  h: Pick<ReturnType<typeof useLinearHarness>["h"], "linear" | "call">,
   put: ReturnType<typeof useLinearHarness>["put"],
   projectId: string,
   data: Record<string, FakeTeamData>,

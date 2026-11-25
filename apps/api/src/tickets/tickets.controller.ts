@@ -342,18 +342,7 @@ export class TicketsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(addDependencySchema)) body: z.output<typeof addDependencySchema>,
   ): Promise<TicketPage> {
-    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
-    this.authorization.editTicket(principal.actor, project.id);
-    this.requireActive(project);
-    const other = await this.requireSameProjectTicket(tx, project.id, body.ticketId);
-    if (other.id === id) {
-      throw new ConflictException({ code: "dependency_self", message: "Um ticket não pode depender de si mesmo." });
-    }
-    const outcome = await this.tickets.linkDependency(tx, principal, project, ticket, other);
-    if (outcome === "cycle") {
-      throw new ConflictException({ code: "dependency_cycle", message: "Isso fecharia um ciclo de dependências.", details: { key: `${project.key}-${other.number}` } });
-    }
-    return this.tickets.detailFor(tx, project, id, principal);
+    return this.tickets.addDependency(tx, principal, id, body.ticketId);
   }
 
   @Delete("tickets/:id/dependencies/:ticketId")
@@ -364,26 +353,7 @@ export class TicketsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Param("ticketId", new ZodPipe(idSchema)) otherId: string,
   ): Promise<void> {
-    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
-    this.authorization.editTicket(principal.actor, project.id);
-    this.requireActive(project);
-    const other = await this.requireSameProjectTicket(tx, project.id, otherId);
-    const removed = await tx.ticketRelation.deleteMany({ where: { fromTicketId: id, toTicketId: other.id, kind: "depends_on" } });
-    if (removed.count === 0) throw new NotFoundException("Dependência não encontrada.");
-    await touchProjectVersion(tx, project.id); // ADR 0046 (rev. 3): marca porque a linha foi de fato apagada (`removed.count > 0`).
-    await this.activity.record(tx, principal, {
-      kind: "ticket.dependency_removed",
-      subjectType: "ticket",
-      subjectId: id,
-      payload: { key: `${project.key}-${ticket.number}`, dependsOnKey: `${project.key}-${other.number}`, dependsOnTicketId: other.id },
-    });
-  }
-
-  /** Inexistente, de outra organização (RLS) ou de outro projeto: o mesmo 404 de "ticket não encontrado". */
-  private async requireSameProjectTicket(tx: TenantClient, projectId: string, ticketId: string): Promise<{ id: string; number: number }> {
-    const other = await tx.ticket.findFirst({ where: { id: ticketId, projectId }, select: { id: true, number: true } });
-    if (!other) throw new NotFoundException("Ticket não encontrado.");
-    return other;
+    await this.tickets.removeDependency(tx, principal, id, otherId);
   }
 
   /** Inexistente, de outra organização (RLS) ou privado sem papel: todos viram o mesmo 404. */

@@ -14,11 +14,11 @@ import { ToolInputError } from "./mcp-tools.js";
 import type { ProjectTools, RunInTenant, ToolContext } from "./mcp-tools.js";
 
 /**
- * As cinco ferramentas de escrita do servidor MCP (ADR 0043). Só existem para token de alcance `write` com a chave de escrita da
+ * As ferramentas de escrita do servidor MCP (ADR 0043; ADR 0062, fatia 1: editar, mover e relações). Só existem para token de alcance `write` com a chave de escrita da
  * organização ligada. NÃO reescrevem regra: chamam os serviços de ticket, comentário e marcador, com o `Principal` da pessoa do
  * token marcado com a origem (`via: mcp`) e o id do REGISTRO do token. Tudo em inglês, como as de leitura.
  */
-export const WRITE_TOOL_NAMES = ["update_ticket_status", "add_comment", "set_agent_work", "set_ticket_priority", "create_ticket"] as const;
+export const WRITE_TOOL_NAMES = ["update_ticket_status", "add_comment", "set_agent_work", "set_ticket_priority", "create_ticket", "update_ticket", "move_ticket", "add_dependency", "remove_dependency"] as const;
 export type WriteToolName = (typeof WRITE_TOOL_NAMES)[number];
 
 const keyField = z.string().trim().max(32, "Ticket key is too long.").regex(/^[A-Za-z][A-Za-z0-9]{1,9}-[0-9]{1,9}$/, "Ticket key must look like PROJ-123.");
@@ -51,6 +51,20 @@ export const createTicketInput = z.strictObject({
   priority: ticketPrioritySchema.optional().describe("Optional own priority, -999 to 999 (default 0)."),
   idea: z.boolean().optional().describe("true to register the ticket as an idea (not accepted work yet) instead of ordinary work."),
   requestId: requestIdField.optional().describe("Optional. If you repeat the call with the same requestId and the same title within 10 minutes (for example after a timeout), you get the ticket already created and no second one is created."),
+});
+
+export const updateTicketInput = z.strictObject({
+  key: keyField.describe("Ticket key of this project, for example PROJ-47."),
+  title: ticketTitleSchema.optional().describe("Optional new title, 1 to 200 characters."),
+  description: ticketDescriptionSchema.optional().describe("Optional new description (replaces the old one). Plain text or markdown; a key like PROJ-12 in it becomes a mention of that ticket; a mention of a person is refused."),
+});
+export const moveTicketInput = z.strictObject({
+  key: keyField.describe("Key of the ticket to move."),
+  parent: keyField.nullable().describe("Key of the ticket that becomes its parent (it must be in this project), or null to move it to the top level."),
+});
+export const dependencyInput = z.strictObject({
+  key: keyField.describe("Key of the ticket that depends on another."),
+  dependsOn: keyField.describe("Key of the ticket it depends on (it must be in this project)."),
 });
 
 const agentWorkOutput = z.strictObject({ since: z.string(), until: z.string(), note: z.string() }).nullable();
@@ -99,6 +113,26 @@ export const WRITE_TOOL_DEFINITIONS = {
     inputSchema: createTicketInput,
     outputSchema: createTicketOutput,
   },
+  update_ticket: {
+    title: "Edit a ticket's title and description",
+    description: `Change the title, the description or both of one ticket (at least one). The description replaces the old one; a key like PROJ-12 in it becomes a mention of that ticket, and a mention of a person is refused. It does not change the status, priority, parent or assignees (other tools do). Repeating the same call changes nothing the second time. Returns the ticket as get_ticket does. The change shows in the ticket history as made through MCP. ${NOTE}`,
+    inputSchema: updateTicketInput,
+  },
+  move_ticket: {
+    title: "Move a ticket in the tree",
+    description: `Change the parent of one ticket: another ticket of this project, or null for the top level. It follows the rules of the screen: no cycle (not under itself or a descendant), a done parent that receives an open ticket is reopened, and a ticket that is in progress, in review or done cannot go into an idea. It cannot move a ticket to another project. A parent that is not in this project is refused. Repeating the same call changes nothing the second time. Returns the ticket as get_ticket does. ${NOTE}`,
+    inputSchema: moveTicketInput,
+  },
+  add_dependency: {
+    title: "Make a ticket depend on another",
+    description: `Record that one ticket depends on another ticket of this project. A ticket cannot depend on itself, and a dependency that would close a cycle is refused. If the dependency already exists nothing changes. It changes nothing else. Returns the ticket that depends, as get_ticket does. ${NOTE}`,
+    inputSchema: dependencyInput,
+  },
+  remove_dependency: {
+    title: "Remove a dependency between two tickets",
+    description: `Remove the record that one ticket depends on another ticket of this project. If there is no such dependency the call is refused, as on the screen. It changes nothing else. Returns the ticket that depended, as get_ticket does. ${NOTE}`,
+    inputSchema: dependencyInput,
+  },
 } as const;
 
 /** Resumo dos argumentos de uma criação (não os argumentos): a repetição só vale se tudo o que foi pedido bater. */
@@ -121,8 +155,12 @@ const CONFLICTS: Record<string, string> = {
   ticket_in_idea: "Tickets inside an idea stay in todo until the idea is accepted.",
   agent_work_in_idea: "An idea is not worked on before it is accepted.",
   agent_work_finished: "A done or cancelled ticket cannot be marked as worked on.",
-  structure_busy: "Another change to this project's structure is in progress. Try again in a moment.",
+  structure_busy: "The project structure is busy; try again in a moment.",
   concurrent_update: "Another change happened at the same time. Try again in a moment.",
+  ticket_cycle: "A ticket cannot be moved under itself or one of its descendants.",
+  move_into_idea_blocked: "A ticket that is in progress, in review or done cannot go into an idea; move only what is still todo.",
+  dependency_self: "A ticket cannot depend on itself.",
+  dependency_cycle: "That dependency would close a cycle of dependencies.",
   request_id_reused: "requestId already used with a different request. Use a new requestId for a new request.",
 };
 
@@ -133,7 +171,7 @@ export function refusalMessage(error: unknown): string | null {
   const payload = error.getResponse();
   const code = typeof payload === "object" ? (payload as { code?: unknown }).code : undefined;
   if (status === 403) return "You do not have permission to change this ticket.";
-  if (status === 404) return "Ticket or project not found.";
+  if (status === 404) return code === "dependency_not_found" ? "There is no such dependency between these tickets." : "Ticket or project not found.";
   if (status === 400) return "Invalid input.";
   if (status === 409) return (typeof code === "string" ? CONFLICTS[code] : undefined) ?? "The change conflicts with the current state of the ticket.";
   return null;
@@ -184,6 +222,59 @@ export class WriteTools {
   async setTicketPriority(input: z.infer<typeof setTicketPriorityInput>) {
     return this.write(input.key, async (tx, principal, id, number) => {
       await this.services.tickets.updateTicket(tx, principal, id, { priority: input.priority });
+      return this.reader.ticketIn(tx, principal, number);
+    });
+  }
+
+  async updateTicket(input: z.infer<typeof updateTicketInput>) {
+    if (input.title === undefined && input.description === undefined) throw new ToolInputError("Provide a title, a description or both.");
+    return this.write(input.key, async (tx, principal, id, number) => {
+      await this.services.tickets.updateTicket(tx, principal, id, {
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.description === undefined ? {} : { description: input.description }),
+      });
+      return this.reader.ticketIn(tx, principal, number);
+    });
+  }
+
+  /**
+   * Muda a estrutura (ADR 0045): o mesmo caminho da rota `PATCH tickets/:id` com `parentId`. A fila em memória vem ANTES da
+   * transação (mesma chave: organização e projeto, como `@QueuesStructure({ by: "ticket" })` resolve para o projeto do ticket) e a
+   * trava do banco é pega por `updateTicket` assim que o corpo traz `parentId`, inclusive `null`.
+   */
+  async moveTicket(input: z.infer<typeof moveTicketInput>) {
+    const parentNumber = input.parent === null ? null : this.reader.ticketNumber(input.parent);
+    this.reader.ticketNumber(input.key);
+    // Recusa barata antes da fila: sem a verificação fresca nada é escrito, então nem vale esperar uma vaga.
+    if (!this.context.fresh) throw new ToolInputError("This change could not be verified. Try again.");
+    const move = () => this.write(input.key, async (tx, principal, id, number) => {
+      let parentId: string | null = null;
+      if (parentNumber !== null) {
+        const parent = await tx.ticket.findFirst({ where: { projectId: this.context.project.id, number: parentNumber }, select: { id: true } });
+        if (!parent) throw new ToolInputError(`Ticket ${this.context.project.key}-${parentNumber} does not exist in this project.`);
+        parentId = parent.id;
+      }
+      await this.services.tickets.updateTicket(tx, principal, id, { parentId });
+      return this.reader.ticketIn(tx, principal, number);
+    });
+    const key = structureKey(this.context.principal.session.orgId, this.context.project.id);
+    return key === undefined ? move() : withStructureSlot(key, move);
+  }
+
+  async addDependency(input: z.infer<typeof dependencyInput>) {
+    return this.dependency(input, (tx, principal, id, otherId) => this.services.tickets.addDependency(tx, principal, id, otherId));
+  }
+
+  async removeDependency(input: z.infer<typeof dependencyInput>) {
+    return this.dependency(input, (tx, principal, id, otherId) => this.services.tickets.removeDependency(tx, principal, id, otherId));
+  }
+
+  private async dependency(input: z.infer<typeof dependencyInput>, apply: (tx: TenantClient, principal: Principal, id: string, otherId: string) => Promise<unknown>) {
+    const otherNumber = this.reader.ticketNumber(input.dependsOn);
+    return this.write(input.key, async (tx, principal, id, number) => {
+      const other = await tx.ticket.findFirst({ where: { projectId: this.context.project.id, number: otherNumber }, select: { id: true } });
+      if (!other) throw new ToolInputError(`Ticket ${this.context.project.key}-${otherNumber} does not exist in this project.`);
+      await apply(tx, principal, id, other.id);
       return this.reader.ticketIn(tx, principal, number);
     });
   }

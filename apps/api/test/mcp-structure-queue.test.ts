@@ -52,7 +52,7 @@ describe("create_ticket e a fila de estrutura", () => {
     await until(async () => (await advisoryWaiting()) >= 2, "duas criações esperando a trava");
     const late = await call(2);
     expect(late.isError).toBe(true);
-    expect(late.text).toBe("Another change to this project's structure is in progress. Try again in a moment.");
+    expect(late.text).toBe("The project structure is busy; try again in a moment.");
     expect(late.text).not.toMatch(/prisma|P2028/i);
     // sem pai não muda estrutura: não passa pela fila nem espera a trava
     const root = await h.tool(token, "PRIV", "create_ticket", { title: "Raiz sem pai" });
