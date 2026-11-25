@@ -38,7 +38,7 @@
       "mention_mismatch": "The text names a person who is not among the people marked. Mark the person again with @ and send again.",
       "person_mention_not_allowed": "A ticket description does not accept a mention of a person. Take the person out of the text (comments can mark people) and save again.",
       "mention_not_allowed": "Someone you marked cannot join this conversation (they cannot see what it is about, or are no longer in the organization). Remove that person and send again.",
-      "cannot_mention_self": "You cannot mention yourself.",
+      "assistant_mention_self": "This conversation is with the assistant, so marking yourself makes no sense. Remove the mention and send again.",
       "too_many_mentions": "Mention at most 10 people per message.",
       "thread_full": "This thread already has the maximum of 25 participants.",
       "chat_thread_rate_limited": "You sent too many thread messages in a short time. Wait a moment and try again.",

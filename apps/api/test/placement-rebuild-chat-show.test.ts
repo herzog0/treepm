@@ -89,6 +89,15 @@ describe("chat-show", () => {
     expect(inside).toContain("assistente: Comece pelo escopo");
   });
 
+  it("thread fechada pela pessoa: o cabeçalho e a lista mostram [fechada]; reaberta, não", async () => {
+    const thread = (await sql("select id from conversations where title = 'Plano da release'"))[0].id as string;
+    await client.request("POST", `/conversations/${thread}/close`);
+    expect((await run("", { thread }))[0]).toContain("[fechada]");
+    expect((await run("", { general: true })).join("\n")).toContain("[assunto] «Plano da release» [fechada] 1 resposta");
+    await client.request("POST", `/conversations/${thread}/reopen`);
+    expect((await run("", { thread })).join("\n")).not.toContain("[fechada]");
+  });
+
   it("--thread só aceita uuid (o id vai no caminho da rota)", async () => {
     for (const bad of ["../tickets", "abc", "x?y=1"]) await expect(run("", { thread: bad })).rejects.toThrow("uuid");
   });

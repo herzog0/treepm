@@ -145,6 +145,8 @@ export class ChatToolExecutor implements ToolExecutor {
     query: ProjectQueryService,
     private readonly projects: readonly ChatProject[],
     private readonly draftTool: DraftToolState | null = null,
+    /** Chamada quando o modelo pede o rascunho e a ferramenta sai bloqueada por rascunho aberto (a pessoa precisa vê-lo na barra). */
+    private readonly onDraftOpen: (() => Promise<void>) | null = null,
   ) {
     for (const entry of projects) {
       this.byKey.set(entry.key.toUpperCase(), entry);
@@ -157,7 +159,11 @@ export class ChatToolExecutor implements ToolExecutor {
       if (name === OPEN_DRAFT_TOOL.name && this.draftTool !== null) {
         const { request } = parseToolInput([OPEN_DRAFT_TOOL], name, input) as { request: string };
         // Bloqueada (vários projetos possíveis, rascunho já aberto): o motivo volta ao modelo, que o diz à pessoa; nada é aberto.
-        if (this.draftTool.kind === "blocked") return { content: DRAFT_BLOCKED[this.draftTool.reason], isError: true };
+        if (this.draftTool.kind === "blocked") {
+          // Falha ao reabrir não esconde a resposta ao modelo: o motivo continua valendo.
+          if (this.draftTool.reason === "draft_open") await this.onDraftOpen?.().catch(() => undefined);
+          return { content: DRAFT_BLOCKED[this.draftTool.reason], isError: true };
+        }
         return { content: "Rascunho aberto.", isError: false, openDraft: request };
       }
       const args = parseToolInput(CHAT_TOOLS, name, input);

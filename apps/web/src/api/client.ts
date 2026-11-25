@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ACT_AS_HEADER, notifyActAsRejected } from "./actAs.js";
-import { conversationTreeSchema, conversationViewSchema, openedSchema, participantsResultSchema, readResultSchema, sendResultSchema } from "./conversations.js";
+import { closedResultSchema, conversationTreeSchema, conversationViewSchema, openedSchema, participantsResultSchema, readResultSchema, reopenedResultSchema, sendResultSchema } from "./conversations.js";
 import type { ChatWriteBody } from "./conversations.js";
 
 const teamRole = z.enum(["admin", "member"]);
@@ -774,6 +774,11 @@ export function createApiClient({ getToken, fetch: fetchImpl, actAsId = null }: 
     /** Só quem abriu a thread inclui pessoas nela. */
     addConversationParticipants: (id: string, personIds: string[]) => request("POST", `/api/conversations/${id}/participants`, participantsResultSchema, { personIds }),
     /** `upTo`: o `cursor` da mensagem mais nova vista; sem ele, tudo o que a pessoa pode ler. */
+    /** Fecha a conversa (e as de dentro) só para quem pede; `closedIds` serve ao "Desfazer". */
+    closeConversation: (id: string) => request("POST", `/api/conversations/${id}/close`, closedResultSchema),
+    reopenConversation: (id: string) => request("POST", `/api/conversations/${id}/reopen`, reopenedResultSchema),
+    /** As conversas que a pessoa fechou e continuam fechadas, planas, da mais recente para a mais antiga. */
+    listClosedConversations: (options: { signal?: AbortSignal } = {}) => request("GET", "/api/conversations/closed", conversationTreeSchema, undefined, options.signal),
     markConversationRead: (id: string, body: { upTo?: string } = {}) => request("POST", `/api/conversations/${id}/read`, readResultSchema, body),
     /** Apaga só a conversa da pessoa com o assistente (a principal); as threads ficam. */
     clearConversationMessages: (id: string) => request("DELETE", `/api/conversations/${id}/messages`, null),

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AI_CONFIG } from "./helpers.js";
 import { useHarness } from "./harness.js";
-import { openGeneral, openTicket, post, topic } from "./chat-support.js";
+import { newOutsider, openGeneral, openTicket, post, topic } from "./chat-support.js";
 import { as } from "./world.js";
 import type { Who } from "./world.js";
 
@@ -25,10 +25,12 @@ function rng(seed: number): () => number {
   };
 }
 
-type P = (typeof ALL)[number];
+type Real = (typeof ALL)[number];
+/** Pessoa de verdade do elenco, ou uma de fora criada na hora (`x1`, `x2`…): só entra como marcada, nunca age. */
+type P = Real | `x${number}`;
 /** `ticket`: a conversa trata do ticket da árvore (a principal do ticket e tudo abaixo; no chat geral, só as threads abertas com `ticketId`). */
 /** `topic`: thread de assunto (ADR 0056), só da dona; `msgs` são as mensagens da própria thread (as do assistente e as da pessoa) e `replies` as do assistente. */
-type Model = { id: string; parent: string | null; depth: number; owner: P; members: Set<P>; ticket: boolean; topic?: boolean; msgs?: number; replies?: number };
+type Model = { id: string; parent: string | null; depth: number; owner: P; members: Set<P>; ticket: boolean; topic?: boolean; msgs?: number; replies?: number; /** Autores das mensagens comuns (marcou só quem já estava): contam como não lidas para os outros. */ authors?: P[] };
 
 describe("árvores de conversas ao acaso", () => {
   const clock = { t: 1_000_000, now: () => clock.t };
@@ -37,7 +39,9 @@ describe("árvores de conversas ao acaso", () => {
 
   it(`${TREES} árvores (ticket e chat geral, thread com ticketId, perda de acesso, limite de níveis): o que cada pessoa lê é exatamente o que o modelo permite, metadados inclusive`, async () => {
     const world = h.world();
-    const who = (key: string): string => world.people[key as keyof typeof world.people];
+    const fresh = new Map<string, string>();
+    const who = (key: string): string => fresh.get(key) ?? world.people[key as keyof typeof world.people];
+    const isReal = (p: P): p is Real => !fresh.has(p);
     const random = rng(20261124);
     const pick = <T>(list: readonly T[]): T => list[Math.floor(random() * list.length)] as T;
     const invariant = async () => expect((await h.pool.query("select c.id from conversations c join conversation_participants up on up.conversation_id = c.parent_id where not exists (select 1 from conversation_participants me where me.conversation_id = c.id and me.person_id = up.person_id)")).rows).toEqual([]);
@@ -47,11 +51,14 @@ describe("árvores de conversas ao acaso", () => {
     let refusedMention = 0;
     let refusedInheritance = 0;
     let topics = 0;
+    let plainMessages = 0;
+    let closings = 0;
+    let comebacks = 0;
 
     for (let tree = 0; tree < TREES; tree += 1) {
       const ticket = (await h.pool.query<{ id: string }>("insert into tickets (org_id, project_id, number, title, created_by_person_id) values ('org_A',$1,$2,'T',$3) returning id", [world.projects.priv, ++number, world.people.manager])).rows[0]!.id;
-      const revoked = new Map<P, Record<string, unknown>>();
-      const access = (p: P): boolean => p !== "plain" && !revoked.has(p);
+      const revoked = new Map<Real, Record<string, unknown>>();
+      const access = (p: P): boolean => p !== "plain" && !revoked.has(p as Real);
       const ownerKey = pick(PEOPLE);
       const isGeneral = tree % 4 === 1;
       const deep = tree % 20 === 3;
@@ -72,9 +79,25 @@ describe("árvores de conversas ao acaso", () => {
         }
       }
       const main = isGeneral ? await openGeneral(h, ownerKey) : await openTicket(h, ownerKey, ticket);
+      // O que cada pessoa fechou (ADR 0059): o modelo independente da marca guardada pelo servidor.
+      const closed = new Map<P, Set<string>>(ALL.map((p) => [p, new Set<string>()]));
+      const closedOf = (p: P): Set<string> => closed.get(p) ?? new Set<string>();
       const nodes = new Map<string, Model>([[main, { id: main, parent: null, depth: 0, owner: ownerKey, members: new Set([ownerKey]), ticket: !isGeneral }]]);
       const visible = (person: P, node: Model): boolean => node.members.has(person) && (!node.ticket || access(person));
       const descendants = (id: string): string[] => [...nodes.values()].filter((n) => n.parent === id).flatMap((n) => [n.id, ...descendants(n.id)]);
+      /** Escreveram na conversa: quem fechou e é o autor reabre, e a mensagem de outra pessoa traz a conversa de volta para quem a tinha fechado. */
+      const wrote = (id: string): void => {
+        for (const set of closed.values()) if (set.delete(id)) comebacks += 1;
+      };
+      /** O pai de `node` na barra de `person`: a conversa mais próxima acima que ela lê e não fechou; para ao primeiro ancestral que ela não lê. */
+      const shownParent = (person: P, node: Model): string | null => {
+        for (let up = node.parent; up !== null; up = nodes.get(up)!.parent) {
+          const ancestor = nodes.get(up) as Model;
+          if (!visible(person, ancestor)) return null;
+          if (!closedOf(person).has(up)) return up;
+        }
+        return null;
+      };
       /** O nível visível de quem abre: quantas conversas acima ela lê, em sequência. */
       const level = (person: P, node: Model): number => {
         let count = 0;
@@ -93,10 +116,36 @@ describe("árvores de conversas ao acaso", () => {
             await h.pool.query("delete from project_memberships where person_id = $1 and project_id = $2", [who(person), world.projects.priv]);
           }
         }
+        if (!deep && random() < 0.3) {
+          // Fechar ou reabrir, como uma pessoa que lê a conversa; nada muda para as outras.
+          const person = pick(PEOPLE);
+          const readable = [...nodes.values()].filter((n) => visible(person, n));
+          if (readable.length > 0) {
+            const node = pick(readable);
+            const others = PEOPLE.filter((q) => q !== person);
+            const snapshotOthers = async () => JSON.stringify(await Promise.all(others.map(async (q) => (await h.call("GET", "/api/conversations", as(q))).body)));
+            const before = await snapshotOthers();
+            if (random() < 0.7) {
+              const res = await h.call("POST", `/api/conversations/${node.id}/close`, as(person));
+              if (node.id === main && isGeneral) {
+                expect(res.status).toBe(422);
+              } else {
+                expect(res.status, `fechar (${tree}/${step}) ${JSON.stringify(res.body).slice(0, 200)}`).toBe(200);
+                for (const id of [node.id, ...descendants(node.id)]) closedOf(person).add(id);
+                closings += 1;
+              }
+            } else {
+              const res = await h.call("POST", `/api/conversations/${node.id}/reopen`, as(person));
+              expect(res.status).toBe(200);
+              closedOf(person).delete(node.id);
+            }
+            expect(await snapshotOthers(), `fechar de ${person} mudou a árvore de outra pessoa (${tree}/${step})`).toBe(before);
+          }
+        }
         const target = deep ? ([...nodes.values()].sort((a, b) => b.depth - a.depth)[0] as Model) : pick([...nodes.values()]);
-        const able = [...target.members].filter((m) => visible(m, target));
+        const able = [...target.members].filter((m): m is Real => isReal(m) && visible(m, target));
         if (able.length === 0) continue;
-        const actor = deep && random() < 0.5 ? (target.owner && able.includes(target.owner) ? target.owner : (able[0] as P)) : pick(able);
+        const actor = deep && random() < 0.5 ? (isReal(target.owner) && able.includes(target.owner) ? target.owner : (able[0] as Real)) : pick(able);
         const roll = random();
         if (!deep && target.depth === 0 && actor === target.owner && roll < 0.2) {
           // O texto livre vira thread de assunto: só a dona participa e a resposta do assistente fica dentro dela.
@@ -105,31 +154,49 @@ describe("árvores de conversas ao acaso", () => {
           expect(res.body.kind).toBe("topic");
           topics += 1;
           nodes.set(res.body.thread.id, { id: res.body.thread.id, parent: target.id, depth: 1, owner: actor, members: new Set([actor]), ticket: target.ticket, topic: true, msgs: 1, replies: 1 });
+          wrote(target.id);
         } else if (!deep && target.topic && actor === target.owner && roll < 0.5) {
           const res = await post(h, actor, target.id, `t${tree}s${step}`);
           expect(res.status, `resposta no assunto (${tree}/${step}) ${JSON.stringify(res.body).slice(0, 200)}`).toBe(201);
           expect(res.body.kind).toBe("assistant");
           target.msgs = (target.msgs ?? 0) + 2;
           target.replies = (target.replies ?? 0) + 1;
+          wrote(target.id);
         } else if (deep || random() < 0.7 || target.depth === 0) {
           const others = ALL.filter((p) => p !== actor);
-          const mentioned = deep ? [pick(PEOPLE.filter((p) => p !== actor))] : [...new Set([pick(others), ...(random() < 0.4 ? [pick(others)] : [])])];
+          // Nos testes de profundidade, cada nível marca alguém de fora (senão a thread não abre, ADR 0059).
+          let mentioned: P[];
+          if (deep) {
+            const key = `x${fresh.size + 1}` as P;
+            fresh.set(key, await newOutsider(h.pool));
+            mentioned = [key];
+          } else mentioned = [...new Set([pick(others), ...(random() < 0.4 ? [pick(others)] : [])])];
+          const outsiders = mentioned.filter((m) => !target.members.has(m));
           const useTicketId = !target.ticket && random() < 0.5;
           const subject = target.ticket || useTicketId;
           const res = await post(h, actor, target.id, `t${tree}s${step}`, mentioned.map(who), useTicketId ? ticket : undefined);
           let expected = 201;
           let code: string | undefined;
-          if (level(actor, target) >= 10 && !deep) { expected = 422; code = "max_depth"; }
+          if (outsiders.length === 0) {
+            // Todas as marcadas já estão na conversa: mensagem comum, sem thread (ADR 0059).
+          } else if (level(actor, target) >= 10 && !deep) { expected = 422; code = "max_depth"; }
           else if (level(actor, target) >= 10) { expected = 422; code = "max_depth"; }
           else if (useTicketId && !access(actor)) { expected = 404; code = "not_found"; }
-          else if (subject && mentioned.some((m) => !access(m))) { expected = 422; code = "mention_not_allowed"; }
+          else if (subject && outsiders.some((m) => !access(m))) { expected = 422; code = "mention_not_allowed"; }
           else if (useTicketId && [...target.members].some((m) => !access(m))) { expected = 422; code = "participant_cannot_view_ticket"; }
           expect(res.status, `abrir (${tree}/${step}) ${JSON.stringify(res.body).slice(0, 200)}`).toBe(expected);
           if (code) {
             expect(res.body.error.code).toBe(code);
             if (code === "max_depth") refusedDepth += 1; else if (code === "mention_not_allowed") refusedMention += 1; else if (code === "participant_cannot_view_ticket") refusedInheritance += 1;
+          } else if (outsiders.length === 0) {
+            expect(res.body.kind, `mensagem comum (${tree}/${step})`).toBe("message");
+            target.msgs = (target.msgs ?? 0) + 1;
+            (target.authors ??= []).push(actor);
+            plainMessages += 1;
+            wrote(target.id);
           } else {
             nodes.set(res.body.thread.id, { id: res.body.thread.id, parent: target.id, depth: target.depth + 1, owner: actor, members: new Set([...target.members, actor, ...mentioned]), ticket: subject });
+            wrote(target.id);
           }
         } else {
           const threads = [...nodes.values()].filter((n) => n.parent !== null);
@@ -137,8 +204,8 @@ describe("árvores de conversas ao acaso", () => {
           const thread = pick(threads);
           const outsiders = ALL.filter((p) => !thread.members.has(p));
           const stranger = outsiders.length > 0 ? pick(outsiders) : undefined;
-          const intruder = pick([...thread.members].filter((p) => p !== thread.owner).concat(thread.owner));
-          const asker = random() < 0.5 ? thread.owner : intruder;
+          const intruder = pick([...thread.members].filter((p): p is Real => isReal(p) && p !== thread.owner).concat(thread.owner as Real));
+          const asker = random() < 0.5 ? (thread.owner as Real) : intruder;
           if (stranger === undefined || !visible(asker, thread)) continue;
           const res = await h.call("POST", `/api/conversations/${thread.id}/participants`, as(asker), { personIds: [who(stranger)] });
           if (thread.topic) { expect(res.status, "incluir em assunto").toBe(422); expect(res.body.error.code).toBe("private_thread"); continue; }
@@ -156,6 +223,8 @@ describe("árvores de conversas ao acaso", () => {
       for (const person of ALL) {
         const seeIds = new Set(all.filter((n) => visible(person, n)).map((n) => n.id));
         const hidden = all.filter((n) => !seeIds.has(n.id)).map((n) => n.id);
+        // O que aparece na barra: o que a pessoa lê e não fechou.
+        const shownIds = new Set([...seeIds].filter((id) => !closedOf(person).has(id)));
         const res = await h.call("GET", "/api/conversations", as(person));
         expect(res.status).toBe(200);
         type Node = { id: string | null; kind: string; ticket: { id: string } | null; children: Node[]; participantCount: number; unread: number };
@@ -163,7 +232,10 @@ describe("árvores de conversas ao acaso", () => {
         const walk = (list: Node[]) => list.forEach((n) => { seen.push(n); walk(n.children); });
         walk(res.body.items);
         const got = new Set(seen.map((n) => n.id).filter((id): id is string => id !== null && nodes.has(id)));
-        expect([...got].sort(), `árvore ${tree} de ${person}`).toEqual([...seeIds].sort());
+        expect([...got].sort(), `árvore ${tree} de ${person}`).toEqual([...shownIds].sort());
+        const closedNow = (await h.call("GET", "/api/conversations/closed", as(person))).body.items as { id: string; closed: boolean; children: unknown[] }[];
+        expect(closedNow.map((n) => n.id).filter((id) => nodes.has(id)).sort(), `fechadas de ${person} (${tree})`).toEqual([...seeIds].filter((id) => closedOf(person).has(id)).sort());
+        expect(closedNow.every((n) => n.closed && n.children.length === 0)).toBe(true);
         for (const id of hidden) expect(JSON.stringify(res.body)).not.toContain(id);
         // Metadados: contagens e não lidas só do que a regra permite.
         for (const n of seen) {
@@ -171,15 +243,17 @@ describe("árvores de conversas ao acaso", () => {
           if (!model) continue;
           expect(n.participantCount, `participantes de ${model.id} para ${person}`).toBe(model.members.size);
           if (model.topic) expect(n.unread, `não lidas do assunto ${model.id}`).toBe(model.replies);
-          else if (model.parent !== null) expect(n.unread, `não lidas de ${model.id} para ${person}`).toBe(model.owner === person ? 0 : 1);
+          else if (model.parent !== null) expect(n.unread, `não lidas de ${model.id} para ${person}`).toBe((model.owner === person ? 0 : 1) + (model.authors ?? []).filter((a) => a !== person).length);
           else expect(n.unread).toBe(0);
         }
-        const childrenOf = new Map<string, string[]>();
-        const index = (list: Node[]) => list.forEach((n) => { if (n.id) childrenOf.set(n.id, n.children.flatMap((c) => (c.id ? [c.id] : []))); index(n.children); });
-        index(res.body.items);
-        for (const id of seeIds) {
-          const node = nodes.get(id) as Model;
-          if (node.parent !== null && seeIds.has(node.parent)) expect(childrenOf.get(node.parent), `${person} filho ${id}`).toContain(id);
+        // Cada conversa da barra pende da mais próxima acima que a pessoa lê e não fechou; sem ela, de uma linha sem conversa (ticket ou geral).
+        const parentInTree = new Map<string, string | null>();
+        const index = (list: Node[], parent: string | null) => list.forEach((n) => { if (n.id) parentInTree.set(n.id, parent); index(n.children, n.id); });
+        index(res.body.items, null);
+        for (const id of shownIds) {
+          // Sem pai na barra, a conversa fica sob uma linha de ticket ou o chat geral da própria pessoa, que não são conversas do modelo.
+          const actual = parentInTree.get(id) ?? null;
+          expect(actual !== null && nodes.has(actual) ? actual : null, `${person} pai de ${id} (árvore ${tree})`).toBe(shownParent(person, nodes.get(id) as Model));
         }
         // A leitura do ticket: 404 sem acesso; com acesso, só cartões visíveis.
         const byTicket = await h.call("GET", `/api/tickets/${ticket}/conversation`, as(person));
@@ -196,6 +270,7 @@ describe("árvores de conversas ao acaso", () => {
             continue;
           }
           expect(view.status).toBe(200);
+          expect(view.body.conversation.closed, `${person} fechou ${node.id}?`).toBe(closedOf(person).has(node.id));
           expect([view.body.conversation.purpose, view.body.conversation.canAddParticipants && node.topic === true]).toEqual([node.parent === null ? null : node.topic ? "topic" : "people", false]);
           const trail = (view.body.conversation.trail as { id: string }[]).map((t) => t.id);
           const expected: string[] = [];
@@ -210,6 +285,7 @@ describe("árvores de conversas ao acaso", () => {
           expect(cardList.map((c) => c.id).sort(), `cartões de ${person} em ${node.id} (árvore ${tree}, geral=${isGeneral}, fundo=${deep}) ${JSON.stringify(cardList.filter((c) => !direct.includes(c.id)).map((c) => ({ id: c.id, model: nodes.get(c.id) ? { parent: nodes.get(c.id)!.parent, members: [...nodes.get(c.id)!.members], ticket: nodes.get(c.id)!.ticket } : null })))}`).toEqual(direct);
           for (const card of cardList) {
             const model = nodes.get(card.id) as Model;
+            expect((card as { closed?: boolean }).closed, `cartão fechado ${card.id} para ${person}`).toBe(closedOf(person).has(card.id));
             // A mensagem que abre uma thread filha mora nesta conversa: conta nas respostas dela (a de abertura dela própria não).
             expect([card.participantCount, card.replyCount, card.startedByMe]).toEqual([model.members.size, all.filter((n) => n.parent === model.id).length + (model.msgs ?? 0), model.owner === person]);
           }
@@ -228,5 +304,8 @@ describe("árvores de conversas ao acaso", () => {
     expect(refusedMention).toBeGreaterThan(0);
     expect(refusedInheritance).toBeGreaterThan(0);
     expect(topics).toBeGreaterThan(20);
+    expect(plainMessages).toBeGreaterThan(20);
+    expect(closings).toBeGreaterThan(50);
+    expect(comebacks).toBeGreaterThan(5);
   }, 3_000_000);
 });

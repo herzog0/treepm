@@ -30,7 +30,7 @@ describe("app shell (ADR 0055)", () => {
     );
     const shell = container.querySelector(".tenant-shell")!;
     expect(shell).not.toHaveClass("has-chat-panel");
-    await user.click(await screen.findByRole("button", { name: /ALFA-1/ }));
+    await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
     expect(shell).toHaveClass("has-chat-panel");
     expect(screen.getByRole("complementary", { name: "Conversa" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Fechar a conversa" }));

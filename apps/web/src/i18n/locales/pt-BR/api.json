@@ -38,7 +38,7 @@
       "mention_mismatch": "O texto cita uma pessoa que não está entre as marcadas. Marque a pessoa de novo pelo @ e envie outra vez.",
       "person_mention_not_allowed": "A descrição do ticket não aceita menção de pessoa. Tire a pessoa do texto (nos comentários ela pode ser marcada) e salve de novo.",
       "mention_not_allowed": "Alguém marcado não pode participar desta conversa (não enxerga o que ela trata ou não está mais na organização). Tire essa pessoa e envie de novo.",
-      "cannot_mention_self": "Uma menção precisa ser de outra pessoa, não de você.",
+      "assistant_mention_self": "Aqui a conversa é com o assistente: marcar você mesma não faz sentido. Tire a marcação e envie de novo.",
       "too_many_mentions": "Mencione no máximo 10 pessoas por mensagem.",
       "thread_full": "Esta thread já tem o máximo de 25 participantes.",
       "chat_thread_rate_limited": "Você enviou mensagens de thread demais em pouco tempo. Espere um instante e tente de novo.",

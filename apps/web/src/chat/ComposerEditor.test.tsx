@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { personLink } from "@treepm/domain";
 import { makeTicket } from "../test/fakes.js";
 import { ALFA1, ALFA2, renderChats } from "./chatTesting.js";
-import { composer, composerMentions, composerShown, composerText, fillComposer, pasteInComposer, pickPerson, pickTicket, pressInComposer, typeInComposer } from "./composerTesting.js";
+import { composer, composerMentions, composerShown, composerText, fillComposer, pasteInComposer, pickPerson, newThreadHead, pickTicket, pressInComposer, typeInComposer } from "./composerTesting.js";
 import { mention } from "./mentionTesting.js";
 import { AssistantText, PersonText } from "./MessageText.js";
 import { ticketsByKey } from "./mentions.js";
@@ -13,7 +13,7 @@ import { ticketsByKey } from "./mentions.js";
 async function openGeneral(setup: Parameters<typeof renderChats>[0] = {}) {
   const user = userEvent.setup();
   const view = renderChats({ ...setup, seed: (chat) => void chat.seedGeneral([{ person: "oi", assistant: "olá" }]) });
-  await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
+  await user.click(await screen.findByRole("button", { name: /^Meu chat/ }));
   const field = await composer();
   return { user, field, ...view };
 }
@@ -24,14 +24,14 @@ describe("o item de menção no campo da conversa", () => {
     typeInComposer("oi");
     await mention("Bia");
     expect(composerMentions(field)).toEqual(["person-2"]);
-    expect(screen.getByRole("button", { name: "Remover menção a Bia" })).toBeInTheDocument();
+    expect(newThreadHead()).toHaveTextContent("com Bia");
     // O cursor está logo depois do item e do espaço que o seguiu: um Backspace apaga o espaço, o seguinte, o item todo.
     pressInComposer("Backspace", field);
     expect(composerShown(field)).toBe("oi @Bia");
     pressInComposer("Backspace", field);
     expect(composerShown(field)).toBe("oi ");
     expect(composerMentions(field)).toEqual([]);
-    expect(screen.queryByRole("button", { name: "Remover menção a Bia" })).toBeNull();
+    expect(newThreadHead()).toBeNull();
   });
 
   it("Delete pela frente apaga o item inteiro; a seta passa por ele como por um caractere", async () => {
@@ -92,30 +92,30 @@ describe("o item de menção no campo da conversa", () => {
     expect(field.editor.getJSON().content?.[0]?.content?.some((node) => node.type === "personMention")).toBe(false);
   });
 
-  it("a faixa 'vai participar' e o texto são uma fonte só: duas menções da mesma pessoa, apagar uma, apagar as duas, o 'x'", async () => {
-    const { user, field } = await openGeneral();
+  it("o cabeçalho da thread e o texto são uma fonte só: duas menções da mesma pessoa, apagar uma, limpar o campo, apagar as duas", async () => {
+    const { field } = await openGeneral();
     const node = { type: "personMention", attrs: { id: "person-2", name: "Bia" } };
     act(() => void field.editor.chain().focus().insertContent([node, { type: "text", text: " e " }, node, { type: "text", text: " " }]).run());
     expect(composerMentions(field)).toEqual(["person-2"]);
-    expect(screen.getAllByRole("button", { name: "Remover menção a Bia" })).toHaveLength(1);
+    expect(within(newThreadHead()!).getAllByText("com Bia")).toHaveLength(1);
     expect(composerText(field)).toBe(`${personLink("person-2", "Bia")} e ${personLink("person-2", "Bia")}`.concat(" "));
     // Apagar um dos dois: a pessoa continua na faixa.
     pressInComposer("Backspace", field);
     pressInComposer("Backspace", field);
     expect(composerText(field).match(/person:person-2/g)).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "Remover menção a Bia" })).toBeInTheDocument();
-    // O "x" da pastilha tira todos os itens dela do texto.
+    expect(newThreadHead()).toHaveTextContent("com Bia");
+    // Limpar o campo tira todos os itens dela do texto e desfaz a thread que ia nascer.
     act(() => void field.editor.chain().focus("end").insertContent([{ type: "text", text: "x " }, node]).run());
-    await user.click(screen.getByRole("button", { name: "Remover menção a Bia" }));
+    act(() => void field.editor.commands.clearContent(true));
     expect(composerMentions(field)).toEqual([]);
     expect(composerText(field)).not.toContain("person:");
-    expect(screen.queryByRole("button", { name: "Remover menção a Bia" })).toBeNull();
+    expect(newThreadHead()).toBeNull();
     // Apagar os dois itens (um depois do outro) também deixa a faixa vazia.
     act(() => void field.editor.chain().focus("end").insertContent([node, node]).run());
     pressInComposer("Backspace", field);
-    expect(screen.getByRole("button", { name: "Remover menção a Bia" })).toBeInTheDocument();
+    expect(newThreadHead()).toHaveTextContent("com Bia");
     pressInComposer("Backspace", field);
-    expect(screen.queryByRole("button", { name: "Remover menção a Bia" })).toBeNull();
+    expect(newThreadHead()).toBeNull();
   });
 
   it("Enter com a lista aberta e vazia fecha a lista e não envia; o seguinte envia", async () => {
@@ -190,7 +190,7 @@ describe("a leitura das mensagens (MessageText)", () => {
     expect(mark).toHaveAttribute("data-title", "Corrigir o login");
     expect(mark).toHaveTextContent("ALFA-1");
     expect(container).toHaveTextContent("e #OUTRO-9");
-    await userEvent.click(screen.getByRole("link", { name: /ALFA-1 Corrigir o login/ }));
+    await userEvent.click(screen.getByRole("link", { name: /^ALFA-1 Corrigir o login/ }));
     expect(opened).toEqual(["t1"]);
   });
 

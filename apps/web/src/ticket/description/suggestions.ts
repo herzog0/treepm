@@ -20,7 +20,7 @@ export interface MenuItem {
   /** Menção de ticket. */
   ticket?: TicketSummary;
   /** Menção de pessoa; `blocked`: não enxerga o projeto e aparece apagada, com o motivo. */
-  person?: { id: string; name: string; blocked: boolean; isTest?: boolean };
+  person?: { id: string; name: string; blocked: boolean; reason?: "project" | "levels"; isTest?: boolean };
   run: (editor: Editor, range: Range) => void;
 }
 

@@ -6,7 +6,7 @@ import { makeProject, makeTicket } from "../test/fakes.js";
 import { linkOf, mention } from "./mentionTesting.js";
 import { ALFA1, ALFA2, renderChats } from "./chatTesting.js";
 import type { ChatSetup } from "./chatTesting.js";
-import { selectInComposer, composerNow, composerShown, fillComposer, pasteInComposer, typeInComposer } from "./composerTesting.js";
+import { selectInComposer, composerNow, composerShown, fillComposer, pasteInComposer, typeInComposer, newThreadHead } from "./composerTesting.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -19,7 +19,7 @@ const fail = (code: string): ApiResult<never> => ({ ok: false, error: { kind: "c
 async function openGeneral(setup: ChatSetup = {}) {
   const user = userEvent.setup();
   const view = renderChats({ ...setup, seed: (chat) => { chat.seedGeneral([{ person: "oi", assistant: "olá" }]); setup.seed?.(chat); } });
-  await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
+  await user.click(await screen.findByRole("button", { name: /^Meu chat/ }));
   await screen.findByRole("combobox", { name: "Mensagem" });
   return { user, ...view };
 }
@@ -48,17 +48,19 @@ describe("o seletor de pessoas no ponto do texto", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(composerShown()).toBe("olá @Bia ");
     expect(field()).toHaveFocus();
-    expect(screen.getByRole("button", { name: "Remover menção a Bia" })).toBeInTheDocument();
+    expect(newThreadHead()).toHaveTextContent("Bia");
   });
 
-  it("a pessoa de teste leva o selo 'teste' na lista e na pastilha (ADR 0057)", async () => {
+  it("a pessoa de teste leva o selo 'teste' na lista e no cabeçalho da thread (ADR 0057)", async () => {
     const { user } = await openGeneral({ testPeople: ["person-2"] });
     typeInComposer("@");
     const [bia, caio] = options(await screen.findByRole("listbox", { name: "Pessoas" }));
     expect(within(bia!).getByText("teste")).toBeInTheDocument();
     expect(within(caio!).queryByText("teste")).toBeNull();
     await user.click(bia!);
-    expect(within(screen.getByRole("list", { name: /Pessoas|menç/i })).getByText("teste")).toBeInTheDocument();
+    // A faixa de pastilhas saiu (ADR 0059): o campo passa a mostrar a thread que vai nascer, com a pessoa escolhida e o selo dela.
+    expect(newThreadHead()).toHaveTextContent("com Bia");
+    expect(within(newThreadHead()!).getByText("teste")).toBeInTheDocument();
   });
 
   it("escolhe com as setas e confirma com Tab, sem tirar o foco do campo", async () => {
@@ -70,7 +72,7 @@ describe("o seletor de pessoas no ponto do texto", () => {
     expect(options(list)[1]).toHaveAttribute("aria-selected", "true");
     await user.keyboard("{Tab}");
     expect(field()).toHaveFocus();
-    expect(screen.getByRole("button", { name: "Remover menção a Caio" })).toBeInTheDocument();
+    expect(newThreadHead()).toHaveTextContent("Caio");
     expect(composerShown()).toBe("@Caio ");
   });
 
@@ -116,19 +118,19 @@ describe("o seletor de pessoas no ponto do texto", () => {
     expect(caio).toHaveAttribute("aria-disabled", "true");
     expect(caio).toHaveTextContent("Não enxerga o projeto deste ticket");
     await user.click(caio!);
-    expect(screen.queryByRole("button", { name: "Remover menção a Caio" })).toBeNull();
+    expect(newThreadHead()?.textContent ?? "").not.toContain("Caio");
     // As setas passam também pela opção apagada (o leitor de tela ouve o motivo), mas `Enter` nela não confirma nem envia.
     await user.keyboard("{ArrowDown}");
     expect(combo()).toHaveAttribute("aria-activedescendant", caio!.id);
     await user.keyboard("{Enter}");
     expect(screen.getByRole("listbox", { name: "Pessoas" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Remover menção/ })).toBeNull();
+    expect(newThreadHead()).toBeNull();
     await user.keyboard("{ArrowUp}{Enter}");
-    expect(screen.getByRole("button", { name: "Remover menção a Bia" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Remover menção a Caio" })).toBeNull();
+    expect(newThreadHead()).toHaveTextContent("Bia");
+    expect(newThreadHead()?.textContent ?? "").not.toContain("Caio");
   });
 
-  it("no último nível o @ não abre seletor (a conversa explica por quê)", async () => {
+  it("no último nível o @ abre o seletor: quem já participa pode ser marcado (mensagem comum), quem é de fora aparece apagado, com o motivo", async () => {
     const user = userEvent.setup();
     renderChats({
       seed: (c) => {
@@ -136,12 +138,19 @@ describe("o seletor de pessoas no ponto do texto", () => {
         for (let depth = 1; depth <= 9; depth++) parent = c.openThreadIn(parent, { from: "person-1", body: `nível ${depth}`, to: ["person-2"] });
       },
     });
-    const rows = await screen.findAllByRole("button", { name: /Thread com Bia/ });
+    const rows = await screen.findAllByRole("button", { name: /^Thread com Bia/ });
     await user.click(rows.at(-1)!);
     expect(await within(panel()).findByText(/último nível/)).toBeInTheDocument();
     typeInComposer("@", composerNow("Responder na thread"));
-    expect(screen.queryByRole("listbox")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Mencionar" })).toBeNull();
+    const picker = await screen.findByRole("listbox", { name: "Pessoas" });
+    const [bia, caio] = [within(picker).getByRole("option", { name: /Bia/ }), within(picker).getByRole("option", { name: /Caio/ })];
+    expect(bia).not.toHaveAttribute("aria-disabled", "true");
+    expect(caio).toHaveAttribute("aria-disabled", "true");
+    expect(caio).toHaveTextContent("Último nível: só quem já participa");
+    await user.click(bia);
+    // Quem já participa vira só destaque: sem cabeçalho de thread e o botão segue "Enviar".
+    expect(newThreadHead()).toBeNull();
+    expect(screen.getByRole("button", { name: "Enviar" })).toBeEnabled();
   });
 });
 
@@ -216,14 +225,19 @@ describe("a linha que diz o que vai acontecer", () => {
     typeInComposer("#ALFA-1 consegue ver, ");
     typeInComposer("@");
     await user.keyboard("{Enter}");
-    await waitFor(() => expect(notice()).toHaveTextContent("Abre a conversa do ALFA-1 e, dentro dela, uma thread com Bia."));
+    // O campo vira a thread que vai nascer, dentro da conversa do ticket citado (ADR 0059): sem linha de aviso em texto.
+    await waitFor(() => expect(newThreadHead()).toHaveTextContent("Nova thread em ALFA-1"));
+    expect(newThreadHead()).toHaveTextContent("com Bia");
+    expect(notice()).toBeEmptyDOMElement();
   });
 
   it("só uma pessoa: abre uma thread com ela", async () => {
     const { user } = await openGeneral();
     typeInComposer("oi @");
     await user.keyboard("{Enter}");
-    expect(notice()).toHaveTextContent(/abre uma thread com Bia/);
+    expect(newThreadHead()).toHaveTextContent("Nova thread");
+    expect(newThreadHead()).toHaveTextContent("com Bia");
+    expect(notice()).toBeEmptyDOMElement();
   });
 
   it("dois tickets no Meu chat, ou um # no chat de um ticket: fica na conversa e o assistente lê os tickets", async () => {
@@ -239,7 +253,7 @@ describe("a linha que diz o que vai acontecer", () => {
   it("numa thread entre pessoas o # é só referência, sem dizer que o assistente lê", async () => {
     const user = userEvent.setup();
     renderChats({ seed: (c) => { const main = c.seedConversation("t1", [{ person: "oi", assistant: "olá" }]); c.openThreadIn(main, { from: "person-1", body: "Bia, olha", to: ["person-2"] }); } });
-    await user.click(await screen.findByRole("button", { name: /Thread com Bia/ }));
+    await user.click(await screen.findByRole("button", { name: /^Thread com Bia/ }));
     typeInComposer("veja o #ALFA-2 ", composerNow("Responder na thread"));
     await waitFor(() => expect(notice()).toHaveTextContent("Fica nesta thread. Os tickets citados são só referência."));
   });
@@ -306,7 +320,7 @@ describe("o caminho do # no Meu chat", () => {
   it("numa thread o # é referência: a resposta fica na thread", async () => {
     const user = userEvent.setup();
     const { client, chat } = renderChats({ seed: (c) => { const main = c.seedConversation("t1", [{ person: "oi", assistant: "olá" }]); c.openThreadIn(main, { from: "person-1", body: "Bia, olha", to: ["person-2"] }); } });
-    await user.click(await screen.findByRole("button", { name: /Thread com Bia/ }));
+    await user.click(await screen.findByRole("button", { name: /^Thread com Bia/ }));
     typeInComposer("veja o #ALFA-2 ", composerNow("Responder na thread"));
     await user.click(screen.getByRole("button", { name: "Enviar" }));
     await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledTimes(1));
@@ -357,7 +371,7 @@ describe("o caminho do # no Meu chat", () => {
     await user.keyboard("{Enter}");
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
     await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalled());
-    await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
+    await user.click(await screen.findByRole("button", { name: /^Meu chat/ }));
     for (const [, body] of vi.mocked(client.sendChatMessage).mock.calls) expect(body).not.toHaveProperty("ticketId");
   });
 });
@@ -366,7 +380,7 @@ describe("os elos nas mensagens", () => {
   it("#CHAVE de ticket visível vira elo que abre o ticket; o que não existe fica texto", async () => {
     const { user, onShowTicket } = await openGeneral({ seed: (chat) => void chat.seedConversation("t1", [{ person: "veja o #ALFA-2 e o #ZZZ-9", assistant: "ok" }]) });
     await user.click(await screen.findByRole("button", { name: /^ALFA-1/ }));
-    const link = await within(panel()).findByRole("link", { name: /ALFA-2.*Publicar a versão/ });
+    const link = await within(panel()).findByRole("link", { name: /^ALFA-2.*Publicar a versão/ });
     expect(link).toHaveTextContent("ALFA-2");
     expect(link).not.toHaveTextContent("#");
     await user.click(link);
@@ -385,8 +399,8 @@ describe("os elos nas mensagens", () => {
   it("na resposta do assistente a chave vira elo com ou sem #", async () => {
     const { onShowTicket } = await openGeneral({ reply: () => "Veja ALFA-2 e também #ALFA-1." });
     typeInComposer("o que falta?{Enter}");
-    const first = await within(panel()).findByRole("link", { name: /ALFA-2/ });
-    const second = await within(panel()).findByRole("link", { name: /ALFA-1/ });
+    const first = await within(panel()).findByRole("link", { name: /^ALFA-2/ });
+    const second = await within(panel()).findByRole("link", { name: /^ALFA-1/ });
     expect(first).toHaveTextContent("ALFA-2");
     fireEvent.keyDown(second, { key: "Enter" });
     expect(onShowTicket).toHaveBeenCalledWith("t1");
@@ -438,7 +452,7 @@ describe("Enter e foco com a lista aberta", () => {
     expect(options(list).every((option) => option.getAttribute("aria-disabled") === "true")).toBe(true);
     await user.keyboard("{Enter}");
     expect(client.sendChatMessage).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: /Remover menção/ })).toBeNull();
+    expect(newThreadHead()).toBeNull();
     expect(composerShown()).toBe("@");
   });
 
@@ -462,7 +476,7 @@ describe("Enter e foco com a lista aberta", () => {
     const { user } = await openGeneral();
     typeInComposer("@");
     await user.click(within(await screen.findByRole("listbox", { name: "Pessoas" })).getByRole("option", { name: /Bia/ }));
-    expect(screen.getByRole("button", { name: "Remover menção a Bia" })).toBeInTheDocument();
+    expect(newThreadHead()).toHaveTextContent("Bia");
     expect(field()).toHaveFocus();
   });
 
@@ -485,7 +499,7 @@ describe("o gatilho e o texto em volta", () => {
     expect(options(list)).toHaveLength(1);
     await user.keyboard("{Enter}");
     expect(composerShown()).toBe("olá @Bia ");
-    expect(screen.getByRole("button", { name: "Remover menção a Bia" })).toBeInTheDocument();
+    expect(newThreadHead()).toHaveTextContent("Bia");
   });
 
   it("@ digitado sobre uma seleção a substitui e abre a lista", async () => {
@@ -604,7 +618,7 @@ describe("o caminho do # com a lista de tickets decidindo o destino", () => {
     await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledTimes(1));
     expect(sent(client)[0]![0]).toBe(chat.principalOf("t1"));
     // Uma chave do projeto que não carregou não se trata como "não existe".
-    await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
+    await user.click(await screen.findByRole("button", { name: /^Meu chat/ }));
     typeInComposer("#BETA-1 e depois ", composerNow("Mensagem"));
     await user.click(screen.getByRole("button", { name: "Enviar" }));
     expect(await within(panel()).findByRole("alert")).toHaveTextContent("Não foi possível conferir os tickets citados");
@@ -725,7 +739,7 @@ describe("o caminho do # dá retorno e não perde a mensagem", () => {
   it("chat geral que ainda não existe com # de um ticket: não cria o chat geral", async () => {
     const user = userEvent.setup();
     const { client, chat } = renderChats();
-    await user.click(await screen.findByRole("button", { name: /Meu chat/ }));
+    await user.click(await screen.findByRole("button", { name: /^Meu chat/ }));
     typeInComposer("Como está o #ALFA-1 ?", composerNow("Mensagem"));
     await user.click(screen.getByRole("button", { name: "Enviar" }));
     await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledTimes(1));
@@ -742,20 +756,22 @@ describe("o caminho do # dá retorno e não perde a mensagem", () => {
     await user.click(screen.getByRole("button", { name: "Abrir thread" }));
     expect(await within(panel()).findByRole("button", { name: /Abrir o ticket ALFA-1/ })).toBeInTheDocument();
     await waitFor(() => expect(composerShown()).toBe("#ALFA-1 olha, @Bia "));
-    expect(await screen.findByText("não pode ser marcada aqui")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Remover menção a Bia" })).toBeInTheDocument();
+    expect(await screen.findByText("Bia não pode ser marcada aqui.")).toBeInTheDocument();
+    expect(newThreadHead()).toHaveTextContent("Bia");
   });
 
   it("pessoa marcada antes do #: se ela não enxerga o projeto do ticket citado, a pastilha fica recusada, com o motivo, antes do envio", async () => {
     const project = makeProject("p1", "ALFA", "Projeto Alfa", { visibility: "private", members: [{ personId: "person-1", role: "manager" }, { personId: "person-2", role: "reader" }] });
-    const { user, client } = await openGeneral({ projects: [project] });
+    const { client } = await openGeneral({ projects: [project] });
     typeInComposer("oi ");
     await mention("Caio");
     expect(screen.getByRole("button", { name: "Abrir thread" })).toBeEnabled();
     typeInComposer("olha o #ALFA-1 ");
-    expect(await screen.findByText("Não enxerga o projeto deste ticket", { selector: "small" })).toBeInTheDocument();
+    expect(await screen.findByText("Caio não enxerga o projeto deste ticket.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abrir thread" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Remover menção a Caio" }));
+    // Tirar a pessoa recusada, com um clique na própria linha da recusa.
+    await userEvent.setup().click(screen.getByRole("button", { name: "Tirar Caio" }));
+    expect(screen.queryByText("Caio não enxerga o projeto deste ticket.")).toBeNull();
     expect(screen.getByRole("button", { name: "Enviar" })).toBeEnabled();
     expect(client.sendChatMessage).not.toHaveBeenCalled();
   });
@@ -766,7 +782,7 @@ describe("a thread e o chat de um ticket guardam o destino", () => {
     const user = userEvent.setup();
     let threadId = "";
     const { client } = renderChats({ seed: (c) => { const main = c.seedConversation("t1", [{ person: "oi", assistant: "olá" }]); threadId = c.openThreadIn(main, { from: "person-1", body: "Bia, olha", to: ["person-2"] }); } });
-    await user.click(await screen.findByRole("button", { name: /Thread com Bia/ }));
+    await user.click(await screen.findByRole("button", { name: /^Thread com Bia/ }));
     typeInComposer("veja o #ALFA-2 ", composerNow("Responder na thread"));
     await user.click(screen.getByRole("button", { name: "Enviar" }));
     await waitFor(() => expect(client.sendChatMessage).toHaveBeenCalledTimes(1));
@@ -787,7 +803,7 @@ describe("a barra e o cabeçalho", () => {
         api.listConversationTree = vi.fn(async () => { const result = await original(); return result.ok ? ({ ok: true, data: { items: withLabel(result.data.items, "o prazo do login") } } as const) : result; });
       },
     });
-    const rows = await screen.findAllByRole("button", { name: /Thread com Bia|o prazo do login/ });
+    const rows = await screen.findAllByRole("button", { name: /^Thread com Bia|o prazo do login/ });
     // A primeira thread está debaixo do ticket (outras pessoas na linha de cima): ficou pelos nomes. A segunda repete a Bia.
     expect(rows[0]).toHaveTextContent("Thread com Bia");
     expect(rows[1]).toHaveTextContent("o prazo do login");

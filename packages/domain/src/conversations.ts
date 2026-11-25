@@ -78,6 +78,33 @@ export function visibleTree(viewerPersonId: string, nodes: readonly Conversation
   return out;
 }
 
+/**
+ * A árvore da barra de uma pessoa que também FECHA conversas (ADR 0059): só entram as conversas que ela lê e não fechou; o pai de cada
+ * uma é a conversa mais próxima acima dela que ela lê e não fechou. "Fechou" e "não lê" são coisas diferentes: conversa fechada é
+ * atravessada (a de dentro sobe para a de cima que aparece); conversa que a pessoa não lê para a subida, porque acima dela a pessoa
+ * não sabe de nada, e a de dentro vira ponta de baixo da árvore dela (`null`).
+ */
+export function shownTree(viewerPersonId: string, nodes: readonly ConversationNode[], closedIds: ReadonlySet<string>): Map<string, string | null> {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const out = new Map<string, string | null>();
+  for (const node of nodes) {
+    if (!canReadConversation(viewerPersonId, node) || closedIds.has(node.id)) continue;
+    let parentId = visibleParentId(viewerPersonId, node, byId);
+    while (parentId !== null && closedIds.has(parentId)) parentId = visibleParentId(viewerPersonId, byId.get(parentId) as ConversationNode, byId);
+    out.set(node.id, parentId);
+  }
+  return out;
+}
+
+/**
+ * Marcar pessoas abre uma thread? Só se alguma das marcadas (sem a própria pessoa) não participa da conversa; se todas já estão nela,
+ * a mensagem é comum (ADR 0059). Sem ninguém marcado além de si mesma, também não abre.
+ */
+export function mentionsOpenThread(authorPersonId: string, mentionedPersonIds: Iterable<string>, participantIds: ReadonlySet<string>): boolean {
+  for (const person of mentionedPersonIds) if (person !== authorPersonId && !participantIds.has(person)) return true;
+  return false;
+}
+
 /** Os ids de todas as conversas abaixo de `id` (filhas, netas…), sem `id`. */
 export function descendantIds(id: string, nodes: readonly ConversationNode[]): string[] {
   const children = new Map<string, string[]>();

@@ -1,5 +1,8 @@
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { Extension } from "@tiptap/core";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,7 +24,7 @@ import { chatDocFromText, chatTextFromDoc, neutralizePaste } from "./chatText.js
 
 export interface ComposerHandle {
   focus: () => void;
-  /** Tira do texto todos os itens daquela pessoa (o "x" da pastilha). */
+  /** Tira do texto todos os itens daquela pessoa (o "Tirar" da linha de recusa). */
   removePerson: (personId: string) => void;
 }
 
@@ -35,16 +38,18 @@ interface ComposerEditorProps {
   onEnter: () => void;
   readOnly: boolean;
   invalid: boolean;
-  people: readonly { person: Person; blocked: boolean }[];
+  people: readonly { person: Person; blocked: boolean; reason?: "project" | "levels" }[];
   peopleStatus: "loading" | "ready" | "error";
   tickets: TicketPool;
   /** O caminho do ticket na árvore, para a linha de baixo da opção. */
   pathOf: (ticket: TicketSummary) => string;
   onNeedTickets: () => void;
   onRetryTickets: () => void;
-  /** Marcar alguém abre uma thread aqui dentro; falso no último nível: o `@` não abre a lista. */
-  canOpenThread: boolean;
+  /** As pessoas de fora que a mensagem vai levar para uma thread nova: aparecem no texto na cor da thread (ADR 0059). */
+  outsideIds: readonly string[];
 }
+
+const outsideKey = new PluginKey("composerOutside");
 
 /**
  * O campo de escrever das conversas (ADR 0058): o mesmo editor da descrição e dos comentários, em configuração mínima (parágrafo,
@@ -78,7 +83,7 @@ export const ComposerEditor = forwardRef<ComposerHandle, ComposerEditorProps>(fu
     const taken = new Set(personIdsIn(lastText.current));
     return latest.current.people
       .filter(({ person }) => !taken.has(person.id) && fold(person.displayName).includes(wanted))
-      .map(({ person, blocked }) => ({ id: person.id, label: person.displayName, person: { id: person.id, name: person.displayName, blocked, isTest: person.isTest === true }, run: (editor, range) => insertMention(editor, range, { type: "personMention", attrs: { id: person.id, name: person.displayName } }) }));
+      .map(({ person, blocked, reason }) => ({ id: person.id, label: person.displayName, person: { id: person.id, name: person.displayName, blocked, ...(reason ? { reason } : {}), isTest: person.isTest === true }, run: (editor, range) => insertMention(editor, range, { type: "personMention", attrs: { id: person.id, name: person.displayName } }) }));
   };
 
   const extensions = useMemo(
@@ -86,8 +91,25 @@ export const ComposerEditor = forwardRef<ComposerHandle, ComposerEditorProps>(fu
       StarterKit.configure({ heading: false, bold: false, italic: false, strike: false, code: false, codeBlock: false, blockquote: false, bulletList: false, orderedList: false, listItem: false, horizontalRule: false, link: false, underline: false, trailingNode: false }),
       ...mentionExtensions({ exists: (key) => latest.current.tickets.status === "ready" && Object.values(latest.current.tickets.byProject).some((list) => list.some((ticket) => ticket.key === key)) }),
       descriptionDecorations(() => ({ context: { projectId: "", anyProject: true, tickets: latestPool.current }, people: null, placeholder: latest.current.placeholder, statusText: latest.current.statusText })),
+      Extension.create({
+        name: "composerOutside",
+        addProseMirrorPlugins: () => [
+          new Plugin({
+            key: outsideKey,
+            props: {
+              decorations: (state) => {
+                const outside = latest.current.outsideIds;
+                if (outside.length === 0) return DecorationSet.empty;
+                const found: Decoration[] = [];
+                state.doc.descendants((node, pos) => void (node.type.name === "personMention" && outside.includes(node.attrs["id"] as string) && found.push(Decoration.node(pos, pos + node.nodeSize, { class: "is-outside" }))));
+                return DecorationSet.create(state.doc, found);
+              },
+            },
+          }),
+        ],
+      }),
       suggestionExtension("ticket", host, (query) => ticketOptions.current(query)),
-      suggestionExtension("person", host, (query) => personOptions.current(query), () => latest.current.canOpenThread && !latest.current.readOnly),
+      suggestionExtension("person", host, (query) => personOptions.current(query), () => !latest.current.readOnly),
     ],
     [host],
   );
@@ -184,6 +206,9 @@ export const ComposerEditor = forwardRef<ComposerHandle, ComposerEditorProps>(fu
     if (JSON.stringify(next) !== JSON.stringify(editor.getJSON())) editor.commands.setContent(next, { emitUpdate: false });
   }, [byKey, editor]);
   useEffect(() => void (editor && editor.view.dispatch(editor.state.tr.setMeta(decorationsKey, true))), [editor, context, props.placeholder]);
+  // Quem é "de fora" mudou (a pessoa saiu ou entrou na conversa): as decorações do texto se refazem.
+  const outsideSignature = props.outsideIds.join(",");
+  useEffect(() => void (editor && editor.view.dispatch(editor.state.tr.setMeta(outsideKey, outsideSignature))), [editor, outsideSignature]);
 
   // O papel do campo não muda no meio da digitação: é sempre uma caixa de combinação, aberta ou fechada. Em efeito de layout: o leitor de
   // tela e os testes leem estes atributos logo depois de a lista aparecer, sem esperar o efeito passivo.

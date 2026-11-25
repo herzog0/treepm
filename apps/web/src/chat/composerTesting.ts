@@ -153,3 +153,6 @@ export function composerText(field: Field = composerNow()): string {
 export function composerMentions(field: Field = composerNow()): string[] {
   return personIdsIn(composerText(field));
 }
+
+/** O cabeçalho "Nova thread · com …" do campo (ADR 0059); `null` quando a mensagem não vai abrir thread. */
+export const newThreadHead = (): HTMLElement | null => document.querySelector<HTMLElement>(".chat-newthread-head");

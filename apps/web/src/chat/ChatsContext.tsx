@@ -82,6 +82,27 @@ export function nodeIsRef(node: ConversationNode, ref: ConversationRef): boolean
 
 const flatten = (nodes: readonly ConversationNode[]): ConversationNode[] => nodes.flatMap((node) => [node, ...flatten(node.children)]);
 
+/** Tira da árvore as conversas fechadas; as de dentro que continuam abertas sobem para a mais próxima que aparece (como o servidor faz). */
+function withoutClosed(nodes: ConversationNode[], ids: ReadonlySet<string>): ConversationNode[] {
+  return nodes.flatMap((node) => {
+    const children = withoutClosed(node.children, ids);
+    return node.id !== null && ids.has(node.id) ? children : [{ ...node, children }];
+  });
+}
+
+/** O pai de uma conversa na barra (ou `null` se está no topo). */
+function parentInTree(nodes: readonly ConversationNode[], id: string, parent: ConversationNode | null = null): { found: boolean; parent: ConversationNode | null } {
+  for (const node of nodes) {
+    if (node.id === id) return { found: true, parent };
+    const inner = parentInTree(node.children, id, node);
+    if (inner.found) return inner;
+  }
+  return { found: false, parent: null };
+}
+
+/** Quanto tempo o aviso "Conversa fechada." fica na barra antes de sumir sozinho. */
+export const CLOSED_NOTICE_MS = 8000;
+
 function withUnread(nodes: ConversationNode[], id: string, unread: number): ConversationNode[] {
   return nodes.map((node) => ({ ...node, unread: node.id === id ? unread : node.unread, children: withUnread(node.children, id, unread) }));
 }
@@ -200,6 +221,19 @@ export interface ChatsApi {
   /** O mapa aberto empresta o projeto e as ações à thread de criação; `null` fora do mapa. */
   mapHost: MapHost | null;
   setMapHost: (host: MapHost | null) => void;
+  /** As conversas que a pessoa fechou e continuam fechadas (lista plana, da mais recente para a mais antiga). */
+  closedList: ConversationNode[];
+  /** O aviso "Conversa fechada." com "Desfazer"; some sozinho. `null` quando não há. */
+  closedNotice: { ids: string[]; error: string | null } | null;
+  /** Fecha a conversa (e as de dentro) só para a pessoa; mostra o aviso e, se era a aberta no painel, volta para a de cima. Devolve a frase do erro, ou `null`. */
+  closeConversation: (node: ConversationNode) => Promise<string | null>;
+  /** "Desfazer" do aviso: reabre todas as que o servidor fechou. */
+  undoClose: () => Promise<void>;
+  dismissClosedNotice: () => void;
+  /** O aviso para de contar enquanto tem foco ou o ponteiro em cima, e volta a contar (por inteiro) ao sair. */
+  holdClosedNotice: (held: boolean) => void;
+  /** Reabre uma conversa fechada ("Reabrir" da lista e da faixa). Devolve a frase do erro, ou `null`. */
+  reopenConversation: (id: string) => Promise<string | null>;
   /** Abre o Meu chat na coluna (o chat geral que ainda não existe abre só a leitura, sem criar nada). */
   openGeneral: () => void;
   /** "Abrir chat" da página do ticket: a leitura da conversa da pessoa nesse ticket. */
@@ -236,6 +270,9 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
   const [selfId, setSelfId] = useState<string | undefined>(undefined);
   const [listFailed, setListFailed] = useState(false);
   const [version, setVersion] = useState(0);
+  const [closedList, setClosedList] = useState<ConversationNode[]>([]);
+  const [closedNotice, setClosedNotice] = useState<{ ids: string[]; error: string | null } | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [directory, setDirectory] = useState<Directory>({ status: "idle" });
   const [ownTickets, setOwnTickets] = useState<TicketPool>({ status: "idle" });
   const [sharedTickets, setSharedTickets] = useState<Readonly<Record<string, readonly TicketSummary[]>> | null>(null);
@@ -283,9 +320,14 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
 
   const refresh = useCallback(async () => {
     const id = ++requests.current;
-    const result = await safe(() => client.listConversationTree());
+    const [result, closed] = await Promise.all([
+      safe(() => client.listConversationTree()),
+      // A lista das fechadas é tolerante: uma falha (ou um servidor sem a rota) só deixa a seção "Fechadas" como estava.
+      typeof client.listClosedConversations === "function" ? safe(() => client.listClosedConversations()) : Promise.resolve(null),
+    ]);
     // Uma resposta que chega depois de outra mais nova não vale.
     if (id !== requests.current) return;
+    if (closed !== null && closed.ok) setClosedList(closed.data.items);
     if (result.ok) {
       setTree(result.data.items);
       setListFailed(false);
@@ -540,6 +582,112 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
     });
   }, []);
 
+  const stopNoticeTimer = useCallback(() => {
+    if (noticeTimer.current !== null) clearTimeout(noticeTimer.current);
+    noticeTimer.current = null;
+  }, []);
+  /** O tempo do aviso recomeça por inteiro a cada fechamento e a cada vez que o foco ou o ponteiro saem dele. */
+  const noticeHeld = useRef(false);
+  const armNoticeTimer = useCallback(() => {
+    stopNoticeTimer();
+    // Com o foco ou o ponteiro no aviso, o tempo só começa quando eles saem.
+    if (noticeHeld.current) return;
+    noticeTimer.current = setTimeout(() => {
+      noticeTimer.current = null;
+      if (mounted.current) setClosedNotice(null);
+    }, CLOSED_NOTICE_MS);
+  }, [stopNoticeTimer]);
+  // Sem aviso não há o que segurar: o foco que estava nele pode ter sumido junto, sem `blur`.
+  useEffect(() => {
+    if (closedNotice === null) noticeHeld.current = false;
+  }, [closedNotice]);
+  const dismissClosedNotice = useCallback(() => {
+    stopNoticeTimer();
+    setClosedNotice(null);
+  }, [stopNoticeTimer]);
+  const holdClosedNotice = useCallback(
+    (held: boolean) => {
+      noticeHeld.current = held;
+      if (held) stopNoticeTimer();
+      else armNoticeTimer();
+    },
+    [stopNoticeTimer, armNoticeTimer],
+  );
+  useEffect(() => () => {
+    if (noticeTimer.current !== null) clearTimeout(noticeTimer.current);
+  }, []);
+  const reopenConversation = useCallback(
+    async (id: string): Promise<string | null> => {
+      const result = await safe(() => client.reopenConversation(id));
+      if (!mounted.current) return null;
+      await refresh();
+      return result.ok ? null : describeRef.current(result.error);
+    },
+    [client, refresh],
+  );
+  const closeConversation = useCallback(
+    async (node: ConversationNode): Promise<string | null> => {
+      if (node.id === null) return null;
+      const result = await safe(() => client.closeConversation(node.id as string));
+      if (!mounted.current) return null;
+      if (!result.ok) {
+        // A conversa que já não existe para a pessoa (404) sai da lista na hora: a tela estava velha.
+        if (result.error.kind === "not_found") await refresh();
+        return describeRef.current(result.error);
+      }
+      const ids = result.data.closedIds;
+      const closedSet = new Set(ids);
+      // O painel que mostrava a conversa fechada (ou uma de dentro dela) volta para a de cima, ou fecha se não há.
+      const current = selectionRef.current;
+      const tree = treeRef.current ?? [];
+      const showing = current !== null && openRef.current && (nodeIsRef(node, current) || (current.kind === "conversation" && closedSet.has(current.id)));
+      if (showing) {
+        const above = parentInTree(tree, node.id).parent;
+        if (above === null) {
+          setOpen(false);
+          setSelection(null);
+        } else {
+          setSelection(refOfNode(above));
+        }
+      }
+      setTree((existing) => (existing === null ? existing : withoutClosed(existing, closedSet)));
+      // Já estava fechada (em outra aba): nada foi fechado por este pedido, então não há o que desfazer. Só atualiza a lista.
+      if (ids.length === 0) {
+        await refresh();
+        return null;
+      }
+      // Dois fechamentos dentro da janela: o aviso junta os ids (a ordem em que as respostas chegam não importa) e o tempo recomeça.
+      setClosedNotice((existing) => ({ ids: [...new Set([...(existing?.ids ?? []), ...ids])], error: null }));
+      armNoticeTimer();
+      await refresh();
+      return null;
+    },
+    [client, refresh, armNoticeTimer],
+  );
+  const undoClose = useCallback(async () => {
+    const ids = closedNotice?.ids ?? [];
+    stopNoticeTimer();
+    const left: string[] = [];
+    let error: string | null = null;
+    for (const id of ids) {
+      const result = await safe(() => client.reopenConversation(id));
+      if (!result.ok) {
+        left.push(id);
+        error ??= describeRef.current(result.error);
+      }
+    }
+    if (!mounted.current) return;
+    // O que não reabriu continua no aviso, com o erro (nada de falha em silêncio); o tempo recomeça. A conta parte do aviso de AGORA:
+    // um fechamento feito enquanto os `reopen` corriam não se perde, e só os ids que reabriram saem.
+    const reopened = new Set(ids.filter((id) => !left.includes(id)));
+    setClosedNotice((existing) => {
+      const remaining = (existing?.ids ?? left).filter((id) => !reopened.has(id));
+      return remaining.length === 0 ? null : { ids: remaining, error };
+    });
+    armNoticeTimer();
+    await refresh();
+  }, [client, closedNotice, stopNoticeTimer, armNoticeTimer, refresh]);
+
   const unreadChats = useMemo(() => (tree === null ? 0 : flatten(tree).filter((node) => node.unread > 0).length), [tree]);
   const api = useMemo<ChatsApi>(
     () => ({
@@ -576,6 +724,13 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
       setCreationMode,
       mapHost,
       setMapHost,
+      closedList,
+      closedNotice,
+      closeConversation,
+      undoClose,
+      dismissClosedNotice,
+      holdClosedNotice,
+      reopenConversation,
       openGeneral,
       openTicket: (ticketId) => openPanel({ kind: "ticket", ticketId }),
       close,
@@ -583,7 +738,7 @@ export function ChatsProvider({ client, onShowTicket, children }: ChatsProviderP
       setConversationUnread: (id, unread) => setTree((current) => (current === null ? current : withUnread(current, id, unread))),
       showTicket: (id) => showTicketRef.current(id),
     }),
-    [startCreation, creationMode, newTickets, markNewTicket, selectionNow, creationMemory, startNewTicket, mapHost, setMapHost, client, opened, open, selection, tree, listFailed, selfId, unreadChats, version, directory, loadDirectory, tickets, loadTickets, shareTickets, stashHandoff, peekHandoff, dropHandoff, close, openPanel, refresh, topicRun, cancelTopic, openTopicRun, handoffTick, startTopic, openGeneral],
+    [startCreation, creationMode, newTickets, markNewTicket, selectionNow, creationMemory, startNewTicket, mapHost, setMapHost, client, opened, open, selection, tree, listFailed, selfId, unreadChats, version, directory, loadDirectory, tickets, loadTickets, shareTickets, stashHandoff, peekHandoff, dropHandoff, close, openPanel, refresh, topicRun, cancelTopic, openTopicRun, handoffTick, startTopic, openGeneral, closedList, closedNotice, closeConversation, undoClose, dismissClosedNotice, holdClosedNotice, reopenConversation],
   );
   return <ChatsContext.Provider value={api}>{children}</ChatsContext.Provider>;
 }

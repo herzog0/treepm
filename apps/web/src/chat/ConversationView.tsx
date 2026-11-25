@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { withoutPersonLinksDeep } from "@treepm/domain";
+import { scanPersonLinks, withoutPersonLinksDeep } from "@treepm/domain";
 import { useTranslation } from "react-i18next";
 import type { ApiResult, ChatMessage, ConversationNode, ConversationView as ConversationData, Person, Project, ThreadCard, TicketSummary } from "../api/client.js";
 import { assistantEnabled, assistantNeedsConsent } from "../api/client.js";
@@ -19,7 +19,7 @@ import type { ConversationRef } from "./ChatsContext.js";
 import { topicLabel, useChats } from "./ChatsContext.js";
 import { CreationCard, CreationThread } from "./CreationThread.js";
 import { Composer } from "./Composer.js";
-import type { Draft } from "./Composer.js";
+import type { Draft, NewThread } from "./Composer.js";
 import type { ComposerHandle } from "./ComposerEditor.js";
 import { peopleWhoSee } from "./directory.js";
 import { citedTickets, hashedKeys, projectKeyOf, ticketKeyRefs, ticketsByKey, wantsTickets } from "./mentions.js";
@@ -38,7 +38,7 @@ const withDeadline = <T,>(promise: Promise<T>, ms: number): Promise<T | null> =>
     void promise.then((value) => { clearTimeout(timer); resolve(value); }, () => { clearTimeout(timer); resolve(null); });
   });
 /** Códigos em que a mensagem não foi guardada e a pessoa precisa dela de volta no campo (não é uma "não respondida" para repetir). */
-const KEEP_TEXT = new Set(["chat_busy", "chat_changed", "chat_rate_limited", "chat_thread_rate_limited", "project_archived", "validation_error", "invalid_cursor", "not_found", "max_depth", "thread_full", "mention_not_allowed", "mention_mismatch", "participant_cannot_view_ticket", "too_many_mentions", "cannot_mention_self"]);
+const KEEP_TEXT = new Set(["chat_busy", "chat_changed", "chat_rate_limited", "chat_thread_rate_limited", "project_archived", "validation_error", "invalid_cursor", "not_found", "max_depth", "thread_full", "mention_not_allowed", "mention_mismatch", "participant_cannot_view_ticket", "too_many_mentions", "assistant_mention_self"]);
 /** O que se lê de um chat geral que a pessoa ainda não abriu: nada, e nenhuma requisição. */
 const EMPTY: ConversationData = { conversation: null, ticket: null, assignedToMe: false, lastRead: null, unread: 0, messages: { items: [], nextBefore: null }, threads: [] };
 
@@ -61,7 +61,7 @@ type Entry = { kind: "message"; message: ChatMessage } | { kind: "card"; card: C
 const timeOf = (entry: Entry) => (entry.kind === "message" ? entry.message.createdAt : (entry.card.opening?.createdAt ?? entry.card.lastActivityAt));
 const cardOfNode = (node: ConversationNode): Card | null =>
   node.kind === "thread" && node.id !== null
-    ? { id: node.id, opening: null, participants: node.participants, participantCount: node.participantCount, replyCount: null, lastActivityAt: node.lastActivityAt ?? "", unread: node.unread, startedByMe: node.ownedByMe, purpose: node.purpose ?? "people", title: node.title, creation: node.creation }
+    ? { id: node.id, opening: null, participants: node.participants, participantCount: node.participantCount, replyCount: null, lastActivityAt: node.lastActivityAt ?? "", unread: node.unread, startedByMe: node.ownedByMe, purpose: node.purpose ?? "people", title: node.title, creation: node.creation, closed: node.closed }
     : null;
 
 /** Junta duas listas de mensagens sem repetir nenhuma (por id), na ordem em que foram escritas. */
@@ -110,7 +110,7 @@ interface ConversationViewProps {
 
 /** A conversa aberta (ADR 0055): a principal de um ticket, o chat geral ou uma thread, sempre no mesmo painel. */
 export function ConversationView({ target, active }: ConversationViewProps) {
-  const { t, i18n } = useTranslation("chat");
+  const { t } = useTranslation("chat");
   const chats = useChats()!;
   const { client, directory, version, selfId } = chats;
   const describe = useDescribeApiError();
@@ -133,6 +133,7 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   /** O envio do `#` está abrindo a conversa do ticket e mandando a mensagem para lá. */
   const [routing, setRouting] = useState(false);
   const [refused, setRefused] = useState<string[]>([]);
+  const [reopenError, setReopenError] = useState<string | null>(null);
   const [off, setOff] = useState<"consent" | "provider" | null>(null);
   const [threadSending, setThreadSending] = useState(false);
   const scroller = useRef<HTMLUListElement>(null);
@@ -265,7 +266,6 @@ export function ConversationView({ target, active }: ConversationViewProps) {
   const isCreation = isThread && info?.purpose === "creation";
   const isPeopleThread = isThread && !isTopic && !isCreation;
   const hasTicket = ticket !== null;
-  const mentioning = draft.mentions.length > 0;
   const project = directory.status === "ready" && hasTicket ? directory.projects.find((entry) => entry.id === ticket.projectId) : undefined;
   const candidates = useMemo(
     () => (directory.status === "ready" ? peopleWhoSee(project, directory.people, directory.teams, me?.person.id) : []),
@@ -280,8 +280,16 @@ export function ConversationView({ target, active }: ConversationViewProps) {
     if (directory.status !== "ready") return [];
     const projectId = hasTicket ? ticket.projectId : routedTo?.projectId;
     const seeing = projectId === undefined ? null : new Set(peopleWhoSee(directory.projects.find((entry) => entry.id === projectId), directory.people, directory.teams, me?.person.id).map((person) => person.id));
-    return directory.people.filter((person) => person.active && person.id !== me?.person.id).map((person: Person) => ({ person, blocked: seeing !== null && !seeing.has(person.id) }));
-  }, [directory, hasTicket, ticket, routedTo, me]);
+    // No último nível ninguém novo entra: quem já participa pode ser marcado (é mensagem comum), quem é de fora aparece apagado, com o motivo.
+    const inside = info !== null && !info.canOpenThread ? new Set(info.participants.map((person) => person.id)) : null;
+    return directory.people
+      .filter((person) => person.active && person.id !== me?.person.id)
+      .map((person: Person) => {
+        const noProject = seeing !== null && !seeing.has(person.id);
+        const noLevel = !noProject && inside !== null && !inside.has(person.id);
+        return { person, blocked: noProject || noLevel, ...(noProject ? { reason: "project" as const } : noLevel ? { reason: "levels" as const } : {}) };
+      });
+  }, [directory, hasTicket, ticket, routedTo, me, info]);
   const projectNames = useMemo(() => new Map(directory.status === "ready" ? directory.projects.map((entry) => [entry.id, entry.name]) : []), [directory]);
   const addCandidates = useMemo(() => {
     const inside = new Set(info?.participants.map((person) => person.id));
@@ -735,13 +743,25 @@ export function ConversationView({ target, active }: ConversationViewProps) {
     isCreation ? (info?.title?.trim() || t("creation.fallbackTitle")) : isTopic ? topicLabel(info?.title, info?.opening ? withoutPersonLinksDeep(info.opening.body).slice(0, 40) : undefined, t("row.topic")) : kind === "thread" ? threadTitle(t, info?.participants ?? [], info?.participants.length ?? 0, selfId) : kind === "general" ? t("row.general") : (ticket?.key ?? "");
   const trailLabel = (item: { kind: "ticket" | "general" | "thread"; label: string | null; title: string | null }) =>
     item.kind === "general" ? t("row.general") : item.kind === "ticket" ? (ticket?.key ?? t("row.main")) : (item.title !== null ? topicLabel(item.title, item.label, t("row.topic")) : (item.label ? withoutPersonLinksDeep(item.label) : t("row.thread")));
-  const mentionNames = new Intl.ListFormat(i18n.language, { style: "long", type: "conjunction" }).format(draft.mentions.map((personId) => names.get(personId) ?? personId));
-  /** O que vai acontecer ao enviar, dito antes (ADR 0056). */
+  // A thread que a mensagem vai abrir (ADR 0059): só quando alguma pessoa marcada não participa da conversa (onde só a pessoa participa, todas as marcadas são de fora).
+  const insideIds = useMemo(() => new Set(info?.participants.map((person) => person.id) ?? (selfId === undefined ? [] : [selfId])), [info, selfId]);
+  const outsiderIds = useMemo(() => draft.mentions.filter((personId) => personId !== selfId && !insideIds.has(personId)), [draft.mentions, selfId, insideIds]);
+  const newThread = useMemo<NewThread | null>(() => {
+    if (outsiderIds.length === 0 || !canOpenThread) return null;
+    const testIds = new Set(directory.status === "ready" ? directory.people.filter((person) => person.isTest === true).map((person) => person.id) : []);
+    // O nome vem do diretório; enquanto ele carrega, o que veio com a menção no texto; nunca o id cru.
+    const written = new Map(scanPersonLinks(draft.text).map((link) => [link.id, link.name] as const));
+    const named = (id: string) => ({ id, name: names.get(id) ?? info?.participants.find((person) => person.id === id)?.displayName ?? written.get(id) ?? "", ...(testIds.has(id) ? { isTest: true } : {}) });
+    const joining = [...insideIds].filter((id) => id !== selfId).map(named);
+    const self = selfId === undefined ? [] : [named(selfId)];
+    return { ticketKey: routedTo?.key ?? null, outsiders: outsiderIds.map(named), joining, members: [...self, ...outsiderIds.map(named), ...joining] };
+  }, [outsiderIds, canOpenThread, names, info, insideIds, selfId, routedTo, directory, draft.text]);
+  /** O que vai acontecer ao enviar, dito antes (ADR 0056); o que é de pessoa marcada fala o próprio campo (ADR 0059). */
   const notice = routing
     ? t("will.checking")
     : routedTo
-    ? mentioning ? t("will.ticketAndThread", { key: routedTo.key, names: mentionNames }) : t("will.toTicket", { key: routedTo.key })
-    : mentioning ? t("composer.opensThread", { names: mentionNames })
+    ? newThread !== null ? null : t("will.toTicket", { key: routedTo.key })
+    : newThread !== null ? null
     : cited.length > 0 ? (isThread ? t("will.referenceThread") : t("will.reference"))
     : null;
   const canClear = !isThread && info !== null && info.ownedByMe;
@@ -776,6 +796,26 @@ export function ConversationView({ target, active }: ConversationViewProps) {
         </button>
       </header>
       {gone && <p role="alert" className="chat-hint">{t("chat.gone")}</p>}
+      {/* A região de leitura existe vazia desde o início e recebe a faixa depois (um status que já nasce cheio não é lido). */}
+      <div className="chat-closed-region" role="status">
+        {view !== null && !gone && info?.closed === true && (
+          <div className="chat-closed-band">
+            <span>{t("closedBand.text")}</span>
+            <button
+              type="button"
+              className="chat-text-button"
+              aria-label={t("closedBand.reopenNamed", { name: currentLabel })}
+              onClick={() => {
+                setReopenError(null);
+                void chats.reopenConversation(info.id).then(setReopenError);
+              }}
+            >
+              {t("closedBand.reopen")}
+            </button>
+          </div>
+        )}
+      </div>
+      {reopenError !== null && <p role="alert" className="chat-hint">{reopenError}</p>}
       {loadFailed && !gone && (
         <div className="chat-hint">
           <p role="alert">{t("chat.loadFailed")}</p>
@@ -908,6 +948,7 @@ export function ConversationView({ target, active }: ConversationViewProps) {
             thread={isPeopleThread}
             canOpenThread={canOpenThread}
             notice={notice}
+            newThread={newThread}
             assistantBusy={pending?.status === "sending" || routing}
             threadBusy={threadSending || routing}
             readOnly={archived || routing}

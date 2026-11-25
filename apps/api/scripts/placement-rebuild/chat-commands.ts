@@ -10,9 +10,9 @@ export type ChatShowInput = { general: true } | { ticket: number } | { thread: s
 
 type Message = { id: string; authorKind: "person" | "assistant"; body: string; createdAt: string; thread: Card | null };
 type Creation = { state: string; projectKey: string | null; ticket: { key: string } | null };
-type Card = { id: string; opening: { body: string }; replyCount: number; purpose: string; title: string | null; creation: Creation | null };
+type Card = { id: string; opening: { body: string }; replyCount: number; purpose: string; title: string | null; creation: Creation | null; closed: boolean };
 type View = {
-  conversation: { id: string; kind: string; purpose: string | null; title: string | null; creation: Creation | null; trail: { id: string; kind: string; label: string | null; title: string | null }[]; opening: { body: string; createdAt: string; authorKind: string } | null } | null;
+  conversation: { id: string; kind: string; purpose: string | null; title: string | null; creation: Creation | null; closed: boolean; trail: { id: string; kind: string; label: string | null; title: string | null }[]; opening: { body: string; createdAt: string; authorKind: string } | null } | null;
   ticket: { key: string; title: string } | null;
   messages: { items: Message[]; nextBefore: string | null };
   threads: Card[];
@@ -41,8 +41,8 @@ async function readAll(ctx: TicketContext, path: string): Promise<View> {
 }
 
 function print(ctx: TicketContext, heading: string, view: View): void {
-  ctx.log(heading);
   const conversation = view.conversation;
+  ctx.log(conversation?.closed ? `${heading} [fechada]` : heading);
   if (conversation?.kind === "thread") {
     ctx.log(`Trilha: ${conversation.trail.map((t) => (t.title ?? t.label ? `«${title(t.title ?? t.label ?? "")}»` : t.kind)).join(" > ") || "(esta thread é o ponto de entrada)"}`);
     ctx.log(`Propósito: ${PURPOSE[conversation.purpose ?? ""] ?? conversation.purpose ?? "?"}; título: ${conversation.title === null ? "(sem título)" : `«${conversation.title}»`}${creationLine(conversation.creation)}`);
@@ -53,7 +53,7 @@ function print(ctx: TicketContext, heading: string, view: View): void {
   ctx.log(`Threads (${view.threads.length}):`);
   for (const thread of view.threads) {
     const kind = thread.purpose === "people" ? "" : ` [${PURPOSE[thread.purpose] ?? thread.purpose}]`;
-    ctx.log(`- ${thread.id}${kind} «${title(thread.title ?? thread.opening.body)}»${creationLine(thread.creation)} ${thread.replyCount} ${thread.replyCount === 1 ? "resposta" : "respostas"}`);
+    ctx.log(`- ${thread.id}${kind} «${title(thread.title ?? thread.opening.body)}»${creationLine(thread.creation)}${thread.closed ? " [fechada]" : ""} ${thread.replyCount} ${thread.replyCount === 1 ? "resposta" : "respostas"}`);
   }
 }
 

@@ -62,7 +62,7 @@ describe("fixed sidebar (ADR 0055)", () => {
 
   it("shows the conversations list without any click, and leaves it out without the chats provider", async () => {
     setup();
-    expect(await screen.findByRole("button", { name: /ALFA-1/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^ALFA-1/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Conversas" })).toBeInTheDocument();
   });
 

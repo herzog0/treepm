@@ -153,6 +153,76 @@ describe("thread de criação de ticket", () => {
     expect(threadsOf(await tree("contributor"))).toHaveLength(1);
   });
 
+  it("rascunho fechado pela pessoa: escrever nele pelas rotas do rascunho reabre a thread (e só a dela)", async () => {
+    const general = await openGeneral(h, "contributor");
+    const made = await direct("contributor", general, "Um ticket");
+    const thread = made.body.thread.id as string;
+    const tc = made.body.ticketConversationId as string;
+    const closed = async () => (await h.call("GET", "/api/conversations/closed", as("contributor"))).body.items.map((n: any) => n.id);
+    const closeIt = async () => expect((await h.call("POST", `/api/conversations/${thread}/close`, as("contributor"))).status).toBe(200);
+    // Ver (GET) não reabre.
+    await closeIt();
+    expect((await tcCall("GET", tc, "contributor")).status).toBe(200);
+    expect(await closed()).toContain(thread);
+    // Escrever no rascunho reabre.
+    expect((await tcCall("PATCH", `${tc}/draft`, "contributor", { title: "Outro título", description: "d" })).status).toBe(200);
+    expect(await closed()).not.toContain(thread);
+    expect(threadsOf(await tree("contributor")).map((n) => n.id)).toContain(thread);
+    // Mensagem ao assistente do rascunho também reabre.
+    await closeIt();
+    expect((await tcCall("POST", `${tc}/messages`, "contributor", { message: "Mais detalhes" })).status).toBe(201);
+    expect(await closed()).not.toContain(thread);
+  });
+
+  it("rascunho fechado: abrir só para olhar (POST elaboration) não o reabre", async () => {
+    const general = await openGeneral(h, "contributor");
+    const made = await direct("contributor", general, "Um ticket");
+    const thread = made.body.thread.id as string;
+    const tc = made.body.ticketConversationId as string;
+    const closedMark = async () => (await rows("select closed_seq from conversation_participants where conversation_id = $1 and person_id = $2", [thread, w().people.contributor]))[0].closed_seq;
+    expect((await h.call("POST", `/api/conversations/${thread}/close`, as("contributor"))).status).toBe(200);
+    expect(await closedMark()).not.toBeNull();
+    expect((await tcCall("POST", `${tc}/elaboration`, "contributor")).status).toBe(201);
+    expect(await closedMark()).not.toBeNull();
+  });
+
+  it("ticket já criado: repetir o pedido (idempotente) não limpa a marca de fechada da thread concluída", async () => {
+    const t = await seedTree(h.pool, w());
+    const general = await openGeneral(h, "contributor");
+    const made = await direct("contributor", general, "Um ticket");
+    const thread = made.body.thread.id as string;
+    const tc = made.body.ticketConversationId as string;
+    expect((await tcCall("POST", `${tc}/messages`, "contributor", { message: "Mais detalhes" })).status).toBe(201);
+    expect((await tcCall("POST", `${tc}/ticket`, "contributor", { parentId: t.billing, placedBy: "option" })).status).toBe(201);
+    const closedMark = async () => (await rows("select closed_seq from conversation_participants where conversation_id = $1 and person_id = $2", [thread, w().people.contributor]))[0].closed_seq;
+    // Fecha a thread concluída direto (é o estado que a pessoa deixou), e a repetição não a reabre.
+    await rows("update conversation_participants set closed_seq = 1 where conversation_id = $1 and person_id = $2", [thread, w().people.contributor]);
+    expect((await tcCall("POST", `${tc}/ticket`, "contributor", { parentId: t.billing, placedBy: "option" })).status).toBe(201);
+    expect(await closedMark()).not.toBeNull();
+  });
+
+  it("rascunho fechado: mensagem comum ao assistente NÃO o reabre; só a ferramenta bloqueada por ele reabre", async () => {
+    const general = await openGeneral(h, "contributor");
+    h.chat().draft_ = () => "Primeiro";
+    const first = await post(h, "contributor", general, "Cria um");
+    const thread = first.body.thread.id as string;
+    expect((await h.call("POST", `/api/conversations/${thread}/close`, as("contributor"))).status).toBe(200);
+    const visible = async () => threadsOf(await tree("contributor")).map((n) => n.id);
+    expect(await visible()).not.toContain(thread);
+    // (a) O modelo não chama a ferramenta: a vez prepara a ferramenta bloqueada, mas nada reabre.
+    h.chat().draft_ = null;
+    const plain = await post(h, "contributor", general, "Só uma conversa");
+    expect(plain.body.kind).toBe("assistant");
+    expect(h.chat().calls.at(-1)!.draftTool).toEqual({ kind: "blocked", reason: "draft_open" });
+    expect(await visible()).not.toContain(thread);
+    // (b) O modelo chama a ferramenta e ela sai bloqueada: o rascunho volta à barra.
+    h.chat().draft_ = () => "Outro";
+    const second = await post(h, "contributor", general, "Cria outro");
+    expect(second.body.kind).toBe("assistant");
+    expect(second.body.reply.body).toContain("rascunho");
+    expect(await visible()).toContain(thread);
+  });
+
   it("thread com pessoas: criação recusada, e dentro da thread de criação nenhuma mensagem comum entra (creation_thread)", async () => {
     const general = await openGeneral(h, "manager");
     const people = await post(h, "manager", general, "Alice, veja", [w().people.reader]);
@@ -262,6 +332,24 @@ describe("thread de criação de ticket", () => {
     }
     expect(seen.find((c: any) => c.id === created.thread.id).creation.state).toBe("created");
     expect(JSON.stringify((await h.call("GET", "/api/conversations", as("contributor"))).body)).not.toMatch(/PRIV-|Rascunho/);
+  });
+
+  it("perda de acesso ao projeto: fechar e reabrir a thread de criação respondem o mesmo 404, e a thread fechada antes continua fechada (ADR 0059)", async () => {
+    await seedTree(h.pool, w());
+    const general = await openGeneral(h, "contributor");
+    const res = await direct("contributor", general, "Um ticket de teste");
+    const thread = res.body.thread.id as string;
+    const closeOf = (id: string) => h.call("POST", `/api/conversations/${id}/close`, as("contributor"));
+    const reopenOf = (id: string) => h.call("POST", `/api/conversations/${id}/reopen`, as("contributor"));
+    expect((await closeOf(thread)).status).toBe(200);
+    await h.pool.query("delete from project_memberships where person_id = $1 and project_id = $2", [w().people.contributor, w().projects.priv]);
+    const closed = await closeOf(thread);
+    const reopened = await reopenOf(thread);
+    expect([reopened.status, errorCode(reopened)]).toEqual([closed.status, errorCode(closed)]);
+    expect(reopened.status).toBe(404);
+    expect(JSON.stringify(reopened.body)).not.toMatch(/PRIV|Rascunho|Um ticket de teste/);
+    const still = await rows("select closed_seq from conversation_participants where conversation_id = $1 and person_id = $2", [thread, w().people.contributor]);
+    expect(still[0].closed_seq).not.toBeNull();
   });
 
   it("revisão 1 (9): na vez seguinte o histórico enviado ao provedor não leva a resposta fixa nem o marcador", async () => {

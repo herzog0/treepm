@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CONVERSATION_MAX_DEPTH } from "@treepm/domain";
 import { AI_CONFIG } from "./helpers.js";
 import { useHarness } from "./harness.js";
-import { errorCode, openGeneral, openTicket, post, seedChatTickets, send, view } from "./chat-support.js";
+import { errorCode, newOutsider, openGeneral, openTicket, post, seedChatTickets, send, view } from "./chat-support.js";
 import { ConversationService } from "../src/assistant/conversation.service.js";
 import { as } from "./world.js";
 
@@ -61,23 +61,23 @@ describe("revisão 1: o limite de níveis conta pela trilha visível (item 2)", 
     let current = await openTicket(h, "manager", t.ticket);
     const chain: string[] = [];
     for (let level = 1; level <= CONVERSATION_MAX_DEPTH; level += 1) {
-      const res = await post(h, "manager", current, `nível ${level}`, [level === 3 ? p().contributor : p().reader]);
+      const res = await post(h, "manager", current, `nível ${level}`, [level === 3 ? p().contributor : await newOutsider(h.pool)]);
       expect(res.status, `dono, nível ${level}`).toBe(201);
       current = res.body.thread.id;
       chain.push(current);
     }
-    expect(errorCode(await post(h, "manager", current, "demais", [p().reader]))).toBe("max_depth");
+    expect(errorCode(await post(h, "manager", current, "demais", [await newOutsider(h.pool)]))).toBe("max_depth");
     // Bob entra no nível 3: não vê nada acima e conta os dez níveis a partir da dele.
     let bob = chain[2] as string;
     expect((await view(h, "contributor", bob)).body.conversation.trail).toEqual([]);
     for (let level = 1; level <= CONVERSATION_MAX_DEPTH; level += 1) {
-      const res = await post(h, "contributor", bob, `do Bob ${level}`, [p().manager]);
+      const res = await post(h, "contributor", bob, `do Bob ${level}`, [await newOutsider(h.pool)]);
       expect(res.status, `Bob, nível ${level}`).toBe(201);
       bob = res.body.thread.id;
     }
     const last = await view(h, "contributor", bob);
     expect(last.body.conversation.canOpenThread).toBe(false);
-    const refused = await post(h, "contributor", bob, "demais", [p().manager]);
+    const refused = await post(h, "contributor", bob, "demais", [await newOutsider(h.pool)]);
     expect(refused.status).toBe(422);
     expect(errorCode(refused)).toBe("max_depth");
   });
