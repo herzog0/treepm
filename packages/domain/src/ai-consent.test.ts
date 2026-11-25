@@ -12,8 +12,8 @@ const member: Actor = { clerkRole: "member", teamRoles: new Map(), projectRoles:
 const admin: Actor = { ...member, clerkRole: "admin" };
 
 describe("constantes do aceite", () => {
-  it("a versão em vigor é rascunho-3, os tipos são assistant e code_reading e os caminhos são fixos", () => {
-    expect(AI_CONSENT_VERSION).toBe("rascunho-3");
+  it("a versão em vigor é a do texto publicado (2026-11-25), os tipos são assistant e code_reading e os caminhos são fixos", () => {
+    expect(AI_CONSENT_VERSION).toBe("2026-11-25");
     expect([...AI_CONSENT_KINDS]).toEqual(["assistant", "code_reading"]);
     expect(AI_CONSENT_PATHS).toEqual({ terms: "/termos", privacy: "/privacidade" });
   });
@@ -33,6 +33,8 @@ describe("isAiConsentInForce", () => {
     expect(isAiConsentInForce({ ...given, withdrawnAt: new Date() })).toBe(false);
   });
   it("não vale quando é de uma versão antiga", () => {
+    expect("rascunho-3").not.toBe(AI_CONSENT_VERSION);
+    expect(isAiConsentInForce({ ...given, version: "rascunho-3" })).toBe(false);
     expect(isAiConsentInForce({ ...given, version: "rascunho-0" })).toBe(false);
   });
 });

@@ -1,0 +1,12 @@
+{
+  "brand": "TreePM",
+  "tabTitle": "{{document}} · {{brand}}",
+  "documents": {
+    "terms": "Termos de uso",
+    "privacy": "Política de privacidade"
+  },
+  "footer": {
+    "label": "Documentos legais"
+  },
+  "portugueseOnly": "Este documento está disponível apenas em português por enquanto."
+}

@@ -1,3 +1,4 @@
+import { AI_CONSENT_VERSION } from "@treepm/domain";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,9 +9,9 @@ import type { FakeAiConsent } from "../test/fakes.js";
 import { setTestLanguage } from "../test/i18n.js";
 import { SettingsScreen } from "./SettingsScreen.js";
 
-const given = { inForce: true, version: "rascunho-2", acceptedBy: "Ana", acceptedAt: "2026-11-22T12:00:00.000Z", outdated: false };
+const given = { inForce: true, version: AI_CONSENT_VERSION, acceptedBy: "Ana", acceptedAt: "2026-11-22T12:00:00.000Z", outdated: false };
 const none = { inForce: false, version: null, acceptedBy: null, acceptedAt: null, outdated: false };
-const state = (extra: Partial<AiConsent> = {}): Partial<AiConsent> => ({ currentVersion: "rascunho-2", ...extra });
+const state = (extra: Partial<AiConsent> = {}): Partial<AiConsent> => ({ currentVersion: AI_CONSENT_VERSION, ...extra });
 
 function setup(options: { me?: Me; consent?: FakeAiConsent; onChange?: () => void } = {}) {
   window.location.hash = "ia";
@@ -70,8 +71,8 @@ describe("seção IA e privacidade", () => {
   it("aceitar chama a API com a versão atual, mostra quem aceitou e avisa a tela para recarregar o estado", async () => {
     const { client, user, onChange } = setup();
     await user.click(await screen.findByRole("button", { name: "Aceitar e ligar o assistente" }));
-    expect(client.acceptAiConsent).toHaveBeenCalledWith("assistant", "rascunho-2");
-    expect(await screen.findByText(/Aceito por Ana em .* \(versão rascunho-2\)\./)).toBeInTheDocument();
+    expect(client.acceptAiConsent).toHaveBeenCalledWith("assistant", AI_CONSENT_VERSION);
+    expect(await screen.findByText(new RegExp(`Aceito por Ana em .* \\(versão ${AI_CONSENT_VERSION}\\)\\.`))).toBeInTheDocument();
     expect(onChange).toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Aceitar e ligar o assistente" })).toBeNull();
   });
@@ -105,7 +106,7 @@ describe("seção IA e privacidade", () => {
   it("leitura de código: oferecida, aceita e retirada com confirmação", async () => {
     const { client, user } = setup({ consent: { state: state({ assistant: given, codeReading: { ...none, githubConnected: true, offerable: true } }) } });
     await user.click(await screen.findByRole("button", { name: "Aceitar a leitura de código" }));
-    expect(client.acceptAiConsent).toHaveBeenCalledWith("code_reading", "rascunho-2");
+    expect(client.acceptAiConsent).toHaveBeenCalledWith("code_reading", AI_CONSENT_VERSION);
     const withdraws = await screen.findAllByRole("button", { name: "Retirar o aceite" });
     expect(withdraws).toHaveLength(2);
     await user.click(withdraws[1] as HTMLElement);
@@ -116,7 +117,7 @@ describe("seção IA e privacidade", () => {
 
   it("versão desatualizada: avisa que os documentos mudaram e pede para aceitar de novo", async () => {
     setup({ consent: { state: state({ assistant: { ...given, version: "rascunho-0", inForce: false, outdated: true } }) } });
-    expect(await screen.findByText(/Os documentos mudaram \(versão rascunho-2\)/)).toBeInTheDocument();
+    expect(await screen.findByText(new RegExp(`Os documentos mudaram \\(versão ${AI_CONSENT_VERSION}\\)`))).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Aceitar e ligar o assistente" })).toBeEnabled();
   });
 

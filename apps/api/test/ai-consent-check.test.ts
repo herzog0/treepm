@@ -1,3 +1,4 @@
+import { AI_CONSENT_VERSION } from "@treepm/domain";
 import { describe, expect, it } from "vitest";
 import type { TenantClient } from "@treepm/db";
 import { assistantConsentInForce, codeReadingConsentInForce, requireAssistantConsent, requireCodeReadingConsent } from "../src/ai-consent/consent-check.js";
@@ -14,8 +15,8 @@ function fakeTx(rows: Row[]): TenantClient {
   } as unknown as TenantClient;
 }
 
-const assistant: Row = { kind: "assistant", documentVersion: "rascunho-3", withdrawnAt: null };
-const code: Row = { kind: "code_reading", documentVersion: "rascunho-3", withdrawnAt: null };
+const assistant: Row = { kind: "assistant", documentVersion: AI_CONSENT_VERSION, withdrawnAt: null };
+const code: Row = { kind: "code_reading", documentVersion: AI_CONSENT_VERSION, withdrawnAt: null };
 
 describe("conferência do aceite do assistente", () => {
   it("em vigor só com a linha aberta da versão atual", async () => {

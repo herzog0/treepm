@@ -1,3 +1,4 @@
+import { AI_CONSENT_VERSION } from "@treepm/domain";
 import { APP_URL } from "@treepm/db/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { bootApp } from "../scripts/placement-rebuild/app.js";
@@ -21,7 +22,7 @@ const seed = async (orgId: string) => {
   const r = await pool.query<{ id: string }>("insert into people (org_id, clerk_user_id, display_name, email, clerk_role) values ($1, 'u_cli', 'A', 'a@x.test', 'admin') returning id", [orgId]);
   personId = r.rows[0]?.id ?? "";
 };
-const consent = (orgId: string, kind = "assistant", version = "rascunho-3", withdrawn = false) =>
+const consent = (orgId: string, kind = "assistant", version = AI_CONSENT_VERSION, withdrawn = false) =>
   pool.query(
     `insert into organization_consents (org_id, kind, document_version, accepted_by_person_id${withdrawn ? ", withdrawn_at, withdrawn_by_person_id" : ""}) values ($1, $2, $3, $4${withdrawn ? ", now(), $4" : ""})`,
     [orgId, kind, version, personId],
@@ -46,7 +47,7 @@ describe("ferramenta de linha de comando: aceite do assistente", () => {
 
   it("recusa aceite retirado e aceite de versão antiga", async () => {
     await seed("org_cli");
-    await consent("org_cli", "assistant", "rascunho-3", true);
+    await consent("org_cli", "assistant", AI_CONSENT_VERSION, true);
     await expect(requireAssistantConsentOfOrg(config(), "org_cli")).rejects.toThrow(/aceite/);
     await pool.query("truncate organization_consents");
     await consent("org_cli", "assistant", "rascunho-0");

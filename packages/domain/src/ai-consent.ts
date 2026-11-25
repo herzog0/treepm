@@ -1,10 +1,11 @@
 import type { Actor } from "./index.js";
 
 /**
- * Versão do que a organização aceita (ADR 0039). Enquanto o texto dos documentos é rascunho vale `rascunho-3`; quando o
- * texto aprovado for publicado a constante muda e todo aceite dado ao rascunho deixa de valer.
+ * Versão do que a organização aceita (ADR 0039). É a data do texto publicado dos Termos e da Política de privacidade
+ * ("Versão de 25 de novembro de 2026"). O texto está publicado; a constante só muda quando uma mudança nos documentos
+ * tocar no que é enviado a provedores de IA, e então todo aceite dado à versão anterior deixa de valer.
  */
-export const AI_CONSENT_VERSION = "rascunho-3";
+export const AI_CONSENT_VERSION = "2026-11-25";
 
 /** `assistant`: texto de tickets e de conversas vai à Anthropic e à TypeSafe, e título e descrição de tickets vão à Voyage AI (vetores da busca por significado, ADR 0053). `code_reading`: trechos de código vão à Anthropic. */
 export const AI_CONSENT_KINDS = ["assistant", "code_reading"] as const;
