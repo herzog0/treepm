@@ -11,7 +11,7 @@ import { AccessTokenService } from "../access-tokens/access-token.service.js";
 import type { ResolveResult } from "../access-tokens/access-token.service.js";
 import { ACT_AS_HEADER } from "../access/act-as.js";
 import type { Principal } from "../access/principal.js";
-import { CONFIG, allowedOrigins } from "../config.js";
+import { CONFIG, allowedOrigins, linearEnabled } from "../config.js";
 import type { AppConfig } from "../config.js";
 import { TenantTransactions } from "../db/tenant-transactions.js";
 import { AuthorizationService } from "../access/authorization.service.js";
@@ -22,6 +22,7 @@ import { TicketActivityService } from "../tickets/ticket-activity.service.js";
 import { ConversationService } from "../assistant/conversation.service.js";
 import { withStructureTimeoutTranslation } from "../tickets/structure-lock.js";
 import { TicketsService } from "../tickets/tickets.service.js";
+import { LinearImportService } from "../linear/linear-import.service.js";
 import { isConnectionWaitTimeout } from "../common/connection-wait.js";
 import { createProjectServer } from "./mcp-server.js";
 import type { RunInTenant } from "./mcp-tools.js";
@@ -95,6 +96,7 @@ export class McpGateway {
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(TicketActivityService) private readonly ticketActivity: TicketActivityService,
     @Inject(ConversationService) private readonly conversations: ConversationService,
+    @Inject(LinearImportService) private readonly linearImports: LinearImportService,
   ) {
     this.ipLimiter = new RateLimiter(clock, IP_LIMIT_PER_MINUTE, IP_WINDOW_MS);
     this.writeLimiter = new RateLimiter(clock, WRITE_LIMIT_PER_MINUTE, IP_WINDOW_MS);
@@ -115,7 +117,9 @@ export class McpGateway {
       // As ferramentas de escrita só existem para token de escrita com a chave da organização ligada (ADR 0043).
       const canWrite = resolved.scope === "write" && resolved.writeEnabled;
       const services = { tickets: this.tickets, comments: this.comments, agentWork: this.agentWork, authorization: this.authorization };
-      return createProjectServer(run, this.query, base, canWrite ? { services, context: { ...base, tokenId: resolved.tokenId, fresh: resolved.fresh } } : undefined, resolved.people ? { assignablePeople: (tx, projectId) => this.tickets.assignablePeople(tx, projectId) } : undefined, resolved.people ? { activity: this.ticketActivity, conversations: this.conversations, authorization: this.authorization } : undefined);
+      // O Linear (ADR 0062, seção 5) só existe com a ligação configurada no servidor, como as rotas (`LinearEnabledGuard`).
+      const linear = linearEnabled(this.config) ? { imports: this.linearImports, authorization: this.authorization } : undefined;
+      return createProjectServer(run, this.query, base, canWrite ? { services, context: { ...base, tokenId: resolved.tokenId, fresh: resolved.fresh } } : undefined, resolved.people ? { assignablePeople: (tx, projectId) => this.tickets.assignablePeople(tx, projectId) } : undefined, resolved.people ? { activity: this.ticketActivity, conversations: this.conversations, authorization: this.authorization } : undefined, linear);
     };
     this.handler = createMcpHandler(factory, {
       legacy: "stateless",

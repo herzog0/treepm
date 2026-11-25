@@ -133,6 +133,8 @@ describe("get_ticket", () => {
           incoming: { tickets: [{ key: "PRIV-4", title: "Solto", excerpt: "Depende de PRIV-2", status: "todo", parent: null, idea: null, agentWork: null, priority: 0, effective_priority: 0 }], truncated: false },
         },
       },
+      // Ticket criado no TreePM: sem origem no Linear (ADR 0062, seção 5).
+      linear: null,
     });
     const root = await h.tool(token, "PRIV", "get_ticket", { key: "PRIV-1" });
     expect(root.json?.["parent"]).toBeNull();

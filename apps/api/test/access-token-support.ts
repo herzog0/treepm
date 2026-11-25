@@ -36,6 +36,8 @@ export type TokenHarness = {
   world: () => World;
   /** O `fetch` falso do Linear (nada chama o Linear de verdade). */
   linear: () => LinearFetchSwitch;
+  /** Os provedores de IA falsos da aplicação de teste (para provar que nada foi a eles). */
+  fakes: () => Awaited<ReturnType<typeof createTestApp>>;
   call: (method: string, path: string, session: string, body?: unknown) => Promise<request.Response>;
   /** Liga a chave da organização direto no banco. */
   enableMcp: (orgId?: string, enabled?: boolean) => Promise<void>;
@@ -50,9 +52,11 @@ export function useTokenHarness(config?: AppConfig): TokenHarness {
   let directory: FakeDirectory;
   let world: World;
   let linear: LinearFetchSwitch;
+  let fakes: Awaited<ReturnType<typeof createTestApp>>;
 
   beforeAll(async () => {
-    ({ app, directory, linear } = await createTestApp([], config, { clock }));
+    fakes = await createTestApp([], config, { clock });
+    ({ app, directory, linear } = fakes);
   });
   afterAll(async () => {
     await app.close();
@@ -85,6 +89,7 @@ export function useTokenHarness(config?: AppConfig): TokenHarness {
     world: () => world,
     call,
     linear: () => linear,
+    fakes: () => fakes,
     enableMcp: async (orgId = ORG, enabled = true) => {
       await pool.query("update organizations set mcp_enabled = $2 where org_id = $1", [orgId, enabled]);
     },

@@ -10,6 +10,8 @@ import { PEOPLE_WRITE_TOOL_DEFINITIONS, WRITE_TOOL_DEFINITIONS, WRITE_TOOL_NAMES
 import type { WriteContext, WriteServices } from "./mcp-write-tools.js";
 import { PEOPLE_COMMENT_TOOL_DEFINITIONS, PeopleReadTools } from "./mcp-people-read.js";
 import type { PeopleReadServices } from "./mcp-people-read.js";
+import { LINEAR_READ_PEOPLE_TOOL_DEFINITIONS, LINEAR_READ_TOOL_DEFINITIONS, LINEAR_WRITE_TOOL_DEFINITIONS, LinearTools } from "./mcp-linear-tools.js";
+import type { LinearServices } from "./mcp-linear-tools.js";
 
 const ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 const WRITE_ANNOTATIONS = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
@@ -30,6 +32,14 @@ function toolError(message: string): CallToolResult {
 
 const logger = new Logger("McpTools");
 
+/**
+ * O nome da classe do erro como vai ao log: só letras, dígitos e `_`, até 60 caracteres; qualquer outra coisa vira "Error". O `name` de
+ * um erro é uma cadeia comum que qualquer código pode trocar (inclusive com segredo ou quebra de linha forjando outra linha de log).
+ */
+export function errorNameForLog(name: unknown): string {
+  return typeof name === "string" && /^[A-Za-z0-9_]{1,60}$/.test(name) ? name : "Error";
+}
+
 /** Resultado de sucesso: o objeto estruturado e o mesmo JSON como texto, como a especificação recomenda. */
 function ok(data: Record<string, unknown>): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: data };
@@ -46,7 +56,7 @@ export async function guarded(name: string, work: () => Promise<Record<string, u
     const refusal = refusalMessage(error);
     if (refusal !== null) return toolError(refusal);
     // Falha de verdade (banco, bug): fica no log só com a mensagem, sem argumentos nem resultados; o cliente recebe uma frase genérica.
-    logger.error(`tool ${name} failed: ${error instanceof Error ? error.name : "UnknownError"}`);
+    logger.error(`tool ${name} failed: ${error instanceof Error ? errorNameForLog(error.name) : "UnknownError"}`);
     return toolError((WRITE_TOOL_NAMES as readonly string[]).includes(name) ? GENERIC_WRITE_ERROR : GENERIC_ERROR);
   }
 }
@@ -62,6 +72,8 @@ export function createProjectServer(
   write?: { services: WriteServices; context: WriteContext },
   peopleSource?: PeopleSource,
   reads?: PeopleReadServices,
+  /** Só com a ligação do Linear configurada no servidor (`linearEnabled`): sem ela as três ferramentas do Linear não existem. */
+  linear?: LinearServices,
 ): McpServer {
   const server = new McpServer(
     { name: "treepm", version: "0.1.0" },
@@ -94,6 +106,12 @@ export function createProjectServer(
     server.registerTool("list_conversations", { ...defs.list_conversations, annotations: ANNOTATIONS }, (input) => guarded("list_conversations", () => readers.listConversations(input)));
     server.registerTool("get_conversation", { ...defs.get_conversation, annotations: ANNOTATIONS }, (input) => guarded("get_conversation", () => readers.getConversation(input)));
   }
+  // Linear (ADR 0062, seção 5): ver é leitura; sincronizar é escrita (abaixo, no bloco de escrita).
+  const linearTools = linear ? new LinearTools(run, linear, { ...context, people, ...(write ? { write: { tokenId: write.context.tokenId, fresh: write.context.fresh } } : {}) }, peopleSource) : undefined;
+  if (linearTools) {
+    const definition = (people ? LINEAR_READ_PEOPLE_TOOL_DEFINITIONS : LINEAR_READ_TOOL_DEFINITIONS).get_linear_status;
+    server.registerTool("get_linear_status", { ...definition, annotations: ANNOTATIONS }, () => guarded("get_linear_status", () => linearTools.status()));
+  }
   // Escrita (ADR 0043): só para token de escrita com a chave da organização ligada. Fora disso as ferramentas nem existem.
   if (write) {
     const writer = new WriteTools(run, write.services, tools, write.context);
@@ -107,6 +125,12 @@ export function createProjectServer(
     server.registerTool("remove_dependency", { ...WRITE_TOOL_DEFINITIONS.remove_dependency, annotations: WRITE_ANNOTATIONS }, (input) => guarded("remove_dependency", () => writer.removeDependency(input)));
     if (people) server.registerTool("set_ticket_assignees", { ...PEOPLE_WRITE_TOOL_DEFINITIONS.set_ticket_assignees, annotations: { ...WRITE_ANNOTATIONS, idempotentHint: true } }, (input) => guarded("set_ticket_assignees", () => writer.setTicketAssignees(input)));
     server.registerTool("set_agent_work", { ...WRITE_TOOL_DEFINITIONS.set_agent_work, annotations: WRITE_ANNOTATIONS }, (input) => guarded("set_agent_work", () => writer.setAgentWork(input)));
+    if (linearTools) {
+      // Falam com o Linear (um sistema de fora): `openWorldHint`.
+      const linearWrite = { ...WRITE_ANNOTATIONS, openWorldHint: true };
+      server.registerTool("start_linear_sync", { ...LINEAR_WRITE_TOOL_DEFINITIONS.start_linear_sync, annotations: linearWrite }, () => guarded("start_linear_sync", () => linearTools.start()));
+      server.registerTool("continue_linear_sync", { ...LINEAR_WRITE_TOOL_DEFINITIONS.continue_linear_sync, annotations: linearWrite }, (input) => guarded("continue_linear_sync", () => linearTools.continue(input)));
+    }
   }
   return server;
 }

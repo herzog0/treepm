@@ -1,5 +1,6 @@
 import { NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
+import { safeLinearKey, safeLinearUrl } from "@treepm/domain";
 import type { TicketStatus } from "@treepm/domain";
 import { z } from "zod";
 import type { Principal } from "../access/principal.js";
@@ -101,6 +102,13 @@ export const getTicketOutput = z.strictObject({
     mentions: directionsSchema.describe("`outgoing`: tickets this one mentions in its text; `incoming`: tickets that mention this one."),
     depends_on: directionsSchema.describe("`outgoing`: tickets that must be finished before this one; `incoming`: tickets waiting for this one."),
   }),
+  linear: z
+    .strictObject({
+      key: z.string().nullable().describe("The current Linear identifier, for example ENG-12; null when the ticket came from a Linear project (projects have no identifier)."),
+      url: z.string().nullable().describe("Address of the issue or project in Linear."),
+    })
+    .nullable()
+    .describe("Where the ticket came from, when it was imported from Linear; null otherwise."),
 });
 export const listTicketsOutput = listSchema.extend({ after: z.string().nullable().describe("Pass as `after` to get the next page; null when there is no more.") });
 export const projectOverviewOutput = z.strictObject({
@@ -149,6 +157,8 @@ export type TicketOutput = Omit<z.infer<typeof getTicketOutput>, "path" | "child
   relations: { mentions: Directions; depends_on: Directions };
 };
 
+const MEANING_LINEAR = "`linear` says where an imported ticket came from in Linear (its identifier and address).";
+
 const MEANING =
   "Tickets form a tree: the parent is the ticket a ticket is part of. " +
   "An idea is not accepted work yet: `idea` says whether a ticket is the root of an idea or inside one. " +
@@ -165,7 +175,7 @@ const definitions = (people: boolean) => ({
   },
   get_ticket: {
     title: "Get a ticket",
-    description: `Read one ticket in full: complete description, status, parent, the path from the top of the tree down to the parent, children and the relations in both directions. ${MEANING} For \`mentions\`, \`outgoing\` lists tickets this one cites and \`incoming\` lists tickets that cite it. For \`depends_on\`, \`outgoing\` lists tickets that must be finished before this one and \`incoming\` lists tickets waiting for this one.`,
+    description: `Read one ticket in full: complete description, status, parent, the path from the top of the tree down to the parent, children, the relations in both directions and, for a ticket imported from Linear, its Linear identifier and address. ${MEANING} ${MEANING_LINEAR} For \`mentions\`, \`outgoing\` lists tickets this one cites and \`incoming\` lists tickets that cite it. For \`depends_on\`, \`outgoing\` lists tickets that must be finished before this one and \`incoming\` lists tickets waiting for this one.`,
     inputSchema: getTicketInput,
     outputSchema: people ? getTicketPeopleOutput : getTicketOutput,
   },
@@ -373,8 +383,19 @@ export class ProjectTools {
       path: ticket.path.map((entry) => this.summary(entry, keys, who)),
       children: reduce(ticket.children),
       relations: { mentions: directions(relations.mentions), depends_on: directions(relations.dependsOn) },
+      linear: await this.linearOrigin(tx, ticket.id),
       ...(self.assignees === undefined ? {} : { assignees: self.assignees }),
     };
+  }
+
+  /**
+   * De onde o ticket veio no Linear (ADR 0062, seção 5): SÓ a chave atual e o endereço. Criador, datas, chaves antigas, ids, workspace e
+   * time da origem nunca saem pelo MCP (ADR 0061, seção 6); um teste de fonte confere que estas são as únicas colunas lidas.
+   */
+  private async linearOrigin(tx: TenantClient, ticketId: string): Promise<TicketOutput["linear"]> {
+    const origin = await tx.ticketExternalRef.findFirst({ where: { ticketId, projectId: this.context.project.id, provider: "linear" }, select: { externalKey: true, externalUrl: true } });
+    // Só com forma validada (TREEPM-496): valor antigo gravado fora da forma não é regravado, só deixa de sair.
+    return origin ? { key: safeLinearKey(origin.externalKey), url: safeLinearUrl(origin.externalUrl) } : null;
   }
 
   /**

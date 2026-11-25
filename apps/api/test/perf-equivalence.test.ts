@@ -50,6 +50,21 @@ const withoutVolatile = (page: Record<string, unknown>): Record<string, unknown>
   return rest;
 };
 
+/**
+ * `linear` (ADR 0062, seção 5: a origem no Linear em `get_ticket`) é um campo novo, depois das referências de ouro: confere que veio, nulo
+ * nestes tickets (nenhum importado), e o tira do conteúdo estruturado e do texto antes de comparar. As referências não são regravadas.
+ */
+function withoutLinear(result: unknown): unknown {
+  const { structured, text } = result as { structured: Record<string, unknown>; text: string };
+  expect(structured, "get_ticket traz linear").toHaveProperty("linear", null);
+  const rest = { ...structured };
+  delete rest["linear"];
+  const parsed = JSON.parse(text) as Record<string, unknown>;
+  expect(parsed).toHaveProperty("linear", null);
+  delete parsed["linear"];
+  return { structured: rest, text: JSON.stringify(parsed) };
+}
+
 beforeAll(async () => {
   ({ app } = await createTestApp([], undefined, { clock: perfClock }));
   world = await loadPerfWorld(pool);
@@ -186,9 +201,9 @@ describe("MCP: respostas idênticas às de antes", () => {
     const marked = world.plan.tickets.find((t) => t.agentWork);
     const out: Record<string, unknown> = {};
     for (const [label, index] of Object.entries({ deep: f.deep, shallow: f.shallow, idea: f.idea, history: f.history, inside: inside!.index, marked: marked!.index })) {
-      out[label] = await tool("get_ticket", { key: `BG-${T(index).number}` });
+      out[label] = withoutLinear(await tool("get_ticket", { key: `BG-${T(index).number}` }));
     }
-    for (const r of roots) out[`root-${r.ideaStage}-${r.index}`] = await tool("get_ticket", { key: `BG-${r.number}` });
+    for (const r of roots) out[`root-${r.ideaStage}-${r.index}`] = withoutLinear(await tool("get_ticket", { key: `BG-${r.number}` }));
     expectGolden("mcp-get", out);
   });
 

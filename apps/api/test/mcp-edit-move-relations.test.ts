@@ -45,6 +45,9 @@ describe("a lista de escritas (estrutural)", () => {
     // nenhuma ferramenta de leitura (fora do bloco) pode estar na lista de escritas
     const reads = [...source.slice(0, source.indexOf("if (write) {")).matchAll(/server\.registerTool\("([a-z_]+)"/g)].map((m) => m[1] as string);
     for (const name of reads) expect(WRITE_TOOL_NAMES as readonly string[]).not.toContain(name);
+    // Todas as ferramentas: as de pessoas (fatia 3) e as do Linear (fatia 4) estão cobertas pela conferência acima.
+    expect(reads).toEqual(expect.arrayContaining(["list_people", "list_comments", "get_ticket_history", "list_conversations", "get_conversation", "get_linear_status"]));
+    expect(registered).toEqual(expect.arrayContaining(["set_ticket_assignees", "start_linear_sync", "continue_linear_sync"]));
   });
 
   it("tools/list: as quatro novas aparecem só para token de escrita com a chave ligada, marcadas como de escrita, com descrição em inglês", async () => {

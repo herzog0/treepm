@@ -184,6 +184,18 @@ describe("as leituras que alimentam a IA e o MCP não conhecem os atributos novo
     expect(offenders).toEqual([]);
   });
 
+  it("o MCP lê da origem do ticket só a chave e o endereço (ADR 0062, seção 5), e de nenhum outro jeito", () => {
+    const mcp = walk(join(SRC, "mcp"));
+    const used = new Set(mcp.flatMap((file) => [...readFileSync(file, "utf8").matchAll(/\bexternal[A-Z_]\w*/g)].map((m) => m[0])));
+    // Exatamente as duas colunas: nem criador, nem datas, nem chaves antigas, nem id, workspace ou time do Linear.
+    expect([...used].sort()).toEqual(["externalKey", "externalUrl"]);
+    // E só por uma consulta com `select` explícito dessas duas (nunca a linha inteira da origem).
+    const reads = mcp.flatMap((file) => [...readFileSync(file, "utf8").matchAll(/ticketExternalRef\.\w+\(\{[^]*?\}\)/g)].map((m) => m[0]));
+    expect(reads.length).toBeGreaterThan(0);
+    for (const read of reads) expect(read).toMatch(/select: \{ externalKey: true, externalUrl: true \}/);
+    for (const file of mcp) expect(readFileSync(file, "utf8"), file).not.toMatch(/external_ref|ticket_external_refs|\$queryRaw/);
+  });
+
   it("as chaves do Linear da busca (TREEPM-501) só saem pela lista da tela: nada de assistente, consulta, MCP, vetores ou categorização as importa", () => {
     const importers = walk(SRC)
       .map((file) => file.slice(SRC.length + 1))

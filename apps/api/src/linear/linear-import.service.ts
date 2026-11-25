@@ -1,5 +1,6 @@
 import { ConflictException, HttpException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Prisma, TenantClient } from "@treepm/db";
+import { canImportTickets } from "@treepm/domain";
 import type { TicketStatus } from "@treepm/domain";
 import type { LinearParentMove } from "@treepm/domain";
 import { cleanLinearText, decideLinearField, decideLinearLateField, decideLinearStatus, heldFieldsAfter, isFinished, linearCreatorColumns, linearInitialParent, mapLinearDescription, mapLinearPriority, mapLinearProjectStatus, mapLinearStatus, mapLinearTitle, matchLinearAssignee, planLinearParents, safeLinearUrl, sameLinearValue } from "@treepm/domain";
@@ -49,6 +50,14 @@ const FULL_PAGE = 50;
 /** Teto de um passo que vai ao Linear: chamadas e tempo (uma chamada só começa se ainda cabe o prazo dela dentro dos 25 s). */
 export const STEP_MAX_CALLS = 6;
 export const STEP_MAX_MS = 25_000;
+
+/** O prazo do passo conduzido pelo MCP acabou antes de uma chamada ao Linear caber; `lastError` é a falha anterior, se houve. */
+class StepOutOfTime extends Error {
+  constructor(readonly lastError: LinearError | null) {
+    super("prazo do passo");
+    this.name = "StepOutOfTime";
+  }
+}
 /** Páginas conhecidas seguidas que a repescagem aceita no topo antes de parar (uma issue conhecida sozinha não encerra). */
 const SWEEP_MIN_PAGE = 10;
 
@@ -460,11 +469,35 @@ export class LinearImportService {
     }
   }
 
-  async open(tenant: TenantRunner, principal: Principal, projectId: string, body: { destinationTicketId?: string | null; categorize?: boolean }): Promise<RunView> {
+  /**
+   * O que o MCP mostra do Linear de um projeto (ADR 0062, seção 5): o time ligado, o fim da última rodada concluída e a rodada aberta.
+   * Não chama o Linear. Basta enxergar o projeto (404 como nas rotas); a rodada aberta só vem para quem pode importar, como na tela
+   * (`runs/current` pede a mesma permissão). Nada de workspace, id do Linear ou de quem ligou.
+   */
+  async syncStatus(tx: TenantClient, principal: Principal, projectId: string): Promise<{ team: { key: string; name: string } | null; lastFinishedAt: string | null; run: RunView | null }> {
+    const orgId = principal.organization.orgId;
+    const project = await tx.project.findFirst({ where: { orgId, id: projectId } });
+    if (!project || !this.authorization.canView(principal.actor, project)) throw new NotFoundException("Projeto não encontrado.");
+    const source = await tx.projectExternalSource.findUnique({ where: { orgId_projectId: { orgId, projectId } }, select: { externalTeamKey: true, externalTeamName: true } });
+    if (!source) return { team: null, lastFinishedAt: null, run: null };
+    const finished = await tx.externalImportRun.findFirst({ where: { orgId, projectId, mode: { not: "categorize" }, phase: "done" }, orderBy: [{ finishedAt: "desc" }, { id: "desc" }], select: { finishedAt: true } });
+    const open = canImportTickets(principal.actor, projectId) ? await tx.externalImportRun.findFirst({ where: { orgId, projectId, mode: { not: "categorize" }, phase: { notIn: ["done", "failed"] } } }) : null;
+    return {
+      team: { key: source.externalTeamKey, name: source.externalTeamName },
+      lastFinishedAt: finished?.finishedAt ? finished.finishedAt.toISOString() : null,
+      run: open ? view(open as RunRow) : null,
+    };
+  }
+
+  /**
+   * Abre a rodada. `requireImported` (o MCP, ADR 0062): só a sincronização de um projeto que já tem uma importação concluída; a primeira
+   * importação, com a escolha do destino, é feita na tela (409 `linear_never_imported`, conferido nas mesmas transações).
+   */
+  async open(tenant: TenantRunner, principal: Principal, projectId: string, body: { destinationTicketId?: string | null; categorize?: boolean }, options: { requireImported?: boolean } = {}): Promise<RunView> {
     refuseWhileActingAs(principal);
     await tenant.run(async (tx, current) => {
       const project = await this.guard(tx, current, projectId, { writable: true });
-      await this.checkOpenable(tx, current, project, body.destinationTicketId);
+      await this.checkOpenable(tx, current, project, body.destinationTicketId, options);
     });
     // O Linear (rede) fora de transação: a chave de QUEM abre tem de funcionar e enxergar o time; a contagem é só para a tela.
     const { key, source } = await this.linear.requireLinearAccess(tenant, principal, projectId);
@@ -478,7 +511,7 @@ export class LinearImportService {
     try {
       return await tenant.run(async (tx, current) => {
         const project = await this.guard(tx, current, projectId, { writable: true });
-        const { mode, destination } = await this.checkOpenable(tx, current, project, body.destinationTicketId);
+        const { mode, destination } = await this.checkOpenable(tx, current, project, body.destinationTicketId, options);
         const row = await tx.externalImportRun.create({
           data: {
             orgId: current.organization.orgId,
@@ -514,7 +547,7 @@ export class LinearImportService {
    * (`reimport`); o destino que vale para ela é o da PRIMEIRA concluída, a menos que o corpo traga outro (`undefined` herda;
    * `null` é a raiz). O herdado que não serve mais (ticket apagado, ou dentro de uma ideia) recusa: nunca cai na raiz em silêncio.
    */
-  private async checkOpenable(tx: TenantClient, principal: Principal, project: ProjectRow, requested: string | null | undefined): Promise<{ mode: "first" | "reimport"; destination: string | null }> {
+  private async checkOpenable(tx: TenantClient, principal: Principal, project: ProjectRow, requested: string | null | undefined, options: { requireImported?: boolean } = {}): Promise<{ mode: "first" | "reimport"; destination: string | null }> {
     const orgId = principal.organization.orgId;
     const source = await tx.projectExternalSource.findUnique({ where: { orgId_projectId: { orgId, projectId: project.id } } });
     if (!source) throw new ConflictException({ code: "linear_not_linked", message: "Este projeto não está ligado a um time do Linear." });
@@ -527,6 +560,9 @@ export class LinearImportService {
     }
     const firstDone = (await tx.externalImportRun.findFirst({ where: { orgId, projectId: project.id, mode: { not: "categorize" }, phase: "done" }, orderBy: [{ startedAt: "asc" }, { id: "asc" }] })) as RunRow | null;
     const mode = firstDone ? "reimport" : "first";
+    if (options.requireImported && mode === "first") {
+      throw new ConflictException({ code: "linear_never_imported", message: "A primeira importação deste projeto é feita na tela, com a escolha do destino." });
+    }
     if (requested !== undefined) {
       if (requested !== null) await this.requireDestination(tx, project, requested);
       return { mode, destination: requested };
@@ -587,34 +623,44 @@ export class LinearImportService {
 
   // ---- o passo ----
 
-  async step(tenant: TenantRunner, principal: Principal, projectId: string, runId: string): Promise<RunView> {
+  /**
+   * Um passo da rodada. `budgetMs` (só o MCP, ADR 0062): prazo da parte que vai ao Linear, contado da entrada do passo; ver `fetchPage`.
+   *
+   * A trava em memória (`inFlight`) é tomada DEPOIS da guarda de permissão e da leitura da rodada no projeto (revisão de segurança,
+   * TREEPM-496): antes, um leitor ou um token de outro projeto distinguia "há passo em andamento" de "sem permissão"/"não encontrada".
+   * Conferir e marcar ficam no mesmo trecho síncrono (sem `await` entre eles), então dois passos simultâneos nesta instância continuam
+   * impossíveis. A rodada lida antes da trava pode ter ficado velha (outro passo terminou no meio): `apply` relê a rodada sob a trava do
+   * banco e não grava nada se a fase ou o cursor mudaram, como já fazia entre instâncias.
+   */
+  async step(tenant: TenantRunner, principal: Principal, projectId: string, runId: string, options: { budgetMs?: number } = {}): Promise<RunView> {
     refuseWhileActingAs(principal);
-    const flightKey = `${principal.organization.orgId}:${runId}`;
-    if (this.inFlight.has(flightKey)) {
-      throw new ConflictException({ code: "linear_step_in_progress", message: "Outro passo desta importação está em andamento. Aguarde." });
-    }
-    this.inFlight.add(flightKey);
-    try {
-      return await this.stepOnce(tenant, principal, projectId, runId);
-    } finally {
-      this.inFlight.delete(flightKey);
-    }
-  }
-
-  private async stepOnce(tenant: TenantRunner, principal: Principal, projectId: string, runId: string): Promise<RunView> {
+    const deadline = options.budgetMs === undefined ? undefined : Date.now() + options.budgetMs;
     const { run: seen, projectKey } = await tenant.run(async (tx, current) => {
       const project = await this.guard(tx, current, projectId, { writable: false });
       const run = (await tx.externalImportRun.findFirst({ where: { orgId: current.organization.orgId, id: runId, projectId, mode: { not: "categorize" } } })) as RunRow | null;
       if (!run) throw new NotFoundException("Importação não encontrada.");
       return { run, projectKey: project.key };
     });
+    const flightKey = `${principal.organization.orgId}:${seen.id}`;
+    if (this.inFlight.has(flightKey)) {
+      throw new ConflictException({ code: "linear_step_in_progress", message: "Outro passo desta importação está em andamento. Aguarde." });
+    }
+    this.inFlight.add(flightKey);
+    try {
+      return await this.stepOnce(tenant, principal, projectId, seen, projectKey, deadline);
+    } finally {
+      this.inFlight.delete(flightKey);
+    }
+  }
+
+  private async stepOnce(tenant: TenantRunner, principal: Principal, projectId: string, seen: RunRow, projectKey: string, deadline: number | undefined): Promise<RunView> {
     if (isTerminal(seen.phase)) return view(seen);
     // Ainda dentro da espera pedida pelo Linear: responde o mesmo estado, sem chamar o Linear.
     if (seen.waitUntil !== null && seen.waitUntil.getTime() > Date.now()) return view(seen);
 
     let fetched: Fetched | null = null;
     if (seen.phase === "projects" || seen.phase === "issues") {
-      const result = await this.fetchPage(tenant, principal, projectId, seen, projectKey);
+      const result = await this.fetchPage(tenant, principal, projectId, seen, projectKey, deadline);
       if ("wait" in result) return result.wait;
       fetched = result.fetched;
     }
@@ -637,16 +683,29 @@ export class LinearImportService {
   }
 
   /** A ida ao Linear (fora de transação). Limite → grava a espera e devolve a rodada; chave/time/queda → erro com a rodada intacta. */
-  private async fetchPage(tenant: TenantRunner, principal: Principal, projectId: string, run: RunRow, projectKey: string): Promise<{ fetched: Fetched } | { wait: RunView }> {
+  /**
+   * `deadline` (só o MCP): nenhuma chamada de página começa se o prazo inteiro dela (`LINEAR_TIMEOUT_MS`) não couber antes dele. Sem
+   * tempo para a primeira página, o passo devolve a rodada como estava ("chame de novo"). Sem tempo para repetir depois de uma página
+   * grande demais ou lenta: se o passo chegou a uma página MENOR que a da rodada, guarda esse tamanho e devolve a rodada (a próxima
+   * chamada começa dele); se não reduziu nada (só a descrição ou o conteúdo longo ficariam de fora, o que não se guarda), é o erro de
+   * sempre, que conta na sequência de erros. Assim "chame de novo" nunca vira laço sem fim: o tamanho só diminui.
+   */
+  private async fetchPage(tenant: TenantRunner, principal: Principal, projectId: string, run: RunRow, projectKey: string, deadline?: number): Promise<{ fetched: Fetched } | { wait: RunView }> {
     // O tamanho de página que este passo alcançou: gravado mesmo quando o passo termina em erro, para o próximo começar de onde este chegou.
     const progress = { size: run.pageSize };
     try {
       const { key, source } = await this.linear.requireLinearAccess(tenant, principal, projectId);
-      if (run.phase === "projects") return { fetched: await this.fetchProjects(key, source.externalTeamId, run, progress) };
-      const issues = await this.fetchIssues(key, source.externalTeamId, run, progress);
+      if (run.phase === "projects") return { fetched: await this.fetchProjects(key, source.externalTeamId, run, progress, deadline) };
+      const issues = await this.fetchIssues(key, source.externalTeamId, run, progress, deadline);
       // O mapeamento da página (função pura) roda aqui, FORA da transação de gravação.
       return { fetched: { ...issues, mapped: mapLinearIssuePage(issues.page.nodes, projectKey), mappedFor: projectKey } };
-    } catch (error) {
+    } catch (caught) {
+      let error = caught;
+      if (caught instanceof StepOutOfTime) {
+        if (caught.lastError === null) return { wait: view(run) };
+        if (progress.size < run.pageSize) return { wait: await this.recordPageSize(tenant, run, progress.size) };
+        error = caught.lastError;
+      }
       const http = error instanceof LinearError ? linearHttp(error) : error;
       const seconds = rateLimitWait(http);
       if (seconds !== null) return { wait: await this.recordWait(tenant, run, seconds, progress.size) };
@@ -662,7 +721,7 @@ export class LinearImportService {
    * estourando, dispensa o conteúdo longo DELE (`summaryOnly`): o resumo vira a descrição e os outros projetos nunca perdem o conteúdo.
    * Um passo faz no máximo `STEP_MAX_CALLS` chamadas e `STEP_MAX_MS`; ao estourar termina em erro com o tamanho alcançado em `progress.size`.
    */
-  private async fetchProjects(key: string, teamId: string, run: RunRow, progress: { size: number }): Promise<Extract<Fetched, { phase: "projects" }>> {
+  private async fetchProjects(key: string, teamId: string, run: RunRow, progress: { size: number }, deadline?: number): Promise<Extract<Fetched, { phase: "projects" }>> {
     const withEmail = readCounts(run.counts).assigneeEmailUnavailable !== true;
     let size = Math.min(Math.max(run.pageSize, 1), FULL_PAGE);
     progress.size = size;
@@ -672,6 +731,7 @@ export class LinearImportService {
     let lastError: LinearError | null = null;
     for (let calls = 0; ; calls += 1) {
       if (lastError !== null && (calls >= STEP_MAX_CALLS || Date.now() - startedAt + LINEAR_TIMEOUT_MS > STEP_MAX_MS)) throw lastError;
+      if (deadline !== undefined && Date.now() + LINEAR_TIMEOUT_MS > deadline) throw new StepOutOfTime(lastError);
       try {
         const page = await this.client.listTeamProjects(key, teamId, run.cursor, { first: size, withContent, withEmail });
         return { phase: "projects", page, reduced, usedSize: size, summaryOnly: withContent ? [] : page.nodes.map((node) => node.id) };
@@ -695,7 +755,7 @@ export class LinearImportService {
    * deu certo vira o tamanho da rodada, e só volta a crescer (ao dobro) depois de três passos seguidos bem-sucedidos sem reduzir
    * (`size_streak`): voltar ao dobro no passo seguinte repetiria o estouro.
    */
-  private async fetchIssues(key: string, teamId: string, run: RunRow, progress: { size: number }): Promise<Omit<Extract<Fetched, { phase: "issues" }>, "mapped" | "mappedFor">> {
+  private async fetchIssues(key: string, teamId: string, run: RunRow, progress: { size: number }, deadline?: number): Promise<Omit<Extract<Fetched, { phase: "issues" }>, "mapped" | "mappedFor">> {
     const { after } = parseIssuesCursor(run.cursor);
     const withEmail = readCounts(run.counts).assigneeEmailUnavailable !== true;
     let size = Math.min(Math.max(run.pageSize, 1), FULL_PAGE);
@@ -707,6 +767,7 @@ export class LinearImportService {
     for (let calls = 0; ; calls += 1) {
       // Mais uma chamada só se ainda cabem as chamadas e o prazo dela (`LINEAR_TIMEOUT_MS`) dentro do teto do passo.
       if (lastError !== null && (calls >= STEP_MAX_CALLS || Date.now() - startedAt + LINEAR_TIMEOUT_MS > STEP_MAX_MS)) throw lastError;
+      if (deadline !== undefined && Date.now() + LINEAR_TIMEOUT_MS > deadline) throw new StepOutOfTime(lastError);
       try {
         const page = await this.client.listTeamIssues(key, teamId, after, { first: size, withDescription, withEmail });
         return { phase: "issues", page, reduced, usedSize: size, withoutDescription: !withDescription };
@@ -727,6 +788,16 @@ export class LinearImportService {
     if (!(error instanceof HttpException)) return null;
     const code = (error.getResponse() as { code?: unknown })?.code;
     return typeof code === "string" ? code : null;
+  }
+
+  /** O prazo do passo (MCP) acabou depois de reduzir a página: guarda o tamanho alcançado e devolve a rodada, sem contar erro. */
+  private async recordPageSize(tenant: TenantRunner, run: RunRow, pageSize: number): Promise<RunView> {
+    return tenant.run(async (tx, current) => {
+      await tx.$executeRaw`update external_import_runs set size_streak = 0, page_size = least(page_size, ${pageSize}::int), updated_at = now()
+        where org_id = ${current.organization.orgId} and id = ${run.id}::uuid and phase = ${run.phase} and cursor is not distinct from ${run.cursor}::text`;
+      const fresh = (await tx.externalImportRun.findFirstOrThrow({ where: { orgId: current.organization.orgId, id: run.id } })) as RunRow;
+      return view(fresh);
+    });
   }
 
   private async recordWait(tenant: TenantRunner, run: RunRow, seconds: number, pageSize: number): Promise<RunView> {

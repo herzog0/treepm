@@ -2,7 +2,7 @@ import { lockProjectStructure } from "./structure-lock.js";
 import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import type { z } from "zod";
-import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, createsDependencyCycle, descriptionExcerpt, mentionsPersonRaw, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, safeLinearUrl, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
+import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, createsDependencyCycle, descriptionExcerpt, mentionsPersonRaw, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, safeLinearKey, safeLinearUrl, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
 import type { Actor, IdeaStage, TicketNode, TicketStatus, ticketProgress } from "@treepm/domain";
 import { buildActor } from "../access/actor.js";
 import { AuthorizationService } from "../access/authorization.service.js";
@@ -556,7 +556,8 @@ export class TicketsService {
     const externalSource: ExternalSourceView | null = origin
       ? {
           provider: "linear",
-          key: origin.externalKey,
+          // Só com forma validada (TREEPM-496): valor antigo fora da forma não é regravado, só deixa de sair.
+          key: safeLinearKey(origin.externalKey),
           url: safeLinearUrl(origin.externalUrl),
           missingSince: iso(origin.missingSince),
           createdAt: iso(origin.externalCreatedAt),

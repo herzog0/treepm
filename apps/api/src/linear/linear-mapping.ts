@@ -1,5 +1,5 @@
 import type { TicketStatus } from "@treepm/domain";
-import { cleanLinearText, linearPreviousKeys, mapLinearDescription, mapLinearPriority, mapLinearStatus, mapLinearTitle } from "@treepm/domain";
+import { cleanLinearText, linearPreviousKeys, mapLinearDescription, mapLinearPriority, mapLinearStatus, mapLinearTitle, safeLinearKey } from "@treepm/domain";
 import type { LinearIssueNode } from "./ports.js";
 
 /** O que a gravação precisa de uma issue já mapeada: pura função da issue e da chave do projeto de destino (sem banco, sem rede). */
@@ -8,7 +8,8 @@ export type MappedIssue = {
   description: string;
   status: TicketStatus;
   priority: number;
-  identifier: string;
+  /** A chave atual (`ENG-12`), só com a forma de chave do Linear (`safeLinearKey`); fora dela, nulo (revisão de segurança, TREEPM-496). */
+  identifier: string | null;
   /** O que veio do Linear (retrato de origem), sem controles; o e-mail do responsável nunca entra. */
   source: { title: string; description: string | null; stateType: string; assigneeExternalId: string | null; priority: number };
   /** Os identificadores antigos, já limpos; e o criador sem e-mail (ADR 0061). */
@@ -17,14 +18,15 @@ export type MappedIssue = {
 };
 
 export function mapLinearIssue(node: LinearIssueNode, projectKey: string): MappedIssue {
-  const identifier = cleanLinearText(node.identifier).slice(0, 100);
+  // A chave sai pelo MCP para um modelo e pela tela: só com a forma validada; texto livre no lugar dela não é gravado.
+  const identifier = safeLinearKey(node.identifier);
   return {
     title: mapLinearTitle(node.title, node.identifier),
     description: mapLinearDescription(node.description, projectKey),
     status: mapLinearStatus(node.stateType),
     priority: mapLinearPriority(node.priority),
     identifier,
-    previousKeys: linearPreviousKeys(node.previousIdentifiers, identifier),
+    previousKeys: linearPreviousKeys(node.previousIdentifiers, identifier ?? ""),
     creator: node.creator ? { id: node.creator.id, name: node.creator.name } : null,
     source: {
       title: cleanLinearText(node.title),
