@@ -14,10 +14,10 @@ export const failed = (kind: "unavailable" | "forbidden" | "unauthenticated" | "
 });
 
 /** `assistant`: o servidor tem a IA configurada; `consent` (padrão: aceito): a organização aceitou o uso (ADR 0039). */
-export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean; consent?: boolean; github?: boolean; mcp?: boolean; mcpWrite?: boolean; personId?: string; displayName?: string; actingAs?: string } = {}): Me {
+export function makeMe(overrides: { clerk?: "admin" | "member"; orgId?: string; orgName?: string; assistant?: boolean; consent?: boolean; github?: boolean; mcp?: boolean; mcpWrite?: boolean; mcpPeople?: boolean; personId?: string; displayName?: string; actingAs?: string } = {}): Me {
   const consent = overrides.consent ?? true;
   return {
-    ...(overrides.mcp === undefined ? {} : { mcp: { enabled: overrides.mcp, ...(overrides.mcpWrite === undefined ? {} : { writeEnabled: overrides.mcpWrite }) } }),
+    ...(overrides.mcp === undefined ? {} : { mcp: { enabled: overrides.mcp, ...(overrides.mcpWrite === undefined ? {} : { writeEnabled: overrides.mcpWrite }), ...(overrides.mcpPeople === undefined ? {} : { peopleEnabled: overrides.mcpPeople }) } }),
     ...(overrides.assistant === undefined ? {} : { assistant: { enabled: overrides.assistant && consent, configured: overrides.assistant, consent } }),
     ...(overrides.actingAs === undefined ? {} : { actingAs: { realDisplayName: overrides.actingAs } }),
     ...(overrides.github === undefined ? {} : { github: { enabled: overrides.github } }),
@@ -799,7 +799,7 @@ function githubMethods(data: FakeData): Partial<ApiClient> {
   };
 }
 
-const MCP_NAMES = ["setMcpEnabled", "setMcpWriteEnabled", "createAccessToken", "listAccessTokens", "listOrganizationAccessTokens", "revokeAccessToken"] as const;
+const MCP_NAMES = ["setMcpEnabled", "setMcpWriteEnabled", "setMcpPeopleEnabled", "createAccessToken", "listAccessTokens", "listOrganizationAccessTokens", "revokeAccessToken"] as const;
 
 export interface FakeMcp {
   /** A chave da organização; padrão: o que `me.mcp` diz. */
@@ -808,6 +808,10 @@ export interface FakeMcp {
   writeEnabled?: boolean;
   /** Faz `setMcpWriteEnabled` falhar com este tipo de erro. */
   writeSwitchError?: Parameters<typeof failed>[0];
+  /** A chave "Pessoas e conversas" da organização (ADR 0062); padrão: o que `me.mcp` diz, ou desligada. */
+  peopleEnabled?: boolean;
+  /** Faz `setMcpPeopleEnabled` falhar com este tipo de erro. */
+  peopleSwitchError?: Parameters<typeof failed>[0];
   /** Tokens da organização, de qualquer pessoa; os da pessoa de `me` saem em `listAccessTokens`. */
   tokens?: OrganizationAccessToken[];
   /** Token inteiro que a criação devolve. */
@@ -848,6 +852,7 @@ function mcpMethods(data: FakeData): Partial<ApiClient> {
   const isAdmin = me.roles.clerk === "admin";
   let enabled = config.enabled ?? me.mcp?.enabled ?? false;
   let writeEnabled = config.writeEnabled ?? me.mcp?.writeEnabled ?? false;
+  let peopleEnabled = config.peopleEnabled ?? me.mcp?.peopleEnabled ?? false;
   const tokens = (config.tokens ?? []).map((entry) => ({ ...entry }));
   const strip = (entry: OrganizationAccessToken): AccessToken => {
     const copy: Partial<OrganizationAccessToken> = { ...entry };
@@ -862,15 +867,22 @@ function mcpMethods(data: FakeData): Partial<ApiClient> {
       if (!isAdmin) return failed("forbidden");
       if (config.switchError) return failed(config.switchError);
       enabled = value;
-      return ok({ mcp: { enabled, writeEnabled } });
+      return ok({ mcp: { enabled, writeEnabled, peopleEnabled } });
     }),
     setMcpWriteEnabled: vi.fn(async (value: boolean) => {
       if (!isAdmin) return failed("forbidden");
       if (config.writeSwitchError) return failed(config.writeSwitchError);
       writeEnabled = value;
-      return ok({ mcp: { enabled, writeEnabled } });
+      return ok({ mcp: { enabled, writeEnabled, peopleEnabled } });
     }),
-    createAccessToken: vi.fn(async (body: { projectId: string; name: string; expiresInDays: 30 | 90 | 365; scope?: "read" | "write" }) => {
+    setMcpPeopleEnabled: vi.fn(async (value: boolean) => {
+      if (!isAdmin) return failed("forbidden");
+      if (config.peopleSwitchError) return failed(config.peopleSwitchError);
+      if (value && !enabled) return failed("conflict", "mcp_disabled");
+      peopleEnabled = value;
+      return ok({ mcp: { enabled, writeEnabled, peopleEnabled } });
+    }),
+    createAccessToken: vi.fn(async (body: { projectId: string; name: string; expiresInDays: 30 | 90 | 365; scope?: "read" | "write"; people?: boolean }) => {
       if (!enabled) return failed("forbidden", "mcp_disabled");
       if (config.createError) return failed(...config.createError);
       const project = data.projects?.find((entry) => entry.id === body.projectId);
@@ -880,6 +892,7 @@ function mcpMethods(data: FakeData): Partial<ApiClient> {
       const entry = makeToken(`new${sequence}`, body.name.trim(), {
         project: { id: project.id, key: project.key },
         scope: body.scope ?? "read",
+        people: body.people === true,
         person: { id: me.person.id, displayName: me.person.displayName },
         createdAt: "2026-11-21T12:00:00.000Z",
         expiresAt: new Date(Date.parse("2026-11-21T12:00:00.000Z") + body.expiresInDays * 86_400_000).toISOString(),

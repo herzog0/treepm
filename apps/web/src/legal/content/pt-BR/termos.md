@@ -52,6 +52,7 @@ O TreePM é uma ferramenta de gestão de projetos em que o trabalho é organizad
 ## 9. Acesso por clientes de IA (MCP)
 
 - O administrador pode permitir que as pessoas da organização conectem clientes de IA próprios aos projetos, por um token pessoal de leitura. Em uma permissão separada, desligada por padrão, o administrador pode liberar tokens que também criam tickets, editam título e descrição, mudam a situação e a prioridade, movem tickets na árvore, criam e removem dependências entre tickets, comentam e marcam que um ticket está sendo trabalhado, sempre em nome de quem criou o token e pelas mesmas regras da tela.
+- Em outra permissão separada, também desligada por padrão, "Pessoas e conversas", o administrador pode liberar tokens que recebem nomes de pessoas: quem é responsável por cada ticket e quem pode ser responsável no projeto. Com essa permissão e a de escrita, o token também define os responsáveis de um ticket. E-mail nunca é entregue.
 - Quem cria um token responde por guardá-lo e pelo uso que o cliente escolhido fizer dos dados que receber. O TreePM não controla o que esse cliente e o provedor dele fazem com os dados.
 - Tokens têm validade e podem ser revogados pela pessoa ou pelo administrador.
 

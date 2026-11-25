@@ -7,7 +7,7 @@ import { parseOutput } from "../common/zod.js";
 import { ACCESS_TOKEN_CLOCK } from "./clock.js";
 import type { AccessTokenClock } from "./clock.js";
 import { MAX_ACTIVE_TOKENS, createdTokenSchema, organizationTokenSchema, tokenSchema } from "./access-token.schema.js";
-import type { CreateTokenBody, CreatedTokenOutput, OrganizationTokenOutput, TokenOutput } from "./access-token.schema.js";
+import type { CreateTokenBody, CreatedTokenOutput, McpState, OrganizationTokenOutput, TokenOutput } from "./access-token.schema.js";
 import { buildToken } from "./token.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -17,6 +17,7 @@ type TokenRow = {
   name: string;
   tokenPrefix: string;
   scope: string;
+  people: boolean;
   createdAt: Date;
   lastUsedAt: Date | null;
   expiresAt: Date;
@@ -34,6 +35,7 @@ function view(row: TokenRow): Omit<TokenOutput, never> {
     project: { id: row.project.id, key: row.project.key },
     tokenPrefix: row.tokenPrefix,
     scope: row.scope === "write" ? ("write" as const) : ("read" as const),
+    people: row.people,
     createdAt: row.createdAt.toISOString(),
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
     expiresAt: row.expiresAt.toISOString(),
@@ -50,12 +52,17 @@ export class AccessTokenManager {
     @Inject(ACCESS_TOKEN_CLOCK) private readonly clock: AccessTokenClock,
   ) {}
 
+  private async mcpState(tx: TenantClient, orgId: string): Promise<McpState["mcp"]> {
+    const row = await tx.organization.findUnique({ where: { orgId }, select: { mcpEnabled: true, mcpWriteEnabled: true, mcpPeopleEnabled: true } });
+    return { enabled: row?.mcpEnabled ?? false, writeEnabled: row?.mcpWriteEnabled ?? false, peopleEnabled: row?.mcpPeopleEnabled ?? false };
+  }
+
   /** Liga ou desliga a chave da organização. Só administrador; o evento só sai quando o estado muda. */
-  async setMcpEnabled(tx: TenantClient, principal: Principal, enabled: boolean): Promise<{ mcp: { enabled: boolean; writeEnabled: boolean } }> {
+  async setMcpEnabled(tx: TenantClient, principal: Principal, enabled: boolean): Promise<{ mcp: McpState["mcp"] }> {
     this.authorization.manageMcpAccess(principal.actor);
     const orgId = principal.organization.orgId;
-    const current = await tx.organization.findUnique({ where: { orgId }, select: { mcpEnabled: true, mcpWriteEnabled: true } });
-    if (current?.mcpEnabled !== enabled) {
+    const current = await this.mcpState(tx, orgId);
+    if (current.enabled !== enabled) {
       await tx.organization.update({ where: { orgId }, data: { mcpEnabled: enabled } });
       await this.activity.record(tx, principal, {
         kind: "organization.mcp_changed",
@@ -64,26 +71,53 @@ export class AccessTokenManager {
         payload: { enabled },
       });
     }
-    return { mcp: { enabled, writeEnabled: current?.mcpWriteEnabled ?? false } };
+    return { mcp: { ...current, enabled } };
   }
 
   /** Liga ou desliga "Permitir escrita por MCP" (ADR 0043). Só administrador; o evento só sai quando o estado muda. */
-  async setMcpWriteEnabled(tx: TenantClient, principal: Principal, enabled: boolean): Promise<{ mcp: { enabled: boolean; writeEnabled: boolean } }> {
+  async setMcpWriteEnabled(tx: TenantClient, principal: Principal, enabled: boolean): Promise<{ mcp: McpState["mcp"] }> {
     this.authorization.manageMcpAccess(principal.actor);
     const orgId = principal.organization.orgId;
-    const current = await tx.organization.findUnique({ where: { orgId }, select: { mcpEnabled: true, mcpWriteEnabled: true } });
-    if (current?.mcpWriteEnabled !== enabled) {
+    const current = await this.mcpState(tx, orgId);
+    if (current.writeEnabled !== enabled) {
       await tx.organization.update({ where: { orgId }, data: { mcpWriteEnabled: enabled } });
       await this.activity.record(tx, principal, { kind: "organization.mcp_write_changed", subjectType: "organization", subjectId: orgId, payload: { enabled } });
     }
-    return { mcp: { enabled: current?.mcpEnabled ?? false, writeEnabled: enabled } };
+    return { mcp: { ...current, writeEnabled: enabled } };
+  }
+
+  /**
+   * Liga ou desliga "Pessoas e conversas" (ADR 0062). Só administrador; só pode ser LIGADA com a chave geral ligada (409
+   * `mcp_disabled`); desligar a geral não desliga esta, mas ela não vale sem a outra. O evento só sai quando o estado muda.
+   */
+  async setMcpPeopleEnabled(tx: TenantClient, principal: Principal, enabled: boolean): Promise<{ mcp: McpState["mcp"] }> {
+    this.authorization.manageMcpAccess(principal.actor);
+    const orgId = principal.organization.orgId;
+    const current = await this.mcpState(tx, orgId);
+    if (enabled && !current.enabled) {
+      throw new ConflictException({ code: "mcp_disabled", message: "Ligue primeiro o acesso por MCP da organização." });
+    }
+    if (current.peopleEnabled !== enabled) {
+      await tx.organization.update({ where: { orgId }, data: { mcpPeopleEnabled: enabled } });
+      await this.activity.record(tx, principal, { kind: "organization.mcp_people_changed", subjectType: "organization", subjectId: orgId, payload: { enabled } });
+    }
+    return { mcp: { ...current, peopleEnabled: enabled } };
   }
 
   /** O token inteiro sai desta resposta e de mais nenhum lugar. */
   async create(tx: TenantClient, principal: Principal, body: CreateTokenBody): Promise<CreatedTokenOutput> {
     const { orgId } = principal.organization;
-    if (!principal.organization.mcpEnabled) {
+    // As chaves são relidas AQUI, dentro da transação, com trava compartilhada na linha da organização: quem liga ou desliga uma
+    // chave grava essa linha, então uma criação que chega no meio espera a confirmação dele e enxerga o estado novo. O que foi
+    // carregado antes (`principal.organization`) pode estar velho. A chave de escrita não é conferida na criação (o `scope` vale por
+    // chamada), então não há o que reler dela.
+    const [keys] = await tx.$queryRaw<{ mcp_enabled: boolean; mcp_people_enabled: boolean }[]>`select mcp_enabled, mcp_people_enabled from organizations where org_id = ${orgId} for share`;
+    if (!keys?.mcp_enabled) {
       throw new ForbiddenException({ code: "mcp_disabled", message: "O acesso por MCP está desligado nesta organização." });
+    }
+    // O alcance de pessoas só nasce com a chave da organização ligada naquele momento (ADR 0062).
+    if (body.people && !keys.mcp_people_enabled) {
+      throw new ForbiddenException({ code: "mcp_people_disabled", message: "O alcance \"Pessoas e conversas\" está desligado nesta organização." });
     }
     // O RLS esconde projetos de outra organização; privado sem papel também vira 404, como nas outras rotas.
     const project = await tx.project.findFirst({ where: { id: body.projectId }, select: { id: true, key: true, visibility: true } });
@@ -112,6 +146,7 @@ export class AccessTokenManager {
         tokenPrefix: built.prefix,
         tokenHash: built.hash,
         scope: body.scope,
+        people: body.people,
         expiresAt: new Date(now + body.expiresInDays * DAY_MS),
       },
       include: withProject,
@@ -120,7 +155,7 @@ export class AccessTokenManager {
       kind: "access_token.created",
       subjectType: "project",
       subjectId: project.id,
-      payload: { tokenId: row.id, name: row.name, projectKey: project.key, tokenPrefix: row.tokenPrefix, scope: row.scope },
+      payload: { tokenId: row.id, name: row.name, projectKey: project.key, tokenPrefix: row.tokenPrefix, scope: row.scope, people: row.people },
     });
     return parseOutput(createdTokenSchema, { ...view(row), token: built.token });
   }

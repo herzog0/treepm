@@ -14,13 +14,17 @@ export const createTokenSchema = z
     expiresInDays: z.union([z.literal(30), z.literal(90), z.literal(365)]).default(DEFAULT_EXPIRES_IN_DAYS),
     /** Alcance (ADR 0043): `read` (padrão) ou `write`; não muda depois de criado. */
     scope: z.enum(["read", "write"]).default("read"),
+    /** Alcance "pessoas e conversas" (ADR 0062), independente de `scope`; desligado por padrão e fixo depois de criado. */
+    people: z.boolean().default(false),
   })
   .strict();
 export type CreateTokenBody = z.output<typeof createTokenSchema>;
 
 export const mcpSwitchSchema = z.object({ mcpEnabled: z.boolean() }).strict();
 export const mcpWriteSwitchSchema = z.object({ mcpWriteEnabled: z.boolean() }).strict();
-export const mcpStateSchema = z.object({ mcp: z.object({ enabled: z.boolean(), writeEnabled: z.boolean() }) });
+export const mcpPeopleSwitchSchema = z.object({ mcpPeopleEnabled: z.boolean() }).strict();
+export const mcpStateSchema = z.object({ mcp: z.object({ enabled: z.boolean(), writeEnabled: z.boolean(), peopleEnabled: z.boolean() }) });
+export type McpState = z.output<typeof mcpStateSchema>;
 
 /** Nunca inclui o token nem o resumo; o token inteiro só existe em `createdTokenSchema`. */
 export const tokenSchema = z.object({
@@ -29,6 +33,7 @@ export const tokenSchema = z.object({
   project: z.object({ id: z.string(), key: z.string() }),
   tokenPrefix: z.string(),
   scope: z.enum(["read", "write"]),
+  people: z.boolean(),
   createdAt: z.string(),
   lastUsedAt: z.string().nullable(),
   expiresAt: z.string(),

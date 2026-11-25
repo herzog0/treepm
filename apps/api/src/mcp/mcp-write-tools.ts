@@ -18,7 +18,7 @@ import type { ProjectTools, RunInTenant, ToolContext } from "./mcp-tools.js";
  * organização ligada. NÃO reescrevem regra: chamam os serviços de ticket, comentário e marcador, com o `Principal` da pessoa do
  * token marcado com a origem (`via: mcp`) e o id do REGISTRO do token. Tudo em inglês, como as de leitura.
  */
-export const WRITE_TOOL_NAMES = ["update_ticket_status", "add_comment", "set_agent_work", "set_ticket_priority", "create_ticket", "update_ticket", "move_ticket", "add_dependency", "remove_dependency"] as const;
+export const WRITE_TOOL_NAMES = ["update_ticket_status", "add_comment", "set_agent_work", "set_ticket_priority", "create_ticket", "update_ticket", "move_ticket", "add_dependency", "remove_dependency", "set_ticket_assignees"] as const;
 export type WriteToolName = (typeof WRITE_TOOL_NAMES)[number];
 
 const keyField = z.string().trim().max(32, "Ticket key is too long.").regex(/^[A-Za-z][A-Za-z0-9]{1,9}-[0-9]{1,9}$/, "Ticket key must look like PROJ-123.");
@@ -65,6 +65,11 @@ export const moveTicketInput = z.strictObject({
 export const dependencyInput = z.strictObject({
   key: keyField.describe("Key of the ticket that depends on another."),
   dependsOn: keyField.describe("Key of the ticket it depends on (it must be in this project)."),
+});
+
+export const setTicketAssigneesInput = z.strictObject({
+  key: keyField.describe("Ticket key of this project, for example PROJ-47."),
+  personIds: z.array(z.uuid("Each person id must be an id returned by list_people.")).max(50, "At most 50 people.").describe("The COMPLETE list of people who are responsible for the ticket, as ids from list_people. People not in the list are removed; an empty list removes everybody."),
 });
 
 const agentWorkOutput = z.strictObject({ since: z.string(), until: z.string(), note: z.string() }).nullable();
@@ -135,6 +140,15 @@ export const WRITE_TOOL_DEFINITIONS = {
   },
 } as const;
 
+/** Só existe para token de escrita COM o alcance de pessoas efetivo (ADR 0062). */
+export const PEOPLE_WRITE_TOOL_DEFINITIONS = {
+  set_ticket_assignees: {
+    title: "Set who is responsible for a ticket",
+    description: `Define the COMPLETE list of people responsible for one ticket, by person id (get the ids from list_people). People who are in the list and were not responsible are added; people who were responsible and are not in the list are removed; an empty list removes everybody. The people must be active and able to see the project: a person who cannot be assigned (unknown, from another organization, no longer in the organization or without access to the project) makes the whole call fail and nothing changes, with the same short answer for all those cases. Repeating the same list changes nothing and records nothing. It changes nothing else about the ticket. Returns the ticket as get_ticket does. The changes show in the ticket history as made through MCP. ${NOTE}`,
+    inputSchema: setTicketAssigneesInput,
+  },
+} as const;
+
 /** Resumo dos argumentos de uma criação (não os argumentos): a repetição só vale se tudo o que foi pedido bater. */
 function requestDigest(input: z.infer<typeof createTicketInput>, parentId: string | null): string {
   const normalized = JSON.stringify([input.title, input.description ?? "", parentId, input.idea === true, input.priority ?? 0]);
@@ -175,6 +189,15 @@ export function refusalMessage(error: unknown): string | null {
   if (status === 400) return "Invalid input.";
   if (status === 409) return (typeof code === "string" ? CONFLICTS[code] : undefined) ?? "The change conflicts with the current state of the ticket.";
   return null;
+}
+
+/** A recusa de `requireAssignable`: pessoa inexistente (404), inativa ou sem acesso ao projeto (409). Qualquer outra recusa segue o caminho comum. */
+function isPersonRefusal(error: HttpException): boolean {
+  const payload = error.getResponse();
+  const code = typeof payload === "object" ? (payload as { code?: unknown }).code : undefined;
+  // O 404 de pessoa tem a mensagem "Pessoa não encontrada." (a do ticket é outra e segue o caminho comum).
+  if (error.getStatus() === 404) return typeof payload === "string" ? payload === "Pessoa não encontrada." : (payload as { message?: unknown }).message === "Pessoa não encontrada.";
+  return code === "person_inactive" || code === "person_without_project_access";
 }
 
 export class WriteTools {
@@ -306,6 +329,23 @@ export class WriteTools {
     // (mesma chave: o projeto). Sem pai não pega a trava e não passa pela fila.
     const key = parentNumber === undefined ? undefined : structureKey(this.context.principal.session.orgId, this.context.project.id);
     return key === undefined ? create() : withStructureSlot(key, create);
+  }
+
+  /**
+   * Define os responsáveis pelo MESMO serviço das rotas `PUT/DELETE tickets/:id/assignees/:personId` (`TicketsService.setAssignees`).
+   * Pessoa nova que não pode ser responsável (inexistente, de outra organização, inativa ou sem acesso ao projeto): UMA frase curta,
+   * igual nos quatro casos, para a resposta não dizer qual deles é.
+   */
+  async setTicketAssignees(input: z.infer<typeof setTicketAssigneesInput>) {
+    return this.write(input.key, async (tx, principal, id, number) => {
+      try {
+        await this.services.tickets.setAssignees(tx, principal, id, input.personIds);
+      } catch (error) {
+        if (error instanceof HttpException && isPersonRefusal(error)) throw new ToolInputError("One of these people cannot be assigned to this ticket. Nothing was changed.");
+        throw error;
+      }
+      return this.reader.ticketIn(tx, principal, number);
+    });
   }
 
   async addComment(input: z.infer<typeof addCommentInput>): Promise<z.infer<typeof addCommentOutput>> {

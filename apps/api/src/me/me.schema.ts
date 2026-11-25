@@ -21,7 +21,7 @@ export const meResponseSchema = z.object({
   assistant: z.object({ configured: z.boolean(), consent: z.boolean(), enabled: z.boolean() }),
   github: z.object({ enabled: z.boolean() }),
   /** Chave da organização "Permitir acesso por MCP" (ADR 0038). */
-  mcp: z.object({ enabled: z.boolean(), writeEnabled: z.boolean() }),
+  mcp: z.object({ enabled: z.boolean(), writeEnabled: z.boolean(), peopleEnabled: z.boolean() }),
   roles: z.object({
     clerk: z.enum(["admin", "member"]),
     teams: z.array(z.object({ teamId: z.string(), role: z.enum(["admin", "member"]) })),

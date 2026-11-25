@@ -25,7 +25,7 @@ import { ORG, OTHER_ORG, as } from "./world.js";
 // e da mesma organização); qualquer falha é 403 `act_as_not_allowed` com o mesmo corpo, e a requisição NÃO é atendida como o administrador.
 const h = useHarness({ ...GITHUB_CONFIG, CREDENTIALS_ENCRYPTION_KEY: LINEAR_KEY_BASE64, ANTHROPIC_API_KEY: AI_CONFIG.ANTHROPIC_API_KEY, TYPESAFE_API_KEY: AI_CONFIG.TYPESAFE_API_KEY });
 /** Rotas autenticadas da API hoje; muda junto com os controladores. */
-const EXPECTED_ROUTES = 112;
+const EXPECTED_ROUTES = 113;
 const UUID = "0190c0de-0000-7000-8000-000000000001";
 
 /** Todas as rotas autenticadas de todos os controladores da aplicação (método e caminho com os parâmetros trocados por um uuid). */
@@ -162,6 +162,7 @@ describe("com uma pessoa de teste válida como alvo", () => {
       h.call("POST", "/api/access-tokens", as("admin"), { projectId: h.world().projects.priv, name: "x", expiresInDays: 30 }, actAs(id)),
       h.call("DELETE", `/api/access-tokens/${UUID}`, as("admin"), undefined, actAs(id)),
       h.call("PATCH", "/api/organization", as("admin"), { mcpEnabled: true }, actAs(id)),
+      h.call("PATCH", "/api/organization/mcp-people", as("admin"), { mcpPeopleEnabled: true }, actAs(id)),
     ];
     for (const res of await Promise.all(attempts)) {
       expect(res.status).toBe(403);

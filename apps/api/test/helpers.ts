@@ -7,6 +7,8 @@ import { AppModule } from "../src/app.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import type { AppConfig } from "../src/config.js";
 import { CONFIG } from "../src/config.js";
+import { ClerkDirectoryProvider } from "../src/auth/clerk-directory-provider.js";
+import type { ClerkDirectoryClient } from "../src/auth/clerk-directory-provider.js";
 import type { DirectoryProvider } from "../src/auth/directory-provider.js";
 import { DIRECTORY_PROVIDER } from "../src/auth/directory-provider.js";
 import type { SessionVerifier, VerifiedSession } from "../src/auth/session-verifier.js";
@@ -95,9 +97,19 @@ export class FakeDirectory implements DirectoryProvider {
   readonly memberships = new Map<string, string | null>();
   /** Gancho executado a cada consulta (por exemplo, para observar o banco). */
   onCall: (() => Promise<void>) | null = null;
+  /**
+   * Usuários do Clerk "de verdade" por id: quem está aqui passa pelo `ClerkDirectoryProvider` de produção (que decide o nome de
+   * exibição), com este cliente falso por baixo. Sem entrada, vale o nome determinístico abaixo.
+   */
+  readonly clerkUsers = new Map<string, Awaited<ReturnType<ClerkDirectoryClient["users"]["getUser"]>>>();
   async getUser(userId: string) {
     this.calls.users.push(userId);
     await this.onCall?.();
+    const clerkUser = this.clerkUsers.get(userId);
+    if (clerkUser) {
+      const client = { users: { getUser: () => Promise.resolve(clerkUser) } } as unknown as ClerkDirectoryClient;
+      return new ClerkDirectoryProvider(client).getUser(userId);
+    }
     return Promise.resolve({
       displayName: `Nome de ${userId}`,
       email: `${userId}@exemplo.test`,

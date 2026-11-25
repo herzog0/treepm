@@ -31,7 +31,7 @@ const meSchema = z.object({
   /** Preenchido enquanto um administrador vê a aplicação como uma pessoa de teste (ADR 0057); nulo ou ausente: é a própria pessoa. */
   actingAs: z.object({ realDisplayName: z.string() }).nullable().optional(),
   /** A chave "Permitir acesso por MCP" da organização (ADR 0038). Ausente em uma API antiga: a seção não aparece. */
-  mcp: z.object({ enabled: z.boolean(), /** A chave "Permitir escrita por MCP" (ADR 0043); ausente em uma API antiga: desligada. */ writeEnabled: z.boolean().optional() }).optional(),
+  mcp: z.object({ enabled: z.boolean(), /** A chave "Permitir escrita por MCP" (ADR 0043); ausente em uma API antiga: desligada. */ writeEnabled: z.boolean().optional(), /** A chave "Pessoas e conversas" (ADR 0062); ausente em uma API antiga: desligada. */ peopleEnabled: z.boolean().optional() }).optional(),
 });
 const personSchema = z.object({
   id: z.string(),
@@ -431,6 +431,8 @@ const accessTokenSchema = z.object({
   id: z.string(),
   /** O alcance do token (ADR 0043); ausente em uma API antiga: leitura. */
   scope: z.enum(["read", "write"]).optional(),
+  /** O alcance "pessoas e conversas" (ADR 0062), independente de `scope`; ausente em uma API antiga: sem ele. */
+  people: z.boolean().optional(),
   name: z.string(),
   project: z.object({ id: z.string(), key: z.string() }),
   tokenPrefix: z.string(),
@@ -456,7 +458,7 @@ const aiConsentSchema = z.object({
   assistant: consentSchema,
   codeReading: consentSchema.extend({ githubConnected: z.boolean(), offerable: z.boolean() }),
 });
-const mcpStateSchema = z.object({ mcp: z.object({ enabled: z.boolean(), writeEnabled: z.boolean().optional() }) });
+const mcpStateSchema = z.object({ mcp: z.object({ enabled: z.boolean(), writeEnabled: z.boolean().optional(), peopleEnabled: z.boolean().optional() }) });
 const errorBodySchema = z.object({ error: z.object({ code: z.string(), details: z.unknown().optional() }) });
 
 export type Me = z.output<typeof meSchema>;
@@ -570,6 +572,8 @@ export interface CreateAccessTokenBody {
   expiresInDays: 30 | 90 | 365;
   /** Padrão da API: leitura (ADR 0043). */
   scope?: "read" | "write";
+  /** O alcance "pessoas e conversas" (ADR 0062); padrão da API: desligado. */
+  people?: boolean;
 }
 
 export interface ImportItem {
@@ -932,6 +936,7 @@ export function createApiClient({ getToken, fetch: fetchImpl, actAsId = null }: 
     setMcpEnabled: (mcpEnabled: boolean) => request("PATCH", "/api/organization", mcpStateSchema, { mcpEnabled }),
     /** A chave "Permitir escrita por MCP" (ADR 0043); só administrador. */
     setMcpWriteEnabled: (mcpWriteEnabled: boolean) => request("PATCH", "/api/organization/mcp-write", mcpStateSchema, { mcpWriteEnabled }),
+    setMcpPeopleEnabled: (mcpPeopleEnabled: boolean) => request("PATCH", "/api/organization/mcp-people", mcpStateSchema, { mcpPeopleEnabled }),
     /** Encerra o marcador de trabalho pela IA do ticket (ADR 0043); a resposta é o detalhe. */
     endAgentWork: (id: string) => request("DELETE", `${ticket(id)}/agent-work`, ticketDetailSchema),
     /** Cria um token de acesso por MCP para um projeto (ADR 0038); a resposta é a única vez em que o token inteiro aparece. */
