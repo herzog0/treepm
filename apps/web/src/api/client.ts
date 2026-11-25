@@ -318,7 +318,7 @@ const linearRunSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   mode: z.enum(["first", "reimport"]),
-  phase: z.enum(["projects", "issues", "hierarchy", "statuses", "mentions", "categorize", "missing", "done", "failed"]),
+  phase: z.enum(["projects", "issues", "hierarchy", "statuses", "mentions", "comments", "categorize", "missing", "done", "failed"]),
   done: z.boolean(),
   categorize: z.boolean(),
   categorizeAvailable: z.boolean(),
@@ -430,7 +430,10 @@ const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("contribution_status_changed"), area: contributionAreaRef, from: contributionStatus, to: contributionStatus }),
   z.object({ ...activityBase, type: z.literal("contribution_person_added"), area: contributionAreaRef, person: activityPersonSchema.nullable() }),
   z.object({ ...activityBase, type: z.literal("contribution_person_removed"), area: contributionAreaRef, person: activityPersonSchema.nullable() }),
-  z.object({ ...activityBase, type: z.literal("comment"), body: z.string().nullable(), area: commentAreaRef, editedAt: z.string().nullable(), removed: z.boolean(), canEdit: z.boolean(), canRemove: z.boolean() }),
+  /** Comentários trazidos do Linear numa rodada (ADR 0061, fatia 2): um por ticket e rodada, só a contagem. */
+  z.object({ ...activityBase, type: z.literal("comments_imported"), count: z.number().int() }),
+  /** `via: "linear"` e `externalAuthor` (nome no Linear; `null` = apagado lá) no comentário trazido do Linear (ADR 0061). */
+  z.object({ ...activityBase, type: z.literal("comment"), via: z.enum(["mcp", "linear"]).nullish(), externalAuthor: z.object({ name: z.string().nullable() }).optional(), body: z.string().nullable(), area: commentAreaRef, editedAt: z.string().nullable(), removed: z.boolean(), canEdit: z.boolean(), canRemove: z.boolean() }),
 ]);
 const commentEntrySchema = activityEntrySchema.refine((entry) => entry.type === "comment").transform((entry) => entry as Extract<z.output<typeof activityEntrySchema>, { type: "comment" }>);
 /** Entrada de um tipo que esta versão da tela não conhece (a API pode ganhar tipos antes da tela) é descartada, sem erro. */

@@ -116,6 +116,10 @@ describe("importação em passos do Linear (ADR 0060, seção 3)", () => {
     const view = { ...runView, mode: "reimport", phase: "statuses", pageSize: 50, counts: { updated: 1 } };
     expect(await setup(view).client.stepLinearRun(ID, ID)).toEqual({ ok: true, data: view });
   });
+  it("aceita a fase 'comments' (comentários do Linear, ADR 0061) e as contagens dela", async () => {
+    const view = { ...runView, mode: "reimport", phase: "comments", pageSize: 50, counts: { commentsCreated: 50, commentsUpdated: 1, commentsKeptEdited: 0, commentsSkipped: 2 } };
+    expect(await setup(view).client.stepLinearRun(ID, ID)).toEqual({ ok: true, data: view });
+  });
   it("a rodada atual traz a última concluída (lastFinished), que pode ser nula", async () => {
     const finished = { ...runView, phase: "done", done: true, pageSize: 50, finishedAt: "2026-11-22T10:00:00.000Z" };
     expect(await setup({ run: null, lastFinished: finished }).client.getCurrentLinearRun(ID)).toEqual({ ok: true, data: { run: null, lastFinished: finished } });

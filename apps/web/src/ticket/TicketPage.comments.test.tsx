@@ -58,6 +58,30 @@ afterEach(async () => {
   await setTestLanguage("pt-BR");
 });
 
+describe("comentário trazido do Linear (ADR 0061, fatia 2)", () => {
+  it("de pessoa casada: o nome dela, com o selo «do Linear» e sem editar", async () => {
+    setup([comment({ actor: bruno, via: "linear", canRemove: true })]);
+    const [block] = await blocks();
+    expect(within(block!).getByText("Bruno")).toBeInTheDocument();
+    expect(within(block!).getByText("do Linear")).toBeInTheDocument();
+    expect(within(block!).queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
+    expect(within(block!).getByRole("button", { name: "Remover" })).toBeInTheDocument();
+  });
+
+  it("de autor do Linear: «Nome (no Linear)», sem avatar de pessoa; autor apagado lá tem um rótulo próprio", async () => {
+    setup([comment({ actor: null, via: "linear", externalAuthor: { name: "Zed" }, occurredAt: at(9) }), comment({ actor: null, via: "linear", externalAuthor: { name: null }, occurredAt: at(4) })]);
+    const [gone, zed] = await blocks();
+    expect(within(zed!).getByText("Zed (no Linear)")).toBeInTheDocument();
+    expect(zed!.querySelector(".ticket-avatar")).toHaveClass("is-system");
+    expect(within(gone!).getByText("Pessoa do Linear")).toBeInTheDocument();
+  });
+
+  it("a linha do tempo resume a rodada: «N comentários trazidos do Linear»", async () => {
+    setup([{ id: "e1", type: "comments_imported", occurredAt: at(3), actor: ana, automatic: true, count: 3 } as ActivityEntry]);
+    expect(await screen.findByText(/3 comentários trazidos do Linear/)).toBeInTheDocument();
+  });
+});
+
 describe("comentário na lista", () => {
   it("é um bloco com o autor, a data e o corpo desenhado como markdown", async () => {
     setup([comment({ body: "Veja **isto** e `aquilo`", actor: bruno, occurredAt: at(90) })]);

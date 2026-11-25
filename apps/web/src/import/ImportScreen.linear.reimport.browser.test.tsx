@@ -108,12 +108,12 @@ describe.each([[1440, 900], [720, 900], [390, 844]])("reimportação com %i px d
     expect(q(".linear-import-picker").getBoundingClientRect().right).toBeLessThanOrEqual(window.innerWidth);
   });
 
-  it("reimportando: as seis fases cabem e nada rola para o lado", async () => {
+  it("reimportando: as sete fases (com os comentários) cabem e nada rola para o lado", async () => {
     const { promise, release } = hold();
-    const view = await mountImport({ width, height, linear: card({ script: ["ok", "ok", "ok", "ok", "ok", { hold: promise }] }) });
+    const view = await mountImport({ width, height, linear: card({ script: ["ok", "ok", "ok", "ok", "ok", "ok", { hold: promise }] }) });
     await userEvent.click(byText("button", "Sincronizar agora"));
-    await expect.poll(() => all(".linear-import-phases li").length).toBe(6);
-    await expect.poll(() => all(".linear-import-phases li")[5]?.getAttribute("data-state")).toBe("doing");
+    await expect.poll(() => all(".linear-import-phases li").length).toBe(7);
+    await expect.poll(() => all(".linear-import-phases li")[6]?.getAttribute("data-state")).toBe("doing");
     noHorizontalScroll();
     expect(q("h3").textContent).toBe("Sincronizando…");
     for (const element of all(".linear-import-phases li, .linear-import-close, h3")) expect(contrastOf(element)).toBeGreaterThanOrEqual(4.5);

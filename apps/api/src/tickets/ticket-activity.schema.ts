@@ -67,9 +67,15 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("idea_accepted") }),
   z.object({ ...base, type: z.literal("idea_discarded") }),
   z.object({ ...base, type: z.literal("idea_reopened") }),
+  /** Comentários trazidos do Linear numa rodada (ADR 0061, fatia 2): um por ticket e rodada, automático, só a contagem. */
+  z.object({ ...base, type: z.literal("comments_imported"), count: z.number().int().min(1) }),
   z.object({
     ...base,
     type: z.literal("comment"),
+    /** `linear`: trazido do Linear (ADR 0061); `mcp` como nas demais entradas. */
+    via: z.enum(["mcp", "linear"]).optional(),
+    /** Autor do Linear que não é pessoa do TreePM: o nome de lá (`null` = autor apagado no Linear); `actor` é nulo. */
+    externalAuthor: z.object({ name: z.string().nullable() }).optional(),
     body: z.string().nullable(),
     area: commentAreaSchema,
     editedAt: z.string().nullable(),

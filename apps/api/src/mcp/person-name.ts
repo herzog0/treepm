@@ -7,6 +7,7 @@
  * estrutural, `mcp-person-name.test.ts`, que falha se alguém ler). As próximas ferramentas (comentários, histórico, conversas)
  * entram por aqui também.
  */
+import { looksLikeEmail } from "@treepm/domain";
 
 /** O rótulo que sai no lugar de um nome que seria e-mail ou id. Fixo, em inglês (a ferramenta é lida por um modelo). */
 export const UNNAMED_PERSON = "Unnamed person";
@@ -16,7 +17,6 @@ export const PERSON_NAME_SELECT = { id: true, displayName: true, email: true, cl
 
 export type PersonNameSource = { id: string; displayName: string; email: string; clerkUserId: string };
 
-const EMAIL_SHAPE = /[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/;
 const CLERK_ID_SHAPE = /^(user|org|usr)_[A-Za-z0-9]{8,}$/i;
 
 /**
@@ -28,10 +28,19 @@ export function mcpPersonName(person: PersonNameSource): string {
   const lower = name.toLowerCase();
   if (name === "") return UNNAMED_PERSON;
   if (lower === person.email.trim().toLowerCase() || lower === person.clerkUserId.trim().toLowerCase()) return UNNAMED_PERSON;
-  if (EMAIL_SHAPE.test(name) || CLERK_ID_SHAPE.test(name)) return UNNAMED_PERSON;
+  if (looksLikeEmail(name) || CLERK_ID_SHAPE.test(name)) return UNNAMED_PERSON;
   // Nome em forma de menção (`[@x](person:<uuid>)` e afins) levaria o id de outra pessoa junto (revisão de segurança, TREEPM-495).
   if (/person:/i.test(name)) return UNNAMED_PERSON;
   return name;
+}
+
+/**
+ * O autor de um comentário trazido do Linear que não é pessoa do TreePM (ADR 0061): sem id, com o nome de lá e a marca "(Linear)". O nome
+ * passa pelas mesmas regras (forma de e-mail, de id ou de menção vira o rótulo neutro); autor apagado no Linear também.
+ */
+export function mcpLinearAuthorRef(name: string | null): { id: null; name: string } {
+  const clean = name === null ? UNNAMED_PERSON : mcpPersonName({ id: "", displayName: name, email: "", clerkUserId: "" });
+  return { id: null, name: `${clean} (Linear)` };
 }
 
 /** `{ id, name }` como o MCP entrega uma pessoa. */

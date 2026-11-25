@@ -99,6 +99,7 @@
       "hierarchy": "Link sub-issues to their parents",
       "statuses": "Updating statuses",
       "mentions": "Linking mentions",
+      "comments": "Bringing comments",
       "list": "Import phases",
       "missing": "Checking what disappeared from Linear"
     },
@@ -112,6 +113,7 @@
       "issues": "Importing the issues.",
       "hierarchy": "Linking sub-issues to their parents.",
       "mentions": "Linking the mentions between tickets.",
+      "comments": "Bringing the comments of the issues.",
       "done": "Import finished.",
       "waiting": "Linear asked to wait.",
       "abandoned": "Import abandoned.",
@@ -148,7 +150,11 @@
       "filled_other": "{{count}} fields filled in tickets that already existed",
       "descriptionUnavailable": "Some descriptions were too large and were not read again.",
       "missingNotChecked": "Could not check what disappeared, because some items came in an invalid format.",
-      "assigneeEmailUnavailableReimport": "Linear did not allow reading the assignees’ e-mails; assignees were not updated."
+      "assigneeEmailUnavailableReimport": "Linear did not allow reading the assignees’ e-mails; assignees were not updated.",
+      "commentsCreated_one": "{{count}} comment brought from Linear",
+      "commentsCreated_other": "{{count}} comments brought from Linear",
+      "commentsKeptEdited_one": "{{count}} comment kept because it was edited here",
+      "commentsKeptEdited_other": "{{count}} comments kept because they were edited here"
     },
     "abandon": {
       "button": "Abandon import",

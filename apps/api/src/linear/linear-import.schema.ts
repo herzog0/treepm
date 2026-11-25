@@ -9,7 +9,7 @@ export type RunView = {
   id: string;
   projectId: string;
   mode: "first" | "reimport";
-  phase: "projects" | "issues" | "hierarchy" | "statuses" | "mentions" | "missing" | "categorize" | "done" | "failed";
+  phase: "projects" | "issues" | "hierarchy" | "statuses" | "mentions" | "comments" | "missing" | "categorize" | "done" | "failed";
   /** A rodada terminou (`done` ou `failed`). */
   done: boolean;
   categorize: boolean;

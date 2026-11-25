@@ -10,12 +10,18 @@ export interface MergeableEntry {
   readonly occurredAt: number;
   /** A contribuição a que a entrada se refere (ADR 0041); só `contribution_text_changed` usa, e sem ela nunca junta. */
   readonly contributionId?: string | null;
+  /** A rodada de sincronização do Linear (`comments_imported`): os eventos da mesma rodada, gravados um por página, viram uma entrada. */
+  readonly runId?: string | null;
+  /** Quantos comentários o evento trouxe (`comments_imported`). */
+  readonly count?: number;
 }
 
 /** Uma entrada do resultado: `entry` é a mais nova do grupo (dá o instante); `oldest` é a mais antiga (dá a identidade e a posição). */
 export interface MergedEntry<T extends MergeableEntry> {
   readonly entry: T;
   readonly oldest: T;
+  /** `comments_imported`: a soma das contagens do grupo. */
+  readonly count?: number;
 }
 
 /**
@@ -26,11 +32,14 @@ export interface MergedEntry<T extends MergeableEntry> {
  * cortar a lista entre dois grupos já fechados dá o mesmo resultado que juntar a lista inteira.
  */
 export function mergeDescriptionEdits<T extends MergeableEntry>(newestFirst: readonly T[]): MergedEntry<T>[] {
-  const merged: { entry: T; oldest: T }[] = [];
+  const merged: { entry: T; oldest: T; count?: number }[] = [];
   for (const item of newestFirst) {
     const last = merged[merged.length - 1];
-    if (last && joins(last.oldest, item)) last.oldest = item;
-    else merged.push({ entry: item, oldest: item });
+    if (last && sameImportRun(last.oldest, item)) {
+      last.oldest = item;
+      last.count = (last.count ?? 0) + (item.count ?? 0);
+    } else if (last && joins(last.oldest, item)) last.oldest = item;
+    else merged.push(item.type === "comments_imported" ? { entry: item, oldest: item, count: item.count ?? 0 } : { entry: item, oldest: item });
   }
   return merged;
 }
@@ -40,6 +49,11 @@ function sameEditedText(newer: MergeableEntry, older: MergeableEntry): boolean {
   if (newer.type !== older.type) return false;
   if (newer.type === "description_changed") return true;
   return newer.type === "contribution_text_changed" && !!newer.contributionId && newer.contributionId === older.contributionId;
+}
+
+/** Comentários trazidos do Linear na mesma rodada (C2, item 6): vizinhos, qualquer que seja a distância. Sem rodada, nunca. */
+function sameImportRun(newer: MergeableEntry, older: MergeableEntry): boolean {
+  return newer.type === "comments_imported" && older.type === "comments_imported" && !!newer.runId && newer.runId === older.runId;
 }
 
 function joins(newer: MergeableEntry, older: MergeableEntry): boolean {

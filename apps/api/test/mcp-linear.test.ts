@@ -254,13 +254,22 @@ async function snapshot(projectId: string): Promise<unknown> {
   const assignees = await q("select t.number, p.clerk_user_id from ticket_assignees a join tickets t on t.id = a.ticket_id join people p on p.id = a.person_id where t.project_id = $1 order by 1, 2", [projectId]);
   const numbers = new Map((await q("select id, number from tickets where project_id = $1", [projectId])).map((row) => [String(row["id"]), `#${String(row["number"])}`]));
   // O token (criado só no caminho do MCP) não é parte da sincronização.
-  const events = (await q("select e.kind, e.subject_type, e.subject_id, e.payload, p.clerk_user_id from activity_events e left join people p on p.id = e.actor_person_id where e.kind not like 'access_token.%' order by e.occurred_at, e.id")).map((row) => {
-    const payload = { ...(row["payload"] as Record<string, unknown>) };
-    delete payload["via"];
-    delete payload["tokenId"];
-    const text = JSON.stringify({ ...row, payload }).replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/g, "<date>");
-    return JSON.parse(text) as unknown;
-  });
+  // Eventos gravados no mesmo instante (mesma transação) não têm ordem garantida pelo id (`app_uuid_v7()` não é monotônico dentro do
+  // mesmo milissegundo): o desempate é pelo conteúdo, já com o número do ticket no lugar do id.
+  const eventRows = await q("select e.occurred_at, e.kind, e.subject_type, e.subject_id, e.payload, p.clerk_user_id from activity_events e left join people p on p.id = e.actor_person_id where e.kind not like 'access_token.%' order by e.occurred_at, e.id");
+  const events = eventRows
+    .map((row) => {
+      const { occurred_at: at, ...rest } = row;
+      const payload = { ...(rest["payload"] as Record<string, unknown>) };
+      delete payload["via"];
+      delete payload["tokenId"];
+      const text = JSON.stringify({ ...rest, payload })
+        .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/g, "<date>")
+        .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (id) => numbers.get(id) ?? "<id>");
+      return { at: new Date(at as string).getTime(), text };
+    })
+    .sort((a, b) => a.at - b.at || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0))
+    .map((event) => JSON.parse(event.text) as unknown);
   const rounds = await q("select mode, phase, counts, total_expected, last_error_code, error_streak, page_size from external_import_runs where project_id = $1 order by started_at", [projectId]);
   // Ids de ticket (nos eventos e nos retratos de origem) viram o número do ticket; outros ids, `<id>`.
   const text = JSON.stringify({ tickets, refs, assignees, events, rounds }).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (id) => numbers.get(id) ?? "<id>");
@@ -891,5 +900,215 @@ describe("M8 item 7: o passo pelo MCP cabe no prazo do gateway", () => {
     expect(res.status).toBe(503);
     const issueCalls = h.linear().calls.slice(mark).filter((call) => call.query.includes("issues(") && !call.query.includes("issueCount"));
     expect(issueCalls.length).toBe(3);
+  });
+});
+
+// TREEPM-477 (C3): a sincronização pelo MCP também traz os comentários do Linear (fase `comments`), igual à tela, e nenhuma resposta do
+// MCP leva corpo de comentário, nome de autor ou e-mail: só fase e contagens.
+const C_BODY = "Corpo sentinela do comentário";
+const C_REPLY = "Resposta sentinela";
+const C_NAME = "Bartolomeu Sentinela Autor";
+const C_EMAIL = "autor.sentinela@linear.test";
+const C_BOT = "Robô Sentinela";
+const C_SLACK = "Fulano Sentinela Slack";
+const C_SECRETS = [C_BODY, C_REPLY, C_NAME, C_EMAIL, C_BOT, C_SLACK, "Bartolomeu"];
+/** Comentários que aparecem no Linear depois da importação: autor de fora com e-mail, resposta com citação, robô, Slack, apagado. */
+function addComments(data: FakeTeamData): void {
+  data.comments = [
+    { id: "c5", issue: "i4", body: `${C_BODY} 5`, createdAt: "2026-11-20T15:00:00.000Z" },
+    { id: "c4", issue: "i3", body: `${C_BODY} 4`, createdAt: "2026-11-20T14:00:00.000Z", external: C_SLACK },
+    { id: "c3", issue: "i1", body: `${C_BODY} 3`, createdAt: "2026-11-20T13:00:00.000Z", bot: C_BOT },
+    { id: "c2", issue: "i1", body: C_REPLY, createdAt: "2026-11-20T12:00:00.000Z", parent: { id: "c1", body: `${C_BODY} 1` }, user: { id: "u-c", name: C_NAME, email: C_EMAIL } },
+    { id: "c1", issue: "i1", body: `${C_BODY} 1`, createdAt: "2026-11-20T11:00:00.000Z", user: { id: "u-c", name: C_NAME, email: C_EMAIL } },
+  ];
+}
+/** Os comentários e as origens por item que a sincronização deixou, sem ids nem datas de gravação. */
+async function commentSnapshot(projectId: string): Promise<unknown> {
+  const comments = await q(
+    "select t.number, c.body, c.external_author_name, c.via, c.created_at, c.edited_at, p.clerk_user_id from ticket_comments c join tickets t on t.id = c.ticket_id left join people p on p.id = c.author_person_id where c.project_id = $1 order by t.number, c.created_at, c.body",
+    [projectId],
+  );
+  const refs = await q("select t.number, r.kind, r.external_id, r.applied, r.missing_since is null as present, r.removed_here_at is null as kept, r.local_id is not null as linked from external_item_refs r join tickets t on t.id = r.ticket_id where r.project_id = $1 order by r.external_id", [projectId]);
+  return { comments, refs };
+}
+function expectNoCommentData(raw: unknown): void {
+  const text = JSON.stringify(raw);
+  for (const secret of C_SECRETS) expect(text, secret).not.toContain(secret);
+}
+/** Chama `continue_linear_sync` até a rodada chegar à fase pedida (sem passar dela). */
+async function mcpUntilPhase(tok: string, runId: string, phase: string, first: any): Promise<any> {
+  let last = first;
+  for (let i = 0; i < 40 && last.phase !== phase; i += 1) {
+    const res = await write(tok, "continue_linear_sync", { runId });
+    expect(res.isError, res.text).toBe(false);
+    last = res.data;
+  }
+  expect(last.phase).toBe(phase);
+  return last;
+}
+
+describe("comentários do Linear pela sincronização do MCP (TREEPM-477)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("projeto já importado: start_linear_sync + continue_linear_sync trazem os comentários, com o mesmo resultado das rotas da tela, e as respostas não levam corpo, nome nem e-mail", async () => {
+    const commentScenario = async (projectId: string, sync: () => Promise<any>): Promise<{ last: any; snap: unknown; comments: unknown }> => {
+      const data = team();
+      await link(projectId, data);
+      await httpRun(projectId);
+      mutate(data);
+      addComments(data);
+      const last = await sync();
+      return { last, snap: await snapshot(projectId), comments: await commentSnapshot(projectId) };
+    };
+    const viaHttp = await commentScenario(priv(), () => httpRun(priv()));
+    await truncateAll(h.pool);
+    h.app().get(AccessTokenService).resetMemory();
+    h.app().get(McpGateway).resetMemory();
+    const world = await seedWorld(h.pool);
+    const projectId = world.projects.priv;
+    let responses: ToolResponse[] = [];
+    const viaMcp = await commentScenario(projectId, async () => {
+      const tok = await token("admin", { people: true }, projectId);
+      const result = await mcpSync(tok);
+      responses = result.responses;
+      return result.last;
+    });
+    // Os comentários entraram, pelos dois caminhos, iguais.
+    expect((viaMcp.comments as { comments: unknown[] }).comments).toHaveLength(5);
+    expect(viaMcp.comments).toEqual(viaHttp.comments);
+    expect(viaMcp.snap).toEqual(viaHttp.snap);
+    expect(viaMcp.last).toMatchObject({ phase: "done", done: true, counts: viaHttp.last.counts, waitUntil: null });
+    expect(viaMcp.last.counts).toMatchObject({ commentsCreated: 5 });
+    expect(JSON.stringify(viaMcp.comments)).toContain(C_REPLY);
+    // Os eventos "N comentários trazidos do Linear" do caminho do MCP levam a marca "pelo MCP", como os outros da sincronização.
+    const commentEvents = await q("select payload->>'via' as via, payload->>'tokenId' is not null as token from activity_events where kind = 'ticket.comments_imported_from_linear'");
+    expect(commentEvents.length).toBeGreaterThan(0);
+    expect(commentEvents.every((row) => row["via"] === "mcp" && row["token"] === true)).toBe(true);
+    // A fase `comments` passou pelo MCP, e nenhuma resposta das duas ferramentas leva corpo, nome de autor nem e-mail.
+    expect(responses.some((res) => res.data?.phase === "comments")).toBe(true);
+    for (const res of responses) {
+      expect(Object.keys(res.data ?? {}).sort()).toEqual(["counts", "done", "id", "nextAction", "phase", "waitUntil"]);
+      expectNoCommentData(res.raw);
+    }
+  });
+
+  it("get_linear_status com a rodada na fase comments: só id, fase, fim, contagens e espera (e quem iniciou, com o alcance de pessoas)", async () => {
+    const data = team();
+    await link(priv(), data);
+    await httpRun(priv());
+    // 60 comentários: mais de uma página (50), então a rodada fica na fase `comments` depois do primeiro passo dela.
+    data.comments = Array.from({ length: 60 }, (_, i) => ({
+      id: `c${String(i)}`,
+      issue: "i1",
+      body: `${C_BODY} ${String(i)}`,
+      createdAt: `2026-11-20T10:${String(59 - i).padStart(2, "0")}:00.000Z`,
+      user: { id: "u-c", name: C_NAME, email: C_EMAIL },
+    }));
+    const tok = await token("admin");
+    const started = await write(tok, "start_linear_sync");
+    const runId = started.data?.id as string;
+    await mcpUntilPhase(tok, runId, "comments", started.data);
+    const inComments = await write(tok, "continue_linear_sync", { runId });
+    expect(inComments.isError, inComments.text).toBe(false);
+    expect(inComments.data).toMatchObject({ phase: "comments", done: false });
+    expect(inComments.data?.counts).toMatchObject({ commentsCreated: 50 });
+    expectNoCommentData(inComments.raw);
+    for (const opts of [{ scope: "read" as const }, { scope: "read" as const, people: true }]) {
+      const reader = await token("admin", opts);
+      const before = h.linear().calls.length;
+      const status = await h.tool(reader, "PRIV", "get_linear_status", {});
+      expect(status.isError, status.text).toBe(false);
+      expect(h.linear().calls.length).toBe(before);
+      const run = status.data?.run as Record<string, unknown>;
+      expect(Object.keys(run).sort()).toEqual(opts.people ? ["counts", "done", "id", "phase", "startedBy", "waitUntil"] : ["counts", "done", "id", "phase", "waitUntil"]);
+      expect(run).toMatchObject({ id: runId, phase: "comments", done: false, waitUntil: null });
+      expect(run["counts"]).toMatchObject({ commentsCreated: 50 });
+      expectNoCommentData(status.raw);
+    }
+    const { last } = await mcpSteps(tok, runId, inComments.data);
+    expect(last.counts).toMatchObject({ commentsCreated: 60 });
+  });
+
+  it("a fase comments cabe no prazo do passo do MCP: getTeam lento e página de comentários grande demais → andamento antes de 30 s, página menor, e a chamada seguinte continua", async () => {
+    const { REQUEST_TIMEOUT_MS } = await import("../src/mcp/mcp-gateway.js");
+    const data = team();
+    await link(priv(), data);
+    await httpRun(priv());
+    mutate(data);
+    addComments(data);
+    const tok = await token("admin");
+    const started = await write(tok, "start_linear_sync");
+    const runId = started.data?.id as string;
+    await mcpUntilPhase(tok, runId, "comments", started.data);
+    const before = (await q("select phase, cursor, page_size from external_import_runs where id = $1::uuid", [runId]))[0] as { phase: string; cursor: string | null; page_size: number };
+    let skew = 0;
+    const realNow = Date.now.bind(Date);
+    vi.spyOn(Date, "now").mockImplementation(() => realNow() + skew);
+    const huge = `{"data":{"comments":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}},"pad":"${"x".repeat(4 * 1_048_576 + 10)}"}`;
+    let slow = true;
+    useLinear(data, (call) => (slow && call.query.includes("comments(") ? { raw: huge } : null));
+    const pageDelays = [...SLOW_PAGES];
+    h.linear().beforeReply = (call) => {
+      if (!slow) return;
+      if (call.query.startsWith("query Team(")) skew += SLOW_TEAM;
+      else if (call.query.includes("comments(")) skew += pageDelays.shift() ?? 9_900;
+    };
+    const t0 = Date.now();
+    const res = await h.tool(tok, "PRIV", "continue_linear_sync", { runId });
+    expect(Date.now() - t0).toBeLessThan(REQUEST_TIMEOUT_MS);
+    expect(res.isError, res.text).toBe(false);
+    expect(res.data).toMatchObject({ id: runId, phase: "comments", done: false });
+    const after = (await q("select phase, cursor, page_size from external_import_runs where id = $1::uuid", [runId]))[0] as { phase: string; cursor: string | null; page_size: number };
+    expect(after).toMatchObject({ phase: "comments", cursor: before.cursor });
+    expect(after.page_size).toBeLessThan(before.page_size);
+    slow = false;
+    h.linear().beforeReply = null;
+    const next = await write(tok, "continue_linear_sync", { runId });
+    expect(next.isError, next.text).toBe(false);
+    const commentsCall = h.linear().calls.filter((call) => call.query.includes("comments(")).at(-1);
+    expect(Number(commentsCall?.variables["first"])).toBe(after.page_size);
+    const { last } = await mcpSteps(tok, runId, next.data);
+    expect(last.counts).toMatchObject({ commentsCreated: 5 });
+  });
+
+  it("e-mail recusado na fase comments e sem tempo para a próxima chamada: a recusa fica gravada, a resposta é o andamento (sem erro) e a chamada seguinte já pede sem e-mail", async () => {
+    const { REQUEST_TIMEOUT_MS } = await import("../src/mcp/mcp-gateway.js");
+    const data = team();
+    await link(priv(), data);
+    await httpRun(priv());
+    mutate(data);
+    addComments(data);
+    const tok = await token("admin");
+    const started = await write(tok, "start_linear_sync");
+    const runId = started.data?.id as string;
+    await mcpUntilPhase(tok, runId, "comments", started.data);
+    let skew = 0;
+    const realNow = Date.now.bind(Date);
+    vi.spyOn(Date, "now").mockImplementation(() => realNow() + skew);
+    const denied = { body: { errors: [{ message: "x", path: ["comments", "nodes", 0, "user", "email"], extensions: { code: "FORBIDDEN" } }] } };
+    useLinear(data, (call) => (call.query.includes("comments(") && /\bemail\b/.test(call.query) ? denied : null));
+    // getTeam 7 s e a recusa 5 s: a segunda chamada (10 s de prazo) já não cabe nos 20 s do MCP.
+    let slow = true;
+    h.linear().beforeReply = (call) => {
+      if (!slow) return;
+      if (call.query.startsWith("query Team(")) skew += 7_000;
+      else if (call.query.includes("comments(")) skew += 5_000;
+    };
+    const mark = h.linear().calls.length;
+    const t0 = Date.now();
+    const res = await h.tool(tok, "PRIV", "continue_linear_sync", { runId });
+    expect(Date.now() - t0).toBeLessThan(REQUEST_TIMEOUT_MS);
+    expect(res.isError, res.text).toBe(false);
+    expect(res.data).toMatchObject({ id: runId, phase: "comments", done: false });
+    expect(h.linear().calls.slice(mark).filter((call) => call.query.includes("comments(")).length).toBe(1);
+    const row = (await q("select counts, error_streak, last_error_code from external_import_runs where id = $1::uuid", [runId]))[0] as { counts: Record<string, unknown>; error_streak: number; last_error_code: string | null };
+    expect(row.counts["assigneeEmailUnavailable"]).toBe(true);
+    expect(row.error_streak).toBe(0);
+    slow = false;
+    h.linear().beforeReply = null;
+    const next = mark + h.linear().calls.slice(mark).length;
+    const { last } = await mcpSteps(tok, runId);
+    expect(h.linear().calls.slice(next).filter((call) => call.query.includes("comments(")).every((call) => !/\bemail\b/.test(call.query))).toBe(true);
+    expect(last.counts).toMatchObject({ commentsCreated: 5 });
   });
 });

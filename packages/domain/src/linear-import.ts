@@ -4,6 +4,7 @@
  */
 import { mentionedKeys, mentionsPersonRaw, scanTicketRefs, withoutPersonLinksDeep } from "./mentions.js";
 import type { TicketStatus } from "./tickets.js";
+import { looksLikeEmail } from "./email-shape.js";
 
 /** Limites dos esquemas de ticket (título 200, descrição 20.000 caracteres). */
 export const LINEAR_TITLE_MAX = 200;
@@ -77,10 +78,15 @@ export function mapLinearTitle(title: string, identifier: string): string {
  */
 export function mapLinearDescription(description: string | null, projectKey = ""): string {
   if (description === null || description === "") return "";
-  const text = neutralizeOwnTicketKey(neutralizePersonMentions(cutTo(sanitize(description), LINEAR_DESCRIPTION_MAX)), projectKey);
-  if (text.length <= LINEAR_DESCRIPTION_MAX) return text;
+  return mapLinearMarkdown(description, projectKey, LINEAR_DESCRIPTION_MAX);
+}
+
+/** A mesma ordem da descrição com outro teto (o comentário usa o dele): limpar → cortar → neutralizar menção e chave → cortar e conferir. */
+export function mapLinearMarkdown(raw: string, projectKey: string, max: number): string {
+  const text = neutralizeOwnTicketKey(neutralizePersonMentions(cutTo(sanitize(raw), max)), projectKey);
+  if (text.length <= max) return text;
   // Escapes (`person\:`, `%2D`) alongaram o texto: corta de novo e confere de novo (o corte só tira o fim; a chave volta a ser conferida).
-  return ensureNoOwnKey(cutTo(text, LINEAR_DESCRIPTION_MAX), projectKey);
+  return ensureNoOwnKey(cutTo(text, max), projectKey);
 }
 
 /** Hífen inseparável (U+2011): mesma aparência e mesmo comprimento, é caractere comum (o editor o preserva) e o detector não o lê como hífen. */
@@ -227,7 +233,9 @@ export function linearCreatorColumns(input: {
 }): { externalCreatorId: string | null; externalCreatorName: string | null; creatorPersonId: string | null } {
   if (input.creator === null) return { externalCreatorId: null, externalCreatorName: null, creatorPersonId: null };
   const person = input.emailReadable ? input.matchedPersonId : input.existingPersonId;
-  const name = cutTo(sanitize(input.creator.name).trim(), LINEAR_CREATOR_NAME_MAX);
+  // Nome com forma de e-mail (conferida antes do corte) não é guardado: o e-mail do Linear nunca fica (C2, item 1).
+  const full = sanitize(cutTo(input.creator.name, LINEAR_CREATOR_NAME_MAX * 4)).trim();
+  const name = looksLikeEmail(full) ? "" : cutTo(full, LINEAR_CREATOR_NAME_MAX);
   return { externalCreatorId: cutTo(sanitize(input.creator.id), LINEAR_EXTERNAL_ID_MAX), externalCreatorName: person === null && name !== "" ? name : null, creatorPersonId: person };
 }
 

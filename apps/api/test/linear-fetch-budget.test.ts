@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LinearImportService, STEP_MAX_CALLS } from "../src/linear/linear-import.service.js";
+import { HttpLinearClient, LINEAR_IMPORT_MAX_BODY_BYTES } from "../src/linear/linear-client.js";
 import { LinearError } from "../src/linear/ports.js";
+import { linearFakeFetch } from "./linear-fake-fetch.js";
 import type { LinearClient } from "../src/linear/ports.js";
 
 // L9 item 3: a ida ao Linear de um passo (prazo reduz a página como o corpo grande, teto de 6 chamadas e 25 s).
@@ -10,7 +12,7 @@ function serviceWith(listTeamIssues: LinearClient["listTeamIssues"]) {
   const service = new LinearImportService({ listTeamIssues } as unknown as LinearClient, null as never, null as never, null as never, null as never, null as never);
   return (service as unknown as { fetchIssues: Fetcher }).fetchIssues.bind(service);
 }
-const okPage = { nodes: [], nextCursor: null, skippedInvalid: 0, emailUnavailable: false };
+const okPage = { nodes: [], nextCursor: null, skippedInvalid: 0 };
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -73,7 +75,7 @@ function projectsWith(listTeamProjects: LinearClient["listTeamProjects"]) {
   const service = new LinearImportService({ listTeamProjects } as unknown as LinearClient, null as never, null as never, null as never, null as never, null as never);
   return (service as unknown as { fetchProjects: ProjectFetcher }).fetchProjects.bind(service);
 }
-const projectsPage = (ids: string[]) => ({ nodes: ids.map((id) => ({ id })), nextCursor: null, skippedInvalid: 0, emailUnavailable: false });
+const projectsPage = (ids: string[]) => ({ nodes: ids.map((id) => ({ id })), nextCursor: null, skippedInvalid: 0 });
 
 describe("fetchProjects", () => {
   it("estouro do corpo reduz a página à metade até caber, mantendo o conteúdo", async () => {
@@ -151,17 +153,51 @@ describe("prazo do passo pelo MCP (deadline)", () => {
       calls += 1;
       throw new Error("não devia chamar");
     });
-    const bound = fetchProjects as unknown as (k: string, t: string, r: unknown, p: { size: number }, deadline?: number) => Promise<unknown>;
-    await expect(bound("k", "t", run(), { size: 0 }, now + 9_999)).rejects.toMatchObject({ name: "StepOutOfTime", lastError: null });
+    const bound = fetchProjects as unknown as (k: string, t: string, r: unknown, p: { size: number }, emailRefused?: () => Promise<void>, alreadyUsed?: number, deadline?: number) => Promise<unknown>;
+    await expect(bound("k", "t", run(), { size: 0 }, undefined, 0, now + 9_999)).rejects.toMatchObject({ name: "StepOutOfTime", lastError: null });
     expect(calls).toBe(0);
     const fetchIssues = serviceWith(async () => {
       calls += 1;
       now += 4_000;
       throw new LinearError("linear_timeout");
-    }) as unknown as (k: string, t: string, r: unknown, p: { size: number }, deadline?: number) => Promise<unknown>;
+    }) as unknown as (k: string, t: string, r: unknown, p: { size: number }, emailRefused?: () => Promise<void>, alreadyUsed?: number, deadline?: number) => Promise<unknown>;
     const progress = { size: 0 };
-    await expect(fetchIssues("k", "t", run(), progress, now + 15_000)).rejects.toMatchObject({ name: "StepOutOfTime", lastError: { code: "linear_timeout" } });
+    await expect(fetchIssues("k", "t", run(), progress, undefined, 0, now + 15_000)).rejects.toMatchObject({ name: "StepOutOfTime", lastError: { code: "linear_timeout" } });
     expect(calls).toBe(2); // 0 → 4 s → 8 s; a 3ª começaria em 8 s e só terminaria em 18 s > 15 s
     expect(progress.size).toBe(12);
   });
+});
+
+// C2, item 4: o pior caso (resposta grande demais E e-mail recusado) cabe no orçamento do passo, contando TODA chamada ao Linear, e a
+// recusa do e-mail é gravada assim que acontece (o passo termina em erro sem nenhuma página boa).
+describe("orçamento do passo com e-mail recusado e resposta grande demais (fetch de verdade contado)", () => {
+  const denied = (path: readonly (string | number)[]) => ({ body: { errors: [{ message: "x", path, extensions: { code: "FORBIDDEN" } }] } });
+  const huge = { raw: JSON.stringify({ data: { pad: "x".repeat(LINEAR_IMPORT_MAX_BODY_BYTES + 10) } }) };
+  const cases = [
+    { phase: "fetchProjects", path: ["team", "projects", "nodes", 0, "lead", "email"] },
+    { phase: "fetchIssues", path: ["team", "issues", "nodes", 0, "assignee", "email"] },
+    { phase: "fetchComments", path: ["comments", "nodes", 0, "user", "email"] },
+  ] as const;
+  for (const { phase, path } of cases) {
+    it(`${phase}: no máximo ${STEP_MAX_CALLS} fetch; a recusa é gravada na hora, uma vez`, async () => {
+      const fake = linearFakeFetch((call) => (/\bemail\b/.test(call.query) ? denied(path) : huge));
+      const client = new HttpLinearClient({ fetch: fake.impl });
+      const service = new LinearImportService(client, null as never, null as never, null as never, null as never, null as never);
+      const fetcher = (service as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>)[phase]!.bind(service);
+      const refused: number[] = [];
+      const progress = { size: 0 };
+      await expect(fetcher("lin_api_x", "t", run(), progress, async () => void refused.push(fake.calls.length))).rejects.toMatchObject({ code: "linear_response_too_large" });
+      expect(fake.calls.length).toBeLessThanOrEqual(STEP_MAX_CALLS);
+      expect(fake.calls.length).toBe(STEP_MAX_CALLS);
+      expect(refused).toEqual([1]);
+      expect(fake.calls.slice(1).every((call) => !/\bemail\b/.test(call.query))).toBe(true);
+    });
+    it(`${phase}: com a recusa já gravada na rodada, nem pede o e-mail`, async () => {
+      const fake = linearFakeFetch((call) => (/\bemail\b/.test(call.query) ? denied(path) : huge));
+      const service = new LinearImportService(new HttpLinearClient({ fetch: fake.impl }), null as never, null as never, null as never, null as never, null as never);
+      const fetcher = (service as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>)[phase]!.bind(service);
+      await expect(fetcher("lin_api_x", "t", { cursor: null, pageSize: 50, counts: { assigneeEmailUnavailable: true } }, { size: 0 }, async () => undefined)).rejects.toBeDefined();
+      expect(fake.calls.every((call) => !/\bemail\b/.test(call.query))).toBe(true);
+    });
+  }
 });

@@ -821,3 +821,56 @@ describe("M6: comentários e rotas da tela", () => {
     }
   });
 });
+
+// ADR 0061, fatia 2 (TREEPM-477): comentário trazido do Linear pelo MCP, só com o alcance de pessoas.
+describe("comentários trazidos do Linear", () => {
+  // Cada comentário um segundo depois do anterior (C2, item 8): com todos em `now()` a ordem da lista oscilava.
+  let seq = 0;
+  const imported = async (name: string | null, by: string | null = null): Promise<void> => {
+    seq += 1;
+    await h.pool.query(
+      "insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, external_author_name, body, via, created_at) select $1, project_id, id, $2, $3, 'Do Linear', 'linear', now() - interval '1 hour' + make_interval(secs => $5) from tickets where project_id = $4 and number = 1",
+      [ORG, by, name, priv(), seq],
+    );
+  };
+
+  it("o autor do Linear sai sem id, com (Linear) e o nome limpo; a pessoa casada sai como pessoa", async () => {
+    const { token } = await setup();
+    await imported("Ana do Linear");
+    await imported("zed.sentinela@linear.test");
+    await imported(`[@x](person:${P().target})`);
+    await imported(null);
+    await imported(null, P().manager);
+    const res = await call(token, "list_comments", { key: "PRIV-1" });
+    expect(refused(res), JSON.stringify(res.raw)).toBe(false);
+    const authors = (res.data!["comments"] as { author: unknown; via?: string }[]).filter((c) => c.via === "linear").map((c) => c.author);
+    expect(authors).toEqual([
+      { id: null, name: "Ana do Linear (Linear)" },
+      { id: null, name: "Unnamed person (Linear)" },
+      { id: null, name: "Unnamed person (Linear)" },
+      { id: null, name: "Unnamed person (Linear)" },
+      { id: P().manager, name: NAMES["manager"] },
+    ]);
+    expect(JSON.stringify(res.raw)).not.toContain("sentinela");
+    expect(JSON.stringify(res.raw)).not.toContain(P().target);
+  });
+
+  it("sem o alcance de pessoas nada sai (a garantia central vale para o comentário importado)", async () => {
+    const { token } = await setup({ people: false });
+    await imported("Ana do Linear");
+    expect(await names(token)).not.toContain("list_comments");
+    const res = await call(token, "list_comments", { key: "PRIV-1" });
+    expect(refused(res)).toBe(true);
+    expect(JSON.stringify(res.raw)).not.toContain("Ana do Linear");
+  });
+
+  it("o histórico mostra o resumo da rodada só com a contagem", async () => {
+    const { token } = await setup();
+    await event(1, P().admin, "ticket.comments_imported_from_linear", { key: "PRIV-1", count: 4, automatic: true, source: "linear_sync", runId: randomUuid() });
+    const res = await call(token, "get_ticket_history", { key: "PRIV-1" });
+    const found = (res.data!["events"] as Record<string, unknown>[]).find((e) => e["kind"] === "comments_imported");
+    expect(found).toMatchObject({ kind: "comments_imported", count: 4 });
+    expect(Object.keys(found as object).sort()).toEqual(expect.arrayContaining(["at", "count", "kind"]));
+    expect(JSON.stringify(found)).not.toContain("linear_sync");
+  });
+});

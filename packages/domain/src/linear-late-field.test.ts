@@ -50,6 +50,10 @@ describe("linearCreatorColumns", () => {
     expect(linearCreatorColumns({ creator: ana, emailReadable: false, matchedPersonId: null, existingPersonId: "p1" })).toEqual({ externalCreatorId: "u-ana", externalCreatorName: null, creatorPersonId: "p1" });
     expect(linearCreatorColumns({ creator: ana, emailReadable: false, matchedPersonId: null, existingPersonId: null })).toEqual({ externalCreatorId: "u-ana", externalCreatorName: "Ana Criadora", creatorPersonId: null });
   });
+  it("nome do criador em forma de e-mail não é guardado (C2, item 1)", () => {
+    expect(linearCreatorColumns({ creator: { id: "u-e", name: "criador@linear.test" }, emailReadable: true, matchedPersonId: null, existingPersonId: null })).toEqual({ externalCreatorId: "u-e", externalCreatorName: null, creatorPersonId: null });
+    expect(linearCreatorColumns({ creator: { id: "u-e", name: `${"c".repeat(118)}@x.test` }, emailReadable: false, matchedPersonId: null, existingPersonId: null }).externalCreatorName).toBeNull();
+  });
   it("criador apagado no Linear: nada guardado; texto de controle sai do nome", () => {
     expect(linearCreatorColumns({ creator: null, emailReadable: true, matchedPersonId: "p1", existingPersonId: "p1" })).toEqual({ externalCreatorId: null, externalCreatorName: null, creatorPersonId: null });
     expect(linearCreatorColumns({ creator: { id: "u", name: "A\u0000b" }, emailReadable: true, matchedPersonId: null, existingPersonId: null }).externalCreatorName).toBe("Ab");

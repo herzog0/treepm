@@ -233,6 +233,8 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
         components: { ...(from === null ? {} : { from: ref(from) }), ...(to === null ? {} : { to: ref(to) }) },
       });
     }
+    case "comments_imported":
+      return <>{t("activity.commentsImported", { count: entry.count })}</>;
     case "agent_work_started":
       return render("agentWorkStarted");
     case "agent_work_ended":

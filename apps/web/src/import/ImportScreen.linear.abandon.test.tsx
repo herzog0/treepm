@@ -40,11 +40,34 @@ describe("Importação do Linear › fase 'Ligando menções'", () => {
     const { hold, release } = held();
     setup({ existing: { phase: "mentions", counts: { projectsSeen: 3, issuesSeen: 12 } }, script: [{ hold }] });
     const items = within(await screen.findByRole("list", { name: "Fases da importação" })).getAllByRole("listitem");
-    expect(items.map((item) => item.getAttribute("data-state"))).toEqual(["done", "done", "done", "doing"]);
+    expect(items.map((item) => item.getAttribute("data-state"))).toEqual(["done", "done", "done", "doing", "todo"]);
     expect(items[2]).toHaveTextContent("Ligar sub-issues aos pais");
     expect(items[3]).toHaveTextContent("Ligando menções");
     release();
     await screen.findByRole("heading", { name: "Importação concluída" });
+  });
+});
+
+describe("Importação do Linear › fase 'Trazendo comentários' (TREEPM-477)", () => {
+  it("na primeira importação é a quinta fase, depois das menções, e o anúncio diz o que acontece", async () => {
+    const { hold, release } = held();
+    setup({ existing: { phase: "comments", counts: { projectsSeen: 3, issuesSeen: 12, commentsCreated: 50 } }, script: [{ hold }] });
+    const items = within(await screen.findByRole("list", { name: "Fases da importação" })).getAllByRole("listitem");
+    expect(items.map((item) => item.getAttribute("data-state"))).toEqual(["done", "done", "done", "done", "doing"]);
+    expect(items[3]).toHaveTextContent("Ligando menções");
+    expect(items[4]).toHaveTextContent("Trazendo comentários");
+    expect(await screen.findByText("Trazendo os comentários das issues.")).toBeInTheDocument();
+    release();
+    await screen.findByRole("heading", { name: "Importação concluída" });
+  });
+  it("na sincronização fica entre as menções e a conferência do que sumiu", async () => {
+    const { hold, release } = held();
+    setup({ existing: { mode: "reimport", phase: "comments" }, script: [{ hold }] });
+    const items = within(await screen.findByRole("list", { name: "Fases da importação" })).getAllByRole("listitem");
+    expect(items.map((item) => item.getAttribute("data-state"))).toEqual(["done", "done", "done", "done", "done", "doing", "todo"]);
+    expect(items[5]).toHaveTextContent("Trazendo comentários");
+    expect(items[6]).toHaveTextContent("Verificando o que sumiu do Linear");
+    release();
   });
 });
 

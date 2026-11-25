@@ -82,6 +82,7 @@ model Organization {
   externalCredentials        ExternalCredential[]
   projectExternalSources     ProjectExternalSource[]
   ticketExternalRefs         TicketExternalRef[]
+  externalItemRefs           ExternalItemRef[]
   externalImportRuns         ExternalImportRun[]
   externalCategorizeItems    ExternalCategorizeItem[]
 
@@ -284,6 +285,7 @@ model Ticket {
   contributions        TicketContribution[]
   conversations        Conversation[]
   externalRefs         TicketExternalRef[]
+  externalItemRefs     ExternalItemRef[]
   importRunsAsDestination ExternalImportRun[]
   categorizeItems         ExternalCategorizeItem[]
 
@@ -650,7 +652,10 @@ model TicketComment {
   id                String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
   projectId         String    @map("project_id") @db.Uuid
   ticketId          String    @map("ticket_id") @db.Uuid
-  authorPersonId    String    @map("author_person_id") @db.Uuid
+  /// Nulo só em comentário trazido do Linear (`via = linear`) cujo autor não casou com uma pessoa do TreePM (migration 0044).
+  authorPersonId    String?   @map("author_person_id") @db.Uuid
+  /// O nome de exibição do autor no Linear (ou do robô), só quando não há pessoa casada; os dois nulos = autor apagado no Linear.
+  externalAuthorName String?  @map("external_author_name")
   /// 1 a 10.000 caracteres enquanto existe; vazio depois de removido (check no banco)
   body              String
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -662,7 +667,7 @@ model TicketComment {
   contributionId    String?   @map("contribution_id") @db.Uuid
   /// Nome da área que a contribuição removida tinha, gravado por gatilho no banco; nulo enquanto a contribuição existe
   areaName          String?   @map("area_name")
-  /// `mcp` quando o comentário veio de uma chamada MCP (ADR 0043), `act-as` quando um administrador o escreveu agindo como pessoa de teste (ADR 0057); nulo quando foi escrito na tela. Nunca muda depois.
+  /// `mcp` quando o comentário veio de uma chamada MCP (ADR 0043), `act-as` quando um administrador o escreveu agindo como pessoa de teste (ADR 0057); `linear` quando foi trazido do Linear (ADR 0061); nulo quando foi escrito na tela. Nunca muda depois.
   via               String?
   /// Com `via = act-as` (ADR 0057): a pessoa de verdade (administrador) que escreveu agindo como `authorPersonId`; nulo nos demais. Nunca é devolvido pela API.
   viaPersonId       String?   @map("via_person_id") @db.Uuid
@@ -672,7 +677,7 @@ model TicketComment {
 
   organization Organization        @relation(fields: [orgId], references: [orgId])
   ticket       Ticket              @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
-  author       Person              @relation("CommentAuthor", fields: [orgId, authorPersonId], references: [orgId, id])
+  author       Person?             @relation("CommentAuthor", fields: [orgId, authorPersonId], references: [orgId, id])
   removedBy    Person?             @relation("CommentRemovedBy", fields: [orgId, removedByPersonId], references: [orgId, id])
   contribution TicketContribution? @relation(fields: [orgId, ticketId, contributionId], references: [orgId, ticketId, id], onDelete: NoAction)
 
@@ -915,6 +920,39 @@ model TicketExternalRef {
   @@index([orgId, projectId])
   @@index([orgId, projectId, ticketId], map: "ticket_external_refs_project_ticket_idx")
   @@map("ticket_external_refs")
+}
+
+/// Origem por item (ADR 0061, seção 3; migration 0044): comentários agora, relações, etiquetas e anexos depois. Única por organização,
+/// provedor, tipo e id externo. `localId` é o item local (sem chave estrangeira: o tipo muda de tabela), nulo depois de removido aqui.
+model ExternalItemRef {
+  orgId             String    @map("org_id")
+  id                String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId         String    @map("project_id") @db.Uuid
+  ticketId          String    @map("ticket_id") @db.Uuid
+  /// linear (check no banco)
+  provider          String
+  /// comment (check no banco)
+  kind              String
+  externalId        String    @map("external_id")
+  localId           String?   @map("local_id") @db.Uuid
+  /// O que foi aplicado: datas de edição, marca do corpo original, id do usuário e do pai no Linear, se o corpo começa com a citação. Nunca o corpo nem e-mail.
+  applied           Json      @default("{}")
+  externalUpdatedAt DateTime? @map("external_updated_at") @db.Timestamptz(3)
+  missingSince      DateTime? @map("missing_since") @db.Timestamptz(3)
+  removedHereAt     DateTime? @map("removed_here_at") @db.Timestamptz(3)
+  /// A rodada que viu o item por último (sem chave estrangeira, como em `ticket_external_refs`).
+  lastSeenRunId     String?   @map("last_seen_run_id") @db.Uuid
+  firstImportedAt   DateTime  @default(now()) @map("first_imported_at") @db.Timestamptz(3)
+  lastImportedAt    DateTime  @default(now()) @map("last_imported_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  ticket       Ticket       @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+
+  @@id([orgId, id])
+  @@unique([orgId, provider, kind, externalId], map: "external_item_refs_external_key")
+  @@index([orgId, ticketId], map: "external_item_refs_ticket_idx")
+  @@index([orgId, projectId, kind], map: "external_item_refs_project_kind_idx")
+  @@map("external_item_refs")
 }
 
 /// Uma rodada de importação de um projeto ligado (ADR 0060, seção 3; migration 0038). No máximo uma não terminada por projeto (índice

@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto";
 import { ConflictException, HttpException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Prisma, TenantClient } from "@treepm/db";
 import { canImportTickets } from "@treepm/domain";
 import type { TicketStatus } from "@treepm/domain";
 import type { LinearParentMove } from "@treepm/domain";
-import { cleanLinearText, decideLinearField, decideLinearLateField, decideLinearStatus, heldFieldsAfter, isFinished, linearCreatorColumns, linearInitialParent, mapLinearDescription, mapLinearPriority, mapLinearProjectStatus, mapLinearStatus, mapLinearTitle, matchLinearAssignee, planLinearParents, safeLinearUrl, sameLinearValue } from "@treepm/domain";
+import { cleanLinearText, decideLinearField, linearCommentAuthor, linearCommentAuthorName, linearCommentQuote, mapLinearComment, decideLinearLateField, decideLinearStatus, heldFieldsAfter, isFinished, linearCreatorColumns, linearInitialParent, mapLinearDescription, mapLinearPriority, mapLinearProjectStatus, mapLinearStatus, mapLinearTitle, matchLinearAssignee, planLinearParents, safeLinearUrl, sameLinearValue } from "@treepm/domain";
 import { refuseWhileActingAs } from "../access/act-as.js";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
@@ -21,7 +22,7 @@ import { TicketsService } from "../tickets/tickets.service.js";
 import type { ProjectRow, TicketRow } from "../tickets/tickets.service.js";
 import { LINEAR_TIMEOUT_MS } from "./linear-client.js";
 import { LINEAR_CLIENT, LinearError } from "./ports.js";
-import type { LinearClient, LinearIssueNode, LinearIssuesPage, LinearProjectNode, LinearProjectsPage } from "./ports.js";
+import type { LinearClient, LinearCommentsPage, LinearIssueNode, LinearIssuesPage, LinearProjectNode, LinearProjectsPage } from "./ports.js";
 import { applyParentMoves } from "./linear-moves.js";
 import { mapLinearIssuePage } from "./linear-mapping.js";
 import type { MappedIssue } from "./linear-mapping.js";
@@ -50,6 +51,8 @@ const FULL_PAGE = 50;
 /** Teto de um passo que vai ao Linear: chamadas e tempo (uma chamada só começa se ainda cabe o prazo dela dentro dos 25 s). */
 export const STEP_MAX_CALLS = 6;
 export const STEP_MAX_MS = 25_000;
+/** Chamadas que a conferência de acesso do passo (`requireLinearAccess` → `getTeam`) gasta antes da leitura. */
+const ACCESS_CALLS = 1;
 
 /** O prazo do passo conduzido pelo MCP acabou antes de uma chamada ao Linear caber; `lastError` é a falha anterior, se houve. */
 class StepOutOfTime extends Error {
@@ -89,6 +92,15 @@ const COUNT_KEYS = [
   "missingProjects",
   // Sincronização (ADR 0061): campos preenchidos pela primeira vez em tickets já importados.
   "filled",
+  // Comentários (ADR 0061, fatia 2): criados, atualizados, mantidos porque foram editados aqui, ignorados (issue não importada, corpo
+  // vazio), lidos, fora do formato e não encontrados no Linear.
+  "commentsCreated",
+  "commentsUpdated",
+  "commentsKeptEdited",
+  "commentsSkipped",
+  "commentsSeen",
+  "commentsInvalid",
+  "commentsMissing",
 ] as const;
 /**
  * `assigneeEmailUnavailable`: o Linear recusou o e-mail dos responsáveis nesta rodada; ninguém foi atribuído.
@@ -384,10 +396,31 @@ type Incoming = {
   previous: { title: string; description: string; status: TicketStatus; priority: number | null; assigneeExternalId: string | null };
 };
 
+/** Uma marca curta do corpo original do Linear (sem o texto): "mudou no Linear" é a data de edição ou esta marca diferente da aplicada. */
+const bodyMark = (body: string): string => createHash("sha256").update(cleanLinearText(body)).digest("base64url").slice(0, 22);
+const isoOrNull = (date: Date | null): string | null => (date === null ? null : date.toISOString());
+/**
+ * O que a origem de um comentário guarda do que foi aplicado (C2, itens 2 e 3): datas, a marca do corpo original, o id do usuário do
+ * Linear, o id do pai e se o corpo local começa com a citação dele. Nunca o corpo nem o e-mail.
+ */
+type CommentApplied = { editedAt: string | null; mark: string | null; localEditedAt: string | null; authorId: string | null; parentId: string | null; quoted: boolean };
+const textOrNull = (value: unknown): string | null => (typeof value === "string" ? value : null);
+const commentApplied = (raw: Prisma.JsonValue): CommentApplied => {
+  const value = (raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+  return { editedAt: textOrNull(value["editedAt"]), mark: textOrNull(value["mark"]), localEditedAt: textOrNull(value["localEditedAt"]), authorId: textOrNull(value["authorId"]), parentId: textOrNull(value["parentId"]), quoted: value["quoted"] === true };
+};
+/** Uma data do Linear dentro da faixa razoável (C2, item 5): de 2000 até um dia no futuro; fora disso, ou inválida, `null`. */
+const LINEAR_DATE_MIN = Date.UTC(2000, 0, 1);
+const linearDate = (value: string): Date | null => {
+  const date = validDate(value);
+  return date === null || date.getTime() < LINEAR_DATE_MIN || date.getTime() > Date.now() + 86_400_000 ? null : date;
+};
+
 /** Fase de passo que vai à rede. */
 type Fetched =
   | { phase: "projects"; page: LinearProjectsPage; reduced: boolean; usedSize: number; /** Projetos cujo conteúdo longo teve de ser dispensado (sozinhos na página e ainda grandes demais): vale o resumo. */ summaryOnly: string[] }
-  | { phase: "issues"; page: LinearIssuesPage; /** A página mapeada FORA da transação (função pura), com a chave do projeto lida no começo do passo. */ mapped: Map<string, MappedIssue>; mappedFor: string; /** O passo precisou reduzir a página (o Linear estourou o teto ou o prazo) e o tamanho que deu certo. */ reduced: boolean; usedSize: number; /** A página veio sem descrição (a issue sozinha estourava o teto). */ withoutDescription: boolean };
+  | { phase: "issues"; page: LinearIssuesPage; /** A página mapeada FORA da transação (função pura), com a chave do projeto lida no começo do passo. */ mapped: Map<string, MappedIssue>; mappedFor: string; /** O passo precisou reduzir a página (o Linear estourou o teto ou o prazo) e o tamanho que deu certo. */ reduced: boolean; usedSize: number; /** A página veio sem descrição (a issue sozinha estourava o teto). */ withoutDescription: boolean }
+  | { phase: "comments"; page: LinearCommentsPage; reduced: boolean; usedSize: number; /** A página veio com o e-mail dos autores (pedido e não recusado): só então o casamento é refeito. */ withEmail: boolean };
 
 /** O Linear limitou: o código 429 de `linearHttp` ou do `requireLinearAccess`, com a espera pedida. */
 function rateLimitWait(error: unknown): number | null {
@@ -659,7 +692,7 @@ export class LinearImportService {
     if (seen.waitUntil !== null && seen.waitUntil.getTime() > Date.now()) return view(seen);
 
     let fetched: Fetched | null = null;
-    if (seen.phase === "projects" || seen.phase === "issues") {
+    if (seen.phase === "projects" || seen.phase === "issues" || seen.phase === "comments") {
       const result = await this.fetchPage(tenant, principal, projectId, seen, projectKey, deadline);
       if ("wait" in result) return result.wait;
       fetched = result.fetched;
@@ -688,22 +721,29 @@ export class LinearImportService {
    * tempo para a primeira página, o passo devolve a rodada como estava ("chame de novo"). Sem tempo para repetir depois de uma página
    * grande demais ou lenta: se o passo chegou a uma página MENOR que a da rodada, guarda esse tamanho e devolve a rodada (a próxima
    * chamada começa dele); se não reduziu nada (só a descrição ou o conteúdo longo ficariam de fora, o que não se guarda), é o erro de
-   * sempre, que conta na sequência de erros. Assim "chame de novo" nunca vira laço sem fim: o tamanho só diminui.
+   * sempre, que conta na sequência de erros. Exceção: se a falha anterior foi a recusa do e-mail, ela já está gravada na rodada e a próxima
+   * chamada pede sem e-mail; o passo devolve a rodada ("chame de novo") sem contar erro. Assim "chame de novo" nunca vira laço sem fim:
+   * o tamanho só diminui, e a recusa do e-mail acontece uma vez por rodada.
    */
   private async fetchPage(tenant: TenantRunner, principal: Principal, projectId: string, run: RunRow, projectKey: string, deadline?: number): Promise<{ fetched: Fetched } | { wait: RunView }> {
     // O tamanho de página que este passo alcançou: gravado mesmo quando o passo termina em erro, para o próximo começar de onde este chegou.
     const progress = { size: run.pageSize };
+    // A recusa do e-mail é gravada assim que acontece (C2, item 4): o passo pode terminar em erro depois dela, e o seguinte já pede sem.
+    const emailRefused = (): Promise<void> => this.recordEmailRefused(tenant, run);
     try {
       const { key, source } = await this.linear.requireLinearAccess(tenant, principal, projectId);
-      if (run.phase === "projects") return { fetched: await this.fetchProjects(key, source.externalTeamId, run, progress, deadline) };
-      const issues = await this.fetchIssues(key, source.externalTeamId, run, progress, deadline);
+      // A conferência de acesso acima já foi uma chamada ao Linear (`getTeam`): conta no mesmo orçamento do passo (C2, item 4).
+      if (run.phase === "projects") return { fetched: await this.fetchProjects(key, source.externalTeamId, run, progress, emailRefused, ACCESS_CALLS, deadline) };
+      if (run.phase === "comments") return { fetched: await this.fetchComments(key, source.externalTeamId, run, progress, emailRefused, ACCESS_CALLS, deadline) };
+      const issues = await this.fetchIssues(key, source.externalTeamId, run, progress, emailRefused, ACCESS_CALLS, deadline);
       // O mapeamento da página (função pura) roda aqui, FORA da transação de gravação.
       return { fetched: { ...issues, mapped: mapLinearIssuePage(issues.page.nodes, projectKey), mappedFor: projectKey } };
     } catch (caught) {
       let error = caught;
       if (caught instanceof StepOutOfTime) {
         if (caught.lastError === null) return { wait: view(run) };
-        if (progress.size < run.pageSize) return { wait: await this.recordPageSize(tenant, run, progress.size) };
+        // Também quando a falha anterior foi a recusa do e-mail: ela já está gravada na rodada, e a próxima chamada pede sem (progride).
+        if (progress.size < run.pageSize || caught.lastError.code === "linear_email_unavailable") return { wait: await this.recordPageSize(tenant, run, progress.size) };
         error = caught.lastError;
       }
       const http = error instanceof LinearError ? linearHttp(error) : error;
@@ -721,21 +761,28 @@ export class LinearImportService {
    * estourando, dispensa o conteúdo longo DELE (`summaryOnly`): o resumo vira a descrição e os outros projetos nunca perdem o conteúdo.
    * Um passo faz no máximo `STEP_MAX_CALLS` chamadas e `STEP_MAX_MS`; ao estourar termina em erro com o tamanho alcançado em `progress.size`.
    */
-  private async fetchProjects(key: string, teamId: string, run: RunRow, progress: { size: number }, deadline?: number): Promise<Extract<Fetched, { phase: "projects" }>> {
-    const withEmail = readCounts(run.counts).assigneeEmailUnavailable !== true;
+  private async fetchProjects(key: string, teamId: string, run: RunRow, progress: { size: number }, emailRefused: () => Promise<void> = async () => undefined, alreadyUsed = 0, deadline?: number): Promise<Extract<Fetched, { phase: "projects" }>> {
+    let withEmail = readCounts(run.counts).assigneeEmailUnavailable !== true;
     let size = Math.min(Math.max(run.pageSize, 1), FULL_PAGE);
     progress.size = size;
     let reduced = false;
     let withContent = true;
     const startedAt = Date.now();
     let lastError: LinearError | null = null;
-    for (let calls = 0; ; calls += 1) {
+    for (let calls = alreadyUsed; ; calls += 1) {
       if (lastError !== null && (calls >= STEP_MAX_CALLS || Date.now() - startedAt + LINEAR_TIMEOUT_MS > STEP_MAX_MS)) throw lastError;
       if (deadline !== undefined && Date.now() + LINEAR_TIMEOUT_MS > deadline) throw new StepOutOfTime(lastError);
       try {
         const page = await this.client.listTeamProjects(key, teamId, run.cursor, { first: size, withContent, withEmail });
         return { phase: "projects", page, reduced, usedSize: size, summaryOnly: withContent ? [] : page.nodes.map((node) => node.id) };
       } catch (error) {
+        // E-mail recusado: mais uma chamada do mesmo orçamento, já sem o e-mail; a recusa fica gravada na rodada na hora.
+        if (withEmail && error instanceof LinearError && error.code === "linear_email_unavailable") {
+          lastError = error;
+          withEmail = false;
+          await emailRefused();
+          continue;
+        }
         if (!(error instanceof LinearError) || (error.code !== "linear_response_too_large" && error.code !== "linear_timeout")) throw error;
         lastError = error;
         if (size > 1) {
@@ -755,16 +802,16 @@ export class LinearImportService {
    * deu certo vira o tamanho da rodada, e só volta a crescer (ao dobro) depois de três passos seguidos bem-sucedidos sem reduzir
    * (`size_streak`): voltar ao dobro no passo seguinte repetiria o estouro.
    */
-  private async fetchIssues(key: string, teamId: string, run: RunRow, progress: { size: number }, deadline?: number): Promise<Omit<Extract<Fetched, { phase: "issues" }>, "mapped" | "mappedFor">> {
+  private async fetchIssues(key: string, teamId: string, run: RunRow, progress: { size: number }, emailRefused: () => Promise<void> = async () => undefined, alreadyUsed = 0, deadline?: number): Promise<Omit<Extract<Fetched, { phase: "issues" }>, "mapped" | "mappedFor">> {
     const { after } = parseIssuesCursor(run.cursor);
-    const withEmail = readCounts(run.counts).assigneeEmailUnavailable !== true;
+    let withEmail = readCounts(run.counts).assigneeEmailUnavailable !== true;
     let size = Math.min(Math.max(run.pageSize, 1), FULL_PAGE);
     progress.size = size;
     let reduced = false;
     let withDescription = true;
     const startedAt = Date.now();
     let lastError: LinearError | null = null;
-    for (let calls = 0; ; calls += 1) {
+    for (let calls = alreadyUsed; ; calls += 1) {
       // Mais uma chamada só se ainda cabem as chamadas e o prazo dela (`LINEAR_TIMEOUT_MS`) dentro do teto do passo.
       if (lastError !== null && (calls >= STEP_MAX_CALLS || Date.now() - startedAt + LINEAR_TIMEOUT_MS > STEP_MAX_MS)) throw lastError;
       if (deadline !== undefined && Date.now() + LINEAR_TIMEOUT_MS > deadline) throw new StepOutOfTime(lastError);
@@ -772,6 +819,13 @@ export class LinearImportService {
         const page = await this.client.listTeamIssues(key, teamId, after, { first: size, withDescription, withEmail });
         return { phase: "issues", page, reduced, usedSize: size, withoutDescription: !withDescription };
       } catch (error) {
+        // E-mail recusado: mais uma chamada do mesmo orçamento, já sem o e-mail; a recusa fica gravada na rodada na hora.
+        if (withEmail && error instanceof LinearError && error.code === "linear_email_unavailable") {
+          lastError = error;
+          withEmail = false;
+          await emailRefused();
+          continue;
+        }
         if (!(error instanceof LinearError) || (error.code !== "linear_response_too_large" && error.code !== "linear_timeout")) throw error;
         lastError = error;
         if (size > 1) {
@@ -781,6 +835,59 @@ export class LinearImportService {
         } else if (withDescription) withDescription = false;
         else throw error;
       }
+    }
+  }
+
+  /**
+   * Uma página de comentários, com as regras das issues: corpo grande demais ou prazo estourado → repete com a metade (50 … 1). Com 1 e
+   * ainda estourando, sem o corpo do pai (a resposta perde só a citação); depois, sem o corpo (o comentário é lido, mas não criado nem
+   * atualizado nesta rodada, e conta em `commentsSkipped`): nenhum comentário prende a sincronização para sempre.
+   */
+  private async fetchComments(key: string, teamId: string, run: RunRow, progress: { size: number }, emailRefused: () => Promise<void> = async () => undefined, alreadyUsed = 0, deadline?: number): Promise<Extract<Fetched, { phase: "comments" }>> {
+    let withEmail = readCounts(run.counts).assigneeEmailUnavailable !== true;
+    let size = Math.min(Math.max(run.pageSize, 1), FULL_PAGE);
+    progress.size = size;
+    let reduced = false;
+    let withParentBody = true;
+    let withBody = true;
+    const startedAt = Date.now();
+    let lastError: LinearError | null = null;
+    for (let calls = alreadyUsed; ; calls += 1) {
+      if (lastError !== null && (calls >= STEP_MAX_CALLS || Date.now() - startedAt + LINEAR_TIMEOUT_MS > STEP_MAX_MS)) throw lastError;
+      if (deadline !== undefined && Date.now() + LINEAR_TIMEOUT_MS > deadline) throw new StepOutOfTime(lastError);
+      try {
+        const page = await this.client.listTeamComments(key, teamId, run.cursor, { first: size, withParentBody, withBody, withEmail });
+        return { phase: "comments", page, reduced, usedSize: size, withEmail };
+      } catch (error) {
+        // E-mail recusado: mais uma chamada do mesmo orçamento, já sem o e-mail; a recusa fica gravada na rodada na hora.
+        if (withEmail && error instanceof LinearError && error.code === "linear_email_unavailable") {
+          lastError = error;
+          withEmail = false;
+          await emailRefused();
+          continue;
+        }
+        if (!(error instanceof LinearError) || (error.code !== "linear_response_too_large" && error.code !== "linear_timeout")) throw error;
+        lastError = error;
+        if (size > 1) {
+          size = Math.max(1, Math.floor(size / 2));
+          reduced = true;
+          progress.size = size;
+        } else if (withParentBody) withParentBody = false;
+        else if (withBody) withBody = false;
+        else throw error;
+      }
+    }
+  }
+
+  /** Grava na rodada que o Linear recusou o e-mail (merge atômico; só se a rodada ainda está onde o passo a leu). Nunca derruba o passo. */
+  private async recordEmailRefused(tenant: TenantRunner, run: RunRow): Promise<void> {
+    try {
+      await tenant.run(async (tx, current) => {
+        await tx.$executeRaw`update external_import_runs set counts = counts || '{"assigneeEmailUnavailable": true}'::jsonb, updated_at = now()
+          where org_id = ${current.organization.orgId} and id = ${run.id}::uuid and phase = ${run.phase} and cursor is not distinct from ${run.cursor}::text`;
+      });
+    } catch (error) {
+      this.logger.warn(`não foi possível guardar a recusa do e-mail (${error instanceof Error ? error.name : "erro"})`);
     }
   }
 
@@ -818,7 +925,7 @@ export class LinearImportService {
    * reduzir: quem chama conta o erro). Nunca atrapalha a resposta ao erro.
    */
   private async shrinkStep(tenant: TenantRunner, run: RunRow): Promise<boolean> {
-    const issues = run.phase === "issues";
+    const issues = run.phase === "issues" || run.phase === "comments";
     const normal = BATCH_OF_PHASE[run.phase];
     if (!issues && normal === undefined) return true; // `projects` e as demais não têm lote a reduzir: só se repetem
     const effective = issues ? Math.min(run.pageSize, FULL_PAGE) : batchOf(run, normal as number);
@@ -913,8 +1020,18 @@ export class LinearImportService {
     } else if (run.phase === "mentions") {
       const next = await this.linkMentions(tx, project, run);
       if (next !== null) cursor = next;
-      else if (run.mode === "reimport") [phase, cursor] = ["missing", null];
-      else ({ phase, cursor, finished } = await this.finishRun(tx, principal, projectId, run, counts));
+      else [phase, cursor, pageSize, sizeStreak] = ["comments", null, FULL_PAGE, 0];
+    } else if (run.phase === "comments") {
+      // O cursor da fase é só o do Linear (C2, item 5): os eventos são gravados com cada página e os não vistos na última.
+      if (fetched?.phase !== "comments") throw new Error("passo de comentários sem a página do Linear");
+      await this.importComments(tx, principal, project, run, fetched, counts);
+      [pageSize, sizeStreak] = this.nextPageSize(run, fetched, sizeStreak);
+      if (fetched.page.nextCursor !== null) cursor = fetched.page.nextCursor;
+      else {
+        await this.markMissingComments(tx, project, run, counts);
+        if (run.mode === "reimport") [phase, cursor] = ["missing", null];
+        else ({ phase, cursor, finished } = await this.finishRun(tx, principal, projectId, run, counts));
+      }
     } else if (run.phase === "missing") {
       const next = await this.markMissing(tx, project, run, counts);
       if (next !== null) cursor = next;
@@ -994,7 +1111,6 @@ export class LinearImportService {
   private async importProjects(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, page: LinearProjectsPage, summaryOnly: ReadonlySet<string>, counts: Counts): Promise<void> {
     const unique = [...new Map(page.nodes.map((node) => [node.id, node])).values()];
     counts.skippedInvalid += page.skippedInvalid;
-    if (page.emailUnavailable) counts.assigneeEmailUnavailable = true;
     counts.projectsSeen += unique.length;
     if (unique.some((node) => summaryOnly.has(node.id))) counts.descriptionUnavailable = true;
     const existing = await this.existingRefRows(tx, "project", unique.map((node) => node.id));
@@ -1038,7 +1154,6 @@ export class LinearImportService {
     const { page } = fetched;
     const unique = [...new Map(page.nodes.map((node) => [node.id, node])).values()];
     if (!sweeping) counts.skippedInvalid += page.skippedInvalid;
-    if (page.emailUnavailable) counts.assigneeEmailUnavailable = true;
     const live = unique.filter((node) => !node.trashed);
     const existing = await this.existingRefRows(tx, "issue", live.map((node) => node.id));
     const reimport = run.mode === "reimport";
@@ -1752,6 +1867,149 @@ export class LinearImportService {
       return true;
     };
     return moves.filter((move) => !inIdea.has(move.parentId) || allTodo(move.id));
+  }
+
+  // ---- fase comments (ADR 0061, fatia 2) ----
+
+  /**
+   * Uma página de comentários do Linear, numa transação com o cursor (o passo repetido não duplica: a origem é única por organização e
+   * a vista nesta rodada não é revista). Comentário de issue não importada NESTE projeto é ignorado (`commentsSkipped`). Novo → criado
+   * com a data do Linear, `via = linear`, o autor do casamento atual e o corpo neutralizado, sem evento por comentário, sem menção e sem
+   * notificação. Já conhecido → o corpo acompanha o Linear se não foi editado aqui; removido aqui não volta; o autor acompanha o
+   * casamento atual (C2, item 3). A origem guarda só datas, marcas e ids, nunca o corpo nem o e-mail (C2, item 2). Os tickets que
+   * ganharam comentário nesta página ganham, na MESMA transação, o evento "N comentários trazidos do Linear" da rodada (C2, item 6).
+   */
+  private async importComments(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, fetched: Extract<Fetched, { phase: "comments" }>, counts: Counts): Promise<void> {
+    const { page } = fetched;
+    counts.commentsInvalid += page.skippedInvalid;
+    const nodes = [...new Map(page.nodes.map((node) => [node.id, node])).values()];
+    counts.commentsSeen += nodes.length;
+    if (nodes.length === 0) return;
+    const orgId = project.orgId;
+    const issueTickets = new Map(
+      (await tx.ticketExternalRef.findMany({ where: { provider: PROVIDER, kind: "issue", externalId: { in: [...new Set(nodes.map((node) => node.issueId))] } }, select: { externalId: true, ticketId: true, projectId: true } })).map((row) => [row.externalId, row] as const),
+    );
+    const knownIds = [...new Set([...nodes.map((node) => node.id), ...nodes.flatMap((node) => (node.parent ? [node.parent.id] : []))])];
+    const refs = new Map((await tx.externalItemRef.findMany({ where: { provider: PROVIDER, kind: "comment", externalId: { in: knownIds } } })).map((row) => [row.externalId, row] as const));
+    const localIds = [...refs.values()].flatMap((row) => (row.localId === null ? [] : [row.localId]));
+    const locals = new Map(
+      (localIds.length === 0 ? [] : await tx.ticketComment.findMany({ where: { id: { in: localIds } }, select: { id: true, body: true, editedAt: true, removedAt: true, authorPersonId: true, externalAuthorName: true } })).map((row) => [row.id, row] as const),
+    );
+    /** O pai removido aqui não é citado (o texto removido não volta dentro de uma resposta). */
+    const removedHere = (externalId: string): boolean => {
+      const ref = refs.get(externalId);
+      if (ref === undefined) return false;
+      const local = ref.localId === null ? undefined : locals.get(ref.localId);
+      return ref.removedHereAt !== null || local === undefined || local.removedAt !== null;
+    };
+    const needsPeople = fetched.withEmail && nodes.some((node) => node.author?.kind === "user" && node.author.email !== null);
+    const resolve = needsPeople ? await this.assigneeResolver(tx, project) : async () => null;
+    const now = new Date();
+    const createdPerTicket = new Map<string, number>();
+    for (const node of nodes) {
+      const ticket = issueTickets.get(node.issueId);
+      const ref = refs.get(node.id);
+      if (ticket === undefined || ticket.projectId !== project.id || (ref !== undefined && ref.projectId !== project.id)) {
+        counts.commentsSkipped += 1;
+        continue;
+      }
+      if (ref !== undefined && ref.lastSeenRunId === run.id) continue; // página relida (repescagem do passo, resposta perdida)
+      const author = node.author;
+      const named = author === null ? null : { kind: author.kind, name: linearCommentAuthorName(author.name) };
+      const matched = fetched.withEmail && author?.kind === "user" && author.email !== null ? await resolve(author.email) : null;
+      const authorId = author?.kind === "user" ? author.id : null;
+      const parentId = node.parent?.id ?? null;
+      const quote = node.parent !== null && node.parent.body !== null && !removedHere(node.parent.id) ? linearCommentQuote(node.parent.body) : null;
+      const quoted = quote !== null && quote !== "";
+      const body = node.body === null ? null : mapLinearComment(node.body, project.key, quote);
+      const editedAt = node.editedAt === null ? null : linearDate(node.editedAt);
+      const mark = node.body === null ? null : bodyMark(node.body);
+      const seen = { lastSeenRunId: run.id, lastImportedAt: now, missingSince: null, externalUpdatedAt: linearDate(node.updatedAt) };
+
+      if (ref === undefined) {
+        if (body === null || mark === null) {
+          counts.commentsSkipped += 1;
+          continue;
+        }
+        const who = linearCommentAuthor({ author: named, emailReadable: fetched.withEmail, matchedPersonId: matched, current: null });
+        const created = await tx.ticketComment.create({
+          data: { orgId, projectId: project.id, ticketId: ticket.ticketId, body, createdAt: linearDate(node.createdAt) ?? now, editedAt, via: "linear", ...who },
+          select: { id: true },
+        });
+        const applied: CommentApplied = { editedAt: isoOrNull(editedAt), mark, localEditedAt: isoOrNull(editedAt), authorId, parentId, quoted };
+        await tx.externalItemRef.create({
+          data: { orgId, projectId: project.id, ticketId: ticket.ticketId, provider: PROVIDER, kind: "comment", externalId: node.id, localId: created.id, applied, ...seen },
+        });
+        counts.commentsCreated += 1;
+        createdPerTicket.set(ticket.ticketId, (createdPerTicket.get(ticket.ticketId) ?? 0) + 1);
+        continue;
+      }
+
+      const local = ref.localId === null ? undefined : locals.get(ref.localId);
+      if (ref.removedHereAt !== null || local === undefined || local.removedAt !== null) {
+        // Removido no TreePM: não volta; a origem guarda isso e esquece o item local.
+        await tx.externalItemRef.update({ where: { orgId_id: { orgId, id: ref.id } }, data: { ...seen, localId: null, removedHereAt: ref.removedHereAt ?? now } });
+        continue;
+      }
+      const applied = commentApplied(ref.applied);
+      // Só as chaves conhecidas: um `body` gravado por uma versão anterior não é carregado adiante.
+      let next: CommentApplied = { ...applied, authorId, parentId };
+      // Mudou no Linear: a data de edição ou o corpo original (pela marca). A citação do pai não conta: editar o pai não reescreve as respostas.
+      if (mark !== null && (applied.editedAt !== isoOrNull(editedAt) || applied.mark !== mark)) {
+        const editedHere = isoOrNull(local.editedAt) !== applied.localEditedAt;
+        next = { ...next, editedAt: isoOrNull(editedAt), mark };
+        if (editedHere) counts.commentsKeptEdited += 1;
+        else if (body !== null && body !== local.body) {
+          const localEditedAt = editedAt ?? now;
+          await tx.ticketComment.update({ where: { orgId_id: { orgId, id: local.id } }, data: { body, editedAt: localEditedAt } });
+          next = { ...next, localEditedAt: localEditedAt.toISOString(), quoted };
+          counts.commentsUpdated += 1;
+        }
+      }
+      const who = linearCommentAuthor({ author: named, emailReadable: fetched.withEmail, matchedPersonId: matched, current: { authorPersonId: local.authorPersonId, externalAuthorName: local.externalAuthorName } });
+      if (who.authorPersonId !== local.authorPersonId || who.externalAuthorName !== local.externalAuthorName) {
+        await tx.ticketComment.update({ where: { orgId_id: { orgId, id: local.id } }, data: who });
+      }
+      await tx.externalItemRef.update({ where: { orgId_id: { orgId, id: ref.id } }, data: { ...seen, applied: next } });
+    }
+    await this.recordCommentEvents(tx, principal, project, run, createdPerTicket);
+  }
+
+  /**
+   * O evento automático "N comentários trazidos do Linear", gravado na transação da página que criou os comentários (C2, item 6): uma
+   * rodada abandonada no meio não deixa comentário sem evento. A tabela de eventos é só de inserção, então uma rodada longa grava um
+   * evento por ticket por PÁGINA, cada um com a contagem dela e o id da rodada; a linha do tempo soma os da mesma rodada numa entrada.
+   */
+  private async recordCommentEvents(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, createdPerTicket: ReadonlyMap<string, number>): Promise<void> {
+    if (createdPerTicket.size === 0) return;
+    const tickets = await tx.ticket.findMany({ where: { id: { in: [...createdPerTicket.keys()] } }, select: { id: true, number: true } });
+    await this.activity.recordMany(
+      tx,
+      principal,
+      tickets.map((ticket) => ({
+        kind: "ticket.comments_imported_from_linear",
+        subjectType: "ticket",
+        subjectId: ticket.id,
+        payload: { key: `${project.key}-${ticket.number}`, count: createdPerTicket.get(ticket.id) as number, automatic: true, source: "linear_sync", runId: run.id },
+      })),
+    );
+  }
+
+  /**
+   * Os comentários deste projeto que a rodada não viu ganham `missing_since` (ficam como estão). Só quando a leitura percorreu tudo: com
+   * nó fora do formato, ou nenhum comentário lido num projeto que tem origens de comentário, nada é marcado (`missingNotChecked`).
+   */
+  private async markMissingComments(tx: TenantClient, project: ProjectRow, run: RunRow, counts: Counts): Promise<void> {
+    const anyRef = async (): Promise<boolean> => (await tx.externalItemRef.findFirst({ where: { projectId: project.id, provider: PROVIDER, kind: "comment" }, select: { id: true } })) !== null;
+    if (counts.commentsInvalid > 0 || (counts.commentsSeen === 0 && (await anyRef()))) {
+      if (await anyRef()) counts.missingNotChecked = true;
+      return;
+    }
+    const marked = await tx.externalItemRef.updateMany({
+      where: { projectId: project.id, provider: PROVIDER, kind: "comment", missingSince: null, OR: [{ lastSeenRunId: null }, { lastSeenRunId: { not: run.id } }] },
+      data: { missingSince: new Date() },
+    });
+    counts.commentsMissing += marked.count;
   }
 
   // ---- fase mentions ----
