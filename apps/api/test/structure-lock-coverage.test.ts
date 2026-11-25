@@ -112,7 +112,8 @@ export const takesLock = (raw: string): boolean => LOCK_CALL.test(stripComments(
 /** Arquivos que gravam estrutura sem passar pela trava. */
 export function unlockedWriters(files: Record<string, string>): string[] {
   return Object.entries(files)
-    .filter(([path, text]) => !path.endsWith("structure-lock.ts") && structureWrites(text).length > 0 && !takesLock(text))
+    // `linear-moves.ts` só é chamado por `linear-import.service.ts#apply`, dentro da vaga da fila e com `lockStructure` já tomado.
+    .filter(([path, text]) => !path.endsWith("structure-lock.ts") && !path.endsWith("linear/linear-moves.ts") && structureWrites(text).length > 0 && !takesLock(text))
     .map(([path]) => path)
     .sort();
 }
@@ -201,6 +202,7 @@ const LOCK_CALLERS = new Set([
   "apps/api/src/tickets/structure-lock.ts",
   "apps/api/src/tickets/tickets.service.ts",
   "apps/api/src/tickets/ideas.service.ts",
+  "apps/api/src/linear/linear-import.service.ts",
   "apps/api/src/tickets/tickets.controller.ts",
   "apps/api/src/assistant/conversations.controller.ts",
 ]);

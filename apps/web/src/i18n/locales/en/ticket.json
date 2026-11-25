@@ -292,5 +292,13 @@
     "decrease": "Decrease priority",
     "invalid": "Priority is a whole number from -999 to 999.",
     "inherited": "counts as {{value}}, from"
+  },
+  "linear": {
+    "view": "View in Linear",
+    "viewKey": "View in Linear · {{key}}",
+    "viewKeyLabel": "View {{key}} in Linear (opens in a new tab)",
+    "viewLabel": "View in Linear (opens in a new tab)",
+    "plain": "Linear",
+    "plainKey": "Linear · {{key}}"
   }
 }

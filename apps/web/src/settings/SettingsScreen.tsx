@@ -28,10 +28,12 @@ function useAnchor() {
  * Cada preferência aplica na hora, sem botão de salvar. A seção aberta fica na âncora do endereço; sem âncora, ou com
  * âncora de seção que a pessoa não vê, abre a primeira disponível.
  */
-export function SettingsScreen({ client, me, onConsentChange, sections = DEFAULT_SETTINGS_SECTIONS }: {
+export function SettingsScreen({ client, me, onConsentChange, onOpenImport, sections = DEFAULT_SETTINGS_SECTIONS }: {
   client?: ApiClient | undefined;
   me?: Me | null | undefined;
   onConsentChange?: (() => void) | undefined;
+  /** Leva à importação do projeto (o botão "Abrir importação" do time ligado, na seção Linear). */
+  onOpenImport?: ((projectId: string) => void) | undefined;
   sections?: readonly SettingsSection[] | undefined;
 } = {}) {
   const { t } = useTranslation("settings");
@@ -87,7 +89,7 @@ export function SettingsScreen({ client, me, onConsentChange, sections = DEFAULT
     await persist("language", { ...preferences, language: value });
   };
 
-  const context: SectionContext = { t, client, me, isAdmin, preferences, chooseLanguage, languageFailed: failed === "language", preferencesReadOnly: readOnly, mcp, linear, tokenDraft, onConsentChange, titleId, open };
+  const context: SectionContext = { t, client, me, isAdmin, preferences, chooseLanguage, languageFailed: failed === "language", preferencesReadOnly: readOnly, mcp, linear, tokenDraft, onOpenImport, onConsentChange, titleId, open };
 
   return (
     <div className="settings-screen">

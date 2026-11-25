@@ -60,6 +60,9 @@ function parseRoute(search: string): Route {
 export function viewHref(view: View, href: string = window.location.href, projectId: string | null = null, target: MapTarget = {}): string {
   const url = new URL(href);
   if (view === "settings" || url.searchParams.get("view") === "settings") url.hash = view === "settings" && target.section ? target.section : "";
+  // A importação abre na aba do Linear por `#linear`; a âncora não sai dela (como a das Configurações).
+  if (view === "import" && target.section) url.hash = target.section;
+  else if (view !== "import" && url.searchParams.get("view") === "import" && url.hash === "#linear") url.hash = "";
   url.searchParams.delete("project");
   url.searchParams.delete("ticket");
   url.searchParams.delete("focus");

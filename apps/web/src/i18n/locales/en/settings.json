@@ -248,7 +248,9 @@
       "link": "Link to a project…",
       "linkLabel": "Link team {{key}} to a project",
       "elsewhere": "Already linked to a project you cannot see",
-      "unavailable": "unavailable"
+      "unavailable": "unavailable",
+      "openImport": "Open import",
+      "openImportLabel": "Open the import for project {{project}}"
     },
     "dialog": {
       "title": "Link {{project}} to team {{team}}?",

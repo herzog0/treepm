@@ -91,6 +91,10 @@ describe("import route", () => {
   it("builds ?view=import&project=<id> and drops both when going back to the map", () => {
     expect(viewHref("import", "https://x.test/app?foo=1#h", "p1")).toBe("/app?foo=1&view=import&project=p1#h");
     expect(viewHref("map", "https://x.test/app?view=import&project=p1&foo=1")).toBe("/app?foo=1");
+    // A importação do Linear abre na aba certa por `#linear`; sair dela leva a âncora embora.
+    expect(viewHref("import", "https://x.test/app?view=settings#linear", "p1", { section: "linear" })).toBe("/app?view=import&project=p1#linear");
+    expect(viewHref("map", "https://x.test/app?view=import&project=p1#linear")).toBe("/app");
+    expect(viewHref("import", "https://x.test/app?view=settings#linear", "p1")).toBe("/app?view=import&project=p1");
     expect(viewHref("teams", "https://x.test/app?view=import&project=p1")).toBe("/app?view=teams");
   });
 

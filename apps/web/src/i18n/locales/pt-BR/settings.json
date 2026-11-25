@@ -250,7 +250,9 @@
       "link": "Ligar a um projeto…",
       "linkLabel": "Ligar o time {{key}} a um projeto",
       "elsewhere": "Já ligado a um projeto que você não enxerga",
-      "unavailable": "indisponível"
+      "unavailable": "indisponível",
+      "openImport": "Abrir importação",
+      "openImportLabel": "Abrir a importação do projeto {{project}}"
     },
     "dialog": {
       "title": "Ligar {{project}} ao time {{team}}?",

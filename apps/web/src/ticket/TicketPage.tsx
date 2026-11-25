@@ -8,6 +8,7 @@ import { useAgentWorkActive } from "../map/agentWork.js";
 import { formatClock, formatDateTime } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { TicketCode } from "../github/TicketCode.js";
+import { safeLinearUrl } from "./linearLink.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { canCreateTickets, canRemoveTickets } from "../import/permissions.js";
 import { LoadError } from "../LoadError.js";
@@ -71,11 +72,21 @@ const Icon = ({ children, fill = false }: { children: ReactNode; fill?: boolean 
   </svg>
 );
 
+/** O atalho "Ver no Linear" do ticket, ou nada quando ele não veio do Linear ou o endereço não é do Linear. */
+function linearAction(detail: TicketDetail): HeaderActions["linear"] {
+  const source = detail.externalSource;
+  if (!source) return undefined;
+  // Sem endereço (o servidor não soube montá-lo) ou com um que não é do Linear: a origem aparece, mas sem link.
+  return { key: source.key, url: source.url === null ? null : safeLinearUrl(source.url) };
+}
+
 interface HeaderActions {
   ticketId: string;
   onShowOnMap?: (ticketId: string) => void;
   /** Só para quem pode excluir. */
   remove?: { busy: boolean; onConfirm: () => void };
+  /** De onde o ticket veio no Linear (ADR 0060): `url` já é segura (só `https://linear.app/…`); `key` é nula num projeto do Linear. */
+  linear?: { key: string | null; url: string | null };
   /** Só para quem edita um ticket comum (ADR 0042); `error` é a recusa da API, mostrada junto do menu. */
   makeIdea?: { busy: boolean; error: string | null; onClick: () => void };
 }
@@ -116,6 +127,20 @@ function Header({ projectKey, keyText, path, onClose, actions }: { projectKey: s
         {actions?.makeIdea?.error && <span role="alert" className="ticket-toast is-error">{actions.makeIdea.error}</span>}
         {actions && (
           <>
+            {actions.linear && actions.linear.url === null && (
+              <span className="ticket-linear-plain">{actions.linear.key === null ? t("linear.plain") : t("linear.plainKey", { key: actions.linear.key })}</span>
+            )}
+            {actions.linear && actions.linear.url !== null && (
+              <a
+                className="ticket-chat-button ticket-linear-link"
+                href={actions.linear.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={actions.linear.key === null ? t("linear.viewLabel") : t("linear.viewKeyLabel", { key: actions.linear.key })}
+              >
+                {actions.linear.key === null ? t("linear.view") : t("linear.viewKey", { key: actions.linear.key })}
+              </a>
+            )}
             {chats && (
               <button type="button" className="ticket-chat-button" onClick={() => chats.openTicket(actions.ticketId)}>
                 {t("header.openChat")}
@@ -409,6 +434,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
           ticketId: detail.id,
           onShowOnMap,
           remove: canRemove ? { busy: removal.busy, onConfirm: () => void remove() } : undefined,
+          linear: linearAction(detail),
           makeIdea: canEdit && idea === null ? { busy: ideaMaking.busy, error: makeIdeaError, onClick: () => void makeIdea() } : undefined,
         }}
       />

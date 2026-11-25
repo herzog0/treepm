@@ -45,6 +45,8 @@ async function foreignTicket(): Promise<{ project: string; parent: string; child
 const withoutVolatile = (page: Record<string, unknown>): Record<string, unknown> => {
   const rest = { ...page };
   delete rest["updatedAt"];
+  // `externalSource` (ADR 0060, origem no Linear) fica: as fixtures de ouro foram regravadas com o campo (nulo nestes tickets).
+  expect(rest, "o detalhe traz externalSource").toHaveProperty("externalSource");
   return rest;
 };
 

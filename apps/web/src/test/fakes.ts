@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 import { createFakeChat } from "./chatFakes.js";
 import type { FakeChat } from "./chatFakes.js";
-import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, ConversationDraftChild, GithubInstallation, GroupSummary, LinearConnection, LinearTeam, ProjectLinear, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, IdeaStage, TicketListUpdate, TicketSummary } from "../api/client.js";
+import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, ConversationDraftChild, GithubInstallation, GroupSummary, LinearConnection, LinearRun, LinearTeam, ProjectLinear, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, IdeaStage, TicketListUpdate, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 export { createFakeChat };
@@ -237,7 +237,56 @@ export interface FakeLinear {
   linkError?: [Parameters<typeof failed>[0], string?];
   /** O estado do vínculo por ID de projeto; sem entrada, o projeto está sem origem e `canLink` segue o papel de quem lê. */
   projects?: Record<string, ProjectLinear>;
+  /** A importação em passos (ADR 0060, seção 3): uma rodada simulada projetos → issues → hierarquia → concluída. */
+  run?: FakeLinearRun;
 }
+
+/** Um desfecho de passo do `FakeLinear`, consumido na ordem das chamadas; esgotada a lista, os passos andam normalmente. */
+export type FakeLinearStep =
+  | "ok"
+  /** O Linear pediu para esperar: a rodada não anda e volta com `waitUntil` daqui a tantos segundos. */
+  | { waitSeconds: number }
+  /** O passo falha com este erro (`[tipo, código]`). */
+  | { error: [Parameters<typeof failed>[0], string?] }
+  /** O passo só termina quando a promessa se resolve (para provar que a tela não dispara dois passos juntos). */
+  | { hold: Promise<void> };
+
+export interface FakeLinearRun {
+  /** Issues no time (padrão 12). */
+  total?: number | null;
+  /** Projetos do Linear (padrão 3). */
+  projects?: number;
+  /** Issues por passo (padrão 5). */
+  pageSize?: number;
+  /** A rodada que já existe ao abrir a tela (parcial sobre `makeLinearRun`); sem isso, o projeto nunca importou. */
+  existing?: Partial<LinearRun>;
+  /** Desfechos dos passos, um por chamada. */
+  script?: FakeLinearStep[];
+  /** Erro de `POST …/linear/runs`; vale uma vez só. */
+  openError?: [Parameters<typeof failed>[0], string?];
+}
+
+export const makeLinearRun = (extra: Partial<LinearRun> = {}): LinearRun => ({
+  id: "run-1",
+  projectId: "p1",
+  mode: "first",
+  phase: "projects",
+  done: false,
+  categorize: false,
+  categorizeAvailable: false,
+  counts: {},
+  errorStreak: 0,
+  pageSize: 50,
+  totalExpected: 12,
+  waitUntil: null,
+  lastErrorCode: null,
+  destinationTicketId: null,
+  startedBy: { id: "person-1" },
+  startedAt: "2026-11-24T12:00:00.000Z",
+  updatedAt: "2026-11-24T12:00:00.000Z",
+  finishedAt: null,
+  ...extra,
+});
 
 export const makeLinearTeam = (key: string, name: string, extra: Partial<LinearTeam> = {}): LinearTeam => ({ id: `team-${key.toLowerCase()}`, key, name, linkedProject: null, linkedElsewhere: false, ...extra });
 export const makeLinearConnection = (extra: Partial<NonNullable<LinearConnection["connection"]>> = {}): NonNullable<LinearConnection["connection"]> => ({
@@ -247,7 +296,7 @@ export const makeLinearConnection = (extra: Partial<NonNullable<LinearConnection
   ...extra,
 });
 
-const LINEAR_NAMES = ["connectLinear", "disconnectLinear", "listLinearTeams", "getProjectLinear", "linkProjectToLinear"] as const;
+const LINEAR_NAMES = ["connectLinear", "disconnectLinear", "listLinearTeams", "getProjectLinear", "linkProjectToLinear", "openLinearRun", "getCurrentLinearRun", "stepLinearRun", "abandonLinearRun"] as const;
 
 /**
  * As rotas do Linear do contrato da ADR 0060, em memória: a chave nunca volta (só os 4 últimos caracteres), agindo como outra
@@ -271,6 +320,42 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
     !result.ok && details !== undefined ? { ok: false, error: { ...result.error, details } } : result;
   const canLinkProject = (projectId: string) => isAdmin || me.roles.projects.some((entry) => entry.projectId === projectId && entry.role === "manager");
   const archived = (projectId: string) => data.projects?.find((entry) => entry.id === projectId)?.archivedAt != null;
+  const runConfig = linear.run ?? {};
+  const runs = new Map<string, LinearRun>();
+  const script = [...(runConfig.script ?? [])];
+  let openError = runConfig.openError;
+  const total = runConfig.total === undefined ? 12 : runConfig.total;
+  const pageSize = runConfig.pageSize ?? 5;
+  const stamp = () => new Date().toISOString();
+  const lastRun = (projectId: string): LinearRun | null => {
+    const known = runs.get(projectId);
+    if (known) return known;
+    if (!runConfig.existing) return null;
+    const seeded = makeLinearRun({ projectId, ...runConfig.existing });
+    runs.set(projectId, seeded);
+    return seeded;
+  };
+  const advance = (run: LinearRun): LinearRun => {
+    const counts = { ...run.counts };
+    let phase = run.phase;
+    if (phase === "projects") {
+      counts["projectsSeen"] = runConfig.projects ?? 3;
+      counts["projectsCreated"] = counts["projectsSeen"];
+      phase = "issues";
+    } else if (phase === "issues") {
+      const all = total ?? 12;
+      counts["issuesSeen"] = Math.min(all, (Number(counts["issuesSeen"]) || 0) + pageSize);
+      counts["issuesCreated"] = counts["issuesSeen"];
+      if (counts["issuesSeen"] >= all) phase = "hierarchy";
+    } else if (phase === "hierarchy") {
+      counts["parentsLinked"] = Math.floor((total ?? 12) / 3);
+      phase = "mentions";
+    } else if (phase === "mentions") {
+      phase = "done";
+    }
+    const finished = phase === "done";
+    return { ...run, phase, counts, waitUntil: null, lastErrorCode: null, done: finished, updatedAt: stamp(), finishedAt: finished ? stamp() : null };
+  };
   const view = (projectId: string): ProjectLinear => {
     const source = sources.get(projectId);
     return source ? { ...source } : { source: null, canLink: canLinkProject(projectId) && !archived(projectId), keyMatches: null };
@@ -312,6 +397,57 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
       return ok(teams.map((team) => ({ ...team })));
     }),
     getProjectLinear: vi.fn(async (projectId: string) => refuse() ?? ok(view(projectId))),
+    // Como o servidor: sem ligação 409 `linear_not_linked`; com rodada aberta 409 `linear_run_open`; depois de concluída, `linear_reimport_not_available`.
+    openLinearRun: vi.fn(async (projectId: string, body: { destinationTicketId?: string | null }) => {
+      const problem = refuse();
+      if (problem) return problem;
+      if (openError) {
+        const [kind, code] = openError;
+        openError = undefined;
+        return failed(kind, code);
+      }
+      if (sources.get(projectId)?.source == null) return failed("conflict", "linear_not_linked");
+      const last = lastRun(projectId);
+      if (last && !last.done) return failed("conflict", "linear_run_open");
+      if (last && last.phase === "done") return failed("conflict", "linear_reimport_not_available");
+      const created = makeLinearRun({ projectId, id: `run-${runs.size + 1}`, totalExpected: total, destinationTicketId: body.destinationTicketId ?? null, startedBy: { id: me.person.id }, startedAt: stamp(), updatedAt: stamp() });
+      runs.set(projectId, created);
+      return ok<LinearRun>({ ...created, counts: { ...created.counts } });
+    }),
+    getCurrentLinearRun: vi.fn(async (projectId: string) => {
+      const problem = refuse();
+      if (problem) return problem;
+      const last = lastRun(projectId);
+      return ok({ run: last ? { ...last, counts: { ...last.counts } } : null });
+    }),
+    stepLinearRun: vi.fn(async (projectId: string, runId: string) => {
+      const problem = refuse();
+      if (problem) return problem;
+      const run = lastRun(projectId);
+      if (!run || run.id !== runId) return failed("not_found");
+      const next = script.shift() ?? "ok";
+      if (next !== "ok" && "hold" in next) await next.hold;
+      if (next !== "ok" && "error" in next) return failed(...next.error);
+      if (next !== "ok" && "waitSeconds" in next) {
+        const waiting = { ...run, waitUntil: new Date(Date.now() + next.waitSeconds * 1000).toISOString() };
+        runs.set(projectId, waiting);
+        return ok<LinearRun>({ ...waiting, counts: { ...waiting.counts } });
+      }
+      const advanced = run.done ? run : advance(runs.get(projectId) ?? run);
+      runs.set(projectId, advanced);
+      return ok<LinearRun>({ ...advanced, counts: { ...advanced.counts } });
+    }),
+    // Como o servidor: abandona a rodada aberta (fase `failed`, `done`); concluída, 409 `linear_run_finished`.
+    abandonLinearRun: vi.fn(async (projectId: string, runId: string) => {
+      const problem = refuse();
+      if (problem) return problem;
+      const run = lastRun(projectId);
+      if (!run || run.id !== runId) return failed("not_found");
+      if (run.done && run.phase === "done") return failed("conflict", "linear_run_finished");
+      const abandoned: LinearRun = { ...run, phase: "failed", done: true, errorStreak: 0, waitUntil: null, updatedAt: stamp(), finishedAt: stamp() };
+      runs.set(projectId, abandoned);
+      return ok<LinearRun>({ ...abandoned, counts: { ...abandoned.counts } });
+    }),
     linkProjectToLinear: vi.fn(async (projectId: string, body: { teamId: string; confirmTeamKey: string }) => {
       const problem = refuse();
       if (problem) return problem;

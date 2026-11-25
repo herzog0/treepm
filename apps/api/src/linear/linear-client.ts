@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { LinearError } from "./ports.js";
-import type { LinearClient, LinearIdentity, LinearTeam } from "./ports.js";
+import type { LinearClient, LinearFailureCode, LinearIdentity, LinearIssuesOptions, LinearIssuesPage, LinearPage, LinearProjectNode, LinearTeam } from "./ports.js";
 
 export { LinearError } from "./ports.js";
 
@@ -16,8 +16,12 @@ export const LINEAR_TEAM_MAX_PAGES = 5;
 export const LINEAR_LIST_TIMEOUT_MS = 30_000;
 /** Teto do corpo de cada resposta (acima disso → `linear_unavailable`) e do que se guarda do que o Linear diz. */
 export const LINEAR_MAX_BODY_BYTES = 1_048_576;
+/** Teto do corpo das páginas da importação (issues e projetos): uma página de 50 issues com descrições longas passa de 1 MB. */
+export const LINEAR_IMPORT_MAX_BODY_BYTES = 4 * 1_048_576;
 export const LINEAR_NAME_MAX = 200;
 export const LINEAR_TEAM_KEY_MAX = 20;
+/** Itens por página da importação (issues e projetos). */
+export const LINEAR_IMPORT_PAGE_SIZE = 50;
 /** Espera sugerida quando o Linear limita a taxa e não diz quanto. */
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 
@@ -34,6 +38,12 @@ const WHOAMI_QUERY = "query Whoami { viewer { id } organization { id name urlKey
 const TEAMS_QUERY = "query Teams($after: String) { teams(first: 100, after: $after) { nodes { id key name } pageInfo { hasNextPage endCursor } } }";
 
 const TEAM_QUERY = "query Team($id: String!) { team(id: $id) { id key name } }";
+
+const COUNT_QUERY = "query TeamIssueCount($id: String!) { team(id: $id) { issueCount(includeArchived: false) } }";
+const PROJECTS_QUERY = `query TeamProjects($id: String!, $after: String) { team(id: $id) { projects(first: ${LINEAR_IMPORT_PAGE_SIZE}, after: $after) { nodes { id name url status { type } } pageInfo { hasNextPage endCursor } } } }`;
+/** Mais novas primeiro (`createdAt`, o padrão do Linear, dito aqui para a repescagem poder confiar). Sem `children` nem `labels`. */
+const issuesQuery = (withDescription: boolean, withEmail: boolean): string =>
+  `query TeamIssues($id: String!, $after: String, $first: Int!) { team(id: $id) { issues(first: $first, after: $after, includeArchived: false, orderBy: createdAt) { nodes { id identifier url title ${withDescription ? "description " : ""}priority updatedAt trashed state { type } parent { id } project { id } assignee { id${withEmail ? " email" : ""} } } pageInfo { hasNextPage endCursor } } } }`;
 
 const cut = (value: string, max: number): string => (value.length > max ? value.slice(0, max) : value);
 
@@ -54,6 +64,44 @@ const teamsSchema = z.object({
   }),
 });
 
+const pageInfoSchema = z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() });
+const countSchema = z.object({ data: z.object({ team: z.object({ issueCount: z.number().int().min(0) }) }) });
+const projectNodeSchema = z.object({ id: z.string().min(1), name: z.string(), url: z.string(), status: z.object({ type: z.string() }).nullable().optional() });
+// Os nós são validados um a um (um nó ruim não derruba a página); só o envelope é exigido por inteiro.
+const projectsSchema = z.object({ data: z.object({ team: z.object({ projects: z.object({ nodes: z.array(z.unknown()), pageInfo: pageInfoSchema }) }) }) });
+const issueNodeSchema = z.object({
+  id: z.string().min(1),
+  identifier: z.string(),
+  url: z.string(),
+  title: z.string(),
+  description: z.string().nullable().optional(),
+  priority: z.number(),
+  updatedAt: z.string(),
+  trashed: z.boolean().nullable().optional(),
+  state: z.object({ type: z.string() }),
+  parent: z.object({ id: z.string().min(1) }).nullable().optional(),
+  project: z.object({ id: z.string().min(1) }).nullable().optional(),
+  assignee: z.object({ id: z.string().min(1), email: z.string().nullable().optional() }).nullable().optional(),
+});
+const issuesSchema = z.object({ data: z.object({ team: z.object({ issues: z.object({ nodes: z.array(z.unknown()), pageInfo: pageInfoSchema }) }) }) });
+
+/** Valida cada nó sozinho: devolve os válidos e quantos foram pulados. */
+function validNodes<S extends z.ZodType>(schema: S, nodes: readonly unknown[]): { valid: z.output<S>[]; skipped: number } {
+  const valid: z.output<S>[] = [];
+  for (const node of nodes) {
+    const parsed = schema.safeParse(node);
+    if (parsed.success) valid.push(parsed.data);
+  }
+  return { valid, skipped: nodes.length - valid.length };
+}
+
+/** `hasNextPage` sem cursor é resposta defeituosa: falha em vez de parar no meio ou girar para sempre. */
+function nextCursor(info: { hasNextPage: boolean; endCursor: string | null }): string | null {
+  if (!info.hasNextPage) return null;
+  if (info.endCursor === null) throw new LinearError("linear_unavailable");
+  return info.endCursor;
+}
+
 /** Códigos de erro do Linear (`errors[].extensions.code`) que significam "chave recusada". */
 const AUTH_CODES = new Set(["AUTHENTICATION_ERROR", "AUTHENTICATION_REQUIRED", "FORBIDDEN", "UNAUTHENTICATED"]);
 
@@ -67,6 +115,19 @@ function errorCodes(body: unknown): string[] {
   return errors.map((item) => {
     const code = (item as { extensions?: { code?: unknown } } | null)?.extensions?.code;
     return typeof code === "string" ? code : "";
+  });
+}
+
+/**
+ * Todos os erros da resposta trazem um caminho que termina em `email`? Então o campo foi recusado (permissão da chave). Só vale com
+ * caminho: mensagem sem caminho que cita "email" não prova nada. Só a consulta de issues pergunta isso.
+ */
+function emailFieldDenied(body: unknown): boolean {
+  const errors = (body as { errors?: unknown } | null)?.errors;
+  if (!Array.isArray(errors) || errors.length === 0) return false;
+  return errors.every((item) => {
+    const path = (item as { path?: unknown } | null)?.path;
+    return Array.isArray(path) && path[path.length - 1] === "email";
   });
 }
 
@@ -86,16 +147,16 @@ function entityNotFound(body: unknown): boolean {
 }
 
 /** Lê o corpo até o teto, sob o mesmo prazo da chamada (um corpo lento não prende a requisição). */
-async function readBody(response: Response, signal: AbortSignal): Promise<unknown> {
+async function readBody(response: Response, signal: AbortSignal, maxBytes: number, tooLarge: LinearFailureCode, onTimeout: LinearFailureCode): Promise<unknown> {
   const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > LINEAR_MAX_BODY_BYTES) {
+  if (Number.isFinite(declared) && declared > maxBytes) {
     void response.body?.cancel().catch(() => undefined);
-    throw new LinearError("linear_unavailable");
+    throw new LinearError(tooLarge);
   }
   if (!response.body) return null;
   const reader = response.body.getReader();
   const aborted = new Promise<never>((_resolve, reject) => {
-    signal.addEventListener("abort", () => reject(new LinearError("linear_unavailable")), { once: true });
+    signal.addEventListener("abort", () => reject(new LinearError(onTimeout)), { once: true });
   });
   aborted.catch(() => undefined);
   const chunks: Uint8Array[] = [];
@@ -105,12 +166,12 @@ async function readBody(response: Response, signal: AbortSignal): Promise<unknow
       const { done, value } = await Promise.race([reader.read(), aborted]);
       if (done) break;
       size += value.byteLength;
-      if (size > LINEAR_MAX_BODY_BYTES) throw new LinearError("linear_unavailable");
+      if (size > maxBytes) throw new LinearError(tooLarge);
       chunks.push(value);
     }
   } catch (error) {
     void reader.cancel().catch(() => undefined);
-    throw error instanceof LinearError ? error : new LinearError("linear_unavailable");
+    throw error instanceof LinearError ? error : new LinearError(onTimeout);
   }
   try {
     return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
@@ -174,9 +235,75 @@ export class HttpLinearClient implements LinearClient {
     return parsed.data.data.team ? toTeam(parsed.data.data.team) : null;
   }
 
-  /** `notFoundIsNull`: um "Entity not found" do Linear devolve `null` em vez de erro (usado por `getTeam`). */
-  private async request(apiKey: string, query: string, variables: Record<string, unknown>, timeoutMs: number, notFoundIsNull = false): Promise<unknown> {
+  async countTeamIssues(apiKey: string, teamId: string): Promise<number> {
+    const body = await this.request(apiKey, COUNT_QUERY, { id: teamId }, this.timeoutMs);
+    const parsed = countSchema.safeParse(body);
+    if (!parsed.success) throw new LinearError("linear_unavailable");
+    return parsed.data.data.team.issueCount;
+  }
+
+  async listTeamProjects(apiKey: string, teamId: string, after: string | null): Promise<LinearPage<LinearProjectNode>> {
+    const body = await this.request(apiKey, PROJECTS_QUERY, { id: teamId, after }, this.timeoutMs, false, LINEAR_IMPORT_MAX_BODY_BYTES);
+    const parsed = projectsSchema.safeParse(body);
+    if (!parsed.success) throw new LinearError("linear_unavailable");
+    const { nodes, pageInfo } = parsed.data.data.team.projects;
+    const { valid, skipped } = validNodes(projectNodeSchema, nodes);
+    return {
+      nodes: valid.map((node) => ({ id: node.id, name: node.name, url: node.url, statusType: node.status?.type ?? null })),
+      nextCursor: nextCursor(pageInfo),
+      skippedInvalid: skipped,
+    };
+  }
+
+  async listTeamIssues(apiKey: string, teamId: string, after: string | null, options: LinearIssuesOptions = {}): Promise<LinearIssuesPage> {
+    const first = Math.min(Math.max(Math.trunc(options.first ?? LINEAR_IMPORT_PAGE_SIZE), 1), 250);
+    const withDescription = options.withDescription !== false;
+    let withEmail = options.withEmail !== false;
+    let emailUnavailable = false;
+    let body: unknown;
+    for (;;) {
+      try {
+        body = await this.request(apiKey, issuesQuery(withDescription, withEmail), { id: teamId, after, first }, this.timeoutMs, false, LINEAR_IMPORT_MAX_BODY_BYTES, withEmail);
+        break;
+      } catch (error) {
+        // O Linear recusou o campo `email` (permissão da chave): repete sem ele, uma vez, e avisa a importação.
+        if (withEmail && error instanceof LinearError && error.code === "linear_email_unavailable") {
+          withEmail = false;
+          emailUnavailable = true;
+          continue;
+        }
+        throw error;
+      }
+    }
+    const parsed = issuesSchema.safeParse(body);
+    if (!parsed.success) throw new LinearError("linear_unavailable");
+    const { nodes, pageInfo } = parsed.data.data.team.issues;
+    const { valid, skipped } = validNodes(issueNodeSchema, nodes);
+    return {
+      nodes: valid.map((node) => ({
+        id: node.id,
+        identifier: node.identifier,
+        url: node.url,
+        title: node.title,
+        description: node.description ?? null,
+        priority: Math.round(node.priority),
+        updatedAt: node.updatedAt,
+        trashed: node.trashed === true,
+        stateType: node.state.type,
+        parentId: node.parent?.id ?? null,
+        projectId: node.project?.id ?? null,
+        assignee: node.assignee ? { id: node.assignee.id, email: node.assignee.email ?? null } : null,
+      })),
+      nextCursor: nextCursor(pageInfo),
+      skippedInvalid: skipped,
+      emailUnavailable,
+    };
+  }
+
+  /** `notFoundIsNull`: um "Entity not found" do Linear devolve `null` em vez de erro (usado por `getTeam`). `detectEmail`: só a consulta de issues. */
+  private async request(apiKey: string, query: string, variables: Record<string, unknown>, timeoutMs: number, notFoundIsNull = false, maxBytes = LINEAR_MAX_BODY_BYTES, detectEmail = false): Promise<unknown> {
     if (!HEADER_SAFE.test(apiKey)) throw new LinearError("linear_key_invalid");
+    const importPage = maxBytes !== LINEAR_MAX_BODY_BYTES;
     const signal = AbortSignal.timeout(timeoutMs);
     let response: Response;
     try {
@@ -189,11 +316,14 @@ export class HttpLinearClient implements LinearClient {
         redirect: "error",
       });
     } catch {
-      // Nada da exceção original é guardado: ela pode citar o endereço ou a chave.
-      throw new LinearError("linear_unavailable");
+      // Nada da exceção original é guardado: ela pode citar o endereço ou a chave. Só nas páginas da importação o prazo estourado é
+      // dito à parte (`linear_timeout`): a importação repete com página menor.
+      throw new LinearError(importPage && signal.aborted ? "linear_timeout" : "linear_unavailable");
     }
-    const body = await readBody(response, signal);
+    // Só as páginas da importação (teto maior) distinguem "grande demais" e "prazo" de "indisponível": a importação repete com página menor.
+    const body = await readBody(response, signal, maxBytes, importPage ? "linear_response_too_large" : "linear_unavailable", importPage ? "linear_timeout" : "linear_unavailable");
     const codes = errorCodes(body);
+    if (detectEmail && response.status < 500 && emailFieldDenied(body)) throw new LinearError("linear_email_unavailable");
     if (notFoundIsNull && response.status < 500 && entityNotFound(body)) return null;
     if (response.status === 429 || codes.includes("RATELIMITED")) throw new LinearError("linear_rate_limited", retryAfter(response));
     if (response.status === 401 || response.status === 403 || codes.some((code) => AUTH_CODES.has(code))) throw new LinearError("linear_key_invalid");

@@ -59,5 +59,102 @@
     "importCount_one": "Importar {{count}} ticket",
     "importCount_many": "Importar {{count}} tickets",
     "importCount_other": "Importar {{count}} tickets"
+  },
+  "linear": {
+    "tabs": {
+      "label": "Origem da importação",
+      "list": "Por lista",
+      "linear": "Do Linear"
+    },
+    "title": "Importar do Linear",
+    "intro": "Traga para este projeto as issues do time do Linear ligado a ele. A importação só lê o Linear; nada é escrito lá.",
+    "loading": "Consultando a ligação com o Linear…",
+    "retry": "Tentar de novo",
+    "openSettings": "Abrir Configurações → Linear",
+    "actingAs": "Agindo como outra pessoa, a importação do Linear não está disponível: a chave é pessoal. Volte a ser você.",
+    "unlinked": {
+      "title": "Este projeto ainda não está ligado ao Linear",
+      "canLink": "Ligue o projeto a um time do Linear em Configurações → Linear. A ligação é permanente e é o que evita duplicar issues numa próxima importação.",
+      "cannotLink": "Um administrador do projeto precisa ligá-lo a um time do Linear, em Configurações → Linear."
+    },
+    "noKey": {
+      "title": "Falta a sua chave do Linear",
+      "body": "Para importar neste projeto, conecte a sua chave do workspace {{workspace}} em Configurações → Linear."
+    },
+    "wrongKey": {
+      "title": "A sua chave não serve a este projeto",
+      "body": "Ele está ligado ao time {{team}} do workspace {{workspace}}. Use, em Configurações → Linear, uma chave desse workspace que enxergue o time."
+    },
+    "source": "Origem",
+    "destination": "Destino",
+    "root": "Raiz do projeto",
+    "change": "Trocar",
+    "picker": {
+      "label": "Escolher o destino",
+      "filter": "Filtrar tickets",
+      "empty": "Nenhum ticket encontrado.",
+      "loading": "Carregando tickets…",
+      "failed": "Não foi possível carregar os tickets."
+    },
+    "start": "Importar",
+    "starting": "Abrindo…",
+    "how": "A importação anda em passos curtos. Se a aba fechar, continua de onde parou quando alguém voltar a esta tela. Se o Linear pedir para esperar, a tela mostra a hora em que volta.",
+    "running": "Importando…",
+    "progress": "{{done}} de {{total}}",
+    "canClose": "pode fechar esta tela",
+    "bar": "Progresso da importação",
+    "phase": {
+      "projects": "Projetos do Linear",
+      "issues": "Issues",
+      "hierarchy": "Ligar sub-issues aos pais",
+      "mentions": "Ligando menções",
+      "list": "Fases da importação"
+    },
+    "phaseState": {
+      "done": "feito",
+      "doing": "em curso",
+      "todo": "por vir"
+    },
+    "announce": {
+      "projects": "Importando os projetos do Linear.",
+      "issues": "Importando as issues.",
+      "hierarchy": "Ligando as sub-issues aos pais.",
+      "mentions": "Ligando as menções entre os tickets.",
+      "done": "Importação concluída.",
+      "waiting": "O Linear pediu para esperar.",
+      "abandoned": "Importação abandonada."
+    },
+    "waiting": "O Linear pediu para esperar. A importação volta às {{time}}.",
+    "retrying": "O Linear não respondeu. Tentando de novo em instantes…",
+    "gaveUp": "O Linear não respondeu e a importação parou. O que já foi importado fica; ela continua de onde parou.",
+    "continue": "Continuar",
+    "done": {
+      "title": "Importação concluída",
+      "created": "Criados",
+      "existing": "Já existiam",
+      "elsewhere": "Em outro projeto",
+      "flattened": "Achatados",
+      "skipped": "Pulados",
+      "skippedInvalid": "Ignorados por formato inválido",
+      "withoutDescription": "Sem descrição (grande demais)",
+      "movedOutOfIdea": "Tirados de dentro de ideia",
+      "assigneeEmailUnavailable": "O Linear não deixou ler os e-mails dos responsáveis; ninguém foi atribuído.",
+      "flattenedNote": "Achatados: ficaram num nível acima do original, por causa do limite de profundidade da árvore.",
+      "skippedNote": "Pulados: não puderam ser ligados aos pais (por exemplo, um ciclo na hierarquia).",
+      "openMap": "Abrir no mapa",
+      "noReimport": "Reimportar ainda não está disponível.",
+      "counts": "Contagens da importação"
+    },
+    "abandon": {
+      "button": "Abandonar importação",
+      "confirmLabel": "Confirmar abandono",
+      "confirmBody": "O que já foi importado fica no projeto. Esta importação para aqui e dá para começar outra depois.",
+      "confirm": "Abandonar",
+      "back": "Voltar",
+      "previous_zero": "Importação anterior abandonada: {{count}} criados",
+      "previous_one": "Importação anterior abandonada: {{count}} criado",
+      "previous_many": "Importação anterior abandonada: {{count}} criados",
+      "previous_other": "Importação anterior abandonada: {{count}} criados"
+    }
   }
 }

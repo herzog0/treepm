@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { mapLinearDescription, mentionedKeys } from "@treepm/domain";
 import { normalizeDescription, valueAfterEdit } from "./markdown.js";
 
 // Formas das descrições que existem hoje (linhas soltas, "Critérios de aceite:" com "- ", crases, parágrafos) e o subconjunto da ADR 0036.
@@ -89,5 +90,17 @@ describe.skipIf(real.length === 0)("round trip of the real descriptions (local f
       expect(normalizeDescription(normalized)).toBe(normalized);
       expect(normalized.replace(/\n\n(?=- )/g, "\n")).toBe(text.replace(/\n+$/, ""));
     }
+  });
+});
+
+describe("texto importado do Linear sobrevive à edição pela tela (ADR 0060)", () => {
+  it("o hífen inseparável e o %2D não voltam a ser menção depois de a tela ler e gravar a descrição", () => {
+    const imported = mapLinearDescription("ver ENG-45, #ENG-46 e https://linear.app/a/issue/ENG-47/titulo\n\n- ENG-48\n- [x] ENG-49", "ENG");
+    const exists = (key: string): boolean => key.startsWith("ENG-");
+    const saved = normalizeDescription(imported, exists);
+    expect(saved).toContain("ENG\u201145");
+    expect(mentionedKeys(saved).filter((key) => key.startsWith("ENG-"))).toEqual([]);
+    // gravar de novo é estável
+    expect(normalizeDescription(saved, exists)).toBe(saved);
   });
 });

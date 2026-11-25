@@ -15,7 +15,7 @@ import type { LinearClient } from "./ports.js";
 
 const PROVIDER = "linear";
 
-type SourceRow = {
+export type SourceRow = {
   projectId: string;
   externalWorkspaceId: string;
   externalWorkspaceName: string;
@@ -53,7 +53,7 @@ export function linkConflict(error: unknown): HttpException | null {
 }
 
 /** Erro do cliente do Linear → resposta HTTP com código estável (sem texto do Linear, sem a chave). */
-function http(error: LinearError): HttpException {
+export function linearHttp(error: LinearError): HttpException {
   switch (error.code) {
     case "linear_key_invalid":
       return new UnprocessableEntityException({ code: error.code, message: "O Linear recusou a chave." });
@@ -91,7 +91,7 @@ export class LinearService {
     try {
       return await run();
     } catch (error) {
-      if (error instanceof LinearError) throw http(error);
+      if (error instanceof LinearError) throw linearHttp(error);
       throw error;
     }
   }

@@ -125,3 +125,20 @@ As telas novas (seção "Linear", modal de confirmação, andamento e resumo da 
 
 Diferenças em relação ao desenho: "Abrir importação", a data da última importação e a contagem de issues no diálogo ficam para a fatia 2, que é quando esses dados passam a existir.
 
+
+### Fatia 2: importação em passos e origem por ticket (2026-11-25, `TREEPM-423`)
+
+- **Banco (migration `0038_linear_import`):** `ticket_external_refs` (origem por ticket, única por organização, provedor, tipo e id externo, com os dois retratos) e `external_import_runs` (a rodada: fase, cursor, tamanho de página, contagens, sequência de falhas). Uma rodada aberta por projeto.
+- **Rotas:** abrir a rodada, ler a atual, dar um passo e **abandonar** (`POST …/linear/runs`, `GET …/runs/current`, `POST …/runs/:id/step`, `POST …/runs/:id/abandon`). Fases: `projects`, `issues`, `hierarchy`, `mentions`, `done`; `failed` é a rodada abandonada.
+- **O passo:** lê a rodada, chama o Linear fora de transação (no máximo 6 chamadas e 25 segundos), mapeia a página fora de transação e grava numa transação curta com a trava de estrutura, só se fase e cursor ainda forem os lidos. Passo repetido, duas abas ou duas instâncias não duplicam.
+- **Nenhuma rodada fica presa:** item fora do formato é pulado e contado; página grande ou lenta demais é dividida (50 até 1, e por último sem a descrição); e-mail ilegível desliga só os responsáveis; limite do Linear vira espera; e sempre dá para abandonar e abrir outra, que reconhece pela origem o que já veio.
+- **Issues criadas durante a rodada** entram numa repescagem ao fim da fase `issues`.
+- **Mapeamento:** como na seção 4. Prioridade do Linear vira 400 (urgente), 300, 200, 100 e 0. A situação do projeto do Linear vale para o ticket pai. Pai concluído que recebe filho aberto é reaberto, também quando alguém o concluiu entre dois passos; filho com situação não entra em ideia.
+- **Texto do Linear não vira menção:** a descrição é cortada em 20.000 caracteres e, só para a chave do próprio projeto, o hífen de `CHAVE-123` vira hífen inseparável (U+2011), ou `%2D` dentro de endereço. É um caractere comum: sobrevive à edição pela tela, ao contrário de um escape de Markdown. Uma conferência final garante que o detector de menções não vê a chave. Traduzir a referência para a chave do ticket importado correspondente é a `TREEPM-441`.
+- **Menções:** os passos de criação não varrem descrições; os textos antigos que citam números recém-criados são ligados na fase `mentions`, em lotes.
+- **Arrumação à mão é respeitada:** a fase `hierarchy` só move um ticket criado naquela rodada ou cujo pai ainda é o que a importação aplicou.
+- **Tela:** aba "Do Linear" na importação do projeto, com destino, andamento por fases, retomada automática, espera, erro de chave com o caminho para corrigir, abandonar com confirmação e resumo. "Ver no Linear · ENG-123" na página do ticket, só para endereço `https://linear.app/`.
+
+Diferenças em relação ao desenho: "Vai trazer N issues" só aparece depois de abrir a rodada (o total vem do servidor nesse momento); a atividade da importação é registrada, mas nenhuma tela mostra atividades de projeto; a linha "Mantidos onde você os moveu" do resumo entra com a fatia 3.
+
+Ordem de publicação: a migration `0038` precisa estar aplicada antes do código, porque o detalhe de todo ticket consulta a tabela de origens.

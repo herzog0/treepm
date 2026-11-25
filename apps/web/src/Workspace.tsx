@@ -57,7 +57,7 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
   useEffect(() => (view === "map" ? scheduleDescriptionEditorPreload() : undefined), [view]);
 
   // As configurações são da pessoa, não da organização: não esperam a API.
-  if (view === "settings") return <main className="tenant-settings"><SettingsScreen client={client} me={state.status === "ready" ? state.data : null} onConsentChange={reload} /></main>;
+  if (view === "settings") return <main className="tenant-settings"><SettingsScreen client={client} me={state.status === "ready" ? state.data : null} onConsentChange={reload} {...(onNavigate ? { onOpenImport: (id: string) => onNavigate("import", id, { section: "linear" }) } : {})} /></main>;
   if (state.status === "loading") return <p className="map-state" role="status">{t("loading.organization")}</p>;
   if (state.status === "error") {
     return (
@@ -78,7 +78,7 @@ function OrganizationWorkspace({ view, projectId = null, onNavigate, ticketId, o
     );
   }
   if (view === "import") {
-    return <ImportScreen client={client} me={state.data} projectId={projectId} onExit={() => onNavigate?.("map")} />;
+    return <ImportScreen client={client} me={state.data} projectId={projectId} onExit={() => onNavigate?.("map")} {...(onNavigate ? { onOpenSettings: () => onNavigate("settings", null, { section: "linear" }) } : {})} />;
   }
   return (
     <AdminProvider isAdmin={state.data.roles.clerk === "admin"}>

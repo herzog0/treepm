@@ -124,6 +124,8 @@ const ticketDetailSchema = ticketSummarySchema.extend({
   /** Quem lê pode encerrar o marcador (quem pode editar o ticket); ausente = não. */
   canEndAgentWork: z.boolean().optional(),
   description: z.string(),
+  /** De onde o ticket veio (ADR 0060): o Linear, com a chave da issue (`null` num projeto do Linear) e o endereço. Ausente: sem origem externa. */
+  externalSource: z.object({ provider: z.literal("linear"), key: z.string().nullable(), url: z.string().nullable() }).nullable().optional(),
   /** Quem lê pode aceitar e descartar a ideia (gestor do projeto, ADR 0042); ausente = não. */
   canTriageIdea: z.boolean().optional(),
   /** Os tickets do projeto que mencionam este na descrição, em ordem de número (ADR 0037). */
@@ -293,6 +295,28 @@ const projectLinearSchema = z.object({
   /** `null`: sem chave, sem origem, ou o Linear não respondeu. */
   keyMatches: z.boolean().nullable(),
 });
+/** A rodada de importação do Linear como a API a devolve (ADR 0060, seção 3): só contagens, nada do texto do Linear. */
+const linearRunSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  mode: z.enum(["first", "reimport"]),
+  phase: z.enum(["projects", "issues", "hierarchy", "mentions", "categorize", "done", "failed"]),
+  done: z.boolean(),
+  categorize: z.boolean(),
+  categorizeAvailable: z.boolean(),
+  counts: z.record(z.string(), z.union([z.number(), z.boolean()])),
+  errorStreak: z.number(),
+  pageSize: z.number(),
+  totalExpected: z.number().nullable(),
+  waitUntil: z.string().nullable(),
+  lastErrorCode: z.string().nullable(),
+  destinationTicketId: z.string().nullable(),
+  startedBy: z.object({ id: z.string() }),
+  startedAt: z.string(),
+  updatedAt: z.string(),
+  finishedAt: z.string().nullable(),
+});
+const currentLinearRunSchema = z.object({ run: linearRunSchema.nullable() });
 const projectRepositorySchema = githubRepositorySchema.extend({ id: z.string(), linkedAt: z.string() });
 const codeRefreshSchema = z.object({
   refreshed: z.boolean(),
@@ -470,6 +494,12 @@ export type ProjectRepository = z.output<typeof projectRepositorySchema>;
 export type LinearConnection = z.output<typeof linearConnectionSchema>;
 export type LinearTeam = z.output<typeof linearTeamSchema>;
 export type ProjectLinear = z.output<typeof projectLinearSchema>;
+export type LinearRun = z.output<typeof linearRunSchema>;
+export type CurrentLinearRun = z.output<typeof currentLinearRunSchema>;
+export interface OpenLinearRunBody {
+  /** O ticket onde as issues entram; nulo ou ausente: a raiz do projeto. */
+  destinationTicketId?: string | null;
+}
 export interface LinkProjectToLinearBody {
   teamId: string;
   /** A chave do time (`ENG`), digitada na confirmação dupla. */
@@ -785,6 +815,11 @@ export function createApiClient({ getToken, fetch: fetchImpl, actAsId = null }: 
     disconnectLinear: () => request("DELETE", "/api/linear/connection", null),
     listLinearTeams: () => request("GET", "/api/linear/teams", z.array(linearTeamSchema)),
     getProjectLinear: (projectId: string) => request("GET", `${project(projectId)}/linear`, projectLinearSchema),
+    openLinearRun: (projectId: string, body: OpenLinearRunBody) => request("POST", `${project(projectId)}/linear/runs`, linearRunSchema, body),
+    getCurrentLinearRun: (projectId: string) => request("GET", `${project(projectId)}/linear/runs/current`, currentLinearRunSchema),
+    stepLinearRun: (projectId: string, runId: string) => request("POST", `${project(projectId)}/linear/runs/${runId}/step`, linearRunSchema),
+    /** Desiste da rodada aberta: o que já foi importado fica e dá para começar outra (ADR 0060). */
+    abandonLinearRun: (projectId: string, runId: string) => request("POST", `${project(projectId)}/linear/runs/${runId}/abandon`, linearRunSchema),
     linkProjectToLinear: (projectId: string, body: LinkProjectToLinearBody) => request("POST", `${project(projectId)}/linear`, projectLinearSchema, body),
 
     ticketActivity: (id: string, query: { before?: string; limit?: number; contribution?: string } = {}, options: { signal?: AbortSignal } = {}) => {
