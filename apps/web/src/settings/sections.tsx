@@ -7,6 +7,8 @@ import { LANGUAGE_PREFERENCES } from "../i18n/languages.js";
 import type { LanguagePreference } from "../i18n/languages.js";
 import type { Preferences } from "../preferences/model.js";
 import { AiPrivacySettings } from "./AiPrivacySettings.js";
+import { LinearSettings } from "./LinearSettings.js";
+import type { LinearState } from "./LinearSettings.js";
 import { PeopleSettings, peopleAvailable } from "./PeopleSettings.js";
 import { McpAccessSection, McpTokensSection } from "./McpSettings.js";
 import type { McpSwitches, McpTokenDraft } from "./McpSettings.js";
@@ -28,6 +30,8 @@ export interface SectionContext {
   /** Vendo como outra pessoa: a preferência é da conta do administrador e só se lê. */
   preferencesReadOnly: boolean;
   mcp: McpSwitches;
+  /** A chave do Linear da pessoa e se o servidor o tem configurado (ADR 0060). */
+  linear: LinearState;
   tokenDraft: McpTokenDraft;
   onConsentChange: (() => void) | undefined;
   /** Id do título da seção aberta (para nomear listas e grupos). */
@@ -50,7 +54,7 @@ export interface SettingsSection {
   lead: (t: TFunction<"settings">) => string | null;
   /** Marca "admin" ao lado do nome (só aparece para quem é administrador). */
   adminTag: boolean;
-  available: (context: Pick<SectionContext, "client" | "me" | "isAdmin">) => boolean;
+  available: (context: Pick<SectionContext, "client" | "me" | "isAdmin" | "linear">) => boolean;
   render: (context: SectionContext) => ReactNode;
 }
 
@@ -125,5 +129,14 @@ export const DEFAULT_SETTINGS_SECTIONS: readonly SettingsSection[] = [
     adminTag: true,
     available: (context) => withApi(context) && mcpAvailable(context.me!),
     render: ({ client, me, mcp, open }) => <McpAccessSection client={client!} me={me!} mcp={mcp} onOpenTokens={() => open("tokens")} />,
+  },
+  {
+    id: "linear",
+    group: "integrations",
+    title: (t) => t("linear.title"),
+    lead: (t) => t("sections.linear.lead"),
+    adminTag: false,
+    available: (context) => withApi(context) && context.linear.configured,
+    render: ({ client, me, linear }) => <LinearSettings client={client!} me={me!} linear={linear} />,
   },
 ];

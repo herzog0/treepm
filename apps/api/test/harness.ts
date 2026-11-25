@@ -10,6 +10,7 @@ import type { FakeEmbeddingProvider } from "../scripts/placement-rebuild/fakes.j
 import type { PlacementTimeouts } from "../src/assistant/ports.js";
 import type { AccessTokenClock } from "../src/access-tokens/clock.js";
 import type { FakeRepositoryProvider } from "./github-fakes.js";
+import type { LinearFetchSwitch } from "./linear-fake-fetch.js";
 import { seedWorld } from "./world.js";
 import type { World } from "./world.js";
 
@@ -29,6 +30,7 @@ export type Harness = {
   elaborator: () => FakeTicketElaborator;
   embedder: () => FakeEmbeddingProvider;
   github: () => FakeRepositoryProvider;
+  linear: () => LinearFetchSwitch;
   call: (method: string, path: string, session: string, body?: unknown, headers?: Record<string, string>) => Promise<request.Response>;
 };
 
@@ -49,9 +51,10 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
   let elaborator: FakeTicketElaborator;
   let embedder: FakeEmbeddingProvider;
   let github: FakeRepositoryProvider;
+  let linear: LinearFetchSwitch;
 
   beforeAll(async () => {
-    ({ app, verifier, conversation, judge, summarizer, affinity, related, namer, writer, chat, elaborator, embedder, github } = await createTestApp([], config, { ...(options.timeouts ? { timeouts: options.timeouts } : {}), ...(options.clock ? { clock: options.clock } : {}) }));
+    ({ app, verifier, conversation, judge, summarizer, affinity, related, namer, writer, chat, elaborator, embedder, github, linear } = await createTestApp([], config, { ...(options.timeouts ? { timeouts: options.timeouts } : {}), ...(options.clock ? { clock: options.clock } : {}) }));
   });
   afterAll(async () => {
     await app.close();
@@ -116,6 +119,7 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     namer.fail = false;
     namer.hang = false;
     github.reset();
+    linear.reset();
     world = await seedWorld(pool, options.consent === false ? { consent: false } : {});
   });
 
@@ -135,6 +139,7 @@ export function useHarness(config?: AppConfig, options: { timeouts?: PlacementTi
     elaborator: () => elaborator,
     embedder: () => embedder,
     github: () => github,
+    linear: () => linear,
     call: (method, path, session, body, headers = {}) => {
       const agent = request(app.getHttpServer());
       const verb = method.toLowerCase() as "get" | "post" | "put" | "patch" | "delete";

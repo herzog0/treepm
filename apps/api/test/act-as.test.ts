@@ -4,7 +4,7 @@ import { ModulesContainer } from "@nestjs/core";
 import type { INestApplication } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
 import { IS_PUBLIC } from "../src/auth/public.decorator.js";
-import { AI_CONFIG, GITHUB_CONFIG } from "./helpers.js";
+import { AI_CONFIG, GITHUB_CONFIG, LINEAR_KEY_BASE64 } from "./helpers.js";
 import { useHarness } from "./harness.js";
 import { ACT_AS, actAs, createTestPerson, seedTestPerson, snapshot } from "./act-as-support.js";
 import { errorCode, openGeneral, openTicket, post, seedChatTickets, view } from "./chat-support.js";
@@ -23,9 +23,9 @@ import { ORG, OTHER_ORG, as } from "./world.js";
 
 // ADR 0057: "entrar como" vale só para pessoa de teste. O servidor confere (quem pede é administrador e ativo; o alvo é de teste, ativo
 // e da mesma organização); qualquer falha é 403 `act_as_not_allowed` com o mesmo corpo, e a requisição NÃO é atendida como o administrador.
-const h = useHarness({ ...GITHUB_CONFIG, ANTHROPIC_API_KEY: AI_CONFIG.ANTHROPIC_API_KEY, TYPESAFE_API_KEY: AI_CONFIG.TYPESAFE_API_KEY });
+const h = useHarness({ ...GITHUB_CONFIG, CREDENTIALS_ENCRYPTION_KEY: LINEAR_KEY_BASE64, ANTHROPIC_API_KEY: AI_CONFIG.ANTHROPIC_API_KEY, TYPESAFE_API_KEY: AI_CONFIG.TYPESAFE_API_KEY });
 /** Rotas autenticadas da API hoje; muda junto com os controladores. */
-const EXPECTED_ROUTES = 95;
+const EXPECTED_ROUTES = 101;
 const UUID = "0190c0de-0000-7000-8000-000000000001";
 
 /** Todas as rotas autenticadas de todos os controladores da aplicação (método e caminho com os parâmetros trocados por um uuid). */
@@ -167,6 +167,44 @@ describe("com uma pessoa de teste válida como alvo", () => {
       expect(res.status).toBe(403);
       expect(errorCode(res)).toBe("not_while_acting_as");
     }
+  });
+
+  it("GET /api/linear/connection agindo como outra pessoa: 200 com actingAs true e nenhuma conexão (a web mostra a frase própria)", async () => {
+    const { id } = await createTestPerson(h, "Bia");
+    await h.pool.query(
+      `insert into external_credentials (org_id, person_id, provider, secret_ciphertext, secret_nonce, key_version, external_workspace_id, external_workspace_name, secret_hint)
+       values ('org_A', $1::uuid, 'linear', $2, $3, 1, 'ws-1', 'Acme', 'abcd')`,
+      [h.world().people.admin, Buffer.from("cifrado-0123456789ab"), Buffer.alloc(12, 3)],
+    );
+    const own = await h.call("GET", "/api/linear/connection", as("admin"));
+    expect(own.body.connection).toMatchObject({ workspace: { id: "ws-1", name: "Acme" }, hint: "abcd" });
+    expect(own.body.actingAs).toBeUndefined();
+    const res = await h.call("GET", "/api/linear/connection", as("admin"), undefined, actAs(id));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ configured: true, connection: null, actingAs: true });
+    expect(h.linear().calls).toHaveLength(0);
+  });
+
+  it("as seis rotas do Linear: a leitura da conexão responde (actingAs) e as outras cinco dão not_while_acting_as, sem chamar o Linear e sem gravar", async () => {
+    const { id } = await createTestPerson(h, "Bia");
+    const before = await snapshot(h.pool);
+    const project = h.world().projects.priv;
+    const attempts = [
+      h.call("PUT", "/api/linear/connection", as("admin"), { apiKey: "lin_api_x" }, actAs(id)),
+      h.call("DELETE", "/api/linear/connection", as("admin"), undefined, actAs(id)),
+      h.call("GET", "/api/linear/teams", as("admin"), undefined, actAs(id)),
+      h.call("GET", `/api/projects/${project}/linear`, as("admin"), undefined, actAs(id)),
+      h.call("POST", `/api/projects/${project}/linear`, as("admin"), { teamId: "t", confirmTeamKey: "ENG" }, actAs(id)),
+    ];
+    for (const res of await Promise.all(attempts)) {
+      expect(res.status).toBe(403);
+      expect(errorCode(res)).toBe("not_while_acting_as");
+    }
+    const read = await h.call("GET", "/api/linear/connection", as("admin"), undefined, actAs(id));
+    expect(read.status).toBe(200);
+    expect(read.body).toEqual({ configured: true, connection: null, actingAs: true });
+    expect(h.linear().calls).toHaveLength(0);
+    expect(await snapshot(h.pool)).toEqual(before);
   });
 
   it("o isolamento por organização continua o da sessão: a pessoa de teste não vê a outra organização", async () => {

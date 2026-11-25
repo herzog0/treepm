@@ -4,6 +4,7 @@ import type { ApiClient, Me } from "../api/client.js";
 import type { LanguagePreference } from "../i18n/languages.js";
 import { usePreferences } from "../preferences/context.js";
 import type { Preferences } from "../preferences/model.js";
+import { useLinearConnection } from "./LinearSettings.js";
 import { useMcpSwitches, useMcpTokenDraft } from "./McpSettings.js";
 import { DEFAULT_SETTINGS_SECTIONS, SETTINGS_GROUPS } from "./sections.js";
 import type { SectionContext, SettingsSection } from "./sections.js";
@@ -36,6 +37,7 @@ export function SettingsScreen({ client, me, onConsentChange, sections = DEFAULT
   const { t } = useTranslation("settings");
   const { preferences, save, readOnly = false } = usePreferences();
   const mcp = useMcpSwitches(client, me);
+  const linear = useLinearConnection(client, me);
   const tokenDraft = useMcpTokenDraft();
   const navRef = useRef<HTMLElement>(null);
   const titleId = useId();
@@ -45,7 +47,7 @@ export function SettingsScreen({ client, me, onConsentChange, sections = DEFAULT
   const [failed, setFailed] = useState<"language" | null>(null);
 
   const isAdmin = me?.roles.clerk === "admin";
-  const visible = sections.filter((section) => section.available({ client, me, isAdmin }));
+  const visible = sections.filter((section) => section.available({ client, me, isAdmin, linear }));
   const current = visible.find((section) => section.id === anchor) ?? visible[0];
 
   // O foco vai ao título quando a pessoa troca de seção (a âncora muda); ao abrir a página, ou quando a API termina de
@@ -85,7 +87,7 @@ export function SettingsScreen({ client, me, onConsentChange, sections = DEFAULT
     await persist("language", { ...preferences, language: value });
   };
 
-  const context: SectionContext = { t, client, me, isAdmin, preferences, chooseLanguage, languageFailed: failed === "language", preferencesReadOnly: readOnly, mcp, tokenDraft, onConsentChange, titleId, open };
+  const context: SectionContext = { t, client, me, isAdmin, preferences, chooseLanguage, languageFailed: failed === "language", preferencesReadOnly: readOnly, mcp, linear, tokenDraft, onConsentChange, titleId, open };
 
   return (
     <div className="settings-screen">

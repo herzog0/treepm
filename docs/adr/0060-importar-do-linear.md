@@ -71,7 +71,7 @@ A rota de lista aceita 500 itens numa transação só, e a máquina de produçã
 
 ### 5. Origem por ticket e reimportação sem duplicar (`TREEPM-144`)
 
-- Tabela `ticket_external_refs`: por ticket, o provedor, o tipo (issue ou projeto), o **id estável** do Linear, o `identifier` e a `url` atuais, e um **retrato** da última importação com dois lados de cada campo: o valor que veio do Linear e o valor que foi aplicado no TreePM. Único por projeto, provedor e id externo.
+- Tabela `ticket_external_refs`: por ticket, o provedor, o tipo (issue ou projeto), o **id estável** do Linear, o `identifier` e a `url` atuais, e um **retrato** da última importação com dois lados de cada campo: o valor que veio do Linear e o valor que foi aplicado no TreePM. Único por **organização**, provedor e id externo: a origem acompanha o ticket para onde ele for (inclusive outro projeto), e a reimportação o encontra lá em vez de criar outro.
 - Reimportar é abrir outra rodada no mesmo projeto. Ela percorre o time inteiro de novo (não há filtro por data: o volume cabe com folga no limite, e o Linear avisa que nem toda mudança avança a data de atualização).
 - Por campo:
   - **mudou no Linear** quando o valor que chega difere do valor do Linear no retrato;
@@ -100,6 +100,8 @@ As telas novas (seção "Linear", modal de confirmação, andamento e resumo da 
 
 ## Fora deste recorte
 
+- **Reorganizar com a IA, com prévia** (pergunta de Teodoro em 2026-11-24: numa importação grande, pais que deviam virar filhos, tickets que deviam mudar de árvore). A importação traz a hierarquia do Linear como está, e a categorização só coloca as raízes do lote. Arrumar à mão depois é seguro, porque a reimportação não desfaz. Propor movimentos em lote (tirar issues de dentro do projeto do Linear, sugerir agrupadores), numa prévia que a pessoa aceita ou recusa, é uma fatia própria.
+
 - GitHub e Jira (`TREEPM-140`, `141`), custo estimado com aceite (`TREEPM-146`), sincronização contínua e webhooks (`TREEPM-319`), escrever de volta no Linear, OAuth ("Conectar ao Linear").
 - Rotação da chave de cifra: a coluna de versão existe para permitir; o procedimento fica para quando for preciso.
 
@@ -108,3 +110,18 @@ As telas novas (seção "Linear", modal de confirmação, andamento e resumo da 
 - É a primeira vez que o TreePM guarda no banco uma credencial de terceiro. Perder `CREDENTIALS_ENCRYPTION_KEY` torna as chaves gravadas ilegíveis (as pessoas colam de novo; os vínculos e os tickets não se perdem).
 - Um vínculo errado não se desfaz pela tela. Corrigir exige intervenção no banco, de propósito.
 - Com a origem por ticket, a sincronização contínua (`TREEPM-319`) passa a ter onde se apoiar.
+
+## Como ficou
+
+### Fatia 1: chave e vínculo (2026-11-24, `TREEPM-428`)
+
+- **Cifra:** `apps/api/src/common/credential-cipher.ts`, AES-256-GCM, nonce novo a cada gravação; o dado autenticado é organização, pessoa, provedor **e versão da chave**. Linha copiada para outra pessoa, ou com a versão trocada, não decifra. Credencial ilegível vira "não conectado" e a pessoa cola de novo.
+- **Banco (migration `0037_linear_connection`):** `external_credentials` e `project_external_sources`. O papel da aplicação só lê e insere o vínculo, e o projeto ligado não pode ser apagado (`ON DELETE RESTRICT`): a permanência vale no banco, não só na API.
+- **Rotas:** `GET`, `PUT` e `DELETE /api/linear/connection`, `GET /api/linear/teams`, `GET` e `POST /api/projects/:id/linear`. Não existe rota que altere ou remova o vínculo. Ligar exige a permissão de administrar o projeto (administrador da organização ou gerente do projeto) e a chave do time digitada.
+- **Chamadas ao Linear:** sempre fora de transação; listagem com teto de 5 páginas e 30 segundos; resposta de até 1 MB; a conferência de um time consulta só aquele time. Ler o projeto não chama o Linear (`keyMatches` compara só o workspace).
+- **Quem sai da organização:** a credencial é apagada na desativação da pessoa. Remover a própria chave funciona mesmo com o segredo de cifra ausente do servidor.
+- **"Entrar como":** as rotas do Linear recusam; a leitura da conexão responde sem conexão, e a tela mostra uma frase própria.
+- **Tela:** seção "Linear" nas Configurações (chave, times com três estados) e diálogo de confirmação dupla. O campo da chave é apagado da tela assim que a resposta chega.
+
+Diferenças em relação ao desenho: "Abrir importação", a data da última importação e a contagem de issues no diálogo ficam para a fatia 2, que é quando esses dados passam a existir.
+

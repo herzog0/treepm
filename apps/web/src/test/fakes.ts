@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 import { createFakeChat } from "./chatFakes.js";
 import type { FakeChat } from "./chatFakes.js";
-import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, ConversationDraftChild, GithubInstallation, GroupSummary, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, IdeaStage, TicketListUpdate, TicketSummary } from "../api/client.js";
+import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, ConversationDraftChild, GithubInstallation, GroupSummary, LinearConnection, LinearTeam, ProjectLinear, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, IdeaStage, TicketListUpdate, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 export { createFakeChat };
@@ -73,6 +73,8 @@ interface FakeData {
   tickets?: Record<string, TicketSummary[]>;
   /** Liga as rotas do GitHub (ADR 0032) com as regras do contrato; sem isso elas lançam, como o resto. */
   github?: FakeGithub;
+  /** Liga as rotas do Linear (ADR 0060) com as regras do contrato; sem isso, a ligação lida diz `configured: false` e as outras rotas lançam. */
+  linear?: FakeLinear;
   /** Liga as rotas de "O que entra aqui" (ADR 0033) com as regras do contrato; sem isso elas lançam, como o resto. */
   summaries?: FakeSummaries;
   /** Liga as rotas de tokens de acesso por MCP (ADR 0038) com as regras do contrato; sem isso elas lançam, como o resto. */
@@ -213,6 +215,129 @@ export function makeCodeLink(id: string, ticket: { id: string; key: string; titl
     url: `${repository.htmlUrl}/pull/12`,
     updatedAt: "2026-11-21T10:00:00.000Z",
     ...extra,
+  };
+}
+
+export interface FakeLinear {
+  /** Falso: o servidor não tem a variável de cifra (`configured: false`; as outras rotas dão 503 `linear_not_configured`). Padrão: configurado. */
+  configured?: boolean;
+  /** A chave já conectada; `null` (padrão) é "sem chave". */
+  connection?: LinearConnection["connection"];
+  /** O workspace que a chave colada enxerga. Padrão: Acme. */
+  workspace?: { id: string; name: string };
+  /** Chave que o Linear recusa (qualquer outra é aceita). */
+  invalidKey?: string;
+  /** Erro de `PUT /linear/connection` no formato `[tipo, código, detalhes]`; vale uma vez só. */
+  connectError?: [Parameters<typeof failed>[0], string?, Record<string, unknown>?];
+  /** Times que a chave enxerga. */
+  teams?: LinearTeam[];
+  /** Erro de `GET /linear/teams` no formato `[tipo, código, detalhes]`; vale uma vez só. */
+  teamsError?: [Parameters<typeof failed>[0], string?, Record<string, unknown>?];
+  /** Erro de `POST /projects/:id/linear` no formato `[tipo, código]`; vale uma vez só. */
+  linkError?: [Parameters<typeof failed>[0], string?];
+  /** O estado do vínculo por ID de projeto; sem entrada, o projeto está sem origem e `canLink` segue o papel de quem lê. */
+  projects?: Record<string, ProjectLinear>;
+}
+
+export const makeLinearTeam = (key: string, name: string, extra: Partial<LinearTeam> = {}): LinearTeam => ({ id: `team-${key.toLowerCase()}`, key, name, linkedProject: null, linkedElsewhere: false, ...extra });
+export const makeLinearConnection = (extra: Partial<NonNullable<LinearConnection["connection"]>> = {}): NonNullable<LinearConnection["connection"]> => ({
+  workspace: { id: "ws-acme", name: "Acme" },
+  hint: "a1b2",
+  connectedAt: "2026-11-24T10:00:00.000Z",
+  ...extra,
+});
+
+const LINEAR_NAMES = ["connectLinear", "disconnectLinear", "listLinearTeams", "getProjectLinear", "linkProjectToLinear"] as const;
+
+/**
+ * As rotas do Linear do contrato da ADR 0060, em memória: a chave nunca volta (só os 4 últimos caracteres), agindo como outra
+ * pessoa tudo recusa com `not_while_acting_as` (menos ler a ligação), quem não administra o projeto não liga, o vínculo é
+ * permanente e o time não se liga duas vezes. Erros do servidor real: chave inválida 422, limite 429, fora do ar 503.
+ */
+function linearMethods(data: FakeData): Partial<ApiClient> {
+  const linear = data.linear!;
+  const me = data.me ?? makeMe();
+  const isAdmin = me.roles.clerk === "admin";
+  const actingAs = me.actingAs != null;
+  const configured = linear.configured !== false;
+  let connection = linear.connection ?? null;
+  const teams = (linear.teams ?? []).map((team) => ({ ...team }));
+  const sources = new Map<string, ProjectLinear>(Object.entries(linear.projects ?? {}));
+  let connectError = linear.connectError;
+  let teamsError = linear.teamsError;
+  let linkError = linear.linkError;
+  const refuse = (): ApiResult<never> | null => (!configured ? failed("unavailable", "linear_not_configured") : actingAs ? failed("forbidden", "not_while_acting_as") : null);
+  const withDetails = (result: ApiResult<never>, details?: Record<string, unknown>): ApiResult<never> =>
+    !result.ok && details !== undefined ? { ok: false, error: { ...result.error, details } } : result;
+  const canLinkProject = (projectId: string) => isAdmin || me.roles.projects.some((entry) => entry.projectId === projectId && entry.role === "manager");
+  const archived = (projectId: string) => data.projects?.find((entry) => entry.id === projectId)?.archivedAt != null;
+  const view = (projectId: string): ProjectLinear => {
+    const source = sources.get(projectId);
+    return source ? { ...source } : { source: null, canLink: canLinkProject(projectId) && !archived(projectId), keyMatches: null };
+  };
+
+  return {
+    // Como o servidor: agindo como outra pessoa responde 200, sem a conexão e com `actingAs`.
+    getLinearConnection: vi.fn(async () =>
+      ok<LinearConnection>(actingAs ? { configured, connection: null, actingAs: true } : { configured, connection: configured && connection !== null ? { ...connection } : null }),
+    ),
+    connectLinear: vi.fn(async (apiKey: string) => {
+      const problem = refuse();
+      if (problem) return problem;
+      if (connectError) {
+        const [kind, code, details] = connectError;
+        connectError = undefined;
+        return withDetails(failed(kind, code), details);
+      }
+      if (apiKey.trim() === "" || apiKey !== apiKey.trim()) return failed("invalid");
+      if (linear.invalidKey !== undefined && apiKey === linear.invalidKey) return failed("unavailable", "linear_key_invalid");
+      connection = { workspace: linear.workspace ?? { id: "ws-acme", name: "Acme" }, hint: apiKey.slice(-4), connectedAt: "2026-11-24T12:00:00.000Z" };
+      return ok<LinearConnection>({ configured: true, connection: { ...connection } });
+    }),
+    disconnectLinear: vi.fn(async () => {
+      const problem = refuse();
+      if (problem) return problem;
+      connection = null;
+      return ok(undefined);
+    }),
+    listLinearTeams: vi.fn(async () => {
+      const problem = refuse();
+      if (problem) return problem;
+      if (teamsError) {
+        const [kind, code, details] = teamsError;
+        teamsError = undefined;
+        return withDetails(failed(kind, code), details);
+      }
+      if (connection === null) return failed("conflict", "linear_not_connected");
+      return ok(teams.map((team) => ({ ...team })));
+    }),
+    getProjectLinear: vi.fn(async (projectId: string) => refuse() ?? ok(view(projectId))),
+    linkProjectToLinear: vi.fn(async (projectId: string, body: { teamId: string; confirmTeamKey: string }) => {
+      const problem = refuse();
+      if (problem) return problem;
+      if (!canLinkProject(projectId)) return failed("forbidden");
+      if (archived(projectId)) return failed("conflict", "project_archived");
+      if (linkError) {
+        const [kind, code] = linkError;
+        linkError = undefined;
+        return failed(kind, code);
+      }
+      if (connection === null) return failed("conflict", "linear_not_connected");
+      if (sources.get(projectId)?.source != null) return failed("conflict", "linear_already_linked");
+      const team = teams.find((entry) => entry.id === body.teamId);
+      if (!team) return failed("not_found", "linear_team_not_found");
+      if (team.linkedProject !== null || team.linkedElsewhere) return failed("conflict", "linear_team_in_use");
+      if (body.confirmTeamKey.trim().toLocaleUpperCase() !== team.key.toLocaleUpperCase()) return failed("unavailable", "linear_confirmation_mismatch");
+      const name = data.projects?.find((entry) => entry.id === projectId)?.name ?? projectId;
+      team.linkedProject = { id: projectId, name };
+      const created: ProjectLinear = {
+        source: { workspace: { ...connection.workspace }, team: { id: team.id, key: team.key, name: team.name }, linkedAt: "2026-11-24T12:00:00.000Z", linkedBy: { id: me.person.id } },
+        canLink: false,
+        keyMatches: true,
+      };
+      sources.set(projectId, created);
+      return ok({ ...created });
+    }),
   };
 }
 
@@ -492,6 +617,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement", "getPlacementDecision", "getElaboration",
     "createTicketFromConversation", "listConversations", "getConversation", "removeConversation", "getConversationPreview",
     ...GITHUB_NAMES,
+    ...(data.linear ? [] : LINEAR_NAMES),
     ...MCP_NAMES,
     "getAiConsent", "acceptAiConsent", "withdrawAiConsent",
     "createTestPerson", "deactivateTestPerson", "reactivateTestPerson",
@@ -520,6 +646,9 @@ export function makeClient(data: FakeData = {}): ApiClient {
     listConversationTree: vi.fn(async () => ok({ items: [] })),
     ...(data.chat ? data.chat.methods(data.chatAs) : {}),
     ...(data.github ? githubMethods(data) : {}),
+    // Sem Linear configurado no teste, a ligação diz `configured: false`: a seção some e os testes que não falam dela não mudam (ADR 0060).
+    getLinearConnection: vi.fn(async () => ok<LinearConnection>({ configured: false, connection: null })),
+    ...(data.linear ? linearMethods(data) : {}),
     ...(data.mcp ? mcpMethods(data) : {}),
     ...(data.aiConsent ? aiConsentMethods(data) : {}),
     ...(data.summaries ? summaryMethods(data) : {}),

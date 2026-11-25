@@ -16,6 +16,8 @@ import type { PlacementTimeouts } from "../src/assistant/ports.js";
 import { ACCESS_TOKEN_CLOCK } from "../src/access-tokens/clock.js";
 import type { AccessTokenClock } from "../src/access-tokens/clock.js";
 import { REPOSITORY_PROVIDER } from "../src/github/ports.js";
+import { LINEAR_FETCH } from "../src/linear/ports.js";
+import { LinearFetchSwitch } from "./linear-fake-fetch.js";
 import { APP_ID, FakeRepositoryProvider } from "./github-fakes.js";
 import { FakeEmbeddingProvider } from "../scripts/placement-rebuild/fakes.js";
 import { FakeAffinityJudge, FakeBranchJudge, FakeBranchSummarizer, FakeChatProvider, FakeConversationProvider, FakeDescriptionWriter, FakeGroupNamer, FakeRelatedJudge, FakeTicketElaborator } from "./assistant-fakes.js";
@@ -77,6 +79,10 @@ export const GITHUB_CONFIG: AppConfig = {
   GITHUB_APP_PRIVATE_KEY: GITHUB_SECRETS.privateKey,
 };
 
+/** Configuração com o Linear ligado (chave de cifra de teste; o `fetch` do Linear é sempre o falso). */
+export const LINEAR_KEY_BASE64 = Buffer.alloc(32, 42).toString("base64");
+export const LINEAR_CONFIG: AppConfig = { ...TEST_CONFIG, CREDENTIALS_ENCRYPTION_KEY: LINEAR_KEY_BASE64 };
+
 export type DirectoryCalls = { users: string[]; organizations: string[]; memberships: { orgId: string; userId: string }[] };
 
 /** Diretório falso determinístico, com chamadas registradas. */
@@ -131,6 +137,7 @@ export async function createTestApp(
   elaborator: FakeTicketElaborator;
   embedder: FakeEmbeddingProvider;
   github: FakeRepositoryProvider;
+  linear: LinearFetchSwitch;
 }> {
   const directory = new FakeDirectory();
   const verifier = new FakeSessionVerifier();
@@ -145,6 +152,7 @@ export async function createTestApp(
   const elaborator = new FakeTicketElaborator();
   const embedder = new FakeEmbeddingProvider();
   const github = new FakeRepositoryProvider();
+  const linear = new LinearFetchSwitch();
   let builder = Test.createTestingModule({
     imports: [AppModule],
     controllers: extraControllers,
@@ -173,6 +181,7 @@ export async function createTestApp(
       .overrideProvider(EMBEDDING_PROVIDER)
       .useFactory({ inject: [CONFIG], factory: (c: AppConfig) => (c.VOYAGE_API_KEY ? embedder : null) });
   }
+  builder = builder.overrideProvider(LINEAR_FETCH).useValue(linear.impl);
   if (!options.realGithub) builder = builder.overrideProvider(REPOSITORY_PROVIDER).useValue(github);
   if (options.clock) builder = builder.overrideProvider(ACCESS_TOKEN_CLOCK).useValue(options.clock);
   if (options.timeouts) builder = builder.overrideProvider(PLACEMENT_TIMEOUTS).useValue(options.timeouts);
@@ -187,7 +196,7 @@ export async function createTestApp(
   const app = moduleRef.createNestApplication({ logger: false });
   configureApp(app, config);
   await app.init();
-  return { app, directory, verifier, conversation, judge, summarizer, affinity, related, namer, writer, chat, elaborator, embedder, github };
+  return { app, directory, verifier, conversation, judge, summarizer, affinity, related, namer, writer, chat, elaborator, embedder, github, linear };
 }
 
 /**

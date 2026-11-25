@@ -180,6 +180,9 @@
     },
     "mcp": {
       "lead": "Tokens for AI clients, such as Claude Code, to access this organization's tickets."
+    },
+    "linear": {
+      "lead": "Bring the issues of a Linear team into a project. The key is yours: it is stored encrypted, only you use it, and TreePM only reads, it never writes to Linear."
     }
   },
   "cards": {
@@ -210,5 +213,61 @@
     "nameLabel": "Test person name",
     "namePlaceholder": "Test person name",
     "create": "Create test person"
+  },
+  "linear": {
+    "title": "Linear",
+    "actingAs": "The Linear key is personal and cannot be used as another person. Go back to being yourself to connect yours.",
+    "key": {
+      "title": "Your key",
+      "connected": "Connected",
+      "label": "Personal Linear key",
+      "placeholder": "Paste the key here",
+      "guide": "In Linear: Settings → Security & access → Personal API keys. Create a read-only key: TreePM never writes to Linear.",
+      "after": "When you connect, TreePM checks the key and shows the workspace and the teams it can see.",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "cancel": "Cancel",
+      "workspace": "Workspace {{name}}",
+      "replace": "Replace",
+      "replaceGuide": "Paste the new key. The current one is only replaced if Linear accepts the new one.",
+      "remove": "Remove",
+      "removeWarning": "Removing the key does not undo any project link.",
+      "footnote": "Removing or replacing the key does not undo any link. To import into a linked project, the key must be from the same workspace and see the team.",
+      "connectedOn": "· connected on {{date}}"
+    },
+    "teams": {
+      "title": "Teams your key can see",
+      "note": "checked just now",
+      "refresh": "Refresh",
+      "loading": "Checking Linear…",
+      "retry": "Try again",
+      "empty": "Your key cannot see any team.",
+      "permanent": "permanent link",
+      "linkedTo": "Linked to project {{project}}",
+      "free": "Not linked to any project yet",
+      "link": "Link to a project…",
+      "linkLabel": "Link team {{key}} to a project",
+      "elsewhere": "Already linked to a project you cannot see",
+      "unavailable": "unavailable"
+    },
+    "dialog": {
+      "title": "Link {{project}} to team {{team}}?",
+      "titleNoProject": "Link team {{team}} to a project",
+      "project": "Project",
+      "workspace": "Workspace",
+      "team": "Team",
+      "pick": "Project to link",
+      "pickPlaceholder": "Choose a project…",
+      "loading": "Looking for the projects you can link…",
+      "loadFailed": "Could not check your projects. Close and try again.",
+      "none": "You do not manage any project that still has no origin. Create a project, or ask whoever manages one.",
+      "warningTitle": "This link is permanent.",
+      "warningBody": "Once confirmed, this project only receives issues from this team, and that cannot be changed or undone. It is what keeps re-importing from duplicating.",
+      "confirm": "To confirm, type the team key:",
+      "cancel": "Cancel",
+      "close": "Close",
+      "submit": "Link forever",
+      "submitting": "Linking…"
+    }
   }
 }
