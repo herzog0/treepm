@@ -199,6 +199,8 @@ export class AccessTokenService {
   private async personLeft(orgId: string, found: Found): Promise<void> {
     await this.tenants.run({ orgId, userId: found.clerkUserId }, async (tx) => {
       await tx.person.updateMany({ where: { id: found.personId, active: true }, data: { active: false } });
+      // A chave pessoal de um provedor externo (Linear, ADR 0060) não sobrevive à saída: se a pessoa voltar, cola de novo.
+      await tx.externalCredential.deleteMany({ where: { orgId, personId: found.personId } });
       const now = this.clock.now();
       const active = await tx.accessToken.findMany({
         where: { personId: found.personId, revokedAt: null, expiresAt: { gt: new Date(now) } },

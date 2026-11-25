@@ -1,0 +1,44 @@
+/* Seção "Linear" das Configurações e o diálogo de ligação permanente (ADR 0060). Cores e medidas vêm dos tokens da aplicação. */
+.linear-mono, .linear-key { font-family: var(--tp-font-mono); }
+.linear-key { font-size: 12px; }
+.linear-ok { color: var(--tp-done); font-weight: 700; }
+.linear-ok::before { content: "● "; }
+.linear-footnote { margin: 0 0 20px; color: var(--tp-side-text-3); font-size: 13px; line-height: 1.5; }
+
+.settings-screen .linear-key-form { display: grid; gap: 8px; padding: 14px 18px; }
+.settings-screen .linear-guide { margin: 0; color: var(--tp-side-text-3); font-size: 13px; line-height: 1.5; }
+.settings-screen .linear-key-form label { color: var(--tp-side-text-2); font-size: 13px; }
+.settings-screen .linear-key-form input { width: 100%; box-sizing: border-box; }
+.linear-key-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-screen .linear-key-form .settings-note { padding: 0; }
+
+.settings-screen .linear-teams { margin: 0; padding: 0; list-style: none; }
+.settings-screen .linear-teams:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: -2px; }
+.settings-screen .linear-teams > li + li { border-top: 1px solid var(--tp-divider); }
+.linear-team-off { color: var(--tp-side-text-2); }
+.linear-badge { display: inline-block; padding: 2px 7px; border-radius: 6px; background: var(--tp-side-field-border); color: var(--tp-side-text-2); font-size: 11px; font-weight: 700; }
+.linear-badge-lock { background: var(--tp-side-selected-meta); color: var(--tp-accent-soft); }
+.linear-state { display: grid; justify-items: start; gap: 8px; padding: 12px 18px; }
+.linear-state .settings-note { padding: 0; }
+
+/* O diálogo sai da página (portal no `body`); os controles dele herdam o estilo de `controls.css` por `.linear-dialog`. */
+.linear-dialog { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; box-sizing: border-box; padding: 16px; background: color-mix(in srgb, var(--tp-bg) 78%, transparent); color: var(--tp-text); font-family: var(--tp-font); }
+.linear-dialog-box { display: grid; gap: 14px; width: min(460px, 100%); max-height: calc(100dvh - 32px); box-sizing: border-box; overflow-y: auto; padding: 22px; border: 1px solid var(--tp-conv-field-border); border-radius: 14px; background: var(--tp-side-bg); box-shadow: 0 18px 40px color-mix(in srgb, var(--tp-bg) 65%, transparent); }
+.linear-dialog-box:focus { outline: none; }
+.linear-dialog-box h2 { margin: 0; font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
+.linear-dialog-note { margin: 0; color: var(--tp-side-text-2); font-size: 14px; line-height: 1.5; }
+.linear-dialog .linear-dialog-error { margin: 0; color: var(--tp-danger-text); font-size: 13px; line-height: 1.45; }
+.linear-summary { display: grid; grid-template-columns: minmax(0, 96px) minmax(0, 1fr); gap: 8px 12px; margin: 0; font-size: 13px; }
+.linear-summary dt { color: var(--tp-side-text-3); }
+.linear-summary dt label { color: var(--tp-side-text-3); font-size: 13px; }
+.linear-summary dd { margin: 0; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.linear-dialog .linear-summary select { width: 100%; box-sizing: border-box; }
+.linear-warning { padding: 10px 12px; border: 1px solid var(--tp-warn-text); border-radius: 10px; background: var(--tp-warn-bg); color: var(--tp-warn-text); font-size: 13px; line-height: 1.5; }
+.linear-dialog .linear-confirm { color: var(--tp-side-text-2); font-size: 13px; line-height: 1.45; }
+.linear-confirm strong { color: var(--tp-text); }
+.linear-dialog input[type="text"] { width: 100%; box-sizing: border-box; }
+.linear-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+@media (max-width: 480px) {
+  .linear-dialog-actions { flex-direction: column-reverse; }
+  .linear-dialog-actions button { width: 100%; }
+}

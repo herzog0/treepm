@@ -181,6 +181,9 @@
     },
     "mcp": {
       "lead": "Tokens para que clientes de IA, como Claude Code, accedan a los tickets de esta organización."
+    },
+    "linear": {
+      "lead": "Trae los issues de un equipo de Linear a un proyecto. La clave es tuya: se guarda cifrada, solo tú la usas, y TreePM solo lee, nunca escribe en Linear."
     }
   },
   "cards": {
@@ -212,5 +215,61 @@
     "nameLabel": "Nombre de la persona de prueba",
     "namePlaceholder": "Nombre de la persona de prueba",
     "create": "Crear persona de prueba"
+  },
+  "linear": {
+    "title": "Linear",
+    "actingAs": "La clave de Linear es personal y no se puede usar como otra persona. Vuelve a ser tú para conectar la tuya.",
+    "key": {
+      "title": "Tu clave",
+      "connected": "Conectado",
+      "label": "Clave personal de Linear",
+      "placeholder": "Pega la clave aquí",
+      "guide": "En Linear: Settings → Security & access → Personal API keys. Crea una clave de solo lectura: TreePM nunca escribe en Linear.",
+      "after": "Al conectar, TreePM revisa la clave y muestra el workspace y los equipos que ve.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "cancel": "Cancelar",
+      "workspace": "Workspace {{name}}",
+      "replace": "Reemplazar",
+      "replaceGuide": "Pega la nueva clave. La actual solo se reemplaza si Linear acepta la nueva.",
+      "remove": "Quitar",
+      "removeWarning": "Quitar la clave no deshace ninguna conexión de proyecto.",
+      "footnote": "Quitar o reemplazar la clave no deshace ninguna conexión. Para importar a un proyecto ligado, la clave debe ser del mismo workspace y ver el equipo.",
+      "connectedOn": "· conectada el {{date}}"
+    },
+    "teams": {
+      "title": "Equipos que tu clave ve",
+      "note": "consultado ahora",
+      "refresh": "Actualizar",
+      "loading": "Consultando Linear…",
+      "retry": "Intentar de nuevo",
+      "empty": "Tu clave no ve ningún equipo.",
+      "permanent": "conexión permanente",
+      "linkedTo": "Ligado al proyecto {{project}}",
+      "free": "Aún no ligado a ningún proyecto",
+      "link": "Ligar a un proyecto…",
+      "linkLabel": "Ligar el equipo {{key}} a un proyecto",
+      "elsewhere": "Ya ligado a un proyecto que no ves",
+      "unavailable": "no disponible"
+    },
+    "dialog": {
+      "title": "¿Ligar {{project}} al equipo {{team}}?",
+      "titleNoProject": "Ligar el equipo {{team}} a un proyecto",
+      "project": "Proyecto",
+      "workspace": "Workspace",
+      "team": "Equipo",
+      "pick": "Proyecto a ligar",
+      "pickPlaceholder": "Elige un proyecto…",
+      "loading": "Buscando los proyectos que puedes ligar…",
+      "loadFailed": "No se pudieron consultar tus proyectos. Cierra e inténtalo de nuevo.",
+      "none": "No administras ningún proyecto que aún no tenga origen. Crea un proyecto, o pide a quien administra uno.",
+      "warningTitle": "Esta conexión es permanente.",
+      "warningBody": "Una vez confirmada, este proyecto solo recibe issues de este equipo, y eso no se puede cambiar ni deshacer. Es lo que evita duplicados al reimportar.",
+      "confirm": "Para confirmar, escribe la clave del equipo:",
+      "cancel": "Cancelar",
+      "close": "Cerrar",
+      "submit": "Ligar para siempre",
+      "submitting": "Ligando…"
+    }
   }
 }

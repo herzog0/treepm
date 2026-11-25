@@ -61,6 +61,14 @@ const schema = z.object({
     .refine((value) => /^-----BEGIN RSA PRIVATE KEY-----\n[\s\S]+\n-----END RSA PRIVATE KEY-----\s*$/.test(value), "deve ser um PEM PKCS#1 (BEGIN RSA PRIVATE KEY)")
     .optional(),
   /**
+   * Chave de cifra das credenciais de terceiros guardadas por pessoa (ADR 0060): base64 de exatamente 32 bytes (AES-256-GCM). Opcional:
+   * sem ela a API sobe e a ligação com o Linear fica desligada. Segredo próprio, nunca derivado de outro.
+   */
+  CREDENTIALS_ENCRYPTION_KEY: z
+    .string()
+    .refine((value) => /^[A-Za-z0-9+/]{43}=$/.test(value) && Buffer.from(value, "base64").length === 32, "deve ser base64 de exatamente 32 bytes")
+    .optional(),
+  /**
    * Nome do cabeçalho que leva o IP do cliente (ex.: `Fly-Client-IP`), usado só pelo limite por IP do servidor MCP
    * (ADR 0038). Opcional: sem ele vale o IP da conexão. Só deve ser definido atrás de um proxy que sobrescreve o cabeçalho.
    */
@@ -120,6 +128,11 @@ export function allowedOrigins(config: Pick<AppConfig, "APP_ORIGIN" | "APP_EXTRA
 /** A IA está ligada só com as duas chaves. */
 export function assistantEnabled(config: Pick<AppConfig, "ANTHROPIC_API_KEY" | "TYPESAFE_API_KEY">): boolean {
   return Boolean(config.ANTHROPIC_API_KEY && config.TYPESAFE_API_KEY);
+}
+
+/** A ligação com o Linear (ADR 0060) está ligada só com a chave de cifra das credenciais. */
+export function linearEnabled(config: Pick<AppConfig, "CREDENTIALS_ENCRYPTION_KEY">): boolean {
+  return Boolean(config.CREDENTIALS_ENCRYPTION_KEY);
 }
 
 export const GITHUB_VARIABLES = [

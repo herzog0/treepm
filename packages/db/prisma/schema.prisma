@@ -77,6 +77,8 @@ model Organization {
   ticketContributions        TicketContribution[]
   ticketContributionPeople   TicketContributionPerson[]
   organizationConsents       OrganizationConsent[]
+  externalCredentials        ExternalCredential[]
+  projectExternalSources     ProjectExternalSource[]
 
   @@map("organizations")
 }
@@ -119,6 +121,8 @@ model Person {
   contributionPeople     TicketContributionPerson[]
   consentsAccepted       OrganizationConsent[]      @relation("ConsentAcceptedBy")
   consentsWithdrawn      OrganizationConsent[]      @relation("ConsentWithdrawnBy")
+  externalCredentials    ExternalCredential[]
+  externalSourcesLinked  ProjectExternalSource[]    @relation("ExternalSourceLinkedBy")
 
   @@id([orgId, id])
   @@unique([orgId, clerkUserId])
@@ -194,6 +198,7 @@ model Project {
   placementDecisions  PlacementDecision[]
   repositories        ProjectRepository[]
   accessTokens        AccessToken[]
+  externalSource      ProjectExternalSource?
 
   @@id([orgId, id])
   @@unique([orgId, key])
@@ -795,4 +800,52 @@ model ConversationMessage {
   @@id([orgId, id])
   @@index([orgId, conversationId, seq], map: "conversation_messages_conversation_idx")
   @@map("conversation_messages")
+}
+
+/// A chave de API de um provedor externo (Linear), uma por pessoa e provedor (ADR 0060). O segredo vai cifrado (AES-256-GCM) pela
+/// aplicação, com organização, pessoa e provedor como dado autenticado. Nunca é lido por rota nenhuma além do próprio dono.
+model ExternalCredential {
+  orgId                 String   @map("org_id")
+  personId              String   @map("person_id") @db.Uuid
+  /// linear (check no banco)
+  provider              String
+  secretCiphertext      Bytes    @map("secret_ciphertext")
+  secretNonce           Bytes    @map("secret_nonce")
+  keyVersion            Int      @map("key_version")
+  externalWorkspaceId   String   @map("external_workspace_id")
+  externalWorkspaceName String   @map("external_workspace_name")
+  /// Os quatro últimos caracteres da chave, só para a pessoa reconhecê-la.
+  secretHint            String   @map("secret_hint")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  person       Person       @relation(fields: [orgId, personId], references: [orgId, id], onDelete: Cascade)
+
+  @@id([orgId, personId, provider])
+  @@map("external_credentials")
+}
+
+/// A ligação PERMANENTE de um projeto com um time do provedor (ADR 0060, seção 2). O papel da aplicação só tem SELECT e INSERT
+/// (migration 0037): nunca se altera nem se apaga pela aplicação. O mesmo time não entra em dois projetos da organização.
+model ProjectExternalSource {
+  orgId                 String   @map("org_id")
+  projectId             String   @map("project_id") @db.Uuid
+  /// linear (check no banco)
+  provider              String
+  externalWorkspaceId   String   @map("external_workspace_id")
+  externalWorkspaceName String   @map("external_workspace_name")
+  externalTeamId        String   @map("external_team_id")
+  externalTeamKey       String   @map("external_team_key")
+  externalTeamName      String   @map("external_team_name")
+  linkedByPersonId      String   @map("linked_by_person_id") @db.Uuid
+  linkedAt              DateTime @default(now()) @map("linked_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  project      Project      @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Restrict)
+  linkedBy     Person       @relation("ExternalSourceLinkedBy", fields: [orgId, linkedByPersonId], references: [orgId, id])
+
+  @@id([orgId, projectId])
+  @@unique([orgId, provider, externalWorkspaceId, externalTeamId])
+  @@map("project_external_sources")
 }

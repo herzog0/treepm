@@ -264,6 +264,35 @@ const githubRepositorySchema = z.object({
   htmlUrl: z.string(),
   defaultBranch: z.string(),
 });
+/** A chave pessoal do Linear (ADR 0060): nunca volta ao navegador; só o workspace, os 4 últimos caracteres e a data. */
+const linearConnectionSchema = z.object({
+  configured: z.boolean(),
+  /** Só agindo como outra pessoa: o servidor responde 200 sem conexão (a chave é pessoal) e a tela mostra a frase própria. */
+  actingAs: z.boolean().optional(),
+  connection: z.object({ workspace: z.object({ id: z.string(), name: z.string() }), hint: z.string(), connectedAt: z.string() }).nullable(),
+});
+const linearTeamSchema = z.object({
+  id: z.string(),
+  key: z.string(),
+  name: z.string(),
+  /** Ligado a um projeto que a pessoa enxerga. */
+  linkedProject: z.object({ id: z.string(), name: z.string() }).nullable(),
+  /** Ligado a um projeto que ela não enxerga (sem nome). */
+  linkedElsewhere: z.boolean(),
+});
+const projectLinearSchema = z.object({
+  source: z
+    .object({
+      workspace: z.object({ id: z.string(), name: z.string() }),
+      team: z.object({ id: z.string(), key: z.string(), name: z.string() }),
+      linkedAt: z.string(),
+      linkedBy: z.object({ id: z.string() }),
+    })
+    .nullable(),
+  canLink: z.boolean(),
+  /** `null`: sem chave, sem origem, ou o Linear não respondeu. */
+  keyMatches: z.boolean().nullable(),
+});
 const projectRepositorySchema = githubRepositorySchema.extend({ id: z.string(), linkedAt: z.string() });
 const codeRefreshSchema = z.object({
   refreshed: z.boolean(),
@@ -438,6 +467,14 @@ export interface NewGroup {
 export type GithubInstallation = z.output<typeof githubInstallationSchema>;
 export type GithubRepository = z.output<typeof githubRepositorySchema>;
 export type ProjectRepository = z.output<typeof projectRepositorySchema>;
+export type LinearConnection = z.output<typeof linearConnectionSchema>;
+export type LinearTeam = z.output<typeof linearTeamSchema>;
+export type ProjectLinear = z.output<typeof projectLinearSchema>;
+export interface LinkProjectToLinearBody {
+  teamId: string;
+  /** A chave do time (`ENG`), digitada na confirmação dupla. */
+  confirmTeamKey: string;
+}
 export type CodeRefresh = z.output<typeof codeRefreshSchema>;
 export type CodeLink = z.output<typeof codeLinkSchema>;
 export type TicketCode = z.output<typeof ticketCodeSchema>;
@@ -545,7 +582,7 @@ const fail = (kind: ApiErrorKind, code?: string, keys?: string[], details?: Reco
 });
 
 /** Erros do chat cujos `details` a tela usa: os outros códigos nunca os levam. */
-const CHAT_DETAIL_CODES = new Set(["chat_rate_limited", "chat_thread_rate_limited", "mention_not_allowed", "too_many_mentions"]);
+const CHAT_DETAIL_CODES = new Set(["chat_rate_limited", "chat_thread_rate_limited", "mention_not_allowed", "too_many_mentions", "linear_rate_limited"]);
 function chatDetailsOf(code: string, details: unknown): Record<string, unknown> | undefined {
   return CHAT_DETAIL_CODES.has(code) && typeof details === "object" && details !== null && !Array.isArray(details) ? (details as Record<string, unknown>) : undefined;
 }
@@ -742,6 +779,14 @@ export function createApiClient({ getToken, fetch: fetchImpl, actAsId = null }: 
     getTicketCode: (id: string) => request("GET", `${ticket(id)}/code`, ticketCodeSchema),
 
     /** Atividade do ticket (ADR 0040), da mais recente para a mais antiga; `before` é o cursor que a página anterior devolveu. */
+    /** O Linear (ADR 0060): a chave é pessoal e nunca volta; o vínculo do projeto com um time é permanente. */
+    getLinearConnection: () => request("GET", "/api/linear/connection", linearConnectionSchema),
+    connectLinear: (apiKey: string) => request("PUT", "/api/linear/connection", linearConnectionSchema, { apiKey }),
+    disconnectLinear: () => request("DELETE", "/api/linear/connection", null),
+    listLinearTeams: () => request("GET", "/api/linear/teams", z.array(linearTeamSchema)),
+    getProjectLinear: (projectId: string) => request("GET", `${project(projectId)}/linear`, projectLinearSchema),
+    linkProjectToLinear: (projectId: string, body: LinkProjectToLinearBody) => request("POST", `${project(projectId)}/linear`, projectLinearSchema, body),
+
     ticketActivity: (id: string, query: { before?: string; limit?: number; contribution?: string } = {}, options: { signal?: AbortSignal } = {}) => {
       const params = new URLSearchParams();
       if (query.contribution !== undefined) params.set("contribution", query.contribution);

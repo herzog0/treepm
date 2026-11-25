@@ -181,6 +181,9 @@
     },
     "mcp": {
       "lead": "Tokens para clientes de IA, como o Claude Code, acessarem os tickets desta organização."
+    },
+    "linear": {
+      "lead": "Traga as issues de um time do Linear para um projeto. A chave é sua: fica guardada cifrada, só você a usa, e o TreePM só lê, nunca escreve no Linear."
     }
   },
   "cards": {
@@ -212,5 +215,61 @@
     "nameLabel": "Nome da pessoa de teste",
     "namePlaceholder": "Nome da pessoa de teste",
     "create": "Criar pessoa de teste"
+  },
+  "linear": {
+    "title": "Linear",
+    "actingAs": "A chave do Linear é pessoal e não pode ser usada como outra pessoa. Volte a ser você para conectar a sua.",
+    "key": {
+      "title": "Sua chave",
+      "connected": "Conectado",
+      "label": "Chave pessoal do Linear",
+      "placeholder": "Cole a chave aqui",
+      "guide": "No Linear: Settings → Security & access → Personal API keys. Crie uma chave só de leitura: o TreePM nunca escreve no Linear.",
+      "after": "Ao conectar, o TreePM confere a chave e mostra o workspace e os times que ela enxerga.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "cancel": "Cancelar",
+      "workspace": "Workspace {{name}}",
+      "replace": "Substituir",
+      "replaceGuide": "Cole a nova chave. A atual só é trocada se o Linear aceitar a nova.",
+      "remove": "Remover",
+      "removeWarning": "Remover a chave não desfaz nenhuma ligação de projeto.",
+      "footnote": "Remover ou substituir a chave não desfaz nenhuma ligação. Para importar num projeto ligado, a chave precisa ser do mesmo workspace e enxergar o time.",
+      "connectedOn": "· conectada em {{date}}"
+    },
+    "teams": {
+      "title": "Times que a sua chave enxerga",
+      "note": "consultado agora",
+      "refresh": "Atualizar",
+      "loading": "Consultando o Linear…",
+      "retry": "Tentar de novo",
+      "empty": "A sua chave não enxerga nenhum time.",
+      "permanent": "ligação permanente",
+      "linkedTo": "Ligado ao projeto {{project}}",
+      "free": "Ainda não ligado a nenhum projeto",
+      "link": "Ligar a um projeto…",
+      "linkLabel": "Ligar o time {{key}} a um projeto",
+      "elsewhere": "Já ligado a um projeto que você não enxerga",
+      "unavailable": "indisponível"
+    },
+    "dialog": {
+      "title": "Ligar {{project}} ao time {{team}}?",
+      "titleNoProject": "Ligar o time {{team}} a um projeto",
+      "project": "Projeto",
+      "workspace": "Workspace",
+      "team": "Time",
+      "pick": "Projeto a ligar",
+      "pickPlaceholder": "Escolha um projeto…",
+      "loading": "Procurando os projetos que você pode ligar…",
+      "loadFailed": "Não foi possível consultar os seus projetos. Feche e tente de novo.",
+      "none": "Você não administra nenhum projeto que ainda esteja sem origem. Crie um projeto, ou peça a quem administra um deles.",
+      "warningTitle": "Esta ligação é permanente.",
+      "warningBody": "Depois de confirmar, este projeto só recebe issues deste time, e isso não pode ser trocado nem desfeito. É o que mantém a reimportação sem duplicar.",
+      "confirm": "Para confirmar, digite a chave do time:",
+      "cancel": "Cancelar",
+      "close": "Fechar",
+      "submit": "Ligar para sempre",
+      "submitting": "Ligando…"
+    }
   }
 }
