@@ -15,7 +15,7 @@ const summaries: TicketSummary[] = [
   makeTicket("t2", "p1", 2, "Escrever o texto", { key: "ALFA-2", parentId: "t1", status: "in_progress" }),
 ];
 const detailOf = (id: string, description: string): TicketDetail => ({
-  ...summaries.find((entry) => entry.id === id)!, description, mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
+  ...summaries.find((entry) => entry.id === id)!, description, mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
 });
 
 type Draft = ApiClient["draftTicketDescription"];

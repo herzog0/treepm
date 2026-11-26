@@ -47,22 +47,47 @@ const withoutVolatile = (page: Record<string, unknown>): Record<string, unknown>
   delete rest["updatedAt"];
   // `externalSource` (ADR 0060, origem no Linear) fica: as fixtures de ouro foram regravadas com o campo (nulo nestes tickets).
   expect(rest, "o detalhe traz externalSource").toHaveProperty("externalSource");
-  return rest;
+  return withoutRelated(rest);
 };
 
 /**
+ * `related` e `fromLinear` (ADR 0061, fatia 3) vieram depois das referências de ouro: aqui nada vem do Linear, então `related` é vazio e
+ * toda ligação tem `fromLinear` falso; os dois saem antes de comparar. As referências não são regravadas.
+ */
+function withoutRelated(detail: unknown): Record<string, unknown> {
+  const rest = { ...(detail as Record<string, unknown>) };
+  expect(rest, "o detalhe traz related").toHaveProperty("related", []);
+  delete rest["related"];
+  for (const field of ["dependsOn", "blocks"]) {
+    const links = rest[field] as Record<string, unknown>[];
+    expect(Array.isArray(links), field).toBe(true);
+    rest[field] = links.map((link) => {
+      expect(link, `${field} traz fromLinear`).toHaveProperty("fromLinear", false);
+      const kept = { ...link };
+      delete kept["fromLinear"];
+      return kept;
+    });
+  }
+  return rest;
+}
+
+/**
  * `linear` (ADR 0062, seção 5: a origem no Linear em `get_ticket`) é um campo novo, depois das referências de ouro: confere que veio, nulo
- * nestes tickets (nenhum importado), e o tira do conteúdo estruturado e do texto antes de comparar. As referências não são regravadas.
+ * nestes tickets (nenhum importado), e o tira do conteúdo estruturado e do texto antes de comparar. O mesmo com `relations.related`
+ * ("relacionado a", ADR 0061, fatia 3): vazio aqui, sem sincronização. As referências não são regravadas.
  */
 function withoutLinear(result: unknown): unknown {
   const { structured, text } = result as { structured: Record<string, unknown>; text: string };
-  expect(structured, "get_ticket traz linear").toHaveProperty("linear", null);
-  const rest = { ...structured };
-  delete rest["linear"];
-  const parsed = JSON.parse(text) as Record<string, unknown>;
-  expect(parsed).toHaveProperty("linear", null);
-  delete parsed["linear"];
-  return { structured: rest, text: JSON.stringify(parsed) };
+  const strip = (value: Record<string, unknown>): Record<string, unknown> => {
+    expect(value, "get_ticket traz linear").toHaveProperty("linear", null);
+    const relations = { ...(value["relations"] as Record<string, unknown>) };
+    expect(relations, "get_ticket traz related").toHaveProperty("related", { tickets: [], truncated: false });
+    delete relations["related"];
+    const rest: Record<string, unknown> = { ...value, relations };
+    delete rest["linear"];
+    return rest;
+  };
+  return { structured: strip(structured), text: JSON.stringify(strip(JSON.parse(text) as Record<string, unknown>)) };
 }
 
 beforeAll(async () => {
@@ -140,9 +165,9 @@ describe("HTTP: respostas idênticas às de antes", () => {
     for (const [index, label] of picks) {
       const res = await get(`/api/tickets/${T(index).id}`);
       expect(res.status, label).toBe(200);
-      out[label] = res.body;
+      out[label] = withoutRelated(res.body);
     }
-    for (const [name, id] of Object.entries(world.edgeIds)) out[`edge-${name}`] = (await get(`/api/tickets/${id}`)).body;
+    for (const [name, id] of Object.entries(world.edgeIds)) out[`edge-${name}`] = withoutRelated((await get(`/api/tickets/${id}`)).body);
     expect(Object.keys(out).length).toBeGreaterThan(25);
     expectGolden("details", out);
   });

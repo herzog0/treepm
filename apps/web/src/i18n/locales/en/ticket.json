@@ -26,6 +26,7 @@
     "people": "People",
     "parent": "Parent ticket",
     "dependsOn": "Depends on",
+    "related": "Related to",
     "idea": "Idea",
     "priority": "Priority"
   },
@@ -143,6 +144,9 @@
     "none": "No tickets found",
     "cycle": "This would close a cycle: “{{key}}” already depends on this ticket"
   },
+  "related": {
+    "remove": "Remove relation {{key}}"
+  },
   "blocking": {
     "heading": "Blocks"
   },
@@ -181,6 +185,8 @@
     "dependencyAdded_noActor": "Now depends on <ticket>{{ticket}}</ticket>",
     "dependencyRemoved": "<who>{{actor}}</who> removed the dependency on <ticket>{{ticket}}</ticket>",
     "dependencyRemoved_noActor": "Dependency on <ticket>{{ticket}}</ticket> removed",
+    "relatedRemoved": "<who>{{actor}}</who> removed the relation with <ticket>{{ticket}}</ticket>",
+    "relatedRemoved_noActor": "Relation with <ticket>{{ticket}}</ticket> removed",
     "summaryByPerson": "<who>{{actor}}</who> edited “{{section}}”",
     "summaryByPerson_noActor": "“{{section}}” edited",
     "summaryByAssistant_noActor": "“{{section}}” was updated by the AI",
@@ -252,7 +258,9 @@
     "viaLinear": "from Linear",
     "viaLinearTitle": "Brought from Linear by a sync",
     "commentsImported_one": "{{count}} comment brought from Linear",
-    "commentsImported_other": "{{count}} comments brought from Linear"
+    "commentsImported_other": "{{count}} comments brought from Linear",
+    "relationsImported_one": "{{count}} relation brought from Linear",
+    "relationsImported_other": "{{count}} relations brought from Linear"
   },
   "contributions": {
     "heading": "Areas",

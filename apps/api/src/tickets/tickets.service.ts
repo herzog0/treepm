@@ -2,7 +2,7 @@ import { lockProjectStructure } from "./structure-lock.js";
 import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import type { z } from "zod";
-import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, createsDependencyCycle, descriptionExcerpt, mentionsPersonRaw, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, safeLinearKey, safeLinearUrl, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
+import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, createsDependencyCycle, DependencyGraph, descriptionExcerpt, relatedPair, mentionsPersonRaw, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, safeLinearKey, safeLinearUrl, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
 import type { Actor, IdeaStage, TicketNode, TicketStatus, ticketProgress } from "@treepm/domain";
 import { buildActor } from "../access/actor.js";
 import { AuthorizationService } from "../access/authorization.service.js";
@@ -19,6 +19,16 @@ import type { AgentWork, EffectivePriorityView, ExternalSourceView, TicketDetail
 import { readContributions } from "./ticket-contributions.read.js";
 import { readBranchOf } from "./ticket-reads.js";
 import { touchProjectVersion } from "./project-version.js";
+import { forgetRelationOrigins, linearRelationIds } from "../linear/linear-relation-origins.js";
+
+/** `n` ids novos (`app_uuid_v7()`) numa consulta só (a importação cria centenas de ligações por página). */
+async function newIds(tx: TenantClient, n: number): Promise<string[]> {
+  if (n === 0) return [];
+  return (await tx.$queryRaw<{ id: string }[]>`select app_uuid_v7() as id from generate_series(1, ${n}::int)`).map((row) => row.id);
+}
+
+/** Teto de "relacionado a" na página do ticket: o mesmo do MCP (`RELATED_MAX` da consulta do projeto), os de menor número primeiro. */
+const RELATED_PAGE_MAX = 200;
 
 export type ProjectRow = {
   orgId: string;
@@ -128,27 +138,32 @@ export function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, prog
 }
 
 export type MentionedByRow = { number: number; id: string; title: string; status: string };
+/** Uma ligação mostrada na página do ticket, com a marca de que veio do Linear (ADR 0061, fatia 3). */
+export type LinkRow = MentionedByRow & { fromLinear?: boolean };
 
 export function toDetail(project: Pick<ProjectRow, "key">, row: TicketDetailRow, progress: Progress,
   idea: TicketIdea = null,
   mentionedBy: readonly MentionedByRow[] = [],
-  dependsOn: readonly MentionedByRow[] = [],
-  blocks: readonly MentionedByRow[] = [],
+  dependsOn: readonly LinkRow[] = [],
+  blocks: readonly LinkRow[] = [],
   now: number = Date.now(),
   agentWorkBy: { id: string; displayName: string; avatarUrl: string | null } | null = null,
   effectivePriority: EffectivePriorityView = { value: row.priority ?? 0, from: null },
   externalSource: ExternalSourceView | null = null,
+  related: readonly LinkRow[] = [],
 ): TicketDetail {
-  const link = (from: MentionedByRow) => ({ id: from.id, key: `${project.key}-${from.number}`, title: from.title, status: from.status });
+  const mention = (from: MentionedByRow) => ({ id: from.id, key: `${project.key}-${from.number}`, title: from.title, status: from.status });
+  const link = (from: LinkRow) => ({ ...mention(from), fromLinear: from.fromLinear === true });
   return parseOutput(ticketDetailSchema, {
     ...toSummary(project, { ...row, blocked: dependsOn.some((link) => !isFinished(statusOf(link))) }, progress, idea, now),
     effectivePriority,
     externalSource,
     agentWork: toAgentWork(row, now) && agentWorkBy ? { ...(toAgentWork(row, now) as AgentWork), by: agentWorkBy } : null,
     description: row.description,
-    mentionedBy: mentionedBy.map(link),
+    mentionedBy: mentionedBy.map(mention),
     dependsOn: dependsOn.map(link),
     blocks: blocks.map(link),
+    related: related.map(link),
     createdByPersonId: row.createdByPersonId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -535,7 +550,7 @@ export class TicketsService {
   async detail(tx: TenantClient, project: ProjectRow, id: string): Promise<TicketDetail> {
     // Progresso e situação de ideia vêm só do ramo do ticket (descendentes e ancestrais), não do projeto inteiro.
     // Progresso e ideia vêm da MESMA consulta (`readBranchOf`): um instantâneo só, então uma escrita concorrente não faz um discordar do outro.
-    const [row, branches, mentions, dependencies, origin] = await Promise.all([
+    const [row, branches, mentions, dependencies, origin, related] = await Promise.all([
       tx.ticket.findFirstOrThrow({ where: { id }, include: { assignees: { select: { personId: true } } } }),
       readBranchOf(tx, scopeOf(project), [id]),
       tx.ticketRelation.findMany({
@@ -545,13 +560,20 @@ export class TicketsService {
       tx.ticketRelation.findMany({
         where: { kind: "depends_on", OR: [{ fromTicketId: id }, { toTicketId: id }] },
         select: {
+          id: true,
           fromTicketId: true,
           from: { select: { id: true, number: true, title: true, status: true } },
           to: { select: { id: true, number: true, title: true, status: true } },
         },
       }),
       tx.ticketExternalRef.findFirst({ where: { ticketId: id }, select: { provider: true, externalKey: true, externalUrl: true, missingSince: true, externalCreatedAt: true, externalStartedAt: true, externalCompletedAt: true, externalCanceledAt: true, creatorPersonId: true, externalCreatorName: true } }),
+      // "Relacionado a" (ADR 0061, fatia 3): uma linha por par, mostrada nos dois tickets; até `RELATED_PAGE_MAX` de cada lado, cortados abaixo.
+      Promise.all([
+        tx.ticketRelation.findMany({ where: { kind: "related", fromTicketId: id }, orderBy: { to: { number: "asc" } }, take: RELATED_PAGE_MAX, select: { id: true, fromTicketId: true, from: { select: { id: true, number: true, title: true, status: true } }, to: { select: { id: true, number: true, title: true, status: true } } } }),
+        tx.ticketRelation.findMany({ where: { kind: "related", toTicketId: id }, orderBy: { from: { number: "asc" } }, take: RELATED_PAGE_MAX, select: { id: true, fromTicketId: true, from: { select: { id: true, number: true, title: true, status: true } }, to: { select: { id: true, number: true, title: true, status: true } } } }),
+      ]).then(([outgoing, incoming]) => [...outgoing, ...incoming].sort((a, b) => (a.fromTicketId === id ? a.to : a.from).number - (b.fromTicketId === id ? b.to : b.from).number).slice(0, RELATED_PAGE_MAX)),
     ]);
+    const fromLinear = await linearRelationIds(tx, [...dependencies, ...related].map((relation) => relation.id));
     const iso = (date: Date | null): string | null => (date ? date.toISOString() : null);
     const externalSource: ExternalSourceView | null = origin
       ? {
@@ -573,8 +595,10 @@ export class TicketsService {
     const idea: TicketIdea = ideaRoot === null ? null : ideaRoot.id === id ? { root: true, stage: ideaRoot.stage } : { root: false, rootId: ideaRoot.id, rootKey: `${project.key}-${ideaRoot.number}` };
     const mentionedBy = mentions.map((relation) => relation.from).sort((a, b) => a.number - b.number);
     const byNumber = (a: MentionedByRow, b: MentionedByRow) => a.number - b.number;
-    const dependsOn = dependencies.filter((relation) => relation.fromTicketId === id).map((relation) => relation.to).sort(byNumber);
-    const blocks = dependencies.filter((relation) => relation.fromTicketId !== id).map((relation) => relation.from).sort(byNumber);
+    const marked = (relation: { id: string }, ticket: MentionedByRow): LinkRow => ({ ...ticket, fromLinear: fromLinear.has(relation.id) });
+    const dependsOn = dependencies.filter((relation) => relation.fromTicketId === id).map((relation) => marked(relation, relation.to)).sort(byNumber);
+    const blocks = dependencies.filter((relation) => relation.fromTicketId !== id).map((relation) => marked(relation, relation.from)).sort(byNumber);
+    const relatedTo = related.map((relation) => marked(relation, relation.fromTicketId === id ? relation.to : relation.from)).sort(byNumber);
     const now = this.clock.now();
     const by = toAgentWork(row, now) && row.agentWorkPersonId
       ? await tx.person.findFirst({ where: { id: row.agentWorkPersonId }, select: { id: true, displayName: true, avatarUrl: true } })
@@ -582,7 +606,121 @@ export class TicketsService {
     // A prioridade que vale sai da MESMA consulta recursiva do ramo (a subida pelos ancestrais já está nela): um instantâneo só.
     const source = branches.get(id)?.prioritySource ?? null;
     const effective = source ? { value: source.value, from: { id: source.id, key: `${project.key}-${source.number}` } } : { value: 0, from: null };
-    return toDetail(project, row, progress, idea, mentionedBy, dependsOn, blocks, now, by, effective, externalSource);
+    return toDetail(project, row, progress, idea, mentionedBy, dependsOn, blocks, now, by, effective, externalSource, relatedTo);
+  }
+
+  /**
+   * Grava, em lote, as dependências que a sincronização com o Linear trouxe (ADR 0061, fatia 3), pelas MESMAS regras de `linkDependency`:
+   * a trava de dependências do projeto, a ligação a si mesmo e o ciclo recusados, a que já existe devolvida como `exists` (com o id, para a
+   * origem adotá-la). Sem evento por ligação: quem chama grava um por ticket. As ligações são conferidas em ordem, cada uma contra as
+   * anteriores já aceitas, num grafo montado UMA vez (`DependencyGraph`) e ids gerados num lance só.
+   *
+   * `remove`: linhas de `ticket_relations` (de qualquer tipo) que a sincronização substitui (relação editada no Linear), apagadas JÁ sob a
+   * trava e antes de ler as ligações: a forma antiga não conta para o ciclo da nova.
+   */
+  async importDependencies(tx: TenantClient, project: ProjectRow, pairs: readonly { from: string; to: string }[], remove: readonly string[] = []): Promise<({ outcome: "created" | "exists"; id: string } | { outcome: "cycle" | "self" })[]> {
+    if (pairs.length === 0 && remove.length === 0) return [];
+    await this.lockDependencies(tx, project.id);
+    if (remove.length > 0) {
+      const removed = await tx.ticketRelation.deleteMany({ where: { projectId: project.id, id: { in: [...remove] }, kind: { in: ["depends_on", "related"] } } });
+      if (removed.count > 0) await touchProjectVersion(tx, project.id);
+    }
+    if (pairs.length === 0) return [];
+    const rows = await tx.ticketRelation.findMany({ where: { projectId: project.id, kind: "depends_on" }, select: { id: true, fromTicketId: true, toTicketId: true } });
+    const graph = new DependencyGraph(rows.map((row) => [row.fromTicketId, row.toTicketId] as const));
+    const existing = new Map(rows.map((row) => [`${row.fromTicketId}>${row.toTicketId}`, row.id] as const));
+    const results: ({ outcome: "created" | "exists"; id: string } | { outcome: "cycle" | "self" })[] = [];
+    const toCreate: { index: number; from: string; to: string }[] = [];
+    for (const { from, to } of pairs) {
+      if (from === to) {
+        results.push({ outcome: "self" });
+        continue;
+      }
+      const found = existing.get(`${from}>${to}`);
+      if (found !== undefined) {
+        results.push({ outcome: "exists", id: found });
+        continue;
+      }
+      if (graph.wouldCycle(from, to)) {
+        results.push({ outcome: "cycle" });
+        continue;
+      }
+      graph.add(from, to);
+      existing.set(`${from}>${to}`, "");
+      toCreate.push({ index: results.length, from, to });
+      results.push({ outcome: "created", id: "" });
+    }
+    if (toCreate.length > 0) {
+      const ids = await newIds(tx, toCreate.length);
+      toCreate.forEach((edge, i) => {
+        results[edge.index] = { outcome: "created", id: ids[i] as string };
+        existing.set(`${edge.from}>${edge.to}`, ids[i] as string);
+      });
+      // Repetida na mesma página (duas relações do Linear que dão a mesma ligação): a segunda é `exists` com o id da primeira.
+      pairs.forEach(({ from, to }, i) => {
+        const result = results[i];
+        if (result?.outcome === "exists" && result.id === "") results[i] = { outcome: "exists", id: existing.get(`${from}>${to}`) as string };
+      });
+      await touchProjectVersion(tx, project.id); // ADR 0046 (rev. 3): `blocked` dos dependentes muda.
+      await tx.ticketRelation.createMany({ data: toCreate.map((edge, i) => ({ id: ids[i] as string, orgId: project.orgId, projectId: project.id, fromTicketId: edge.from, toTicketId: edge.to, kind: "depends_on" })) });
+    }
+    return results;
+  }
+
+  /**
+   * "Relacionado a" trazido do Linear, em lote: uma linha por par (o menor id primeiro); a que já existe (ou repetida na mesma página) é
+   * devolvida como `exists` para a origem adotá-la.
+   */
+  async importRelatedMany(tx: TenantClient, project: ProjectRow, pairs: readonly { a: string; b: string }[]): Promise<({ outcome: "created" | "exists"; id: string } | { outcome: "self" })[]> {
+    if (pairs.length === 0) return [];
+    const ordered = pairs.map(({ a, b }) => (a === b ? null : relatedPair(a, b)));
+    const wanted = ordered.flatMap((pair) => (pair === null ? [] : [pair]));
+    const found = wanted.length === 0 ? [] : await tx.ticketRelation.findMany({ where: { kind: "related", OR: wanted.map(([from, to]) => ({ fromTicketId: from, toTicketId: to })) }, select: { id: true, fromTicketId: true, toTicketId: true } });
+    const existing = new Map<string, string>(found.map((row) => [`${row.fromTicketId}~${row.toTicketId}`, row.id]));
+    const fresh = [...new Set(wanted.map(([from, to]) => `${from}~${to}`).filter((key) => !existing.has(key)))];
+    const ids = await newIds(tx, fresh.length);
+    const created = new Map(fresh.map((key, i) => [key, ids[i] as string] as const));
+    if (fresh.length > 0) {
+      await tx.ticketRelation.createMany({ data: fresh.map((key) => { const [from, to] = key.split("~") as [string, string]; return { id: created.get(key) as string, orgId: project.orgId, projectId: project.id, fromTicketId: from, toTicketId: to, kind: "related" }; }) });
+    }
+    const first = new Set<string>();
+    return ordered.map((pair) => {
+      if (pair === null) return { outcome: "self" };
+      const key = `${pair[0]}~${pair[1]}`;
+      const id = created.get(key);
+      if (id !== undefined && !first.has(key)) {
+        first.add(key);
+        return { outcome: "created", id };
+      }
+      return { outcome: "exists", id: (id ?? existing.get(key)) as string };
+    });
+  }
+
+  /**
+   * Tira "relacionado a" entre dois tickets (rota `DELETE tickets/:id/related/:otherId`): as conferências de `removeDependency`;
+   * inexistente é 404. Por ora não se cria `related` pela tela: só vem do Linear (ADR 0061, fatia 3).
+   */
+  async removeRelated(tx: TenantClient, principal: Principal, id: string, otherId: string): Promise<TicketPage> {
+    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
+    this.authorization.editTicket(principal.actor, project.id);
+    this.requireActive(project);
+    const other = await this.requireSameProjectTicket(tx, project.id, otherId);
+    // A trava de dependências, a mesma da importação do Linear: um passo da sincronização não desfaz esta remoção (ADR 0061, fatia 3).
+    await this.lockDependencies(tx, project.id);
+    // O par sai dos ids CANÔNICOS (o do banco), não do parâmetro: um id em maiúsculas ordenaria diferente e não acharia a linha.
+    const [from, to] = relatedPair(ticket.id, other.id);
+    const row = await tx.ticketRelation.findFirst({ where: { fromTicketId: from, toTicketId: to, kind: "related" }, select: { id: true } });
+    if (!row) throw new NotFoundException({ code: "related_not_found", message: "Relação não encontrada." });
+    await tx.ticketRelation.delete({ where: { orgId_id: { orgId: project.orgId, id: row.id } } });
+    await forgetRelationOrigins(tx, [row.id]);
+    await touchProjectVersion(tx, project.id);
+    await this.activity.record(tx, principal, {
+      kind: "ticket.related_removed",
+      subjectType: "ticket",
+      subjectId: id,
+      payload: { key: `${project.key}-${ticket.number}`, relatedKey: `${project.key}-${other.number}`, relatedTicketId: other.id },
+    });
+    return this.detailFor(tx, project, id, principal);
   }
 
   /**
@@ -1008,8 +1146,14 @@ export class TicketsService {
     this.authorization.editTicket(principal.actor, project.id);
     this.requireActive(project);
     const other = await this.requireSameProjectTicket(tx, project.id, otherId);
-    const removed = await tx.ticketRelation.deleteMany({ where: { fromTicketId: id, toTicketId: other.id, kind: "depends_on" } });
+    // A trava de dependências, antes de ler a linha: a mesma de `linkDependency` e da importação do Linear (um passo da sincronização
+    // não desfaz esta remoção).
+    await this.lockDependencies(tx, project.id);
+    const row = await tx.ticketRelation.findFirst({ where: { fromTicketId: id, toTicketId: other.id, kind: "depends_on" }, select: { id: true } });
+    const removed = row ? await tx.ticketRelation.deleteMany({ where: { id: row.id } }) : { count: 0 };
     if (removed.count === 0) throw new NotFoundException({ code: "dependency_not_found", message: "Dependência não encontrada." });
+    // Trazida do Linear: removida aqui, não volta na próxima sincronização (ADR 0061, seção 3).
+    await forgetRelationOrigins(tx, [(row as { id: string }).id]);
     await touchProjectVersion(tx, project.id); // ADR 0046 (rev. 3): marca porque a linha foi de fato apagada (`removed.count > 0`).
     await this.activity.record(tx, principal, {
       kind: "ticket.dependency_removed",

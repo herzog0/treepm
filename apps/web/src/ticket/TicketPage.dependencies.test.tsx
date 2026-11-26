@@ -28,7 +28,7 @@ function setup(lists: Lists = {}, options: { role?: "admin" | "reader"; archived
   const state = { dependsOn: lists.dependsOn ?? [], blocks: lists.blocks ?? [] };
   const detailOf = (id: string): TicketDetail => ({
     ...summaries.find((entry) => entry.id === id)!, description: "Texto", createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
-    mentionedBy: [], dependsOn: id === "t1" ? state.dependsOn : [], blocks: id === "t1" ? state.blocks : [],
+    mentionedBy: [], dependsOn: id === "t1" ? state.dependsOn : [], blocks: id === "t1" ? state.blocks : [], related: [],
   });
   const shown = options.archived ? makeProject("p1", "ALFA", "Projeto Alfa", { archivedAt: "2026-01-01T00:00:00.000Z" }) : project;
   const client = makeClient({ projects: [shown, other], people: [makePerson("person-1", "Ana")], tickets: { p1: summaries } });

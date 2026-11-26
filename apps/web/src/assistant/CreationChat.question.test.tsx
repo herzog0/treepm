@@ -64,7 +64,7 @@ function clientWith(placements: PlacementOutcome[], extra: Partial<Record<keyof 
     sendConversationMessage: vi.fn(async (id: string) => ok(makeConversation(id, "p1"))),
     updateConversationDraft: vi.fn(async (id: string, body: { title: string; description: string }) => ok(makeConversation(id, "p1", { draft: body }))),
     findPlacement,
-    createTicketFromConversation: vi.fn(async (id: string) => ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("tn", "p1", 20, "Corrigir o login", { key: "ALFA-20" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] })),
+    createTicketFromConversation: vi.fn(async (id: string) => ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("tn", "p1", 20, "Corrigir o login", { key: "ALFA-20" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] })),
     removeConversation: vi.fn(async () => ok(undefined)),
     ...extra,
   });
@@ -423,7 +423,7 @@ describe("recent places in the question", () => {
   it("records the parent of a ticket created from the conversation", async () => {
     const recents = createRecentPlaces("org-1", "person-1");
     const client = clientWith([confirmed("t2")], {
-      createTicketFromConversation: vi.fn(async (id: string) => ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("tn", "p1", 20, "Novo", { key: "ALFA-20", parentId: "t2" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] })),
+      createTicketFromConversation: vi.fn(async (id: string) => ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("tn", "p1", 20, "Novo", { key: "ALFA-20", parentId: "t2" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] })),
     });
     setup(client, {}, recents);
     await search();
@@ -661,7 +661,7 @@ describe("review 1: focus, stale lists and the breadcrumb", () => {
   it("records the real parent of the created ticket, not the destination asked for", async () => {
     const recents = createRecentPlaces("org-1", "person-1");
     const client = clientWith([confirmed("t2")], {
-      createTicketFromConversation: vi.fn(async (id: string) => ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("tn", "p1", 20, "Novo", { key: "ALFA-20", parentId: "tg" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] })),
+      createTicketFromConversation: vi.fn(async (id: string) => ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("tn", "p1", 20, "Novo", { key: "ALFA-20", parentId: "tg" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] })),
     });
     setup(client, {}, recents);
     await search();

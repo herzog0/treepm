@@ -47,7 +47,7 @@ async function mount(options: { several?: boolean } = {}) {
       // Como o servidor: a conversa vira o ticket e a thread passa a "criado".
       const thread = id.replace(/^tc-/, "");
       chat.setCreation(thread, { state: "created", ticketConversationId: null, ticket: { id: "t9", key: "ALFA-9", title: "Corrigir o login" } });
-      return ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("t9", "p1", 9, "Corrigir o login", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] });
+      return ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("t9", "p1", 9, "Corrigir o login", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] });
     }),
     getConversation: vi.fn(async (id: string) => ok(makeConversation(id, "p1", { draft }))),
     // A primeira procura tem dúvida (e a thread passa a "sua vez", como no servidor); a resposta da pessoa acha o lugar.

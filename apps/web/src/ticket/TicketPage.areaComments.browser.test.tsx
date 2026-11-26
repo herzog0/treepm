@@ -55,7 +55,7 @@ async function open(initial: Stored[] = [], options: { contributions?: Contribut
   Object.assign(client, spies, {
     getTicket: vi.fn(async () =>
       ok<TicketDetail>({
-        ...summaries[0]!, description: "Fluxo de acesso com token por projeto.", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
+        ...summaries[0]!, description: "Fluxo de acesso com token por projeto.", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
         contributions: contributions.map((c) => ({ ...c, commentCount: comments.filter((x) => x.contributionId === c.id && !x.removed).length })), canEditContributions: true,
       }),
     ),

@@ -9,7 +9,7 @@ import { useAction } from "../panel/useAction.js";
 import { RichDescription } from "./description/RichDescription.js";
 import type { MentionContext } from "./description/decorations.js";
 import { useCommentPeople } from "./commentPeople.js";
-import { initials } from "./fields.js";
+import { FromLinearBadge, initials } from "./fields.js";
 
 export const ActionError = ({ error }: { error: ApiError | null }) => {
   const describeError = useDescribeApiError();
@@ -34,7 +34,7 @@ export function Avatar({ person }: { person: { displayName: string; avatarUrl: s
 /** A etiqueta "pelo MCP" (ADR 0043): o que um agente fez nunca se confunde com o que a pessoa fez à mão. */
 export function ViaMcp({ via }: { via: ActivityEntry["via"] | "linear" }) {
   const { t } = useTranslation("ticket");
-  if (via === "linear") return <span className="ticket-via" title={t("activity.viaLinearTitle")}>{t("activity.viaLinear")}</span>;
+  if (via === "linear") return <FromLinearBadge />;
   return via === "mcp" ? <span className="ticket-via" title={t("activity.viaTitle")}>{t("activity.via")}</span> : null;
 }
 

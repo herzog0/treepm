@@ -125,7 +125,8 @@ export class ProjectQueryService {
 
   /**
    * Um ticket inteiro: descrição, pai, filhos, caminho do topo até o pai e as ligações nos dois sentidos, por tipo.
-   * 8 consultas (projeto, ticket, filhos, quatro de ligações, ancestrais), nenhuma por ticket.
+   * 12 consultas fixas (projeto, ticket, filhos, seis de ligações, ancestrais, ideias, prioridade), nenhuma por ticket. `related` (ADR 0061) é simétrica, uma
+   * linha por par com o menor id em `from`: os dois lados são lidos e juntados numa lista só, sem direção.
    */
   async ticket(tx: TenantClient, principal: Principal, projectId: string, number: number): Promise<QueryTicket> {
     const project = await this.requireProject(tx, principal, projectId);
@@ -137,22 +138,25 @@ export class ProjectQueryService {
       orderBy: RELATED_ORDER,
       take: RELATED_MAX + 1,
     });
-    const outgoing = async (kind: "mentions" | "depends_on"): Promise<Row[]> =>
+    const outgoing = async (kind: "mentions" | "depends_on" | "related"): Promise<Row[]> =>
       (await tx.ticketRelation.findMany({
         where: { projectId, fromTicketId: row.id, kind },
         select: { to: { select: SUMMARY_SELECT } },
         orderBy: { to: RELATED_ORDER },
         take: RELATED_MAX + 1,
       })).map((relation) => relation.to);
-    const incoming = async (kind: "mentions" | "depends_on"): Promise<Row[]> =>
+    const incoming = async (kind: "mentions" | "depends_on" | "related"): Promise<Row[]> =>
       (await tx.ticketRelation.findMany({
         where: { projectId, toTicketId: row.id, kind },
         select: { from: { select: SUMMARY_SELECT } },
         orderBy: { from: RELATED_ORDER },
         take: RELATED_MAX + 1,
       })).map((relation) => relation.from);
+    // Cada lado já vem ordenado e com teto + 1: os primeiros da união estão entre eles, e o corte da união diz se havia mais.
+    const related = [...(await outgoing("related")), ...(await incoming("related"))].sort((a, b) => a.number - b.number);
     const parts = {
       children: cut(children, RELATED_MAX),
+      related: cut(related, RELATED_MAX),
       mentionsOut: cut(await outgoing("mentions"), RELATED_MAX),
       mentionsIn: cut(await incoming("mentions"), RELATED_MAX),
       dependsOut: cut(await outgoing("depends_on"), RELATED_MAX),
@@ -167,6 +171,7 @@ export class ProjectQueryService {
     const relations = {
       mentions: { outgoing: list(parts.mentionsOut), incoming: list(parts.mentionsIn) },
       dependsOn: { outgoing: list(parts.dependsOut), incoming: list(parts.dependsIn) },
+      related: list(parts.related),
     };
     const path = pathRows.map(summary);
 

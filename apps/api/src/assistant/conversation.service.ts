@@ -1332,14 +1332,14 @@ export class ConversationService {
 
   /**
    * O contexto do ticket para o assistente (ADR 0049), lido agora, com `select` explícito: título, descrição, situação, prioridade que
-   * vale, caminho até a raiz, filhos e dependências (chave, título e situação). Nunca comentários, histórico, áreas, nota do marcador
+   * vale, caminho até a raiz, filhos, dependências e "relacionado a" (ADR 0061; chave, título e situação, nunca a origem no Linear). Nunca comentários, histórico, áreas, nota do marcador
    * de trabalho nem qualquer dado de pessoa; nenhum id sai daqui.
    */
   private async context(tx: TenantClient, { project, ticket }: Visible): Promise<ChatTicketContext> {
     const key = (number: number) => `${project.key}-${number}`;
     const ref = (t: { number: number; title: string; status: string }): ChatTicketRef => ({ key: key(t.number), title: t.title, status: t.status });
     const scope = scopeOf(project);
-    const [priorities, ancestors, children, dependsOn, blocks] = await Promise.all([
+    const [priorities, ancestors, children, dependsOn, blocks, relatedFrom, relatedTo] = await Promise.all([
       readEffectivePriorities(tx, scope, [ticket.id]),
       tx.$queryRaw<{ number: number; title: string }[]>`
         with recursive up as (
@@ -1354,7 +1354,11 @@ export class ConversationService {
       tx.ticket.findMany({ where: { parentId: ticket.id, projectId: project.id }, orderBy: { number: "asc" }, take: CHAT_CONTEXT_MAX_RELATED, select: { number: true, title: true, status: true } }),
       tx.ticketRelation.findMany({ where: { kind: "depends_on", fromTicketId: ticket.id }, orderBy: { createdAt: "asc" }, take: CHAT_CONTEXT_MAX_RELATED, select: { to: { select: { number: true, title: true, status: true } } } }),
       tx.ticketRelation.findMany({ where: { kind: "depends_on", toTicketId: ticket.id }, orderBy: { createdAt: "asc" }, take: CHAT_CONTEXT_MAX_RELATED, select: { from: { select: { number: true, title: true, status: true } } } }),
+      // `related` é uma linha por par, com o menor id em `from`: o ticket pode estar de qualquer lado.
+      tx.ticketRelation.findMany({ where: { kind: "related", fromTicketId: ticket.id }, orderBy: { to: { number: "asc" } }, take: CHAT_CONTEXT_MAX_RELATED, select: { to: { select: { number: true, title: true, status: true } } } }),
+      tx.ticketRelation.findMany({ where: { kind: "related", toTicketId: ticket.id }, orderBy: { from: { number: "asc" } }, take: CHAT_CONTEXT_MAX_RELATED, select: { from: { select: { number: true, title: true, status: true } } } }),
     ]);
+    const related = [...relatedFrom.map((r) => r.to), ...relatedTo.map((r) => r.from)].sort((a, b) => a.number - b.number).slice(0, CHAT_CONTEXT_MAX_RELATED);
     return {
       key: key(ticket.number),
       title: ticket.title,
@@ -1366,6 +1370,7 @@ export class ConversationService {
       children: children.map(ref),
       dependsOn: dependsOn.map((r) => ref(r.to)),
       blocks: blocks.map((r) => ref(r.from)),
+      related: related.map(ref),
     };
   }
 }

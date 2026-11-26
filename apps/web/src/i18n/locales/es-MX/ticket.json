@@ -26,6 +26,7 @@
     "people": "Personas",
     "parent": "Ticket padre",
     "dependsOn": "Depende de",
+    "related": "Relacionado con",
     "idea": "Idea",
     "priority": "Prioridad"
   },
@@ -143,6 +144,9 @@
     "none": "No se encontraron tickets",
     "cycle": "Esto cerraría un ciclo: “{{key}}” ya depende de este ticket"
   },
+  "related": {
+    "remove": "Quitar relación {{key}}"
+  },
   "blocking": {
     "heading": "Bloquea"
   },
@@ -181,6 +185,8 @@
     "dependencyAdded_noActor": "Ahora depende de <ticket>{{ticket}}</ticket>",
     "dependencyRemoved": "<who>{{actor}}</who> quitó la dependencia de <ticket>{{ticket}}</ticket>",
     "dependencyRemoved_noActor": "Dependencia de <ticket>{{ticket}}</ticket> quitada",
+    "relatedRemoved": "<who>{{actor}}</who> quitó la relación con <ticket>{{ticket}}</ticket>",
+    "relatedRemoved_noActor": "Relación con <ticket>{{ticket}}</ticket> quitada",
     "summaryByPerson": "<who>{{actor}}</who> editó «{{section}}»",
     "summaryByPerson_noActor": "«{{section}}» editado",
     "summaryByAssistant_noActor": "«{{section}}» fue actualizado por la IA",
@@ -253,7 +259,10 @@
     "viaLinearTitle": "Traído de Linear por una sincronización",
     "commentsImported_one": "{{count}} comentario traído de Linear",
     "commentsImported_other": "{{count}} comentarios traídos de Linear",
-    "commentsImported_many": "{{count}} comentarios traídos de Linear"
+    "commentsImported_many": "{{count}} comentarios traídos de Linear",
+    "relationsImported_one": "{{count}} relación traída de Linear",
+    "relationsImported_other": "{{count}} relaciones traídas de Linear",
+    "relationsImported_many": "{{count}} relaciones traídas de Linear"
   },
   "contributions": {
     "heading": "Áreas",

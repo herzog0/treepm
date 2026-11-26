@@ -132,6 +132,7 @@ describe("get_ticket", () => {
           outgoing: { tickets: [], truncated: false },
           incoming: { tickets: [{ key: "PRIV-4", title: "Solto", excerpt: "Depende de PRIV-2", status: "todo", parent: null, idea: null, agentWork: null, priority: 0, effective_priority: 0 }], truncated: false },
         },
+        related: { tickets: [], truncated: false },
       },
       // Ticket criado no TreePM: sem origem no Linear (ADR 0062, seção 5).
       linear: null,

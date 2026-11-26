@@ -146,7 +146,8 @@ export type TicketIdea = z.output<typeof ticketIdeaSchema>;
 export const mentionedBySchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatusSchema });
 
 /** Ticket do outro lado de uma ligação "depende de" (ADR 0037); mesmo formato de `mentionedBy`. */
-export const dependencyLinkSchema = mentionedBySchema;
+/** Uma ligação de dependência ou "relacionado a"; `fromLinear`: trazida pela sincronização com o Linear (ADR 0061, fatia 3). */
+export const dependencyLinkSchema = mentionedBySchema.extend({ fromLinear: z.boolean() });
 
 export const addDependencySchema = z.object({ ticketId: idSchema });
 
@@ -180,6 +181,8 @@ export const ticketDetailSchema = ticketSummarySchema.extend({
   dependsOn: z.array(dependencyLinkSchema),
   /** Tickets que dependem deste, em ordem de número. */
   blocks: z.array(dependencyLinkSchema),
+  /** "Relacionado a" (só vem do Linear), nos dois tickets, em ordem de número. */
+  related: z.array(dependencyLinkSchema),
   createdByPersonId: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),

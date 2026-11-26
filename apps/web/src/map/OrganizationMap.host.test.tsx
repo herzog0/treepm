@@ -21,7 +21,7 @@ const tickets: Record<string, TicketSummary[]> = {
     makeTicket("t3", "p1", 3, "Publicar", { key: "ALFA-3", status: "todo" }),
   ],
 };
-const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "x", updatedAt: "y" });
+const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "x", updatedAt: "y" });
 const me = (): Me => ({ ...makePanelMe("member", [{ projectId: "p1", role: "manager" }, { projectId: "p2", role: "manager" }]), assistant: { enabled: true } });
 
 let host: MapHost | null = null;

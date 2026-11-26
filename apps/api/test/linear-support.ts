@@ -1,3 +1,5 @@
+import type pg from "pg";
+import { expect } from "vitest";
 import { useHarness } from "./harness.js";
 import { LINEAR_CONFIG } from "./helpers.js";
 import { teamsBody, whoamiBody } from "./linear-fake-fetch.js";
@@ -70,6 +72,34 @@ export type FakeTeamData = {
   comments?: FakeComment[];
   /** Responde no lugar do mundo para comentários (limite, corpo enorme...); `undefined` deixa o mundo responder. */
   commentsOverride?: (call: LinearCall, ask: FakeCommentAsk) => LinearReply | undefined;
+  /** Relações (ADR 0061, fatia 3): cada uma aparece em `relations` da issue de ORIGEM (`from`), na ordem da lista. */
+  relations?: FakeRelation[];
+  /** Responde no lugar do mundo para a página de relações do time (limite, prazo...); `undefined` deixa o mundo responder. */
+  relationsOverride?: (call: LinearCall, ask: FakeRelationAsk) => LinearReply | undefined;
+  /**
+   * Issues "envenenadas": a página de relações que as inclui responde 200 com `data: null` e `errors` (como o Linear quando a chave não
+   * enxerga a outra ponta de um `relatedIssue: Issue!`). A releitura só com os ids (sem `relations`) passa.
+   */
+  poisoned?: string[];
+  /** Issues cuja página EXTRA de relações (`issue(id){relations}`) responde 200 com `errors`. */
+  poisonedExtra?: string[];
+};
+/** O texto do erro do Linear nas respostas envenenadas: nunca pode aparecer em log, resposta ou evento. */
+export const LINEAR_ERROR_SENTINEL = "SEGREDO-DO-ERRO-DO-LINEAR-7d1f";
+const poisonedReply = (): LinearReply => ({
+  body: { data: null, errors: [{ message: `Entity not found: Issue ${LINEAR_ERROR_SENTINEL}`, path: ["team", "issues", "nodes", 0, "relations", "nodes", 0, "relatedIssue"], extensions: { code: "INPUT_ERROR", userPresentableMessage: LINEAR_ERROR_SENTINEL } }] },
+});
+/** Uma relação do Linear: `from` é a issue de origem (`issue`), `to` a outra ponta (`relatedIssue`). */
+export type FakeRelation = { id: string; type: string; from: string; to: string };
+export type FakeRelationAsk = { first: number; after: string | null };
+/** Relações por issue na página do time (a do cliente) e na página seguinte de uma issue. */
+const FAKE_RELATIONS_FIRST = 20;
+const FAKE_ISSUE_RELATIONS_PAGE = 100;
+const fakeRelationNode = (r: FakeRelation) => ({ id: r.id, type: r.type, relatedIssue: { id: r.to } });
+/** A conexão `relations` de uma issue a partir de `start` (cursor = deslocamento). */
+const fakeRelationConnection = (all: FakeRelation[], start: number, size: number) => {
+  const end = start + size;
+  return { nodes: all.slice(start, end).map(fakeRelationNode), pageInfo: { hasNextPage: end < all.length, endCursor: end < all.length ? String(end) : null } };
 };
 /** Um comentário do Linear: `user` com e-mail (o mundo o tira quando a consulta não pede), robô, usuário de fora, ou nenhum (apagado). */
 export type FakeComment = {
@@ -152,8 +182,28 @@ export function linearImportWorld(world: LinearWorld, data: Record<string, FakeT
   return (call) => {
     const entry = world[call.headers["authorization"] ?? ""];
     const id = String(call.variables["id"] ?? "");
+    // As relações seguintes de UMA issue: a variável é o id da issue, não o do time.
+    if (entry !== undefined && typeof entry !== "string" && call.query.includes("IssueRelations")) {
+      const owner = Object.values(data).find((candidate) => candidate.issues.some((issue) => issue.id === id));
+      if (owner === undefined) return { body: { data: { issue: null } } };
+      if (owner.poisonedExtra?.includes(id) === true) return poisonedReply();
+      const all = (owner.relations ?? []).filter((r) => r.from === id);
+      return { body: { data: { issue: { relations: fakeRelationConnection(all, Number(call.variables["after"] ?? 0), FAKE_ISSUE_RELATIONS_PAGE) } } } };
+    }
     const team = data[id];
     if (entry !== undefined && typeof entry !== "string" && team !== undefined) {
+      if (call.query.includes("TeamRelations")) {
+        const ask: FakeRelationAsk = { first: Number(call.variables["first"] ?? PAGE), after: typeof call.variables["after"] === "string" ? call.variables["after"] : null };
+        const custom = team.relationsOverride?.(call, ask);
+        if (custom !== undefined) return custom;
+        const live = team.issues.filter((issue) => !issue.trashed);
+        // Releitura só com os ids (para andar o cursor depois de uma issue envenenada).
+        if (!call.query.includes("relations(first")) return { body: pageOf(live.map((issue) => ({ id: issue.id })), ask.after, "issues", ask.first) };
+        const start = ask.after === null ? 0 : Number(ask.after);
+        if (live.slice(start, start + ask.first).some((issue) => team.poisoned?.includes(issue.id) === true)) return poisonedReply();
+        const nodes = live.map((issue) => ({ id: issue.id, relations: fakeRelationConnection((team.relations ?? []).filter((r) => r.from === issue.id), 0, FAKE_RELATIONS_FIRST) }));
+        return { body: pageOf(nodes, ask.after, "issues", ask.first) };
+      }
       if (call.query.includes("issueCount")) return { body: { data: { team: { issueCount: team.issues.filter((issue) => !issue.trashed).length } } } };
       if (call.query.includes("projects(")) {
         const first = Number(call.variables["first"] ?? PAGE);
@@ -218,4 +268,15 @@ export async function linkWithData(
   if (connected.status !== 200) throw new Error(`conectar falhou: ${connected.status}`);
   const res = await h.call("POST", `/api/projects/${projectId}/linear`, as("admin"), { teamId: team.id, confirmTeamKey: team.key });
   if (res.status !== 201) throw new Error(`ligar falhou: ${res.status} ${JSON.stringify(res.body)}`);
+}
+
+/**
+ * Relações do Linear (R3, item 5): o estado das origens é coerente. Nenhuma "removida aqui" nem forma antiga (`superseded`) com linha, e
+ * toda origem com linha aponta para uma linha que existe.
+ */
+export async function expectRelationOriginsCoherent(pool: pg.Pool): Promise<void> {
+  const bad = await pool.query(`select o.external_id, o.removed_here_at is not null as removed, o.applied->>'superseded' as superseded, r.id is not null as line
+    from external_item_refs o left join ticket_relations r on r.id = o.local_id
+    where o.kind = 'relation' and o.local_id is not null and (o.removed_here_at is not null or o.applied->>'superseded' = 'true' or r.id is null)`);
+  expect(bad.rows, "origem de relação incoerente").toEqual([]);
 }

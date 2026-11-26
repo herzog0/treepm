@@ -197,6 +197,7 @@ export const HISTORY_FIELDS: FieldsOf = {
   description_changed: () => ({}),
   // Só a contagem: nada do Linear (nome, corpo, id) vai junto.
   comments_imported: (entry) => ({ count: entry.count }),
+  relations_imported: (entry) => ({ count: entry.count }),
   status_changed: (entry, c) => ({ from: entry.from, to: entry.to, automatic: entry.automatic, causedBy: c.ticket(entry.causedBy) }),
   priority_changed: (entry) => ({ from: entry.from, to: entry.to }),
   parent_changed: (entry, c) => ({ from: c.ticket(entry.from), to: c.ticket(entry.to) }),
@@ -204,6 +205,7 @@ export const HISTORY_FIELDS: FieldsOf = {
   assignee_removed: (entry, c) => ({ person: c.person(entry.person) }),
   dependency_added: (entry, c) => ({ ticket: c.ticket(entry.ticket) }),
   dependency_removed: (entry, c) => ({ ticket: c.ticket(entry.ticket) }),
+  related_removed: (entry, c) => ({ ticket: c.ticket(entry.ticket) }),
   summary_updated: (entry) => ({ source: entry.source }),
   contribution_added: area,
   contribution_removed: area,

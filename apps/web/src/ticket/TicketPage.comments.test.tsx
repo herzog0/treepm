@@ -14,7 +14,7 @@ const summaries: TicketSummary[] = [
   makeTicket("t2", "p1", 2, "Outro ticket", { key: "ALFA-2" }),
 ];
 const detailOf = (summary: TicketSummary): TicketDetail => ({
-  ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
+  ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
 });
 const ana = { id: "person-1", displayName: "Ana", avatarUrl: null };
 const bruno = { id: "person-2", displayName: "Bruno", avatarUrl: null };

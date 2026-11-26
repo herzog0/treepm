@@ -169,7 +169,7 @@ describe.each(["en", "es-MX"] as const)("GitHub in %s", (language: Foreign) => {
   describe("ticket code", () => {
     const ticket = { id: "t2", key: "ALFA-2", title: "Escrever o texto" };
     const summary = makeTicket("t2", "p1", 2, "Escrever o texto", { key: "ALFA-2" });
-    const detail = { ...summary, description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" } as TicketDetail;
+    const detail = { ...summary, description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" } as TicketDetail;
     const withLinks = (links: ReturnType<typeof makeCodeLink>[], syncedAt: string | null, extra: FakeGithub = {}) => {
       const client = makeClient({
         me: adminMe, projects: [alpha],

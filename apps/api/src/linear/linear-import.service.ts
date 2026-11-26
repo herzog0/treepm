@@ -4,7 +4,7 @@ import type { Prisma, TenantClient } from "@treepm/db";
 import { canImportTickets } from "@treepm/domain";
 import type { TicketStatus } from "@treepm/domain";
 import type { LinearParentMove } from "@treepm/domain";
-import { cleanLinearText, decideLinearField, linearCommentAuthor, linearCommentAuthorName, linearCommentQuote, mapLinearComment, decideLinearLateField, decideLinearStatus, heldFieldsAfter, isFinished, linearCreatorColumns, linearInitialParent, mapLinearDescription, mapLinearPriority, mapLinearProjectStatus, mapLinearStatus, mapLinearTitle, matchLinearAssignee, planLinearParents, safeLinearUrl, sameLinearValue } from "@treepm/domain";
+import { cleanLinearText, linearRelationApplied, linearRelationKey, mapLinearRelation, removalCarriesOver, sameRelationEnds, decideLinearField, linearCommentAuthor, linearCommentAuthorName, linearCommentQuote, mapLinearComment, decideLinearLateField, decideLinearStatus, heldFieldsAfter, isFinished, linearCreatorColumns, linearInitialParent, mapLinearDescription, mapLinearPriority, mapLinearProjectStatus, mapLinearStatus, mapLinearTitle, matchLinearAssignee, planLinearParents, safeLinearUrl, sameLinearValue } from "@treepm/domain";
 import { refuseWhileActingAs } from "../access/act-as.js";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
@@ -22,7 +22,7 @@ import { TicketsService } from "../tickets/tickets.service.js";
 import type { ProjectRow, TicketRow } from "../tickets/tickets.service.js";
 import { LINEAR_TIMEOUT_MS } from "./linear-client.js";
 import { LINEAR_CLIENT, LinearError } from "./ports.js";
-import type { LinearClient, LinearCommentsPage, LinearIssueNode, LinearIssuesPage, LinearProjectNode, LinearProjectsPage } from "./ports.js";
+import type { LinearClient, LinearCommentsPage, LinearIssueNode, LinearIssuesPage, LinearProjectNode, LinearProjectsPage, LinearRelationIssueNode, LinearRelationsPage } from "./ports.js";
 import { applyParentMoves } from "./linear-moves.js";
 import { mapLinearIssuePage } from "./linear-mapping.js";
 import type { MappedIssue } from "./linear-mapping.js";
@@ -48,21 +48,37 @@ const batchOf = (run: { batchSize: number | null }, normal: number): number => M
 const MAX_SWEEP_PAGES = 40;
 /** Itens por página de issues quando nada estourou. */
 const FULL_PAGE = 50;
+/**
+ * Página da fase `relations` (issues por chamada): menor que a das outras fases. Medido no cenário da revisão (2.000 issues, 20 mil
+ * dependências aqui, 20 `blocks` por issue): com 50, mediana de 2,5 s por passo e máximo de 5,2 s; o teto combinado era 5 s.
+ */
+const RELATIONS_PAGE = 25;
 /** Teto de um passo que vai ao Linear: chamadas e tempo (uma chamada só começa se ainda cabe o prazo dela dentro dos 25 s). */
 export const STEP_MAX_CALLS = 6;
 export const STEP_MAX_MS = 25_000;
 /** Chamadas que a conferência de acesso do passo (`requireLinearAccess` → `getTeam`) gasta antes da leitura. */
 const ACCESS_CALLS = 1;
 
-/** O prazo do passo conduzido pelo MCP acabou antes de uma chamada ao Linear caber; `lastError` é a falha anterior, se houve. */
+/**
+ * O prazo do passo conduzido pelo MCP acabou antes de uma chamada ao Linear caber; `lastError` é a falha anterior, se houve.
+ * `idsOnlyNext` (fase `relations`): a issue da página de 1 já respondeu com `errors`; o próximo passo vai direto à releitura só dos ids.
+ */
 class StepOutOfTime extends Error {
-  constructor(readonly lastError: LinearError | null) {
+  constructor(
+    readonly lastError: LinearError | null,
+    readonly idsOnlyNext = false,
+  ) {
     super("prazo do passo");
     this.name = "StepOutOfTime";
   }
 }
 /** Páginas conhecidas seguidas que a repescagem aceita no topo antes de parar (uma issue conhecida sozinha não encerra). */
 const SWEEP_MIN_PAGE = 10;
+/**
+ * Issues SEGUIDAS cujas relações o Linear não devolveu (cada uma já isolada numa página de 1) que encerram a fase `relations`: o resto do
+ * time fica sem ler nesta rodada (truncamento), em vez de duas chamadas por issue no time inteiro.
+ */
+const UNREADABLE_STOP = 10;
 
 const COUNT_KEYS = [
   "projectsSeen",
@@ -101,6 +117,17 @@ const COUNT_KEYS = [
   "commentsSeen",
   "commentsInvalid",
   "commentsMissing",
+  // Relações (ADR 0061, fatia 3): criadas, adotadas (a linha já existia aqui), ignoradas (tipo sem par aqui, ponta fora do projeto),
+  // recusadas por ciclo, lidas, fora do formato, issues cuja lista de relações não coube no passo e não encontradas no Linear.
+  "relationsCreated",
+  "relationsAdopted",
+  "relationsSkipped",
+  "relationsCycle",
+  "relationsSeen",
+  "relationsInvalid",
+  "relationsTruncated",
+  "relationsMissing",
+  "relationsUpdated",
 ] as const;
 /**
  * `assigneeEmailUnavailable`: o Linear recusou o e-mail dos responsáveis nesta rodada; ninguém foi atribuído.
@@ -139,6 +166,24 @@ function parseIssuesCursor(raw: string | null): { sweep: number; known: number; 
 }
 /** `known`: issues conhecidas SEGUIDAS desde o começo da repescagem (a repescagem só para depois de `SWEEP_MIN_PAGE`). */
 const issuesCursor = (sweep: number, known: number, after: string | null): string | null => (sweep === 0 ? after : `${SWEEP_MARK}${sweep}${known > 0 ? `.${known}` : ""}${after === null ? "" : `|${after}`}`);
+
+/**
+ * O cursor da fase `relations`: o do Linear, e, só quando há o que guardar, `^<ilegíveis>[.i]|<cursor do Linear>`. `unreadable`: issues
+ * seguidas cujas relações não vieram (para em `UNREADABLE_STOP`); `idsOnly`: a issue seguinte já respondeu com `errors` na página de 1 e o
+ * prazo do passo acabou antes da releitura só dos ids, que o próximo passo faz direto (sem isso, um Linear lento repetiria a consulta que
+ * falha a cada chamada). Junto do cursor porque valem para aquela posição e andam com ela.
+ */
+const RELATIONS_MARK = "^";
+type RelationsPosition = { after: string | null; unreadable: number; idsOnly: boolean };
+function parseRelationsCursor(raw: string | null): RelationsPosition {
+  if (raw === null || !raw.startsWith(RELATIONS_MARK)) return { after: raw, unreadable: 0, idsOnly: false };
+  const bar = raw.indexOf("|");
+  const [countText, flag] = raw.slice(1, bar === -1 ? undefined : bar).split(".");
+  const unreadable = Number(countText);
+  return { after: bar === -1 ? null : raw.slice(bar + 1), unreadable: Number.isInteger(unreadable) && unreadable > 0 ? unreadable : 0, idsOnly: flag === "i" };
+}
+const relationsCursor = ({ after, unreadable, idsOnly }: RelationsPosition): string | null =>
+  unreadable === 0 && !idsOnly ? after : `${RELATIONS_MARK}${unreadable}${idsOnly ? ".i" : ""}${after === null ? "" : `|${after}`}`;
 
 /** Impasse entre travas (40P01), falha de serialização (40001) e prazo da transação interativa (P2028): se repetem sozinhos. */
 const isTransient = (error: unknown): boolean => retryableConflict(error) !== null || (error as { code?: unknown } | null)?.code === "P2028";
@@ -420,7 +465,19 @@ const linearDate = (value: string): Date | null => {
 type Fetched =
   | { phase: "projects"; page: LinearProjectsPage; reduced: boolean; usedSize: number; /** Projetos cujo conteúdo longo teve de ser dispensado (sozinhos na página e ainda grandes demais): vale o resumo. */ summaryOnly: string[] }
   | { phase: "issues"; page: LinearIssuesPage; /** A página mapeada FORA da transação (função pura), com a chave do projeto lida no começo do passo. */ mapped: Map<string, MappedIssue>; mappedFor: string; /** O passo precisou reduzir a página (o Linear estourou o teto ou o prazo) e o tamanho que deu certo. */ reduced: boolean; usedSize: number; /** A página veio sem descrição (a issue sozinha estourava o teto). */ withoutDescription: boolean }
-  | { phase: "comments"; page: LinearCommentsPage; reduced: boolean; usedSize: number; /** A página veio com o e-mail dos autores (pedido e não recusado): só então o casamento é refeito. */ withEmail: boolean };
+  | { phase: "comments"; page: LinearCommentsPage; reduced: boolean; usedSize: number; /** A página veio com o e-mail dos autores (pedido e não recusado): só então o casamento é refeito. */ withEmail: boolean }
+  | {
+      phase: "relations";
+      page: LinearRelationsPage;
+      reduced: boolean;
+      usedSize: number;
+      /** Issues cuja lista de relações não coube no passo (orçamento, prazo, erro numa página extra, ou ilegível). */
+      truncated: number;
+      /** Nós fora do formato nas páginas extras. */
+      extraInvalid: number;
+      /** Issues lidas só pelo id: o Linear respondeu `errors` sem `data` utilizável mesmo com a página em 1. */
+      unreadable: number;
+    };
 
 /** O Linear limitou: o código 429 de `linearHttp` ou do `requireLinearAccess`, com a espera pedida. */
 function rateLimitWait(error: unknown): number | null {
@@ -692,7 +749,7 @@ export class LinearImportService {
     if (seen.waitUntil !== null && seen.waitUntil.getTime() > Date.now()) return view(seen);
 
     let fetched: Fetched | null = null;
-    if (seen.phase === "projects" || seen.phase === "issues" || seen.phase === "comments") {
+    if (seen.phase === "projects" || seen.phase === "issues" || seen.phase === "comments" || seen.phase === "relations") {
       const result = await this.fetchPage(tenant, principal, projectId, seen, projectKey, deadline);
       if ("wait" in result) return result.wait;
       fetched = result.fetched;
@@ -735,12 +792,14 @@ export class LinearImportService {
       // A conferência de acesso acima já foi uma chamada ao Linear (`getTeam`): conta no mesmo orçamento do passo (C2, item 4).
       if (run.phase === "projects") return { fetched: await this.fetchProjects(key, source.externalTeamId, run, progress, emailRefused, ACCESS_CALLS, deadline) };
       if (run.phase === "comments") return { fetched: await this.fetchComments(key, source.externalTeamId, run, progress, emailRefused, ACCESS_CALLS, deadline) };
+      if (run.phase === "relations") return { fetched: await this.fetchRelations(key, source.externalTeamId, run, progress, ACCESS_CALLS, deadline) };
       const issues = await this.fetchIssues(key, source.externalTeamId, run, progress, emailRefused, ACCESS_CALLS, deadline);
       // O mapeamento da página (função pura) roda aqui, FORA da transação de gravação.
       return { fetched: { ...issues, mapped: mapLinearIssuePage(issues.page.nodes, projectKey), mappedFor: projectKey } };
     } catch (caught) {
       let error = caught;
       if (caught instanceof StepOutOfTime) {
+        if (caught.idsOnlyNext) return { wait: await this.recordIdsOnlyNext(tenant, run, progress.size) };
         if (caught.lastError === null) return { wait: view(run) };
         // Também quando a falha anterior foi a recusa do e-mail: ela já está gravada na rodada, e a próxima chamada pede sem (progride).
         if (progress.size < run.pageSize || caught.lastError.code === "linear_email_unavailable") return { wait: await this.recordPageSize(tenant, run, progress.size) };
@@ -879,6 +938,87 @@ export class LinearImportService {
     }
   }
 
+  /**
+   * Uma página de relações (ADR 0061, fatia 3): as issues do time com as primeiras relações de cada uma, com as regras dos comentários
+   * (estourou o teto ou o prazo, ou `errors` sem `data` utilizável → repete com a metade, 25 … 1). Depois, no MESMO orçamento do passo (chamadas e tempo, e o prazo do
+   * MCP), as páginas seguintes das issues com mais relações (`relationsNext`). O que não couber, ou falhar numa página extra, não derruba a
+   * página principal: as issues que ficaram pela metade contam em `truncated` e a leitura é tida como incompleta (nada é marcado como
+   * apagado no Linear nesta rodada).
+   */
+  private async fetchRelations(key: string, teamId: string, run: RunRow, progress: { size: number }, alreadyUsed = 0, deadline?: number): Promise<Extract<Fetched, { phase: "relations" }>> {
+    const position = parseRelationsCursor(run.cursor);
+    // A issue da posição já respondeu com `errors` na página de 1 (passo anterior sem tempo para a releitura): direto aos ids.
+    let idsOnly = position.idsOnly;
+    let size = idsOnly ? 1 : Math.min(Math.max(run.pageSize, 1), RELATIONS_PAGE);
+    progress.size = size;
+    let reduced = false;
+    const startedAt = Date.now();
+    let lastError: LinearError | null = null;
+    let calls = alreadyUsed;
+    let page: LinearRelationsPage | null = null;
+    // Issues cujas relações o Linear não devolveu (resposta com `errors` mesmo com uma issue só): lidas só pelo id, contam em `truncated`.
+    let unreadable = 0;
+    for (; page === null; calls += 1) {
+      if (lastError !== null && (calls >= STEP_MAX_CALLS || Date.now() - startedAt + LINEAR_TIMEOUT_MS > STEP_MAX_MS)) {
+        // Resposta com `errors` e o orçamento acabou no meio da redução: o tamanho alcançado (e, já em 1, a releitura só dos ids) fica na
+        // rodada e o passo devolve "chame de novo", sem contar erro (o tamanho só diminui e a releitura gasta uma chamada: não vira laço).
+        if (lastError.code === "linear_partial_response" && (size < run.pageSize || idsOnly)) throw new StepOutOfTime(lastError, idsOnly);
+        throw lastError;
+      }
+      if (deadline !== undefined && Date.now() + LINEAR_TIMEOUT_MS > deadline) throw new StepOutOfTime(lastError, idsOnly);
+      try {
+        page = await this.client.listTeamRelations(key, teamId, position.after, { first: size, withRelations: !idsOnly });
+        if (idsOnly) unreadable = page.nodes.length;
+      } catch (error) {
+        const reducible = error instanceof LinearError && (error.code === "linear_response_too_large" || error.code === "linear_timeout" || error.code === "linear_partial_response");
+        if (!reducible) throw error;
+        // A releitura só com os ids também falhou: não há mais o que reduzir.
+        if (idsOnly) throw new LinearError("linear_unavailable");
+        lastError = error;
+        if (size > 1) {
+          size = Math.max(1, Math.floor(size / 2));
+          reduced = true;
+          progress.size = size;
+        } else if (error.code === "linear_partial_response") idsOnly = true; // a próxima volta relê a issue SEM as relações, só para andar o cursor
+        else throw error;
+      }
+    }
+    const fits = (): boolean => calls < STEP_MAX_CALLS && Date.now() - startedAt + LINEAR_TIMEOUT_MS <= STEP_MAX_MS && (deadline === undefined || Date.now() + LINEAR_TIMEOUT_MS <= deadline);
+    let truncated = unreadable;
+    let extraInvalid = 0;
+    let stopped = false;
+    const nodes: LinearRelationIssueNode[] = [];
+    for (const node of page.nodes) {
+      let next = node.relationsNext;
+      if (next === null) {
+        nodes.push(node);
+        continue;
+      }
+      const relations = [...node.relations];
+      let unreadableExtra = false;
+      while (next !== null && !stopped && !unreadableExtra && fits()) {
+        calls += 1;
+        try {
+          const more = await this.client.listIssueRelations(key, node.id, next);
+          relations.push(...more.relations);
+          extraInvalid += more.skippedInvalid;
+          next = more.nextCursor;
+        } catch (error) {
+          // Resposta com `errors` (uma ponta que a chave não enxerga): só esta issue fica pela metade; as outras seguem.
+          if (error instanceof LinearError && error.code === "linear_partial_response") unreadableExtra = true;
+          else {
+            // Qualquer outra falha numa página extra (limite, prazo, resposta grande) encerra as extras deste passo; a página principal fica.
+            this.logger.warn(`página extra de relações não lida (${error instanceof LinearError ? error.code : error instanceof Error ? error.name : "erro"})`);
+            stopped = true;
+          }
+        }
+      }
+      if (next !== null) truncated += 1;
+      nodes.push({ ...node, relations, relationsNext: next });
+    }
+    return { phase: "relations", page: { ...page, nodes }, reduced, usedSize: size, truncated, extraInvalid, unreadable };
+  }
+
   /** Grava na rodada que o Linear recusou o e-mail (merge atômico; só se a rodada ainda está onde o passo a leu). Nunca derruba o passo. */
   private async recordEmailRefused(tenant: TenantRunner, run: RunRow): Promise<void> {
     try {
@@ -907,6 +1047,17 @@ export class LinearImportService {
     });
   }
 
+  /** Fase `relations`, prazo do MCP: a issue da página de 1 respondeu com `errors` e a releitura só dos ids fica para o próximo passo. */
+  private async recordIdsOnlyNext(tenant: TenantRunner, run: RunRow, pageSize: number): Promise<RunView> {
+    const cursor = relationsCursor({ ...parseRelationsCursor(run.cursor), idsOnly: true });
+    return tenant.run(async (tx, current) => {
+      await tx.$executeRaw`update external_import_runs set cursor = ${cursor}, size_streak = 0, page_size = least(page_size, ${pageSize}::int), updated_at = now()
+        where org_id = ${current.organization.orgId} and id = ${run.id}::uuid and phase = ${run.phase} and cursor is not distinct from ${run.cursor}::text`;
+      const fresh = (await tx.externalImportRun.findFirstOrThrow({ where: { orgId: current.organization.orgId, id: run.id } })) as RunRow;
+      return view(fresh);
+    });
+  }
+
   private async recordWait(tenant: TenantRunner, run: RunRow, seconds: number, pageSize: number): Promise<RunView> {
     return tenant.run(async (tx, current) => {
       const waitUntil = new Date(Date.now() + seconds * 1000);
@@ -925,7 +1076,7 @@ export class LinearImportService {
    * reduzir: quem chama conta o erro). Nunca atrapalha a resposta ao erro.
    */
   private async shrinkStep(tenant: TenantRunner, run: RunRow): Promise<boolean> {
-    const issues = run.phase === "issues" || run.phase === "comments";
+    const issues = run.phase === "issues" || run.phase === "comments" || run.phase === "relations";
     const normal = BATCH_OF_PHASE[run.phase];
     if (!issues && normal === undefined) return true; // `projects` e as demais não têm lote a reduzir: só se repetem
     const effective = issues ? Math.min(run.pageSize, FULL_PAGE) : batchOf(run, normal as number);
@@ -1029,6 +1180,22 @@ export class LinearImportService {
       if (fetched.page.nextCursor !== null) cursor = fetched.page.nextCursor;
       else {
         await this.markMissingComments(tx, project, run, counts);
+        [phase, cursor, pageSize, sizeStreak] = ["relations", null, RELATIONS_PAGE, 0];
+      }
+    } else if (run.phase === "relations") {
+      // Como os comentários: o cursor é o do Linear, os eventos vão com cada página e os não vistos são marcados na última.
+      if (fetched?.phase !== "relations") throw new Error("passo de relações sem a página do Linear");
+      await this.importRelations(tx, principal, project, run, fetched, counts);
+      [pageSize, sizeStreak] = this.nextPageSize(run, fetched, sizeStreak, RELATIONS_PAGE);
+      const position = parseRelationsCursor(run.cursor);
+      // Issues ilegíveis seguidas: a página só de ids soma; uma página lida de verdade zera.
+      const unreadable = fetched.unreadable > 0 ? position.unreadable + fetched.unreadable : 0;
+      // Dez seguidas: a fase para aqui. O resto do time fica sem ler (já há truncamento, então nada é marcado como removido no Linear).
+      const stop = unreadable >= UNREADABLE_STOP;
+      if (fetched.page.nextCursor !== null && !stop) cursor = relationsCursor({ after: fetched.page.nextCursor, unreadable, idsOnly: false });
+      else {
+        // Alguma issue lida nesta rodada: uma página anterior (o cursor andou) ou esta trouxe nós.
+        if (!stop) await this.markMissingRelations(tx, project, run, counts, position.after !== null || fetched.page.nodes.length > 0);
         if (run.mode === "reimport") [phase, cursor] = ["missing", null];
         else ({ phase, cursor, finished } = await this.finishRun(tx, principal, projectId, run, counts));
       }
@@ -1052,11 +1219,11 @@ export class LinearImportService {
   }
 
   /** O tamanho de página da rodada depois de um passo bom: o que deu certo se reduziu; só cresce (ao dobro) depois de três passos seguidos bons. */
-  private nextPageSize(run: RunRow, fetched: { reduced: boolean; usedSize: number }, sizeStreak: number): [number, number] {
+  private nextPageSize(run: RunRow, fetched: { reduced: boolean; usedSize: number }, sizeStreak: number, full = FULL_PAGE): [number, number] {
     if (fetched.reduced) return [fetched.usedSize, 0];
-    if (run.pageSize >= FULL_PAGE) return [run.pageSize, sizeStreak];
+    if (run.pageSize >= full) return [run.pageSize, sizeStreak];
     const streak = sizeStreak + 1;
-    return streak >= 3 ? [Math.min(run.pageSize * 2, FULL_PAGE), 0] : [run.pageSize, streak];
+    return streak >= 3 ? [Math.min(run.pageSize * 2, full), 0] : [run.pageSize, streak];
   }
 
   /** Fim da rodada: a categorização (fatia 4) entra aqui; por enquanto vai direto a `done`. */
@@ -2010,6 +2177,218 @@ export class LinearImportService {
       data: { missingSince: new Date() },
     });
     counts.commentsMissing += marked.count;
+  }
+
+  // ---- fase relations (ADR 0061, fatia 3) ----
+
+  /**
+   * Uma página de relações do Linear, numa transação com o cursor. Cada relação vira `depends_on` ou `related` pelas regras de
+   * `mapLinearRelation` (as demais são ignoradas), entre tickets deste projeto que vieram de issues; a ponta fora dele é ignorada. A
+   * origem (`external_item_refs`, kind `relation`) tem a forma na chave (`linearRelationKey`): vista nesta rodada não é revista (passo
+   * repetido); removida aqui não volta; a linha local que sumiu sem remoção aqui (uma ponta apagada) é criada de novo. Sem origem, a
+   * ligação que já existe aqui é adotada (sem evento e sem a marca do Linear) e a que fecharia um ciclo é recusada SEM origem (volta a
+   * tentar quando o ciclo se desfizer). As relações vão na ordem da página, para o ciclo recusar a última. Os tickets que ganharam
+   * relação ganham, na mesma transação, o evento "N relações trazidas do Linear" da rodada.
+   */
+  private async importRelations(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, fetched: Extract<Fetched, { phase: "relations" }>, counts: Counts): Promise<void> {
+    const { page } = fetched;
+    counts.relationsInvalid += page.skippedInvalid + fetched.extraInvalid;
+    counts.relationsTruncated += fetched.truncated;
+    const items = [...new Map(page.nodes.map((node) => [node.id, node])).values()].flatMap((node) => {
+      const unique = [...new Map(node.relations.map((relation) => [relation.id, relation])).values()];
+      return unique.map((relation) => ({ relation, issueId: node.id }));
+    });
+    counts.relationsSeen += items.length;
+    if (items.length === 0) return;
+    const orgId = project.orgId;
+    // A trava de dependências do projeto ANTES de ler origens e linhas: a mesma de quem liga ou tira uma ligação à mão. Sem ela, uma
+    // remoção feita entre a leitura e a gravação seria desfeita por este passo (a linha "sumida" seria criada de novo).
+    await this.tickets.lockDependencies(tx, project.id);
+
+    // Todas as formas guardadas dos ids de relação desta página (coluna gerada `relation_id`, com índice): a de agora e as antigas.
+    type Origin = { id: string; projectId: string; externalId: string; localId: string | null; applied: Record<string, unknown>; removedHereAt: Date | null; lastSeenRunId: string | null };
+    const relationIds = [...new Set(items.map(({ relation }) => relation.id))];
+    const origins = await tx.$queryRaw<Origin[]>`select id, project_id as "projectId", external_id as "externalId", local_id as "localId", applied, removed_here_at as "removedHereAt", last_seen_run_id as "lastSeenRunId"
+      from external_item_refs where org_id = ${orgId} and provider = ${PROVIDER} and kind = 'relation' and relation_id = any(${relationIds}::text[])`;
+    const byKey = new Map(origins.map((origin) => [origin.externalId, origin] as const));
+    const byRelation = new Map<string, Origin[]>();
+    for (const origin of origins) {
+      const relationId = String(origin.applied["relationId"]);
+      byRelation.set(relationId, [...(byRelation.get(relationId) ?? []), origin]);
+    }
+    const issueIds = [...new Set([...items.flatMap(({ relation, issueId }) => [issueId, relation.relatedIssueId]), ...origins.flatMap((origin) => [origin.applied["issueId"], origin.applied["relatedIssueId"]].filter((id): id is string => typeof id === "string"))])];
+    const refRows = await tx.ticketExternalRef.findMany({ where: { provider: PROVIDER, kind: "issue", projectId: project.id, externalId: { in: issueIds } }, select: { externalId: true, ticketId: true } });
+    const alive = new Set((await tx.ticket.findMany({ where: { projectId: project.id, id: { in: refRows.map((row) => row.ticketId) } }, select: { id: true } })).map((row) => row.id));
+    const ticketOf = new Map(refRows.filter((row) => alive.has(row.ticketId)).map((row) => [row.externalId, row.ticketId] as const));
+    const endsOf = (applied: Record<string, unknown>) => ({ issueTicketId: ticketOf.get(String(applied["issueId"])), relatedIssueTicketId: ticketOf.get(String(applied["relatedIssueId"])) });
+    const localIds = origins.flatMap((origin) => (origin.localId === null ? [] : [origin.localId]));
+    const localRows = new Set((localIds.length === 0 ? [] : await tx.ticketRelation.findMany({ where: { id: { in: localIds } }, select: { id: true } })).map((row) => row.id));
+    const hasLine = (origin: Origin): boolean => origin.localId !== null && localRows.has(origin.localId);
+    // `adopted`: a linha foi feita aqui por uma pessoa e a origem a adotou; a sincronização nunca a tira. A linha que outra relação do
+    // Linear criou não leva a marca: continua "do Linear" e sai quando a ÚLTIMA origem que aponta para ela muda de forma.
+    const isAdopted = (origin: { applied: unknown }): boolean => (origin.applied as Record<string, unknown> | null)?.["adopted"] === true;
+
+    const now = new Date();
+    const seen = { lastSeenRunId: run.id, lastImportedAt: now, missingSince: null };
+    const seenIds = new Set<string>();
+    const handled = new Set<string>();
+    // Linhas das formas antigas (relação editada no Linear): saem se nenhuma outra origem viva apontar para elas (conferido depois do laço).
+    const oldLines = new Set<string>();
+    // Origens que apontam para uma linha que já não existe (a outra ponta foi apagada e a linha caiu junto): esquecem a linha.
+    const detached: string[] = [];
+    type Applied = ReturnType<typeof linearRelationApplied>;
+    type Planned = { key: string; kind: "depends_on" | "related"; from: string; to: string; applied: Applied; ref: Origin | null; replacing: boolean };
+    const planned: Planned[] = [];
+    const freshRemoved: { key: string; from: string; applied: Applied }[] = [];
+    for (const { relation, issueId } of items) {
+      const shape = mapLinearRelation(relation.type, issueId, relation.relatedIssueId);
+      if (shape === null) {
+        counts.relationsSkipped += 1;
+        continue;
+      }
+      const key = linearRelationKey(relation.id, shape);
+      const ref = byKey.get(key);
+      if (ref !== undefined && ref.projectId !== project.id) {
+        counts.relationsSkipped += 1;
+        continue;
+      }
+      const from = ticketOf.get(shape.from);
+      const to = ticketOf.get(shape.to);
+      if (from === undefined || to === undefined) {
+        // A ponta não está (mais) neste projeto, mas a relação continua no Linear: vista, sem `missing_since`.
+        if (ref !== undefined) {
+          seenIds.add(ref.id);
+          if (ref.localId !== null && !hasLine(ref)) detached.push(ref.id);
+        }
+        counts.relationsSkipped += 1;
+        continue;
+      }
+      if (handled.has(key)) continue;
+      handled.add(key);
+      if (ref !== undefined && ref.lastSeenRunId === run.id) continue; // página relida (passo repetido, resposta perdida)
+      const ends = { issueTicketId: ticketOf.get(issueId) as string, relatedIssueTicketId: ticketOf.get(relation.relatedIssueId) as string };
+      const applied = linearRelationApplied(relation.id, issueId, relation.relatedIssueId, shape, ends);
+
+      const forms = (byRelation.get(relation.id) ?? []).filter((other) => other.externalId !== key && other.projectId === project.id);
+      // Removida aqui uma forma que ligava os MESMOS dois tickets (inversão de sentido ou troca de tipo): a pessoa já disse que não quer
+      // esses dois ligados, e a forma nova herda a marca. Outro par é relação nova (ADR 0061, seção 3).
+      const removedBefore = forms.some((other) => other.removedHereAt !== null && removalCarriesOver(other.applied, endsOf(other.applied), ends));
+      // Relação editada no Linear (mesmo id, outra forma): as formas antigas que esta rodada não viu deixam de valer.
+      let replacing = false;
+      for (const other of forms.filter((form) => form.lastSeenRunId !== run.id && !handled.has(form.externalId) && form.applied["superseded"] !== true)) {
+        // A linha antiga é candidata a sair (a não ser que tenha sido feita à mão aqui e adotada), antes da conferência de ciclo da nova.
+        if (other.removedHereAt === null && !isAdopted(other) && hasLine(other)) {
+          oldLines.add(other.localId as string);
+          replacing = true;
+        }
+        await tx.externalItemRef.update({ where: { orgId_id: { orgId, id: other.id } }, data: { ...seen, localId: null, applied: { ...other.applied, superseded: true } as Prisma.InputJsonValue } });
+      }
+
+      if (ref !== undefined && ref.removedHereAt !== null && sameRelationEnds(ref.applied, ends)) {
+        seenIds.add(ref.id); // removida aqui, com os mesmos dois tickets: não volta
+        continue;
+      }
+      if (ref !== undefined && ref.removedHereAt === null && hasLine(ref)) {
+        seenIds.add(ref.id); // ainda aqui: só vista (a forma viva com linha não herda a remoção de outra forma)
+        continue;
+      }
+      if (removedBefore) {
+        if (ref === undefined) freshRemoved.push({ key, from: shape.kind === "related" ? (from < to ? from : to) : from, applied });
+        else await tx.externalItemRef.update({ where: { orgId_id: { orgId, id: ref.id } }, data: { ...seen, localId: null, removedHereAt: now, applied } });
+        continue;
+      }
+      // Sem origem, a linha local sumiu sem remoção aqui (uma ponta apagada), ou removida aqui com outro ticket numa das pontas: cria.
+      const [a, b] = shape.kind === "related" ? (from < to ? [from, to] : [to, from]) : [from, to];
+      planned.push({ key, kind: shape.kind, from: a, to: b, applied, ref: ref ?? null, replacing });
+    }
+
+    if (detached.length > 0) await tx.externalItemRef.updateMany({ where: { id: { in: detached } }, data: { localId: null } });
+    // Linha compartilhada por outra relação do Linear (ou pela mesma em outra forma) que continua viva: fica.
+    const stillPointed = oldLines.size === 0 ? new Set<string>() : new Set((await tx.externalItemRef.findMany({ where: { kind: "relation", localId: { in: [...oldLines] } }, select: { localId: true } })).map((row) => row.localId as string));
+    const removeRows = [...oldLines].filter((id) => !stillPointed.has(id));
+
+    const dependencyPlan = planned.filter((item) => item.kind === "depends_on");
+    const dependencyResults = await this.tickets.importDependencies(tx, project, dependencyPlan.map(({ from, to }) => ({ from, to })), removeRows);
+    const relatedResults = await this.tickets.importRelatedMany(tx, project, planned.filter((item) => item.kind === "related").map(({ from, to }) => ({ a: from, b: to })));
+    // Quem já aponta para as linhas que existiam (`exists`): a origem nova copia a marca delas. Linha sem origem foi feita à mão (adotada);
+    // linha de outra origem do Linear continua do Linear. As criadas nesta mesma página entram em `owners` conforme o laço anda.
+    const existing = [...dependencyResults, ...relatedResults].flatMap((result) => (result.outcome === "exists" ? [result.id] : []));
+    const owners = new Map<string, boolean>();
+    for (const row of existing.length === 0 ? [] : await tx.externalItemRef.findMany({ where: { kind: "relation", localId: { in: existing } }, select: { localId: true, applied: true } })) {
+      owners.set(row.localId as string, (owners.get(row.localId as string) ?? false) || isAdopted(row));
+    }
+    let nextDependency = 0;
+    let nextRelated = 0;
+    const perTicket = new Map<string, number>();
+    const bump = (ticketId: string): void => void perTicket.set(ticketId, (perTicket.get(ticketId) ?? 0) + 1);
+    const newOrigins: Prisma.ExternalItemRefCreateManyInput[] = freshRemoved.map((item) => ({ orgId, projectId: project.id, ticketId: item.from, provider: PROVIDER, kind: "relation", externalId: item.key, localId: null, removedHereAt: now, applied: item.applied, ...seen }));
+    for (const item of planned) {
+      const result = item.kind === "depends_on" ? dependencyResults[nextDependency++] : relatedResults[nextRelated++];
+      if (result === undefined || !("id" in result)) {
+        if (result?.outcome === "cycle") counts.relationsCycle += 1;
+        else counts.relationsSkipped += 1;
+        // A origem que já existia continua no Linear: vista (sem `missing_since`), sem linha local até o ciclo se desfazer aqui.
+        if (item.ref !== null) await tx.externalItemRef.update({ where: { orgId_id: { orgId, id: item.ref.id } }, data: { ...seen, localId: null, removedHereAt: null, applied: item.applied } });
+        continue;
+      }
+      const exists = result.outcome === "exists";
+      const adopted = exists && (owners.get(result.id) ?? true);
+      if (!owners.has(result.id)) owners.set(result.id, adopted);
+      const applied = adopted ? { ...item.applied, adopted: true } : item.applied;
+      if (item.ref === null) newOrigins.push({ orgId, projectId: project.id, ticketId: item.from, provider: PROVIDER, kind: "relation", externalId: item.key, localId: result.id, applied, ...seen });
+      // `ticket_id` não muda (sem permissão de escrita): a origem que sobreviveu pertence a uma ponta viva (a outra levaria a origem junto).
+      else await tx.externalItemRef.update({ where: { orgId_id: { orgId, id: item.ref.id } }, data: { ...seen, localId: result.id, removedHereAt: null, applied } });
+      if (exists) counts.relationsAdopted += 1;
+      else if (item.replacing) counts.relationsUpdated += 1;
+      else {
+        counts.relationsCreated += 1;
+        bump(item.from);
+        if (item.kind === "related") bump(item.to);
+      }
+    }
+    if (newOrigins.length > 0) await tx.externalItemRef.createMany({ data: newOrigins });
+    // As vistas sem mudança: uma gravação só por página (e a marca de forma antiga sai, se a forma voltou).
+    if (seenIds.size > 0) {
+      await tx.$executeRaw`update external_item_refs set last_seen_run_id = ${run.id}::uuid, last_imported_at = ${now}, missing_since = null, applied = applied - 'superseded'
+        where org_id = ${orgId} and id = any(${[...seenIds]}::uuid[])`;
+    }
+    if (planned.some((item) => item.kind === "related")) await touchProjectVersion(tx, project.id);
+    await this.recordRelationEvents(tx, principal, project, run, perTicket);
+  }
+
+  /** O evento automático "N relações trazidas do Linear", um por ticket por página (como o dos comentários); a linha do tempo soma os da rodada. */
+  private async recordRelationEvents(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, perTicket: ReadonlyMap<string, number>): Promise<void> {
+    if (perTicket.size === 0) return;
+    const tickets = await tx.ticket.findMany({ where: { id: { in: [...perTicket.keys()] } }, select: { id: true, number: true } });
+    await this.activity.recordMany(
+      tx,
+      principal,
+      tickets.map((ticket) => ({
+        kind: "ticket.relations_imported_from_linear",
+        subjectType: "ticket",
+        subjectId: ticket.id,
+        payload: { key: `${project.key}-${ticket.number}`, count: perTicket.get(ticket.id) as number, automatic: true, source: "linear_sync", runId: run.id },
+      })),
+    );
+  }
+
+  /**
+   * As relações deste projeto que a rodada não viu ganham `missing_since` (ficam como estão). Só quando a leitura percorreu tudo: com nó
+   * fora do formato, issue com a lista pela metade, ou nenhuma issue lida num projeto que tem origens de relação, nada é marcado
+   * (`missingNotChecked`).
+   */
+  private async markMissingRelations(tx: TenantClient, project: ProjectRow, run: RunRow, counts: Counts, anyIssueRead: boolean): Promise<void> {
+    const anyRef = async (): Promise<boolean> => (await tx.externalItemRef.findFirst({ where: { projectId: project.id, provider: PROVIDER, kind: "relation" }, select: { id: true } })) !== null;
+    if (counts.relationsInvalid > 0 || (!anyIssueRead && (await anyRef()))) {
+      if (await anyRef()) counts.missingNotChecked = true;
+      return;
+    }
+    // Relações não lidas (truncamento): nada é marcado, e o resumo tem aviso próprio (`relationsTruncated`), não o de formato inválido.
+    if (counts.relationsTruncated > 0) return;
+    // A forma antiga de uma relação editada no Linear (`superseded`) não sumiu: virou a nova.
+    counts.relationsMissing += await tx.$executeRaw`update external_item_refs set missing_since = now()
+      where org_id = ${project.orgId} and project_id = ${project.id}::uuid and provider = ${PROVIDER} and kind = 'relation' and missing_since is null
+        and (last_seen_run_id is null or last_seen_run_id <> ${run.id}::uuid) and coalesce(applied->>'superseded', '') <> 'true'`;
   }
 
   // ---- fase mentions ----

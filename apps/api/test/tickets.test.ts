@@ -42,6 +42,7 @@ describe("criação e leitura", () => {
       mentionedBy: [],
       dependsOn: [],
       blocks: [],
+      related: [],
       contributions: [],
       canEditContributions: true,
       canTriageIdea: false,

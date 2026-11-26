@@ -10,7 +10,7 @@ import { OrganizationMap } from "./OrganizationMap.js";
 const SLOW = 20_000;
 const projects = [makeProject("p1", "ALFA", "Projeto Alfa")];
 const tickets: TicketSummary[] = [makeTicket("t1", "p1", 1, "Fechar a fase", { key: "ALFA-1", progress: { done: 0, total: 1, excluded: 0 } }), makeTicket("t2", "p1", 2, "Escrever", { key: "ALFA-2", parentId: "t1" })];
-const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "x", updatedAt: "y" });
+const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "x", updatedAt: "y" });
 
 afterEach(() => window.localStorage.clear());
 

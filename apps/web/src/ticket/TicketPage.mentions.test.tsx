@@ -25,7 +25,7 @@ function setup(mentionedBy: Record<string, Mention[]>, ticketId = "t1") {
       const summary = summaries.find((entry) => entry.id === id)!;
       const detail: TicketDetail = {
         ...summary, description: "Texto", createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
-        mentionedBy: mentionedBy[id] ?? [], dependsOn: [], blocks: [],
+        mentionedBy: mentionedBy[id] ?? [], dependsOn: [], blocks: [], related: [],
       };
       return ok(detail);
     }),

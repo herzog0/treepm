@@ -23,7 +23,7 @@ const summaries: TicketSummary[] = [
   makeTicket("t5", "p1", 5, "Entregue", { key: "ALFA-5", status: "done" }),
 ];
 const detailOf = (summary: TicketSummary, description = "Texto de teste"): TicketDetail => ({
-  ...summary, description, mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
+  ...summary, description, mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
 });
 const byAi = { text: "Reúne o trabalho.", source: "assistant" as const, updatedAt: "2026-11-20T12:00:00.000Z" };
 const aiMe = (me: Me = makePanelMe("admin")): Me => ({ ...me, assistant: { enabled: true } });

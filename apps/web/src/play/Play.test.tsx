@@ -21,7 +21,7 @@ const base = (): TicketSummary[] => [
   makeTicket("a4", "p1", 4, "Alfa quatro", { key: "ALFA-4", status: "in_progress", assigneeIds: ["person-2"] }),
 ];
 const people = [makePerson("person-1", "Ana"), makePerson("person-2", "Bruno")];
-const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "x", updatedAt: "y" });
+const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "x", updatedAt: "y" });
 
 /** `current` é o que a API devolve agora: o teste muda a lista para simular o mundo andando durante o play. */
 function makeFull(current: { tickets: TicketSummary[] }): ApiClient {

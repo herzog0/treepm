@@ -158,7 +158,7 @@ describe("Reimportação › durante e resumo", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     const phases = await screen.findByRole("list", { name: "Fases da importação" });
     const items = within(phases).getAllByRole("listitem");
-    expect(items).toHaveLength(7);
+    expect(items).toHaveLength(8);
     expect(within(phases).getByText(/Verificando o que sumiu do Linear/)).toBeInTheDocument();
     // "Atualizando situações" fica entre ligar sub-issues e as menções.
     const names = items.map((item) => item.textContent ?? "");
@@ -182,7 +182,7 @@ describe("Reimportação › durante e resumo", () => {
   it("a primeira importação não tem essa fase", async () => {
     setup({ existing: { phase: "issues", counts: { issuesSeen: 2 } }, script: [{ hold: new Promise<void>(() => {}) }] });
     const phases = await screen.findByRole("list", { name: "Fases da importação" });
-    expect(within(phases).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(phases).getAllByRole("listitem")).toHaveLength(6);
     expect(within(phases).queryByText(/Verificando o que sumiu do Linear/)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Importando…" })).toBeInTheDocument();
   });
@@ -228,6 +228,45 @@ describe("Reimportação › durante e resumo", () => {
     expect(screen.queryByText(/mantido porque foi editado/)).not.toBeInTheDocument();
   });
 
+  it("relações trazidas do Linear (ADR 0061, fatia 3), com plural, e as que fechariam um ciclo; zero não aparece", async () => {
+    setup({ existing: finished(), reimportCounts: { updated: 1, relationsCreated: 5, relationsAdopted: 2, relationsCycle: 1 } });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    expect(screen.getByText("5 relações trazidas do Linear")).toBeInTheDocument();
+    expect(screen.getByText("1 dependência não trazida porque fecharia um ciclo")).toBeInTheDocument();
+  });
+
+  it("uma relação trazida: singular; nenhuma: a linha some", async () => {
+    setup({ existing: finished(), reimportCounts: { updated: 1, relationsCreated: 1, relationsCycle: 0 } });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    expect(screen.getByText("1 relação trazida do Linear")).toBeInTheDocument();
+    expect(screen.queryByText(/fecharia um ciclo/)).not.toBeInTheDocument();
+  });
+
+  it("relações atualizadas (editadas no Linear): plural e singular; zero não aparece", async () => {
+    setup({ existing: finished(), reimportCounts: { updated: 1, relationsUpdated: 3 } });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    expect(screen.getByText("3 relações atualizadas")).toBeInTheDocument();
+  });
+
+  it("uma relação atualizada: singular", async () => {
+    setup({ existing: finished(), reimportCounts: { updated: 1, relationsUpdated: 1, relationsCreated: 0 } });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    expect(screen.getByText("1 relação atualizada")).toBeInTheDocument();
+    expect(screen.queryByText(/trazidas? do Linear/)).not.toBeInTheDocument();
+  });
+
+  it("relações não lidas (truncamento): frase própria, sem falar em formato inválido", async () => {
+    setup({ existing: finished(), reimportCounts: { updated: 1, relationsTruncated: 2 } });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    expect(screen.getByText("Algumas relações não foram lidas nesta rodada; nada foi marcado como removido no Linear.")).toBeInTheDocument();
+    expect(screen.queryByText(/formato inválido/)).not.toBeInTheDocument();
+  });
+
   it("um só campo preenchido: singular", async () => {
     setup({ existing: finished(), reimportCounts: { filled: 1 } });
     await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
@@ -259,7 +298,7 @@ describe("Reimportação › durante e resumo", () => {
   it("a região de status anuncia a fase 'missing'", async () => {
     let release!: () => void;
     const hold = new Promise<void>((resolve) => { release = resolve; });
-    setup({ existing: finished(), total: 2, projects: 0, script: ["ok", "ok", "ok", "ok", "ok", "ok", { hold }] });
+    setup({ existing: finished(), total: 2, projects: 0, script: ["ok", "ok", "ok", "ok", "ok", "ok", "ok", { hold }] });
     await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     const region = (await screen.findAllByRole("status")).find((node) => node.classList.contains("linear-import-status"))!;
     await waitFor(() => expect(region).toHaveTextContent("Verificando o que sumiu do Linear."));

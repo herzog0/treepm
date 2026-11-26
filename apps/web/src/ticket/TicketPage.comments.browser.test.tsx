@@ -9,7 +9,7 @@ import { TicketPage } from "./TicketPage.js";
 // ADR 0040, fatia 2, em navegador real: escrever, enviar (botão e atalho), editar, Esc e o que não pode acontecer sozinho.
 const project = makeProject("p1", "ALFA", "Projeto Alfa");
 const summaries: TicketSummary[] = [makeTicket("t1", "p1", 1, "Este ticket", { key: "ALFA-1" }), makeTicket("t2", "p1", 2, "Outro ticket", { key: "ALFA-2" })];
-const detail: TicketDetail = { ...summaries[0]!, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" };
+const detail: TicketDetail = { ...summaries[0]!, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" };
 const ana = { id: "person-1", displayName: "Ana", avatarUrl: null };
 let counter = 0;
 const made = (data: Partial<ActivityComment> = {}): ActivityComment => ({

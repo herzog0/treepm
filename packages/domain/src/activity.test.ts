@@ -120,3 +120,18 @@ describe("comments_imported da mesma rodada", () => {
     expect(ids(mergeDescriptionEdits([{ ...noRun, id: "m" }, noRun]))).toEqual(["m<m", "n<n"]);
   });
 });
+
+// ADR 0061, fatia 3: "N relações trazidas do Linear" soma como os comentários, mas nunca junta com eles.
+describe("relations_imported da mesma rodada", () => {
+  const entry = (id: string, type: string, runId: string, count: number, minutes: number): MergeableEntry & { id: string } => ({ id, type, actorId: "ana", occurredAt: minutes * MIN, runId, count });
+  it("vizinhos da mesma rodada viram uma entrada com a soma", () => {
+    const merged = mergeDescriptionEdits([entry("b", "relations_imported", "r1", 3, 61), entry("a", "relations_imported", "r1", 2, 1)]);
+    expect(ids(merged)).toEqual(["b<a"]);
+    expect(merged.map((m) => m.count)).toEqual([5]);
+  });
+  it("relações e comentários da mesma rodada não se juntam", () => {
+    const merged = mergeDescriptionEdits([entry("b", "relations_imported", "r1", 3, 2), entry("a", "comments_imported", "r1", 2, 1)]);
+    expect(ids(merged)).toEqual(["b<b", "a<a"]);
+    expect(merged.map((m) => m.count)).toEqual([3, 2]);
+  });
+});

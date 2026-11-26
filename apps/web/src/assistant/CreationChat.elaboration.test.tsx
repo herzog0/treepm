@@ -38,7 +38,7 @@ function setup(answers: ElaborationOutcome | (() => Promise<ElaborationOutcome>)
     createTicketFromConversation: vi.fn(async (id: string) =>
       ok({
         conversation: makeConversation(id, "p1", { status: "ticket_created" }),
-        ticket: { ...makeTicket("t9", "p1", 9, "Sincronizar tickets", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" },
+        ticket: { ...makeTicket("t9", "p1", 9, "Sincronizar tickets", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" },
         children: [],
         warnings: [],
       })),
@@ -285,7 +285,7 @@ describe("avisos da criação", () => {
     client.createTicketFromConversation = vi.fn(async (id: string) =>
       ok({
         conversation: makeConversation(id, "p1", { status: "ticket_created" }),
-        ticket: { ...makeTicket("t9", "p1", 9, "Sincronizar tickets", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" },
+        ticket: { ...makeTicket("t9", "p1", 9, "Sincronizar tickets", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" },
         children: [],
         warnings: [
           { code: "link_discarded" as const, de: "pai" as const, dependeDe: "ALFA-8", reason: "inactive_ticket" },

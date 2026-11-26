@@ -303,7 +303,7 @@ model TicketRelation {
   projectId    String   @map("project_id") @db.Uuid
   fromTicketId String   @map("from_ticket_id") @db.Uuid
   toTicketId   String   @map("to_ticket_id") @db.Uuid
-  /// mentions | depends_on (check no banco)
+  /// mentions | depends_on | related (check no banco; related: uma linha por par, menor id primeiro)
   kind         String
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -931,7 +931,7 @@ model ExternalItemRef {
   ticketId          String    @map("ticket_id") @db.Uuid
   /// linear (check no banco)
   provider          String
-  /// comment (check no banco)
+  /// comment | relation (check no banco)
   kind              String
   externalId        String    @map("external_id")
   localId           String?   @map("local_id") @db.Uuid
@@ -944,6 +944,8 @@ model ExternalItemRef {
   lastSeenRunId     String?   @map("last_seen_run_id") @db.Uuid
   firstImportedAt   DateTime  @default(now()) @map("first_imported_at") @db.Timestamptz(3)
   lastImportedAt    DateTime  @default(now()) @map("last_imported_at") @db.Timestamptz(3)
+  /// Relação do Linear: o id dela (`applied->>'relationId'`). Coluna GERADA no banco (migration 0045): só leitura, o código nunca a grava.
+  relationId        String?   @default(dbgenerated("(applied ->> 'relationId'::text)")) @map("relation_id")
 
   organization Organization @relation(fields: [orgId], references: [orgId])
   ticket       Ticket       @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
@@ -952,6 +954,9 @@ model ExternalItemRef {
   @@unique([orgId, provider, kind, externalId], map: "external_item_refs_external_key")
   @@index([orgId, ticketId], map: "external_item_refs_ticket_idx")
   @@index([orgId, projectId, kind], map: "external_item_refs_project_kind_idx")
+  @@index([orgId, localId], map: "external_item_refs_local_idx")
+  // Só no SQL (migration 0045): a expressão da coluna gerada `relation_id` e o índice parcial `(org_id, relation_id) where kind = 'relation'`
+  // (as formas de uma relação do Linear); o Prisma não descreve nenhum dos dois.
   @@map("external_item_refs")
 }
 

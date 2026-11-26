@@ -16,7 +16,7 @@ const summaries: TicketSummary[] = [
   makeTicket("t2", "p1", 2, "Escrever", { key: "ALFA-2", parentId: "t1" }),
   makeTicket("t5", "p1", 5, "Fase vazia", { key: "ALFA-5" }),
 ];
-const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "x", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "x", updatedAt: "y" });
+const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "x", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "x", updatedAt: "y" });
 const recents = () => createRecentPlaces("org-1", "person-1");
 
 afterEach(() => window.localStorage.clear());

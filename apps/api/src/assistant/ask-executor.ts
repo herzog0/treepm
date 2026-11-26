@@ -137,7 +137,7 @@ export class ProjectToolExecutor {
 
   private async reduceTicket(tx: TenantClient, ticket: QueryTicket): Promise<unknown> {
     const { relations } = ticket;
-    const lists = [ticket.children, relations.mentions.outgoing, relations.mentions.incoming, relations.dependsOn.outgoing, relations.dependsOn.incoming];
+    const lists = [ticket.children, relations.mentions.outgoing, relations.mentions.incoming, relations.dependsOn.outgoing, relations.dependsOn.incoming, relations.related];
     const numbers = await this.numbersById(tx, [ticket, ...ticket.path, ...lists.flatMap((list) => list.tickets)]);
     const reduce = (list: QueryTicketList): BriefList => ({ tickets: list.tickets.map((summary) => this.brief(summary, numbers)), truncated: list.truncated });
     const directions = (pair: { outgoing: QueryTicketList; incoming: QueryTicketList }) => ({ outgoing: reduce(pair.outgoing), incoming: reduce(pair.incoming) });
@@ -151,7 +151,8 @@ export class ProjectToolExecutor {
       parent: self.parent,
       path: ticket.path.map((summary) => this.brief(summary, numbers)),
       children: reduce(ticket.children),
-      relations: { mentions: directions(relations.mentions), depends_on: directions(relations.dependsOn) },
+      // `related` (ADR 0061): só os tickets, com rótulo neutro; a origem no Linear não é lida aqui.
+      relations: { mentions: directions(relations.mentions), depends_on: directions(relations.dependsOn), related: reduce(relations.related) },
     };
   }
 

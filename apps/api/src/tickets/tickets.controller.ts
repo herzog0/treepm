@@ -330,6 +330,18 @@ export class TicketsController {
     await this.tickets.removeDependency(tx, principal, id, otherId);
   }
 
+  /** Tira "relacionado a" (ADR 0061, fatia 3); criar `related` pela tela não existe (só vem do Linear). */
+  @Delete("tickets/:id/related/:ticketId")
+  @HttpCode(204)
+  async removeRelated(
+    @Tx() tx: TenantClient,
+    @CurrentPrincipal() principal: Principal,
+    @Param("id", new ZodPipe(idSchema)) id: string,
+    @Param("ticketId", new ZodPipe(idSchema)) otherId: string,
+  ): Promise<void> {
+    await this.tickets.removeRelated(tx, principal, id, otherId);
+  }
+
   /** Inexistente, de outra organização (RLS) ou privado sem papel: todos viram o mesmo 404. */
   private async findVisibleProject(tx: TenantClient, actor: Principal["actor"], projectId: string): Promise<ProjectRow & { ticketsVersion: bigint }> {
     const project = await tx.project.findFirst({ where: { id: projectId } });
