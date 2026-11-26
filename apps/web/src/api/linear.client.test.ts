@@ -120,6 +120,10 @@ describe("importação em passos do Linear (ADR 0060, seção 3)", () => {
     const view = { ...runView, mode: "reimport", phase: "comments", pageSize: 50, counts: { commentsCreated: 50, commentsUpdated: 1, commentsKeptEdited: 0, commentsSkipped: 2 } };
     expect(await setup(view).client.stepLinearRun(ID, ID)).toEqual({ ok: true, data: view });
   });
+  it("aceita a fase 'relations' (relações do Linear, ADR 0061, fatia 3) e as contagens dela", async () => {
+    const view = { ...runView, mode: "reimport", phase: "relations", pageSize: 50, counts: { relationsCreated: 7, relationsAdopted: 1, relationsSkipped: 2, relationsCycle: 1, relationsSeen: 11, relationsInvalid: 0, relationsTruncated: 0, relationsMissing: 1 } };
+    expect(await setup(view).client.stepLinearRun(ID, ID)).toEqual({ ok: true, data: view });
+  });
   it("a rodada atual traz a última concluída (lastFinished), que pode ser nula", async () => {
     const finished = { ...runView, phase: "done", done: true, pageSize: 50, finishedAt: "2026-11-22T10:00:00.000Z" };
     expect(await setup({ run: null, lastFinished: finished }).client.getCurrentLinearRun(ID)).toEqual({ ok: true, data: { run: null, lastFinished: finished } });
@@ -143,7 +147,7 @@ describe("importação em passos do Linear (ADR 0060, seção 3)", () => {
     expect((await setup([team]).client.listLinearTeams()).ok).toBe(true);
   });
   it("a origem do ticket traz missingSince", async () => {
-    const detail = { id: ID, projectId: ID, number: 1, parentId: null, progress: null, idea: null, assigneeIds: [], descriptionExcerpt: "", agentWork: null, key: "TREEPM-1", title: "a", status: "todo", description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: ID, createdAt: "x", updatedAt: "x" };
+    const detail = { id: ID, projectId: ID, number: 1, parentId: null, progress: null, idea: null, assigneeIds: [], descriptionExcerpt: "", agentWork: null, key: "TREEPM-1", title: "a", status: "todo", description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: ID, createdAt: "x", updatedAt: "x" };
     const source = { provider: "linear", key: "ENG-123", url: null, missingSince: "2026-11-20T10:00:00.000Z" };
     const result = await setup({ ...detail, externalSource: source }).client.getTicket(ID);
     expect(result.ok && result.data.externalSource).toEqual(source);
@@ -155,7 +159,7 @@ describe("importação em passos do Linear (ADR 0060, seção 3)", () => {
     expect(lastCall(fetchImpl)).toMatchObject({ path: `/api/projects/${ID}/linear/runs/${ID}/abandon`, method: "POST" });
   });
   it("o detalhe aceita origem do Linear sem endereço (url nula)", async () => {
-    const detail = { id: ID, projectId: ID, number: 1, parentId: null, progress: null, idea: null, assigneeIds: [], descriptionExcerpt: "", agentWork: null, key: "TREEPM-1", title: "a", status: "todo", description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: ID, createdAt: "x", updatedAt: "x" };
+    const detail = { id: ID, projectId: ID, number: 1, parentId: null, progress: null, idea: null, assigneeIds: [], descriptionExcerpt: "", agentWork: null, key: "TREEPM-1", title: "a", status: "todo", description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: ID, createdAt: "x", updatedAt: "x" };
     const source = { provider: "linear", key: "ENG-123", url: null };
     const result = await setup({ ...detail, externalSource: source }).client.getTicket(ID);
     expect(result.ok && result.data.externalSource).toEqual(source);
@@ -164,7 +168,7 @@ describe("importação em passos do Linear (ADR 0060, seção 3)", () => {
     expect(await setup({ ...runView, phase: "nope" }).client.stepLinearRun(ID, ID)).toEqual({ ok: false, error: { kind: "unavailable" } });
   });
   it("o detalhe do ticket traz a origem do Linear, ou nenhuma", async () => {
-    const detail = { id: ID, projectId: ID, number: 1, parentId: null, progress: null, idea: null, assigneeIds: [], descriptionExcerpt: "", agentWork: null, key: "TREEPM-1", title: "a", status: "todo", description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: ID, createdAt: "x", updatedAt: "x" };
+    const detail = { id: ID, projectId: ID, number: 1, parentId: null, progress: null, idea: null, assigneeIds: [], descriptionExcerpt: "", agentWork: null, key: "TREEPM-1", title: "a", status: "todo", description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: ID, createdAt: "x", updatedAt: "x" };
     const source = { provider: "linear", key: "ENG-123", url: "https://linear.app/acme/issue/ENG-123/x" };
     const withSource = await setup({ ...detail, externalSource: source }).client.getTicket(ID);
     expect(withSource.ok && withSource.data.externalSource).toEqual(source);

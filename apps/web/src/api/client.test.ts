@@ -41,8 +41,9 @@ const ticketDetail = {
   ...ticketSummary,
   description: "Texto",
   mentionedBy: [{ id: "m1", key: "ALFA-2", title: "Cita", status: "todo" }],
-  dependsOn: [{ id: "d1", key: "ALFA-3", title: "Antes", status: "done" }],
-  blocks: [{ id: "b1", key: "ALFA-4", title: "Depois", status: "todo" }],
+  dependsOn: [{ id: "d1", key: "ALFA-3", title: "Antes", status: "done", fromLinear: true }],
+  blocks: [{ id: "b1", key: "ALFA-4", title: "Depois", status: "todo", fromLinear: false }],
+  related: [{ id: "r1", key: "ALFA-5", title: "Ao lado", status: "todo", fromLinear: true }],
   createdByPersonId: OTHER,
   createdAt: "2026-11-19T10:00:00.000Z",
   updatedAt: "2026-11-19T10:00:00.000Z",
@@ -99,6 +100,7 @@ const cases: Case[] = [
   { name: "removeTicketAssignee", call: (c) => c.removeTicketAssignee(ID, OTHER), method: "DELETE", path: `/api/tickets/${ID}/assignees/${OTHER}`, status: 204 },
   { name: "addTicketDependency", call: (c) => c.addTicketDependency(ID, OTHER), method: "POST", path: `/api/tickets/${ID}/dependencies`, body: { ticketId: OTHER }, response: ticketDetail },
   { name: "removeTicketDependency", call: (c) => c.removeTicketDependency(ID, OTHER), method: "DELETE", path: `/api/tickets/${ID}/dependencies/${OTHER}`, status: 204 },
+  { name: "removeTicketRelated", call: (c) => c.removeTicketRelated(ID, OTHER), method: "DELETE", path: `/api/tickets/${ID}/related/${OTHER}`, status: 204 },
   { name: "importTickets", call: (c) => c.importTickets(ID, { items: [{ title: "A", children: [{ title: "B", status: "done" }] }] }), method: "POST", path: `/api/projects/${ID}/tickets/import`, body: { items: [{ title: "A", children: [{ title: "B", status: "done" }] }] }, status: 201, response: [ticketSummary] },
 ];
 
@@ -315,6 +317,14 @@ describe("ticket without a type (ADR 0034)", () => {
   it("rejects a ticket without status: a null status no longer exists", async () => {
     const { client } = setup(() => Response.json([{ ...ticketSummary, status: null }]));
     expect(await client.listTickets(ID)).toEqual({ ok: false, error: { kind: "unavailable" } });
+  });
+
+  it("a server without Linear relations (ADR 0061, slice 3): no related list and no fromLinear still parse", async () => {
+    const plain = { ...ticketDetail, related: undefined, dependsOn: [{ id: "d1", key: "ALFA-3", title: "Antes", status: "done" }], blocks: [] };
+    const { client } = setup(() => Response.json(plain));
+    const result = await client.getTicket(ID);
+    expect(result.ok && result.data.related).toEqual([]);
+    expect(result.ok && result.data.dependsOn[0]?.fromLinear).toBeUndefined();
   });
 
   it("sends no kind when creating and when updating", async () => {

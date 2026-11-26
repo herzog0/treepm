@@ -427,7 +427,10 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
       // Depois das menções vêm os comentários do Linear (ADR 0061, fatia 2), nos dois modos.
       phase = "comments";
     } else if (phase === "comments") {
-      // Reimportação: depois dos comentários vem a conferência do que sumiu do Linear.
+      // Depois dos comentários vêm as relações do Linear (ADR 0061, fatia 3), nos dois modos.
+      phase = "relations";
+    } else if (phase === "relations") {
+      // Reimportação: depois das relações vem a conferência do que sumiu do Linear.
       phase = run.mode === "reimport" ? "missing" : "done";
     } else if (phase === "missing") {
       phase = "done";
@@ -990,7 +993,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "createTeam", "renameTeam", "removeTeam", "putTeamMember", "removeTeamMember",
     "createArea", "renameArea", "removeArea", "getProject", "createProject", "updateProject",
     "putProjectMember", "removeProjectMember", "putProjectTeam", "removeProjectTeam",
-    "getTicket", "endAgentWork", "createTicket", "updateTicket", "removeTicket", "listIdeas", "putIdeaStage", "acceptIdea", "discardIdea", "makeIdea", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency",
+    "getTicket", "endAgentWork", "createTicket", "updateTicket", "removeTicket", "listIdeas", "putIdeaStage", "acceptIdea", "discardIdea", "makeIdea", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency", "removeTicketRelated",
     "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement", "getPlacementDecision", "getElaboration",
     "createTicketFromConversation", "listConversations", "getConversation", "removeConversation", "getConversationPreview",
     ...GITHUB_NAMES,
@@ -1067,7 +1070,7 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
     ...(entry.agentWork ? { agentWork: { by: data.agentWorkBy ?? { id: "person-1", displayName: "Ana", avatarUrl: null }, ...entry.agentWork }, canEndAgentWork: data.canEndAgentWork ?? true } : {}),
     description: descriptions.get(entry.id) ?? "",
     effectivePriority: effectiveOf(entry),
-    mentionedBy: [], dependsOn: [], blocks: [],
+    mentionedBy: [], dependsOn: [], blocks: [], related: [],
     contributions: [], canEditContributions: true,
     createdByPersonId: "person-1",
     createdAt: "2026-11-20T10:00:00.000Z",

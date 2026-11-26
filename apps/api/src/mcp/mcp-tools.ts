@@ -101,6 +101,7 @@ export const getTicketOutput = z.strictObject({
   relations: z.strictObject({
     mentions: directionsSchema.describe("`outgoing`: tickets this one mentions in its text; `incoming`: tickets that mention this one."),
     depends_on: directionsSchema.describe("`outgoing`: tickets that must be finished before this one; `incoming`: tickets waiting for this one."),
+    related: listSchema.describe("Tickets related to this one (\"related to\", no direction). It comes from Linear and carries no rule: it does not block nor order work."),
   }),
   linear: z
     .strictObject({
@@ -142,7 +143,7 @@ const getTicketPeopleOutput = getTicketOutput.extend({
   assignees: assigneesField,
   path: z.array(summaryPeopleSchema),
   children: listPeopleSchema,
-  relations: z.strictObject({ mentions: directionsPeopleSchema, depends_on: directionsPeopleSchema }),
+  relations: z.strictObject({ mentions: directionsPeopleSchema, depends_on: directionsPeopleSchema, related: listPeopleSchema }),
 });
 
 type Assignee = z.infer<typeof assigneeSchema>;
@@ -154,7 +155,7 @@ export type TicketOutput = Omit<z.infer<typeof getTicketOutput>, "path" | "child
   assignees?: Assignee[];
   path: Summary[];
   children: TicketList;
-  relations: { mentions: Directions; depends_on: Directions };
+  relations: { mentions: Directions; depends_on: Directions; related: TicketList };
 };
 
 const MEANING_LINEAR = "`linear` says where an imported ticket came from in Linear (its identifier and address).";
@@ -163,7 +164,7 @@ const MEANING =
   "Tickets form a tree: the parent is the ticket a ticket is part of. " +
   "An idea is not accepted work yet: `idea` says whether a ticket is the root of an idea or inside one. " +
   "Priority: `priority` is the ticket's own number (-999 to 999, 0 by default, higher comes first) and `effective_priority` the one that counts, inherited from the nearest ancestor with a non-zero priority. " +
-  "Relations: `mentions` means one ticket cites the other in its text; `depends_on` means the first ticket needs the other to be finished before it. " +
+  "Relations: `mentions` means one ticket cites the other in its text; `depends_on` means the first ticket needs the other to be finished before it; `related` means \"related to\" (comes from Linear, no rule: it neither blocks nor orders work). " +
   `Statuses: ${STATUSES}.`;
 
 const definitions = (people: boolean) => ({
@@ -175,7 +176,7 @@ const definitions = (people: boolean) => ({
   },
   get_ticket: {
     title: "Get a ticket",
-    description: `Read one ticket in full: complete description, status, parent, the path from the top of the tree down to the parent, children, the relations in both directions and, for a ticket imported from Linear, its Linear identifier and address. ${MEANING} ${MEANING_LINEAR} For \`mentions\`, \`outgoing\` lists tickets this one cites and \`incoming\` lists tickets that cite it. For \`depends_on\`, \`outgoing\` lists tickets that must be finished before this one and \`incoming\` lists tickets waiting for this one.`,
+    description: `Read one ticket in full: complete description, status, parent, the path from the top of the tree down to the parent, children, the relations in both directions and, for a ticket imported from Linear, its Linear identifier and address. ${MEANING} ${MEANING_LINEAR} For \`mentions\`, \`outgoing\` lists tickets this one cites and \`incoming\` lists tickets that cite it. For \`depends_on\`, \`outgoing\` lists tickets that must be finished before this one and \`incoming\` lists tickets waiting for this one. \`related\` is one list without direction: the same pair shows on both tickets.`,
     inputSchema: getTicketInput,
     outputSchema: people ? getTicketPeopleOutput : getTicketOutput,
   },
@@ -271,7 +272,7 @@ export class ProjectTools {
       throw error;
     });
     const ticket = await this.reduceTicket(tx, found);
-    return fit(ticket, (result) => [result.children, result.relations.mentions.outgoing, result.relations.mentions.incoming, result.relations.depends_on.outgoing, result.relations.depends_on.incoming]);
+    return fit(ticket, (result) => [result.children, result.relations.mentions.outgoing, result.relations.mentions.incoming, result.relations.depends_on.outgoing, result.relations.depends_on.incoming, result.relations.related]);
   }
 
   /** O resumo de um ticket (como nas listas), lido na transação já aberta: a escrita responde com isto. */
@@ -364,7 +365,7 @@ export class ProjectTools {
 
   private async reduceTicket(tx: TenantClient, ticket: QueryTicket): Promise<TicketOutput> {
     const { relations } = ticket;
-    const lists = [ticket.children, relations.mentions.outgoing, relations.mentions.incoming, relations.dependsOn.outgoing, relations.dependsOn.incoming];
+    const lists = [ticket.children, relations.mentions.outgoing, relations.mentions.incoming, relations.dependsOn.outgoing, relations.dependsOn.incoming, relations.related];
     const keys = await this.parentKeys(tx, [ticket, ...ticket.path, ...lists.flatMap((list) => list.tickets)]);
     const who = await this.assigneesOf(tx, [ticket, ...ticket.path, ...lists.flatMap((list) => list.tickets)]);
     const reduce = (list: QueryTicketList): TicketList => ({ tickets: list.tickets.map((entry) => this.summary(entry, keys, who)), truncated: list.truncated });
@@ -382,7 +383,8 @@ export class ProjectTools {
       parent: self.parent,
       path: ticket.path.map((entry) => this.summary(entry, keys, who)),
       children: reduce(ticket.children),
-      relations: { mentions: directions(relations.mentions), depends_on: directions(relations.dependsOn) },
+      // `related` (ADR 0061): só os tickets, como as outras listas; a origem no Linear (ids da relação e das issues) nunca sai daqui.
+      relations: { mentions: directions(relations.mentions), depends_on: directions(relations.dependsOn), related: reduce(relations.related) },
       linear: await this.linearOrigin(tx, ticket.id),
       ...(self.assignees === undefined ? {} : { assignees: self.assignees }),
     };

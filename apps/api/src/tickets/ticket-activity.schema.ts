@@ -53,6 +53,8 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("assignee_removed"), person: personSchema.nullable() }),
   z.object({ ...base, type: z.literal("dependency_added"), ticket: ticketRefSchema }),
   z.object({ ...base, type: z.literal("dependency_removed"), ticket: ticketRefSchema }),
+  /** "Relacionado a" tirado (ADR 0061, fatia 3): o outro ticket. */
+  z.object({ ...base, type: z.literal("related_removed"), ticket: ticketRefSchema }),
   z.object({ ...base, type: z.literal("summary_updated"), source: z.enum(["person", "assistant"]) }),
   z.object({ ...base, type: z.literal("contribution_added"), area: areaRefSchema }),
   z.object({ ...base, type: z.literal("contribution_removed"), area: areaRefSchema }),
@@ -69,6 +71,8 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("idea_reopened") }),
   /** Comentários trazidos do Linear numa rodada (ADR 0061, fatia 2): um por ticket e rodada, automático, só a contagem. */
   z.object({ ...base, type: z.literal("comments_imported"), count: z.number().int().min(1) }),
+  /** Relações trazidas do Linear numa rodada (ADR 0061, fatia 3): um por ticket e rodada, automático, só a contagem. */
+  z.object({ ...base, type: z.literal("relations_imported"), count: z.number().int().min(1) }),
   z.object({
     ...base,
     type: z.literal("comment"),

@@ -198,7 +198,8 @@ export type ChatTicketRef = { key: string; title: string; status: string };
 
 /**
  * O que o provedor do chat sabe do ticket, e NADA além disso (ADR 0049): título, descrição, situação, a prioridade que vale, o
- * caminho até a raiz (do topo até o pai), os filhos diretos e as dependências nos dois sentidos. Nunca comentários, histórico,
+ * caminho até a raiz (do topo até o pai), os filhos diretos, as dependências nos dois sentidos e os tickets "relacionados a" (ADR 0061,
+ * sem sentido; nunca a origem no Linear). Nunca comentários, histórico,
  * texto de áreas, nota do marcador de trabalho, nem nomes, e-mails ou identificadores de pessoas, nem threads.
  */
 export type ChatTicketContext = {
@@ -211,6 +212,7 @@ export type ChatTicketContext = {
   children: readonly ChatTicketRef[];
   dependsOn: readonly ChatTicketRef[];
   blocks: readonly ChatTicketRef[];
+  related: readonly ChatTicketRef[];
 };
 
 /**

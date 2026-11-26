@@ -193,7 +193,7 @@ describe("revisão 2: o que se cola e o nome que se mostra", () => {
 
 const project = makeProject("p1", "ALFA", "Projeto Alfa");
 const summaries: TicketSummary[] = [makeTicket("t1", "p1", 1, "Este ticket", { key: "ALFA-1" }), makeTicket("t2", "p1", 2, "Publicar a versão", { key: "ALFA-2" })];
-const detail: TicketDetail = { ...summaries[0]!, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" };
+const detail: TicketDetail = { ...summaries[0]!, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" };
 
 async function openComment() {
   const client = makeClient({ projects: [project], people: [makePerson("person-1", "Ana"), makePerson("person-2", "Bia")], tickets: { p1: summaries } });

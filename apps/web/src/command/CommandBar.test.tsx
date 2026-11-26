@@ -19,7 +19,7 @@ const tickets: Record<string, TicketSummary[]> = {
   ],
   p2: [makeTicket("t4", "p2", 1, "Login de teste", { key: "BETA-1", status: "done" })],
 };
-const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "x", updatedAt: "y" });
+const detailOf = (summary: TicketSummary): TicketDetail => ({ ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "x", updatedAt: "y" });
 const withAssistant = (me: Me, enabled = true): Me => ({ ...me, assistant: { enabled } });
 const adminMe = () => withAssistant(makePanelMe("admin"));
 

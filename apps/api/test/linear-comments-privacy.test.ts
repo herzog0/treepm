@@ -50,10 +50,18 @@ describe("estrutura: só a importação, a página do ticket e o MCP (com o alca
   // comentários), que não cita a tabela (C2, item 7).
   const READS = /ticketComment\b|ticket_comments|externalItemRef|external_item_refs|externalAuthorName|external_author_name|\bcomments\s*:\s*(?:true\b|\{)|_count\s*:\s*\{[^}]*\bcomments\b/;
   // A contagem de comentários por contribuição: `ticket-contributions.read.ts` (pela relação) e `ticket-contributions.service.ts` (ao remover).
-  const ALLOWED = new Set(["linear/linear-import.service.ts", "tickets/ticket-comments.service.ts", "tickets/ticket-activity.service.ts", "tickets/ticket-contributions.read.ts", "tickets/ticket-contributions.service.ts", "mcp/mcp-people-read.ts"]);
+  const ALLOWED = new Set(["linear/linear-import.service.ts", "tickets/ticket-comments.service.ts", "tickets/ticket-activity.service.ts", "tickets/ticket-contributions.read.ts", "tickets/ticket-contributions.service.ts", "mcp/mcp-people-read.ts",
+    // As origens de RELAÇÃO (ADR 0061, fatia 3) também moram em `external_item_refs`: só este arquivo as lê fora da importação.
+    "linear/linear-relation-origins.ts"]);
   it("o padrão pega a leitura pela relação, e não pega nomes parecidos", () => {
     for (const snippet of ["include: { comments: true }", "select: { id: true, comments: { select: { body: true } } }", "_count: { select: { comments: true } }", "_count: { select: { comments: { where: { removedAt: null } } } }", "tx.ticketComment.findMany()"]) expect(READS.test(snippet), snippet).toBe(true);
     for (const snippet of ["commentsCreated: 0", "const comments = []", "commentCount: 1"]) expect(READS.test(snippet), snippet).toBe(false);
+    // Filtrar por `kind: "relation"` não libera a leitura: o `OR` (ou um `select` de `applied`) pode trazer as origens de comentário.
+    for (const snippet of [
+      `const refs = await tx.externalItemRef.findMany({ where: { kind: "relation", projectId }, select: { applied: true, externalId: true } }); provider.send(JSON.stringify(refs));`,
+      `const refs = await tx.externalItemRef.findMany({ where: { kind: "relation", OR: [{ kind: "comment" }, {}] } });`,
+    ])
+      expect(READS.test(snippet), snippet).toBe(true);
   });
   const walk = (dir: string): string[] => readdirSync(dir).flatMap((name) => (statSync(join(dir, name)).isDirectory() ? walk(join(dir, name)) : name.endsWith(".ts") ? [join(dir, name)] : []));
   it("nenhum arquivo de assistente, procura, vetores, resumo ou categorização lê comentários", () => {

@@ -201,3 +201,57 @@ describe("orçamento do passo com e-mail recusado e resposta grande demais (fetc
     });
   }
 });
+
+// ADR 0061, fatia 3: a página de relações e as páginas extras das issues com mais relações dividem o orçamento do passo.
+describe("fetchRelations", () => {
+  type RelFetcher = (key: string, teamId: string, run: unknown, progress: { size: number }, alreadyUsed?: number, deadline?: number) => Promise<{ page: { nodes: { id: string; relations: unknown[]; relationsNext: string | null }[] }; truncated: number; usedSize: number }>;
+  function relationsWith(client: Partial<LinearClient>): RelFetcher {
+    const service = new LinearImportService(client as LinearClient, null as never, null as never, null as never, null as never, null as never);
+    return (service as unknown as { fetchRelations: RelFetcher }).fetchRelations.bind(service);
+  }
+  const rel = (id: string) => ({ id, type: "related", relatedIssueId: "z" });
+  const issue = (id: string) => ({ id, relations: [rel(`${id}-0`)], relationsNext: "c1" });
+  const mainPage = { nodes: [issue("a"), issue("b"), issue("c")], nextCursor: null, skippedInvalid: 0 };
+
+  it("páginas extras que não cabem no orçamento ficam truncadas, sem passar de 6 chamadas (contando a conferência de acesso)", async () => {
+    let calls = 1; // a conferência de acesso
+    const fetcher = relationsWith({
+      listTeamRelations: vi.fn(async () => ((calls += 1), mainPage)),
+      // Cada issue tem sempre mais uma página: nenhuma termina.
+      listIssueRelations: vi.fn(async (_key: string, issueId: string, after: string) => ((calls += 1), { relations: [rel(`${issueId}-${after}`)], nextCursor: `${after}x`, skippedInvalid: 0 })),
+    });
+    const fetched = await fetcher("k", "t", run(), { size: 0 }, 1);
+    expect(calls).toBe(STEP_MAX_CALLS);
+    expect(fetched.truncated).toBe(3);
+    expect(fetched.page.nodes.map((node) => node.id)).toEqual(["a", "b", "c"]);
+    expect(fetched.page.nodes[0]!.relations.length).toBe(1 + (STEP_MAX_CALLS - 2));
+  });
+
+  it("uma issue termina dentro do orçamento; erro numa página extra para as extras e não derruba a página", async () => {
+    const fetcher = relationsWith({
+      listTeamRelations: vi.fn(async () => mainPage),
+      listIssueRelations: vi.fn(async (_key: string, issueId: string) => {
+        if (issueId === "b") throw new LinearError("linear_timeout");
+        return { relations: [rel(`${issueId}-1`)], nextCursor: null, skippedInvalid: 0 };
+      }),
+    });
+    const fetched = await fetcher("k", "t", run(), { size: 0 }, 1);
+    expect(fetched.page.nodes.map((node) => [node.id, node.relations.length, node.relationsNext])).toEqual([["a", 2, null], ["b", 1, "c1"], ["c", 1, "c1"]]);
+    expect(fetched.truncated).toBe(2);
+  });
+
+  it("página principal grande demais reduz à metade, no mesmo teto de chamadas", async () => {
+    const sizes: number[] = [];
+    const fetcher = relationsWith({
+      listTeamRelations: vi.fn(async (_key: string, _team: string, _after: string | null, options?: { first?: number }) => {
+        sizes.push(options?.first ?? 0);
+        throw new LinearError("linear_response_too_large");
+      }),
+    });
+    const progress = { size: 0 };
+    await expect(fetcher("k", "t", run(), progress, 1)).rejects.toMatchObject({ code: "linear_response_too_large" });
+    // A fase de relações começa em 25 issues (R2: medido, o passo passava de 5 s com 50); com orçamento sobrando, chega a 1 e falha.
+    expect(sizes).toEqual([25, 12, 6, 3, 1]);
+    expect(progress.size).toBe(1);
+  });
+});

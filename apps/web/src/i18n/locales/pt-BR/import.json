@@ -110,6 +110,7 @@
       "statuses": "Atualizando situações",
       "mentions": "Ligando menções",
       "comments": "Trazendo comentários",
+      "relations": "Ligando relações",
       "list": "Fases da importação",
       "missing": "Verificando o que sumiu do Linear"
     },
@@ -124,6 +125,7 @@
       "hierarchy": "Ligando as sub-issues aos pais.",
       "mentions": "Ligando as menções entre os tickets.",
       "comments": "Trazendo os comentários das issues.",
+      "relations": "Ligando as relações entre os tickets.",
       "done": "Importação concluída.",
       "waiting": "O Linear pediu para esperar.",
       "abandoned": "Importação abandonada.",
@@ -167,7 +169,17 @@
       "commentsCreated_many": "{{count}} comentários trazidos do Linear",
       "commentsKeptEdited_one": "{{count}} comentário mantido porque foi editado aqui",
       "commentsKeptEdited_other": "{{count}} comentários mantidos porque foram editados aqui",
-      "commentsKeptEdited_many": "{{count}} comentários mantidos porque foram editados aqui"
+      "commentsKeptEdited_many": "{{count}} comentários mantidos porque foram editados aqui",
+      "relationsCreated_one": "{{count}} relação trazida do Linear",
+      "relationsCreated_other": "{{count}} relações trazidas do Linear",
+      "relationsCreated_many": "{{count}} relações trazidas do Linear",
+      "relationsCycle_one": "{{count}} dependência não trazida porque fecharia um ciclo",
+      "relationsCycle_other": "{{count}} dependências não trazidas porque fechariam um ciclo",
+      "relationsCycle_many": "{{count}} dependências não trazidas porque fechariam um ciclo",
+      "relationsUpdated_one": "{{count}} relação atualizada",
+      "relationsUpdated_other": "{{count}} relações atualizadas",
+      "relationsUpdated_many": "{{count}} relações atualizadas",
+      "relationsTruncated": "Algumas relações não foram lidas nesta rodada; nada foi marcado como removido no Linear."
     },
     "abandon": {
       "button": "Abandonar importação",

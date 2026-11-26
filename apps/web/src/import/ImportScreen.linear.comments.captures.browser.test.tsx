@@ -33,7 +33,7 @@ describe.skipIf(!DIR)("capturas dos comentários do Linear (ADR 0061, fatia 2)",
       { id: "c2", type: "comment", occurredAt: "2026-03-04T11:30:00.000Z", actor: null, externalAuthor: { name: "Zed Externo" }, ...base, body: "> Proposta: trocar o verde do concluído\n\nConcordo, mas testem o contraste.", editedAt: "2026-03-04T12:00:00.000Z" } as ActivityEntry,
       { id: "c1", type: "comment", occurredAt: "2026-03-03T09:00:00.000Z", actor: ana, ...base, body: "Proposta: trocar o verde do concluído." } as ActivityEntry,
     ];
-    const detail = { ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-11-25T10:00:00.000Z", updatedAt: "2026-11-25T10:00:00.000Z" } as TicketDetail;
+    const detail = { ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-11-25T10:00:00.000Z", updatedAt: "2026-11-25T10:00:00.000Z" } as TicketDetail;
     const client = makeClient({ projects: [project], tickets: { p1: [summary] }, people: [makePerson("person-1", "Ana")] });
     Object.assign(client, { getTicket: async () => ok(detail), ticketActivity: async () => ok({ entries, before: null, canComment: true }) });
     const noop = () => undefined;

@@ -638,6 +638,7 @@ export function DependsOnField({ client, detail, tickets, canEdit, onOpen, onSav
               <StatusMark status={entry.status} />
               <span className="ticket-key">{entry.key}</span>
               <span className="ticket-child-title">{entry.title}</span>
+              {entry.fromLinear === true && <FromLinearBadge />}
             </button>
             {canEdit && (
               <button type="button" className="ticket-person-remove" aria-label={t("dependsOn.remove", { key: entry.key })} disabled={action.busy} onClick={() => void remove(entry.id)}>×</button>
@@ -669,6 +670,54 @@ export function DependsOnField({ client, detail, tickets, canEdit, onOpen, onSav
         </div>
       )}
       {action.error?.code === "dependency_cycle" ? <p role="alert" className="ticket-error">{t("dependsOn.cycle", { key: tried })}</p> : action.error && <p role="alert" className="ticket-error">{describeError(action.error)}</p>}
+    </>
+  );
+}
+
+/** Selo discreto das ligações e comentários trazidos do Linear por uma sincronização (ADR 0061). */
+export function FromLinearBadge() {
+  const { t } = useTranslation("ticket");
+  return <span className="ticket-via" title={t("activity.viaLinearTitle")}>{t("activity.viaLinear")}</span>;
+}
+
+interface RelatedProps {
+  client: ApiClient;
+  detail: TicketDetail;
+  canEdit: boolean;
+  onOpen: (id: string) => void;
+  onSaved: () => void;
+}
+
+/**
+ * "Relacionado a" (ADR 0061, fatia 3): a relação simétrica que vem do Linear. Só se remove aqui; não há como criar pela tela,
+ * por isso a linha só existe quando há relações.
+ */
+export function RelatedField({ client, detail, canEdit, onOpen, onSaved }: RelatedProps) {
+  const { t } = useTranslation("ticket");
+  const action = useAction();
+  const describeError = useDescribeApiError();
+  const remove = async (id: string) => {
+    const result = await action.run(() => client.removeTicketRelated(detail.id, id));
+    if (result.ok) onSaved();
+  };
+  return (
+    <>
+      <div className="ticket-deps">
+        {detail.related.map((entry) => (
+          <span key={entry.id} className="ticket-dep">
+            <button type="button" className="ticket-chip ticket-chip-button" onClick={() => onOpen(entry.id)}>
+              <StatusMark status={entry.status} />
+              <span className="ticket-key">{entry.key}</span>
+              <span className="ticket-child-title">{entry.title}</span>
+              {entry.fromLinear === true && <FromLinearBadge />}
+            </button>
+            {canEdit && (
+              <button type="button" className="ticket-person-remove" aria-label={t("related.remove", { key: entry.key })} disabled={action.busy} onClick={() => void remove(entry.id)}>×</button>
+            )}
+          </span>
+        ))}
+      </div>
+      {action.error && <p role="alert" className="ticket-error">{describeError(action.error)}</p>}
     </>
   );
 }

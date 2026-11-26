@@ -100,6 +100,7 @@
       "statuses": "Updating statuses",
       "mentions": "Linking mentions",
       "comments": "Bringing comments",
+      "relations": "Linking relations",
       "list": "Import phases",
       "missing": "Checking what disappeared from Linear"
     },
@@ -114,6 +115,7 @@
       "hierarchy": "Linking sub-issues to their parents.",
       "mentions": "Linking the mentions between tickets.",
       "comments": "Bringing the comments of the issues.",
+      "relations": "Linking the relations between tickets.",
       "done": "Import finished.",
       "waiting": "Linear asked to wait.",
       "abandoned": "Import abandoned.",
@@ -154,7 +156,14 @@
       "commentsCreated_one": "{{count}} comment brought from Linear",
       "commentsCreated_other": "{{count}} comments brought from Linear",
       "commentsKeptEdited_one": "{{count}} comment kept because it was edited here",
-      "commentsKeptEdited_other": "{{count}} comments kept because they were edited here"
+      "commentsKeptEdited_other": "{{count}} comments kept because they were edited here",
+      "relationsCreated_one": "{{count}} relation brought from Linear",
+      "relationsCreated_other": "{{count}} relations brought from Linear",
+      "relationsCycle_one": "{{count}} dependency not brought because it would close a cycle",
+      "relationsCycle_other": "{{count}} dependencies not brought because they would close a cycle",
+      "relationsUpdated_one": "{{count}} relation updated",
+      "relationsUpdated_other": "{{count}} relations updated",
+      "relationsTruncated": "Some relations were not read in this round; nothing was marked as removed in Linear."
     },
     "abandon": {
       "button": "Abandon import",

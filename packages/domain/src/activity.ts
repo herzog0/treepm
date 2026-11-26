@@ -10,9 +10,9 @@ export interface MergeableEntry {
   readonly occurredAt: number;
   /** A contribuição a que a entrada se refere (ADR 0041); só `contribution_text_changed` usa, e sem ela nunca junta. */
   readonly contributionId?: string | null;
-  /** A rodada de sincronização do Linear (`comments_imported`): os eventos da mesma rodada, gravados um por página, viram uma entrada. */
+  /** A rodada de sincronização do Linear (`comments_imported`, `relations_imported`): os eventos da mesma rodada, gravados um por página, viram uma entrada. */
   readonly runId?: string | null;
-  /** Quantos comentários o evento trouxe (`comments_imported`). */
+  /** Quantos comentários ou relações o evento trouxe (`comments_imported`, `relations_imported`). */
   readonly count?: number;
 }
 
@@ -20,7 +20,7 @@ export interface MergeableEntry {
 export interface MergedEntry<T extends MergeableEntry> {
   readonly entry: T;
   readonly oldest: T;
-  /** `comments_imported`: a soma das contagens do grupo. */
+  /** `comments_imported` e `relations_imported`: a soma das contagens do grupo. */
   readonly count?: number;
 }
 
@@ -39,7 +39,7 @@ export function mergeDescriptionEdits<T extends MergeableEntry>(newestFirst: rea
       last.oldest = item;
       last.count = (last.count ?? 0) + (item.count ?? 0);
     } else if (last && joins(last.oldest, item)) last.oldest = item;
-    else merged.push(item.type === "comments_imported" ? { entry: item, oldest: item, count: item.count ?? 0 } : { entry: item, oldest: item });
+    else merged.push(isImportCount(item.type) ? { entry: item, oldest: item, count: item.count ?? 0 } : { entry: item, oldest: item });
   }
   return merged;
 }
@@ -51,9 +51,15 @@ function sameEditedText(newer: MergeableEntry, older: MergeableEntry): boolean {
   return newer.type === "contribution_text_changed" && !!newer.contributionId && newer.contributionId === older.contributionId;
 }
 
-/** Comentários trazidos do Linear na mesma rodada (C2, item 6): vizinhos, qualquer que seja a distância. Sem rodada, nunca. */
+/** Entradas de contagem trazida do Linear numa rodada: comentários (fatia 2) e relações (fatia 3). */
+const isImportCount = (type: string): boolean => type === "comments_imported" || type === "relations_imported";
+
+/**
+ * Comentários ou relações trazidos do Linear na mesma rodada (C2, item 6): vizinhos do MESMO tipo, qualquer que seja a distância. Sem
+ * rodada, nunca; comentários e relações nunca se juntam.
+ */
 function sameImportRun(newer: MergeableEntry, older: MergeableEntry): boolean {
-  return newer.type === "comments_imported" && older.type === "comments_imported" && !!newer.runId && newer.runId === older.runId;
+  return isImportCount(newer.type) && newer.type === older.type && !!newer.runId && newer.runId === older.runId;
 }
 
 function joins(newer: MergeableEntry, older: MergeableEntry): boolean {

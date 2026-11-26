@@ -29,10 +29,10 @@ export interface LinearImportProps {
   onOpenTicket: (ticketId: string) => void;
 }
 
-type Phase = "projects" | "issues" | "hierarchy" | "statuses" | "mentions" | "comments" | "missing";
-const FIRST_PHASES: readonly Phase[] = ["projects", "issues", "hierarchy", "mentions", "comments"];
+type Phase = "projects" | "issues" | "hierarchy" | "statuses" | "mentions" | "comments" | "relations" | "missing";
+const FIRST_PHASES: readonly Phase[] = ["projects", "issues", "hierarchy", "mentions", "comments", "relations"];
 /** A reimportação atualiza as situações depois de ligar os pais e confere, no fim, o que sumiu do Linear (ADR 0060, seção 5). */
-const REIMPORT_PHASES: readonly Phase[] = ["projects", "issues", "hierarchy", "statuses", "mentions", "comments", "missing"];
+const REIMPORT_PHASES: readonly Phase[] = ["projects", "issues", "hierarchy", "statuses", "mentions", "comments", "relations", "missing"];
 const phasesOf = (run: LinearRun): readonly Phase[] => (run.mode === "reimport" ? REIMPORT_PHASES : FIRST_PHASES);
 
 /** Erros em que o caminho para corrigir é a chave ou a ligação, nas Configurações. */
@@ -98,7 +98,7 @@ function ConnectedPanel({ client, projectId, connection, startSync = false, onEx
     if (phaseKey === lastPhase.current) return;
     lastPhase.current = phaseKey;
     if (phaseKey !== null && phaseKey.startsWith("categorize:")) setAnnouncement(t(`linear.categorize.announce.${phaseKey.slice("categorize:".length) as "start"}`));
-    else if (phaseKey !== null && ["projects", "issues", "hierarchy", "statuses", "mentions", "comments", "missing", "done", "reimportDone", "waiting", "abandoned"].includes(phaseKey)) setAnnouncement(t(`linear.announce.${phaseKey as "done"}`));
+    else if (phaseKey !== null && ["projects", "issues", "hierarchy", "statuses", "mentions", "comments", "relations", "missing", "done", "reimportDone", "waiting", "abandoned"].includes(phaseKey)) setAnnouncement(t(`linear.announce.${phaseKey as "done"}`));
     else setAnnouncement("");
   }, [phaseKey, t]);
 
@@ -483,6 +483,10 @@ function RunSummary({ run }: { run: LinearRun }) {
       {count(run, "filled") > 0 && <p className="linear-import-note">{t("linear.done.filled", { count: count(run, "filled") })}</p>}
       {count(run, "commentsCreated") > 0 && <p className="linear-import-note">{t("linear.done.commentsCreated", { count: count(run, "commentsCreated") })}</p>}
       {count(run, "commentsKeptEdited") > 0 && <p className="linear-import-note">{t("linear.done.commentsKeptEdited", { count: count(run, "commentsKeptEdited") })}</p>}
+      {count(run, "relationsCreated") > 0 && <p className="linear-import-note">{t("linear.done.relationsCreated", { count: count(run, "relationsCreated") })}</p>}
+      {count(run, "relationsUpdated") > 0 && <p className="linear-import-note">{t("linear.done.relationsUpdated", { count: count(run, "relationsUpdated") })}</p>}
+      {count(run, "relationsCycle") > 0 && <p className="linear-import-note">{t("linear.done.relationsCycle", { count: count(run, "relationsCycle") })}</p>}
+      {count(run, "relationsTruncated") > 0 && <p className="linear-import-note linear-import-warning">{t("linear.done.relationsTruncated")}</p>}
       {run.counts["assigneeEmailUnavailable"] === true && <p className="linear-import-note linear-import-warning">{t(reimport ? "linear.done.assigneeEmailUnavailableReimport" : "linear.done.assigneeEmailUnavailable")}</p>}
       {run.counts["descriptionUnavailable"] === true && <p className="linear-import-note linear-import-warning">{t("linear.done.descriptionUnavailable")}</p>}
       {run.counts["missingNotChecked"] === true && <p className="linear-import-note linear-import-warning">{t("linear.done.missingNotChecked")}</p>}

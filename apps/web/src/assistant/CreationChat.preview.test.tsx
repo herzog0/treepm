@@ -36,7 +36,7 @@ function setup(options: { children?: { title: string; description: string }[]; p
     findPlacement: vi.fn(async () => ok(makePlacement({ destination: { parentId: "t1", path: [{ id: "t1", title: "Acesso" }] } }))),
     createTicketFromConversation: vi.fn(async (id: string) => ok({
       conversation: makeConversation(id, "p1", { status: "ticket_created" }),
-      ticket: { ...makeTicket("t9", "p1", 9, "Chat no painel", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" },
+      ticket: { ...makeTicket("t9", "p1", 9, "Chat no painel", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" },
       children: [],
         warnings: [],
     })),

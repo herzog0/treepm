@@ -271,17 +271,21 @@ async function snapshot(projectId: string): Promise<unknown> {
     .sort((a, b) => a.at - b.at || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0))
     .map((event) => JSON.parse(event.text) as unknown);
   const rounds = await q("select mode, phase, counts, total_expected, last_error_code, error_streak, page_size from external_import_runs where project_id = $1 order by started_at", [projectId]);
+  // Relações (ADR 0061, fatia 3): as ligações e as origens delas, com os ids de ticket trocados pelo número.
+  // `related` é guardada com o menor UUID primeiro: o par (e o ticket da origem) depende dos ids sorteados, então sai pelo número.
+  const relations = await q("select case when r.kind = 'related' then least(f.number, t.number) else f.number end as from_number, case when r.kind = 'related' then greatest(f.number, t.number) else t.number end as to_number, r.kind from ticket_relations r join tickets f on f.id = r.from_ticket_id join tickets t on t.id = r.to_ticket_id where r.project_id = $1 and r.kind <> 'mentions' order by 1, 2, 3", [projectId]);
+  const relationRefs = await q("select x.external_id, x.applied, x.local_id is not null as linked, x.missing_since is null as present, x.removed_here_at is null as kept, case when x.applied->>'type' = 'related' then null else t.number end as number from external_item_refs x join tickets t on t.id = x.ticket_id where x.project_id = $1 and x.kind = 'relation' order by x.external_id", [projectId]);
   // Ids de ticket (nos eventos e nos retratos de origem) viram o número do ticket; outros ids, `<id>`.
-  const text = JSON.stringify({ tickets, refs, assignees, events, rounds }).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (id) => numbers.get(id) ?? "<id>");
+  const text = JSON.stringify({ tickets, refs, assignees, events, rounds, relations, relationRefs }).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (id) => numbers.get(id) ?? "<id>");
   return JSON.parse(text) as unknown;
 }
 
 /** Liga, importa pela tela, muda o Linear e sincroniza pelo caminho dado. */
-async function scenario(projectId: string, sync: () => Promise<any>): Promise<{ last: any; snap: unknown }> {
+async function scenario(projectId: string, sync: () => Promise<any>, change: (data: FakeTeamData) => void = mutate): Promise<{ last: any; snap: unknown }> {
   const data = team();
   await link(projectId, data);
   await httpRun(projectId);
-  mutate(data);
+  change(data);
   const last = await sync();
   return { last, snap: await snapshot(projectId) };
 }
@@ -309,6 +313,32 @@ describe("ponta a ponta: a sincronização pelo MCP é a da tela", () => {
     // A autoria "pelo MCP" ficou nos eventos da sincronização.
     const marked = await q("select count(*)::int n from activity_events where payload->>'via' = 'mcp'");
     expect(Number(marked[0]?.n)).toBeGreaterThan(0);
+  });
+
+  it("com relações (ADR 0061, fatia 3): ligações, origens, eventos e contagens iguais aos das rotas HTTP", async () => {
+    // I1 bloqueia I3, I2 relacionado a I4 (nova), I3 duplicata de I2, I4 bloqueia I1 e I3 bloqueia I1 (fecharia um ciclo), I2 com outro time.
+    const withRelations = (data: FakeTeamData): void => {
+      mutate(data);
+      data.relations = [
+        { id: "r-13", type: "blocks", from: "i1", to: "i3" },
+        { id: "r-24", type: "related", from: "i2", to: "i4" },
+        { id: "r-32", type: "duplicate", from: "i3", to: "i2" },
+        { id: "r-41", type: "blocks", from: "i4", to: "i1" },
+        { id: "r-31", type: "blocks", from: "i3", to: "i1" },
+        { id: "r-2x", type: "related", from: "i2", to: "fora" },
+      ];
+    };
+    const viaHttp = await scenario(priv(), () => httpRun(priv()), withRelations);
+    await truncateAll(h.pool);
+    h.app().get(AccessTokenService).resetMemory();
+    h.app().get(McpGateway).resetMemory();
+    const world = await seedWorld(h.pool);
+    const projectId = world.projects.priv;
+    const viaMcp = await scenario(projectId, async () => (await mcpSync(await token("admin", {}, projectId))).last, withRelations);
+    expect(viaMcp.snap).toEqual(viaHttp.snap);
+    expect(viaMcp.last).toMatchObject({ phase: "done", done: true, counts: viaHttp.last.counts, waitUntil: null });
+    expect(viaHttp.last.counts).toMatchObject({ relationsCreated: 4, relationsCycle: 1, relationsSkipped: 1 });
+    expect((viaMcp.snap as { relations: unknown[] }).relations).toHaveLength(4);
   });
 
   it("o resultado só tem id, fase, fim, contagens, espera e a próxima ação (nada de pessoa, projeto ou destino)", async () => {
@@ -1110,5 +1140,52 @@ describe("comentários do Linear pela sincronização do MCP (TREEPM-477)", () =
     const { last } = await mcpSteps(tok, runId);
     expect(h.linear().calls.slice(next).filter((call) => call.query.includes("comments(")).every((call) => !/\bemail\b/.test(call.query))).toBe(true);
     expect(last.counts).toMatchObject({ commentsCreated: 5 });
+  });
+});
+
+describe("relações do Linear pela sincronização do MCP: prazo com a página em 1 (R3, item 5)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("a consulta com relações volta com `errors` e o prazo acaba antes da releitura só de ids: andamento (sem erro); a chamada seguinte relê só os ids", async () => {
+    const { REQUEST_TIMEOUT_MS } = await import("../src/mcp/mcp-gateway.js");
+    const data = team();
+    data.relations = [{ id: "r-1", type: "blocks", from: "i1", to: "i3" }];
+    await link(priv(), data);
+    await httpRun(priv());
+    const tok = await token("admin");
+    const started = await write(tok, "start_linear_sync");
+    const runId = started.data?.id as string;
+    await mcpUntilPhase(tok, runId, "relations", started.data);
+    await q("update external_import_runs set page_size = 1 where id = $1::uuid", [runId]);
+    data.poisoned = ["i1"];
+    let skew = 0;
+    const realNow = Date.now.bind(Date);
+    vi.spyOn(Date, "now").mockImplementation(() => realNow() + skew);
+    // getTeam 7 s e a consulta com relações 5 s: a releitura só de ids (10 s de prazo) já não cabe nos 20 s do MCP.
+    let slow = true;
+    h.linear().beforeReply = (call) => {
+      if (!slow) return;
+      if (call.query.startsWith("query Team(")) skew += 7_000;
+      else if (call.query.includes("relations(first")) skew += 5_000;
+    };
+    const relationCalls = (from: number) => h.linear().calls.slice(from).filter((call) => call.query.includes("TeamRelations"));
+    const mark = h.linear().calls.length;
+    const t0 = Date.now();
+    const res = await h.tool(tok, "PRIV", "continue_linear_sync", { runId });
+    expect(Date.now() - t0).toBeLessThan(REQUEST_TIMEOUT_MS);
+    expect(res.isError, res.text).toBe(false);
+    expect(res.data).toMatchObject({ id: runId, phase: "relations", done: false });
+    expect(relationCalls(mark).map((call) => call.query.includes("relations(first"))).toEqual([true]);
+    const row = (await q("select error_streak, last_error_code from external_import_runs where id = $1::uuid", [runId]))[0] as { error_streak: number; last_error_code: string | null };
+    expect(row).toEqual({ error_streak: 0, last_error_code: null });
+    // A chamada seguinte, mesmo lenta, vai direto à releitura só de ids: a rodada anda.
+    const next = h.linear().calls.length;
+    const moved = await write(tok, "continue_linear_sync", { runId });
+    expect(moved.isError, moved.text).toBe(false);
+    expect(relationCalls(next).map((call) => call.query.includes("relations(first"))).toEqual([false]);
+    slow = false;
+    h.linear().beforeReply = null;
+    const { last } = await mcpSteps(tok, runId, moved.data);
+    expect(last.counts).toMatchObject({ relationsTruncated: 1 });
   });
 });

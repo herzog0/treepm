@@ -44,7 +44,7 @@ async function ticket(projectId: string, number: number, title: string, seed: Se
   return id;
 }
 
-async function relate(projectId: string, from: number, to: number, kind: "mentions" | "depends_on", orgId = ORG): Promise<void> {
+async function relate(projectId: string, from: number, to: number, kind: "mentions" | "depends_on" | "related", orgId = ORG): Promise<void> {
   await pool.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ($1,$2,$3,$4,$5)", [
     orgId,
     projectId,
@@ -161,6 +161,42 @@ describe("ticket", () => {
     expect(view.children).toEqual({ tickets: [], truncated: false });
     expect(view.relations.mentions).toEqual({ outgoing: { tickets: [], truncated: false }, incoming: { tickets: [], truncated: false } });
     expect(view.relations.dependsOn).toEqual({ outgoing: { tickets: [], truncated: false }, incoming: { tickets: [], truncated: false } });
+    expect(view.relations.related).toEqual({ tickets: [], truncated: false });
+  });
+
+  it("lists the related tickets (ADR 0061) in one list, whichever side of the pair the ticket is on, in number order", async () => {
+    for (const n of [1, 2, 3, 4, 5]) await ticket(OPEN(), n, `T${n}`);
+    // Uma linha por par, com o menor id primeiro: o 1 pode estar de qualquer lado.
+    const pair = async (a: number, b: number) => {
+      const [x, y] = [ids.get(`${OPEN()}#${a}`) ?? "", ids.get(`${OPEN()}#${b}`) ?? ""];
+      await pool.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ($1,$2,$3,$4,'related')", [ORG, OPEN(), ...(x < y ? [x, y] : [y, x])]);
+    };
+    await pair(1, 4);
+    await pair(1, 2);
+    await pair(5, 1);
+    await pair(3, 4); // não envolve o 1
+    await relate(OPEN(), 1, 3, "depends_on");
+    const view = await as("reader", (tx, p) => service.ticket(tx, p, OPEN(), 1));
+    expect(nums(view.relations.related)).toEqual([2, 4, 5]);
+    expect(view.relations.related.truncated).toBe(false);
+    expect(nums(view.relations.dependsOn.outgoing)).toEqual([3]);
+    expect(view.relations.related.tickets[0]).toMatchObject({ key: "OPEN-2", title: "T2", status: "todo" });
+    // Do outro lado, o mesmo par aparece.
+    expect(nums((await as("reader", (tx, p) => service.ticket(tx, p, OPEN(), 4))).relations.related)).toEqual([1, 3]);
+  });
+
+  it("caps the related list at 200, across both sides of the pairs, and says it was cut", async () => {
+    const one = await ticket(OPEN(), 1, "Centro");
+    const values: string[] = [];
+    for (let n = 2; n <= 202; n += 1) {
+      const id = await ticket(OPEN(), n, `Rel ${n}`);
+      values.push(one < id ? `('${ORG}','${OPEN()}','${one}','${id}','related')` : `('${ORG}','${OPEN()}','${id}','${one}','related')`);
+    }
+    await pool.query(`insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ${values.join(",")}`);
+    const view = await as("reader", (tx, p) => service.ticket(tx, p, OPEN(), 1));
+    expect(view.relations.related.tickets).toHaveLength(200);
+    expect(view.relations.related.truncated).toBe(true);
+    expect(nums(view.relations.related)).toEqual(Array.from({ length: 200 }, (_, i) => i + 2));
   });
 
   it("returns the relations in both directions, split by kind, as summaries", async () => {
@@ -474,7 +510,7 @@ describe("cost", () => {
     await grow(80);
     const large = await measure();
     expect(large).toEqual(small);
-    expect(small).toEqual([4, 10, 5, 6]); // +1 em cada: a prioridade que vale (ADR 0047) é uma consulta a mais, fixa; a visão geral passou a contar por `group by` e a calcular o progresso dos tickets do topo no banco (TREEPM-251)
+    expect(small).toEqual([4, 12, 5, 6]); // ticket: +2, os dois lados de `related` (ADR 0061). +1 em cada: a prioridade que vale (ADR 0047) é uma consulta a mais, fixa; a visão geral passou a contar por `group by` e a calcular o progresso dos tickets do topo no banco (TREEPM-251)
   });
 });
 

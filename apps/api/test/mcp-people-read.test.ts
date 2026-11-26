@@ -873,4 +873,13 @@ describe("comentários trazidos do Linear", () => {
     expect(Object.keys(found as object).sort()).toEqual(expect.arrayContaining(["at", "count", "kind"]));
     expect(JSON.stringify(found)).not.toContain("linear_sync");
   });
+
+  it("o histórico mostra as relações trazidas do Linear só com a contagem (ADR 0061, fatia 3)", async () => {
+    const { token } = await setup();
+    await event(1, P().admin, "ticket.relations_imported_from_linear", { key: "PRIV-1", count: 3, automatic: true, source: "linear_sync", runId: randomUuid() });
+    const res = await call(token, "get_ticket_history", { key: "PRIV-1" });
+    const found = (res.data!["events"] as Record<string, unknown>[]).find((e) => e["kind"] === "relations_imported");
+    expect(found).toMatchObject({ kind: "relations_imported", count: 3 });
+    expect(JSON.stringify(found)).not.toContain("linear_sync");
+  });
 });

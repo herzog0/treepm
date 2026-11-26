@@ -235,6 +235,8 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
     }
     case "comments_imported":
       return <>{t("activity.commentsImported", { count: entry.count })}</>;
+    case "relations_imported":
+      return <>{t("activity.relationsImported", { count: entry.count })}</>;
     case "agent_work_started":
       return render("agentWorkStarted");
     case "agent_work_ended":
@@ -255,6 +257,8 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
     case "dependency_added":
     case "dependency_removed":
       return render(entry.type === "dependency_added" ? "dependencyAdded" : "dependencyRemoved", { values: { ticket: ticketText(entry.ticket) }, components: { ticket: ref(entry.ticket) } });
+    case "related_removed":
+      return render("relatedRemoved", { values: { ticket: ticketText(entry.ticket) }, components: { ticket: ref(entry.ticket) } });
     case "summary_updated":
       return render(entry.source === "person" ? "summaryByPerson" : "summaryByAssistant", { values: { section: t("summary.heading") } });
     case "contribution_added":

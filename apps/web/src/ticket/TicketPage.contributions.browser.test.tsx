@@ -27,7 +27,7 @@ async function open(options: { contributions?: Contribution[]; reader?: boolean;
   const client = makeClient({ projects: [project], people: [ana, bruno].map((p) => makePerson(p.id, p.displayName)), tickets: { p1: summaries }, areas: options.areas ?? areas });
   const current = { list: options.contributions ?? [design, dados] };
   const detail = (): TicketDetail => ({
-    ...summaries[0]!, description: "Fluxo de acesso com token por projeto.", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
+    ...summaries[0]!, description: "Fluxo de acesso com token por projeto.", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
     contributions: current.list, canEditContributions: !options.reader,
   });
   const update = vi.fn(async (id: string, body: { text?: string; status?: Contribution["status"] }) => {

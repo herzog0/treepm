@@ -33,7 +33,7 @@ describe("adicionar e remover", () => {
     const b = await add();
     const res = await link(a.id, b.id);
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect((res.body as Detail).dependsOn).toEqual([{ id: b.id, key: "PRIV-2", title: "T", status: "todo" }]);
+    expect((res.body as Detail).dependsOn).toEqual([{ id: b.id, key: "PRIV-2", title: "T", status: "todo", fromLinear: false }]);
     expect(await deps()).toEqual(["1>2"]);
     const [event] = await events("ticket.dependency_added");
     expect(event).toMatchObject({ subject_type: "ticket", subject_id: a.id, actor_person_id: h.world().people.admin });
@@ -77,8 +77,8 @@ describe("adicionar e remover", () => {
     await link(b.id, a.id);
     expect((await detail(d.id)).dependsOn.map((l) => l.key)).toEqual(["PRIV-2", "PRIV-3"]);
     expect((await detail(a.id)).blocks).toEqual([
-      { id: b.id, key: "PRIV-2", title: "B", status: "todo" },
-      { id: c.id, key: "PRIV-3", title: "C", status: "todo" },
+      { id: b.id, key: "PRIV-2", title: "B", status: "todo", fromLinear: false },
+      { id: c.id, key: "PRIV-3", title: "C", status: "todo", fromLinear: false },
     ]);
     expect((await detail(a.id)).dependsOn).toEqual([]);
     expect((await detail(d.id)).blocks).toEqual([]);

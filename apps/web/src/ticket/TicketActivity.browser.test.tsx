@@ -9,7 +9,7 @@ import { TicketPage } from "./TicketPage.js";
 const project = makeProject("p1", "ALFA", "Projeto Alfa");
 const summaries: TicketSummary[] = [makeTicket("t1", "p1", 1, "Este ticket", { key: "ALFA-1" })];
 const detail: TicketDetail = {
-  ...summaries[0]!, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
+  ...summaries[0]!, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
 };
 const ana = { id: "person-1", displayName: "Ana", avatarUrl: null };
 const title = (n: number): ActivityEntry => ({ id: `e${n}`, type: "title_changed", occurredAt: new Date(Date.UTC(2026, 0, 1, 0, n)).toISOString(), actor: ana, from: `v${n - 1}`, to: `v${n}` });

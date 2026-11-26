@@ -106,6 +106,8 @@ const ticketSummarySchema = z.object({
   blocked: z.boolean().optional(),
 });
 const ticketLinkSchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatus });
+/** Ligação entre tickets (dependência ou "Relacionado a"); `fromLinear`: trazida do Linear por uma sincronização (ADR 0061, fatia 3), ausente numa API antiga. */
+const relationLinkSchema = ticketLinkSchema.extend({ fromLinear: z.boolean().optional() });
 const contributionStatus = z.enum(["todo", "in_progress", "done"]);
 const contributionSchema = z.object({
   id: z.string(),
@@ -147,8 +149,10 @@ const ticketDetailSchema = ticketSummarySchema.extend({
   /** Os tickets do projeto que mencionam este na descrição, em ordem de número (ADR 0037). */
   mentionedBy: z.array(ticketLinkSchema),
   /** Os tickets de que este depende e os que dependem deste, em ordem de número (ADR 0037). */
-  dependsOn: z.array(ticketLinkSchema),
-  blocks: z.array(ticketLinkSchema),
+  dependsOn: z.array(relationLinkSchema),
+  blocks: z.array(relationLinkSchema),
+  /** "Relacionado a" (ADR 0061, fatia 3): simétrica, aparece nos dois tickets; só vem do Linear. Um servidor antigo não manda (vale vazia). */
+  related: z.array(relationLinkSchema).default([]),
   createdByPersonId: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -318,7 +322,7 @@ const linearRunSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   mode: z.enum(["first", "reimport"]),
-  phase: z.enum(["projects", "issues", "hierarchy", "statuses", "mentions", "comments", "categorize", "missing", "done", "failed"]),
+  phase: z.enum(["projects", "issues", "hierarchy", "statuses", "mentions", "comments", "relations", "categorize", "missing", "done", "failed"]),
   done: z.boolean(),
   categorize: z.boolean(),
   categorizeAvailable: z.boolean(),
@@ -423,6 +427,10 @@ const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("assignee_removed"), person: activityPersonSchema.nullable() }),
   z.object({ ...activityBase, type: z.literal("dependency_added"), ticket: activityTicketSchema }),
   z.object({ ...activityBase, type: z.literal("dependency_removed"), ticket: activityTicketSchema }),
+  /** "Relacionado a" removida aqui (ADR 0061, fatia 3); a relação só é criada pelo Linear. */
+  z.object({ ...activityBase, type: z.literal("related_removed"), ticket: activityTicketSchema }),
+  /** Relações trazidas do Linear numa rodada (ADR 0061, fatia 3): uma entrada por ticket e rodada, só a contagem. */
+  z.object({ ...activityBase, type: z.literal("relations_imported"), count: z.number().int() }),
   z.object({ ...activityBase, type: z.literal("summary_updated"), source: z.enum(["person", "assistant"]) }),
   z.object({ ...activityBase, type: z.literal("contribution_added"), area: contributionAreaRef }),
   z.object({ ...activityBase, type: z.literal("contribution_removed"), area: contributionAreaRef }),
@@ -833,6 +841,9 @@ export function createApiClient({ getToken, fetch: fetchImpl, actAsId = null }: 
       request("POST", `${ticket(id)}/dependencies`, ticketDetailSchema, { ticketId }),
     removeTicketDependency: (id: string, ticketId: string) =>
       request("DELETE", `${ticket(id)}/dependencies/${ticketId}`, null),
+    /** Tira a relação "Relacionado a" entre os dois tickets (ADR 0061, fatia 3); `related_not_found` se ela não existe. */
+    removeTicketRelated: (id: string, ticketId: string) =>
+      request("DELETE", `${ticket(id)}/related/${ticketId}`, null),
     /** `scopeId`: o ticket em que a procura vai começar (ADR 0033, ADR 0034), ou `null` para o projeto inteiro; a IA recebe os títulos dos tickets com filhos dali. */
     openConversation: (projectId: string, body: { message: string; scopeId?: string | null }) =>
       request("POST", `${project(projectId)}/ticket-conversations`, conversationDetailSchema, body),

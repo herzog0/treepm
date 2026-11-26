@@ -105,6 +105,7 @@
       "statuses": "Actualizando situaciones",
       "mentions": "Ligando menciones",
       "comments": "Trayendo comentarios",
+      "relations": "Ligando relaciones",
       "list": "Fases de la importación",
       "missing": "Verificando lo que desapareció de Linear"
     },
@@ -119,6 +120,7 @@
       "hierarchy": "Ligando las sub-issues a sus padres.",
       "mentions": "Ligando las menciones entre los tickets.",
       "comments": "Trayendo los comentarios de los issues.",
+      "relations": "Ligando las relaciones entre los tickets.",
       "done": "Importación terminada.",
       "waiting": "Linear pidió esperar.",
       "abandoned": "Importación abandonada.",
@@ -162,7 +164,17 @@
       "commentsCreated_many": "{{count}} comentarios traídos de Linear",
       "commentsKeptEdited_one": "{{count}} comentario conservado porque se editó aquí",
       "commentsKeptEdited_other": "{{count}} comentarios conservados porque se editaron aquí",
-      "commentsKeptEdited_many": "{{count}} comentarios conservados porque se editaron aquí"
+      "commentsKeptEdited_many": "{{count}} comentarios conservados porque se editaron aquí",
+      "relationsCreated_one": "{{count}} relación traída de Linear",
+      "relationsCreated_other": "{{count}} relaciones traídas de Linear",
+      "relationsCreated_many": "{{count}} relaciones traídas de Linear",
+      "relationsCycle_one": "{{count}} dependencia no traída porque cerraría un ciclo",
+      "relationsCycle_other": "{{count}} dependencias no traídas porque cerrarían un ciclo",
+      "relationsCycle_many": "{{count}} dependencias no traídas porque cerrarían un ciclo",
+      "relationsUpdated_one": "{{count}} relación actualizada",
+      "relationsUpdated_other": "{{count}} relaciones actualizadas",
+      "relationsUpdated_many": "{{count}} relaciones actualizadas",
+      "relationsTruncated": "Algunas relaciones no se leyeron en esta ronda; no se marcó nada como eliminado en Linear."
     },
     "abandon": {
       "button": "Abandonar importación",

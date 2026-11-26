@@ -14,7 +14,7 @@ const summaries: TicketSummary[] = [
   makeTicket("t2", "p1", 2, "Outro ticket", { key: "ALFA-2" }),
 ];
 const detailOf = (summary: TicketSummary): TicketDetail => ({
-  ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
+  ...summary, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
 });
 const ana = { id: "person-1", displayName: "Ana", avatarUrl: null };
 const bruno = { id: "person-2", displayName: "Bruno", avatarUrl: "https://img.test/bruno.png" };
@@ -77,6 +77,10 @@ describe("seção Atividade: frases", () => {
     [entry<"assignee_removed">({ type: "assignee_removed", person: bruno }), /^Ana tirou Bruno dos responsáveis/],
     [entry<"dependency_added">({ type: "dependency_added", ticket: ref(7, "Banco") }), /^Ana marcou que depende de ALFA-7 Banco/],
     [entry<"dependency_removed">({ type: "dependency_removed", ticket: ref(7, "Banco") }), /^Ana removeu a dependência de ALFA-7 Banco/],
+    [entry<"related_removed">({ type: "related_removed", ticket: ref(8, "Paleta") }), /^Ana removeu a relação com ALFA-8 Paleta/],
+    [entry<"related_removed">({ type: "related_removed", ticket: ref(8, "Paleta"), actor: null }), /^Relação com ALFA-8 Paleta removida/],
+    [entry<"relations_imported">({ type: "relations_imported", count: 4, automatic: true, actor: null }), /^4 relações trazidas do Linear/],
+    [entry<"relations_imported">({ type: "relations_imported", count: 1, automatic: true, actor: null }), /^1 relação trazida do Linear/],
     [entry<"summary_updated">({ type: "summary_updated", source: "person" }), /^Ana editou «O que entra aqui»/],
     [entry<"summary_updated">({ type: "summary_updated", source: "assistant" }), /^Ana pediu à IA para atualizar «O que entra aqui»/],
   ])("%j", async (item, expected) => {

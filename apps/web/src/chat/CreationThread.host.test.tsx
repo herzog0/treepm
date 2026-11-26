@@ -47,7 +47,7 @@ function routes(client: ApiClient, extra: Partial<Record<keyof ApiClient, unknow
     getConversation: vi.fn(async (id: string) => ok(makeConversation(id, "p1", { draft }))),
     findPlacement: vi.fn(async () => ok(makePlacement({ destination: target("t1") }))),
     updateConversationDraft: vi.fn(async (id: string, body: { title: string; description: string }) => ok(makeConversation(id, "p1", { draft: { ...draft, ...body } }))),
-    createTicketFromConversation: vi.fn(async (id: string) => ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("t9", "p1", 9, "Corrigir o login", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] })),
+    createTicketFromConversation: vi.fn(async (id: string) => ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("t9", "p1", 9, "Corrigir o login", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] })),
     removeConversation: vi.fn(async () => ok(undefined)),
     getPlacementDecision: vi.fn(async () => ok({ decision: null })),
     ...extra,
@@ -186,7 +186,7 @@ describe("thread de criação: a pergunta do lugar até Criar", () => {
           }),
           createTicketFromConversation: vi.fn(async (id: string) => {
             fake!.setCreation(threadOf(id), { state: "created", ticketConversationId: null, ticket: { id: "t9", key: "ALFA-9", title: "Corrigir o login" } });
-            return ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("t9", "p1", 9, "Corrigir o login", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] });
+            return ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("t9", "p1", 9, "Corrigir o login", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] });
           }),
         }),
       extra: <Registrar host={host} />,
@@ -377,7 +377,7 @@ describe("thread de criação: aviso de ligações descartadas", () => {
         routes(client, {
           createTicketFromConversation: vi.fn(async (id: string) => {
             fake!.setCreation(threadOf(id), { state: "created", ticketConversationId: null, ticket: { id: "t9", key: "ALFA-9", title: "Corrigir o login" } });
-            return ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("t9", "p1", 9, "Corrigir o login", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [{ code: "link_discarded", de: "pai", dependeDe: "ALFA-3", reason: "cycle" }] });
+            return ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("t9", "p1", 9, "Corrigir o login", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [{ code: "link_discarded", de: "pai", dependeDe: "ALFA-3", reason: "cycle" }] });
           }),
         }),
       extra: <Registrar host={host} />,
@@ -461,7 +461,7 @@ describe("thread de criação: acertos de comportamento", () => {
     const { user, client, onShowTicket } = await open(host, {
       createTicketFromConversation: vi.fn(async (id: string) => {
         await gate;
-        return ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("t9", "p1", 9, "Corrigir o login", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] });
+        return ok({ conversation: makeConversation(id, "p1", { status: "ticket_created" }), ticket: { ...makeTicket("t9", "p1", 9, "Corrigir o login", { key: "ALFA-9" }), description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "x", createdAt: "x", updatedAt: "y" }, children: [], warnings: [] });
       }),
     });
     await search(user);

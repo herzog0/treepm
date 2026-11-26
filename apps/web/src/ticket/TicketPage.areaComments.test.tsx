@@ -31,7 +31,7 @@ function setup(options: Options = {}) {
   const canComment = options.canComment ?? (!options.reader && !options.archived);
   const live = (id: string) => comments.filter((c) => c.contributionId === id && !c.removed).length;
   const detail = (): TicketDetail => ({
-    ...summaries[0]!, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
+    ...summaries[0]!, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
     contributions: contributions.map((c) => ({ ...c, commentCount: live(c.id) })), canEditContributions: canComment,
   });
   const strip = (entry: Stored): ActivityComment => {

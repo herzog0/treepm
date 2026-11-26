@@ -23,7 +23,7 @@ import { ItemsSummary } from "./ItemsSummary.js";
 import { CommentPeopleProvider } from "./commentPeople.js";
 import { TicketActivity } from "./TicketActivity.js";
 import { peopleWhoSee } from "../chat/directory.js";
-import { DependsOnField, DescriptionField, IdeaField, InsideIdeaValue, ParentField, PeopleField, PriorityField, StatusField, StatusValue, TitleField } from "./fields.js";
+import { DependsOnField, DescriptionField, FromLinearBadge, RelatedField, IdeaField, InsideIdeaValue, ParentField, PeopleField, PriorityField, StatusField, StatusValue, TitleField } from "./fields.js";
 import { ActionsMenu } from "./menu.js";
 import { ancestorsOf } from "./tree.js";
 import { ticketHref } from "../nav/navigation.js";
@@ -553,6 +553,14 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
                 </dd>
               </div>
             )}
+            {detail.related.length > 0 && (
+              <div className="ticket-row">
+                <dt>{t("fields.related")}</dt>
+                <dd>
+                  <RelatedField client={client} detail={detail} canEdit={canEdit} onOpen={onOpenTicket} onSaved={refresh} />
+                </dd>
+              </div>
+            )}
           </dl>
           <DescriptionField client={client} detail={detail} canEdit={canEdit} assistant={assistantEnabled(me)} tickets={list} onOpenTicket={onOpenTicket} onSaved={refresh} />
 
@@ -613,7 +621,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
 }
 
 /** Lista de tickets ligados a este (“Mencionado em”, “Bloqueia”): some quando vazia. */
-function LinkedTickets({ id, heading, links, onOpen }: { id: string; heading: string; links: TicketDetail["mentionedBy"]; onOpen: (id: string) => void }) {
+function LinkedTickets({ id, heading, links, onOpen }: { id: string; heading: string; links: (TicketDetail["mentionedBy"][number] & { fromLinear?: boolean | undefined })[]; onOpen: (id: string) => void }) {
   const { t: tMap } = useTranslation("map");
   if (links.length === 0) return null;
   return (
@@ -629,6 +637,7 @@ function LinkedTickets({ id, heading, links, onOpen }: { id: string; heading: st
                 <TicketMark ticket={{ status: from.status, progress: null }} />
                 <span className="ticket-key">{from.key}</span>
                 <span className="ticket-child-title">{from.title}</span>
+                {from.fromLinear === true && <FromLinearBadge />}
               </span>
               <span className="ticket-child-state">{statusText(tMap, from.status)}</span>
             </button>

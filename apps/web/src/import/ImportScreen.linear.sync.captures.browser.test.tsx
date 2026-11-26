@@ -60,7 +60,7 @@ describe.skipIf(!DIR)("capturas de Sincronizar com o Linear (ADR 0061)", () => {
     const client = makeClient({ projects: [project], tickets: { p1: [summary] }, people: [makePerson("person-1", "Ana"), makePerson("person-2", "Beto")] });
     Object.assign(client, {
       getTicket: async () => ok({
-        ...summary, description: "Importado do Linear.", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-11-24T10:00:00.000Z", updatedAt: "2026-11-24T10:00:00.000Z",
+        ...summary, description: "Importado do Linear.", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-11-24T10:00:00.000Z", updatedAt: "2026-11-24T10:00:00.000Z",
         externalSource: { provider: "linear", key: "ENG-123", url: "https://linear.app/acme/issue/ENG-123/x", missingSince: null, createdAt: "2026-03-03T12:00:00.000Z", startedAt: "2026-03-05T12:00:00.000Z", completedAt: "2026-03-09T12:00:00.000Z", canceledAt: null, creator: { name: "Carla" } },
       }),
     });

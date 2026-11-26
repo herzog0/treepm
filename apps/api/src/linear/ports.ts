@@ -8,10 +8,11 @@ export const CREDENTIAL_CIPHER = Symbol("CREDENTIAL_CIPHER");
 /**
  * `linear_response_too_large` (corpo acima do teto de uma página da importação) e `linear_timeout` (prazo estourado numa página de
  * importação): a importação repete com página menor. E
- * `linear_email_unavailable` (o Linear recusou o campo `email`: a importação repete sem ele) só existem entre o cliente e a
- * importação; para o resto da aplicação valem `linear_unavailable`.
+ * `linear_email_unavailable` (o Linear recusou o campo `email`: a importação repete sem ele) e `linear_partial_response` (resposta 200
+ * com `errors` na fase de relações, quando a chave não enxerga uma ponta: a importação reduz a página e, com uma issue só, pula as relações
+ * dela) só existem entre o cliente e a importação; para o resto da aplicação valem `linear_unavailable`.
  */
-export type LinearFailureCode = "linear_key_invalid" | "linear_rate_limited" | "linear_unavailable" | "linear_response_too_large" | "linear_timeout" | "linear_email_unavailable";
+export type LinearFailureCode = "linear_key_invalid" | "linear_rate_limited" | "linear_unavailable" | "linear_response_too_large" | "linear_timeout" | "linear_email_unavailable" | "linear_partial_response";
 
 /**
  * Falha ao falar com o Linear: só um código e, no limite, o tempo de espera. A mensagem é fixa por código: a chave, o corpo da
@@ -108,6 +109,16 @@ export type LinearCommentNode = {
 export type LinearCommentsOptions = { first?: number; withParentBody?: boolean; withBody?: boolean; withEmail?: boolean };
 export type LinearCommentsPage = LinearPage<LinearCommentNode>;
 
+/** Uma relação de que a issue é a ORIGEM no Linear (ADR 0061, fatia 3): `type` cru (`blocks`, `related`, `duplicate`, `similar`...). */
+export type LinearRelationNode = { id: string; type: string; relatedIssueId: string };
+/** Uma issue do time com as relações de origem dela (até 20); `relationsNext` é o cursor da issue que tem mais. */
+export type LinearRelationIssueNode = { id: string; relations: LinearRelationNode[]; relationsNext: string | null };
+/** `withRelations: false`: só os ids e o cursor (para andar depois de uma issue cujas relações o Linear não devolve). */
+export type LinearRelationsOptions = { first?: number; withRelations?: boolean };
+export type LinearRelationsPage = LinearPage<LinearRelationIssueNode>;
+/** As relações seguintes de uma issue; `skippedInvalid` conta também a issue que não veio (sumiu ou deixou de ser visível). */
+export type LinearIssueRelationsPage = { relations: LinearRelationNode[]; nextCursor: string | null; skippedInvalid: number };
+
 /** A porta do Linear desta fatia. A chave é sempre argumento: o cliente não guarda nada entre chamadas. */
 export interface LinearClient {
   whoami(apiKey: string): Promise<LinearIdentity>;
@@ -123,4 +134,8 @@ export interface LinearClient {
   listTeamIssues(apiKey: string, teamId: string, after: string | null, options?: LinearIssuesOptions): Promise<LinearIssuesPage>;
   /** Uma página (50) dos comentários das issues do time, pela consulta de raiz `comments` (mais novos primeiro). */
   listTeamComments(apiKey: string, teamId: string, after: string | null, options?: LinearCommentsOptions): Promise<LinearCommentsPage>;
+  /** Uma página (50) das issues do time com as relações de que cada uma é origem (até 20 por issue). */
+  listTeamRelations(apiKey: string, teamId: string, after: string | null, options?: LinearRelationsOptions): Promise<LinearRelationsPage>;
+  /** As relações seguintes (100 por vez) de uma issue que tem mais de 20. */
+  listIssueRelations(apiKey: string, issueId: string, after: string): Promise<LinearIssueRelationsPage>;
 }

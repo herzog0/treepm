@@ -73,7 +73,7 @@ describe.skipIf(!DIR)("capturas da importação do Linear (ADR 0060)", () => {
     const summary = makeTicket("t1", "p1", 88, "Revisar a paleta do mapa", { key: "DES-88" });
     const client = makeClient({ projects: [project], tickets: { p1: [summary] } });
     Object.assign(client, {
-      getTicket: async () => ok({ ...summary, description: "Importado do Linear.", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-11-24T10:00:00.000Z", updatedAt: "2026-11-24T10:00:00.000Z", externalSource: { provider: "linear", key: "DES-88", url: "https://linear.app/acme/issue/DES-88/revisar-a-paleta" } }),
+      getTicket: async () => ok({ ...summary, description: "Importado do Linear.", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-11-24T10:00:00.000Z", updatedAt: "2026-11-24T10:00:00.000Z", externalSource: { provider: "linear", key: "DES-88", url: "https://linear.app/acme/issue/DES-88/revisar-a-paleta" } }),
     });
     await render(
       <div style={{ display: "grid", height: "100dvh" }}>
@@ -155,7 +155,7 @@ describe.skipIf(!DIR)("capturas da importação do Linear (ADR 0060)", () => {
     const summary = makeTicket("t1", "p1", 88, "Revisar a paleta do mapa", { key: "DES-88" });
     const client = makeClient({ projects: [project], tickets: { p1: [summary] } });
     Object.assign(client, {
-      getTicket: async () => ok({ ...summary, description: "Importado do Linear.", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-11-24T10:00:00.000Z", updatedAt: "2026-11-24T10:00:00.000Z", externalSource: { provider: "linear", key: "DES-88", url: "https://linear.app/acme/issue/DES-88/revisar-a-paleta", missingSince: "2026-11-20T15:00:00.000Z" } }),
+      getTicket: async () => ok({ ...summary, description: "Importado do Linear.", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-11-24T10:00:00.000Z", updatedAt: "2026-11-24T10:00:00.000Z", externalSource: { provider: "linear", key: "DES-88", url: "https://linear.app/acme/issue/DES-88/revisar-a-paleta", missingSince: "2026-11-20T15:00:00.000Z" } }),
     });
     await render(
       <div style={{ display: "grid", height: "100dvh" }}>

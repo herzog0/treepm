@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { LinearError } from "./ports.js";
-import type { LinearClient, LinearCommentAuthor, LinearCommentsOptions, LinearCommentsPage, LinearFailureCode, LinearIdentity, LinearIssuesOptions, LinearIssuesPage, LinearProjectsOptions, LinearProjectsPage, LinearTeam } from "./ports.js";
+import type { LinearClient, LinearCommentAuthor, LinearCommentsOptions, LinearCommentsPage, LinearFailureCode, LinearIdentity, LinearIssueRelationsPage, LinearIssuesOptions, LinearIssuesPage, LinearProjectsOptions, LinearProjectsPage, LinearRelationNode, LinearRelationsOptions, LinearRelationsPage, LinearTeam } from "./ports.js";
 
 export { LinearError } from "./ports.js";
 
@@ -53,6 +53,19 @@ const issuesQuery = (withDescription: boolean, withEmail: boolean): string =>
  */
 const commentsQuery = (withBody: boolean, withParentBody: boolean, withEmail: boolean): string =>
   `query TeamComments($id: ID!, $after: String, $first: Int!) { comments(first: $first, after: $after, filter: { issue: { team: { id: { eq: $id } } } }) { nodes { id ${withBody ? "body " : ""}createdAt editedAt updatedAt issue { id } parent { id${withParentBody ? " body" : ""} } user { id name${withEmail ? " email" : ""} } externalUser { name } botActor { name } } pageInfo { hasNextPage endCursor } } }`;
+
+/** Relações de origem lidas por issue na página da fase `relations` (ADR 0061, fatia 3); a issue com mais pede as outras à parte. */
+export const LINEAR_RELATIONS_PER_ISSUE = 20;
+/** Relações por chamada quando uma issue tem mais de `LINEAR_RELATIONS_PER_ISSUE`. */
+const ISSUE_RELATIONS_PAGE = 100;
+const RELATION_FIELDS = "nodes { id type relatedIssue { id } } pageInfo { hasNextPage endCursor }";
+/**
+ * Relações: aninhadas na issue (a consulta de raiz `issueRelations` não aceita filtro). Relê as issues do time na ordem e com o filtro da
+ * fase `issues`, pedindo só o id e as relações de que a issue é ORIGEM: toda relação entre duas issues do time aparece numa delas.
+ */
+const relationsQuery = (withRelations: boolean): string =>
+  `query TeamRelations($id: String!, $after: String, $first: Int!) { team(id: $id) { issues(first: $first, after: $after, includeArchived: false, orderBy: createdAt) { nodes { id${withRelations ? ` relations(first: ${LINEAR_RELATIONS_PER_ISSUE}) { ${RELATION_FIELDS} }` : ""} } pageInfo { hasNextPage endCursor } } } }`;
+const ISSUE_RELATIONS_QUERY = `query IssueRelations($id: String!, $after: String) { issue(id: $id) { relations(first: ${ISSUE_RELATIONS_PAGE}, after: $after) { ${RELATION_FIELDS} } } }`;
 
 const cut = (value: string, max: number): string => (value.length > max ? value.slice(0, max) : value);
 
@@ -131,6 +144,23 @@ const commentNodeSchema = z.object({
   externalUser: z.object({ name: z.string().nullable().optional().catch(null) }).nullable().optional().catch(null),
   botActor: z.object({ name: z.string().nullable().optional().catch(null) }).nullable().optional().catch(null),
 });
+/**
+ * Os ids da fase de relações: no máximo 64 caracteres (UUID no Linear de verdade). A origem guarda `<relação>:<d|r>:<issue>:<issue>`, que
+ * assim cabe no CHECK de 200 de `external_id`; o nó que não cabe é pulado e contado (`relationsInvalid`), sem derrubar o passo.
+ */
+const relationId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+// As relações: id, tipo e a outra ponta bem formados, um a um (uma relação ruim é pulada e contada; a issue continua).
+const relationNodeSchema = z.object({ id: relationId, type: z.string().regex(/^[A-Za-z_]{1,40}$/), relatedIssue: z.object({ id: relationId }) });
+const relationConnectionSchema = z.object({ nodes: z.array(z.unknown()), pageInfo: pageInfoSchema });
+const relationIssueSchema = z.object({ id: relationId, relations: relationConnectionSchema });
+const relationIssueIdSchema = z.object({ id: relationId });
+const relationsSchema = z.object({ data: z.object({ team: z.object({ issues: z.object({ nodes: z.array(z.unknown()), pageInfo: pageInfoSchema }) }) }) });
+const issueRelationsSchema = z.object({ data: z.object({ issue: z.object({ relations: relationConnectionSchema }).nullable() }) });
+/** As relações válidas de uma conexão, o cursor seguinte e quantas foram puladas. */
+function relationsOf(connection: z.output<typeof relationConnectionSchema>): { relations: LinearRelationNode[]; next: string | null; skipped: number } {
+  const { valid, skipped } = validNodes(relationNodeSchema, connection.nodes);
+  return { relations: valid.map((node) => ({ id: node.id, type: node.type, relatedIssueId: node.relatedIssue.id })), next: nextCursor(connection.pageInfo), skipped };
+}
 const commentsSchema = z.object({ data: z.object({ comments: z.object({ nodes: z.array(z.unknown()), pageInfo: pageInfoSchema }) }) });
 
 /** Quem escreveu: o usuário vence; sem ele, o usuário de fora sincronizado; sem os dois, o robô; nada → autor apagado. */
@@ -157,6 +187,9 @@ function nextCursor(info: { hasNextPage: boolean; endCursor: string | null }): s
   if (info.endCursor === null) throw new LinearError("linear_unavailable");
   return info.endCursor;
 }
+
+/** O corpo traz `errors` (de qualquer tipo)? */
+const hasErrors = (body: unknown): boolean => body !== null && typeof body === "object" && Array.isArray((body as { errors?: unknown }).errors);
 
 /** Códigos de erro do Linear (`errors[].extensions.code`) que significam "chave recusada". */
 const AUTH_CODES = new Set(["AUTHENTICATION_ERROR", "AUTHENTICATION_REQUIRED", "FORBIDDEN", "UNAUTHENTICATED"]);
@@ -243,7 +276,7 @@ function retryAfter(response: Response): number {
 
 /**
  * Cliente GraphQL do Linear com `fetch` injetável (ADR 0060). A chave pessoal vai em `Authorization` SEM `Bearer`. Toda falha vira
- * `LinearError` com um código curto; uma resposta HTTP 200 com `errors` no corpo também é falha. Nem a chave, nem o corpo, nem a
+ * `LinearError` com um código curto; uma resposta HTTP 200 com `errors` no corpo também é falha (só na fase de relações o `data` que valida é usado; ver `request`). Nem a chave, nem o corpo, nem a
  * exceção original entram no erro.
  */
 export class HttpLinearClient implements LinearClient {
@@ -390,8 +423,45 @@ export class HttpLinearClient implements LinearClient {
     };
   }
 
-  /** `notFoundIsNull`: um "Entity not found" do Linear devolve `null` em vez de erro (usado por `getTeam`). `detectEmail`: só a consulta de issues. */
-  private async request(apiKey: string, query: string, variables: Record<string, unknown>, timeoutMs: number, notFoundIsNull = false, maxBytes = LINEAR_MAX_BODY_BYTES, detectEmail = false): Promise<unknown> {
+  async listTeamRelations(apiKey: string, teamId: string, after: string | null, options: LinearRelationsOptions = {}): Promise<LinearRelationsPage> {
+    const first = Math.min(Math.max(Math.trunc(options.first ?? LINEAR_IMPORT_PAGE_SIZE), 1), 250);
+    const withRelations = options.withRelations !== false;
+    const body = await this.request(apiKey, relationsQuery(withRelations), { id: teamId, after, first }, this.timeoutMs, false, LINEAR_IMPORT_MAX_BODY_BYTES, false, true);
+    const parsed = relationsSchema.safeParse(body);
+    if (!parsed.success) throw new LinearError(hasErrors(body) ? "linear_partial_response" : "linear_unavailable");
+    const { nodes, pageInfo } = parsed.data.data.team.issues;
+    if (!withRelations) {
+      const { valid, skipped } = validNodes(relationIssueIdSchema, nodes);
+      return { nodes: valid.map((node) => ({ id: node.id, relations: [], relationsNext: null })), nextCursor: nextCursor(pageInfo), skippedInvalid: skipped };
+    }
+    const { valid, skipped } = validNodes(relationIssueSchema, nodes);
+    let skippedInvalid = skipped;
+    const issues = valid.map((node) => {
+      const { relations, next, skipped: bad } = relationsOf(node.relations);
+      skippedInvalid += bad;
+      return { id: node.id, relations, relationsNext: next };
+    });
+    return { nodes: issues, nextCursor: nextCursor(pageInfo), skippedInvalid };
+  }
+
+  async listIssueRelations(apiKey: string, issueId: string, after: string): Promise<LinearIssueRelationsPage> {
+    const body = await this.request(apiKey, ISSUE_RELATIONS_QUERY, { id: issueId, after }, this.timeoutMs, true, LINEAR_IMPORT_MAX_BODY_BYTES, false, true);
+    // A issue sumiu ou deixou de ser visível entre as duas leituras: nada a mais, e a leitura não foi completa (conta como pulada).
+    if (body === null) return { relations: [], nextCursor: null, skippedInvalid: 1 };
+    const parsed = issueRelationsSchema.safeParse(body);
+    if (!parsed.success) throw new LinearError(hasErrors(body) ? "linear_partial_response" : "linear_unavailable");
+    if (parsed.data.data.issue === null) return { relations: [], nextCursor: null, skippedInvalid: 1 };
+    const { relations, next, skipped } = relationsOf(parsed.data.data.issue.relations);
+    return { relations, nextCursor: next, skippedInvalid: skipped };
+  }
+
+  /**
+   * `notFoundIsNull`: um "Entity not found" do Linear devolve `null` em vez de erro (usado por `getTeam`). `detectEmail`: só a consulta de
+   * issues. `partialIsReducible`: só a fase de relações; uma resposta 200 com `errors` (que não sejam limite nem chave) volta como veio,
+   * e quem chama usa o `data` se ele valida no esquema (os nós nulos ou fora do formato contam como pulados); se não valida, é
+   * `linear_partial_response`, que a importação trata reduzindo a página. Nada do texto dos erros é lido nem guardado.
+   */
+  private async request(apiKey: string, query: string, variables: Record<string, unknown>, timeoutMs: number, notFoundIsNull = false, maxBytes = LINEAR_MAX_BODY_BYTES, detectEmail = false, partialIsReducible = false): Promise<unknown> {
     if (!HEADER_SAFE.test(apiKey)) throw new LinearError("linear_key_invalid");
     const importPage = maxBytes !== LINEAR_MAX_BODY_BYTES;
     const signal = AbortSignal.timeout(timeoutMs);
@@ -417,6 +487,7 @@ export class HttpLinearClient implements LinearClient {
     if (notFoundIsNull && response.status < 500 && entityNotFound(body)) return null;
     if (response.status === 429 || codes.includes("RATELIMITED")) throw new LinearError("linear_rate_limited", retryAfter(response));
     if (response.status === 401 || response.status === 403 || codes.some((code) => AUTH_CODES.has(code))) throw new LinearError("linear_key_invalid");
+    if (partialIsReducible && response.status === 200 && hasErrors(body)) return body;
     if (!response.ok || body === null || codes.length > 0 || Array.isArray((body as { errors?: unknown }).errors)) throw new LinearError("linear_unavailable");
     return body;
   }

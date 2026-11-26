@@ -113,9 +113,9 @@ describe("external_item_refs: origem por item", () => {
     expect(await ref(ORG_2, b, { externalId: "c-uniq" })).toHaveProperty("id");
   });
 
-  it("só o provedor linear e o tipo comment, por enquanto", async () => {
+  it("só o provedor linear e os tipos conhecidos", async () => {
     expect(await failure(() => ref(ORG_1, a, { externalId: "c-p", provider: "jira" }))).toMatch(/check/i);
-    expect(await failure(() => ref(ORG_1, a, { externalId: "c-k", kind: "relation" }))).toMatch(/check/i);
+    expect(await failure(() => ref(ORG_1, a, { externalId: "c-k", kind: "label" }))).toMatch(/check/i);
   });
 
   it("o ticket tem de ser do projeto e da organização", async () => {

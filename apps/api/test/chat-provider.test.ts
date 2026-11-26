@@ -31,6 +31,7 @@ describe("o que vai ao provedor do chat", () => {
       children: [{ key: "PRIV-4", title: "Filho um", status: "in_progress" }, { key: "PRIV-5", title: "Filho dois", status: "todo" }],
       dependsOn: [{ key: "PRIV-6", title: "Depende deste", status: "done" }],
       blocks: [{ key: "PRIV-7", title: "Bloqueado por este", status: "todo" }],
+      related: [], // "relacionado a" (ADR 0061): só com a sincronização do Linear; ver chat-related.test.ts
     });
     expect(res.body.kind).toBe("assistant");
     expect(res.body.message.body).toBe("Como eu começo?");

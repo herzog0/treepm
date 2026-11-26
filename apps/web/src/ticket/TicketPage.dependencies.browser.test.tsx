@@ -14,7 +14,7 @@ const summaries: TicketSummary[] = [
   makeTicket("t3", "p1", 3, "Autenticação", { key: "ALFA-3" }),
 ];
 const detail: TicketDetail = {
-  ...summaries[0]!, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
+  ...summaries[0]!, description: "Texto", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
 };
 
 async function open(add: ApiClient["addTicketDependency"]) {

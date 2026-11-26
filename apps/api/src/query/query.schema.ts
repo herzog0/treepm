@@ -53,6 +53,8 @@ export const queryTicketSchema = querySummarySchema.extend({
     mentions: directionsSchema,
     /** `outgoing`: este ticket depende de; `incoming`: dependem deste. */
     dependsOn: directionsSchema,
+    /** "Relacionado a" (ADR 0061): simétrica, só vem do Linear; os dois sentidos numa lista só. */
+    related: queryListSchema,
   }),
 });
 export type QueryTicket = z.infer<typeof queryTicketSchema>;

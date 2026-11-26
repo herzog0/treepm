@@ -124,6 +124,7 @@ export * from "./priority.js";
 export * from "./linear-import.js";
 export * from "./linear-reimport.js";
 export * from "./linear-comments.js";
+export * from "./linear-relations.js";
 export * from "./email-shape.js";
 export * from "./work-queue.js";
 export * from "./play.js";

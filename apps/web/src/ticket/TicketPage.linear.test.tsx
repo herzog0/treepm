@@ -10,7 +10,7 @@ const project = makeProject("p1", "ENG", "Engenharia");
 const summary = makeTicket("t1", "p1", 1, "Importado", { key: "ENG-1" });
 
 function setup(externalSource: TicketDetail["externalSource"] | undefined) {
-  const detail: TicketDetail = { ...summary, description: "", mentionedBy: [], dependsOn: [], blocks: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z", ...(externalSource === undefined ? {} : { externalSource }) };
+  const detail: TicketDetail = { ...summary, description: "", mentionedBy: [], dependsOn: [], blocks: [], related: [], createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z", ...(externalSource === undefined ? {} : { externalSource }) };
   const client = makeClient({ projects: [project], tickets: { p1: [summary] }, people: [makePerson("person-1", "Ana"), makePerson("person-2", "Beto")] });
   Object.assign(client, { getTicket: vi.fn(async () => ok(detail)) });
   render(
