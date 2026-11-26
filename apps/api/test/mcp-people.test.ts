@@ -163,7 +163,9 @@ describe("garantia central: sem o alcance efetivo, nenhuma resposta tem nome, id
     start_linear_sync: [{}],
     continue_linear_sync: [{ runId: RUN_ID }],
   };
-  const forbidden = (): string[] => [...Object.values(P()), P().admin, ...Object.values(NAMES), ...Object.keys(NAMES).map((who) => `${who}@exemplo.test`), "@exemplo.test"];
+  /** Nomes de autor e de responsável que só existem no histórico trazido do Linear (ADR 0061, fatia 4). */
+  const LINEAR_NAMES = ["Ana Sentinela do Linear", "Bia Sentinela do Linear", "Dora Sentinela do Linear"];
+  const forbidden = (): string[] => [...Object.values(P()), P().admin, ...Object.values(NAMES), ...Object.keys(NAMES).map((who) => `${who}@exemplo.test`), "@exemplo.test", ...LINEAR_NAMES];
 
   async function sweep(token: string, label: string): Promise<void> {
     // Dado de pessoa em todo canto que o MCP poderia ler: comentário, responsável, atividade.
@@ -189,6 +191,17 @@ describe("garantia central: sem o alcance efetivo, nenhuma resposta tem nome, id
       [ORG, priv(), P().manager],
     );
     await h.pool.query("insert into external_import_runs (org_id, id, project_id, provider, started_by_person_id, mode, phase) values ($1,$2,$3,'linear',$4,'reimport','issues')", [ORG, RUN_ID, priv(), P().manager]);
+    // O histórico trazido do Linear (ADR 0061, fatia 4): origem com criador do Linear, entrada de pessoa casada e de autor do Linear, com
+    // responsáveis dos dois tipos.
+    const ticket = (await h.rows("select id from tickets where project_id = $1 and number = 3", [priv()]))[0]?.["id"] as string;
+    await h.pool.query("insert into ticket_external_refs (org_id, ticket_id, project_id, provider, kind, external_id, source_snapshot, applied_snapshot, external_created_at, external_creator_name) values ($1,$2,$3,'linear','issue','issue-3','{}','{}','2025-05-01T00:00:00Z',$4)", [ORG, ticket, priv(), LINEAR_NAMES[2]]);
+    const history = (external: string, minutes: number, actor: string | null, name: string | null) =>
+      h.pool.query(
+        "insert into external_history_entries (org_id, project_id, ticket_id, provider, external_id, occurred_at, actor_person_id, external_actor_name, changes) values ($1,$2,$3,'linear',$4,'2025-06-01T00:00:00Z'::timestamptz + make_interval(mins => $5),$6,$7,$8)",
+        [ORG, priv(), ticket, external, minutes, actor, name, JSON.stringify([{ field: "assignee", from: { personId: P().contributor }, to: { name: LINEAR_NAMES[1] } }])],
+      );
+    await history("hist-1", 1, P().reader, null);
+    await history("hist-2", 2, null, LINEAR_NAMES[0]!);
   }
 
   it("token sem o alcance (leitura e escrita), com a chave da organização ligada", async () => {
@@ -219,6 +232,9 @@ describe("garantia central: sem o alcance efetivo, nenhuma resposta tem nome, id
     await populate();
     const status = await h.tool(token, "PRIV", "get_linear_status", {});
     expect(status.data?.run?.startedBy).toEqual({ id: P().manager, name: NAMES["manager"] });
+    // O histórico trazido do Linear também: pessoa casada, responsável e os nomes de lá.
+    const history = JSON.stringify((await h.tool(token, "PRIV", "get_ticket_history", { key: "PRIV-3" })).raw);
+    for (const needle of [P().reader, NAMES["reader"]!, P().contributor, "Ana Sentinela do Linear (Linear)", "Bia Sentinela do Linear (Linear)", "Dora Sentinela do Linear (Linear)"]) expect(history, needle).toContain(needle);
   });
 });
 

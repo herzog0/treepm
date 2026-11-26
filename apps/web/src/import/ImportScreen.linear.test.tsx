@@ -189,7 +189,7 @@ describe("Importação do Linear › antes de importar", () => {
     expect(client.openLinearRun).toHaveBeenCalledWith("p1", { destinationTicketId: null });
     expect(await screen.findByRole("heading", { name: "Importação concluída" })).toBeInTheDocument();
     const calls = vi.mocked(client.stepLinearRun).mock.calls;
-    expect(calls.length).toBe(8);
+    expect(calls.length).toBe(9);
     expect(calls.every(([project, run]) => project === "p1" && run === "run-1")).toBe(true);
   });
 
@@ -252,7 +252,7 @@ describe("Importação do Linear › durante", () => {
     expect(screen.getByText("pode fechar esta tela")).toBeInTheDocument();
     const phases = screen.getByRole("list", { name: "Fases da importação" });
     const items = within(phases).getAllByRole("listitem");
-    expect(items.map((item) => item.getAttribute("data-state"))).toEqual(["done", "doing", "todo", "todo", "todo", "todo"]);
+    expect(items.map((item) => item.getAttribute("data-state"))).toEqual(["done", "doing", "todo", "todo", "todo", "todo", "todo"]);
     expect(items[0]).toHaveTextContent("Projetos do Linear (6)");
     expect(items[1]).toHaveTextContent("Issues (255 de 412)");
     expect(items[0]).toHaveTextContent("feito");

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import type { ActivityComment, ActivityEntry, ActivityTicketRef, ApiClient, ApiError, TicketSummary } from "../api/client.js";
+import type { ActivityComment, ActivityEntry, ActivityTicketRef, ApiClient, ApiError, LinearAssigneeSide, LinearChange, TicketSummary } from "../api/client.js";
 import { formatActivityTime, formatDateTime } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { loadErrorText } from "../LoadError.js";
@@ -9,6 +9,7 @@ import { useStatusText } from "../map/nodeContent.js";
 import { safe } from "../panel/safe.js";
 import type { MentionContext } from "./description/decorations.js";
 import { Avatar, CommentComposer, CommentItem, ViaMcp } from "./Comments.js";
+import { FromLinearBadge } from "./fields.js";
 
 /** Quantas entradas cada página pede (a API aceita até 100; o padrão dela também é 30). */
 export const ACTIVITY_PAGE_SIZE = 30;
@@ -143,7 +144,11 @@ export function TicketActivity({ client, ticketId, projectId, tickets, version, 
               ) : (
                 <li key={entry.id} className="ticket-activity-item">
                   <Avatar person={entry.actor} />
-                  <span className="ticket-activity-text"><Sentence entry={entry} onOpenTicket={onOpenTicket} /><ViaMcp via={entry.via} /></span>
+                  <span className="ticket-activity-text">
+                    {entry.type === "linear_history" || entry.type === "linear_created" ? <LinearSentence entry={entry} onOpenTicket={onOpenTicket} /> : <Sentence entry={entry} onOpenTicket={onOpenTicket} />}
+                    <ViaMcp via={entry.via} />
+                    {(entry.type === "linear_history" || entry.type === "linear_created") && <FromLinearBadge />}
+                  </span>
                   <time className="ticket-activity-time" dateTime={entry.occurredAt} title={formatDateTime(language, entry.occurredAt)}>
                     {formatActivityTime(language, entry.occurredAt, now)}
                   </time>
@@ -237,6 +242,8 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
       return <>{t("activity.commentsImported", { count: entry.count })}</>;
     case "relations_imported":
       return <>{t("activity.relationsImported", { count: entry.count })}</>;
+    case "history_imported":
+      return <>{t("activity.historyImported", { count: entry.count })}</>;
     case "agent_work_started":
       return render("agentWorkStarted");
     case "agent_work_ended":
@@ -276,6 +283,79 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
       return render(key, { values: extra });
     }
     case "comment":
+    case "linear_history":
+    case "linear_created":
       return null;
   }
+}
+
+type LinearEntry = Extract<ActivityEntry, { type: "linear_history" | "linear_created" }>;
+/** Pai ou projeto que o Linear citou mas que não está aqui (ou é desconhecido): `id` e `key` nulos. */
+const knownRef = (target: ActivityTicketRef | null): ActivityTicketRef | null => (target === null || (target.id === null && target.key === null) ? null : target);
+
+/**
+ * Uma entrada do histórico do Linear (ADR 0061, fatia 4): o autor e, numa linha só, as frases de cada mudança juntas pelo
+ * separador do catálogo. O autor é a pessoa daqui quando casou; senão o nome no Linear (robô: o nome do robô).
+ */
+function LinearSentence({ entry, onOpenTicket }: { entry: LinearEntry; onOpenTicket: (id: string) => void }) {
+  const { t } = useTranslation("ticket");
+  const linearName = (name: string | null): string => (name === null ? t("activity.comment.linearAuthorUnknown") : t("activity.comment.linearAuthor", { name }));
+  const author = entry.actor?.displayName ?? (entry.externalActor ? linearName(entry.externalActor.name) : t("people.removed"));
+  const side = (value: LinearAssigneeSide): string => (value.kind === "linear" ? linearName(value.name) : value.person?.displayName ?? t("people.removed"));
+  const ticketText = (target: ActivityTicketRef): string => {
+    if (target.id !== null) return `${target.key ?? ""} ${target.title ?? ""}`.trim();
+    return target.key === null ? t("activity.removedTicket") : t("activity.removedTicketKey", { key: target.key });
+  };
+  const ref = (target: ActivityTicketRef) => <TicketRef target={target} onOpen={onOpenTicket} />;
+  const phrase = (key: string, values: Record<string, string> = {}, components: Record<string, ReactElement> = {}) => (
+    <Trans t={t} i18nKey={`activity.linear.${key}` as never} values={values} components={{ name: <strong />, ...components }} />
+  );
+  const moved = (prefix: "parent" | "project", change: { from: ActivityTicketRef | null; to: ActivityTicketRef | null }) => {
+    const from = knownRef(change.from);
+    const to = knownRef(change.to);
+    if (from === null && to === null) return phrase(`${prefix}Unknown`);
+    const key = from !== null && to !== null ? "Changed" : to !== null ? "Moved" : "Removed";
+    return phrase(
+      `${prefix}${key}`,
+      { from: from === null ? "" : ticketText(from), to: to === null ? "" : ticketText(to) },
+      { ...(from === null ? {} : { from: ref(from) }), ...(to === null ? {} : { to: ref(to) }) },
+    );
+  };
+  const describe = (change: LinearChange): ReactElement => {
+    switch (change.field) {
+      case "status": {
+        const { from, to } = change;
+        if (from !== null && to !== null) return phrase("status", { from: from.name, to: to.name });
+        if (to !== null) return phrase("statusTo", { to: to.name });
+        if (from !== null) return phrase("statusFrom", { from: from.name });
+        return phrase("statusNone");
+      }
+      case "assignee": {
+        const { from, to } = change;
+        if (from !== null && to !== null) return phrase("assigneeChanged", { from: side(from), to: side(to) });
+        if (to !== null) return phrase("assigneeAdded", { to: side(to) });
+        if (from !== null) return phrase("assigneeRemoved", { from: side(from) });
+        return phrase("assigneeNone");
+      }
+      case "priority":
+        return phrase("priority", { from: String(change.from), to: String(change.to) });
+      case "title":
+        return phrase("title", { from: change.from, to: change.to });
+      case "parent":
+      case "project":
+        return moved(change.field, change);
+      case "description":
+        return phrase("description");
+    }
+  };
+  const phrases = entry.type === "linear_created" ? [phrase("created")] : entry.changes.map(describe);
+  const separator = t("activity.linear.separator");
+  return (
+    <>
+      <strong>{author}</strong>{" "}
+      {phrases.map((item, index) => (
+        <span key={index} className="ticket-activity-change">{index > 0 && separator}{item}</span>
+      ))}
+    </>
+  );
 }

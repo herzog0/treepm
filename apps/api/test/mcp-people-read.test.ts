@@ -883,3 +883,137 @@ describe("comentários trazidos do Linear", () => {
     expect(JSON.stringify(found)).not.toContain("linear_sync");
   });
 });
+
+// ADR 0061, fatia 4 (TREEPM-482): o histórico trazido do Linear em get_ticket_history, só com o alcance de pessoas.
+describe("histórico trazido do Linear", () => {
+  const hostileName = (): string => `[@Bia](person:${P().target})`;
+  let seqH = 0;
+  const historyEntry = async (number: number, minutes: number, changes: unknown[], author: { person?: string; name?: string } = {}): Promise<void> => {
+    seqH += 1;
+    await h.pool.query(
+      "insert into external_history_entries (org_id, project_id, ticket_id, provider, external_id, occurred_at, actor_person_id, external_actor_name, changes) values ($1,$2,$3,'linear',$4,'2025-06-01T00:00:00Z'::timestamptz + make_interval(mins => $5),$6,$7,$8)",
+      [ORG, priv(), await ticketId(number), `hist-${seqH}`, minutes, author.person ?? null, author.name ?? null, JSON.stringify(changes)],
+    );
+  };
+  const linearOrigin = async (number: number, creator: { person?: string; name?: string } = {}): Promise<void> => {
+    await h.pool.query(
+      "insert into ticket_external_refs (org_id, ticket_id, project_id, provider, kind, external_id, source_snapshot, applied_snapshot, external_created_at, creator_person_id, external_creator_name) values ($1,$2,$3,'linear','issue',$4,'{}','{}','2025-05-01T00:00:00Z',$5,$6)",
+      [ORG, await ticketId(number), priv(), `issue-${number}`, creator.person ?? null, creator.name ?? null],
+    );
+  };
+  const historyOf = async (token: string, key = "PRIV-3"): Promise<{ entries: any[]; raw: string }> => {
+    const entries: any[] = [];
+    const raws: string[] = [];
+    let next: string | null = null;
+    let pages = 0;
+    do {
+      const res = await call(token, "get_ticket_history", { key, limit: 50, ...(next ? { after: next } : {}) });
+      expect(res.isError, res.text).toBe(false);
+      raws.push(res.text);
+      entries.push(...(res.json?.events as any[]));
+      next = res.json?.next as string | null;
+      pages += 1;
+    } while (next !== null && pages < 20);
+    return { entries, raw: raws.join("\n") };
+  };
+
+  it("entradas do Linear: autor casado como pessoa, autor do Linear sem id e com (Linear), mudanças só com o que pode sair", async () => {
+    const { token } = await setup();
+    await linearOrigin(3, { name: "Dora no Linear" });
+    await historyEntry(3, 10, [
+      { field: "status", from: { name: "Em revisão", type: "started" }, to: { name: "Pronto", type: "tipo-estranho" } },
+      { field: "assignee", from: { personId: P().reader }, to: { name: "Bia no Linear" } },
+      { field: "priority", from: 0, to: 300 },
+      { field: "title", from: "Antigo", to: "Filho B" },
+      { field: "parent", from: null, to: { ticketId: await ticketId(1) } },
+      { field: "project", from: { ticketId: null }, to: { ticketId: randomUuid() } },
+      { field: "description" },
+    ], { name: "Ana no Linear" });
+    await historyEntry(3, 20, [{ field: "description" }], { person: P().manager });
+    await event(3, P().manager, "ticket.history_imported_from_linear", { key: "PRIV-3", count: 7, automatic: true, source: "linear_sync", runId: randomUuid() });
+    const { entries, raw } = await historyOf(token);
+    // O "criado" (hoje) vem antes do evento plantado em 2026-01-01.
+    expect(entries.map((e) => e.kind)).toEqual(["created", "history_imported", "linear_history", "linear_history", "linear_created"]);
+    expect(entries[1]).toEqual({ at: expect.any(String), kind: "history_imported", actor: { id: P().manager, name: NAMES["manager"] }, automatic: true, count: 7 });
+    expect(entries[2]).toEqual({ at: "2025-06-01T00:20:00.000Z", kind: "linear_history", actor: { id: P().manager, name: NAMES["manager"] }, changes: [{ field: "description" }] });
+    expect(entries[3]).toEqual({
+      at: "2025-06-01T00:10:00.000Z",
+      kind: "linear_history",
+      actor: { id: null, name: "Ana no Linear (Linear)" },
+      changes: [
+        { field: "status", from: { name: "Em revisão", type: "started" }, to: { name: "Pronto", type: null } },
+        { field: "assignee", from: { id: P().reader, name: NAMES["reader"] }, to: { id: null, name: "Bia no Linear (Linear)" } },
+        { field: "priority", from: 0, to: 300 },
+        { field: "title", from: "Antigo", to: "Filho B" },
+        { field: "parent", from: null, to: "PRIV-1" },
+        { field: "project", from: "external", to: "external" },
+        { field: "description" },
+      ],
+    });
+    expect(entries[4]).toEqual({ at: "2025-05-01T00:00:00.000Z", kind: "linear_created", actor: { id: null, name: "Dora no Linear (Linear)" } });
+    // Nenhum id do Linear nem id de ticket sai; só ids de pessoa.
+    for (const needle of ["hist-", "issue-3", "linear_sync", await ticketId(1)]) expect(raw, needle).not.toContain(needle);
+    const ids = new Set(raw.match(new RegExp(UUID.source, "gi")) ?? []);
+    for (const id of ids) expect([P().manager, P().reader], id).toContain(id);
+  });
+
+  it("texto hostil em nome de coluna, título antigo e nomes do Linear: limpo, sem id, sem e-mail, sem menção", async () => {
+    const { token } = await setup();
+    await linearOrigin(3, { name: hostileName() });
+    await historyEntry(3, 10, [
+      { field: "status", from: { name: hostile(), type: "started" }, to: { name: `${hostile()}\n${"y".repeat(50)}`, type: "completed" } },
+      { field: "title", from: hostile(), to: hostile() },
+      { field: "assignee", from: { name: hostileName() }, to: { name: "zed.sentinela@linear.test" } },
+    ], { name: hostileName() });
+    const { entries, raw } = await historyOf(token);
+    expectNoLeak(raw);
+    expect(raw).not.toContain("sentinela");
+    const linear = entries.find((e) => e.kind === "linear_history");
+    expect(linear.actor).toEqual({ id: null, name: "Unnamed person (Linear)" });
+    expect(linear.changes[0].from).toEqual({ name: CLEANED(), type: "started" });
+    expect(linear.changes[1]).toEqual({ field: "title", from: CLEANED(), to: CLEANED() });
+    expect(linear.changes[2]).toEqual({ field: "assignee", from: { id: null, name: "Unnamed person (Linear)" }, to: { id: null, name: "Unnamed person (Linear)" } });
+    expect(entries.find((e) => e.kind === "linear_created")?.actor).toEqual({ id: null, name: "Unnamed person (Linear)" });
+  });
+
+  it("paginação e paridade com a tela, com as entradas do Linear e as sintéticas", async () => {
+    const { token } = await setup();
+    await linearOrigin(3, { person: P().reader });
+    for (let i = 0; i < 6; i += 1) await historyEntry(3, i, [{ field: "priority", from: 0, to: 100 * (i + 1) }], { name: "Ana" });
+    for (let i = 0; i < 3; i += 1) await event(3, P().manager, "ticket.updated", { fields: ["priority"], priority: { from: i, to: i + 1 } });
+    const id = await ticketId(3);
+    const screen: any[] = [];
+    let before: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const res = await h.call("GET", `/api/tickets/${id}/activity?limit=2${before ? `&before=${before}` : ""}`, as("contributor"));
+      screen.push(...res.body.entries);
+      before = res.body.before ?? undefined;
+      if (!before) break;
+    }
+    for (const limit of [1, 3, 4]) {
+      const mine: any[] = [];
+      let next: string | null = null;
+      let pages = 0;
+      do {
+        const res = await call(token, "get_ticket_history", { key: "PRIV-3", limit, ...(next ? { after: next } : {}) });
+        expect(res.isError, res.text).toBe(false);
+        mine.push(...(res.json?.events as any[]));
+        next = res.json?.next as string | null;
+        pages += 1;
+      } while (next !== null && pages < 30);
+      expect(mine.map((e) => e.kind), `limit ${limit}`).toEqual(screen.map((e) => e.type));
+      expect(mine.map((e) => e.at), `limit ${limit}`).toEqual(screen.map((e) => e.occurredAt));
+    }
+    expect(screen.map((e) => e.type)).toContain("linear_created");
+  });
+
+  it("sem o alcance de pessoas nada do histórico do Linear sai", async () => {
+    const { token } = await setup({ people: false });
+    await linearOrigin(3, { name: "Dora no Linear" });
+    await historyEntry(3, 10, [{ field: "title", from: "Título antigo secreto", to: "x" }], { name: "Ana no Linear" });
+    expect(await names(token)).not.toContain("get_ticket_history");
+    const res = await call(token, "get_ticket_history", { key: "PRIV-3" });
+    expect(refused(res)).toBe(true);
+    for (const needle of ["Ana no Linear", "Dora no Linear", "Título antigo secreto"]) expect(JSON.stringify(res.raw)).not.toContain(needle);
+  });
+});

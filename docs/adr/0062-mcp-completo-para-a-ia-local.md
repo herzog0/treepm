@@ -122,3 +122,8 @@ Mover entre projetos fica fora: o token é de um projeto.
 - **Texto vindo do Linear não sai cru para o cliente de IA.** Quem lê a resposta é um modelo, e um nome ou endereço malicioso seria uma instrução injetada. Nenhuma frase de erro leva texto do Linear; o endereço só sai com host exato `linear.app` e sem espaço nem controle; a chave só no formato de identificador; o nome do time passa pelo limpador comum, cortado em 80. A mesma validação de endereço e de identificador vale na gravação, para a tela.
 - A checagem de permissão do passo vem antes da trava de "passo em andamento", na tela e no MCP.
 - Revisão de segurança independente com reprodução: sem bloqueio; sete correções aplicadas. Fica a `TREEPM-510` (prazo próprio para a abertura da sincronização).
+
+## Acréscimo com o histórico do Linear (ADR 0061, fatia 4, 2026-11-25)
+
+- `get_ticket_history` passa a trazer o histórico importado do Linear e a entrada "criou a issue no Linear", só com o alcance de pessoas. Com isso saem por ali, para quem tem esse alcance, o nome de quem criou a issue no Linear e o de quem fez cada mudança: a pessoa do TreePM correspondente ou o nome de exibição de lá, sempre pelo limpador de nomes. Nenhum identificador do Linear sai, e nomes de coluna e títulos antigos passam pelo limpador de texto.
+- A seção 5 dizia que as leituras do MCP não conheciam os dados de origem além da chave e do endereço da issue; para o criador e o histórico, deixou de valer dentro do alcance de pessoas. Sem o alcance, nada mudou.

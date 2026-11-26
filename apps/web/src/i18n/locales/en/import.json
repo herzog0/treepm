@@ -101,6 +101,7 @@
       "mentions": "Linking mentions",
       "comments": "Bringing comments",
       "relations": "Linking relations",
+      "history": "Bringing history",
       "list": "Import phases",
       "missing": "Checking what disappeared from Linear"
     },
@@ -116,6 +117,7 @@
       "mentions": "Linking the mentions between tickets.",
       "comments": "Bringing the comments of the issues.",
       "relations": "Linking the relations between tickets.",
+      "history": "Bringing the history of the issues.",
       "done": "Import finished.",
       "waiting": "Linear asked to wait.",
       "abandoned": "Import abandoned.",
@@ -163,7 +165,11 @@
       "relationsCycle_other": "{{count}} dependencies not brought because they would close a cycle",
       "relationsUpdated_one": "{{count}} relation updated",
       "relationsUpdated_other": "{{count}} relations updated",
-      "relationsTruncated": "Some relations were not read in this round; nothing was marked as removed in Linear."
+      "relationsTruncated": "Some relations were not read in this round; nothing was marked as removed in Linear.",
+      "historyCreated_one": "{{count}} history record brought from Linear",
+      "historyCreated_other": "{{count}} history records brought from Linear",
+      "historyTruncated_one": "{{count}} issue had more history than the limit of 200 records; the oldest were left out.",
+      "historyTruncated_other": "{{count}} issues had more history than the limit of 200 records; the oldest were left out."
     },
     "abandon": {
       "button": "Abandon import",

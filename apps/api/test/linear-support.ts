@@ -83,7 +83,87 @@ export type FakeTeamData = {
   poisoned?: string[];
   /** Issues cuja página EXTRA de relações (`issue(id){relations}`) responde 200 com `errors`. */
   poisonedExtra?: string[];
+  /** Histórico (ADR 0061, fatia 4) por id de issue, já na ordem do Linear (mais recentes primeiro); ausente = nenhuma entrada. */
+  history?: Record<string, FakeHistoryEntry[]>;
+  /** Responde no lugar do mundo para o histórico (página do time ou extra de uma issue); `undefined` deixa o mundo responder. */
+  historyOverride?: (call: LinearCall, ask: FakeHistoryAsk) => LinearReply | undefined;
+  /** Issues cuja presença na página de histórico do time faz a resposta vir com `data: null` e `errors` (a releitura só dos ids passa). */
+  poisonedHistory?: string[];
+  /** Issues cuja página EXTRA de histórico responde 200 com `errors` e `data: null`. */
+  poisonedHistoryExtra?: string[];
 };
+/**
+ * Uma entrada do histórico como o Linear a devolve (`IssueHistory`). Os campos ausentes vêm nulos; `actor` com e-mail (o mundo o tira
+ * quando a consulta não pede), `bot` vira `botActor`. Os `*Id` de situação, responsável, pai e projeto são preenchidos a partir dos objetos
+ * quando não dados (`fromStateId` pode ser dado sem `fromState` para simular o recurso apagado).
+ */
+export type FakeHistoryUser = { id: string; name: string | null; email: string | null };
+export type FakeHistoryEntry = {
+  id: string;
+  createdAt?: string;
+  actor?: FakeHistoryUser | null;
+  bot?: string;
+  fromState?: { id: string; name: string; type: string } | null;
+  toState?: { id: string; name: string; type: string } | null;
+  fromStateId?: string | null;
+  toStateId?: string | null;
+  fromAssignee?: FakeHistoryUser | null;
+  toAssignee?: FakeHistoryUser | null;
+  fromAssigneeId?: string | null;
+  toAssigneeId?: string | null;
+  fromPriority?: number | null;
+  toPriority?: number | null;
+  fromTitle?: string | null;
+  toTitle?: string | null;
+  fromParentId?: string | null;
+  toParentId?: string | null;
+  fromProjectId?: string | null;
+  toProjectId?: string | null;
+  updatedDescription?: boolean | null;
+};
+/** O que a consulta de histórico pediu. `issueId`: a página extra de uma issue (nulo = a página do time). */
+export type FakeHistoryAsk = { first: number; after: string | null; since: string | null; withHistory: boolean; withEmail: boolean; issueId: string | null };
+/** Entradas por issue na página do time (a do cliente) e na página extra de uma issue. */
+const FAKE_HISTORY_FIRST = 20;
+const FAKE_ISSUE_HISTORY_PAGE = 180;
+export const fakeHistoryNode = (e: FakeHistoryEntry, withEmail: boolean): Record<string, unknown> => {
+  const user = (u: FakeHistoryUser | null | undefined) => (u ? (withEmail ? { id: u.id, name: u.name, email: u.email } : { id: u.id, name: u.name }) : null);
+  const state = (s: { name: string; type: string } | null | undefined) => (s ? { name: s.name, type: s.type } : null);
+  return {
+    id: e.id,
+    createdAt: e.createdAt ?? "2026-04-01T10:00:00.000Z",
+    actor: user(e.actor),
+    botActor: e.bot ? { name: e.bot } : null,
+    fromStateId: e.fromStateId !== undefined ? e.fromStateId : (e.fromState?.id ?? null),
+    toStateId: e.toStateId !== undefined ? e.toStateId : (e.toState?.id ?? null),
+    fromState: state(e.fromState),
+    toState: state(e.toState),
+    fromAssigneeId: e.fromAssigneeId !== undefined ? e.fromAssigneeId : (e.fromAssignee?.id ?? null),
+    toAssigneeId: e.toAssigneeId !== undefined ? e.toAssigneeId : (e.toAssignee?.id ?? null),
+    fromAssignee: user(e.fromAssignee),
+    toAssignee: user(e.toAssignee),
+    fromPriority: e.fromPriority ?? null,
+    toPriority: e.toPriority ?? null,
+    fromTitle: e.fromTitle ?? null,
+    toTitle: e.toTitle ?? null,
+    fromParentId: e.fromParentId ?? null,
+    toParentId: e.toParentId ?? null,
+    fromProjectId: e.fromProjectId ?? null,
+    toProjectId: e.toProjectId ?? null,
+    updatedDescription: e.updatedDescription ?? null,
+  };
+};
+/** A conexão `history` de uma issue a partir de `start` (cursor = deslocamento). */
+const fakeHistoryConnection = (all: FakeHistoryEntry[], start: number, size: number, withEmail: boolean) => {
+  const end = start + size;
+  return { nodes: all.slice(start, end).map((e) => fakeHistoryNode(e, withEmail)), pageInfo: { hasNextPage: end < all.length, endCursor: end < all.length ? String(end) : null } };
+};
+const poisonedHistoryReply = (): LinearReply => ({
+  body: { data: null, errors: [{ message: `Entity not found ${LINEAR_ERROR_SENTINEL}`, path: ["team", "issues", "nodes", 0, "history", "nodes", 0, "actor"], extensions: { code: "INPUT_ERROR", userPresentableMessage: LINEAR_ERROR_SENTINEL } }] },
+});
+/** As issues do time que a fase `history` lê: fora da lixeira e, com o filtro, só as alteradas depois de `since`. */
+export const historyIssues = (team: FakeTeamData, since: string | null): FakeIssue[] =>
+  team.issues.filter((issue) => !issue.trashed && (since === null || Date.parse(issue.updatedAt ?? "2026-11-01T10:00:00.000Z") > Date.parse(since)));
 /** O texto do erro do Linear nas respostas envenenadas: nunca pode aparecer em log, resposta ou evento. */
 export const LINEAR_ERROR_SENTINEL = "SEGREDO-DO-ERRO-DO-LINEAR-7d1f";
 const poisonedReply = (): LinearReply => ({
@@ -190,7 +270,35 @@ export function linearImportWorld(world: LinearWorld, data: Record<string, FakeT
       const all = (owner.relations ?? []).filter((r) => r.from === id);
       return { body: { data: { issue: { relations: fakeRelationConnection(all, Number(call.variables["after"] ?? 0), FAKE_ISSUE_RELATIONS_PAGE) } } } };
     }
+    // O histórico seguinte de UMA issue (fase `history`): a variável é o id da issue.
+    if (entry !== undefined && typeof entry !== "string" && call.query.includes("IssueHistory")) {
+      const owner = Object.values(data).find((candidate) => candidate.issues.some((issue) => issue.id === id));
+      if (owner === undefined) return { body: { data: { issue: null } } };
+      const ask: FakeHistoryAsk = { first: Number(call.variables["first"] ?? FAKE_ISSUE_HISTORY_PAGE), after: typeof call.variables["after"] === "string" ? call.variables["after"] : null, since: null, withHistory: true, withEmail: /actor \{ id name email \}/.test(call.query), issueId: id };
+      const custom = owner.historyOverride?.(call, ask);
+      if (custom !== undefined) return custom;
+      if (owner.poisonedHistoryExtra?.includes(id) === true) return poisonedHistoryReply();
+      return { body: { data: { issue: { history: fakeHistoryConnection(owner.history?.[id] ?? [], Number(ask.after ?? 0), ask.first, ask.withEmail) } } } };
+    }
     const team = data[id];
+    if (entry !== undefined && typeof entry !== "string" && team !== undefined && call.query.includes("TeamHistory")) {
+      const ask: FakeHistoryAsk = {
+        first: Number(call.variables["first"] ?? 10),
+        after: typeof call.variables["after"] === "string" ? call.variables["after"] : null,
+        since: typeof call.variables["since"] === "string" ? call.variables["since"] : null,
+        withHistory: call.query.includes("history(first"),
+        withEmail: /actor \{ id name email \}/.test(call.query),
+        issueId: null,
+      };
+      const custom = team.historyOverride?.(call, ask);
+      if (custom !== undefined) return custom;
+      const live = historyIssues(team, ask.since);
+      if (!ask.withHistory) return { body: pageOf(live.map((issue) => ({ id: issue.id })), ask.after, "issues", ask.first) };
+      const start = ask.after === null ? 0 : Number(ask.after);
+      if (live.slice(start, start + ask.first).some((issue) => team.poisonedHistory?.includes(issue.id) === true)) return poisonedHistoryReply();
+      const nodes = live.map((issue) => ({ id: issue.id, history: fakeHistoryConnection(team.history?.[issue.id] ?? [], 0, FAKE_HISTORY_FIRST, ask.withEmail) }));
+      return { body: pageOf(nodes, ask.after, "issues", ask.first) };
+    }
     if (entry !== undefined && typeof entry !== "string" && team !== undefined) {
       if (call.query.includes("TeamRelations")) {
         const ask: FakeRelationAsk = { first: Number(call.variables["first"] ?? PAGE), after: typeof call.variables["after"] === "string" ? call.variables["after"] : null };

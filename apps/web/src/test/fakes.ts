@@ -430,7 +430,10 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
       // Depois dos comentários vêm as relações do Linear (ADR 0061, fatia 3), nos dois modos.
       phase = "relations";
     } else if (phase === "relations") {
-      // Reimportação: depois das relações vem a conferência do que sumiu do Linear.
+      // Depois das relações vem o histórico das issues (ADR 0061, fatia 4), nos dois modos.
+      phase = "history";
+    } else if (phase === "history") {
+      // Reimportação: depois do histórico vem a conferência do que sumiu do Linear.
       phase = run.mode === "reimport" ? "missing" : "done";
     } else if (phase === "missing") {
       phase = "done";

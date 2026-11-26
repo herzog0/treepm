@@ -48,13 +48,18 @@ describe("estrutura: só a importação, a página do ticket e o MCP (com o alca
   const SRC = join(__dirname, "..", "src");
   // A tabela e as colunas pelo nome, e também a leitura pela RELAÇÃO do Prisma (`include`/`select: { comments: … }`, `_count` de
   // comentários), que não cita a tabela (C2, item 7).
-  const READS = /ticketComment\b|ticket_comments|externalItemRef|external_item_refs|externalAuthorName|external_author_name|\bcomments\s*:\s*(?:true\b|\{)|_count\s*:\s*\{[^}]*\bcomments\b/;
+  // O histórico importado (ADR 0061, fatia 4; `external_history_entries`) entra na mesma guarda: os mesmos arquivos, nenhum outro. Também
+  // a coluna do autor dele (`external_actor_name`) e o campo com que a linha do tempo o entrega (`externalActor`), que não citam a tabela.
+  const READS = /ticketComment\b|ticket_comments|externalItemRef|external_item_refs|externalHistoryEntr|external_history_entries|externalAuthorName|external_author_name|\bexternalActor(?:Name)?\b|external_actor_name|\bcomments\s*:\s*(?:true\b|\{)|_count\s*:\s*\{[^}]*\bcomments\b/;
   // A contagem de comentários por contribuição: `ticket-contributions.read.ts` (pela relação) e `ticket-contributions.service.ts` (ao remover).
-  const ALLOWED = new Set(["linear/linear-import.service.ts", "tickets/ticket-comments.service.ts", "tickets/ticket-activity.service.ts", "tickets/ticket-contributions.read.ts", "tickets/ticket-contributions.service.ts", "mcp/mcp-people-read.ts",
+  // `ticket-activity.schema.ts`: o formato da resposta da linha do tempo (o campo `externalActor`), que só a página do ticket e o MCP usam.
+  const ALLOWED = new Set(["linear/linear-import.service.ts", "tickets/ticket-comments.service.ts", "tickets/ticket-activity.service.ts", "tickets/ticket-activity.schema.ts", "tickets/ticket-contributions.read.ts", "tickets/ticket-contributions.service.ts", "mcp/mcp-people-read.ts",
     // As origens de RELAÇÃO (ADR 0061, fatia 3) também moram em `external_item_refs`: só este arquivo as lê fora da importação.
     "linear/linear-relation-origins.ts"]);
   it("o padrão pega a leitura pela relação, e não pega nomes parecidos", () => {
     for (const snippet of ["include: { comments: true }", "select: { id: true, comments: { select: { body: true } } }", "_count: { select: { comments: true } }", "_count: { select: { comments: { where: { removedAt: null } } } }", "tx.ticketComment.findMany()"]) expect(READS.test(snippet), snippet).toBe(true);
+    // Só as colunas do autor do histórico, sem citar a tabela (revisão H1, item 5).
+    for (const snippet of ["const who = rows.map((row) => row.externalActorName ?? row.external_actor_name); provider.send(who);", "entry.externalActor?.name"]) expect(READS.test(snippet), snippet).toBe(true);
     for (const snippet of ["commentsCreated: 0", "const comments = []", "commentCount: 1"]) expect(READS.test(snippet), snippet).toBe(false);
     // Filtrar por `kind: "relation"` não libera a leitura: o `OR` (ou um `select` de `applied`) pode trazer as origens de comentário.
     for (const snippet of [

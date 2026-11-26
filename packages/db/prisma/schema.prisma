@@ -83,6 +83,7 @@ model Organization {
   projectExternalSources     ProjectExternalSource[]
   ticketExternalRefs         TicketExternalRef[]
   externalItemRefs           ExternalItemRef[]
+  externalHistoryEntries     ExternalHistoryEntry[]
   externalImportRuns         ExternalImportRun[]
   externalCategorizeItems    ExternalCategorizeItem[]
 
@@ -130,6 +131,7 @@ model Person {
   externalCredentials    ExternalCredential[]
   externalSourcesLinked  ProjectExternalSource[]    @relation("ExternalSourceLinkedBy")
   externalImportRunsStarted ExternalImportRun[]     @relation("ImportRunStartedBy")
+  externalHistoryEntries ExternalHistoryEntry[]    @relation("HistoryEntryActor")
 
   @@id([orgId, id])
   @@unique([orgId, clerkUserId])
@@ -286,6 +288,7 @@ model Ticket {
   conversations        Conversation[]
   externalRefs         TicketExternalRef[]
   externalItemRefs     ExternalItemRef[]
+  externalHistoryEntries ExternalHistoryEntry[]
   importRunsAsDestination ExternalImportRun[]
   categorizeItems         ExternalCategorizeItem[]
 
@@ -960,6 +963,37 @@ model ExternalItemRef {
   @@map("external_item_refs")
 }
 
+/// Uma entrada do histórico de uma issue do Linear (ADR 0061, fatia 4; migration 0046). O item local É a linha. A aplicação lê e insere;
+/// atualiza só o autor (acompanha o casamento atual); não apaga (some em cascata com o ticket).
+model ExternalHistoryEntry {
+  orgId             String   @map("org_id")
+  id                String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId         String   @map("project_id") @db.Uuid
+  ticketId          String   @map("ticket_id") @db.Uuid
+  /// linear (check no banco)
+  provider          String
+  /// O id da entrada (`IssueHistory.id`).
+  externalId        String   @map("external_id")
+  occurredAt        DateTime @map("occurred_at") @db.Timestamptz(3)
+  /// A pessoa do TreePM casada com o autor (nunca junto de `externalActorName`).
+  actorPersonId     String?  @map("actor_person_id") @db.Uuid
+  /// Nome de exibição do autor no Linear, ou do robô (1 a 120, nunca com forma de e-mail; check no banco). Nulo com pessoa nula = desconhecido.
+  externalActorName String?  @map("external_actor_name")
+  /// Lista das mudanças já normalizadas (`LinearHistoryChange[]` do domínio). Nunca e-mail.
+  changes           Json     @default("[]")
+  firstImportedAt   DateTime @default(now()) @map("first_imported_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  ticket       Ticket       @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade)
+  actor        Person?      @relation("HistoryEntryActor", fields: [orgId, actorPersonId], references: [orgId, id], onDelete: Restrict)
+
+  @@id([orgId, id])
+  @@unique([orgId, provider, externalId], map: "external_history_entries_external_key")
+  @@index([orgId, ticketId, occurredAt], map: "external_history_entries_ticket_idx")
+  @@index([orgId, actorPersonId], map: "external_history_entries_actor_idx")
+  @@map("external_history_entries")
+}
+
 /// Uma rodada de importação de um projeto ligado (ADR 0060, seção 3; migration 0038). No máximo uma não terminada por projeto (índice
 /// único parcial, só no SQL). A aplicação lê, cria e atualiza; não apaga.
 model ExternalImportRun {
@@ -970,7 +1004,7 @@ model ExternalImportRun {
   startedByPersonId  String    @map("started_by_person_id") @db.Uuid
   /// first | reimport | categorize (check no banco)
   mode               String
-  /// projects | issues | hierarchy | statuses | mentions | missing | categorize | done | failed (check no banco)
+  /// projects | issues | hierarchy | statuses | mentions | comments | relations | history | missing | categorize | done | failed (check no banco)
   phase              String
   cursor             String?
   destinationTicketId String?  @map("destination_ticket_id") @db.Uuid
@@ -991,6 +1025,11 @@ model ExternalImportRun {
   hasDestination     Boolean   @default(false) @map("has_destination")
   /// Só no modo `categorize`: a rodada de importação concluída sobre a qual a categorização foi aberta (sem chave estrangeira; migration 0040).
   sourceRunId        String?   @map("source_run_id") @db.Uuid
+  /// Fase `history` (migration 0046): o filtro `updatedAt > ...` desta rodada, fixado ao entrar na fase (nulo = o time inteiro).
+  historySince       DateTime? @map("history_since") @db.Timestamptz(3)
+  /// A fase `history` terminou sem truncamento por erro (só então a marca d'água avança). A marca d'água de um projeto é o maior
+  /// `startedAt` entre as rodadas com `historyComplete`.
+  historyComplete    Boolean   @default(false) @map("history_complete")
   startedAt          DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   finishedAt         DateTime? @map("finished_at") @db.Timestamptz(3)

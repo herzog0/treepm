@@ -322,7 +322,7 @@ const linearRunSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   mode: z.enum(["first", "reimport"]),
-  phase: z.enum(["projects", "issues", "hierarchy", "statuses", "mentions", "comments", "relations", "categorize", "missing", "done", "failed"]),
+  phase: z.enum(["projects", "issues", "hierarchy", "statuses", "mentions", "comments", "relations", "history", "categorize", "missing", "done", "failed"]),
   done: z.boolean(),
   categorize: z.boolean(),
   categorizeAvailable: z.boolean(),
@@ -409,6 +409,25 @@ const contributionAreaRef = z.object({ id: z.string(), name: z.string() }).nulla
 const commentAreaRef = z.object({ id: z.string().nullable(), name: z.string() }).nullable();
 /** `via: "mcp"`: a entrada foi gravada por uma chamada MCP (ADR 0043); ausente = feita à mão. */
 const activityBase = { id: z.string(), occurredAt: z.string(), actor: activityPersonSchema.nullable(), via: z.enum(["mcp"]).nullish(), /** A reimportação do Linear gravou a mudança (ADR 0060); em `status_changed` é obrigatório. */ automatic: z.literal(true).optional() };
+/** Autor do Linear que não é pessoa daqui (ADR 0061, fatia 4): o nome lá (robô: o nome do robô); `null` = apagado ou desconhecido. */
+const externalActorSchema = z.object({ name: z.string().nullable() });
+/** Um lado do responsável numa mudança vinda do Linear: pessoa daqui (`null` = removida) ou só o nome no Linear. */
+const linearAssigneeSide = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("person"), person: activityPersonSchema.nullable() }),
+  z.object({ kind: z.literal("linear"), name: z.string().nullable() }),
+]);
+/** A coluna do Linear (nome e tipo), não a situação do TreePM. */
+const linearStatusSide = z.object({ name: z.string(), type: z.string().nullable() });
+/** Uma mudança de uma entrada do histórico do Linear; `id` e `key` nulos no pai ou projeto = fora daqui ou desconhecido. */
+const linearChangeSchema = z.discriminatedUnion("field", [
+  z.object({ field: z.literal("status"), from: linearStatusSide.nullable(), to: linearStatusSide.nullable() }),
+  z.object({ field: z.literal("assignee"), from: linearAssigneeSide.nullable(), to: linearAssigneeSide.nullable() }),
+  z.object({ field: z.literal("priority"), from: z.number().int(), to: z.number().int() }),
+  z.object({ field: z.literal("title"), from: z.string(), to: z.string() }),
+  z.object({ field: z.literal("parent"), from: activityTicketSchema.nullable(), to: activityTicketSchema.nullable() }),
+  z.object({ field: z.literal("project"), from: activityTicketSchema.nullable(), to: activityTicketSchema.nullable() }),
+  z.object({ field: z.literal("description") }),
+]);
 const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("created") }),
   z.object({ ...activityBase, type: z.literal("title_changed"), from: z.string(), to: z.string() }),
@@ -440,6 +459,12 @@ const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("contribution_person_removed"), area: contributionAreaRef, person: activityPersonSchema.nullable() }),
   /** Comentários trazidos do Linear numa rodada (ADR 0061, fatia 2): um por ticket e rodada, só a contagem. */
   z.object({ ...activityBase, type: z.literal("comments_imported"), count: z.number().int() }),
+  /** Uma entrada do histórico da issue no Linear (ADR 0061, fatia 4), com a data original; `externalActor` quando `actor` é nulo. */
+  z.object({ ...activityBase, type: z.literal("linear_history"), externalActor: externalActorSchema.optional(), changes: z.array(linearChangeSchema) }),
+  /** A criação da issue no Linear, sintetizada pela sincronização (ADR 0061, fatia 4). */
+  z.object({ ...activityBase, type: z.literal("linear_created"), externalActor: externalActorSchema.optional() }),
+  /** Registros do histórico trazidos do Linear numa rodada (ADR 0061, fatia 4): um por ticket e rodada, só a contagem. */
+  z.object({ ...activityBase, type: z.literal("history_imported"), count: z.number().int() }),
   /** `via: "linear"` e `externalAuthor` (nome no Linear; `null` = apagado lá) no comentário trazido do Linear (ADR 0061). */
   z.object({ ...activityBase, type: z.literal("comment"), via: z.enum(["mcp", "linear"]).nullish(), externalAuthor: z.object({ name: z.string().nullable() }).optional(), body: z.string().nullable(), area: commentAreaRef, editedAt: z.string().nullable(), removed: z.boolean(), canEdit: z.boolean(), canRemove: z.boolean() }),
 ]);
@@ -523,6 +548,8 @@ export type ActivityPage = z.output<typeof activityPageSchema>;
 export type CommentArea = z.output<typeof commentAreaRef>;
 export type ActivityComment = Extract<ActivityEntry, { type: "comment" }>;
 export type ActivityTicketRef = z.output<typeof activityTicketSchema>;
+export type LinearChange = z.output<typeof linearChangeSchema>;
+export type LinearAssigneeSide = z.output<typeof linearAssigneeSide>;
 export type ConversationDraft = NonNullable<z.output<typeof draftSchema>>;
 export type ConversationDraftChild = z.output<typeof draftChildSchema>;
 export type DraftPreview = z.output<typeof draftPreviewSchema>;
