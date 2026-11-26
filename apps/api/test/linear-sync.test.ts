@@ -331,3 +331,41 @@ describe("as respostas", () => {
     expect(typeof current.lastFinished.finishedAt).toBe("string");
   });
 });
+
+describe("projeto sem líder no Linear, importado antes desta fatia (TREEPM-467, revisão P2)", () => {
+  // A chave ausente no retrato era lida como igual a nulo: o retrato do líder nunca era gravado, e quem pusesse um responsável aqui
+  // caía em "mantido daqui" para sempre. Importado antes ou depois da fatia, a mesma sequência tem de dar o mesmo resultado.
+  async function scenario(aged: boolean): Promise<Row> {
+    const w = await firstImport(world({ lead: null }));
+    if (aged) await ageToOld();
+    await sync();
+    const afterFirst = await projectTicket();
+    expect(afterFirst["source_snapshot"]).toHaveProperty("assigneeExternalId", null);
+    expect(afterFirst["applied_snapshot"]).toHaveProperty("assigneeIds", []);
+    expect(afterFirst["assignees"]).toEqual([]);
+    // Os outros campos que chegaram com a ADR 0061 já ganhavam o retrato (descrição e prioridade nunca valem nulo); o líder nulo não
+    // gera evento nem conta como mudança de responsável.
+    expect(afterFirst["source_snapshot"]).toHaveProperty("description");
+    expect(afterFirst["source_snapshot"]).toHaveProperty("priority");
+    const events = await q("select payload from activity_events where kind = 'ticket.updated' and subject_id = $1", [afterFirst["id"]]);
+    expect(events.filter((event) => ((event["payload"] as Row)["fields"] as string[]).includes("assignees"))).toEqual([]);
+    // Alguém põe um responsável aqui, sincroniza, e depois tira; o Linear ganha um líder.
+    const id = afterFirst["id"] as string;
+    expect((await h.call("PUT", `/api/tickets/${id}/assignees/${h.world().people.admin}`, as("admin"))).status).toBeLessThan(300);
+    await sync();
+    expect(((await projectTicket())["applied_snapshot"] as Row)["heldHere"] ?? null).toBeNull();
+    expect((await h.call("DELETE", `/api/tickets/${id}/assignees/${h.world().people.admin}`, as("admin"))).status).toBeLessThan(300);
+    w.project.lead = LEAD;
+    await sync();
+    const end = await projectTicket();
+    return { assignees: end["assignees"], held: (end["applied_snapshot"] as Row)["heldHere"] ?? null };
+  }
+
+  it("controle: importado depois da fatia, o líder que nasce no Linear chega", async () => {
+    expect(await scenario(false)).toEqual({ assignees: [h.world().people.admin], held: null });
+  });
+
+  it("importado antes da fatia: a primeira sincronização grava o retrato nulo do líder, e a sequência dá o mesmo resultado", async () => {
+    expect(await scenario(true)).toEqual({ assignees: [h.world().people.admin], held: null });
+  });
+});

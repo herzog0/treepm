@@ -147,6 +147,7 @@
       "flattened": "Achatados",
       "skipped": "Pulados",
       "skippedInvalid": "Ignorados por formato inválido",
+      "dueDatesInvalid": "Prazos ignorados (formato inválido ou fora de 2000–2100)",
       "withoutDescription": "Sem descrição (grande demais)",
       "movedOutOfIdea": "Tirados de dentro de ideia",
       "assigneeEmailUnavailable": "O Linear não deixou ler os e-mails dos responsáveis; ninguém foi atribuído.",

@@ -427,7 +427,7 @@ function ProgressCard({ run, loop, onResume, onOpenSettings, onAbandon }: { run:
   );
 }
 
-type RowKey = "created" | "existing" | "elsewhere" | "flattened" | "skipped" | "skippedInvalid" | "withoutDescription" | "movedOutOfIdea" | "new" | "updated" | "keptTouched" | "keptMoved" | "missing";
+type RowKey = "created" | "existing" | "elsewhere" | "flattened" | "skipped" | "skippedInvalid" | "dueDatesInvalid" | "withoutDescription" | "movedOutOfIdea" | "new" | "updated" | "keptTouched" | "keptMoved" | "missing";
 
 /**
  * As linhas do resumo. A primeira importação: criados sempre, o resto só maior que zero. A reimportação: novos e atualizados
@@ -446,6 +446,7 @@ function summaryRows(run: LinearRun): { key: RowKey; value: number }[] {
         { key: "flattened", value: count(run, "flattened") },
         { key: "skipped", value: count(run, "skipped") },
         { key: "skippedInvalid", value: count(run, "skippedInvalid") },
+        { key: "dueDatesInvalid", value: count(run, "dueDatesInvalid") },
         { key: "movedOutOfIdea", value: count(run, "movedOutOfIdea") },
       ]
     : [
@@ -456,6 +457,7 @@ function summaryRows(run: LinearRun): { key: RowKey; value: number }[] {
         { key: "flattened", value: count(run, "flattened") },
         { key: "skipped", value: count(run, "skipped") },
         { key: "skippedInvalid", value: count(run, "skippedInvalid") },
+        { key: "dueDatesInvalid", value: count(run, "dueDatesInvalid") },
         { key: "withoutDescription", value: count(run, "withoutDescription") },
         { key: "movedOutOfIdea", value: count(run, "movedOutOfIdea") },
       ];

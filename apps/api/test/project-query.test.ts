@@ -93,6 +93,7 @@ describe("search", () => {
       agentWork: null,
       priority: 0,
       effectivePriority: 0,
+      dueDate: null,
     });
   });
 

@@ -55,8 +55,10 @@ export type FakeIssue = {
   canceledAt?: string | null;
   previousIdentifiers?: string[];
   creator?: { id: string; name: string; email: string } | null;
+  /** O prazo (ADR 0064): só vai no nó quando dado (ausente = o Linear não mandou a chave). */
+  dueDate?: unknown;
 };
-export type FakeProject = { id: string; name: string; url?: string; status?: string; description?: string; content?: string | null; priority?: number; lead?: { id: string; email: string } | null };
+export type FakeProject = { id: string; name: string; url?: string; status?: string; description?: string; content?: string | null; priority?: number; lead?: { id: string; email: string } | null; targetDate?: unknown };
 /** O que a consulta de issues pediu (lido do texto e das variáveis da chamada). */
 export type FakeIssueAsk = { first: number; after: string | null; withDescription: boolean; withEmail: boolean };
 export type FakeTeamData = {
@@ -233,6 +235,7 @@ export const fakeIssueNode = (issue: FakeIssue, index = 0) => ({
   canceledAt: issue.canceledAt ?? null,
   previousIdentifiers: issue.previousIdentifiers ?? [],
   creator: issue.creator ?? null,
+  ...("dueDate" in issue ? { dueDate: issue.dueDate } : {}),
 });
 
 export const fakeProjectNode = (p: FakeProject, withContent: boolean, withEmail: boolean): Record<string, unknown> => {
@@ -244,6 +247,7 @@ export const fakeProjectNode = (p: FakeProject, withContent: boolean, withEmail:
     description: p.description ?? "",
     priority: p.priority ?? 0,
     lead: p.lead ? (withEmail ? p.lead : { id: p.lead.id }) : null,
+    ...("targetDate" in p ? { targetDate: p.targetDate } : {}),
   };
   if (withContent) node["content"] = p.content ?? null;
   return node;

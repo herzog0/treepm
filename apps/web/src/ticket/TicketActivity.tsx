@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import type { ActivityComment, ActivityEntry, ActivityTicketRef, ApiClient, ApiError, LinearAssigneeSide, LinearChange, TicketSummary } from "../api/client.js";
-import { formatActivityTime, formatDateTime } from "../i18n/format.js";
+import { formatActivityTime, formatDateTime, formatDueDate } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { loadErrorText } from "../LoadError.js";
 import { useStatusText } from "../map/nodeContent.js";
@@ -186,7 +186,8 @@ function TicketRef({ target, onOpen, children }: { target: ActivityTicketRef; on
 }
 
 function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket: (id: string) => void }) {
-  const { t } = useTranslation("ticket");
+  const { t, i18n } = useTranslation("ticket");
+  const language = i18n.language as Language;
   const { t: tMap } = useTranslation("map");
   const statusText = useStatusText();
   const ticketText = (target: ActivityTicketRef): string => {
@@ -230,6 +231,11 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
     }
     case "priority_changed":
       return render("priorityChanged", { values: { from: String(entry.from), to: String(entry.to) } });
+    case "due_date_changed": {
+      const { from, to } = entry;
+      const key = from === null ? "dueDateSet" : to === null ? "dueDateRemoved" : "dueDateChanged";
+      return render(key, { values: { from: from === null ? "" : formatDueDate(language, from), to: to === null ? "" : formatDueDate(language, to) } });
+    }
     case "parent_changed": {
       const { from, to } = entry;
       const key = from !== null && to !== null ? "parentChanged" : to !== null ? "parentMoved" : "parentRemoved";

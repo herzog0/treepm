@@ -299,6 +299,16 @@ describe("get_ticket_history", () => {
     for (const e of entries) expect(typeof e.at).toBe("string");
     expect(entries.find((e) => e.kind === "comment")).not.toHaveProperty("body");
   });
+  it("ticket criado já com prazo: a linha do tempo diz só 'criado', como o título inicial; o prazo está no ticket (ADR 0064)", async () => {
+    const { token } = await setup({ scope: "write" });
+    const created = await call(token, "create_ticket", { title: "Nasce com prazo", dueDate: "2026-12-12" });
+    expect(created.isError, created.text).toBe(false);
+    const key = created.json?.["key"] as string;
+    const history = await call(token, "get_ticket_history", { key });
+    expect(history.isError, history.text).toBe(false);
+    expect((history.json?.["events"] as any[]).map((e) => e.kind)).toEqual(["created"]);
+    expect((await call(token, "get_ticket", { key })).json).toMatchObject({ dueDate: "2026-12-12" });
+  });
   it("evento feito em 'entrar como' mostra só o ator exibido; o administrador real não sai", async () => {
     const { token } = await setup();
     await event(3, P().manager, "ticket.updated", { fields: ["priority"], priority: { from: 0, to: 2 }, via: "act-as", realPersonId: P().admin });

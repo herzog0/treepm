@@ -108,14 +108,14 @@
     },
     "writeSwitch": {
       "label": "Permitir escritura por MCP",
-      "hint": "Con el interruptor activado, los tokens de lectura y escritura podrán crear tickets, cambiar el estado y la prioridad, editar título y descripción, mover tickets en el árbol, cambiar dependencias, sincronizar con Linear, comentar y marcar trabajo en curso, con los permisos de la persona de cada token. Desactivado, ningún token escribe, sin importar su alcance."
+      "hint": "Con el interruptor activado, los tokens de lectura y escritura podrán crear tickets, cambiar el estado y la prioridad, editar título, descripción y fecha límite, mover tickets en el árbol, cambiar dependencias, sincronizar con Linear, comentar y marcar trabajo en curso, con los permisos de la persona de cada token. Desactivado, ningún token escribe, sin importar su alcance."
     },
     "scope": {
       "label": "Alcance",
       "read": "Solo lectura",
       "write": "Lectura y escritura",
       "readHint": "El cliente de IA solo consulta los tickets del proyecto.",
-      "writeHint": "Además de consultar, el cliente de IA podrá crear tickets, cambiar el estado y la prioridad, editar título y descripción, mover tickets en el árbol, cambiar dependencias, sincronizar con Linear, comentar y marcar trabajo en curso, con los permisos de tu propia cuenta.",
+      "writeHint": "Además de consultar, el cliente de IA podrá crear tickets, cambiar el estado y la prioridad, editar título, descripción y fecha límite, mover tickets en el árbol, cambiar dependencias, sincronizar con Linear, comentar y marcar trabajo en curso, con los permisos de tu propia cuenta.",
       "writeOff": "La escritura por MCP está desactivada en la organización: este token solo escribirá cuando un administrador active el interruptor."
     },
     "tokensOff": "El acceso por MCP está desactivado. Actívalo en Clientes de IA (MCP) para crear tokens.",

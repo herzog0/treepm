@@ -174,8 +174,8 @@ describe("mentionedBy no detalhe", () => {
     const b = await add({ title: "Quarto", description: "e PRIV-1" });
     const detail = await get(a.id);
     expect(detail.mentionedBy).toEqual([
-      { id: c.id, key: "PRIV-2", title: "Terceiro", status: "in_progress" },
-      { id: b.id, key: "PRIV-3", title: "Quarto", status: "todo" },
+      { id: c.id, key: "PRIV-2", title: "Terceiro", status: "in_progress", dueDate: null },
+      { id: b.id, key: "PRIV-3", title: "Quarto", status: "todo", dueDate: null },
     ]);
     expect(((await patch(a.id, { title: "Alvo 2" })).body as { mentionedBy: Mention[] }).mentionedBy).toHaveLength(2);
   });

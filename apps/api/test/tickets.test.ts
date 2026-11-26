@@ -49,6 +49,7 @@ describe("criação e leitura", () => {
       canEndAgentWork: false,
       agentWork: null,
       priority: 0,
+      dueDate: null,
       blocked: false,
       effectivePriority: { value: 0, from: null },
       externalSource: null,

@@ -104,6 +104,8 @@ const ticketSummarySchema = z.object({
   priority: z.number().int().optional(),
   /** Depende de ticket ainda aberto (ADR 0037); a fila "próximos para trabalhar" deixa o ticket de fora. A API sempre manda; ausente = não. */
   blocked: z.boolean().optional(),
+  /** Prazo (ADR 0064): data de calendário `AAAA-MM-DD`, sem hora nem fuso; `null` sem prazo. A API sempre manda e não diz se está atrasado (o "hoje" é o do navegador); ausente = sem prazo. */
+  dueDate: z.string().nullable().optional(),
 });
 const ticketLinkSchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatus });
 /** Ligação entre tickets (dependência ou "Relacionado a"); `fromLinear`: trazida do Linear por uma sincronização (ADR 0061, fatia 3), ausente numa API antiga. */
@@ -437,6 +439,8 @@ const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("agent_work_started"), until: z.string() }),
   z.object({ ...activityBase, type: z.literal("agent_work_ended"), reason: z.enum(["agent", "person", "finished", "idea", "archived"]) }),
   z.object({ ...activityBase, type: z.literal("priority_changed"), from: z.number().int(), to: z.number().int() }),
+  /** Prazo (ADR 0064), datas `AAAA-MM-DD`: `from` nulo = definiu; `to` nulo = tirou; os dois = mudou. */
+  z.object({ ...activityBase, type: z.literal("due_date_changed"), from: z.string().nullable(), to: z.string().nullable() }),
   z.object({ ...activityBase, type: z.literal("idea_registered") }),
   z.object({ ...activityBase, type: z.literal("idea_stage_changed"), from: ideaStage, to: ideaStage }),
   z.object({ ...activityBase, type: z.literal("idea_accepted") }),
@@ -656,6 +660,8 @@ export interface UpdateTicketBody {
   parentId?: string | null;
   /** Prioridade própria (ADR 0047): inteiro de -999 a 999. */
   priority?: number;
+  /** Prazo (ADR 0064): `AAAA-MM-DD` de 2000-01-01 a 2100-12-31, ou `null` para tirar. */
+  dueDate?: string | null;
 }
 
 export type ApiErrorKind =

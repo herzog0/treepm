@@ -28,7 +28,8 @@
     "dependsOn": "Depends on",
     "related": "Related to",
     "idea": "Idea",
-    "priority": "Priority"
+    "priority": "Priority",
+    "dueDate": "Due date"
   },
   "create": {
     "heading": "New ticket",
@@ -250,6 +251,15 @@
     "titleChanged_automatic": "Title changed automatically from “{{from}}” to “{{to}}”",
     "descriptionChanged_automatic": "Description edited automatically",
     "priorityChanged_automatic": "Priority changed automatically from <name>{{from}}</name> to <name>{{to}}</name>",
+    "dueDateSet": "<who>{{actor}}</who> set the due date to <name>{{to}}</name>",
+    "dueDateSet_noActor": "Due date set to <name>{{to}}</name>",
+    "dueDateSet_automatic": "Due date set automatically to <name>{{to}}</name>",
+    "dueDateChanged": "<who>{{actor}}</who> changed the due date from <name>{{from}}</name> to <name>{{to}}</name>",
+    "dueDateChanged_noActor": "Due date changed from <name>{{from}}</name> to <name>{{to}}</name>",
+    "dueDateChanged_automatic": "Due date changed automatically from <name>{{from}}</name> to <name>{{to}}</name>",
+    "dueDateRemoved": "<who>{{actor}}</who> removed the due date",
+    "dueDateRemoved_noActor": "Due date removed",
+    "dueDateRemoved_automatic": "Due date removed automatically",
     "parentMoved_automatic": "Moved automatically inside <to>{{to}}</to>",
     "parentRemoved_automatic": "Taken out of <from>{{from}}</from> automatically",
     "parentChanged_automatic": "Moved automatically from <from>{{from}}</from> to inside <to>{{to}}</to>",
@@ -339,6 +349,14 @@
     "decrease": "Decrease priority",
     "invalid": "Priority is a whole number from -999 to 999.",
     "inherited": "counts as {{value}}, from"
+  },
+  "dueDate": {
+    "set": "Set due date",
+    "none": "No due date",
+    "clear": "Remove the due date",
+    "invalid": "The due date must be between 2000 and 2100.",
+    "overdue_one": "overdue by {{count}} day",
+    "overdue_other": "overdue by {{count}} days"
   },
   "linear": {
     "view": "View in Linear",

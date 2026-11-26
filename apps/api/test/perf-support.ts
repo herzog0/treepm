@@ -56,17 +56,50 @@ export async function loadPerfWorld(pool: pg.Pool, n = 400): Promise<PerfWorld> 
   return { plan, edgeIds };
 }
 
+/**
+ * `dueDate` e `overdue` (ADR 0064, prazo) vieram depois das referências de ouro: nenhum ticket deste projeto tem prazo, então todo
+ * `dueDate` é nulo e todo `overdue` é falso. Confere isso e tira só esses dois campos antes de comparar: nos objetos, as duas chaves;
+ * no texto JSON das respostas do MCP, só os dois pares `"dueDate":null` e `"overdue":false` (o resto do texto fica byte a byte como
+ * veio, sem reserializar). As referências não são regravadas.
+ */
+export function withoutDueDate(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutDueDate);
+  if (typeof value === "string") {
+    expect(value, "dueDate sem prazo").not.toMatch(/"dueDate":(?!null[,}])/);
+    expect(value, "overdue sem prazo").not.toMatch(/"overdue":(?!false[,}])/);
+    return value.replace(/,"dueDate":null(?=[,}])/g, "").replace(/,"overdue":false(?=[,}])/g, "");
+  }
+  if (value === null || typeof value !== "object") return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
+    if (key === "dueDate") expect(inner, "dueDate sem prazo").toBeNull();
+    else if (key === "overdue") expect(inner, "overdue sem prazo").toBe(false);
+    else out[key] = withoutDueDate(inner);
+  }
+  return out;
+}
+
+/** A referência de ouro inteira, lida como está (para comparações que não são de igualdade de texto). */
+export function readGolden(name: string): unknown {
+  return JSON.parse(readFileSync(resolve(GOLDEN_DIR, `${name}.json`), "utf8")) as unknown;
+}
+
 /** Compara com o arquivo guardado (gerado pelo código de antes da mudança); `UPDATE_GOLDEN=1` regrava. Ordem de chaves e de listas conta. */
-export function expectGolden(name: string, actual: unknown): void {
+export function expectGolden(name: string, actual: unknown, omit: readonly string[] = []): void {
   const file = resolve(GOLDEN_DIR, `${name}.json`);
-  const text = JSON.stringify(actual);
+  const text = JSON.stringify(process.env["UPDATE_GOLDEN"] === "1" ? actual : withoutDueDate(actual));
   if (process.env["UPDATE_GOLDEN"] === "1") {
     mkdirSync(GOLDEN_DIR, { recursive: true });
     writeFileSync(file, `${text}\n`);
     return;
   }
   if (!existsSync(file)) throw new Error(`Falta o arquivo de referência ${file}; rode com UPDATE_GOLDEN=1 no código antigo.`);
-  const golden = readFileSync(file, "utf8").trimEnd();
+  let golden = readFileSync(file, "utf8").trimEnd();
+  if (omit.length > 0) {
+    const parsed = JSON.parse(golden) as Record<string, unknown>;
+    for (const key of omit) delete parsed[key];
+    golden = JSON.stringify(parsed);
+  }
   expect(JSON.parse(text)).toEqual(JSON.parse(golden));
   expect(text).toBe(golden);
 }

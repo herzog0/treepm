@@ -243,3 +243,25 @@ button.ticket-comment-area:hover { border-color: var(--tp-border-strong, var(--t
 .ticket-page .ticket-linear-origin { list-style: none; margin: 6px 0 14px; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 14px; font: 400 12px/1.4 var(--tp-font); color: var(--tp-text-2); }
 .ticket-page .ticket-chat-button:hover { background: var(--tp-selected); border-color: var(--tp-border-strong); }
 @media (max-width: 720px) { .ticket-page .ticket-chat-button { min-height: 44px; } }
+
+/* Prazo (ADR 0064): fora de edição, o texto no idioma da interface com o seletor de data do navegador por cima (transparente);
+   com o foco na linha, o seletor aparece no lugar do texto. Texto e seletor ocupam a mesma célula, sempre presentes: a caixa é a
+   maior das duas e não muda ao focar ou desfocar, então o "×" e as linhas de baixo não se movem. */
+.ticket-due { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 30px; }
+.ticket-due-picker { display: inline-grid; align-items: center; min-height: 30px; border-radius: var(--tp-radius-control); color: var(--tp-text); }
+.ticket-due-picker > * { grid-area: 1 / 1; }
+.ticket-due-picker > .ticket-due-text { padding: 0 8px; }
+.ticket-due-picker:hover { background: var(--tp-selected); }
+.ticket-page .ticket-due-picker .ticket-due-input { box-sizing: border-box; width: 100%; height: 28px; min-height: 0; margin: 0; padding: 0 6px; border: 1px solid transparent; opacity: 0; cursor: pointer; font-variant-numeric: tabular-nums; }
+.ticket-due:focus-within .ticket-due-picker { background: none; }
+.ticket-due:focus-within .ticket-due-text { visibility: hidden; }
+.ticket-page .ticket-due:focus-within .ticket-due-picker .ticket-due-input { border-color: var(--tp-border); opacity: 1; cursor: text; }
+.ticket-due-empty { color: var(--tp-text-3); }
+/* Atrasado: a cor de alerta que o tema já usa nos erros, e o texto "atrasado há N dias", para a cor não ser o único sinal. */
+.ticket-due-picker.is-overdue .ticket-due-text, .ticket-due-text.is-overdue, .ticket-due-note { color: var(--tp-danger-text); font-weight: 600; }
+.ticket-due-note { margin-left: 4px; font-size: 12.5px; }
+/* Prazo no toque: o seletor com alvo de 44 px, como os botões da prioridade. */
+@media (max-width: 720px) {
+  .ticket-due-picker { min-height: 44px; }
+  .ticket-page .ticket-due-picker .ticket-due-input { height: 44px; }
+}

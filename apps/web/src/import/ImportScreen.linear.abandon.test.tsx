@@ -239,6 +239,28 @@ describe("Importação do Linear › resumo, linhas novas", () => {
     expect(within(list).queryByText("Tirados de dentro de ideia")).not.toBeInTheDocument();
   });
 
+  it("prazo malformado ou fora da faixa vindo do Linear (ADR 0064) aparece só quando maior que zero, dizendo os dois motivos", async () => {
+    setup(done({ issuesCreated: 10, dueDatesInvalid: 3 }));
+    const list = await screen.findByLabelText("Contagens da importação");
+    expect(within(list).getByText("Prazos ignorados (formato inválido ou fora de 2000–2100)").nextSibling).toHaveTextContent("3");
+  });
+
+  it.each([
+    ["en", "Import counts", "Due dates skipped (invalid format or outside 2000–2100)"],
+    ["es-MX", "Conteos de la importación", "Fechas límite ignoradas (formato inválido o fuera de 2000–2100)"],
+  ] as const)("a linha dos prazos ignorados em %s", async (language, label, text) => {
+    await setTestLanguage(language);
+    setup(done({ issuesCreated: 10, dueDatesInvalid: 2 }));
+    const list = await screen.findByLabelText(label);
+    expect(within(list).getByText(text).nextSibling).toHaveTextContent("2");
+  });
+
+  it("sem prazo malformado, a linha some", async () => {
+    setup(done({ issuesCreated: 10, dueDatesInvalid: 0 }));
+    const list = await screen.findByLabelText("Contagens da importação");
+    expect(within(list).queryByText(/^Prazos ignorados/)).not.toBeInTheDocument();
+  });
+
   it("avisa quando o Linear não deixou ler os e-mails dos responsáveis", async () => {
     setup(done({ issuesCreated: 10, assigneeEmailUnavailable: true }));
     expect(await screen.findByText("O Linear não deixou ler os e-mails dos responsáveis; ninguém foi atribuído.")).toBeInTheDocument();

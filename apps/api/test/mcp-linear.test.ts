@@ -247,7 +247,7 @@ describe("as ferramentas por alcance", () => {
 
 /** Tudo o que a sincronização deixou no projeto, sem ids, datas de gravação, `via` nem `tokenId`: dois caminhos iguais dão o mesmo retrato. */
 async function snapshot(projectId: string): Promise<unknown> {
-  const tickets = await q("select t.number, t.title, t.description, t.status, t.priority, p.number as parent, t.idea_stage from tickets t left join tickets p on p.id = t.parent_id where t.project_id = $1 order by t.number", [projectId]);
+  const tickets = await q("select t.number, t.title, t.description, t.status, t.priority, t.due_date::text as due_date, p.number as parent, t.idea_stage from tickets t left join tickets p on p.id = t.parent_id where t.project_id = $1 order by t.number", [projectId]);
   const refs = await q(
     "select t.number, r.kind, r.external_id, r.external_key, r.external_url, r.source_snapshot, r.applied_snapshot, r.missing_since is null as present, r.external_created_at, r.external_previous_keys, r.external_creator_name from ticket_external_refs r join tickets t on t.id = r.ticket_id where r.project_id = $1 order by t.number",
     [projectId],
@@ -1303,4 +1303,49 @@ describe("histórico do Linear (ADR 0061, fatia 4; TREEPM-482)", () => {
       expect(res.text).not.toMatch(/\\u0000/);
     }
   }, 60_000);
+});
+
+describe("prazo (ADR 0064) pelo MCP: a mesma sincronização da tela", () => {
+  /** Importa pela tela sem prazo, envelhece a origem (sem a chave `dueDate`, como antes da fatia), põe prazos no Linear e sincroniza. */
+  async function dueScenario(projectId: string, sync: () => Promise<any>): Promise<{ last: any; snap: unknown; quiet: any; quietEvents: number }> {
+    const data = team();
+    await link(projectId, data);
+    await httpRun(projectId);
+    await q("update ticket_external_refs set source_snapshot = source_snapshot - 'dueDate', applied_snapshot = applied_snapshot - 'dueDate'");
+    // `i3` já tinha prazo aqui antes de o campo ser sincronizado: fica e vira "mantido daqui".
+    await q("update tickets set due_date = '2026-10-01' where id = (select ticket_id from ticket_external_refs where external_id = 'i3')");
+    (data.projects[0] as { targetDate?: unknown }).targetDate = "2027-01-31";
+    Object.assign(data.issues[0] as FakeIssue, { dueDate: "2026-12-12" });
+    Object.assign(data.issues[1] as FakeIssue, { dueDate: "2026-02-30" });
+    Object.assign(data.issues[2] as FakeIssue, { dueDate: "2026-12-20" });
+    const last = await sync();
+    const snap = await snapshot(projectId);
+    const before = Number((await q("select count(*)::int n from activity_events where kind = 'ticket.updated'"))[0]?.n);
+    const quiet = await sync();
+    const quietEvents = Number((await q("select count(*)::int n from activity_events where kind = 'ticket.updated'"))[0]?.n) - before;
+    return { last, snap, quiet, quietEvents };
+  }
+
+  it("prazo do Linear preenche o vazio, mantém o daqui, conta o malformado e a rodada seguinte fica quieta — igual pela tela e pelo MCP", async () => {
+    const viaHttp = await dueScenario(priv(), () => httpRun(priv()));
+    await truncateAll(h.pool);
+    h.app().get(AccessTokenService).resetMemory();
+    h.app().get(McpGateway).resetMemory();
+    const world = await seedWorld(h.pool);
+    const projectId = world.projects.priv;
+    let tok = "";
+    const viaMcp = await dueScenario(projectId, async () => {
+      tok = tok === "" ? await token("admin", {}, projectId) : tok;
+      return (await mcpSync(tok)).last;
+    });
+    expect(viaMcp.snap).toEqual(viaHttp.snap);
+    expect(viaMcp.last).toMatchObject({ phase: "done", done: true, counts: viaHttp.last.counts });
+    expect(viaHttp.last.counts).toMatchObject({ filled: 2, keptTouched: 1, dueDatesInvalid: 1 });
+    const dues = await q("select r.external_id, t.due_date::text as due from ticket_external_refs r join tickets t on t.id = r.ticket_id where r.project_id = $1 order by 1", [projectId]);
+    expect(Object.fromEntries(dues.map((row) => [row["external_id"], row["due"]]))).toEqual({ lp1: "2027-01-31", i1: "2026-12-12", i2: null, i3: "2026-10-01" });
+    for (const run of [viaHttp, viaMcp]) {
+      expect(run.quietEvents).toBe(0);
+      expect(run.quiet.counts).toMatchObject({ updated: 0, filled: 0, dueDatesInvalid: 1 });
+    }
+  });
 });

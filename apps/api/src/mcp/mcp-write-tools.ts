@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { HttpException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import { z } from "zod";
+import { DUE_DATE_MAX, DUE_DATE_MIN, isValidDueDate } from "@treepm/domain";
 import type { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
 import { commentBodySchema } from "../tickets/ticket-comments.schema.js";
@@ -43,6 +44,8 @@ export const setTicketPriorityInput = z.strictObject({
   key: keyField.describe("Ticket key of this project."),
   priority: ticketPrioritySchema.describe("New priority: an integer from -999 to 999. 0 means \"no priority of its own\" (the ticket inherits the one of its nearest ancestor). Higher comes first; negative goes last."),
 });
+/** O prazo no MCP: a mesma regra da tela e da API, com a mensagem em inglês, como os outros campos do MCP. */
+const dueDateField = z.string().refine(isValidDueDate, `dueDate must be a calendar day YYYY-MM-DD that exists, from ${DUE_DATE_MIN} to ${DUE_DATE_MAX}.`);
 const requestIdField = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/, "requestId must be 8 to 64 letters, digits, - or _.");
 export const createTicketInput = z.strictObject({
   title: ticketTitleSchema.describe("Ticket title, 1 to 200 characters."),
@@ -50,6 +53,7 @@ export const createTicketInput = z.strictObject({
   parent: keyField.optional().describe("Optional key of the ticket this one is part of. Omit to create a top-level ticket."),
   priority: ticketPrioritySchema.optional().describe("Optional own priority, -999 to 999 (default 0)."),
   idea: z.boolean().optional().describe("true to register the ticket as an idea (not accepted work yet) instead of ordinary work."),
+  dueDate: dueDateField.nullable().optional().describe("Optional due date: a calendar day YYYY-MM-DD (no time, no time zone), from 2000-01-01 to 2100-12-31. Omit or null for none."),
   requestId: requestIdField.optional().describe("Optional. If you repeat the call with the same requestId and the same title within 10 minutes (for example after a timeout), you get the ticket already created and no second one is created."),
 });
 
@@ -57,6 +61,7 @@ export const updateTicketInput = z.strictObject({
   key: keyField.describe("Ticket key of this project, for example PROJ-47."),
   title: ticketTitleSchema.optional().describe("Optional new title, 1 to 200 characters."),
   description: ticketDescriptionSchema.optional().describe("Optional new description (replaces the old one). Plain text or markdown; a key like PROJ-12 in it becomes a mention of that ticket; a mention of a person is refused."),
+  dueDate: dueDateField.nullable().optional().describe("Optional due date: a calendar day YYYY-MM-DD (no time, no time zone), from 2000-01-01 to 2100-12-31; null removes it."),
 });
 export const moveTicketInput = z.strictObject({
   key: keyField.describe("Key of the ticket to move."),
@@ -84,6 +89,8 @@ const ticketSummaryOutput = z.strictObject({
   agentWork: z.strictObject({ until: z.string() }).nullable(),
   priority: z.number().int(),
   effective_priority: z.number().int(),
+  dueDate: z.string().nullable(),
+  overdue: z.boolean(),
 });
 export const createTicketOutput = z.strictObject({ key: z.string(), ticket: ticketSummaryOutput });
 export const setAgentWorkOutput = z.strictObject({ key: z.string(), agentWork: agentWorkOutput });
@@ -114,13 +121,13 @@ export const WRITE_TOOL_DEFINITIONS = {
   },
   create_ticket: {
     title: "Create a ticket",
-    description: `Create one ticket in this project with a title and, optionally, a description, a parent ticket, a priority and idea: true to register it as an idea. You choose where it goes: it does not look for a place by itself, does not use any AI and does not assign people. A ticket inside an idea stays in todo. It does not move, edit or delete existing tickets. To retry safely after a timeout, repeat the call with the same requestId and the same arguments within 10 minutes: you get the same ticket, not a second one. Returns the new ticket key and its summary. Counts toward the limit of 40 changes per minute. ${NOTE}`,
+    description: `Create one ticket in this project with a title and, optionally, a description, a parent ticket, a priority, a due date (a calendar day YYYY-MM-DD) and idea: true to register it as an idea. You choose where it goes: it does not look for a place by itself, does not use any AI and does not assign people. A ticket inside an idea stays in todo. It does not move, edit or delete existing tickets. To retry safely after a timeout, repeat the call with the same requestId and the same arguments within 10 minutes: you get the same ticket, not a second one. Returns the new ticket key and its summary. Counts toward the limit of 40 changes per minute. ${NOTE}`,
     inputSchema: createTicketInput,
     outputSchema: createTicketOutput,
   },
   update_ticket: {
-    title: "Edit a ticket's title and description",
-    description: `Change the title, the description or both of one ticket (at least one). The description replaces the old one; a key like PROJ-12 in it becomes a mention of that ticket, and a mention of a person is refused. It does not change the status, priority, parent or assignees (other tools do). Repeating the same call changes nothing the second time. Returns the ticket as get_ticket does. The change shows in the ticket history as made through MCP. ${NOTE}`,
+    title: "Edit a ticket's title, description and due date",
+    description: `Change the title, the description, the due date or any of them of one ticket (at least one). The description replaces the old one; a key like PROJ-12 in it becomes a mention of that ticket, and a mention of a person is refused. The due date is a calendar day YYYY-MM-DD with no time and no time zone; null removes it. Setting a due date notifies nobody and does not change the order of the work queue. It does not change the status, priority, parent or assignees (other tools do). Repeating the same call changes nothing the second time. Returns the ticket as get_ticket does. The change shows in the ticket history as made through MCP. ${NOTE}`,
     inputSchema: updateTicketInput,
   },
   move_ticket: {
@@ -151,7 +158,8 @@ export const PEOPLE_WRITE_TOOL_DEFINITIONS = {
 
 /** Resumo dos argumentos de uma criação (não os argumentos): a repetição só vale se tudo o que foi pedido bater. */
 function requestDigest(input: z.infer<typeof createTicketInput>, parentId: string | null): string {
-  const normalized = JSON.stringify([input.title, input.description ?? "", parentId, input.idea === true, input.priority ?? 0]);
+  // O prazo entra no resumo só quando foi pedido: o resumo de uma criação sem prazo continua o mesmo de antes (ADR 0064).
+  const normalized = JSON.stringify([input.title, input.description ?? "", parentId, input.idea === true, input.priority ?? 0, ...(input.dueDate ? [input.dueDate] : [])]);
   return createHash("sha256").update(normalized).digest("hex");
 }
 
@@ -250,11 +258,12 @@ export class WriteTools {
   }
 
   async updateTicket(input: z.infer<typeof updateTicketInput>) {
-    if (input.title === undefined && input.description === undefined) throw new ToolInputError("Provide a title, a description or both.");
+    if (input.title === undefined && input.description === undefined && input.dueDate === undefined) throw new ToolInputError("Provide a title, a description, a due date or any of them.");
     return this.write(input.key, async (tx, principal, id, number) => {
       await this.services.tickets.updateTicket(tx, principal, id, {
         ...(input.title === undefined ? {} : { title: input.title }),
         ...(input.description === undefined ? {} : { description: input.description }),
+        ...(input.dueDate === undefined ? {} : { dueDate: input.dueDate }),
       });
       return this.reader.ticketIn(tx, principal, number);
     });
@@ -317,7 +326,7 @@ export class WriteTools {
         tx,
         principal,
         this.context.project.id,
-        { title: input.title, description: input.description, parentId, idea: input.idea },
+        { title: input.title, description: input.description, parentId, idea: input.idea, dueDate: input.dueDate },
         {},
         input.requestId === undefined ? undefined : { id: input.requestId, digest: requestDigest(input, parentId) },
       );

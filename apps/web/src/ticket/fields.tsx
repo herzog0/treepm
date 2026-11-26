@@ -17,6 +17,10 @@ import type { DraftRequest } from "./description/WriterRequest.js";
 import { descendantIds } from "./tree.js";
 import { TestBadge, useNameWithBadge } from "../people/TestBadge.js";
 import { fold, searchTickets } from "../command/search.js";
+import { DUE_DATE_MAX, DUE_DATE_MIN, daysOverdue, isOverdue, isValidDueDate } from "@treepm/domain";
+import { formatDueDate } from "../i18n/format.js";
+import type { Language } from "../i18n/languages.js";
+import { useLocalToday } from "./clock.js";
 
 const STATUSES: readonly TicketStatus[] = ["todo", "in_progress", "in_review", "done", "cancelled"];
 
@@ -356,6 +360,182 @@ export function PriorityField({ client, detail, canEdit, onOpen, onSaved }: Fiel
         <InheritedPriority detail={detail} onOpen={onOpen} />
       </span>
       {invalid && <p role="alert" className="ticket-error">{t("priority.invalid")}</p>}
+      <ActionError action={action} />
+    </>
+  );
+}
+
+/** Teclas que mudam um segmento do seletor de data; as setas laterais, Tab, Enter e Esc só andam ou confirmam. */
+const DUE_DATE_EDIT_KEY = /^(?:[0-9]|Backspace|Delete|ArrowUp|ArrowDown|PageUp|PageDown)$/;
+
+/**
+ * Linha "Prazo" (ADR 0064): a data no idioma da interface; atrasada (pelo dia do navegador), em destaque com "atrasado há
+ * N dias". Fora de edição o texto fica por cima do seletor de data do navegador (transparente); com o foco no campo ou no "×",
+ * os segmentos do seletor aparecem no lugar do texto, na mesma caixa: nada na linha se move ao focar ou desfocar.
+ *
+ * Só grava o que a pessoa mudou: uma tecla num segmento, ou a confirmação no calendário do navegador (o `change` nativo com o
+ * campo focado e sem tecla; as setas do calendário emitem só `input`, e fechar o calendário clicando fora emite `change` depois
+ * do `blur`). Sem mudança da pessoa, sair não grava, e o campo acompanha o valor do servidor. Com mudança, grava uma vez ao
+ * confirmar (Enter ou saída da linha) se o rascunho é uma data válida e diferente; fora da faixa avisa e volta ao valor de antes;
+ * incompleto volta ao valor de antes. Esc descarta o rascunho. O "×" descarta o rascunho e só tira o prazo: ir do campo ao "×"
+ * não grava, e o clique no "×" não tira o foco do campo.
+ */
+export function DueDateField({ client, detail, canEdit, onSaved }: FieldBase & { canEdit: boolean }) {
+  const { t, i18n } = useTranslation("ticket");
+  const action = useAction();
+  const today = useLocalToday();
+  const value = detail.dueDate ?? null;
+  const [draft, setDraft] = useState(value ?? "");
+  const [invalid, setInvalid] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const clearButton = useRef<HTMLButtonElement>(null);
+  // A pessoa mudou o campo desde a última confirmação (o rascunho pode estar só nos segmentos: data incompleta vale "").
+  const dirty = useRef(false);
+  // Uma tecla neste instante: o `change` que vier junto é digitação, não a escolha no calendário.
+  const keyed = useRef(false);
+  // Sem mudança da pessoa, o campo mostra (e parte d)o valor do servidor, mesmo com o foco.
+  useEffect(() => {
+    if (!dirty.current) setDraft(value ?? "");
+    setInvalid(false);
+  }, [value]);
+  const overdueInput = { dueDate: value, category: detail.status, today, idea: detail.idea != null };
+  const overdue = isOverdue(overdueInput);
+  const text = value === null ? null : formatDueDate(i18n.language as Language, value);
+
+  const save = async (next: string | null) => {
+    if (action.busy || next === value) return false;
+    const result = await action.run(() => client.updateTicket(detail.id, { dueDate: next }));
+    if (result.ok) onSaved();
+    else setDraft(value ?? "");
+    return result.ok;
+  };
+  /** Volta ao valor do servidor, inclusive os segmentos de uma data incompleta, que o valor do campo ("") não enxerga. */
+  const reset = (element: HTMLInputElement) => {
+    dirty.current = false;
+    const current = value ?? "";
+    element.value = current;
+    setDraft(current);
+  };
+  const commit = (element: HTMLInputElement) => {
+    const next = element.value;
+    if (!dirty.current || next === "") return reset(element);
+    if (!isValidDueDate(next)) {
+      setInvalid(true);
+      return reset(element);
+    }
+    dirty.current = false;
+    void save(next);
+  };
+  const clear = () => {
+    if (action.busy) return;
+    if (input.current) reset(input.current);
+    setInvalid(false);
+    const fromButton = document.activeElement === clearButton.current;
+    void save(null).then((ok) => {
+      // O "×" some com o prazo: quem chegou nele pelo teclado continua na linha, no campo.
+      if (ok && fromButton && document.activeElement === clearButton.current) input.current?.focus();
+    });
+  };
+  // O `change` nativo sem tecla no campo: a confirmação no calendário do navegador, se o campo ainda tem o foco.
+  const confirmPicked = useRef<(element: HTMLInputElement) => void>(() => undefined);
+  confirmPicked.current = (element) => {
+    if (keyed.current) return;
+    if (document.activeElement !== element) return reset(element);
+    dirty.current = true;
+    commit(element);
+  };
+  useEffect(() => {
+    const element = input.current;
+    if (!element) return;
+    const listener = () => confirmPicked.current(element);
+    element.addEventListener("change", listener);
+    return () => element.removeEventListener("change", listener);
+  }, [canEdit]);
+  const note = overdue ? <span className="ticket-due-note">{t("dueDate.overdue", { count: daysOverdue(overdueInput) })}</span> : null;
+
+  if (!canEdit) {
+    return (
+      <span className="ticket-value">
+        {value === null ? <span className="ticket-due-empty">{t("dueDate.none")}</span> : <time dateTime={value} className={overdue ? "ticket-due-text is-overdue" : "ticket-due-text"}>{text}</time>}
+        {note}
+      </span>
+    );
+  }
+  return (
+    <>
+      <span
+        className="ticket-due"
+        onBlur={(event) => {
+          // Ir do campo ao "×" (ou voltar) fica dentro da linha: só a saída da linha confirma.
+          if (input.current && !event.currentTarget.contains(event.relatedTarget as Node | null)) commit(input.current);
+        }}
+      >
+        <span className={overdue ? "ticket-due-picker is-overdue" : "ticket-due-picker"}>
+          <span className={value === null ? "ticket-due-text ticket-due-empty" : "ticket-due-text"} aria-hidden="true">{text ?? t("dueDate.set")}</span>
+          <input
+            ref={input}
+            type="date"
+            className="ticket-due-input"
+            aria-label={t("fields.dueDate")}
+            aria-invalid={invalid || undefined}
+            min={DUE_DATE_MIN}
+            max={DUE_DATE_MAX}
+            value={draft}
+            readOnly={action.busy}
+            onClick={(event) => {
+              // O texto por cima é o que se vê; o clique abre o calendário do navegador onde houver.
+              try {
+                event.currentTarget.showPicker();
+              } catch {
+                // Sem calendário (ou sem gesto do usuário): o campo continua aceitando o teclado.
+              }
+            }}
+            onKeyDown={(event) => {
+              const element = event.currentTarget;
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commit(element);
+              } else if (event.key === "Escape") {
+                if (dirty.current || element.validity.badInput) {
+                  event.stopPropagation();
+                  event.preventDefault();
+                  reset(element);
+                }
+              } else if (event.key !== "Tab") {
+                keyed.current = true;
+                setTimeout(() => {
+                  keyed.current = false;
+                }, 0);
+                // Com Alt, Ctrl ou Meta a tecla é atalho (Alt+↓ abre o calendário), não edição de segmento.
+                if (DUE_DATE_EDIT_KEY.test(event.key) && !event.altKey && !event.ctrlKey && !event.metaKey && !action.busy) {
+                  dirty.current = true;
+                  setInvalid(false);
+                }
+              }
+            }}
+            onChange={(event) => {
+              // Só o rascunho: digitação ou o calendário ainda aberto. Quem grava é a confirmação.
+              setDraft(event.target.value);
+            }}
+          />
+        </span>
+        {value !== null && (
+          <button
+            ref={clearButton}
+            type="button"
+            className="ticket-priority-step"
+            aria-label={t("dueDate.clear")}
+            aria-disabled={action.busy || undefined}
+            // O clique não tira o foco do campo: a saída não confirma o rascunho que o "×" descarta, e o botão não anda.
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={clear}
+          >
+            ×
+          </button>
+        )}
+        {note}
+      </span>
+      {invalid && <p role="alert" className="ticket-error">{t("dueDate.invalid")}</p>}
       <ActionError action={action} />
     </>
   );

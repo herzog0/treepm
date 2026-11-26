@@ -60,7 +60,7 @@ describe("HttpLinearClient.listTeamProjects", () => {
   it("uma página de 50 projetos do time, com o cursor da seguinte", async () => {
     const { client: c, fake } = client([{ body: projectsBody([{ id: "p1", name: "Alfa", url: "https://linear.app/acme/project/alfa" }], true, "cur-2") }]);
     const page = await c.listTeamProjects(KEY, "team-eng", null);
-    expect(page).toEqual({ nodes: [{ id: "p1", name: "Alfa", url: "https://linear.app/acme/project/alfa", statusType: null, description: null, content: null, priority: 0, lead: null }], nextCursor: "cur-2", skippedInvalid: 0 });
+    expect(page).toEqual({ nodes: [{ id: "p1", name: "Alfa", url: "https://linear.app/acme/project/alfa", statusType: null, description: null, content: null, priority: 0, lead: null, dueDate: undefined }], nextCursor: "cur-2", skippedInvalid: 0, dueDatesInvalid: 0 });
     expect(LINEAR_IMPORT_PAGE_SIZE).toBe(50);
     expect(fake.calls[0]!.variables).toEqual({ id: "team-eng", after: null, first: 50 });
     expect(fake.calls[0]!.query).toMatch(/projects\(first:\s*\$first/);
@@ -70,7 +70,7 @@ describe("HttpLinearClient.listTeamProjects", () => {
 
   it("última página não tem cursor; cursor volta nos argumentos", async () => {
     const { client: c, fake } = client([{ body: projectsBody([], false, "ignorado") }]);
-    expect(await c.listTeamProjects(KEY, "team-eng", "cur-2")).toEqual({ nodes: [], nextCursor: null, skippedInvalid: 0 });
+    expect(await c.listTeamProjects(KEY, "team-eng", "cur-2")).toEqual({ nodes: [], nextCursor: null, skippedInvalid: 0, dueDatesInvalid: 0 });
     expect(fake.calls[0]!.variables).toEqual({ id: "team-eng", after: "cur-2", first: 50 });
   });
 
@@ -116,6 +116,7 @@ describe("HttpLinearClient.listTeamIssues", () => {
       canceledAt: null,
       previousIdentifiers: [],
       creator: null,
+      dueDate: undefined, // a chave ausente na resposta vale "não lido" (ADR 0064)
     });
     expect(page.nodes[1]).toMatchObject({ id: "iss-2", trashed: true, assignee: null, parentId: null, projectId: null });
   });

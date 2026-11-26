@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ConflictException, HttpException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Prisma, TenantClient } from "@treepm/db";
-import { canImportTickets } from "@treepm/domain";
+import { canImportTickets, parseDueDate } from "@treepm/domain";
 import type { TicketStatus } from "@treepm/domain";
 import type { LinearParentMove } from "@treepm/domain";
 import type { LinearHistoryAuthor, LinearHistoryChange, LinearHistoryResolver } from "@treepm/domain";
@@ -16,6 +16,7 @@ import { isStructureExpiredWhileWorking } from "../tickets/structure-lock.js";
 import { retryableConflict } from "../common/error.filter.js";
 import type { TenantRunner } from "../db/own-transactions.js";
 import { touchProjectVersion } from "../tickets/project-version.js";
+import { dueDateText, dueDateValue } from "../tickets/due-date.js";
 import { structureKey, withStructureSlot } from "../tickets/structure-queue.js";
 import { MAX_TREE_DEPTH } from "../tickets/ticket-scope.js";
 import { AgentWorkService } from "../tickets/agent-work.service.js";
@@ -117,6 +118,8 @@ const COUNT_KEYS = [
   "missingProjects",
   // Sincronização (ADR 0061): campos preenchidos pela primeira vez em tickets já importados.
   "filled",
+  // Prazo (ADR 0064): issues e projetos cujo prazo veio malformado do Linear (o item entra; o prazo não é tocado).
+  "dueDatesInvalid",
   // Comentários (ADR 0061, fatia 2): criados, atualizados, mantidos porque foram editados aqui, ignorados (issue não importada, corpo
   // vazio), lidos, fora do formato e não encontrados no Linear.
   "commentsCreated",
@@ -258,9 +261,13 @@ const FLAG_STATUS_CHANGED = 8;
 /** A chave da situação no retrato de origem: `stateType` na issue, `statusType` no projeto do Linear. */
 const statusKeyOf = (kind: string): "stateType" | "statusType" => (kind === "project" ? "statusType" : "stateType");
 const mapRawStatus = (kind: string, raw: unknown): TicketStatus => (kind === "project" ? mapLinearProjectStatus(typeof raw === "string" ? raw : null) : mapLinearStatus(typeof raw === "string" ? raw : ""));
-/** Só as chaves de `patch` cujo valor difere do de `current` (um retrato só é regravado quando algo mudou). */
+/**
+ * Só as chaves de `patch` cujo valor difere do de `current` (um retrato só é regravado quando algo mudou). A chave que o retrato ainda
+ * não tem conta como mudança mesmo com valor nulo: é o que diz que o campo já foi lido (a regra do campo sem retrato, ADR 0061, olha a
+ * presença da chave). Sem isso, um campo vazio nos dois lados nunca ganhava o retrato.
+ */
 const changedKeys = (current: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> =>
-  Object.fromEntries(Object.entries(patch).filter(([key, value]) => JSON.stringify(current[key] ?? null) !== JSON.stringify(value ?? null)));
+  Object.fromEntries(Object.entries(patch).filter(([key, value]) => value !== undefined && (!(key in current) || JSON.stringify(current[key] ?? null) !== JSON.stringify(value ?? null))));
 
 /** A issue como a reimportação a compara: o que chega e o retrato de origem, os dois mapeados com a regra de hoje. */
 function issueIncoming(node: LinearIssueNode, mapped: MappedIssue, ref: RefRow, projectKey: string, withoutDescription: boolean): Incoming {
@@ -275,6 +282,7 @@ function issueIncoming(node: LinearIssueNode, mapped: MappedIssue, ref: RefRow, 
     description: withoutDescription ? null : mapped.description,
     status: mapped.status,
     priority: mapped.priority,
+    dueDate: mapped.dueDate,
     assignee: { externalId: mapped.source.assigneeExternalId, email: node.assignee?.email ?? null, emailReadable: node.assignee === null || node.assignee.email !== null },
     source: mapped.source,
     origin: issueOrigin(node, mapped),
@@ -284,6 +292,7 @@ function issueIncoming(node: LinearIssueNode, mapped: MappedIssue, ref: RefRow, 
       status: mapLinearStatus(text(source["stateType"])),
       priority: mapLinearPriority(typeof source["priority"] === "number" ? source["priority"] : 0),
       assigneeExternalId: typeof source["assigneeExternalId"] === "string" ? source["assigneeExternalId"] : null,
+      dueDate: parseDueDate(source["dueDate"]),
     },
   };
 }
@@ -299,6 +308,7 @@ function withProjectPrevious(incoming: Incoming, ref: RefRow, projectKey: string
       status: mapLinearProjectStatus(typeof source["statusType"] === "string" ? source["statusType"] : null),
       priority: mapLinearPriority(typeof source["priority"] === "number" ? source["priority"] : 0),
       assigneeExternalId: typeof source["assigneeExternalId"] === "string" ? source["assigneeExternalId"] : null,
+      dueDate: parseDueDate(source["dueDate"]),
     },
   };
 }
@@ -330,6 +340,7 @@ function projectIncoming(node: LinearProjectNode, projectKey: string, summaryOnl
     description: raw === null ? null : mapLinearDescription(raw, projectKey),
     status: mapLinearProjectStatus(node.statusType),
     priority: mapLinearPriority(node.priority),
+    dueDate: node.dueDate,
     assignee: { externalId: lead ? cleanLinearText(lead.id) : null, email: lead?.email ?? null, emailReadable: lead === null || lead.email !== null },
     source: {
       name: cleanLinearText(node.name),
@@ -337,9 +348,11 @@ function projectIncoming(node: LinearProjectNode, projectKey: string, summaryOnl
       description: raw === null ? null : cleanLinearText(raw),
       assigneeExternalId: lead ? cleanLinearText(lead.id) : null,
       priority: node.priority,
+      // O `targetDate` como prazo (ADR 0064), só quando lido (malformado: a chave fica como estava).
+      ...(node.dueDate !== undefined ? { dueDate: node.dueDate } : {}),
     },
     origin: null,
-    previous: { title: "", description: "", status: "todo", priority: null, assigneeExternalId: null },
+    previous: { title: "", description: "", status: "todo", priority: null, assigneeExternalId: null, dueDate: null },
   };
 }
 
@@ -410,6 +423,8 @@ type NewTicket = {
   description: string;
   status: string;
   priority: number;
+  /** O prazo (ADR 0064) como texto; nulo sem prazo (ou malformado no Linear: não inventa). */
+  dueDate: string | null;
   parentId: string | null;
   assigneeIds: string[];
   ref: { kind: "issue" | "project"; externalId: string; externalKey: string | null; externalUrl: string | null; externalParentId: string | null; externalProjectId: string | null; source: Prisma.InputJsonObject; externalUpdatedAt: Date | null; origin?: Record<string, unknown> };
@@ -437,7 +452,7 @@ type RefRow = {
   externalCreatedAt: Date | null;
   creatorPersonId: string | null;
 };
-type TicketNow = { id: string; number: number; title: string; description: string; status: string; priority: number; parentId: string | null; ideaStage: string | null; assigneeIds: string[] };
+type TicketNow = { id: string; number: number; title: string; description: string; status: string; priority: number; dueDate: string | null; parentId: string | null; ideaStage: string | null; assigneeIds: string[] };
 /**
  * O que chega do Linear para uma origem que já existe, com os dois lados já MAPEADOS do mesmo jeito (o retrato de origem guarda o
  * texto cru; mapeá-lo com a regra de hoje evita ler uma mudança da regra de mapeamento como "mudou no Linear").
@@ -454,12 +469,14 @@ type Incoming = {
   status: TicketStatus;
   /** `null` = projeto do Linear (não tem prioridade nem responsável). */
   priority: number | null;
+  /** O prazo (ADR 0064): texto ou nulo; `undefined` = malformado ou não lido nesta rodada (o campo e o retrato dele não são tocados). */
+  dueDate: string | null | undefined;
   assignee: { externalId: string | null; email: string | null; emailReadable: boolean } | null;
   /** O retrato de origem novo (cru, sem e-mail). */
   source: Prisma.InputJsonObject;
   /** As colunas de origem da issue (datas, criador, chaves antigas); `null` no projeto do Linear. */
   origin: OriginData | null;
-  previous: { title: string; description: string; status: TicketStatus; priority: number | null; assigneeExternalId: string | null };
+  previous: { title: string; description: string; status: TicketStatus; priority: number | null; assigneeExternalId: string | null; dueDate: string | null };
 };
 
 /** Uma marca curta do corpo original do Linear (sem o texto): "mudou no Linear" é a data de edição ou esta marca diferente da aplicada. */
@@ -1460,6 +1477,7 @@ export class LinearImportService {
   private async importProjects(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, page: LinearProjectsPage, summaryOnly: ReadonlySet<string>, counts: Counts): Promise<void> {
     const unique = [...new Map(page.nodes.map((node) => [node.id, node])).values()];
     counts.skippedInvalid += page.skippedInvalid;
+    counts.dueDatesInvalid += page.dueDatesInvalid ?? 0;
     counts.projectsSeen += unique.length;
     if (unique.some((node) => summaryOnly.has(node.id))) counts.descriptionUnavailable = true;
     const existing = await this.existingRefRows(tx, "project", unique.map((node) => node.id));
@@ -1488,6 +1506,7 @@ export class LinearImportService {
         description: mapLinearDescription(projectText(node, summaryOnly.has(node.id), false), project.key),
         status: mapLinearProjectStatus(node.statusType),
         priority: mapLinearPriority(node.priority),
+        dueDate: node.dueDate ?? null,
         parentId: run.destinationTicketId,
         assigneeIds: leadId === null ? [] : [leadId],
         ref: { kind: "project", externalId: node.id, externalKey: null, externalUrl: safeLinearUrl(node.url), externalParentId: null, externalProjectId: null, source: incoming.source, externalUpdatedAt: null },
@@ -1503,6 +1522,7 @@ export class LinearImportService {
     const { page } = fetched;
     const unique = [...new Map(page.nodes.map((node) => [node.id, node])).values()];
     if (!sweeping) counts.skippedInvalid += page.skippedInvalid;
+    if (!sweeping) counts.dueDatesInvalid += page.dueDatesInvalid ?? 0;
     const live = unique.filter((node) => !node.trashed);
     const existing = await this.existingRefRows(tx, "issue", live.map((node) => node.id));
     const reimport = run.mode === "reimport";
@@ -1553,6 +1573,7 @@ export class LinearImportService {
         description: issue.description,
         status: issue.status,
         priority: issue.priority,
+        dueDate: issue.dueDate ?? null,
         parentId: linearInitialParent({ parentId: node.parentId, projectId: node.projectId }, projectTickets, run.destinationTicketId),
         assigneeIds: assigneeId === null ? [] : [assigneeId],
         ref: {
@@ -1621,7 +1642,7 @@ export class LinearImportService {
       assignees: item.assigneeIds.map((personId) => ({ personId })),
     }));
     await tx.ticket.createMany({
-      data: rows.map((row) => ({
+      data: rows.map((row, index) => ({
         id: row.id,
         orgId: project.orgId,
         projectId: project.id,
@@ -1631,6 +1652,7 @@ export class LinearImportService {
         description: row.description,
         status: row.status,
         priority: row.priority ?? 0,
+        dueDate: dueDateValue((items[index] as NewTicket).dueDate),
         createdByPersonId: principal.person.id,
       })),
     });
@@ -1651,7 +1673,7 @@ export class LinearImportService {
           externalParentId: item.ref.externalParentId,
           externalProjectId: item.ref.externalProjectId,
           sourceSnapshot: item.ref.source,
-          appliedSnapshot: { title: row.title, description: row.description, status: row.status, assigneeIds: item.assigneeIds, priority: row.priority ?? 0, parentId: row.parentId },
+          appliedSnapshot: { title: row.title, description: row.description, status: row.status, assigneeIds: item.assigneeIds, priority: row.priority ?? 0, dueDate: item.dueDate, parentId: row.parentId },
           externalUpdatedAt: item.ref.externalUpdatedAt,
           ...item.ref.origin,
           // Criada nesta rodada: já vista (senão a fase `missing` a marcaria como não encontrada).
@@ -1784,7 +1806,7 @@ export class LinearImportService {
       const applied = (ref.appliedSnapshot ?? {}) as Record<string, unknown>;
       const source = (ref.sourceSnapshot ?? {}) as Record<string, unknown>;
       const key = `${project.key}-${row.number}`;
-      const data: { title?: string; description?: string; priority?: number } = {};
+      const data: { title?: string; description?: string; priority?: number; dueDate?: Date | null } = {};
       const changes: Record<string, { from: unknown; to: unknown }> = {};
       const appliedPatch: Record<string, unknown> = {};
       const sourcePatch: Record<string, unknown> = { ...incoming.source };
@@ -1838,6 +1860,20 @@ export class LinearImportService {
         if (late.hold) hold("priority");
       }
 
+      // O prazo (ADR 0064): `undefined` = malformado no Linear, não lido nesta rodada (nem o prazo nem a chave do retrato de origem mudam).
+      if (incoming.dueDate !== undefined) {
+        const dueDate = decideLinearField({ incoming: incoming.dueDate, previousSource: incoming.previous.dueDate, current: row.dueDate, applied: "dueDate" in applied ? parseDueDate(applied["dueDate"]) : row.dueDate });
+        const late = decideLinearLateField({ hasSnapshot: "dueDate" in source, held: heldNow.has("dueDate"), changedInLinear: dueDate.changedInLinear, touchedHere: dueDate.touchedHere, currentEmpty: row.dueDate === null, incomingEmpty: incoming.dueDate === null, incomingDiffers: incoming.dueDate !== row.dueDate });
+        keptTouched ||= late.kept;
+        if (late.apply && incoming.dueDate !== row.dueDate) {
+          data.dueDate = dueDateValue(incoming.dueDate);
+          changes["dueDate"] = { from: row.dueDate, to: incoming.dueDate };
+          appliedPatch["dueDate"] = incoming.dueDate;
+          if (late.action === "fill") filledFields += 1;
+        } else if (late.apply || late.action === "synced" || late.hold) appliedPatch["dueDate"] = row.dueDate;
+        if (late.hold) hold("dueDate");
+      }
+
       let newAssignees: string[] | null = null;
       if (incoming.assignee !== null) {
         const appliedAssignees = Array.isArray(applied["assigneeIds"]) ? (applied["assigneeIds"] as string[]) : row.assigneeIds;
@@ -1886,7 +1922,7 @@ export class LinearImportService {
           if (newAssignees.length > 0) await tx.ticketAssignee.createMany({ data: newAssignees.map((personId) => ({ orgId, ticketId: row.id, personId })) });
           changes["assignees"] = { from: row.assigneeIds, to: newAssignees };
         }
-        const fields = [...(data.title !== undefined ? ["title"] : []), ...(data.description !== undefined ? ["description"] : []), ...(data.priority !== undefined ? ["priority"] : []), ...(newAssignees !== null ? ["assignees"] : [])];
+        const fields = [...(data.title !== undefined ? ["title"] : []), ...(data.description !== undefined ? ["description"] : []), ...(data.priority !== undefined ? ["priority"] : []), ...(data.dueDate !== undefined ? ["dueDate"] : []), ...(newAssignees !== null ? ["assignees"] : [])];
         // UM evento automático por ticket e por rodada (a situação, quando muda, tem o seu na fase `statuses`), sem notificar ninguém.
         await this.activity.record(tx, principal, { kind: "ticket.updated", subjectType: "ticket", subjectId: row.id, payload: { key, fields, ...changes, automatic: true, source: "linear_reimport", runId: run.id } });
         touchedProject = true;
@@ -1941,8 +1977,8 @@ export class LinearImportService {
 
   /** Os tickets, com os responsáveis, como a decisão por campo os lê (depois da trava de linha). */
   private async readTickets(tx: TenantClient, ids: readonly string[]): Promise<Map<string, TicketNow>> {
-    const rows = await tx.ticket.findMany({ where: { id: { in: [...ids] } }, select: { id: true, number: true, title: true, description: true, status: true, priority: true, parentId: true, ideaStage: true, assignees: { select: { personId: true } } } });
-    return new Map(rows.map((row) => [row.id, { id: row.id, number: row.number, title: row.title, description: row.description, status: row.status, priority: row.priority, parentId: row.parentId, ideaStage: row.ideaStage, assigneeIds: row.assignees.map((a) => a.personId).sort() }]));
+    const rows = await tx.ticket.findMany({ where: { id: { in: [...ids] } }, select: { id: true, number: true, title: true, description: true, status: true, priority: true, dueDate: true, parentId: true, ideaStage: true, assignees: { select: { personId: true } } } });
+    return new Map(rows.map((row) => [row.id, { id: row.id, number: row.number, title: row.title, description: row.description, status: row.status, priority: row.priority, dueDate: dueDateText(row.dueDate), parentId: row.parentId, ideaStage: row.ideaStage, assigneeIds: row.assignees.map((a) => a.personId).sort() }]));
   }
 
   // ---- fase statuses ----

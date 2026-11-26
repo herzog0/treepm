@@ -28,7 +28,8 @@
     "dependsOn": "Depende de",
     "related": "Relacionado a",
     "idea": "Ideia",
-    "priority": "Prioridade"
+    "priority": "Prioridade",
+    "dueDate": "Prazo"
   },
   "create": {
     "heading": "Novo ticket",
@@ -250,6 +251,15 @@
     "titleChanged_automatic": "Título mudado automaticamente de «{{from}}» para «{{to}}»",
     "descriptionChanged_automatic": "Descrição editada automaticamente",
     "priorityChanged_automatic": "Prioridade mudada automaticamente de <name>{{from}}</name> para <name>{{to}}</name>",
+    "dueDateSet": "<who>{{actor}}</who> definiu o prazo para <name>{{to}}</name>",
+    "dueDateSet_noActor": "Prazo definido para <name>{{to}}</name>",
+    "dueDateSet_automatic": "Prazo definido automaticamente para <name>{{to}}</name>",
+    "dueDateChanged": "<who>{{actor}}</who> mudou o prazo de <name>{{from}}</name> para <name>{{to}}</name>",
+    "dueDateChanged_noActor": "Prazo mudado de <name>{{from}}</name> para <name>{{to}}</name>",
+    "dueDateChanged_automatic": "Prazo mudado automaticamente de <name>{{from}}</name> para <name>{{to}}</name>",
+    "dueDateRemoved": "<who>{{actor}}</who> tirou o prazo",
+    "dueDateRemoved_noActor": "Prazo tirado",
+    "dueDateRemoved_automatic": "Prazo tirado automaticamente",
     "parentMoved_automatic": "Movido automaticamente para dentro de <to>{{to}}</to>",
     "parentRemoved_automatic": "Tirado automaticamente de dentro de <from>{{from}}</from>",
     "parentChanged_automatic": "Movido automaticamente de <from>{{from}}</from> para dentro de <to>{{to}}</to>",
@@ -343,6 +353,15 @@
     "decrease": "Diminuir a prioridade",
     "invalid": "A prioridade é um número inteiro de -999 a 999.",
     "inherited": "vale {{value}}, de"
+  },
+  "dueDate": {
+    "set": "Definir prazo",
+    "none": "Sem prazo",
+    "clear": "Tirar o prazo",
+    "invalid": "O prazo precisa estar entre 2000 e 2100.",
+    "overdue_one": "atrasado há {{count}} dia",
+    "overdue_other": "atrasado há {{count}} dias",
+    "overdue_many": "atrasado há {{count}} dias"
   },
   "linear": {
     "view": "Ver no Linear",

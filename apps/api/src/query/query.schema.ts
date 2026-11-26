@@ -30,6 +30,8 @@ export const querySummarySchema = z.strictObject({
   /** Prioridade própria (ADR 0047) e a que vale, com a herança do ancestral mais próximo diferente de 0. */
   priority: z.number().int(),
   effectivePriority: z.number().int(),
+  /** Prazo (ADR 0064), `AAAA-MM-DD` ou nulo. NÃO vai ao provedor de IA: o assistente só repassa os campos de `brief` (ask-executor). */
+  dueDate: z.string().nullable(),
 });
 export type QueryTicketSummary = z.infer<typeof querySummarySchema>;
 

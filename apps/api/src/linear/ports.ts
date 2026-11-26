@@ -50,15 +50,18 @@ export type LinearProjectNode = {
   content: string | null;
   priority: number;
   lead: { id: string; email: string | null } | null;
+  /** O `targetDate` do projeto como prazo (ADR 0064): texto `AAAA-MM-DD`, nulo sem data; `undefined` = chave ausente, malformado ou fora da faixa: não lido (não toca o prazo). */
+  dueDate?: string | null;
 };
 
 /** Opções da leitura de projetos: `first` itens (padrão 50), sem o conteúdo longo (corpo grande demais), sem o e-mail do líder (campo recusado). */
 export type LinearProjectsOptions = { first?: number; withContent?: boolean; withEmail?: boolean };
-export type LinearProjectsPage = LinearPage<LinearProjectNode>;
+/** `dueDatesInvalid`: nós cujo prazo veio malformado ou fora de 2000–2100 (o nó vale, sem o prazo). Chave ausente não conta. */
+export type LinearProjectsPage = LinearPage<LinearProjectNode> & { dueDatesInvalid?: number };
 
 /** Opções da leitura de issues: `first` itens (padrão 50), sem a descrição (issue enorme), sem o e-mail do responsável (campo recusado). */
 export type LinearIssuesOptions = { first?: number; withDescription?: boolean; withEmail?: boolean };
-export type LinearIssuesPage = LinearPage<LinearIssueNode>;
+export type LinearIssuesPage = LinearPage<LinearIssueNode> & { dueDatesInvalid?: number };
 
 /**
  * Uma issue como a importação a lê. O e-mail do responsável só serve para casar com uma pessoa do TreePM: quem recebe não o grava
@@ -86,6 +89,8 @@ export type LinearIssueNode = {
   previousIdentifiers: string[];
   /** Quem criou no Linear; o e-mail só serve para casar uma pessoa e nunca é guardado. */
   creator: { id: string; name: string; email: string | null } | null;
+  /** O prazo da issue (ADR 0064): texto `AAAA-MM-DD`, nulo sem data; `undefined` = chave ausente, malformado ou fora da faixa: não lido (não toca o prazo). */
+  dueDate?: string | null;
 };
 
 /**

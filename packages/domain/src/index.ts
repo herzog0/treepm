@@ -121,6 +121,7 @@ export * from "./code-links.js";
 export * from "./ai-consent.js";
 export * from "./agent-work.js";
 export * from "./priority.js";
+export * from "./due-date.js";
 export * from "./linear-import.js";
 export * from "./linear-reimport.js";
 export * from "./linear-comments.js";

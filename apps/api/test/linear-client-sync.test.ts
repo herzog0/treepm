@@ -80,8 +80,8 @@ describe("a consulta de projetos", () => {
     const { client: c } = client([{ body: projectsBody([full, { id: "p2", name: "Beta", url: "https://linear.app/acme/project/beta" }]) }]);
     const page = await c.listTeamProjects(KEY, "team-eng", null);
     expect(page.skippedInvalid).toBe(0);
-    expect(page.nodes[0]).toEqual({ id: "p1", name: "Alfa", url: "https://linear.app/acme/project/alfa", statusType: "started", description: "resumo", content: "conteúdo longo", priority: 2, lead: { id: "u-1", email: "lider@acme.test" } });
-    expect(page.nodes[1]).toEqual({ id: "p2", name: "Beta", url: "https://linear.app/acme/project/beta", statusType: null, description: null, content: null, priority: 0, lead: null });
+    expect(page.nodes[0]).toEqual({ id: "p1", name: "Alfa", url: "https://linear.app/acme/project/alfa", statusType: "started", description: "resumo", content: "conteúdo longo", priority: 2, lead: { id: "u-1", email: "lider@acme.test" }, dueDate: undefined });
+    expect(page.nodes[1]).toEqual({ id: "p2", name: "Beta", url: "https://linear.app/acme/project/beta", statusType: null, description: null, content: null, priority: 0, lead: null, dueDate: undefined });
   });
 
   it("sem o conteúdo (corpo grande demais): a consulta sai sem `content`", async () => {
@@ -168,5 +168,63 @@ describe("campo novo malformado degrada para ausente, sem derrubar o nó (item 2
     const page = await c.listTeamIssues(KEY, "team-eng", null);
     expect(page.skippedInvalid).toBe(2);
     expect(page.nodes.map((node) => node.id)).toEqual(["c"]);
+  });
+});
+
+describe("prazo (ADR 0064): dueDate da issue e targetDate do projeto", () => {
+  // As consultas de ANTES do prazo, para a conta de antes e depois ficar reproduzível (com descrição, conteúdo e e-mail).
+  const issuesBeforeDue = `query TeamIssues($id: String!, $after: String, $first: Int!) { team(id: $id) { issues(first: $first, after: $after, includeArchived: false, orderBy: createdAt) { nodes { id identifier url title description priority updatedAt createdAt startedAt completedAt canceledAt previousIdentifiers trashed state { type } parent { id } project { id } assignee { id email } creator { id name email } } pageInfo { hasNextPage endCursor } } } }`;
+  const projectsBeforeDue = `query TeamProjects($id: String!, $after: String, $first: Int!) { team(id: $id) { projects(first: $first, after: $after) { nodes { id name url description content priority status { type } lead { id email } } pageInfo { hasNextPage endCursor } } } }`;
+
+  it("as duas consultas pedem o campo; o custo sobe só 0,1 ponto por item", async () => {
+    const issues = client([{ body: issuesBody([]) }]);
+    await issues.client.listTeamIssues(KEY, "team-eng", null, { first: 250 });
+    const projects = client([{ body: projectsBody([]) }]);
+    await projects.client.listTeamProjects(KEY, "team-eng", null);
+    const issueQuery = issues.fake.calls[0]!.query;
+    const projectQuery = projects.fake.calls[0]!.query;
+    expect(issueQuery).toMatch(/\bdueDate\b/);
+    expect(projectQuery).toMatch(/\btargetDate\b/);
+    const sizes = { issues50: 50, issues250: 250, projects50: 50 };
+    const before = { issues50: points(issuesBeforeDue, { first: 50 }), issues250: points(issuesBeforeDue, { first: 250 }), projects50: points(projectsBeforeDue, { first: 50 }) };
+    const after = { issues50: points(issueQuery, { first: 50 }), issues250: points(issueQuery, { first: 250 }), projects50: points(projectQuery, { first: 50 }) };
+    console.info(`prazo, pontos de complexidade (antes → depois): issues/50 ${before.issues50} → ${after.issues50}; issues/250 ${before.issues250} → ${after.issues250}; projetos/50 ${before.projects50} → ${after.projects50}`);
+    for (const [name, size] of Object.entries(sizes)) {
+      const key = name as keyof typeof sizes;
+      expect(Math.round((after[key] - before[key]) * 10) / 10, name).toBe(Math.round(size * 0.1 * 10) / 10);
+      expect(after[key]).toBeLessThan(5000);
+    }
+  });
+
+  it("devolve o prazo; nulo vale nulo; ausente vale não lido sem contar; malformado ou fora da faixa não derruba o nó, vale como não lido e é contado", async () => {
+    const BAD: unknown[] = ["2026-02-30", "1999-12-31", "2101-01-01", "2026-12-12T00:00:00.000Z", "12/12/2026", 20261212, {}, true];
+    const nodes = [
+      issue({ id: "ok", dueDate: "2026-12-12" }),
+      issue({ id: "nulo", dueDate: null }),
+      issue({ id: "sem" }),
+      ...BAD.map((dueDate, index) => issue({ id: `ruim-${index}`, dueDate })),
+    ];
+    const { client: c } = client([{ body: issuesBody(nodes) }]);
+    const page = await c.listTeamIssues(KEY, "team-eng", null);
+    expect(page.skippedInvalid).toBe(0);
+    expect(page.dueDatesInvalid).toBe(BAD.length);
+    const byId = new Map(page.nodes.map((node) => [node.id, node]));
+    expect(byId.get("ok")!.dueDate).toBe("2026-12-12");
+    expect(byId.get("nulo")!.dueDate).toBeNull();
+    expect(byId.get("sem")!.dueDate).toBeUndefined();
+    for (let index = 0; index < BAD.length; index += 1) {
+      const node = byId.get(`ruim-${index}`)!;
+      expect(node.dueDate, String(BAD[index])).toBeUndefined();
+      expect(node).toMatchObject({ title: "Título", priority: 2 });
+    }
+  });
+
+  it("projeto: targetDate vira o prazo, com a mesma regra para o ausente e o malformado", async () => {
+    const base = { name: "Alfa", url: "https://linear.app/acme/project/alfa" };
+    const { client: c } = client([{ body: projectsBody([{ id: "p1", ...base, targetDate: "2027-01-31" }, { id: "p2", ...base, targetDate: null }, { id: "p3", ...base }, { id: "p4", ...base, targetDate: "2027-13-01" }, { id: "p5", ...base, targetDate: 5 }]) }]);
+    const page = await c.listTeamProjects(KEY, "team-eng", null);
+    expect(page.skippedInvalid).toBe(0);
+    expect(page.dueDatesInvalid).toBe(2);
+    expect(page.nodes.map((node) => node.dueDate)).toEqual(["2027-01-31", null, undefined, undefined, undefined]);
   });
 });
