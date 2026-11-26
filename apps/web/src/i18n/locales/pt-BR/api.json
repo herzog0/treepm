@@ -63,6 +63,8 @@
       "linear_team_in_use": "Este time já está ligado a outro projeto.",
       "linear_team_not_found": "A sua chave não enxerga este time no Linear.",
       "linear_run_open": "Já existe uma importação do Linear em andamento neste projeto. Abra a tela de importação para continuar.",
+      "linear_run_open_other_mode": "Já existe uma sincronização aberta. Termine ou abandone antes de abrir outra.",
+      "linear_overwrite_first_import": "Sobrescrever com o Linear só vale numa sincronização, depois da primeira importação.",
       "linear_reimport_not_available": "Este projeto já foi importado do Linear. Importar de novo ainda não está disponível.",
       "linear_step_in_progress": "Outra aba ou pessoa está avançando esta importação agora. Aguarde um instante.",
       "linear_not_linked": "Este projeto ainda não está ligado a um time do Linear.",

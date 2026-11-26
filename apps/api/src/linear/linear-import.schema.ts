@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { idSchema } from "../common/schemas.js";
 
-/** Abrir uma rodada: o destino (nulo = raiz do projeto) e se a categorização foi pedida (guardada; a fase ainda não roda). */
-export const openRunBodySchema = z.object({ destinationTicketId: idSchema.nullable().optional(), categorize: z.boolean().optional() }).strict();
+/**
+ * Abrir uma rodada: o destino (nulo = raiz do projeto), se a categorização foi pedida (guardada; a fase ainda não roda) e se a rodada
+ * sobrescreve com o Linear o que foi mudado aqui (ADR 0066; só na sincronização).
+ */
+export const openRunBodySchema = z.object({ destinationTicketId: idSchema.nullable().optional(), categorize: z.boolean().optional(), overwrite: z.boolean().optional() }).strict();
 
 /** A rodada como a API a devolve. Nada do Linear além de contagens: nenhum e-mail, id do Linear ou texto. */
 export type RunView = {
@@ -13,6 +16,8 @@ export type RunView = {
   /** A rodada terminou (`done` ou `failed`). */
   done: boolean;
   categorize: boolean;
+  /** "Sobrescrever com o Linear" (ADR 0066): gravada ao abrir, vale para todos os passos. */
+  overwrite: boolean;
   /** Nesta fatia a fase de categorização é pulada, mesmo com `categorize: true`. */
   categorizeAvailable: false;
   /** Contagens; `assigneeEmailUnavailable: true` quando o Linear recusou o e-mail dos responsáveis. */

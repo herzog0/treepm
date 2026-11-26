@@ -86,6 +86,8 @@
 .linear-import-phases li[data-state="doing"] .linear-import-mark { color: var(--tp-accent-soft); }
 .linear-import-mark { width: 16px; text-align: center; }
 .linear-import-note { margin: 0; color: var(--tp-text-2); line-height: 1.5; }
+.linear-import-overwrite { display: flex; align-items: flex-start; gap: 8px; color: var(--tp-text-2); font-size: 14px; line-height: 1.45; cursor: pointer; }
+.linear-import-overwrite input { flex: none; margin: 2px 0 0; }
 .linear-import-problem { display: grid; gap: 10px; }
 .linear-import-problem p { margin: 0; line-height: 1.5; }
 .linear-import-counts { display: flex; flex-wrap: wrap; gap: 12px 28px; margin: 0; }
