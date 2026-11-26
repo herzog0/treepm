@@ -3,7 +3,9 @@ import { Logger } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { MINUTE } from "./access-token-support.js";
 import { ProjectTools } from "../src/mcp/mcp-tools.js";
-import { rpcBody, rpcHeaders, seedProject, useMcpHarness } from "./mcp-support.js";
+import { IP_LIMIT_PER_MINUTE, WRITE_LIMIT_PER_MINUTE, WRITE_LIMIT_PER_PERSON_PER_MINUTE } from "../src/mcp/mcp-gateway.js";
+import { RATE_LIMIT_PER_WINDOW } from "../src/access-tokens/access-token.service.js";
+import { SMALL_LIMITS, rpcBody, rpcHeaders, seedProject, useMcpHarness, useSmallLimits } from "./mcp-support.js";
 import type { ToolResponse } from "./mcp-support.js";
 import { ORG, OTHER_ORG, as } from "./world.js";
 import type { Who } from "./world.js";
@@ -126,17 +128,28 @@ describe("chamadas recusadas sem efeito", () => {
     expect(await status("PRIV-3")).toBe("todo");
   });
 
-  it("limite de 20 escritas por minuto por token; a leitura não é afetada", async () => {
+  it("os tetos por minuto do MCP são 5000 (IP, token, escritas por token e por pessoa)", () => {
+    expect([IP_LIMIT_PER_MINUTE, RATE_LIMIT_PER_WINDOW, WRITE_LIMIT_PER_MINUTE, WRITE_LIMIT_PER_PERSON_PER_MINUTE]).toEqual([5000, 5000, 5000, 5000]);
+  });
+
+  it("com os tetos de produção, 21 escritas seguidas pelo mesmo token passam", async () => {
     const { token } = await setup();
-    for (let i = 0; i < 20; i += 1) expect((await h.tool(token, "PRIV", "set_agent_work", { key: "PRIV-3", working: i % 2 === 0 })).status, `#${i}`).toBe(200);
+    for (let i = 0; i < 21; i += 1) expect((await h.tool(token, "PRIV", "set_agent_work", { key: "PRIV-3", working: i % 2 === 0 })).status, `#${i}`).toBe(200);
+  });
+
+  it("limite de escritas por minuto por token (teto pequeno de teste); a leitura não é afetada", async () => {
+    useSmallLimits(h.app());
+    const { token } = await setup();
+    for (let i = 0; i < SMALL_LIMITS.write; i += 1) expect((await h.tool(token, "PRIV", "set_agent_work", { key: "PRIV-3", working: i % 2 === 0 })).status, `#${i}`).toBe(200);
     expect((await h.tool(token, "PRIV", "set_agent_work", { key: "PRIV-3", working: true })).status).toBe(429);
     expect((await h.tool(token, "PRIV", "get_ticket", { key: "PRIV-3" })).status).toBe(200);
     h.clock.advance(61_000);
     expect((await h.tool(token, "PRIV", "set_agent_work", { key: "PRIV-3", working: false })).status).toBe(200);
   });
 
-  // TREEPM-197: além do limite por token, 40 escritas por minuto por pessoa (organização + pessoa), somando todos os tokens dela.
-  it("limite de 40 escritas por minuto por pessoa, somando os tokens; pessoas diferentes não se afetam; a leitura não é afetada", async () => {
+  // TREEPM-197: além do limite por token, um limite de escritas por minuto por pessoa (organização + pessoa), somando todos os tokens dela.
+  it("limite de escritas por minuto por pessoa (teto pequeno de teste), somando os tokens; pessoas diferentes não se afetam; a leitura não é afetada", async () => {
+    useSmallLimits(h.app());
     const first = await setup();
     const second = await h.create("contributor", priv(), { scope: "write" });
     const third = await h.create("contributor", priv(), { scope: "write" });
