@@ -331,13 +331,15 @@ const projectLinearSchema = z.object({
   keyMatches: z.boolean().nullable(),
 });
 /** A rodada de importação do Linear como a API a devolve (ADR 0060, seção 3): só contagens, nada do texto do Linear. */
-const linearRunSchema = z.object({
+export const linearRunSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   mode: z.enum(["first", "reimport"]),
   phase: z.enum(["projects", "issues", "hierarchy", "statuses", "mentions", "comments", "relations", "history", "categorize", "missing", "done", "failed"]),
   done: z.boolean(),
   categorize: z.boolean(),
+  /** "Sobrescrever com o Linear" (ADR 0066); a API antiga não manda a chave: vale falso. */
+  overwrite: z.boolean().default(false),
   categorizeAvailable: z.boolean(),
   counts: z.record(z.string(), z.union([z.number(), z.boolean()])),
   errorStreak: z.number(),
@@ -619,6 +621,8 @@ export type CurrentLinearRun = z.output<typeof currentLinearRunSchema>;
 export interface OpenLinearRunBody {
   /** O ticket onde as issues novas entram; nulo: a raiz do projeto; ausente: herda o destino da primeira importação. */
   destinationTicketId?: string | null;
+  /** "Sobrescrever com o Linear o que foi mudado aqui" (ADR 0066); só na sincronização. */
+  overwrite?: boolean;
 }
 export interface LinkProjectToLinearBody {
   teamId: string;

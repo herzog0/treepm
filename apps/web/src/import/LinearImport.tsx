@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { ApiClient, ApiError, LinearConnection, LinearRun, ProjectLinear, TicketSummary } from "../api/client.js";
+import type { ApiClient, ApiError, LinearConnection, LinearRun, OpenLinearRunBody, ProjectLinear, TicketSummary } from "../api/client.js";
 import { useDescribeApiError } from "../api/errorText.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { formatActivityTime, formatClock, formatNumber } from "../i18n/format.js";
@@ -8,6 +8,7 @@ import type { Language } from "../i18n/languages.js";
 import { safe } from "../panel/safe.js";
 import { useAction } from "../panel/useAction.js";
 import { AbandonControl } from "./AbandonControl.js";
+import { OverwriteDialog } from "./OverwriteDialog.js";
 import { ArrangeBlock, categorizeAnnouncement, isCategorizing } from "./LinearCategorize.js";
 import type { CategorizeHook } from "./LinearCategorize.js";
 import { useLinearCategorize } from "./useLinearCategorize.js";
@@ -294,8 +295,17 @@ function ReimportCard({ client, projectId, run, last, startSync, categorize, onE
   const opener = useRef<HTMLButtonElement>(null);
   const arranging = isCategorizing(categorize);
   const when = last.finishedAt === null ? "" : formatActivityTime(language, last.finishedAt, new Date());
-  const reimport = async () => {
-    await action.run(() => run.open(destination === undefined ? {} : { destinationTicketId: destination?.id ?? null }));
+  // "Sobrescrever com o Linear" (ADR 0066): desmarcada por padrão; marcada, o botão pede a confirmação antes de abrir a rodada.
+  const [overwrite, setOverwrite] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const syncButton = useRef<HTMLButtonElement>(null);
+  const reimport = async (withOverwrite = false) => {
+    const body: OpenLinearRunBody = destination === undefined ? {} : { destinationTicketId: destination?.id ?? null };
+    await action.run(() => run.open(withOverwrite ? { ...body, overwrite: true } : body));
+  };
+  const closeConfirm = () => {
+    setConfirming(false);
+    setTimeout(() => syncButton.current?.focus(), 0);
   };
   const closePanel = () => {
     setChoosing(false);
@@ -323,11 +333,23 @@ function ReimportCard({ client, projectId, run, last, startSync, categorize, onE
         </p>
       )}
       <div className="linear-import-actions">
-        <button type="button" className="primary" disabled={action.busy || arranging} aria-describedby={arranging ? `${id}-blocked` : undefined} onClick={() => void reimport()}>{action.busy ? t("linear.starting") : t("linear.last.reimport")}</button>
+        <button ref={syncButton} type="button" className="primary" disabled={action.busy || arranging} aria-describedby={arranging ? `${id}-blocked` : undefined} onClick={() => (overwrite ? setConfirming(true) : void reimport())}>{action.busy ? t("linear.starting") : t("linear.last.reimport")}</button>
         <button type="button" onClick={onExit}>{t("linear.done.openMap")}</button>
         {!choosing && <button ref={opener} type="button" className="text" aria-expanded={false} aria-controls={`${id}-picker`} onClick={() => setChoosing(true)}>{t("linear.last.changeDestination")}</button>}
       </div>
+      <label className="linear-import-overwrite">
+        <input type="checkbox" checked={overwrite} disabled={action.busy} onChange={(event) => setOverwrite(event.target.checked)} /> {t("linear.last.overwrite")}
+      </label>
       {arranging && <p id={`${id}-blocked`} className="linear-import-how">{t("linear.categorize.reimportBlocked")}</p>}
+      {confirming && (
+        <OverwriteDialog
+          onCancel={closeConfirm}
+          onConfirm={() => {
+            setConfirming(false);
+            void reimport(true);
+          }}
+        />
+      )}
       {choosing && (
         <DestinationPanel
           id={`${id}-picker`}
@@ -371,7 +393,7 @@ function ProgressCard({ run, loop, onResume, onOpenSettings, onAbandon }: { run:
   return (
     <div className="linear-import-card" aria-busy={loop.kind === "running"}>
       <div className="linear-import-running">
-        <h3>{run.mode === "reimport" ? t("linear.reimporting") : t("linear.running")}</h3>
+        <h3>{run.mode === "reimport" ? (run.overwrite ? t("linear.reimportingOverwrite") : t("linear.reimporting")) : t("linear.running")}</h3>
         <span className="linear-import-count">{total !== null && at <= issuesPhase ? t("linear.progress", { done: numbers(done), total: numbers(total) }) : ""}</span>
         <span className="linear-import-close">{t("linear.canClose")}</span>
       </div>
@@ -488,6 +510,7 @@ function RunSummary({ run }: { run: LinearRun }) {
       </dl>
       {shown.some((row) => row.key === "flattened") && <p className="linear-import-how">{t("linear.done.flattenedNote")}</p>}
       {shown.some((row) => row.key === "skipped") && <p className="linear-import-how">{t("linear.done.skippedNote")}</p>}
+      {count(run, "overwritten") > 0 && <p className="linear-import-note">{t("linear.done.overwritten", { count: count(run, "overwritten") })}</p>}
       {count(run, "filled") > 0 && <p className="linear-import-note">{t("linear.done.filled", { count: count(run, "filled") })}</p>}
       {count(run, "commentsCreated") > 0 && <p className="linear-import-note">{t("linear.done.commentsCreated", { count: count(run, "commentsCreated") })}</p>}
       {count(run, "commentsKeptEdited") > 0 && <p className="linear-import-note">{t("linear.done.commentsKeptEdited", { count: count(run, "commentsKeptEdited") })}</p>}

@@ -145,12 +145,15 @@ export function useLinearRun(client: ApiClient, projectId: string, { enabled }: 
     };
   }, [client, projectId, runId, enabled, resumeToken, setRun]);
 
-  /** Abre a rodada. Se outra aba já abriu uma, devolve o erro e relê a atual (a tela passa a mostrá-la andando). */
+  /**
+   * Abre a rodada. Se outra aba já abriu uma (`linear_run_open`, ou `linear_run_open_other_mode` quando a aberta tem a outra opção de
+   * sobrescrever), devolve o erro e relê a atual (a tela passa a mostrá-la andando, com "Abandonar").
+   */
   const open = useCallback(
     async (body: OpenLinearRunBody): Promise<ApiResult<LinearRun>> => {
       const result = await safe(() => client.openLinearRun(projectId, body));
       if (result.ok) setRun(result.data);
-      else if (result.error.code === "linear_run_open") setVersion((current) => current + 1);
+      else if (result.error.code === "linear_run_open" || result.error.code === "linear_run_open_other_mode") setVersion((current) => current + 1);
       return result;
     },
     [client, projectId, setRun],

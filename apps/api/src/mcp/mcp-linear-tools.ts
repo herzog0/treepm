@@ -48,6 +48,11 @@ export const continueLinearSyncInput = z.strictObject({
 });
 export const linearProgressOutput = z.strictObject({
   ...progressFields,
+  overwrite: z
+    .boolean()
+    .describe(
+      "Whether this sync run overwrites with Linear what was changed in TreePM. Only the TreePM screen opens such a run; start_linear_sync never does. Continuing one of them applies the Linear values on top of what was changed in TreePM.",
+    ),
   nextAction: z.string().describe("What to do next: call continue_linear_sync again, wait until `waitUntil`, or nothing (finished)."),
 });
 
@@ -105,7 +110,7 @@ export function nextAction(view: Pick<RunView, "phase" | "waitUntil">, now = Dat
 
 /** A rodada como o MCP a entrega: lista explícita de campos. Nada de pessoa, projeto, destino ou dado do Linear além das contagens. */
 function progress(view: RunView): Progress {
-  return { id: view.id, phase: view.phase, done: view.done, counts: view.counts, waitUntil: view.waitUntil, nextAction: nextAction(view) };
+  return { id: view.id, phase: view.phase, done: view.done, overwrite: view.overwrite, counts: view.counts, waitUntil: view.waitUntil, nextAction: nextAction(view) };
 }
 
 /**

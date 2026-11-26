@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ConflictException, HttpException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Prisma, TenantClient } from "@treepm/db";
-import { canImportTickets, parseDueDate } from "@treepm/domain";
+import { canImportTickets, decideLinearOverwrite, decideLinearStatusOverwrite, parseDueDate, planLinearParentsConverging } from "@treepm/domain";
 import type { TicketStatus } from "@treepm/domain";
 import type { LinearParentMove } from "@treepm/domain";
 import type { LinearHistoryAuthor, LinearHistoryChange, LinearHistoryResolver } from "@treepm/domain";
@@ -120,6 +120,8 @@ const COUNT_KEYS = [
   "missingProjects",
   // Sincronização (ADR 0061): campos preenchidos pela primeira vez em tickets já importados.
   "filled",
+  // Sobrescrever com o Linear (ADR 0066): tickets com ao menos um campo sobrescrito que a regra de sempre teria mantido.
+  "overwritten",
   // Prazo (ADR 0064): issues e projetos cujo prazo veio malformado do Linear (o item entra; o prazo não é tocado).
   "dueDatesInvalid",
   // Comentários (ADR 0061, fatia 2): criados, atualizados, mantidos porque foram editados aqui, ignorados (issue não importada, corpo
@@ -242,6 +244,8 @@ type RunRow = {
   /** Fase `history` (migration 0046): o filtro desta rodada e se a fase terminou sem truncamento por erro. */
   historySince: Date | null;
   historyComplete: boolean;
+  /** "Sobrescrever com o Linear" (ADR 0066, migration 0049). */
+  overwrite: boolean;
 };
 
 /** Data do Linear que não parseia vira nulo: nunca derruba o nó nem o passo. */
@@ -263,6 +267,13 @@ const FLAG_UPDATED = 1;
 const FLAG_KEPT = 2;
 const FLAG_EVALUATED = 4;
 const FLAG_STATUS_CHANGED = 8;
+/** O ticket já contou em `overwritten` nesta rodada (ADR 0066): campos, situação, pai e etiquetas somam uma vez só, mesmo em passo repetido. */
+const FLAG_OVERWRITTEN = 16;
+/**
+ * ADR 0066: a situação deste ticket é decidida pela fase `statuses` DESTA rodada de sobrescrita. Fica no controle da rodada (só vale
+ * com `status_run_id` = a rodada), e não em `status_pending`: uma rodada abandonada não deixa nada que uma rodada normal leia.
+ */
+const FLAG_OVERWRITE_STATUS = 32;
 /** A chave da situação no retrato de origem: `stateType` na issue, `statusType` no projeto do Linear. */
 const statusKeyOf = (kind: string): "stateType" | "statusType" => (kind === "project" ? "statusType" : "stateType");
 const mapRawStatus = (kind: string, raw: unknown): TicketStatus => (kind === "project" ? mapLinearProjectStatus(typeof raw === "string" ? raw : null) : mapLinearStatus(typeof raw === "string" ? raw : ""));
@@ -406,6 +417,7 @@ const view = (row: RunRow): RunView => ({
   phase: row.phase as RunView["phase"],
   done: isTerminal(row.phase),
   categorize: row.categorize,
+  overwrite: row.overwrite,
   categorizeAvailable: false,
   counts: readCounts(row.counts),
   totalExpected: row.totalExpected,
@@ -421,6 +433,11 @@ const view = (row: RunRow): RunView => ({
 });
 
 const runOpen = (run: RunRow): ConflictException => new ConflictException({ code: "linear_run_open", message: "Já existe uma importação em andamento neste projeto.", details: { run: view(run) } });
+/** ADR 0066: a rodada aberta não muda de natureza no meio; pedir a outra opção é recusado (a tela pede para terminar ou abandonar). */
+const runOpenOtherMode = (run: RunRow): ConflictException =>
+  new ConflictException({ code: "linear_run_open_other_mode", message: "Já existe uma sincronização aberta. Termine ou abandone antes de abrir outra.", details: { run: view(run) } });
+/** A rodada aberta, recusada conforme a opção pedida (`undefined` = nenhuma pedida: o MCP, que recebe a aberta). */
+const refuseOpen = (run: RunRow, overwrite: boolean | undefined): ConflictException => (overwrite !== undefined && overwrite !== run.overwrite ? runOpenOtherMode(run) : runOpen(run));
 
 /** O que a fase de criação grava para um ticket novo (e a origem dele). */
 type NewTicket = {
@@ -642,11 +659,12 @@ export class LinearImportService {
    * Abre a rodada. `requireImported` (o MCP, ADR 0062): só a sincronização de um projeto que já tem uma importação concluída; a primeira
    * importação, com a escolha do destino, é feita na tela (409 `linear_never_imported`, conferido nas mesmas transações).
    */
-  async open(tenant: TenantRunner, principal: Principal, projectId: string, body: { destinationTicketId?: string | null; categorize?: boolean }, options: { requireImported?: boolean } = {}): Promise<RunView> {
+  async open(tenant: TenantRunner, principal: Principal, projectId: string, body: { destinationTicketId?: string | null; categorize?: boolean; overwrite?: boolean }, options: { requireImported?: boolean } = {}): Promise<RunView> {
     refuseWhileActingAs(principal);
+    const checks = { ...options, overwrite: body.overwrite };
     await tenant.run(async (tx, current) => {
       const project = await this.guard(tx, current, projectId, { writable: true });
-      await this.checkOpenable(tx, current, project, body.destinationTicketId, options);
+      await this.checkOpenable(tx, current, project, body.destinationTicketId, checks);
     });
     // O Linear (rede) fora de transação: a chave de QUEM abre tem de funcionar e enxergar o time; a contagem é só para a tela.
     const { key, source } = await this.linear.requireLinearAccess(tenant, principal, projectId);
@@ -660,7 +678,7 @@ export class LinearImportService {
     try {
       return await tenant.run(async (tx, current) => {
         const project = await this.guard(tx, current, projectId, { writable: true });
-        const { mode, destination } = await this.checkOpenable(tx, current, project, body.destinationTicketId, options);
+        const { mode, destination } = await this.checkOpenable(tx, current, project, body.destinationTicketId, checks);
         const row = await tx.externalImportRun.create({
           data: {
             orgId: current.organization.orgId,
@@ -672,6 +690,7 @@ export class LinearImportService {
             destinationTicketId: destination,
             hasDestination: destination !== null,
             categorize: body.categorize === true,
+            overwrite: body.overwrite === true,
             counts: zeroCounts(),
             totalExpected,
           },
@@ -682,7 +701,7 @@ export class LinearImportService {
       if (isUniqueViolation(error)) {
         // Corrida: outra aba abriu a rodada entre a conferência e a gravação.
         const open = await tenant.run((tx, current) => this.lastRun(tx, current.organization.orgId, projectId));
-        if (open && !isTerminal(open.phase)) throw runOpen(open);
+        if (open && !isTerminal(open.phase)) throw refuseOpen(open, body.overwrite);
         // A corrida foi com a categorização (o índice único vale entre os modos).
         const categorizing = await tenant.run((tx, current) => tx.externalImportRun.findFirst({ where: { orgId: current.organization.orgId, projectId, mode: "categorize", phase: "categorize" }, select: { id: true } }));
         if (categorizing) throw new ConflictException({ code: "linear_categorize_open", message: "Já existe uma categorização em andamento neste projeto." });
@@ -696,13 +715,13 @@ export class LinearImportService {
    * (`reimport`); o destino que vale para ela é o da PRIMEIRA concluída, a menos que o corpo traga outro (`undefined` herda;
    * `null` é a raiz). O herdado que não serve mais (ticket apagado, ou dentro de uma ideia) recusa: nunca cai na raiz em silêncio.
    */
-  private async checkOpenable(tx: TenantClient, principal: Principal, project: ProjectRow, requested: string | null | undefined, options: { requireImported?: boolean } = {}): Promise<{ mode: "first" | "reimport"; destination: string | null }> {
+  private async checkOpenable(tx: TenantClient, principal: Principal, project: ProjectRow, requested: string | null | undefined, options: { requireImported?: boolean; overwrite?: boolean | undefined } = {}): Promise<{ mode: "first" | "reimport"; destination: string | null }> {
     const orgId = principal.organization.orgId;
     const source = await tx.projectExternalSource.findUnique({ where: { orgId_projectId: { orgId, projectId: project.id } } });
     if (!source) throw new ConflictException({ code: "linear_not_linked", message: "Este projeto não está ligado a um time do Linear." });
     const last = await this.lastRun(tx, orgId, project.id);
     const openRun = last && !isTerminal(last.phase) ? last : null;
-    if (openRun) throw runOpen(openRun);
+    if (openRun) throw refuseOpen(openRun, options.overwrite);
     // Uma categorização aberta também ocupa o projeto (o índice único parcial vale entre os modos): a importação espera ela terminar.
     if (await tx.externalImportRun.findFirst({ where: { orgId, projectId: project.id, mode: "categorize", phase: "categorize" }, select: { id: true } })) {
       throw new ConflictException({ code: "linear_categorize_open", message: "Já existe uma categorização em andamento neste projeto." });
@@ -711,6 +730,10 @@ export class LinearImportService {
     const mode = firstDone ? "reimport" : "first";
     if (options.requireImported && mode === "first") {
       throw new ConflictException({ code: "linear_never_imported", message: "A primeira importação deste projeto é feita na tela, com a escolha do destino." });
+    }
+    // ADR 0066: na primeira importação não há o que sobrescrever.
+    if (options.overwrite === true && mode === "first") {
+      throw new ConflictException({ code: "linear_overwrite_first_import", message: "Sobrescrever com o Linear só vale numa sincronização, depois da primeira importação." });
     }
     if (requested !== undefined) {
       if (requested !== null) await this.requireDestination(tx, project, requested);
@@ -1615,7 +1638,8 @@ export class LinearImportService {
     if (labelTargets.length > 0) {
       const numbers = new Map((await tx.ticket.findMany({ where: { id: { in: labelTargets.map((item) => item.ticketId) } }, select: { id: true, number: true } })).map((row) => [row.id, row.number] as const));
       const targets = labelTargets.flatMap((item) => (numbers.has(item.ticketId) ? [{ ...item, number: numbers.get(item.ticketId) as number }] : []));
-      await syncIssueLabels(tx, this.labels, principal, project, run.id, targets, counts);
+      const overwrittenLabels = await syncIssueLabels(tx, this.labels, principal, project, run.id, targets, counts, run.overwrite);
+      counts.overwritten += await this.markOverwritten(tx, project.orgId, run.id, overwrittenLabels);
     }
     return fresh.length;
   }
@@ -1824,6 +1848,10 @@ export class LinearImportService {
     const rows = await this.readTickets(tx, ids);
     const now = new Date();
     let touchedProject = false;
+    /** ADR 0066: com a opção, as issues que têm lugar no Linear (pai ou projeto já importados NESTE projeto) voltam a ser avaliadas na hierarquia. */
+    const overwrittenIds: string[] = [];
+    /** ADR 0066: a descrição sobrescrita refaz as menções do ticket pelo caminho da edição (a menção do texto daqui não sobra). */
+    const mentionsToSync: { id: string; number: number; description: string }[] = [];
     for (const { ref, incoming } of todo) {
       const row = rows.get(ref.ticketId);
       if (!row) continue;
@@ -1843,14 +1871,28 @@ export class LinearImportService {
         heldFields = heldFieldsAfter(heldFields, field);
         appliedPatch["heldHere"] = heldFields;
       };
+      /** ADR 0066: o campo sobrescrito deixa de ser "mantido daqui". */
+      const unhold = (field: string): void => {
+        if (!heldNow.has(field)) return;
+        heldNow.delete(field);
+        heldFields = [...heldNow].sort();
+        appliedPatch["heldHere"] = heldFields;
+      };
+      let overwritten = false;
+      /** Com a opção: o valor do Linear vence o atual; igual ao atual, o retrato aplicado passa a ser o atual (deixa de contar como mexido). */
+      const overwrite = <C>(incomingValue: C, current: C, regularApply: boolean): boolean => {
+        const decision = decideLinearOverwrite({ overwrite: run.overwrite, incoming: incomingValue, current, regularApply });
+        overwritten ||= decision.overwritten;
+        return decision.apply;
+      };
 
       const title = decideLinearField({ incoming: incoming.title, previousSource: incoming.previous.title, current: row.title, applied: (applied["title"] as string | undefined) ?? row.title });
       keptTouched ||= title.changedInLinear && title.touchedHere;
-      if (title.apply) {
+      if (overwrite(incoming.title, row.title, title.apply)) {
         data.title = incoming.title;
         changes["title"] = { from: row.title, to: incoming.title };
         appliedPatch["title"] = incoming.title;
-      }
+      } else if (run.overwrite) appliedPatch["title"] = row.title;
 
       if (incoming.description === undefined) {
         // Projeto do Linear: não tem descrição.
@@ -1862,12 +1904,20 @@ export class LinearImportService {
         const description = decideLinearField({ incoming: incoming.description, previousSource: incoming.previous.description, current: row.description, applied: (applied["description"] as string | undefined) ?? row.description });
         const late = decideLinearLateField({ hasSnapshot: "description" in source, held: heldNow.has("description"), changedInLinear: description.changedInLinear, touchedHere: description.touchedHere, currentEmpty: row.description === "", incomingEmpty: incoming.description === "", incomingDiffers: incoming.description !== row.description });
         keptTouched ||= late.kept;
-        if (late.apply) {
+        if (run.overwrite) {
+          if (overwrite(incoming.description, row.description, late.apply)) {
+            data.description = incoming.description;
+            if (late.action === "fill") filledFields += 1;
+            mentionsToSync.push({ id: row.id, number: row.number, description: incoming.description });
+          }
+          appliedPatch["description"] = incoming.description;
+          unhold("description");
+        } else if (late.apply) {
           data.description = incoming.description;
           appliedPatch["description"] = incoming.description;
           if (late.action === "fill") filledFields += 1;
         } else if (late.action === "synced" || late.hold) appliedPatch["description"] = row.description;
-        if (late.hold) hold("description");
+        if (late.hold && !run.overwrite) hold("description");
       }
 
       if (incoming.priority !== null) {
@@ -1875,13 +1925,21 @@ export class LinearImportService {
         // Sem retrato (só o ticket de projeto de antes da ADR 0061): prioridade 0 vale como vazia, só nesta primeira vez.
         const late = decideLinearLateField({ hasSnapshot: typeof source["priority"] === "number", held: heldNow.has("priority"), changedInLinear: priority.changedInLinear, touchedHere: priority.touchedHere, currentEmpty: row.priority === 0, incomingEmpty: incoming.priority === 0, incomingDiffers: incoming.priority !== row.priority });
         keptTouched ||= late.kept;
-        if (late.apply) {
+        if (run.overwrite) {
+          if (overwrite(incoming.priority, row.priority, late.apply)) {
+            data.priority = incoming.priority;
+            changes["priority"] = { from: row.priority, to: incoming.priority };
+            if (late.action === "fill") filledFields += 1;
+          }
+          appliedPatch["priority"] = incoming.priority;
+          unhold("priority");
+        } else if (late.apply) {
           data.priority = incoming.priority;
           changes["priority"] = { from: row.priority, to: incoming.priority };
           appliedPatch["priority"] = incoming.priority;
           if (late.action === "fill") filledFields += 1;
         } else if (late.action === "synced" || late.hold) appliedPatch["priority"] = row.priority;
-        if (late.hold) hold("priority");
+        if (late.hold && !run.overwrite) hold("priority");
       }
 
       // O prazo (ADR 0064): `undefined` = malformado no Linear, não lido nesta rodada (nem o prazo nem a chave do retrato de origem mudam).
@@ -1889,13 +1947,21 @@ export class LinearImportService {
         const dueDate = decideLinearField({ incoming: incoming.dueDate, previousSource: incoming.previous.dueDate, current: row.dueDate, applied: "dueDate" in applied ? parseDueDate(applied["dueDate"]) : row.dueDate });
         const late = decideLinearLateField({ hasSnapshot: "dueDate" in source, held: heldNow.has("dueDate"), changedInLinear: dueDate.changedInLinear, touchedHere: dueDate.touchedHere, currentEmpty: row.dueDate === null, incomingEmpty: incoming.dueDate === null, incomingDiffers: incoming.dueDate !== row.dueDate });
         keptTouched ||= late.kept;
-        if (late.apply && incoming.dueDate !== row.dueDate) {
+        if (run.overwrite) {
+          if (overwrite(incoming.dueDate, row.dueDate, late.apply)) {
+            data.dueDate = dueDateValue(incoming.dueDate);
+            changes["dueDate"] = { from: row.dueDate, to: incoming.dueDate };
+            if (late.action === "fill") filledFields += 1;
+          }
+          appliedPatch["dueDate"] = incoming.dueDate;
+          unhold("dueDate");
+        } else if (late.apply && incoming.dueDate !== row.dueDate) {
           data.dueDate = dueDateValue(incoming.dueDate);
           changes["dueDate"] = { from: row.dueDate, to: incoming.dueDate };
           appliedPatch["dueDate"] = incoming.dueDate;
           if (late.action === "fill") filledFields += 1;
         } else if (late.apply || late.action === "synced" || late.hold) appliedPatch["dueDate"] = row.dueDate;
-        if (late.hold) hold("dueDate");
+        if (late.hold && !run.overwrite) hold("dueDate");
       }
 
       let newAssignees: string[] | null = null;
@@ -1905,6 +1971,24 @@ export class LinearImportService {
         if (assignee.changedInLinear && incoming.assignee.externalId !== null && !incoming.assignee.emailReadable) {
           // O e-mail não veio nesta rodada: o campo não é tocado e o retrato de origem não avança (a mudança não se perde).
           delete sourcePatch["assigneeExternalId"];
+        } else if (run.overwrite && !("assigneeExternalId" in source && !heldNow.has("assignees") && !assignee.touchedHere)) {
+          // ADR 0066: o responsável do Linear vence, mas só quando se sabe quem é. Com responsável lá que não casa (e-mail ilegível,
+          // duplicado, pessoa de teste, sem acesso ao projeto) os daqui ficam; só esvazia quando a issue está sem responsável no Linear.
+          const personId = incoming.assignee.externalId === null || !incoming.assignee.emailReadable ? null : await resolveAssignee(incoming.assignee.email);
+          // Não casa: os daqui ficam e o retrato de origem não avança (com o e-mail legível depois, a opção ou a normal aplicam).
+          if (incoming.assignee.externalId !== null && personId === null) delete sourcePatch["assigneeExternalId"];
+          else {
+            const wanted = personId === null ? [] : [personId];
+            const hasSnapshot = "assigneeExternalId" in source;
+            const regularApply = heldNow.has("assignees")
+              ? false
+              : hasSnapshot
+                ? assignee.apply
+                : row.assigneeIds.length === 0 && wanted.length > 0;
+            if (overwrite(wanted, row.assigneeIds, regularApply)) newAssignees = wanted;
+            appliedPatch["assigneeIds"] = wanted;
+            unhold("assignees");
+          }
         } else if (heldNow.has("assignees")) {
           // Mantido daqui: o Linear pode mudar à vontade, o responsável do TreePM fica.
           keptTouched ||= assignee.changedInLinear;
@@ -1936,7 +2020,12 @@ export class LinearImportService {
       // A situação: não é aplicada aqui. O Linear mudou, ou o ticket já está em desvio (aplicada ≠ desejada e ninguém mexeu) → a fase `statuses` avalia.
       const appliedStatus = ((applied["status"] as string | undefined) ?? row.status) as TicketStatus;
       const statusChanged = incoming.status !== incoming.previous.status;
+      // ADR 0066: com a opção, a situação mexida aqui que difere da do Linear também vai à fase `statuses`; igual, o retrato aplicado a acompanha.
       const queueStatus = ref.statusPending || statusChanged || (row.status === appliedStatus && appliedStatus !== incoming.status);
+      // Com a opção, a situação que difere da do Linear (ou do retrato aplicado) é decidida pela fase `statuses` desta rodada.
+      const overwriteStatus = run.overwrite && (row.status !== incoming.status || row.status !== appliedStatus);
+      // Com a opção nada é "mantido porque foi mexido aqui" (o que fica é o que o Linear não sabe dizer: responsável que não casa).
+      if (run.overwrite) keptTouched = false;
 
       const changed = Object.keys(data).length > 0 || newAssignees !== null;
       if (changed) {
@@ -1953,6 +2042,7 @@ export class LinearImportService {
         counts.updated += 1;
       }
       if (keptTouched) counts.keptTouched += 1;
+      if (overwritten) overwrittenIds.push(row.id);
       // Com a situação mudando no Linear, quem conta é a fase `statuses` (uma atualização por ticket, mesmo com campos e situação juntos).
       // As colunas de origem da issue (datas, criador, chaves antigas): regravadas a cada sincronização; o que passa de vazio a preenchido conta em `filled`.
       const originData = incoming.origin === null ? null : await originColumns(incoming.origin, ref.creatorPersonId, resolveAssignee);
@@ -1960,7 +2050,8 @@ export class LinearImportService {
       // A lista da tela carrega as chaves do Linear (a busca acha `ENG-45`): chave nova ou antiga que mudou também muda a versão do projeto.
       if (incoming.key !== ref.externalKey || (originData !== null && !sameLinearValue(originData["externalPreviousKeys"] as string[], ref.externalPreviousKeys ?? []))) touchedProject = true;
       counts.filled += filledFields + (filledOrigin ? 1 : 0);
-      if (!changed && !keptTouched && !statusChanged && filledFields === 0 && !filledOrigin) counts.unchanged += 1;
+      // A situação que a opção vai decidir conta na fase `statuses` (uma vez só: atualizado OU sem mudança).
+      if (!changed && !keptTouched && !statusChanged && filledFields === 0 && !filledOrigin && !overwriteStatus) counts.unchanged += 1;
 
       const parentChanged = incoming.parentId !== undefined && (incoming.parentId !== ref.externalParentId || incoming.projectId !== ref.externalProjectId);
       await tx.ticketExternalRef.update({
@@ -1974,7 +2065,9 @@ export class LinearImportService {
           missingSince: null,
           ...(queueStatus && !ref.statusPending ? { statusPending: true } : {}),
           // O que esta fase já contou do ticket, para a fase `statuses` não contar de novo; só quando há algo a dizer (rodada quieta não grava).
-          ...(queueStatus && (changed || keptTouched || statusChanged) ? { statusRunId: run.id, statusRunFlags: (changed ? FLAG_UPDATED : 0) | (keptTouched ? FLAG_KEPT : 0) | (statusChanged ? FLAG_STATUS_CHANGED : 0) } : {}),
+          ...((queueStatus && (changed || keptTouched || statusChanged)) || overwriteStatus
+            ? { statusRunId: run.id, statusRunFlags: (changed ? FLAG_UPDATED : 0) | (keptTouched ? FLAG_KEPT : 0) | (statusChanged ? FLAG_STATUS_CHANGED : 0) | (overwriteStatus ? FLAG_OVERWRITE_STATUS : 0) }
+            : {}),
           ...(parentChanged ? { externalParentId: incoming.parentId, externalProjectId: incoming.projectId, hierarchyPending: true } : {}),
           ...originData,
         },
@@ -1982,7 +2075,22 @@ export class LinearImportService {
       // Os retratos: só as chaves que mudaram, mescladas na linha de hoje.
       await this.mergeSnapshots(tx, orgId, row.id, { source: changedKeys(source, sourcePatch), applied: changedKeys(applied, appliedPatch) });
     }
+    counts.overwritten += await this.markOverwritten(tx, orgId, run.id, overwrittenIds);
+    if (mentionsToSync.length > 0) await this.tickets.reconcileMentions(tx, project, mentionsToSync);
     if (touchedProject) await touchProjectVersion(tx, project.id);
+  }
+
+  /**
+   * ADR 0066: marca os tickets que tiveram algo sobrescrito nesta rodada e devolve quantos ainda não estavam marcados (a contagem
+   * `overwritten` soma uma vez por ticket, entre fases, passos repetidos e abas). A marca mora no controle da rodada da origem.
+   */
+  private async markOverwritten(tx: TenantClient, orgId: string, runId: string, ticketIds: readonly string[]): Promise<number> {
+    if (ticketIds.length === 0) return 0;
+    return tx.$executeRaw`update ticket_external_refs set
+        status_run_flags = case when status_run_id = ${runId}::uuid then status_run_flags | ${FLAG_OVERWRITTEN}::int else ${FLAG_OVERWRITTEN}::int end,
+        status_run_id = ${runId}::uuid
+      where org_id = ${orgId} and ticket_id = any(${[...new Set(ticketIds)]}::uuid[])
+        and not (status_run_id is not distinct from ${runId}::uuid and (status_run_flags & ${FLAG_OVERWRITTEN}::int) <> 0)`;
   }
 
   /**
@@ -2026,7 +2134,8 @@ export class LinearImportService {
       with recursive up as (
         select r.ticket_id as origin, t.parent_id as pid, 0 as step
           from ticket_external_refs r join tickets t on t.org_id = r.org_id and t.id = r.ticket_id
-         where r.org_id = ${orgId} and r.project_id = ${project.id}::uuid and r.status_pending and r.last_seen_run_id = ${run.id}::uuid
+         where r.org_id = ${orgId} and r.project_id = ${project.id}::uuid and r.last_seen_run_id = ${run.id}::uuid
+           and (r.status_pending or (r.status_run_id = ${run.id}::uuid and (r.status_run_flags & ${FLAG_OVERWRITE_STATUS}::int) <> 0))
            and (r.status_run_id is distinct from ${run.id}::uuid or (r.status_run_flags & ${FLAG_EVALUATED}::int) = 0)
         union all
         select up.origin, t.parent_id, up.step + 1 from up join tickets t on t.org_id = ${orgId} and t.project_id = ${project.id}::uuid and t.id = up.pid where up.step < ${MAX_TREE_DEPTH}::int
@@ -2039,21 +2148,24 @@ export class LinearImportService {
       // Lido AGORA (as reaberturas dos itens anteriores deste lote já mudaram retratos e situações).
       const ref = await tx.ticketExternalRef.findUnique({ where: { orgId_ticketId: { orgId, ticketId } }, select: { kind: true, statusPending: true, sourceSnapshot: true, appliedSnapshot: true, statusRunId: true, statusRunFlags: true } });
       const row = (await this.readTickets(tx, [ticketId])).get(ticketId);
-      if (!ref || !row || !ref.statusPending) continue;
+      const forcedHere = ref !== null && ref.statusRunId === run.id && (ref.statusRunFlags & FLAG_OVERWRITE_STATUS) !== 0;
+      if (!ref || !row || (!ref.statusPending && !forcedHere)) continue;
       const source = (ref.sourceSnapshot ?? {}) as Record<string, unknown>;
       const applied = (ref.appliedSnapshot ?? {}) as Record<string, unknown>;
-      const flags = ref.statusRunId === run.id ? ref.statusRunFlags : 0;
+      let flags = ref.statusRunId === run.id ? ref.statusRunFlags : 0;
       const linearChanged = (flags & FLAG_STATUS_CHANGED) !== 0;
       const desired = mapRawStatus(ref.kind, source[statusKeyOf(ref.kind)]);
       const current = row.status as TicketStatus;
       const appliedStatus = ((applied["status"] as string | undefined) ?? row.status) as TicketStatus;
       // Só quem vai de fato tentar assumir a desejada precisa saber de ideia e de filho aberto.
-      const trying = current === appliedStatus && desired !== current;
+      // ADR 0066: com a opção, o mexido aqui também tenta assumir a do Linear.
+      const trying = (run.overwrite || current === appliedStatus) && desired !== current;
       let inIdea: boolean | null = null;
       const insideIdea = async (): Promise<boolean> => (inIdea ??= row.ideaStage !== null || (row.parentId !== null && (await this.parentsInIdeas(tx, project, [row.parentId])).has(row.parentId)));
       const hasOpenChildren = trying && desired === "done" && (await tx.ticket.count({ where: { parentId: row.id, status: { notIn: ["done", "cancelled"] }, ideaStage: null } })) > 0;
       // `previousSource: desired`: se o Linear mudou a situação nesta rodada quem sabe é a marca da fase `issues` (o retrato de origem já avançou).
-      const decision = decideLinearStatus({ desired, previousSource: desired, current, applied: appliedStatus, insideIdea: trying ? await insideIdea() : false, hasOpenChildren });
+      const statusInput = { desired, previousSource: desired, current, applied: appliedStatus, insideIdea: trying ? await insideIdea() : false, hasOpenChildren };
+      const decision = run.overwrite ? decideLinearStatusOverwrite(statusInput) : { ...decideLinearStatus(statusInput), overwritten: false };
       const key = `${project.key}-${row.number}`;
       let updated = false;
       const appliedPatch: Record<string, unknown> = {};
@@ -2067,21 +2179,29 @@ export class LinearImportService {
         appliedPatch["status"] = decision.target;
         updated = true;
         touched = true;
+        if (decision.overwritten) {
+          counts.overwritten += await this.markOverwritten(tx, orgId, run.id, [row.id]);
+          flags |= FLAG_OVERWRITTEN;
+        }
       } else if (!isFinished(current) && row.parentId !== null && !(await insideIdea())) {
         // O ticket aberto que a hierarquia pôs embaixo de um concluído (ou que já estava): a invariante manda reabrir os ancestrais.
         await this.reopenParents(tx, principal, project, [row.parentId], key, counts, run.startedAt);
       }
       // A marca acaba, salvo o desvio: aplicada ≠ desejada por invariante, avaliada de novo na rodada seguinte.
       const stillPending = decision.outcome === "blocked";
+      // ADR 0066: com a opção, o retrato aplicado passa a ser a situação em que o ticket termina (deixa de contar como mexido aqui; o
+      // bloqueado pela árvore fica em desvio, reavaliado como o não mexido, sem vaivém).
+      if (run.overwrite && appliedStatus !== decision.target) appliedPatch["status"] = decision.target;
       await tx.ticketExternalRef.update({
         where: { orgId_ticketId: { orgId, ticketId } },
-        data: { ...(stillPending ? {} : { statusPending: false }), statusRunId: run.id, statusRunFlags: flags | FLAG_EVALUATED },
+        // Bloqueado pela árvore é desvio de verdade (também com a opção): fica pendente para as rodadas seguintes.
+        data: { ...(stillPending ? (ref.statusPending ? {} : { statusPending: true }) : { statusPending: false }), statusRunId: run.id, statusRunFlags: flags | FLAG_EVALUATED },
       });
       await this.mergeSnapshots(tx, orgId, ticketId, { source: {}, applied: appliedPatch });
-      const kept = decision.touchedHere && linearChanged;
+      const kept = decision.touchedHere && linearChanged && !run.overwrite;
       if (updated && (flags & FLAG_UPDATED) === 0) counts.updated += 1;
       if (kept && (flags & FLAG_KEPT) === 0) counts.keptTouched += 1;
-      if (linearChanged && !updated && !kept && (flags & (FLAG_UPDATED | FLAG_KEPT)) === 0) counts.unchanged += 1;
+      if ((linearChanged || forcedHere) && !updated && !kept && (flags & (FLAG_UPDATED | FLAG_KEPT)) === 0) counts.unchanged += 1;
     }
     if (touched) await touchProjectVersion(tx, project.id);
     return batch.length < size ? null : String(Number(run.cursor ?? 0) + 1);
@@ -2104,11 +2224,14 @@ export class LinearImportService {
     const after = run.cursor === null ? {} : { ticketId: { gt: run.cursor } };
     const batch = await tx.ticketExternalRef.findMany({
       where: reimport
-        ? { projectId: project.id, kind: "issue", hierarchyPending: true, lastSeenRunId: run.id, ...after }
+        ? run.overwrite
+          ? // ADR 0066: com a opção, as vistas nesta rodada com pai ou projeto no Linear também (sem marca gravada: nada sobra se abandonada).
+            { projectId: project.id, kind: "issue", lastSeenRunId: run.id, OR: [{ hierarchyPending: true }, { externalParentId: { not: null } }, { externalProjectId: { not: null } }], ...after }
+          : { projectId: project.id, kind: "issue", hierarchyPending: true, lastSeenRunId: run.id, ...after }
         : { projectId: project.id, kind: "issue", externalParentId: { not: null }, ...after },
       orderBy: { ticketId: "asc" },
       take: batchOf(run, HIERARCHY_BATCH),
-      select: { ticketId: true, externalParentId: true, externalProjectId: true, firstImportedAt: true, appliedSnapshot: true },
+      select: { ticketId: true, externalParentId: true, externalProjectId: true, firstImportedAt: true, appliedSnapshot: true, hierarchyPending: true },
     });
     if (batch.length === 0) {
       // A primeira importação decide só quem tem pai no Linear: a marca dos demais (nascida com a origem) sai ao fim da fase.
@@ -2128,13 +2251,17 @@ export class LinearImportService {
     );
     // Destino escolhido que foi apagado no meio da rodada (a chave estrangeira o zerou): quem de fato iria para ele fica onde está.
     const destinationGone = run.hasDestination && run.destinationTicketId === null;
-    const wanted: { row: (typeof batch)[number]; parentId: string | null; needsDestination: boolean }[] = batch.flatMap((row) => {
+    const wanted: { row: (typeof batch)[number]; parentId: string | null; needsDestination: boolean; linearPlace: boolean }[] = batch.flatMap((row) => {
       const viaParent = row.externalParentId === null ? undefined : parentTicket.get(row.externalParentId);
-      if (!reimport) return viaParent === undefined ? [] : [{ row, parentId: viaParent, needsDestination: false }];
+      if (!reimport) return viaParent === undefined ? [] : [{ row, parentId: viaParent, needsDestination: false, linearPlace: true }];
       const viaProject = row.externalProjectId === null ? undefined : projectTicket.get(row.externalProjectId);
       const target = viaParent ?? viaProject;
-      return [{ row, parentId: target ?? run.destinationTicketId, needsDestination: target === undefined && destinationGone }];
+      // Só a opção trouxe este candidato e ele não tem lugar no Linear aqui: nada a fazer (a regra de sempre não o olharia).
+      if (run.overwrite && !row.hierarchyPending && target === undefined) return [];
+      return [{ row, parentId: target ?? run.destinationTicketId, needsDestination: target === undefined && destinationGone, linearPlace: target !== undefined }];
     });
+    /** ADR 0066: os movidos aqui que a opção devolve ao lugar do Linear (contam em `overwritten` se de fato andarem). */
+    const overwriting = new Set<string>();
     /** Os que precisavam do destino apagado: contam em `skipped` e a marca de hierarquia deles NÃO é limpa (uma rodada com destino válido os decide). */
     const stuck = new Set<string>();
     /** A hierarquia da reimportação só MOVE: a situação (reabrir ancestrais, concluir quem estava em desvio) é da fase `statuses`; aqui se marcam os tocados. */
@@ -2150,11 +2277,17 @@ export class LinearImportService {
       // O que alguém arrumou à mão fica (ADR 0060, seção 5): só desce o ticket criado NESTA rodada, ou cujo pai atual ainda é o que a
       // importação deu a ele (`applied_snapshot.parentId`). Ticket movido no TreePM fica onde está e conta em `keptMoved`.
       const currentParent = new Map(rows.map((row) => [row.id, row.parent_id]));
-      const requests = wanted.flatMap(({ row, parentId, needsDestination }) => {
+      const requests = wanted.flatMap(({ row, parentId, needsDestination, linearPlace }) => {
         const appliedParent = (row.appliedSnapshot as { parentId?: unknown } | null)?.parentId ?? null;
         const createdNow = row.firstImportedAt.getTime() >= run.startedAt.getTime();
         const current = currentParent.get(row.ticketId) ?? null;
-        if (!createdNow && current !== appliedParent) {
+        // ADR 0066: com a opção, quem tem lugar no Linear e já está nele não se move (só o retrato acompanha); o movido aqui volta.
+        if (run.overwrite && linearPlace && !createdNow && current === parentId) {
+          inSync.push(row.ticketId);
+          return [];
+        }
+        if (run.overwrite && linearPlace && !createdNow && current !== appliedParent) overwriting.add(row.ticketId);
+        else if (!createdNow && current !== appliedParent) {
           if (current !== parentId) counts.keptMoved += 1; // já estar no pai do Linear não é "arrumado à mão contra o Linear"
           else inSync.push(row.ticketId);
           return [];
@@ -2178,7 +2311,9 @@ export class LinearImportService {
       // Tirar uma descida do plano (ideia que não aceita) pode deixar outra inválida (ciclo, profundidade): o plano é REFEITO sem os
       // pedidos tirados, até nenhum sair mais. Cada volta tira ao menos um pedido, então termina.
       let active = requests;
-      let plan = planLinearParents(forest, active, MAX_TREE_DEPTH);
+      // ADR 0066: com a opção, os pulados por ciclo são refeitos depois dos outros movimentos, até não haver progresso (uma rodada converge).
+      const planOf = (base: ReadonlyMap<string, string | null>, wantedMoves: typeof requests) => (run.overwrite ? planLinearParentsConverging(base, wantedMoves, MAX_TREE_DEPTH) : planLinearParents(base, wantedMoves, MAX_TREE_DEPTH));
+      let plan = planOf(forest, active);
       let moves: LinearParentMove[];
       const outOfIdea = new Set<string>();
       for (;;) {
@@ -2189,7 +2324,7 @@ export class LinearImportService {
         for (const id of removed) outOfIdea.add(id);
         const dropped = new Set(removed);
         active = active.filter((request) => !dropped.has(request.id));
-        plan = planLinearParents(forest, active, MAX_TREE_DEPTH);
+        plan = planOf(forest, active);
       }
       counts.movedOutOfIdea += outOfIdea.size;
       if (moves.length > 0) {
@@ -2215,6 +2350,7 @@ export class LinearImportService {
           touchedByMoves.add(move.parentId);
         }
         counts.skipped += plan.skipped.length + stayed.size;
+        counts.overwritten += await this.markOverwritten(tx, orgId, run.id, moves.filter((move) => overwriting.has(move.id) && !stayed.has(move.id)).map((move) => move.id));
         counts.flattened += moves.filter((move) => move.flattened && !stayed.has(move.id)).length;
         counts.parentsLinked += moves.length - stayed.size;
         await touchProjectVersion(tx, project.id);
@@ -2223,6 +2359,7 @@ export class LinearImportService {
     if (toRoot.length > 0) {
       await tx.$executeRaw`update tickets set parent_id = null, updated_at = now() where org_id = ${orgId} and id = any(${toRoot}::uuid[])`;
       const numbers = new Map((await tx.ticket.findMany({ where: { id: { in: toRoot } }, select: { id: true, number: true } })).map((row) => [row.id, row.number] as const));
+      counts.overwritten += await this.markOverwritten(tx, orgId, run.id, toRoot.filter((id) => overwriting.has(id)));
       for (const id of toRoot) {
         touchedByMoves.add(id);
         if (existed.has(id)) await this.recordParentMove(tx, principal, project, run, numbers.get(id) ?? 0, id, fromParent.get(id) ?? null, null);
@@ -2238,7 +2375,13 @@ export class LinearImportService {
     if (reimport) {
       await tx.ticketExternalRef.updateMany({ where: { ticketId: { in: batch.map((row) => row.ticketId).filter((id) => !stuck.has(id)) }, hierarchyPending: true }, data: { hierarchyPending: false } });
       // O ticket movido, o pai novo e o pai antigo entram na lista da fase `statuses` (os nativos, sem origem, nada têm a marcar).
-      if (touchedByMoves.size > 0) await tx.ticketExternalRef.updateMany({ where: { projectId: project.id, ticketId: { in: [...touchedByMoves] }, statusPending: false }, data: { statusPending: true } });
+      // Com a opção (ADR 0066) a marca é a da própria rodada: abandonada, nada sobra para uma rodada normal.
+      if (touchedByMoves.size > 0 && run.overwrite) {
+        await tx.$executeRaw`update ticket_external_refs set
+            status_run_flags = case when status_run_id = ${run.id}::uuid then status_run_flags | ${FLAG_OVERWRITE_STATUS}::int else ${FLAG_OVERWRITE_STATUS}::int end,
+            status_run_id = ${run.id}::uuid
+          where org_id = ${orgId} and project_id = ${project.id}::uuid and ticket_id = any(${[...touchedByMoves]}::uuid[]) and not status_pending`;
+      } else if (touchedByMoves.size > 0) await tx.ticketExternalRef.updateMany({ where: { projectId: project.id, ticketId: { in: [...touchedByMoves] }, statusPending: false }, data: { statusPending: true } });
     }
     const last = (batch[batch.length - 1] as { ticketId: string }).ticketId;
     if (batch.length < batchOf(run, HIERARCHY_BATCH) && !reimport) await tx.ticketExternalRef.updateMany({ where: { projectId: project.id, hierarchyPending: true }, data: { hierarchyPending: false } });

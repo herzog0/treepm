@@ -58,3 +58,19 @@ O valor daqui é substituído. Cada mudança gera o evento automático de sempre
 
 - Passa a existir um jeito de desfazer, de uma vez, as edições feitas aqui nos campos que o Linear também tem. É ação da pessoa, com confirmação.
 - A rodada ganha uma coluna, logo há migration (`0049`), aplicada antes do código.
+
+## Como ficou (2026-11-26)
+
+- **Banco (migration `0049_linear_overwrite`):** coluna `overwrite` na rodada (`external_import_runs`), falsa por padrão. Aplicar antes do código.
+- **Abrir:** primeira importação com a opção é recusada (`linear_overwrite_first_import`); rodada aberta com a outra opção também (`linear_run_open_other_mode`), e a tela relê e mostra a rodada aberta com "Abandonar".
+- **Regra:** funções puras em `packages/domain/src/linear-overwrite.ts`. Com a opção, o retrato aplicado passa a ser o valor final e o campo sai da lista de "mantidos daqui".
+- **A opção não deixa estado para a rodada normal.** As marcas que ela usa só valem com o id da própria rodada. Uma rodada de sobrescrita abandonada em qualquer fase não muda a rodada normal seguinte (achado da revisão independente, com teste).
+- **Nunca menos sincronizado que a rodada normal:** em campo não mexido aqui vale a regra de sempre. A proteção do responsável ("os daqui ficam") é só para o campo mexido aqui cujo responsável do Linear não casa; aí o retrato de origem não avança, para uma rodada seguinte poder aplicar.
+- **Pai:** "tem lugar no Linear" é ter a issue-pai ou o projeto do Linear já importados neste projeto. Issue que só tem projeto volta para o ticket do projeto. Pai e filho invertidos aqui convergem numa rodada (os movimentos pulados por ciclo são refeitos depois dos outros).
+- **Descrição:** a sobrescrita refaz as menções do ticket, pelo mesmo caminho da edição. É o único campo cujo valor anterior não fica no histórico; o diálogo diz isso.
+- **Responsável:** ticket do projeto do Linear sem líder perde o responsável posto aqui; com dois responsáveis aqui e um deles sendo o do Linear, o outro sai. É o Linear vencendo.
+- **Etiquetas:** só as que têm vínculo do Linear naquele ticket. A do Linear tirada aqui volta; a adotada que saiu no Linear sai; a posta aqui à mão fica.
+- **Contagem `overwritten`:** tickets em que a opção mudou algo que a regra de sempre manteria, contados uma vez por rodada.
+- **MCP:** não abre rodada com a opção. `start_linear_sync` e `continue_linear_sync` devolvem `overwrite`, porque podem conduzir uma rodada aberta pela tela.
+- **Tela:** a caixa fica no cartão "Última importação" da tela de importar; o item do menu do projeto continua abrindo a sincronização normal.
+- **Limites conhecidos:** pai dentro de uma ideia só converge na segunda rodada (`TREEPM-563`); a sincronização normal que troca a descrição não refaz menções (`TREEPM-565`, já era assim).

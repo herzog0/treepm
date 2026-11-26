@@ -1,5 +1,5 @@
 import type { Prisma, TenantClient } from "@treepm/db";
-import { LABELS_PER_PROJECT, cleanLabelName, decideLinearLabelUpdate, decideLinearTicketLabels, groupedLabelName, isLabelColor, labelNameKey, nearestLabelColor } from "@treepm/domain";
+import { LABELS_PER_PROJECT, cleanLabelName, decideLinearLabelUpdate, decideLinearTicketLabels, decideLinearTicketLabelsOverwrite, groupedLabelName, isLabelColor, labelNameKey, nearestLabelColor } from "@treepm/domain";
 import type { LabelColor, LinearTicketLabelRef } from "@treepm/domain";
 import type { Principal } from "../access/principal.js";
 import { insertOrReuse, lockLabelCreation } from "../tickets/labels.service.js";
@@ -19,6 +19,10 @@ import type { LinearIssueNode, LinearLabelNode } from "./ports.js";
  * Ticket: regra por item (`decideLinearTicketLabels`) sobre o conjunto COMPLETO `labelIds`, vínculos em `external_item_refs` (tipo
  * `label`, `<issue>:<etiqueta>`), gravação pelo núcleo `LabelsService.applyTicketLabels` (um evento automático por ticket e por rodada,
  * sem marcar "removida aqui"). Sem mudança, nenhuma escrita. Nenhum id do Linear sai daqui (nem no evento); nenhum nome vai a provedor.
+ *
+ * Com "Sobrescrever com o Linear" (ADR 0066, `overwrite`): a do Linear tirada aqui volta e a marca "removida aqui" sai; a que saiu no
+ * Linear sai, mesmo a adotada; a etiqueta sem origem no Linear fica. Devolve os tickets em que a opção mudou algo que a regra de sempre
+ * manteria (para a contagem `overwritten`).
  */
 
 const PROVIDER = "linear";
@@ -48,7 +52,7 @@ type OriginRow = { id: string; externalId: string; labelId: string | null; appli
 const HEX = /^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const colorOf = (value: string): LabelColor => (isLabelColor(value) ? value : "gray");
 
-export async function syncIssueLabels(tx: TenantClient, labels: LabelsService, principal: Principal, project: ProjectRow, runId: string, items: readonly LabelSyncItem[], counts: LabelCounts): Promise<void> {
+export async function syncIssueLabels(tx: TenantClient, labels: LabelsService, principal: Principal, project: ProjectRow, runId: string, items: readonly LabelSyncItem[], counts: LabelCounts, overwrite = false): Promise<string[]> {
   // Só as issues com o conjunto lido; o resto não mexe em nada (`labelIds` ausente ou malformado).
   const read = items.flatMap((item) => {
     if (item.node.labelIds === undefined) return [];
@@ -59,7 +63,7 @@ export async function syncIssueLabels(tx: TenantClient, labels: LabelsService, p
     }
     return [{ ...item, ids }];
   });
-  if (read.length === 0) return;
+  if (read.length === 0) return [];
   const wanted = new Set(read.flatMap((item) => item.ids));
   const nodes = new Map<string, LinearLabelNode>();
   for (const item of read) for (const node of item.node.labels ?? []) if (wanted.has(node.id) && !nodes.has(node.id)) nodes.set(node.id, node);
@@ -86,11 +90,14 @@ export async function syncIssueLabels(tx: TenantClient, labels: LabelsService, p
   const creates: Prisma.ExternalItemRefCreateManyInput[] = [];
   const forget: string[] = [];
   const markRemoved: string[] = [];
-  const revive: { rowId: string; localId: string; adopted: boolean }[] = [];
+  const revive: { rowId: string; localId: string; adopted: boolean; restore: boolean }[] = [];
+  const overwritten: string[] = [];
   const now = new Date();
   for (const item of read) {
     const refs = refsByTicket.get(item.ticketId) ?? [];
-    const decision = decideLinearTicketLabels({ linearLabelIds: item.ids, resolve, refs, current: currentByTicket.get(item.ticketId) ?? [] });
+    const input = { linearLabelIds: item.ids, resolve, refs, current: currentByTicket.get(item.ticketId) ?? [] };
+    const decision = overwrite ? decideLinearTicketLabelsOverwrite(input) : { ...decideLinearTicketLabels(input), restoreRefs: [] as string[], overwritten: false };
+    if (decision.overwritten) overwritten.push(item.ticketId);
     counts.labelsOverTicketLimit += decision.overLimit;
     counts.labelsUnread += decision.unresolved;
     const rowOf = (linearId: string): string | undefined => refs.find((ref) => ref.linearLabelId === linearId)?.rowId;
@@ -99,7 +106,7 @@ export async function syncIssueLabels(tx: TenantClient, labels: LabelsService, p
     }
     for (const ref of decision.reviveRefs) {
       const rowId = rowOf(ref.linearLabelId);
-      if (rowId) revive.push({ rowId, localId: ref.localId, adopted: ref.adopted });
+      if (rowId) revive.push({ rowId, localId: ref.localId, adopted: ref.adopted, restore: decision.restoreRefs.includes(ref.linearLabelId) });
     }
     for (const linearId of decision.forgetRefs) forget.push(rowOf(linearId) as string);
     for (const linearId of decision.markRemovedHere) markRemoved.push(rowOf(linearId) as string);
@@ -118,9 +125,13 @@ export async function syncIssueLabels(tx: TenantClient, labels: LabelsService, p
   // `ON CONFLICT DO NOTHING`: um vínculo gravado em paralelo não aborta o passo.
   if (creates.length > 0) await tx.externalItemRef.createMany({ data: creates, skipDuplicates: true });
   // O `adopted` da origem que volta é o de agora (`decideLinearTicketLabels`), não o de antes do esquecimento.
-  for (const item of revive) await tx.externalItemRef.updateMany({ where: { id: item.rowId, removedHereAt: null }, data: { localId: item.localId, applied: { adopted: item.adopted } } });
+  // A que volta pela opção (ADR 0066) perde a marca "removida aqui".
+  for (const item of revive) {
+    await tx.externalItemRef.updateMany({ where: item.restore ? { id: item.rowId } : { id: item.rowId, removedHereAt: null }, data: { localId: item.localId, applied: { adopted: item.adopted }, ...(item.restore ? { removedHereAt: null } : {}) } });
+  }
   if (forget.length > 0) await tx.externalItemRef.updateMany({ where: { id: { in: forget } }, data: { localId: null } });
   if (markRemoved.length > 0) await tx.externalItemRef.updateMany({ where: { id: { in: markRemoved } }, data: { localId: null, removedHereAt: now } });
+  return overwritten;
 }
 
 /** Resolve cada etiqueta do Linear lida numa etiqueta daqui (ou `null`: apagada aqui, nome inválido, fora do limite do projeto). */
