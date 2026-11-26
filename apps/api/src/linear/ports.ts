@@ -119,6 +119,53 @@ export type LinearRelationsPage = LinearPage<LinearRelationIssueNode>;
 /** As relações seguintes de uma issue; `skippedInvalid` conta também a issue que não veio (sumiu ou deixou de ser visível). */
 export type LinearIssueRelationsPage = { relations: LinearRelationNode[]; nextCursor: string | null; skippedInvalid: number };
 
+/** Um usuário do Linear no histórico; o e-mail (quando pedido) só serve para casar uma pessoa e nunca é guardado nem registrado. */
+export type LinearHistoryUser = { id: string; name: string | null; email: string | null };
+/**
+ * Uma entrada do histórico de uma issue (`IssueHistory`; ADR 0061, fatia 4) com só os campos que a fase usa. Campo opcional malformado
+ * vale como ausente (`null`). Cabe em `LinearHistoryEntryInput` do domínio (`linearHistoryChanges`, `linearHistoryAuthor`).
+ */
+export type LinearHistoryNode = {
+  id: string;
+  createdAt: string;
+  actor: LinearHistoryUser | null;
+  botActor: { name: string | null } | null;
+  fromStateId: string | null;
+  toStateId: string | null;
+  fromState: { name: string | null; type: string | null } | null;
+  toState: { name: string | null; type: string | null } | null;
+  fromAssigneeId: string | null;
+  toAssigneeId: string | null;
+  fromAssignee: LinearHistoryUser | null;
+  toAssignee: LinearHistoryUser | null;
+  fromPriority: number | null;
+  toPriority: number | null;
+  fromTitle: string | null;
+  toTitle: string | null;
+  fromParentId: string | null;
+  toParentId: string | null;
+  fromProjectId: string | null;
+  toProjectId: string | null;
+  updatedDescription: boolean | null;
+};
+/** Uma issue do time com as entradas mais recentes do histórico (até 20); `historyNext` é o cursor da issue que tem mais. */
+export type LinearHistoryIssueNode = { id: string; history: LinearHistoryNode[]; historyNext: string | null };
+/**
+ * `first` (padrão 10); `updatedSince`: só as issues alteradas depois (`updatedAt > ...`; nulo ou ausente = o time inteiro); `withHistory:
+ * false`: só os ids e o cursor (para andar depois de uma issue ilegível); `withEmail: false`: sem o e-mail (campo recusado).
+ */
+export type LinearHistoryOptions = { first?: number; updatedSince?: string | null; withHistory?: boolean; withEmail?: boolean };
+/**
+ * `historyErrors`: issues da página cujo histórico veio, todo ou em parte, com `errors` (resposta 200 com `data` válido). A issue apontada
+ * inteira não vem em `nodes`; o nó do histórico apontado não vem na issue. As duas seguram a marca d'água.
+ */
+export type LinearHistoryPage = LinearPage<LinearHistoryIssueNode> & { historyErrors: number };
+/**
+ * As entradas seguintes de uma issue. `incomplete`: a leitura não trouxe tudo o que devia por erro (a issue sumiu ou deixou de ser
+ * visível, ou um nó veio com `errors` e foi descartado); segura a marca d'água.
+ */
+export type LinearIssueHistoryPage = { history: LinearHistoryNode[]; nextCursor: string | null; skippedInvalid: number; incomplete: boolean };
+
 /** A porta do Linear desta fatia. A chave é sempre argumento: o cliente não guarda nada entre chamadas. */
 export interface LinearClient {
   whoami(apiKey: string): Promise<LinearIdentity>;
@@ -138,4 +185,8 @@ export interface LinearClient {
   listTeamRelations(apiKey: string, teamId: string, after: string | null, options?: LinearRelationsOptions): Promise<LinearRelationsPage>;
   /** As relações seguintes (100 por vez) de uma issue que tem mais de 20. */
   listIssueRelations(apiKey: string, issueId: string, after: string): Promise<LinearIssueRelationsPage>;
+  /** Uma página (10) das issues do time com as 20 entradas mais recentes do histórico de cada uma (fase `history`). */
+  listTeamHistory(apiKey: string, teamId: string, after: string | null, options?: LinearHistoryOptions): Promise<LinearHistoryPage>;
+  /** As entradas seguintes (180 por vez, ou `first` quando a importação reduz: completa as 200 por issue) de uma issue que tem mais de 20. */
+  listIssueHistory(apiKey: string, issueId: string, after: string, options?: { withEmail?: boolean; first?: number }): Promise<LinearIssueHistoryPage>;
 }

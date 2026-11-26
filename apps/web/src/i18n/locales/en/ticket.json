@@ -260,7 +260,32 @@
     "commentsImported_one": "{{count}} comment brought from Linear",
     "commentsImported_other": "{{count}} comments brought from Linear",
     "relationsImported_one": "{{count}} relation brought from Linear",
-    "relationsImported_other": "{{count}} relations brought from Linear"
+    "relationsImported_other": "{{count}} relations brought from Linear",
+    "historyImported_one": "{{count}} history record brought from Linear",
+    "historyImported_other": "{{count}} history records brought from Linear",
+    "linear": {
+      "separator": "; ",
+      "created": "created the issue on Linear",
+      "status": "changed the status from <name>{{from}}</name> to <name>{{to}}</name>",
+      "statusTo": "changed the status to <name>{{to}}</name>",
+      "statusFrom": "cleared the status <name>{{from}}</name>",
+      "statusNone": "changed the status",
+      "assigneeAdded": "assigned to <name>{{to}}</name>",
+      "assigneeRemoved": "removed <name>{{from}}</name> from the assignees",
+      "assigneeChanged": "changed the assignee from <name>{{from}}</name> to <name>{{to}}</name>",
+      "assigneeNone": "changed the assignee",
+      "priority": "changed the priority from <name>{{from}}</name> to <name>{{to}}</name>",
+      "title": "renamed from «{{from}}» to «{{to}}»",
+      "parentMoved": "moved into <to>{{to}}</to>",
+      "parentRemoved": "moved out of <from>{{from}}</from>",
+      "parentChanged": "moved from <from>{{from}}</from> into <to>{{to}}</to>",
+      "parentUnknown": "changed the parent on Linear",
+      "projectMoved": "added to the project <to>{{to}}</to>",
+      "projectRemoved": "removed from the project <from>{{from}}</from>",
+      "projectChanged": "moved from the project <from>{{from}}</from> to <to>{{to}}</to>",
+      "projectUnknown": "changed the project on Linear",
+      "description": "changed the description"
+    }
   },
   "contributions": {
     "heading": "Areas",

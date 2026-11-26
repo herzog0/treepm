@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- inspeciona resultados JSON */
 import { Logger } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mentionsPersonRaw } from "@treepm/domain";
 import { AccessTokenService } from "../src/access-tokens/access-token.service.js";
 import { McpGateway } from "../src/mcp/mcp-gateway.js";
 import { truncateAll } from "./helpers.js";
@@ -275,8 +276,10 @@ async function snapshot(projectId: string): Promise<unknown> {
   // `related` é guardada com o menor UUID primeiro: o par (e o ticket da origem) depende dos ids sorteados, então sai pelo número.
   const relations = await q("select case when r.kind = 'related' then least(f.number, t.number) else f.number end as from_number, case when r.kind = 'related' then greatest(f.number, t.number) else t.number end as to_number, r.kind from ticket_relations r join tickets f on f.id = r.from_ticket_id join tickets t on t.id = r.to_ticket_id where r.project_id = $1 and r.kind <> 'mentions' order by 1, 2, 3", [projectId]);
   const relationRefs = await q("select x.external_id, x.applied, x.local_id is not null as linked, x.missing_since is null as present, x.removed_here_at is null as kept, case when x.applied->>'type' = 'related' then null else t.number end as number from external_item_refs x join tickets t on t.id = x.ticket_id where x.project_id = $1 and x.kind = 'relation' order by x.external_id", [projectId]);
+  // Histórico (ADR 0061, fatia 4): as entradas com o autor pela pessoa (sem id) e as mudanças com os ids de ticket trocados pelo número.
+  const history = await q("select t.number, x.external_id, x.occurred_at, p.clerk_user_id as actor, x.external_actor_name, x.changes from external_history_entries x join tickets t on t.id = x.ticket_id left join people p on p.id = x.actor_person_id where x.project_id = $1 order by x.external_id", [projectId]);
   // Ids de ticket (nos eventos e nos retratos de origem) viram o número do ticket; outros ids, `<id>`.
-  const text = JSON.stringify({ tickets, refs, assignees, events, rounds, relations, relationRefs }).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (id) => numbers.get(id) ?? "<id>");
+  const text = JSON.stringify({ tickets, refs, assignees, events, rounds, relations, relationRefs, history }).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (id) => numbers.get(id) ?? "<id>");
   return JSON.parse(text) as unknown;
 }
 
@@ -1188,4 +1191,116 @@ describe("relações do Linear pela sincronização do MCP: prazo com a página 
     const { last } = await mcpSteps(tok, runId, moved.data);
     expect(last.counts).toMatchObject({ relationsTruncated: 1 });
   });
+});
+
+describe("histórico do Linear (ADR 0061, fatia 4; TREEPM-482)", () => {
+  /** Data de alteração bem à frente da marca d'água: as issues alteradas são lidas pela fase `history` nos dois caminhos. */
+  const CHANGED = "2030-01-01T10:00:00.000Z";
+  const at = (day: number, minute = 0) => new Date(Date.UTC(2026, 3, day, 10, minute)).toISOString();
+
+  it("a sincronização pelo MCP traz o mesmo histórico da tela: mesmas linhas, eventos e contagens", async () => {
+    const withHistory = (data: FakeTeamData): void => {
+      mutate(data);
+      data.issues = data.issues.map((issue) => (["i1", "i2", "i4"].includes(issue.id) ? { ...issue, updatedAt: CHANGED } : issue));
+      data.history = {
+        // 25 em i1 (página extra), autor casado pelo e-mail; i2 com robô e autor de fora; i4 é nova nesta sincronização.
+        i1: Array.from({ length: 25 }, (_, i) => ({ id: `h-i1-${25 - i}`, createdAt: at(1, 25 - i), actor: { id: "u-a", name: "Admin no Linear", email: "admin@exemplo.test" }, updatedDescription: true })),
+        i2: [
+          { id: "h-i2-2", createdAt: at(3), bot: "GitHub", fromTitle: "Dois antigo", toTitle: "Dois" },
+          { id: "h-i2-1", createdAt: at(2), actor: { id: "u-z", name: "Zed no Linear", email: EMAILS[1] as string }, fromState: { id: "s1", name: "Todo", type: "unstarted" }, toState: { id: "s2", name: "Feito", type: "completed" }, toParentId: "i1" },
+        ],
+        i4: [{ id: "h-i4-1", createdAt: at(4), actor: null, fromPriority: 0, toPriority: 1 }],
+      };
+    };
+    const viaHttp = await scenario(priv(), () => httpRun(priv()), withHistory);
+    await truncateAll(h.pool);
+    h.app().get(AccessTokenService).resetMemory();
+    h.app().get(McpGateway).resetMemory();
+    const world = await seedWorld(h.pool);
+    const projectId = world.projects.priv;
+    const viaMcp = await scenario(projectId, async () => (await mcpSync(await token("admin", {}, projectId))).last, withHistory);
+    expect(viaHttp.last.counts).toMatchObject({ historyCreated: 28, historyIgnored: 0, historySkipped: 0, historyTruncated: 0 });
+    expect((viaMcp.snap as { history: unknown[] }).history).toHaveLength(28);
+    expect(viaMcp.snap).toEqual(viaHttp.snap);
+    expect(viaMcp.last).toMatchObject({ phase: "done", done: true, counts: viaHttp.last.counts, waitUntil: null });
+    expect(JSON.stringify(viaMcp.snap)).toContain("ticket.history_imported_from_linear");
+    expect(JSON.stringify(viaMcp.snap)).not.toContain(EMAILS[1] as string);
+  });
+
+  it("texto hostil em coluna, título antigo e nome de autor passa pelo serviço inteiro: nada vira menção, nada quebra, linha do tempo e MCP limpos", async () => {
+    const data = team();
+    await link(priv(), data);
+    await httpRun(priv());
+    const admin = h.world().people.admin;
+    // Os padrões de `mentions-linear.test.ts` com 100.000 caracteres, a menção no formato do TreePM, `person:` cru, nulo e quebra de linha.
+    const fill = (unit: string) => unit.repeat(Math.ceil(100_000 / unit.length)).slice(0, 100_000);
+    const huge = ["]: ", "href= ", "](  ", "< ", "[", "[a](person:x)[", "\t\n ", `[@Admin](person:${admin}) `, "person:abc "];
+    const short = [`[@Admin](person:${admin})`, `person:${admin}`, `<person:${admin}>`, "veja PRIV-1 e ENG-2", "linha um\nlinha dois\r\n", "nulo\u0000no meio"];
+    const entries = [
+      ...huge.map((unit, i) => ({ id: `h-x-${i}`, createdAt: at(2, i), actor: i < 3 ? { id: `u-x-${i}`, name: fill(unit), email: null } : { id: `u-x-${i}`, name: unit, email: null }, fromState: { id: "s1", name: fill(unit), type: "started" }, toState: { id: "s2", name: unit, type: "completed" }, fromTitle: fill(unit), toTitle: `Um ${unit}` })),
+      { id: "h-x-nul", createdAt: at(3), actor: { id: "u-x-nul", name: "Nome\u0000com nulo\n e quebra", email: null }, fromTitle: fill("\u0000x"), toTitle: "Um" },
+      ...short.map((text, i) => ({ id: `h-y-${i}`, createdAt: at(4, i), actor: { id: `u-y-${i}`, name: text, email: null }, fromState: { id: "s1", name: text, type: "started" }, toState: { id: "s2", name: `${text}!`, type: "completed" }, fromTitle: text, toTitle: `${text} novo` })),
+    ];
+    // Espalhadas nas três issues (a página do time cabe no teto de 4 MB do corpo).
+    data.history = { i1: entries.filter((_, i) => i % 3 === 0), i2: entries.filter((_, i) => i % 3 === 1), i3: entries.filter((_, i) => i % 3 === 2) };
+    const mentions = async () =>
+      JSON.stringify([
+        await q("select * from ticket_relations order by id"),
+        await q("select id, kind, subject_id, payload from activity_events where kind not in ('ticket.history_imported_from_linear', 'ticket.imported_from_linear') and kind not like 'access_token.%' order by id"),
+        await q("select * from conversation_participants order by 1"),
+        await q("select id, title, description from tickets order by id"),
+      ]);
+    const before = await mentions();
+    await h.pool.query("update external_import_runs set history_since = null, history_complete = false");
+    const opened = await h.call("POST", runs(priv()), as("admin"), {});
+    expect(opened.status).toBe(201);
+    let last: any = opened.body;
+    const times: number[] = [];
+    for (let i = 0; i < 40 && last.done !== true; i += 1) {
+      const t0 = Date.now();
+      const res = await h.call("POST", runs(priv(), `/${String(opened.body.id)}/step`), as("admin"));
+      if (last.phase === "history") times.push(Date.now() - t0);
+      expect(res.status, JSON.stringify(res.body).slice(0, 500)).toBe(200);
+      last = res.body;
+    }
+    expect(last.done).toBe(true);
+    expect(last.counts).toMatchObject({ historyCreated: entries.length, historyIgnored: 0, historyTruncated: 0 });
+    expect(last.counts.historyIncomplete).toBeUndefined();
+    // Tempo linear: a fase inteira (≈ 3 MB de texto hostil) em poucos segundos.
+    expect(times.length).toBeGreaterThan(0);
+    expect(Math.max(...times)).toBeLessThan(5_000);
+    // Nada virou menção nem mudou fora da linha do histórico.
+    expect(await mentions()).toBe(before);
+    // O que foi gravado: sem nulo, sem quebra de linha, sem `person:`, dentro dos tetos.
+    const rows = await q("select external_actor_name, changes from external_history_entries");
+    expect(rows).toHaveLength(entries.length);
+    const strings: string[] = [];
+    JSON.stringify(rows, (_key, value: unknown) => (typeof value === "string" && strings.push(value), value));
+    for (const value of strings) {
+      expect(mentionsPersonRaw(value), value.slice(0, 80)).toBe(false);
+      expect(value.includes("\u0000") || /[\n\r]/.test(value)).toBe(false);
+      expect(value.length).toBeLessThanOrEqual(200);
+    }
+    // A linha do tempo da tela e o get_ticket_history do MCP (com o alcance de pessoas) saem limpos.
+    const tok = await token("admin", { people: true });
+    const numbers = (await q("select t.number from ticket_external_refs r join tickets t on t.id = r.ticket_id where r.external_id in ('i1','i2','i3') and r.kind = 'issue' order by t.number")).map((row) => Number(row["number"]));
+    const ids = (await q("select ticket_id from ticket_external_refs where external_id in ('i1','i2','i3') and kind = 'issue'")).map((row) => String(row["ticket_id"]));
+    let seen = 0;
+    for (const id of ids) {
+      const res = await h.call("GET", `/api/tickets/${id}/activity`, as("admin"));
+      expect(res.status).toBe(200);
+      const text = JSON.stringify(res.body);
+      seen += (text.match(/"linear_history"/g) ?? []).length;
+      expect(mentionsPersonRaw(text)).toBe(false);
+      expect(text).not.toMatch(/\\u0000|\\n|\\r/);
+    }
+    expect(seen).toBe(entries.length);
+    for (const number of numbers) {
+      const res = await h.tool(tok, "PRIV", "get_ticket_history", { key: `PRIV-${String(number)}`, limit: 50 });
+      expect(res.isError, res.text).toBe(false);
+      expect(res.text).toContain("linear_history");
+      expect(mentionsPersonRaw(res.text)).toBe(false);
+      expect(res.text).not.toMatch(/\\u0000/);
+    }
+  }, 60_000);
 });

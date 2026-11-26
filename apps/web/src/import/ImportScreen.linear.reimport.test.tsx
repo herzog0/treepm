@@ -158,7 +158,7 @@ describe("Reimportação › durante e resumo", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     const phases = await screen.findByRole("list", { name: "Fases da importação" });
     const items = within(phases).getAllByRole("listitem");
-    expect(items).toHaveLength(8);
+    expect(items).toHaveLength(9);
     expect(within(phases).getByText(/Verificando o que sumiu do Linear/)).toBeInTheDocument();
     // "Atualizando situações" fica entre ligar sub-issues e as menções.
     const names = items.map((item) => item.textContent ?? "");
@@ -182,7 +182,7 @@ describe("Reimportação › durante e resumo", () => {
   it("a primeira importação não tem essa fase", async () => {
     setup({ existing: { phase: "issues", counts: { issuesSeen: 2 } }, script: [{ hold: new Promise<void>(() => {}) }] });
     const phases = await screen.findByRole("list", { name: "Fases da importação" });
-    expect(within(phases).getAllByRole("listitem")).toHaveLength(6);
+    expect(within(phases).getAllByRole("listitem")).toHaveLength(7);
     expect(within(phases).queryByText(/Verificando o que sumiu do Linear/)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Importando…" })).toBeInTheDocument();
   });
@@ -244,6 +244,30 @@ describe("Reimportação › durante e resumo", () => {
     expect(screen.queryByText(/fecharia um ciclo/)).not.toBeInTheDocument();
   });
 
+  it("registros do histórico trazidos do Linear (ADR 0061, fatia 4), com plural, e as issues cortadas no limite", async () => {
+    setup({ existing: finished(), reimportCounts: { updated: 1, historyCreated: 312, historyIgnored: 4, historySkipped: 2, historyTruncated: 3 } });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    expect(screen.getByText("312 registros do histórico trazidos do Linear")).toBeInTheDocument();
+    expect(screen.getByText("3 issues tinham mais histórico do que o limite de 200 registros; os mais antigos ficaram de fora.")).toBeInTheDocument();
+  });
+
+  it("um registro do histórico e uma issue cortada: singular; nada cortado: a linha some", async () => {
+    setup({ existing: finished(), reimportCounts: { updated: 1, historyCreated: 1, historyTruncated: 1 } });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    expect(screen.getByText("1 registro do histórico trazido do Linear")).toBeInTheDocument();
+    expect(screen.getByText("1 issue tinha mais histórico do que o limite de 200 registros; os mais antigos ficaram de fora.")).toBeInTheDocument();
+  });
+
+  it("nenhum registro do histórico e nada cortado: as duas linhas somem", async () => {
+    setup({ existing: finished(), reimportCounts: { updated: 1, historyCreated: 0, historyTruncated: 0 } });
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+    await screen.findByRole("heading", { name: "Sincronização concluída" });
+    expect(screen.queryByText(/do histórico trazid/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/limite de 200 registros/)).not.toBeInTheDocument();
+  });
+
   it("relações atualizadas (editadas no Linear): plural e singular; zero não aparece", async () => {
     setup({ existing: finished(), reimportCounts: { updated: 1, relationsUpdated: 3 } });
     await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
@@ -298,7 +322,7 @@ describe("Reimportação › durante e resumo", () => {
   it("a região de status anuncia a fase 'missing'", async () => {
     let release!: () => void;
     const hold = new Promise<void>((resolve) => { release = resolve; });
-    setup({ existing: finished(), total: 2, projects: 0, script: ["ok", "ok", "ok", "ok", "ok", "ok", "ok", { hold }] });
+    setup({ existing: finished(), total: 2, projects: 0, script: ["ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", { hold }] });
     await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     const region = (await screen.findAllByRole("status")).find((node) => node.classList.contains("linear-import-status"))!;
     await waitFor(() => expect(region).toHaveTextContent("Verificando o que sumiu do Linear."));

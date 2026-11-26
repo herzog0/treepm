@@ -4,7 +4,8 @@ import type { Prisma, TenantClient } from "@treepm/db";
 import { canImportTickets } from "@treepm/domain";
 import type { TicketStatus } from "@treepm/domain";
 import type { LinearParentMove } from "@treepm/domain";
-import { cleanLinearText, linearRelationApplied, linearRelationKey, mapLinearRelation, removalCarriesOver, sameRelationEnds, decideLinearField, linearCommentAuthor, linearCommentAuthorName, linearCommentQuote, mapLinearComment, decideLinearLateField, decideLinearStatus, heldFieldsAfter, isFinished, linearCreatorColumns, linearInitialParent, mapLinearDescription, mapLinearPriority, mapLinearProjectStatus, mapLinearStatus, mapLinearTitle, matchLinearAssignee, planLinearParents, safeLinearUrl, sameLinearValue } from "@treepm/domain";
+import type { LinearHistoryAuthor, LinearHistoryChange, LinearHistoryResolver } from "@treepm/domain";
+import { cleanLinearText, linearHistoryActor, linearHistoryAuthor, linearHistoryChanges, linearRelationApplied, linearRelationKey, mapLinearRelation, removalCarriesOver, sameRelationEnds, decideLinearField, linearCommentAuthor, linearCommentAuthorName, linearCommentQuote, mapLinearComment, decideLinearLateField, decideLinearStatus, heldFieldsAfter, isFinished, linearCreatorColumns, linearInitialParent, mapLinearDescription, mapLinearPriority, mapLinearProjectStatus, mapLinearStatus, mapLinearTitle, matchLinearAssignee, planLinearParents, safeLinearUrl, sameLinearValue } from "@treepm/domain";
 import { refuseWhileActingAs } from "../access/act-as.js";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
@@ -20,9 +21,9 @@ import { MAX_TREE_DEPTH } from "../tickets/ticket-scope.js";
 import { AgentWorkService } from "../tickets/agent-work.service.js";
 import { TicketsService } from "../tickets/tickets.service.js";
 import type { ProjectRow, TicketRow } from "../tickets/tickets.service.js";
-import { LINEAR_TIMEOUT_MS } from "./linear-client.js";
+import { LINEAR_HISTORY_EXTRA_PAGE, LINEAR_HISTORY_PAGE_SIZE, LINEAR_HISTORY_PER_ISSUE, LINEAR_TIMEOUT_MS } from "./linear-client.js";
 import { LINEAR_CLIENT, LinearError } from "./ports.js";
-import type { LinearClient, LinearCommentsPage, LinearIssueNode, LinearIssuesPage, LinearProjectNode, LinearProjectsPage, LinearRelationIssueNode, LinearRelationsPage } from "./ports.js";
+import type { LinearClient, LinearCommentsPage, LinearHistoryIssueNode, LinearHistoryPage, LinearIssueNode, LinearIssuesPage, LinearProjectNode, LinearProjectsPage, LinearRelationIssueNode, LinearRelationsPage } from "./ports.js";
 import { applyParentMoves } from "./linear-moves.js";
 import { mapLinearIssuePage } from "./linear-mapping.js";
 import type { MappedIssue } from "./linear-mapping.js";
@@ -53,6 +54,12 @@ const FULL_PAGE = 50;
  * dependências aqui, 20 `blocks` por issue): com 50, mediana de 2,5 s por passo e máximo de 5,2 s; o teto combinado era 5 s.
  */
 const RELATIONS_PAGE = 25;
+/** Página da fase `history` (ADR 0061, fatia 4): 10 issues com as 20 entradas mais recentes de cada uma (2.016 pontos; PROGRESSO-H1). */
+const HISTORY_PAGE = LINEAR_HISTORY_PAGE_SIZE;
+/** O menor tamanho da página extra do histórico depois de estouros (180, 90, 45, 22, 20); abaixo disso a issue fica incompleta. */
+const HISTORY_EXTRA_MIN = LINEAR_HISTORY_PER_ISSUE;
+/** Folga da leitura incremental do histórico: a próxima rodada relê as issues alteradas desde a marca d'água menos isto. */
+const HISTORY_SLACK_MS = 10 * 60_000;
 /** Teto de um passo que vai ao Linear: chamadas e tempo (uma chamada só começa se ainda cabe o prazo dela dentro dos 25 s). */
 export const STEP_MAX_CALLS = 6;
 export const STEP_MAX_MS = 25_000;
@@ -61,12 +68,14 @@ const ACCESS_CALLS = 1;
 
 /**
  * O prazo do passo conduzido pelo MCP acabou antes de uma chamada ao Linear caber; `lastError` é a falha anterior, se houve.
- * `idsOnlyNext` (fase `relations`): a issue da página de 1 já respondeu com `errors`; o próximo passo vai direto à releitura só dos ids.
+ * `idsOnlyNext` (fases `relations` e `history`): a issue da página de 1 já respondeu com `errors`; o próximo passo vai direto à releitura só dos ids.
+ * `shrinkTo` (fase `history`): as páginas extras da página não cabem neste passo; nada é gravado e o próximo passo lê só estas issues.
  */
 class StepOutOfTime extends Error {
   constructor(
     readonly lastError: LinearError | null,
     readonly idsOnlyNext = false,
+    readonly shrinkTo: number | null = null,
   ) {
     super("prazo do passo");
     this.name = "StepOutOfTime";
@@ -128,13 +137,21 @@ const COUNT_KEYS = [
   "relationsTruncated",
   "relationsMissing",
   "relationsUpdated",
+  // Histórico (ADR 0061, fatia 4): entradas gravadas, não gravadas (sem mudança da lista, data ou formato inválido), issues fora deste
+  // projeto (não importadas, ticket apagado) e issues com o histórico pela metade (teto de 200 ou erro).
+  "historyCreated",
+  "historyIgnored",
+  "historySkipped",
+  "historyTruncated",
 ] as const;
 /**
  * `assigneeEmailUnavailable`: o Linear recusou o e-mail dos responsáveis nesta rodada; ninguém foi atribuído.
  * `descriptionUnavailable`: alguma página veio sem descrição (issue enorme); a descrição desses tickets não foi tocada na reimportação.
  * `missingNotChecked`: a leitura pulou itens fora do formato; por isso a fase `missing` não marcou nada.
+ * `historyIncomplete`: a fase `history` deixou issues pela metade por ERRO (página extra com erro, issue ilegível, freio das 10); a marca
+ * d'água não avança nesta rodada. O teto de 200 por issue não conta aqui.
  */
-type Counts = Record<(typeof COUNT_KEYS)[number], number> & { assigneeEmailUnavailable?: true; descriptionUnavailable?: true; missingNotChecked?: true };
+type Counts = Record<(typeof COUNT_KEYS)[number], number> & { assigneeEmailUnavailable?: true; descriptionUnavailable?: true; missingNotChecked?: true; historyIncomplete?: true };
 const zeroCounts = (): Counts => Object.fromEntries(COUNT_KEYS.map((key) => [key, 0])) as unknown as Counts;
 const readCounts = (raw: unknown): Counts => {
   const counts = zeroCounts();
@@ -146,6 +163,7 @@ const readCounts = (raw: unknown): Counts => {
     if ((raw as Record<string, unknown>)["assigneeEmailUnavailable"] === true) counts.assigneeEmailUnavailable = true;
     if ((raw as Record<string, unknown>)["descriptionUnavailable"] === true) counts.descriptionUnavailable = true;
     if ((raw as Record<string, unknown>)["missingNotChecked"] === true) counts.missingNotChecked = true;
+    if ((raw as Record<string, unknown>)["historyIncomplete"] === true) counts.historyIncomplete = true;
   }
   return counts;
 };
@@ -168,22 +186,22 @@ function parseIssuesCursor(raw: string | null): { sweep: number; known: number; 
 const issuesCursor = (sweep: number, known: number, after: string | null): string | null => (sweep === 0 ? after : `${SWEEP_MARK}${sweep}${known > 0 ? `.${known}` : ""}${after === null ? "" : `|${after}`}`);
 
 /**
- * O cursor da fase `relations`: o do Linear, e, só quando há o que guardar, `^<ilegíveis>[.i]|<cursor do Linear>`. `unreadable`: issues
+ * O cursor das fases aninhadas nas issues (`relations` e `history`): o do Linear, e, só quando há o que guardar, `^<ilegíveis>[.i]|<cursor do Linear>`. `unreadable`: issues
  * seguidas cujas relações não vieram (para em `UNREADABLE_STOP`); `idsOnly`: a issue seguinte já respondeu com `errors` na página de 1 e o
  * prazo do passo acabou antes da releitura só dos ids, que o próximo passo faz direto (sem isso, um Linear lento repetiria a consulta que
  * falha a cada chamada). Junto do cursor porque valem para aquela posição e andam com ela.
  */
-const RELATIONS_MARK = "^";
-type RelationsPosition = { after: string | null; unreadable: number; idsOnly: boolean };
-function parseRelationsCursor(raw: string | null): RelationsPosition {
-  if (raw === null || !raw.startsWith(RELATIONS_MARK)) return { after: raw, unreadable: 0, idsOnly: false };
+const NESTED_MARK = "^";
+type NestedPosition = { after: string | null; unreadable: number; idsOnly: boolean };
+function parseNestedCursor(raw: string | null): NestedPosition {
+  if (raw === null || !raw.startsWith(NESTED_MARK)) return { after: raw, unreadable: 0, idsOnly: false };
   const bar = raw.indexOf("|");
   const [countText, flag] = raw.slice(1, bar === -1 ? undefined : bar).split(".");
   const unreadable = Number(countText);
   return { after: bar === -1 ? null : raw.slice(bar + 1), unreadable: Number.isInteger(unreadable) && unreadable > 0 ? unreadable : 0, idsOnly: flag === "i" };
 }
-const relationsCursor = ({ after, unreadable, idsOnly }: RelationsPosition): string | null =>
-  unreadable === 0 && !idsOnly ? after : `${RELATIONS_MARK}${unreadable}${idsOnly ? ".i" : ""}${after === null ? "" : `|${after}`}`;
+const nestedCursor = ({ after, unreadable, idsOnly }: NestedPosition): string | null =>
+  unreadable === 0 && !idsOnly ? after : `${NESTED_MARK}${unreadable}${idsOnly ? ".i" : ""}${after === null ? "" : `|${after}`}`;
 
 /** Impasse entre travas (40P01), falha de serialização (40001) e prazo da transação interativa (P2028): se repetem sozinhos. */
 const isTransient = (error: unknown): boolean => retryableConflict(error) !== null || (error as { code?: unknown } | null)?.code === "P2028";
@@ -213,6 +231,9 @@ type RunRow = {
   startedAt: Date;
   updatedAt: Date;
   finishedAt: Date | null;
+  /** Fase `history` (migration 0046): o filtro desta rodada e se a fase terminou sem truncamento por erro. */
+  historySince: Date | null;
+  historyComplete: boolean;
 };
 
 /** Data do Linear que não parseia vira nulo: nunca derruba o nó nem o passo. */
@@ -477,6 +498,20 @@ type Fetched =
       extraInvalid: number;
       /** Issues lidas só pelo id: o Linear respondeu `errors` sem `data` utilizável mesmo com a página em 1. */
       unreadable: number;
+    }
+  | {
+      phase: "history";
+      page: LinearHistoryPage;
+      reduced: boolean;
+      usedSize: number;
+      /** Issues com o histórico pela metade por ERRO (página extra com erro, prazo da última issue, ilegível): impedem a marca d'água. */
+      truncated: number;
+      /** Issues que ainda tinham entradas depois das 200 (o teto): contam, mas não impedem a marca d'água. */
+      capped: number;
+      extraInvalid: number;
+      unreadable: number;
+      /** A página (e as extras) veio com o e-mail: só então o autor e os responsáveis são casados com pessoas. */
+      withEmail: boolean;
     };
 
 /** O Linear limitou: o código 429 de `linearHttp` ou do `requireLinearAccess`, com a espera pedida. */
@@ -749,7 +784,7 @@ export class LinearImportService {
     if (seen.waitUntil !== null && seen.waitUntil.getTime() > Date.now()) return view(seen);
 
     let fetched: Fetched | null = null;
-    if (seen.phase === "projects" || seen.phase === "issues" || seen.phase === "comments" || seen.phase === "relations") {
+    if (seen.phase === "projects" || seen.phase === "issues" || seen.phase === "comments" || seen.phase === "relations" || seen.phase === "history") {
       const result = await this.fetchPage(tenant, principal, projectId, seen, projectKey, deadline);
       if ("wait" in result) return result.wait;
       fetched = result.fetched;
@@ -793,6 +828,7 @@ export class LinearImportService {
       if (run.phase === "projects") return { fetched: await this.fetchProjects(key, source.externalTeamId, run, progress, emailRefused, ACCESS_CALLS, deadline) };
       if (run.phase === "comments") return { fetched: await this.fetchComments(key, source.externalTeamId, run, progress, emailRefused, ACCESS_CALLS, deadline) };
       if (run.phase === "relations") return { fetched: await this.fetchRelations(key, source.externalTeamId, run, progress, ACCESS_CALLS, deadline) };
+      if (run.phase === "history") return { fetched: await this.fetchHistory(key, source.externalTeamId, run, progress, emailRefused, ACCESS_CALLS, deadline) };
       const issues = await this.fetchIssues(key, source.externalTeamId, run, progress, emailRefused, ACCESS_CALLS, deadline);
       // O mapeamento da página (função pura) roda aqui, FORA da transação de gravação.
       return { fetched: { ...issues, mapped: mapLinearIssuePage(issues.page.nodes, projectKey), mappedFor: projectKey } };
@@ -800,6 +836,8 @@ export class LinearImportService {
       let error = caught;
       if (caught instanceof StepOutOfTime) {
         if (caught.idsOnlyNext) return { wait: await this.recordIdsOnlyNext(tenant, run, progress.size) };
+        // As extras da página de histórico não couberam: o tamanho só diminui (até 1), então "chame de novo" não vira laço.
+        if (caught.shrinkTo !== null) return { wait: await this.recordPageSize(tenant, run, caught.shrinkTo) };
         if (caught.lastError === null) return { wait: view(run) };
         // Também quando a falha anterior foi a recusa do e-mail: ela já está gravada na rodada, e a próxima chamada pede sem (progride).
         if (progress.size < run.pageSize || caught.lastError.code === "linear_email_unavailable") return { wait: await this.recordPageSize(tenant, run, progress.size) };
@@ -946,7 +984,7 @@ export class LinearImportService {
    * apagado no Linear nesta rodada).
    */
   private async fetchRelations(key: string, teamId: string, run: RunRow, progress: { size: number }, alreadyUsed = 0, deadline?: number): Promise<Extract<Fetched, { phase: "relations" }>> {
-    const position = parseRelationsCursor(run.cursor);
+    const position = parseNestedCursor(run.cursor);
     // A issue da posição já respondeu com `errors` na página de 1 (passo anterior sem tempo para a releitura): direto aos ids.
     let idsOnly = position.idsOnly;
     let size = idsOnly ? 1 : Math.min(Math.max(run.pageSize, 1), RELATIONS_PAGE);
@@ -1019,6 +1057,133 @@ export class LinearImportService {
     return { phase: "relations", page: { ...page, nodes }, reduced, usedSize: size, truncated, extraInvalid, unreadable };
   }
 
+  /**
+   * Uma página de histórico (ADR 0061, fatia 4): as issues do time (só as alteradas depois de `history_since`, quando a rodada tem filtro)
+   * com as 20 entradas mais recentes de cada uma, com as regras da fase `relations` para a página principal (grande demais, prazo ou
+   * `errors` sem `data` utilizável → metade, 10 … 1; com 1 e ainda `errors`, relê só os ids e a issue conta como ilegível) e a regra do
+   * e-mail das outras fases. Depois, UMA página extra por issue que tem mais (até 180: completa as 200), no mesmo orçamento do passo.
+   *
+   * O que não cabe não é gravado pela metade: se as extras da página não cabem nas chamadas que sobram (conta feita antes de gastar
+   * qualquer uma) ou no tempo/prazo do MCP, o passo devolve `StepOutOfTime` com `shrinkTo` = as issues que cabem (no mínimo 1) e nada é
+   * gravado. Só quando a página já é de 1 issue e a extra dela ainda não cabe a issue fica truncada (erro: impede a marca d'água). Limite
+   * de taxa numa extra sobe (a rodada espera, nada é gravado); extra que estoura (grande demais, prazo, `errors` sem `data`) é pedida pela
+   * metade até `HISTORY_EXTRA_MIN`, e a leitura continua nesse tamanho até completar as 180 (o que não couber no passo trunca a issue);
+   * outro erro numa extra, a issue que sumiu entre as leituras ou um nó com `errors` truncam só aquela issue; e-mail recusada numa extra é
+   * gravada na rodada e a extra é repetida sem e-mail (a página inteira passa a valer como sem e-mail). Issues e nós que vieram com
+   * `errors` na página do time (`historyErrors`) também truncam: nada deles é gravado e a marca não avança.
+   */
+  private async fetchHistory(key: string, teamId: string, run: RunRow, progress: { size: number }, emailRefused: () => Promise<void> = async () => undefined, alreadyUsed = 0, deadline?: number): Promise<Extract<Fetched, { phase: "history" }>> {
+    const position = parseNestedCursor(run.cursor);
+    const updatedSince = run.historySince ? run.historySince.toISOString() : null;
+    let withEmail = readCounts(run.counts).assigneeEmailUnavailable !== true;
+    let idsOnly = position.idsOnly;
+    let size = idsOnly ? 1 : Math.min(Math.max(run.pageSize, 1), HISTORY_PAGE);
+    progress.size = size;
+    let reduced = false;
+    const startedAt = Date.now();
+    let lastError: LinearError | null = null;
+    let calls = alreadyUsed;
+    let page: LinearHistoryPage | null = null;
+    let unreadable = 0;
+    for (; page === null; calls += 1) {
+      if (lastError !== null && (calls >= STEP_MAX_CALLS || Date.now() - startedAt + LINEAR_TIMEOUT_MS > STEP_MAX_MS)) {
+        if (lastError.code === "linear_partial_response" && (size < run.pageSize || idsOnly)) throw new StepOutOfTime(lastError, idsOnly);
+        throw lastError;
+      }
+      if (deadline !== undefined && Date.now() + LINEAR_TIMEOUT_MS > deadline) throw new StepOutOfTime(lastError, idsOnly);
+      try {
+        page = await this.client.listTeamHistory(key, teamId, position.after, { first: size, updatedSince, withHistory: !idsOnly, withEmail });
+        if (idsOnly) unreadable = page.nodes.length;
+      } catch (error) {
+        if (withEmail && error instanceof LinearError && error.code === "linear_email_unavailable") {
+          lastError = error;
+          withEmail = false;
+          await emailRefused();
+          continue;
+        }
+        const reducible = error instanceof LinearError && (error.code === "linear_response_too_large" || error.code === "linear_timeout" || error.code === "linear_partial_response");
+        if (!reducible) throw error;
+        if (idsOnly) throw new LinearError("linear_unavailable");
+        lastError = error;
+        if (size > 1) {
+          size = Math.max(1, Math.floor(size / 2));
+          reduced = true;
+          progress.size = size;
+        } else if (error.code === "linear_partial_response") idsOnly = true;
+        else throw error;
+      }
+    }
+    // As extras: decididas ANTES de gastar chamadas (cada issue com mais entradas pede exatamente uma).
+    const needing = page.nodes.flatMap((node, index) => (node.historyNext === null ? [] : [index]));
+    const remaining = STEP_MAX_CALLS - calls;
+    // Encolher só quando diminui de fato (senão a página de 1 ficaria pedindo para encolher para sempre).
+    const shrinkOr = (index: number): boolean => {
+      const target = Math.max(index, 1);
+      if (target < size || target < run.pageSize) throw new StepOutOfTime(null, false, Math.min(target, size));
+      return false;
+    };
+    if (needing.length > remaining) shrinkOr(needing[Math.max(remaining, 0)] as number);
+    const fits = (): boolean => calls < STEP_MAX_CALLS && Date.now() - startedAt + LINEAR_TIMEOUT_MS <= STEP_MAX_MS && (deadline === undefined || Date.now() + LINEAR_TIMEOUT_MS <= deadline);
+    let truncated = unreadable + page.historyErrors;
+    let capped = 0;
+    let extraInvalid = 0;
+    const nodes: LinearHistoryIssueNode[] = [];
+    for (const [index, node] of page.nodes.entries()) {
+      if (node.historyNext === null) {
+        nodes.push(node);
+        continue;
+      }
+      if (!fits() && !shrinkOr(index)) {
+        truncated += 1; // página de 1 e a extra ainda não cabe: a issue fica pela metade (erro)
+        nodes.push(node);
+        continue;
+      }
+      // As 180 seguintes, numa chamada; depois de um estouro, em páginas menores (cada chamada a mais só se ainda cabe no passo).
+      const read: LinearHistoryIssueNode["history"] = [];
+      let after: string | null = node.historyNext;
+      let want = LINEAR_HISTORY_EXTRA_PAGE;
+      let size = LINEAR_HISTORY_EXTRA_PAGE;
+      let incomplete = false;
+      for (let attempt = 0; after !== null && want > 0; attempt += 1) {
+        // Chamada a mais que não cabe: a página encolhe (nada gravado) como na conta prévia; só na página de 1 a issue fica pela metade.
+        if (attempt > 0 && !fits() && !shrinkOr(index)) {
+          incomplete = true;
+          break;
+        }
+        calls += 1;
+        let more: Awaited<ReturnType<LinearClient["listIssueHistory"]>>;
+        try {
+          more = await this.client.listIssueHistory(key, node.id, after, { withEmail, first: Math.min(size, want) });
+        } catch (error) {
+          if (error instanceof LinearError && error.code === "linear_rate_limited") throw error;
+          if (withEmail && error instanceof LinearError && error.code === "linear_email_unavailable") {
+            withEmail = false;
+            await emailRefused();
+            continue;
+          }
+          const reducible = error instanceof LinearError && (error.code === "linear_response_too_large" || error.code === "linear_timeout" || error.code === "linear_partial_response");
+          if (reducible && size > HISTORY_EXTRA_MIN) {
+            size = Math.max(HISTORY_EXTRA_MIN, Math.floor(size / 2));
+            continue;
+          }
+          this.logger.warn(`página extra de histórico não lida (${error instanceof LinearError ? error.code : error instanceof Error ? error.name : "erro"})`);
+          incomplete = true;
+          break;
+        }
+        extraInvalid += more.skippedInvalid;
+        if (more.incomplete) incomplete = true;
+        read.push(...more.history);
+        want -= Math.min(size, want);
+        after = more.nextCursor;
+      }
+      // Pela metade por erro segura a marca; o resto além das 200 é o teto (não segura).
+      if (incomplete) truncated += 1;
+      else if (after !== null) capped += 1;
+      nodes.push({ ...node, history: [...node.history, ...read], historyNext: after });
+    }
+    return { phase: "history", page: { ...page, nodes }, reduced, usedSize: size, truncated, capped, extraInvalid, unreadable, withEmail };
+  }
+
   /** Grava na rodada que o Linear recusou o e-mail (merge atômico; só se a rodada ainda está onde o passo a leu). Nunca derruba o passo. */
   private async recordEmailRefused(tenant: TenantRunner, run: RunRow): Promise<void> {
     try {
@@ -1047,9 +1212,9 @@ export class LinearImportService {
     });
   }
 
-  /** Fase `relations`, prazo do MCP: a issue da página de 1 respondeu com `errors` e a releitura só dos ids fica para o próximo passo. */
+  /** Fases `relations` e `history`, prazo do MCP: a issue da página de 1 respondeu com `errors` e a releitura só dos ids fica para o próximo passo. */
   private async recordIdsOnlyNext(tenant: TenantRunner, run: RunRow, pageSize: number): Promise<RunView> {
-    const cursor = relationsCursor({ ...parseRelationsCursor(run.cursor), idsOnly: true });
+    const cursor = nestedCursor({ ...parseNestedCursor(run.cursor), idsOnly: true });
     return tenant.run(async (tx, current) => {
       await tx.$executeRaw`update external_import_runs set cursor = ${cursor}, size_streak = 0, page_size = least(page_size, ${pageSize}::int), updated_at = now()
         where org_id = ${current.organization.orgId} and id = ${run.id}::uuid and phase = ${run.phase} and cursor is not distinct from ${run.cursor}::text`;
@@ -1076,7 +1241,7 @@ export class LinearImportService {
    * reduzir: quem chama conta o erro). Nunca atrapalha a resposta ao erro.
    */
   private async shrinkStep(tenant: TenantRunner, run: RunRow): Promise<boolean> {
-    const issues = run.phase === "issues" || run.phase === "comments" || run.phase === "relations";
+    const issues = run.phase === "issues" || run.phase === "comments" || run.phase === "relations" || run.phase === "history";
     const normal = BATCH_OF_PHASE[run.phase];
     if (!issues && normal === undefined) return true; // `projects` e as demais não têm lote a reduzir: só se repetem
     const effective = issues ? Math.min(run.pageSize, FULL_PAGE) : batchOf(run, normal as number);
@@ -1143,6 +1308,7 @@ export class LinearImportService {
     let batchSize = run.batchSize;
     let sizeStreak = run.sizeStreak;
     let finished: Date | null = null;
+    let history: { historySince?: Date | null; historyComplete?: boolean } = {};
 
     if (run.phase === "projects" && fetched?.phase === "projects") {
       await this.importProjects(tx, principal, project, run, fetched.page, new Set(fetched.summaryOnly), counts);
@@ -1187,15 +1353,31 @@ export class LinearImportService {
       if (fetched?.phase !== "relations") throw new Error("passo de relações sem a página do Linear");
       await this.importRelations(tx, principal, project, run, fetched, counts);
       [pageSize, sizeStreak] = this.nextPageSize(run, fetched, sizeStreak, RELATIONS_PAGE);
-      const position = parseRelationsCursor(run.cursor);
+      const position = parseNestedCursor(run.cursor);
       // Issues ilegíveis seguidas: a página só de ids soma; uma página lida de verdade zera.
       const unreadable = fetched.unreadable > 0 ? position.unreadable + fetched.unreadable : 0;
       // Dez seguidas: a fase para aqui. O resto do time fica sem ler (já há truncamento, então nada é marcado como removido no Linear).
       const stop = unreadable >= UNREADABLE_STOP;
-      if (fetched.page.nextCursor !== null && !stop) cursor = relationsCursor({ after: fetched.page.nextCursor, unreadable, idsOnly: false });
+      if (fetched.page.nextCursor !== null && !stop) cursor = nestedCursor({ after: fetched.page.nextCursor, unreadable, idsOnly: false });
       else {
         // Alguma issue lida nesta rodada: uma página anterior (o cursor andou) ou esta trouxe nós.
         if (!stop) await this.markMissingRelations(tx, project, run, counts, position.after !== null || fetched.page.nodes.length > 0);
+        // A fase `history` começa: o filtro dela fica fixo na rodada (o cursor do Linear só vale com o mesmo filtro).
+        [phase, cursor, pageSize, sizeStreak] = ["history", null, HISTORY_PAGE, 0];
+        history = await this.historyWindow(tx, project);
+      }
+    } else if (run.phase === "history") {
+      if (fetched?.phase !== "history") throw new Error("passo de histórico sem a página do Linear");
+      await this.importHistory(tx, principal, project, run, fetched, counts);
+      [pageSize, sizeStreak] = this.nextPageSize(run, fetched, sizeStreak, HISTORY_PAGE);
+      const position = parseNestedCursor(run.cursor);
+      const unreadable = fetched.unreadable > 0 ? position.unreadable + fetched.unreadable : 0;
+      // Dez ilegíveis seguidas: a fase para aqui, o resto do time fica sem ler e a marca d'água não avança.
+      const stop = unreadable >= UNREADABLE_STOP;
+      if (fetched.page.nextCursor !== null && !stop) cursor = nestedCursor({ after: fetched.page.nextCursor, unreadable, idsOnly: false });
+      else {
+        if (stop) counts.historyIncomplete = true;
+        history = { historyComplete: counts.historyIncomplete !== true };
         if (run.mode === "reimport") [phase, cursor] = ["missing", null];
         else ({ phase, cursor, finished } = await this.finishRun(tx, principal, projectId, run, counts));
       }
@@ -1213,7 +1395,7 @@ export class LinearImportService {
     }
     const updated = await tx.externalImportRun.update({
       where: { orgId_id: { orgId: principal.organization.orgId, id: run.id } },
-      data: { phase, cursor, pageSize, batchSize, sizeStreak, counts: { ...counts }, waitUntil: null, lastErrorCode: null, errorStreak: 0, finishedAt: finished },
+      data: { phase, cursor, pageSize, batchSize, sizeStreak, counts: { ...counts }, waitUntil: null, lastErrorCode: null, errorStreak: 0, finishedAt: finished, ...history },
     });
     return view(updated as RunRow);
   }
@@ -2389,6 +2571,131 @@ export class LinearImportService {
     counts.relationsMissing += await tx.$executeRaw`update external_item_refs set missing_since = now()
       where org_id = ${project.orgId} and project_id = ${project.id}::uuid and provider = ${PROVIDER} and kind = 'relation' and missing_since is null
         and (last_seen_run_id is null or last_seen_run_id <> ${run.id}::uuid) and coalesce(applied->>'superseded', '') <> 'true'`;
+  }
+
+  // ---- fase history (ADR 0061, fatia 4) ----
+
+  /**
+   * O filtro da fase `history` desta rodada, fixado ao entrar nela: a marca d'água do projeto (o COMEÇO, `started_at`, da última rodada
+   * cuja fase terminou inteira) menos `HISTORY_SLACK_MS`; sem marca (primeira vez, ou projeto importado antes desta fatia), o time inteiro.
+   * O começo da rodada, e não o da fase: a issue que nasce ou muda no Linear enquanto a rodada anda (depois da fase `issues`, sem ticket
+   * ainda) é relida na seguinte.
+   */
+  private async historyWindow(tx: TenantClient, project: ProjectRow): Promise<{ historySince: Date | null }> {
+    const last = await tx.externalImportRun.findFirst({ where: { orgId: project.orgId, projectId: project.id, historyComplete: true }, orderBy: [{ startedAt: "desc" }], select: { startedAt: true } });
+    return { historySince: last === null ? null : new Date(last.startedAt.getTime() - HISTORY_SLACK_MS) };
+  }
+
+  /**
+   * Uma página de histórico, numa transação com o cursor e as contagens. Cada entrada com alguma mudança da lista da ADR vira uma linha de
+   * `external_history_entries` (`linearHistoryChanges`), na issue importada NESTE projeto com ticket vivo (as outras issues contam em
+   * `historySkipped`). Entrada sem mudança da lista, com data inválida ou fora da faixa (antes de 2000, no futuro) não é gravada
+   * (`historyIgnored`): a linha não se corrige depois, e uma data inventada ficaria fora do lugar para sempre. A gravação é um único
+   * `insert … on conflict do nothing returning`: entrada já gravada (passo repetido, issue relida) não é recontada. O autor segue a regra
+   * dos comentários e, nas entradas já gravadas DESTE projeto relidas com e-mail legível, acompanha o casamento atual. Os responsáveis
+   * dentro de `changes` ficam como foram gravados. Nenhum evento por entrada: só "N registros do histórico trazidos do Linear" por ticket.
+   */
+  private async importHistory(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, fetched: Extract<Fetched, { phase: "history" }>, counts: Counts): Promise<void> {
+    const { page } = fetched;
+    counts.historyIgnored += page.skippedInvalid + fetched.extraInvalid;
+    counts.historyTruncated += fetched.truncated + fetched.capped;
+    if (fetched.truncated > 0) counts.historyIncomplete = true;
+    const issues = [...new Map(page.nodes.map((node) => [node.id, node])).values()];
+    if (issues.length === 0) return;
+    const orgId = project.orgId;
+    const entries = issues.flatMap((issue) => issue.history);
+    const parentIds = new Set(entries.flatMap((entry) => [entry.fromParentId, entry.toParentId].filter((id): id is string => id !== null)));
+    const projectIds = new Set(entries.flatMap((entry) => [entry.fromProjectId, entry.toProjectId].filter((id): id is string => id !== null)));
+    const refRows = await tx.ticketExternalRef.findMany({
+      where: { provider: PROVIDER, projectId: project.id, OR: [{ kind: "issue", externalId: { in: [...new Set([...issues.map((issue) => issue.id), ...parentIds])] } }, { kind: "project", externalId: { in: [...projectIds] } }] },
+      select: { externalId: true, ticketId: true, kind: true },
+    });
+    const alive = new Set((await tx.ticket.findMany({ where: { projectId: project.id, id: { in: refRows.map((row) => row.ticketId) } }, select: { id: true } })).map((row) => row.id));
+    const ticketsOf = (kind: string) => new Map(refRows.filter((row) => row.kind === kind && alive.has(row.ticketId)).map((row) => [row.externalId, row.ticketId] as const));
+    const issueTicket = ticketsOf("issue");
+    const projectTicket = ticketsOf("project");
+    // O casamento por e-mail (pessoa ativa, não de teste, única, que enxerga o projeto), feito antes, por id do usuário do Linear: o
+    // normalizador é síncrono e nunca vê o e-mail.
+    const emails = new Map<string, string>();
+    if (fetched.withEmail) {
+      for (const entry of entries) for (const user of [entry.actor, entry.fromAssignee, entry.toAssignee]) if (user !== null && user.email !== null) emails.set(user.id, user.email);
+    }
+    const personOf = new Map<string, string | null>();
+    if (emails.size > 0) {
+      const resolve = await this.assigneeResolver(tx, project);
+      for (const [userId, email] of emails) personOf.set(userId, await resolve(email));
+    }
+    const resolver: LinearHistoryResolver = { person: (user) => personOf.get(user.id) ?? null, ticket: (field, linearId) => (field === "parent" ? issueTicket : projectTicket).get(linearId) ?? null };
+
+    type Planned = { externalId: string; ticketId: string; occurredAt: Date; changes: LinearHistoryChange[]; author: LinearHistoryAuthor | null; matched: string | null };
+    const planned = new Map<string, Planned>();
+    for (const issue of issues) {
+      const ticketId = issueTicket.get(issue.id);
+      if (ticketId === undefined) {
+        counts.historySkipped += 1;
+        continue;
+      }
+      for (const entry of issue.history) {
+        if (planned.has(entry.id)) continue;
+        const occurredAt = linearDate(entry.createdAt);
+        const changes = occurredAt === null ? [] : linearHistoryChanges(entry, resolver, project.key);
+        if (occurredAt === null || changes.length === 0) {
+          counts.historyIgnored += 1;
+          continue;
+        }
+        const author = linearHistoryAuthor(entry, project.key);
+        const matched = fetched.withEmail && author?.kind === "user" ? (personOf.get(author.id) ?? null) : null;
+        planned.set(entry.id, { externalId: entry.id, ticketId, occurredAt, changes, author, matched });
+      }
+    }
+    if (planned.size === 0) return;
+    const rows = [...planned.values()].map((item) => ({
+      ticket_id: item.ticketId,
+      external_id: item.externalId,
+      occurred_at: item.occurredAt.toISOString(),
+      changes: item.changes,
+      ...(({ actorPersonId, externalActorName }) => ({ actor_person_id: actorPersonId, external_actor_name: externalActorName }))(linearHistoryActor({ author: item.author, emailReadable: fetched.withEmail, matchedPersonId: item.matched, current: null })),
+    }));
+    const inserted = await tx.$queryRaw<{ ticketId: string; externalId: string }[]>`
+      insert into external_history_entries (org_id, project_id, ticket_id, provider, external_id, occurred_at, actor_person_id, external_actor_name, changes)
+      select ${orgId}, ${project.id}::uuid, r.ticket_id, ${PROVIDER}, r.external_id, r.occurred_at, r.actor_person_id, r.external_actor_name, r.changes
+        from jsonb_to_recordset(${JSON.stringify(rows)}::jsonb) as r(ticket_id uuid, external_id text, occurred_at timestamptz, actor_person_id uuid, external_actor_name text, changes jsonb)
+      on conflict (org_id, provider, external_id) do nothing
+      returning ticket_id as "ticketId", external_id as "externalId"`;
+    counts.historyCreated += inserted.length;
+    const perTicket = new Map<string, number>();
+    for (const row of inserted) perTicket.set(row.ticketId, (perTicket.get(row.ticketId) ?? 0) + 1);
+
+    // As já gravadas (issue relida): o autor acompanha o casamento atual, só com e-mail legível e só nas linhas deste projeto.
+    if (fetched.withEmail) {
+      const fresh = new Set(inserted.map((row) => row.externalId));
+      const known = [...planned.keys()].filter((id) => !fresh.has(id));
+      const existing = known.length === 0 ? [] : await tx.externalHistoryEntry.findMany({ where: { provider: PROVIDER, projectId: project.id, externalId: { in: known } }, select: { id: true, externalId: true, actorPersonId: true, externalActorName: true } });
+      for (const row of existing) {
+        const item = planned.get(row.externalId) as Planned;
+        const who = linearHistoryActor({ author: item.author, emailReadable: true, matchedPersonId: item.matched, current: { actorPersonId: row.actorPersonId, externalActorName: row.externalActorName } });
+        if (who.actorPersonId !== row.actorPersonId || who.externalActorName !== row.externalActorName) {
+          await tx.externalHistoryEntry.update({ where: { orgId_id: { orgId, id: row.id } }, data: who, select: { id: true } });
+        }
+      }
+    }
+    await this.recordHistoryEvents(tx, principal, project, run, perTicket);
+  }
+
+  /** O evento automático "N registros do histórico trazidos do Linear", um por ticket por página (como o dos comentários); a linha do tempo soma os da rodada. */
+  private async recordHistoryEvents(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, perTicket: ReadonlyMap<string, number>): Promise<void> {
+    if (perTicket.size === 0) return;
+    const tickets = await tx.ticket.findMany({ where: { id: { in: [...perTicket.keys()] } }, select: { id: true, number: true } });
+    await this.activity.recordMany(
+      tx,
+      principal,
+      tickets.map((ticket) => ({
+        kind: "ticket.history_imported_from_linear",
+        subjectType: "ticket",
+        subjectId: ticket.id,
+        payload: { key: `${project.key}-${ticket.number}`, count: perTicket.get(ticket.id) as number, automatic: true, source: "linear_sync", runId: run.id },
+      })),
+    );
   }
 
   // ---- fase mentions ----

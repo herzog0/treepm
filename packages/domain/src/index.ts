@@ -125,6 +125,8 @@ export * from "./linear-import.js";
 export * from "./linear-reimport.js";
 export * from "./linear-comments.js";
 export * from "./linear-relations.js";
+export * from "./linear-history.js";
+export * from "./linear-history-name-cases.js";
 export * from "./email-shape.js";
 export * from "./work-queue.js";
 export * from "./play.js";

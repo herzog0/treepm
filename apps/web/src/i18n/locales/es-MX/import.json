@@ -106,6 +106,7 @@
       "mentions": "Ligando menciones",
       "comments": "Trayendo comentarios",
       "relations": "Ligando relaciones",
+      "history": "Trayendo el historial",
       "list": "Fases de la importación",
       "missing": "Verificando lo que desapareció de Linear"
     },
@@ -121,6 +122,7 @@
       "mentions": "Ligando las menciones entre los tickets.",
       "comments": "Trayendo los comentarios de los issues.",
       "relations": "Ligando las relaciones entre los tickets.",
+      "history": "Trayendo el historial de los issues.",
       "done": "Importación terminada.",
       "waiting": "Linear pidió esperar.",
       "abandoned": "Importación abandonada.",
@@ -174,7 +176,13 @@
       "relationsUpdated_one": "{{count}} relación actualizada",
       "relationsUpdated_other": "{{count}} relaciones actualizadas",
       "relationsUpdated_many": "{{count}} relaciones actualizadas",
-      "relationsTruncated": "Algunas relaciones no se leyeron en esta ronda; no se marcó nada como eliminado en Linear."
+      "relationsTruncated": "Algunas relaciones no se leyeron en esta ronda; no se marcó nada como eliminado en Linear.",
+      "historyCreated_one": "{{count}} registro del historial traído de Linear",
+      "historyCreated_other": "{{count}} registros del historial traídos de Linear",
+      "historyCreated_many": "{{count}} registros del historial traídos de Linear",
+      "historyTruncated_one": "{{count}} issue tenía más historial que el límite de 200 registros; los más antiguos quedaron fuera.",
+      "historyTruncated_other": "{{count}} issues tenían más historial que el límite de 200 registros; los más antiguos quedaron fuera.",
+      "historyTruncated_many": "{{count}} issues tenían más historial que el límite de 200 registros; los más antiguos quedaron fuera."
     },
     "abandon": {
       "button": "Abandonar importación",

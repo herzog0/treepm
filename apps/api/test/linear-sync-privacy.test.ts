@@ -171,11 +171,16 @@ describe("a captura de log pega um vazamento de verdade", () => {
   });
 });
 
-describe("as leituras que alimentam a IA e o MCP não conhecem os atributos novos", () => {
+describe("os atributos novos da origem só saem pela importação, pela tela e pela linha do tempo; o MCP os recebe prontos dela, nunca da origem", () => {
   const SRC = join(__dirname, "..", "src");
   const NEW = /externalCreatedAt|externalStartedAt|externalCompletedAt|externalCanceledAt|externalPreviousKeys|externalCreatorId|externalCreatorName|creatorPersonId|external_previous_keys|external_creator|creator_person_id|externalKeys|readLinearKeys|withLinearKeys|listedTicketSchema/;
-  /** Só a importação, o detalhe do ticket e a lista de tickets da tela (as chaves da busca, TREEPM-501) leem as colunas novas. */
-  const ALLOWED = new Set(["linear/linear-import.service.ts", "tickets/tickets.service.ts", "tickets/external-keys.ts", "tickets/tickets.controller.ts"]);
+  /**
+   * Só a importação, o detalhe do ticket, a lista de tickets da tela (as chaves da busca, TREEPM-501) e a linha do tempo leem as colunas
+   * novas. A linha do tempo lê a data de criação e o criador no Linear para a entrada "criou a issue no Linear" (ADR 0061, decisão da
+   * fatia 4, item 6); quem pode usar a linha do tempo (só a página do ticket e o `get_ticket_history` do MCP, com o alcance de pessoas)
+   * é guardado em `linear-history-privacy.test.ts`.
+   */
+  const ALLOWED = new Set(["linear/linear-import.service.ts", "tickets/tickets.service.ts", "tickets/external-keys.ts", "tickets/tickets.controller.ts", "tickets/ticket-activity.service.ts"]);
   const walk = (dir: string): string[] => readdirSync(dir).flatMap((name) => (statSync(join(dir, name)).isDirectory() ? walk(join(dir, name)) : name.endsWith(".ts") ? [join(dir, name)] : []));
   it("nenhum arquivo de assistente, consulta, MCP, vetores ou categorização lê as colunas novas", () => {
     const offenders = walk(SRC)
@@ -190,7 +195,12 @@ describe("as leituras que alimentam a IA e o MCP não conhecem os atributos novo
     // atrás do alcance de pessoas, como "Nome (Linear)". Fica de fora da conta, mas só pode aparecer nesse arquivo.
     const authorFiles = mcp.filter((file) => /\bexternalAuthorName\b/.test(readFileSync(file, "utf8"))).map((file) => file.slice(SRC.length + 1));
     expect(authorFiles).toEqual(["mcp/mcp-people-read.ts"]);
-    const used = new Set(mcp.flatMap((file) => [...readFileSync(file, "utf8").matchAll(/\bexternal[A-Z_]\w*/g)].map((m) => m[0])).filter((name) => name !== "externalAuthorName"));
+    // `externalActor` é o autor de uma entrada do histórico trazido do Linear (ou o criador, em "criou a issue no Linear") que a LINHA DO
+    // TEMPO entrega (ADR 0061, decisão da fatia 4): o MCP não o lê da origem; sai só em `get_ticket_history`, atrás do alcance de
+    // pessoas, como "Nome (Linear)". Também fica de fora da conta, e também só nesse arquivo.
+    const actorFiles = mcp.filter((file) => /\bexternalActor\b/.test(readFileSync(file, "utf8"))).map((file) => file.slice(SRC.length + 1));
+    expect(actorFiles).toEqual(["mcp/mcp-people-read.ts"]);
+    const used = new Set(mcp.flatMap((file) => [...readFileSync(file, "utf8").matchAll(/\bexternal[A-Z_]\w*/g)].map((m) => m[0])).filter((name) => name !== "externalAuthorName" && name !== "externalActor"));
     // Exatamente as duas colunas: nem criador, nem datas, nem chaves antigas, nem id, workspace ou time do Linear.
     expect([...used].sort()).toEqual(["externalKey", "externalUrl"]);
     // E só por uma consulta com `select` explícito dessas duas (nunca a linha inteira da origem).

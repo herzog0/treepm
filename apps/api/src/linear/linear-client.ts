@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { LinearError } from "./ports.js";
-import type { LinearClient, LinearCommentAuthor, LinearCommentsOptions, LinearCommentsPage, LinearFailureCode, LinearIdentity, LinearIssueRelationsPage, LinearIssuesOptions, LinearIssuesPage, LinearProjectsOptions, LinearProjectsPage, LinearRelationNode, LinearRelationsOptions, LinearRelationsPage, LinearTeam } from "./ports.js";
+import type { LinearClient, LinearCommentAuthor, LinearCommentsOptions, LinearCommentsPage, LinearFailureCode, LinearIdentity, LinearHistoryIssueNode, LinearHistoryNode, LinearHistoryOptions, LinearHistoryPage, LinearHistoryUser, LinearIssueHistoryPage, LinearIssueRelationsPage, LinearIssuesOptions, LinearIssuesPage, LinearProjectsOptions, LinearProjectsPage, LinearRelationNode, LinearRelationsOptions, LinearRelationsPage, LinearTeam } from "./ports.js";
 
 export { LinearError } from "./ports.js";
 
@@ -66,6 +66,27 @@ const RELATION_FIELDS = "nodes { id type relatedIssue { id } } pageInfo { hasNex
 const relationsQuery = (withRelations: boolean): string =>
   `query TeamRelations($id: String!, $after: String, $first: Int!) { team(id: $id) { issues(first: $first, after: $after, includeArchived: false, orderBy: createdAt) { nodes { id${withRelations ? ` relations(first: ${LINEAR_RELATIONS_PER_ISSUE}) { ${RELATION_FIELDS} }` : ""} } pageInfo { hasNextPage endCursor } } } }`;
 const ISSUE_RELATIONS_QUERY = `query IssueRelations($id: String!, $after: String) { issue(id: $id) { relations(first: ${ISSUE_RELATIONS_PAGE}, after: $after) { ${RELATION_FIELDS} } } }`;
+
+/** Issues por página na fase `history` (ADR 0061, fatia 4): 10 × 20 entradas cabem com folga no teto de pontos (a conta no PROGRESSO-H1). */
+export const LINEAR_HISTORY_PAGE_SIZE = 10;
+/** Entradas lidas por issue na página do time (as mais recentes: `orderBy: createdAt` vem do mais novo para o mais velho). */
+export const LINEAR_HISTORY_PER_ISSUE = 20;
+/** Entradas da página extra de UMA issue: completa as 200 por issue numa chamada só. */
+export const LINEAR_HISTORY_EXTRA_PAGE = 180;
+/** Só os campos que a normalização usa (a mudança é detectada pelos `*Id`); o e-mail só quando pedido, para o casamento. */
+const historyFields = (withEmail: boolean): string => {
+  const person = `{ id name${withEmail ? " email" : ""} }`;
+  return `nodes { id createdAt actor ${person} botActor { name } fromStateId toStateId fromState { name type } toState { name type } fromAssigneeId toAssigneeId fromAssignee ${person} toAssignee ${person} fromPriority toPriority fromTitle toTitle fromParentId toParentId fromProjectId toProjectId updatedDescription } pageInfo { hasNextPage endCursor }`;
+};
+/**
+ * Histórico: aninhado na issue, como as relações. Relê as issues do time na ordem da fase `issues`, opcionalmente só as alteradas depois
+ * da marca d'água (`updatedAt > $since`), pedindo só o id e as entradas mais recentes.
+ */
+const historyQuery = (withHistory: boolean, withEmail: boolean, filtered: boolean): string =>
+  `query TeamHistory($id: String!, $after: String, $first: Int!${filtered ? ", $since: DateTimeOrDuration!" : ""}) { team(id: $id) { issues(first: $first, after: $after, includeArchived: false, orderBy: createdAt${filtered ? ", filter: { updatedAt: { gt: $since } }" : ""}) { nodes { id${withHistory ? ` history(first: ${LINEAR_HISTORY_PER_ISSUE}, orderBy: createdAt) { ${historyFields(withEmail)} }` : ""} } pageInfo { hasNextPage endCursor } } } }`;
+/** A página extra de uma issue: `$first` é 180 (completa as 200), ou menos quando a importação a reduz depois de um estouro. */
+const issueHistoryQuery = (withEmail: boolean): string =>
+  `query IssueHistory($id: String!, $after: String, $first: Int!) { issue(id: $id) { history(first: $first, after: $after, orderBy: createdAt) { ${historyFields(withEmail)} } } }`;
 
 const cut = (value: string, max: number): string => (value.length > max ? value.slice(0, max) : value);
 
@@ -211,13 +232,119 @@ function errorCodes(body: unknown): string[] {
  * Todos os erros da resposta trazem um caminho que termina em `email`? Então o campo foi recusado (permissão da chave). Só vale com
  * caminho: mensagem sem caminho que cita "email" não prova nada. Só a consulta de issues pergunta isso.
  */
-function emailFieldDenied(body: unknown): boolean {
+// Histórico (fase `history`): `id` e `createdAt` obrigatórios e bem formados (senão a entrada é pulada e contada); o resto malformado vale
+// como ausente. Os `*Id` passam pelo mesmo formato dos ids da fase de relações (vão para a origem e para o resolvedor).
+const optionalId = relationId.nullable().optional().catch(null);
+const optionalText = z.string().nullable().optional().catch(null);
+const historyUserSchema = z.object({ id: relationId, name: optionalText, email: optionalText }).nullable().optional().catch(null);
+const historyStateSchema = z.object({ name: optionalText, type: optionalText }).nullable().optional().catch(null);
+const optionalNumber = z.number().finite().nullable().optional().catch(null);
+const historyNodeSchema = z.object({
+  id: relationId,
+  createdAt: z.string().min(1).max(64),
+  actor: historyUserSchema,
+  botActor: z.object({ name: optionalText }).nullable().optional().catch(null),
+  fromStateId: optionalId,
+  toStateId: optionalId,
+  fromState: historyStateSchema,
+  toState: historyStateSchema,
+  fromAssigneeId: optionalId,
+  toAssigneeId: optionalId,
+  fromAssignee: historyUserSchema,
+  toAssignee: historyUserSchema,
+  fromPriority: optionalNumber,
+  toPriority: optionalNumber,
+  fromTitle: optionalText,
+  toTitle: optionalText,
+  fromParentId: optionalId,
+  toParentId: optionalId,
+  fromProjectId: optionalId,
+  toProjectId: optionalId,
+  updatedDescription: z.boolean().nullable().optional().catch(null),
+});
+const historyIssueSchema = z.object({ id: relationId, history: relationConnectionSchema });
+const historySchema = relationsSchema;
+const issueHistorySchema = z.object({ data: z.object({ issue: z.object({ history: relationConnectionSchema }).nullable() }) });
+
+const historyUser = (user: z.output<typeof historyUserSchema>): LinearHistoryUser | null => (user ? { id: user.id, name: user.name ?? null, email: user.email ?? null } : null);
+const historyState = (state: z.output<typeof historyStateSchema>) => (state ? { name: state.name ?? null, type: state.type ?? null } : null);
+
+/** Os `path` dos `errors` de uma resposta (nada mais do erro é lido: nem mensagem, nem código). `undefined` = erro sem caminho. */
+function errorPaths(body: unknown): (readonly unknown[] | undefined)[] {
+  const errors = (body as { errors?: unknown } | null)?.errors;
+  if (!Array.isArray(errors)) return [];
+  return errors.map((item) => {
+    const path = (item as { path?: unknown } | null)?.path;
+    return Array.isArray(path) ? path : undefined;
+  });
+}
+const isIndex = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0;
+const startsWith = (path: readonly unknown[], prefix: readonly string[]): boolean => prefix.every((part, index) => path[index] === part);
+const rawHistoryLength = (issue: unknown): number => {
+  const nodes = (issue as { history?: { nodes?: unknown } } | null)?.history?.nodes;
+  return Array.isArray(nodes) ? nodes.length : 0;
+};
+
+/**
+ * Onde caem os `errors` de uma página do time que veio com `data` válido (revisão H1, item 3). Um campo anulável que falhou vem nulo, e a
+ * linha do histórico é imutável: gravar o nó com o campo nulo seria gravar a mudança errada para sempre. Por issue (índice na resposta
+ * CRUA): `"issue"` quando o erro aponta a issue mas não um nó do histórico dela (nada da issue é usado), ou os índices dos nós do
+ * histórico a descartar. Erro sem caminho, ou que não aponta uma issue da página: `linear_partial_response` (a importação relê a página
+ * menor, até uma issue só).
+ */
+function historyTaint(body: unknown, issues: readonly unknown[]): Map<number, "issue" | Set<number>> {
+  const taint = new Map<number, "issue" | Set<number>>();
+  for (const path of errorPaths(body)) {
+    const issue = path?.[3];
+    if (path === undefined || !startsWith(path, ["team", "issues", "nodes"]) || !isIndex(issue) || issue >= issues.length) throw new LinearError("linear_partial_response");
+    const node = path[6];
+    const current = taint.get(issue);
+    if (current === "issue") continue;
+    if (startsWith(path.slice(4), ["history", "nodes"]) && isIndex(node) && node < rawHistoryLength(issues[issue])) taint.set(issue, (current ?? new Set<number>()).add(node));
+    else taint.set(issue, "issue");
+  }
+  return taint;
+}
+
+/** `drop`: os índices (na resposta crua) dos nós que vieram com erro; não são usados nem contados como fora do formato. */
+function historyOf(connection: z.output<typeof relationConnectionSchema>, drop?: ReadonlySet<number>): { history: LinearHistoryNode[]; next: string | null; skipped: number } {
+  const { valid, skipped } = validNodes(historyNodeSchema, drop === undefined ? connection.nodes : connection.nodes.filter((_, index) => !drop.has(index)));
+  const history = valid.map(
+    (node): LinearHistoryNode => ({
+      id: node.id,
+      createdAt: node.createdAt,
+      actor: historyUser(node.actor),
+      botActor: node.botActor ? { name: node.botActor.name ?? null } : null,
+      fromStateId: node.fromStateId ?? null,
+      toStateId: node.toStateId ?? null,
+      fromState: historyState(node.fromState),
+      toState: historyState(node.toState),
+      fromAssigneeId: node.fromAssigneeId ?? null,
+      toAssigneeId: node.toAssigneeId ?? null,
+      fromAssignee: historyUser(node.fromAssignee),
+      toAssignee: historyUser(node.toAssignee),
+      fromPriority: node.fromPriority ?? null,
+      toPriority: node.toPriority ?? null,
+      fromTitle: node.fromTitle ?? null,
+      toTitle: node.toTitle ?? null,
+      fromParentId: node.fromParentId ?? null,
+      toParentId: node.toParentId ?? null,
+      fromProjectId: node.fromProjectId ?? null,
+      toProjectId: node.toProjectId ?? null,
+      updatedDescription: node.updatedDescription ?? null,
+    }),
+  );
+  return { history, next: nextCursor(connection.pageInfo), skipped };
+}
+
+function emailFieldDenied(body: unknown, mode: "every" | "any"): boolean {
   const errors = (body as { errors?: unknown } | null)?.errors;
   if (!Array.isArray(errors) || errors.length === 0) return false;
-  return errors.every((item) => {
+  const onEmail = (item: unknown): boolean => {
     const path = (item as { path?: unknown } | null)?.path;
     return Array.isArray(path) && path[path.length - 1] === "email";
-  });
+  };
+  return mode === "any" ? errors.some(onEmail) : errors.every(onEmail);
 }
 
 const toTeam = (node: { id: string; key: string; name: string }): LinearTeam => ({ id: node.id, key: cut(node.key, LINEAR_TEAM_KEY_MAX), name: cut(node.name, LINEAR_NAME_MAX) });
@@ -461,7 +588,69 @@ export class HttpLinearClient implements LinearClient {
    * e quem chama usa o `data` se ele valida no esquema (os nós nulos ou fora do formato contam como pulados); se não valida, é
    * `linear_partial_response`, que a importação trata reduzindo a página. Nada do texto dos erros é lido nem guardado.
    */
-  private async request(apiKey: string, query: string, variables: Record<string, unknown>, timeoutMs: number, notFoundIsNull = false, maxBytes = LINEAR_MAX_BODY_BYTES, detectEmail = false, partialIsReducible = false): Promise<unknown> {
+  async listTeamHistory(apiKey: string, teamId: string, after: string | null, options: LinearHistoryOptions = {}): Promise<LinearHistoryPage> {
+    const first = Math.min(Math.max(Math.trunc(options.first ?? LINEAR_HISTORY_PAGE_SIZE), 1), 250);
+    const withHistory = options.withHistory !== false;
+    const withEmail = withHistory && options.withEmail !== false;
+    const since = options.updatedSince ?? null;
+    const variables: Record<string, unknown> = { id: teamId, after, first };
+    if (since !== null) variables.since = since;
+    // Qualquer erro no `email` (não só quando todos são nele): o Linear zera o `actor` inteiro e rebaixaria um autor casado. Quem chama
+    // repete sem o e-mail, como nas outras fases. `data` válido com outros `errors` é usado (como na fase de relações).
+    const body = await this.request(apiKey, historyQuery(withHistory, withEmail, since !== null), variables, this.timeoutMs, false, LINEAR_IMPORT_MAX_BODY_BYTES, withEmail ? "any" : false, true);
+    const parsed = historySchema.safeParse(body);
+    if (!parsed.success) throw new LinearError(hasErrors(body) ? "linear_partial_response" : "linear_unavailable");
+    const { nodes, pageInfo } = parsed.data.data.team.issues;
+    if (!withHistory) {
+      const { valid, skipped } = validNodes(relationIssueIdSchema, nodes);
+      return { nodes: valid.map((node) => ({ id: node.id, history: [], historyNext: null })), nextCursor: nextCursor(pageInfo), skippedInvalid: skipped, historyErrors: 0 };
+    }
+    const taint = hasErrors(body) ? historyTaint(body, nodes) : new Map<number, "issue" | Set<number>>();
+    let skippedInvalid = 0;
+    let historyErrors = 0;
+    const result: LinearHistoryIssueNode[] = [];
+    for (const [index, raw] of nodes.entries()) {
+      const marks = taint.get(index);
+      if (marks !== undefined) historyErrors += 1;
+      if (marks === "issue") continue;
+      const parsed = historyIssueSchema.safeParse(raw);
+      if (!parsed.success) {
+        skippedInvalid += 1;
+        continue;
+      }
+      const { history, next, skipped: bad } = historyOf(parsed.data.history, marks);
+      skippedInvalid += bad;
+      result.push({ id: parsed.data.id, history, historyNext: next });
+    }
+    return { nodes: result, nextCursor: nextCursor(pageInfo), skippedInvalid, historyErrors };
+  }
+
+  /**
+   * `first`: 180 por padrão (completa as 200), entre 1 e 180. A issue que sumiu ou deixou de ser visível entre as duas leituras não traz
+   * nada a mais e a leitura fica INCOMPLETA (segura a marca d'água: a próxima sincronização relê). `errors` com `data` válido: o nó do
+   * histórico apontado pelo `path` não vem e a leitura fica incompleta; erro que não aponta um nó do histórico é `linear_partial_response`.
+   */
+  async listIssueHistory(apiKey: string, issueId: string, after: string, options: { withEmail?: boolean; first?: number } = {}): Promise<LinearIssueHistoryPage> {
+    const withEmail = options.withEmail !== false;
+    const first = Math.min(Math.max(Math.trunc(options.first ?? LINEAR_HISTORY_EXTRA_PAGE), 1), LINEAR_HISTORY_EXTRA_PAGE);
+    const body = await this.request(apiKey, issueHistoryQuery(withEmail), { id: issueId, after, first }, this.timeoutMs, true, LINEAR_IMPORT_MAX_BODY_BYTES, withEmail ? "any" : false, true);
+    const gone = { history: [], nextCursor: null, skippedInvalid: 0, incomplete: true };
+    if (body === null) return gone;
+    const parsed = issueHistorySchema.safeParse(body);
+    if (!parsed.success) throw new LinearError(hasErrors(body) ? "linear_partial_response" : "linear_unavailable");
+    if (parsed.data.data.issue === null) return gone;
+    const connection = parsed.data.data.issue.history;
+    const drop = new Set<number>();
+    for (const path of hasErrors(body) ? errorPaths(body) : []) {
+      const node = path?.[3];
+      if (path === undefined || !startsWith(path, ["issue", "history", "nodes"]) || !isIndex(node) || node >= connection.nodes.length) throw new LinearError("linear_partial_response");
+      drop.add(node);
+    }
+    const { history, next, skipped } = historyOf(connection, drop);
+    return { history, nextCursor: next, skippedInvalid: skipped, incomplete: drop.size > 0 };
+  }
+
+  private async request(apiKey: string, query: string, variables: Record<string, unknown>, timeoutMs: number, notFoundIsNull = false, maxBytes = LINEAR_MAX_BODY_BYTES, detectEmail: boolean | "any" = false, partialIsReducible = false): Promise<unknown> {
     if (!HEADER_SAFE.test(apiKey)) throw new LinearError("linear_key_invalid");
     const importPage = maxBytes !== LINEAR_MAX_BODY_BYTES;
     const signal = AbortSignal.timeout(timeoutMs);
@@ -483,7 +672,7 @@ export class HttpLinearClient implements LinearClient {
     // Só as páginas da importação (teto maior) distinguem "grande demais" e "prazo" de "indisponível": a importação repete com página menor.
     const body = await readBody(response, signal, maxBytes, importPage ? "linear_response_too_large" : "linear_unavailable", importPage ? "linear_timeout" : "linear_unavailable");
     const codes = errorCodes(body);
-    if (detectEmail && response.status < 500 && emailFieldDenied(body)) throw new LinearError("linear_email_unavailable");
+    if (detectEmail !== false && response.status < 500 && emailFieldDenied(body, detectEmail === "any" ? "any" : "every")) throw new LinearError("linear_email_unavailable");
     if (notFoundIsNull && response.status < 500 && entityNotFound(body)) return null;
     if (response.status === 429 || codes.includes("RATELIMITED")) throw new LinearError("linear_rate_limited", retryAfter(response));
     if (response.status === 401 || response.status === 403 || codes.some((code) => AUTH_CODES.has(code))) throw new LinearError("linear_key_invalid");

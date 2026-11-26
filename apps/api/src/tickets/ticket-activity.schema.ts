@@ -30,6 +30,26 @@ const viaSchema = z.literal("mcp").optional();
 const automaticSchema = z.boolean().optional();
 const base = { id: z.string(), occurredAt: z.string(), actor: personSchema.nullable(), via: viaSchema, automatic: automaticSchema };
 
+/** Autor do Linear que não é pessoa do TreePM (ADR 0061, fatia 4): o nome lá; `null` = apagado ou desconhecido. */
+const externalActorSchema = z.object({ name: z.string().nullable() });
+/** A coluna do Linear (nome e tipo), não a situação do TreePM. `type` nulo: tipo fora dos seis que o Linear documenta. */
+const linearStatusSideSchema = z.object({ name: z.string(), type: z.string().nullable() });
+/** Um lado do responsável: pessoa do TreePM (`null` = não existe mais) ou só o nome no Linear (`null` = desconhecido). */
+const linearAssigneeSideSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("person"), person: personSchema.nullable() }),
+  z.object({ kind: z.literal("linear"), name: z.string().nullable() }),
+]);
+/** Uma mudança de uma entrada do histórico do Linear. Pai e projeto: `id` e `key` nulos = fora daqui ou desconhecido ("mudou de pai"). */
+export const linearChangeSchema = z.discriminatedUnion("field", [
+  z.object({ field: z.literal("status"), from: linearStatusSideSchema.nullable(), to: linearStatusSideSchema.nullable() }),
+  z.object({ field: z.literal("assignee"), from: linearAssigneeSideSchema.nullable(), to: linearAssigneeSideSchema.nullable() }),
+  z.object({ field: z.literal("priority"), from: z.number().int(), to: z.number().int() }),
+  z.object({ field: z.literal("title"), from: z.string(), to: z.string() }),
+  z.object({ field: z.literal("parent"), from: ticketRefSchema.nullable(), to: ticketRefSchema.nullable() }),
+  z.object({ field: z.literal("project"), from: ticketRefSchema.nullable(), to: ticketRefSchema.nullable() }),
+  z.object({ field: z.literal("description") }),
+]);
+
 /**
  * Entradas da atividade do ticket. Os dados do tipo ficam no mesmo nível de `id`, `occurredAt` e `actor`.
  * Um tipo novo entra como mais um membro da união. `comment` (ADR 0040, fatia 2): `id` é o do comentário, `occurredAt`
@@ -73,6 +93,15 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("comments_imported"), count: z.number().int().min(1) }),
   /** Relações trazidas do Linear numa rodada (ADR 0061, fatia 3): um por ticket e rodada, automático, só a contagem. */
   z.object({ ...base, type: z.literal("relations_imported"), count: z.number().int().min(1) }),
+  /** Registros do histórico trazidos do Linear numa rodada (ADR 0061, fatia 4): um por ticket e rodada, automático, só a contagem. */
+  z.object({ ...base, type: z.literal("history_imported"), count: z.number().int().min(1) }),
+  /**
+   * Uma entrada do histórico da issue no Linear (ADR 0061, fatia 4), na data original. `actor` é a pessoa do TreePM casada; quando nulo,
+   * `externalActor` traz o nome no Linear (robô: o nome do robô; `null` = apagado ou desconhecido).
+   */
+  z.object({ ...base, type: z.literal("linear_history"), externalActor: externalActorSchema.optional(), changes: z.array(linearChangeSchema) }),
+  /** A criação da issue no Linear, sintetizada na leitura a partir da origem (data e criador lá); sem linha no banco. */
+  z.object({ ...base, type: z.literal("linear_created"), externalActor: externalActorSchema.optional() }),
   z.object({
     ...base,
     type: z.literal("comment"),
@@ -95,3 +124,4 @@ export type ActivityEntry = z.output<typeof activityEntrySchema>;
 export type ActivityPage = z.output<typeof activityPageSchema>;
 export type ActivityQuery = z.output<typeof activityQuerySchema>;
 export type CommentEntry = Extract<ActivityEntry, { type: "comment" }>;
+export type LinearChange = z.output<typeof linearChangeSchema>;

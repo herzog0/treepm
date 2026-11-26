@@ -503,6 +503,27 @@ describe("custo", () => {
     expect(many.entries).toBeGreaterThan(few.entries);
     expect(many.entries).toBe(30);
     expect(many.queries).toBe(few.queries);
-    expect(many.queries).toBeLessThanOrEqual(4);
+    // Eventos, comentários, pessoas, tickets citados e, desde a fatia 4 do Linear (ADR 0061), a origem no Linear.
+    expect(many.queries).toBeLessThanOrEqual(5);
+  });
+
+  it("ticket com origem no Linear: o histórico importado entra em lote, sem consulta por entrada (ADR 0061, fatia 4)", async () => {
+    const res = await h.call("POST", `/api/projects/${priv()}/tickets/import`, as("manager"), { items: [{ title: "Do Linear" }, { title: "Pai" }] });
+    const [id, parent] = (res.body as { id: string }[]).map((t) => t.id) as [string, string];
+    await h.pool.query("insert into ticket_external_refs (org_id, ticket_id, project_id, provider, kind, external_id, source_snapshot, applied_snapshot, external_created_at, creator_person_id) values ('org_A',$1,$2,'linear','issue','i-1','{}','{}', now() - interval '1 year', $3)", [id, priv(), personId("manager")]);
+    const entries = async (n: number, from: number) => {
+      for (let i = from; i < from + n; i++) {
+        const changes = [{ field: "assignee", from: { personId: personId(i % 2 ? "contributor" : "reader") }, to: { name: "Ana" } }, { field: "parent", from: null, to: { ticketId: parent } }];
+        await h.pool.query("insert into external_history_entries (org_id, project_id, ticket_id, provider, external_id, occurred_at, actor_person_id, changes) values ('org_A',$1,$2,'linear',$3, now() - make_interval(days => $4), $5, $6)", [priv(), id, `h-${i}`, 300 - i, personId(i % 2 ? "manager" : "admin"), JSON.stringify(changes)]);
+      }
+    };
+    await entries(2, 0);
+    const few = await queriesOf(id, 30);
+    await entries(60, 2);
+    const many = await queriesOf(id, 30);
+    expect(many.entries).toBe(30);
+    expect(many.queries).toBe(few.queries);
+    // Origem, "tem evento de criação", eventos, comentários, histórico, pessoas e tickets citados.
+    expect(many.queries).toBeLessThanOrEqual(7);
   });
 });

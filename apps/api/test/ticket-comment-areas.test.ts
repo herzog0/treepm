@@ -355,7 +355,8 @@ describe("custo da leitura com comentários de área", () => {
     }
     const many = await queriesOf(t.id);
     expect(many).toBe(few);
-    expect(many).toBeLessThanOrEqual(4);
+    // Desde a fatia 4 do Linear (ADR 0061), a leitura também consulta a origem no Linear do ticket (uma consulta a mais, fixa).
+    expect(many).toBeLessThanOrEqual(5);
   });
 
   it("o filtro por contribuição também tem número fixo de consultas", async () => {

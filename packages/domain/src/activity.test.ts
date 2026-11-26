@@ -135,3 +135,13 @@ describe("relations_imported da mesma rodada", () => {
     expect(merged.map((m) => m.count)).toEqual([3, 2]);
   });
 });
+
+// ADR 0061, fatia 4: "N registros do histórico trazidos do Linear" soma na leitura como os outros, sem juntar com eles.
+describe("history_imported da mesma rodada", () => {
+  const entry = (id: string, type: string, runId: string, count: number, minutes: number): MergeableEntry & { id: string } => ({ id, type, actorId: "ana", occurredAt: minutes * MIN, runId, count });
+  it("vizinhos da mesma rodada viram uma entrada com a soma; com relações da mesma rodada, não", () => {
+    const merged = mergeDescriptionEdits([entry("c", "history_imported", "r1", 4, 90), entry("b", "history_imported", "r1", 3, 61), entry("a", "relations_imported", "r1", 2, 1)]);
+    expect(ids(merged)).toEqual(["c<b", "a<a"]);
+    expect(merged.map((m) => m.count)).toEqual([7, 2]);
+  });
+});

@@ -5,7 +5,7 @@ import type { MergedEntry } from "@treepm/domain";
 import { z } from "zod";
 import { parseOutput } from "../common/zod.js";
 import { activityPageSchema } from "./ticket-activity.schema.js";
-import type { ActivityEntry, ActivityPage } from "./ticket-activity.schema.js";
+import type { ActivityEntry, ActivityPage, LinearChange } from "./ticket-activity.schema.js";
 import { commentRights, commentSelect, toCommentEntry } from "./ticket-comments.service.js";
 import type { Viewer } from "./ticket-comments.service.js";
 import { contributionStatusSchema, ideaStageSchema, ticketStatusSchema } from "./tickets.schema.js";
@@ -34,6 +34,7 @@ const READ_KINDS = [
   "ticket.agent_work_ended",
   "ticket.comments_imported_from_linear",
   "ticket.relations_imported_from_linear",
+  "ticket.history_imported_from_linear",
   "ticket.related_removed",
 ];
 
@@ -43,12 +44,45 @@ const FIELD_ORDER = ["title", "description", "status", "parentId", "priority"] a
 const CONTRIBUTION_FIELD_ORDER = ["text", "status"] as const;
 const contributionRef = z.object({ contributionId: z.uuid(), areaId: z.uuid() });
 const SYNTHETIC_ID = "";
+/** As duas entradas sintéticas do ticket com origem no Linear ficam na posição `(instante, id do ticket, sub)`: a criação lá antes do "criado". */
+const SUB_LINEAR_CREATED = 0;
+const SUB_CREATED = 1;
 const FIRST_BATCH_EXTRA = 5;
 const MAX_BATCH = 500;
 
 type Position = { t: number; e: string; s: number };
 type CommentRow = Parameters<typeof toCommentEntry>[0];
 type RefDraft = { id: string | null; key: string | null; number: number | null };
+
+/**
+ * Uma mudança do histórico do Linear como está em `external_history_entries.changes` (o formato de `linearHistoryChanges`, no domínio):
+ * responsável por `{ personId }` ou `{ name }`, pai e projeto por `{ ticketId }`. Conferida aqui, uma a uma: a que não vale é descartada.
+ */
+const storedStatusSide = z.object({ name: z.string(), type: z.string().nullable() }).nullable();
+const storedAssigneeSide = z.union([z.object({ personId: z.uuid() }), z.object({ name: z.string().nullable() })]).nullable();
+const storedTicketSide = z.object({ ticketId: z.uuid().nullable() }).nullable();
+const storedChange = z.discriminatedUnion("field", [
+  z.object({ field: z.literal("status"), from: storedStatusSide, to: storedStatusSide }),
+  z.object({ field: z.literal("assignee"), from: storedAssigneeSide, to: storedAssigneeSide }),
+  z.object({ field: z.literal("priority"), from: z.number().int(), to: z.number().int() }),
+  z.object({ field: z.literal("title"), from: z.string(), to: z.string() }),
+  z.object({ field: z.literal("parent"), from: storedTicketSide, to: storedTicketSide }),
+  z.object({ field: z.literal("project"), from: storedTicketSide, to: storedTicketSide }),
+  z.object({ field: z.literal("description") }),
+]);
+type StoredChange = z.output<typeof storedChange>;
+type StoredAssignee = z.output<typeof storedAssigneeSide>;
+type StoredTicket = z.output<typeof storedTicketSide>;
+
+function storedChanges(raw: unknown): StoredChange[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    const parsed = storedChange.safeParse(item);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+/** `externalName`: presente (inclusive nulo) quando o autor não é pessoa do TreePM. */
+type External = { externalName?: string | null };
 type Data =
   | { type: "created" }
   | { type: "title_changed"; from: string; to: string }
@@ -67,10 +101,21 @@ type Data =
   | { type: "agent_work_ended"; reason: "agent" | "person" | "finished" | "idea" | "archived" }
   | { type: "idea_registered" | "idea_accepted" | "idea_discarded" | "idea_reopened" }
   | { type: "idea_stage_changed"; from: z.output<typeof ideaStageSchema>; to: z.output<typeof ideaStageSchema> }
-  | { type: "comments_imported" | "relations_imported"; count: number }
+  | { type: "comments_imported" | "relations_imported" | "history_imported"; count: number }
+  | ({ type: "linear_history"; changes: StoredChange[] } & External)
+  | ({ type: "linear_created" } & External)
   | { type: "comment"; comment: CommentRow };
 /** Entrada ainda sem os ids resolvidos. `pos` é a posição na ordem total (instante, evento, campo). */
 type Draft = { id: string; type: Data["type"]; actorId: string | null; occurredAt: number; pos: Position; data: Data; contributionId?: string; via?: "mcp"; automatic?: true; runId?: string | null; count?: number };
+
+/** Os eventos resumidos de uma rodada do Linear (fatias 2, 3 e 4) e o tipo de entrada de cada um. */
+type ImportCount = "comments_imported" | "relations_imported" | "history_imported";
+const IMPORT_COUNTS: Record<string, ImportCount> = {
+  "ticket.comments_imported_from_linear": "comments_imported",
+  "ticket.relations_imported_from_linear": "relations_imported",
+  "ticket.history_imported_from_linear": "history_imported",
+};
+const importCountOf = (kind: string): ImportCount | undefined => (Object.hasOwn(IMPORT_COUNTS, kind) ? IMPORT_COUNTS[kind] : undefined);
 
 const idOrNull = z.uuid().nullable();
 const fromTo = <T extends z.ZodType>(schema: T) => z.object({ from: schema, to: schema });
@@ -78,6 +123,8 @@ const issueKey = /^[A-Za-z][A-Za-z0-9]*-(\d+)$/;
 const isMcp = (payload: unknown): boolean => typeof payload === "object" && payload !== null && (payload as Record<string, unknown>)["via"] === "mcp";
 const isAutomatic = (payload: unknown): boolean => typeof payload === "object" && payload !== null && (payload as Record<string, unknown>)["automatic"] === true;
 const refOf = (id: string | null): RefDraft | null => (id === null ? null : { id, key: null, number: null });
+/** Pai ou projeto de uma mudança do Linear: o ticket daqui, se ainda existir no projeto; `ticketId` nulo = fora daqui. */
+const linearRef = (side: { ticketId: string | null } | null): RefDraft => ({ id: side?.ticketId ?? null, key: null, number: null });
 
 function compare(a: Position, b: Position): number {
   return a.t - b.t || (a.e < b.e ? -1 : a.e > b.e ? 1 : 0) || a.s - b.s;
@@ -127,7 +174,7 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
     data,
     ...(contributionId === undefined ? {} : { contributionId }),
     ...(isMcp(row.payload) ? { via: "mcp" as const } : {}),
-    ...((row.kind === "ticket.updated" || row.kind === "ticket.comments_imported_from_linear" || row.kind === "ticket.relations_imported_from_linear") && isAutomatic(row.payload) ? { automatic: true as const } : {}),
+    ...((row.kind === "ticket.updated" || importCountOf(row.kind) !== undefined) && isAutomatic(row.payload) ? { automatic: true as const } : {}),
   });
   const payload = row.payload;
   if (row.kind === "ticket.created") return [make(0, row.id, { type: "created" })];
@@ -195,11 +242,12 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
       return v.success ? [make(0, row.id, { type: "agent_work_ended", reason: v.data.reason })] : [];
     }
     case "ticket.comments_imported_from_linear":
-    case "ticket.relations_imported_from_linear": {
+    case "ticket.relations_imported_from_linear":
+    case "ticket.history_imported_from_linear": {
       // Uma rodada grava um evento por ticket por página (C2, item 6): `runId` e `count` deixam a junção somá-los numa entrada.
       const v = z.object({ count: z.number().int().min(1), runId: z.uuid().optional() }).safeParse(p);
-      const type = row.kind === "ticket.comments_imported_from_linear" ? "comments_imported" : "relations_imported";
-      return v.success ? [{ ...make(0, row.id, { type, count: v.data.count }), runId: v.data.runId ?? null, count: v.data.count }] : [];
+      const type = importCountOf(row.kind);
+      return v.success && type ? [{ ...make(0, row.id, { type, count: v.data.count }), runId: v.data.runId ?? null, count: v.data.count }] : [];
     }
     case "ticket.related_removed": {
       // "Relacionado a" tirado (ADR 0061, fatia 3): o outro ticket, como na dependência.
@@ -257,15 +305,16 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
 
 type TicketForFeed = { id: string; createdByPersonId: string; createdAt: Date };
 
-/** Uma das duas fontes de entradas. `after` é de onde buscar a seguir (mais antigo); `edge` é a última linha lida. */
+/** Uma das três fontes de entradas. `after` é de onde buscar a seguir (mais antigo); `edge` é a última linha lida. */
 type Stream = { exhausted: boolean; after: { t: number; e: string } | null; inclusive: boolean; edge: Position | null };
 
 /**
- * Atividade de um ticket (ADR 0040): mudanças (fatia 1) e comentários (fatia 2), intercalados. Só lê.
- * Consultas, em número constante: as de quem chama para achar o ticket e o projeto, mais, aqui, uma de eventos, uma de
- * comentários, uma de tickets citados, uma de pessoas e uma de áreas (estas três só quando há o que resolver, e em paralelo).
- * Só crescem se a página exigir mais lotes (muitas edições da descrição ou eventos ignorados no caminho) ou, em páginas
- * seguintes de ticket sem evento de criação visto, por uma conferência de "tem evento de criação".
+ * Atividade de um ticket (ADR 0040): mudanças (fatia 1), comentários (fatia 2) e, no ticket com origem no Linear, o histórico trazido de lá
+ * (ADR 0061, fatia 4), intercalados. Só lê.
+ * Consultas, em número constante: as de quem chama para achar o ticket e o projeto, mais, aqui, uma da origem no Linear, uma de eventos, uma
+ * de comentários, uma de tickets citados, uma de pessoas e uma de áreas (estas três só quando há o que resolver, e em paralelo); no ticket
+ * com origem, mais uma do histórico e uma de "tem evento de criação". Só crescem se a página exigir mais lotes (muitas edições da descrição
+ * ou eventos ignorados no caminho) ou, em páginas seguintes de ticket nativo sem evento de criação visto, por aquela conferência.
  */
 @Injectable()
 export class TicketActivityService {
@@ -281,17 +330,33 @@ export class TicketActivityService {
     // antiga devolvida) cai sempre entre grupos.
     // Com `contribution`, só os comentários daquela contribuição: nenhuma mudança e nenhuma entrada "created" sintética.
     const only = query.contribution;
+    // Ticket com origem no Linear (ADR 0061, fatia 4): o histórico trazido de lá é a terceira fonte, e as duas entradas sintéticas (a
+    // criação no Linear e o "criado" na data real) têm posição conhecida desde já, `(instante, id do ticket, sub)`: entram agora, sob o
+    // mesmo filtro do cursor, e o corte entre entradas fechadas as trata como as outras. O ticket nativo fica como era.
+    const origin = only === undefined ? await this.linearOrigin(tx, ticket.id) : null;
     const events: Stream = { exhausted: only !== undefined, after: start, inclusive: true, edge: null };
     const comments: Stream = { exhausted: false, after: start, inclusive: true, edge: null };
+    const imported: Stream = { exhausted: origin === null, after: start, inclusive: true, edge: null };
     let drafts: Draft[] = [];
     let seenCreated = false;
     let synthesized = false;
+    if (origin !== null) {
+      const visible = (draft: Draft) => cursor === null || compare(draft.pos, cursor) < 0;
+      const external = origin.creatorPersonId === null ? { externalName: origin.externalCreatorName } : {};
+      const t = origin.externalCreatedAt?.getTime();
+      const linearCreated: Draft | null = t === undefined ? null : { id: `linear_created:${ticket.id}`, type: "linear_created", actorId: origin.creatorPersonId, occurredAt: t, pos: { t, e: ticket.id, s: SUB_LINEAR_CREATED }, data: { type: "linear_created", ...external } };
+      const createdAt = ticket.createdAt.getTime();
+      const created: Draft | null = (await this.hasCreatedEvent(tx, ticket.id, true)) ? null : { id: `created:${ticket.id}`, type: "created", actorId: ticket.createdByPersonId, occurredAt: createdAt, pos: { t: createdAt, e: ticket.id, s: SUB_CREATED }, data: { type: "created" } };
+      drafts = [linearCreated, created].filter((draft): draft is Draft => draft !== null && visible(draft));
+      synthesized = true;
+    }
     let merged: MergedEntry<Draft>[] = [];
     let take = limit + FIRST_BATCH_EXTRA;
-    while (!(events.exhausted && comments.exhausted) && merged.length <= limit) {
-      const [eventRows, commentRows] = await Promise.all([
+    while (!(events.exhausted && comments.exhausted && imported.exhausted) && merged.length <= limit) {
+      const [eventRows, commentRows, historyRows] = await Promise.all([
         events.exhausted ? [] : this.eventBatch(tx, ticket.id, events, take),
         comments.exhausted ? [] : this.commentBatch(tx, ticket.id, comments, take, only),
+        imported.exhausted ? [] : this.historyBatch(tx, ticket.id, imported, take),
       ]);
       if (!events.exhausted) {
         events.exhausted = eventRows.length < take;
@@ -319,20 +384,37 @@ export class TicketActivityService {
         }
         comments.inclusive = false;
       }
+      if (!imported.exhausted) {
+        imported.exhausted = historyRows.length < take;
+        for (const row of historyRows) {
+          const pos = { t: row.occurredAt.getTime(), e: row.id, s: 0 };
+          const changes = storedChanges(row.changes);
+          // Entrada sem nenhuma mudança que valha não aparece; a linha conta para o corte da fonte como qualquer outra.
+          if (changes.length === 0 || (cursor !== null && compare(pos, cursor) >= 0)) continue;
+          const external = row.actorPersonId === null ? { externalName: row.externalActorName } : {};
+          drafts.push({ id: row.id, type: "linear_history", actorId: row.actorPersonId, occurredAt: pos.t, pos, data: { type: "linear_history", changes, ...external } });
+        }
+        const last = historyRows[historyRows.length - 1];
+        if (last) {
+          imported.after = { t: last.occurredAt.getTime(), e: last.id };
+          imported.edge = { t: last.occurredAt.getTime(), e: last.id, s: -1 };
+        }
+        imported.inclusive = false;
+      }
       take = Math.min(MAX_BATCH, take * 2);
       if (only === undefined && events.exhausted && !synthesized && !seenCreated && !(await this.hasCreatedEvent(tx, ticket.id, cursor !== null))) {
         const t = ticket.createdAt.getTime();
         drafts = [...drafts, { id: `created:${ticket.id}`, type: "created", actorId: ticket.createdByPersonId, occurredAt: t, pos: { t: -1, e: SYNTHETIC_ID, s: -1 }, data: { type: "created" } }];
         synthesized = true;
       }
-      const floor = [events, comments].filter((stream) => !stream.exhausted).reduce<Position | null>((top, stream) => (stream.edge && (top === null || compare(stream.edge, top) > 0) ? stream.edge : top), null);
+      const floor = [events, comments, imported].filter((stream) => !stream.exhausted).reduce<Position | null>((top, stream) => (stream.edge && (top === null || compare(stream.edge, top) > 0) ? stream.edge : top), null);
       const closed = floor === null ? drafts : drafts.filter((draft) => compare(draft.pos, floor) >= 0);
       merged = mergeDescriptionEdits(closed.sort((a, b) => compare(b.pos, a.pos)));
     }
 
     const shown = merged.slice(0, limit);
     const more = merged.length > limit;
-    const entries = shown.map(({ entry, oldest, count }) => ({ ...entry, id: oldest.id, ...((entry.data.type === "comments_imported" || entry.data.type === "relations_imported") && count !== undefined ? { data: { ...entry.data, count } } : {}) }));
+    const entries = shown.map(({ entry, oldest, count }) => ({ ...entry, id: oldest.id, ...((entry.data.type === "comments_imported" || entry.data.type === "relations_imported" || entry.data.type === "history_imported") && count !== undefined ? { data: { ...entry.data, count } } : {}) }));
     const lastShown = shown[shown.length - 1];
     const before = more && lastShown ? encodeCursor(lastShown.oldest.pos) : null;
     // A conversa de uma área (`contribution`) segue a regra de comentar numa área: o leitor comenta no ticket, não nela.
@@ -369,7 +451,29 @@ export class TicketActivityService {
     });
   }
 
-  /** Só vale perguntar quando há cursor: na primeira página, "não visto" já significa "não existe". */
+  /** O histórico trazido do Linear (ADR 0061, fatia 4), na mesma ordem total das outras fontes. */
+  private historyBatch(tx: TenantClient, ticketId: string, stream: Stream, take: number) {
+    const { after, inclusive } = stream;
+    return tx.externalHistoryEntry.findMany({
+      where: {
+        ticketId,
+        ...(after === null ? {} : { OR: [{ occurredAt: { lt: new Date(after.t) } }, { occurredAt: new Date(after.t), id: inclusive ? { lte: after.e } : { lt: after.e } }] }),
+      },
+      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+      take,
+      select: { id: true, occurredAt: true, actorPersonId: true, externalActorName: true, changes: true },
+    });
+  }
+
+  /** A origem do ticket no Linear (data e criador lá), ou `null` no ticket nativo. */
+  private linearOrigin(tx: TenantClient, ticketId: string) {
+    return tx.ticketExternalRef.findFirst({ where: { ticketId }, select: { externalCreatedAt: true, creatorPersonId: true, externalCreatorName: true } });
+  }
+
+  /**
+   * No ticket nativo só vale perguntar quando há cursor: na primeira página, "não visto" já significa "não existe". No ticket com origem no
+   * Linear pergunta sempre, antes de ler: o "criado" sintético fica na data real e precisa entrar na junção desde o começo.
+   */
   private async hasCreatedEvent(tx: TenantClient, ticketId: string, ask: boolean): Promise<boolean> {
     if (!ask) return false;
     return (await tx.activityEvent.count({ where: { subjectType: "ticket", subjectId: ticketId, kind: "ticket.created" }, take: 1 })) > 0;
@@ -385,12 +489,19 @@ export class TicketActivityService {
       if (data.type === "status_changed") return [data.causedBy];
       if (data.type === "parent_changed") return [data.from, data.to];
       if (data.type === "dependency_added" || data.type === "dependency_removed" || data.type === "related_removed") return [data.ticket];
+      if (data.type === "linear_history") return data.changes.flatMap((change) => (change.field === "parent" || change.field === "project" ? [linearRef(change.from), linearRef(change.to)] : []));
       return [];
     };
     for (const d of drafts) {
       if (d.actorId) personIds.add(d.actorId);
       if (d.data.type === "assignee_added" || d.data.type === "assignee_removed") personIds.add(d.data.personId);
       if (d.data.type === "contribution_person_added" || d.data.type === "contribution_person_removed") personIds.add(d.data.personId);
+      if (d.data.type === "linear_history") {
+        for (const change of d.data.changes) {
+          if (change.field !== "assignee") continue;
+          for (const side of [change.from, change.to]) if (side && "personId" in side) personIds.add(side.personId);
+        }
+      }
       if ("areaId" in d.data) areaIds.add(d.data.areaId);
       for (const ref of refs(d)) {
         if (ref?.id) ticketIds.add(ref.id);
@@ -423,6 +534,20 @@ export class TicketActivityService {
       return found ? { id: found.id, key: `${project.key}-${found.number}`, title: found.title } : { id: null, key: ref.key, title: null };
     };
     const person = (id: string | null) => (id ? (personById.get(id) ?? null) : null);
+    const external = (data: External) => (data.externalName === undefined ? {} : { externalActor: { name: data.externalName } });
+    const assigneeSide = (side: StoredAssignee) => (side === null ? null : "personId" in side ? { kind: "person" as const, person: person(side.personId) } : { kind: "linear" as const, name: side.name });
+    const linearTicket = (side: StoredTicket) => (side === null ? null : ticketRef(linearRef(side)));
+    const linearChange = (change: StoredChange): LinearChange => {
+      switch (change.field) {
+        case "assignee":
+          return { field: change.field, from: assigneeSide(change.from), to: assigneeSide(change.to) };
+        case "parent":
+        case "project":
+          return { field: change.field, from: linearTicket(change.from), to: linearTicket(change.to) };
+        default:
+          return change;
+      }
+    };
 
     return drafts.map((d): ActivityEntry => {
       const common = { id: d.id, occurredAt: new Date(d.occurredAt).toISOString(), actor: person(d.actorId), ...(d.via ? { via: d.via } : {}), ...(d.automatic ? { automatic: true as const } : {}) };
@@ -439,7 +564,12 @@ export class TicketActivityService {
           return { ...common, type: data.type, until: data.until };
         case "comments_imported":
         case "relations_imported":
+        case "history_imported":
           return { ...common, type: data.type, count: data.count };
+        case "linear_history":
+          return { ...common, type: data.type, ...external(data), changes: data.changes.map(linearChange) };
+        case "linear_created":
+          return { ...common, type: data.type, ...external(data) };
         case "agent_work_ended":
           return { ...common, type: data.type, reason: data.reason };
         case "idea_stage_changed":

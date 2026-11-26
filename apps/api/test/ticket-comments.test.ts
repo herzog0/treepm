@@ -446,7 +446,7 @@ describe("custo da leitura", () => {
     }
   };
 
-  it("a quantidade de consultas não cresce com as entradas nem com os comentários (4 no total)", async () => {
+  it("a quantidade de consultas não cresce com as entradas nem com os comentários (5 no total)", async () => {
     const parent = await add({ title: "P" });
     const t = await add({});
     const round = async (i: number) => {
@@ -460,7 +460,8 @@ describe("custo da leitura", () => {
     expect(many.entries).toBeGreaterThan(few.entries);
     expect(many.entries).toBe(30);
     expect(many.queries).toBe(few.queries);
-    expect(many.queries).toBeLessThanOrEqual(4);
+    // Desde a fatia 4 do Linear (ADR 0061), a leitura também consulta a origem no Linear do ticket (uma consulta a mais, fixa).
+    expect(many.queries).toBeLessThanOrEqual(5);
   });
 });
 

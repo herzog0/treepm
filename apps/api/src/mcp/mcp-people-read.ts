@@ -84,7 +84,7 @@ export const PEOPLE_COMMENT_TOOL_DEFINITIONS = {
   },
   get_ticket_history: {
     title: "Get the history of a ticket",
-    description: `The timeline of one ticket, from the newest to the oldest, as the ticket page shows it: what changed (title, status, priority, parent, assignees, dependencies, areas, idea stages, agent work marks), who did it and when. Comments appear only as \`comment\` entries without text; use list_comments for the text. Only a fixed list of fields per kind of event is returned. Pages of up to 50 entries (default 30), shorter when the answer gets too large (about 80,000 characters), continued with \`next\`; a single entry larger than that comes cut, with \`truncated: true\`.${SCOPE_NOTE}`,
+    description: `The timeline of one ticket, from the newest to the oldest, as the ticket page shows it: what changed (title, status, priority, parent, assignees, dependencies, areas, idea stages, agent work marks), who did it and when. Comments appear only as \`comment\` entries without text; use list_comments for the text. On a ticket brought from Linear, its Linear history appears too, at the original dates: \`linear_created\` (the issue was created in Linear), \`linear_history\` (a list of \`changes\`: status with the Linear column name, assignee, priority, title, parent and project as a ticket key, "external" when the ticket is not in TreePM, and description without text) and \`history_imported\` (how many entries a sync brought); a Linear author who is not a TreePM person comes as { id: null, name: "<name> (Linear)" }. Only a fixed list of fields per kind of event is returned. Pages of up to 50 entries (default 30), shorter when the answer gets too large (about 80,000 characters), continued with \`next\`; a single entry larger than that comes cut, with \`truncated: true\`.${SCOPE_NOTE}`,
     inputSchema: getTicketHistoryInput,
     outputSchema: getTicketHistoryOutput,
   },
@@ -169,7 +169,22 @@ type Closed = Entry<"status_changed">["from"] | Entry<"contribution_status_chang
  * O que um campo do histórico pode ser: texto que passou pelo limpador, chave ou data conferidas, enum, pessoa por `person-name.ts`,
  * número, booleano ou nulo. Texto cru (`string`) não cabe aqui: um campo novo de texto livre não compila sem passar pelo limpador.
  */
-export type HistoryValue = CleanText | TicketKey | IsoDate | Closed | ActivityEntry["type"] | Ref | boolean | number | null | undefined;
+export type HistoryValue = CleanText | TicketKey | IsoDate | Closed | ActivityEntry["type"] | Ref | LinearRef | LinearChangeOut[] | boolean | number | null | undefined;
+/** Quem fez no Linear sem ser pessoa do TreePM: sem id, o nome por `person-name.ts` com "(Linear)". */
+type LinearRef = ReturnType<typeof mcpLinearAuthorRef>;
+/** Os tipos de coluna que o Linear documenta; fora deles o tipo sai nulo. */
+const LINEAR_STATE_TYPES = ["triage", "backlog", "unstarted", "started", "completed", "canceled"] as const;
+type LinearStateType = (typeof LINEAR_STATE_TYPES)[number];
+/** Pai ou projeto do Linear: a chave daqui; `external` quando existe no Linear mas não aqui (ou não existe mais); `null` = nenhum. */
+type LinearTicketOut = TicketKey | "external" | null;
+/** Uma mudança de uma entrada do histórico do Linear como sai (ADR 0061, fatia 4): nomes de coluna e títulos pelo limpador. */
+export type LinearChangeOut =
+  | { field: "status"; from: { name: CleanText; type: LinearStateType | null } | null; to: { name: CleanText; type: LinearStateType | null } | null }
+  | { field: "assignee"; from: Ref | LinearRef | null; to: Ref | LinearRef | null }
+  | { field: "priority"; from: number; to: number }
+  | { field: "title"; from: CleanText; to: CleanText }
+  | { field: "parent" | "project"; from: LinearTicketOut; to: LinearTicketOut }
+  | { field: "description" };
 /** Uma entrada do histórico como sai: instante, tipo e só campos de `HistoryValue`. */
 type HistoryEvent = { at: IsoDate; kind: ActivityEntry["type"] } & Record<string, HistoryValue>;
 type HistoryContext = {
@@ -180,6 +195,33 @@ type HistoryContext = {
   /** A data, só quando tem o formato ISO; `undefined` (o campo é omitido) fora disso. */
   date: (value: string) => IsoDate | undefined;
 };
+type LinearChange = Entry<"linear_history">["changes"][number];
+type LinearStatusSide = Extract<LinearChange, { field: "status" }>["from"];
+type LinearAssigneeSide = Extract<LinearChange, { field: "assignee" }>["from"];
+type LinearTicketSide = Extract<LinearChange, { field: "parent" }>["from"];
+/** O autor de uma entrada do Linear: a pessoa do TreePM, ou o nome de lá (`externalActor`); sem nenhum dos dois, `null`. */
+const linearActor = (entry: { actor: { id: string } | null; externalActor?: { name: string | null } | undefined }, c: HistoryContext): Ref | LinearRef | null =>
+  entry.actor ? c.person(entry.actor) : entry.externalActor ? mcpLinearAuthorRef(entry.externalActor.name) : null;
+function linearChangeOut(change: LinearChange, c: HistoryContext): LinearChangeOut {
+  const status = (side: LinearStatusSide) => (side === null ? null : { name: c.text(side.name), type: LINEAR_STATE_TYPES.find((type) => type === side.type) ?? null });
+  const assignee = (side: LinearAssigneeSide) => (side === null ? null : side.kind === "person" ? c.person(side.person) : mcpLinearAuthorRef(side.name));
+  const ticket = (side: LinearTicketSide): LinearTicketOut => (side === null ? null : (c.ticket(side) ?? "external"));
+  switch (change.field) {
+    case "status":
+      return { field: change.field, from: status(change.from), to: status(change.to) };
+    case "assignee":
+      return { field: change.field, from: assignee(change.from), to: assignee(change.to) };
+    case "priority":
+      return { field: change.field, from: change.from, to: change.to };
+    case "title":
+      return { field: change.field, from: c.text(change.from), to: c.text(change.to) };
+    case "parent":
+    case "project":
+      return { field: change.field, from: ticket(change.from), to: ticket(change.to) };
+    case "description":
+      return { field: change.field };
+  }
+}
 type FieldsOf = { [K in ActivityEntry["type"]]: (entry: Entry<K>, context: HistoryContext) => Record<string, HistoryValue> };
 const area = (entry: { area: { name: string } | null }, c: HistoryContext) => ({ area: entry.area ? c.text(entry.area.name) : null });
 const TICKET_KEY = /^[A-Za-z][A-Za-z0-9]{1,9}-[0-9]{1,9}$/;
@@ -198,6 +240,10 @@ export const HISTORY_FIELDS: FieldsOf = {
   // Só a contagem: nada do Linear (nome, corpo, id) vai junto.
   comments_imported: (entry) => ({ count: entry.count }),
   relations_imported: (entry) => ({ count: entry.count }),
+  history_imported: (entry) => ({ count: entry.count }),
+  // O histórico trazido do Linear (ADR 0061, fatia 4): o autor de lá sem id; nomes de coluna e títulos pelo limpador; nenhum id do Linear.
+  linear_history: (entry, c) => ({ actor: linearActor(entry, c), changes: entry.changes.map((change) => linearChangeOut(change, c)) }),
+  linear_created: (entry, c) => ({ actor: linearActor(entry, c) }),
   status_changed: (entry, c) => ({ from: entry.from, to: entry.to, automatic: entry.automatic, causedBy: c.ticket(entry.causedBy) }),
   priority_changed: (entry) => ({ from: entry.from, to: entry.to }),
   parent_changed: (entry, c) => ({ from: c.ticket(entry.from), to: c.ticket(entry.to) }),
@@ -338,8 +384,15 @@ export class PeopleReadTools {
   }
 
   private async historyEvents(tx: TenantClient, entries: readonly ActivityEntry[]): Promise<HistoryEvent[]> {
-    const personIds = entries.flatMap((entry) => [entry.actor?.id, "person" in entry ? entry.person?.id : undefined]);
-    const texts = entries.flatMap((entry) => [...(entry.type === "title_changed" ? [entry.from, entry.to] : []), ...("area" in entry && entry.area ? [entry.area.name] : [])]);
+    const linearChanges = entries.flatMap((entry) => (entry.type === "linear_history" ? entry.changes : []));
+    const personIds = [
+      ...entries.flatMap((entry) => [entry.actor?.id, "person" in entry ? entry.person?.id : undefined]),
+      ...linearChanges.flatMap((change) => (change.field === "assignee" ? [change.from, change.to].map((side) => (side?.kind === "person" ? side.person?.id : undefined)) : [])),
+    ];
+    const texts = [
+      ...entries.flatMap((entry) => [...(entry.type === "title_changed" ? [entry.from, entry.to] : []), ...("area" in entry && entry.area ? [entry.area.name] : [])]),
+      ...linearChanges.flatMap((change) => (change.field === "title" ? [change.from, change.to] : change.field === "status" ? [change.from?.name ?? "", change.to?.name ?? ""] : [])),
+    ];
     const [refs, clean] = await Promise.all([personRefs(tx, personIds), textCleaner(tx, texts)]);
     const context: HistoryContext = {
       person: (person) => (person ? (refs.get(person.id) ?? null) : null),

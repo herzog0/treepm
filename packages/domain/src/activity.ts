@@ -10,9 +10,9 @@ export interface MergeableEntry {
   readonly occurredAt: number;
   /** A contribuição a que a entrada se refere (ADR 0041); só `contribution_text_changed` usa, e sem ela nunca junta. */
   readonly contributionId?: string | null;
-  /** A rodada de sincronização do Linear (`comments_imported`, `relations_imported`): os eventos da mesma rodada, gravados um por página, viram uma entrada. */
+  /** A rodada de sincronização do Linear (`comments_imported`, `relations_imported`, `history_imported`): os eventos da mesma rodada, gravados um por página, viram uma entrada. */
   readonly runId?: string | null;
-  /** Quantos comentários ou relações o evento trouxe (`comments_imported`, `relations_imported`). */
+  /** Quantos comentários, relações ou registros do histórico o evento trouxe (`comments_imported`, `relations_imported`, `history_imported`). */
   readonly count?: number;
 }
 
@@ -20,7 +20,7 @@ export interface MergeableEntry {
 export interface MergedEntry<T extends MergeableEntry> {
   readonly entry: T;
   readonly oldest: T;
-  /** `comments_imported` e `relations_imported`: a soma das contagens do grupo. */
+  /** `comments_imported`, `relations_imported` e `history_imported`: a soma das contagens do grupo. */
   readonly count?: number;
 }
 
@@ -51,8 +51,8 @@ function sameEditedText(newer: MergeableEntry, older: MergeableEntry): boolean {
   return newer.type === "contribution_text_changed" && !!newer.contributionId && newer.contributionId === older.contributionId;
 }
 
-/** Entradas de contagem trazida do Linear numa rodada: comentários (fatia 2) e relações (fatia 3). */
-const isImportCount = (type: string): boolean => type === "comments_imported" || type === "relations_imported";
+/** Entradas de contagem trazida do Linear numa rodada: comentários (fatia 2), relações (fatia 3) e registros do histórico (fatia 4). */
+const isImportCount = (type: string): boolean => type === "comments_imported" || type === "relations_imported" || type === "history_imported";
 
 /**
  * Comentários ou relações trazidos do Linear na mesma rodada (C2, item 6): vizinhos do MESMO tipo, qualquer que seja a distância. Sem
