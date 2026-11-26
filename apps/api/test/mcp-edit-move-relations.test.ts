@@ -7,7 +7,7 @@ import { MINUTE } from "./access-token-support.js";
 import { LINEAR_CONFIG } from "./helpers.js";
 import { KEY, TEAM_ENG, linkWithData } from "./linear-support.js";
 import type { FakeIssue } from "./linear-support.js";
-import { rpcBody, rpcHeaders, seedProject, useMcpHarness, useSmallLimits } from "./mcp-support.js";
+import { rpcBody, rpcHeaders, seedProject, useMcpHarness } from "./mcp-support.js";
 import type { ToolResponse } from "./mcp-support.js";
 import { WRITE_TOOL_NAMES } from "../src/mcp/mcp-write-tools.js";
 import { ORG, as } from "./world.js";
@@ -108,8 +108,7 @@ describe("o gateway trata as ferramentas novas como escrita", () => {
     });
   }
 
-  it("o limite de escritas por minuto por token (teto pequeno de teste, 20) conta as ferramentas novas; a leitura não é afetada", async () => {
-    useSmallLimits(h.app());
+  it("o limite de 20 escritas por minuto por token conta as ferramentas novas; a leitura não é afetada", async () => {
     const token = await setup();
     for (let i = 0; i < 20; i += 1) expect((await h.tool(token, "PRIV", "update_ticket", { key: "PRIV-3", title: `T${i}` })).status, `#${i}`).toBe(200);
     expect((await h.tool(token, "PRIV", "update_ticket", { key: "PRIV-3", title: "T20" })).status).toBe(429);

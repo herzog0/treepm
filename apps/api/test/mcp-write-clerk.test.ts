@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AccessTokenService } from "../src/access-tokens/access-token.service.js";
 import { MINUTE } from "./access-token-support.js";
-import { seedProject, useMcpHarness, useSmallLimits } from "./mcp-support.js";
+import { seedProject, useMcpHarness } from "./mcp-support.js";
 import { ORG } from "./world.js";
 import type { Who } from "./world.js";
 
@@ -47,8 +47,7 @@ describe("a ferramenta de escrita pelo nome só vai ao Clerk quando o token pode
     expect(visits()).toBe(3);
   });
 
-  it("acima do limite de escritas por minuto (teto pequeno de teste, 20): nenhuma ida ao Clerk além do limite", async () => {
-    useSmallLimits(h.app());
+  it("acima do limite de 20 escritas por minuto: nenhuma ida ao Clerk além do limite", async () => {
     const token = await setup("write");
     for (let i = 0; i < 20; i += 1) expect((await write(token, "set_agent_work")).status, `#${i}`).toBe(200);
     expect(visits()).toBe(20);

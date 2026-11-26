@@ -5,7 +5,6 @@ import type { Principal } from "../access/principal.js";
 import type { TenantRunner } from "../db/own-transactions.js";
 import type { RunView } from "../linear/linear-import.schema.js";
 import type { LinearImportService } from "../linear/linear-import.service.js";
-import { WRITE_LIMIT_PER_MINUTE } from "./mcp-limits.js";
 import { ToolInputError } from "./mcp-tools.js";
 import type { PeopleSource, RunInTenant, ToolContext } from "./mcp-tools.js";
 import { cleanMentions, truncateClean } from "./mcp-text.js";
@@ -63,7 +62,7 @@ export const linearProgressOutput = z.strictObject({
 export const MCP_STEP_LINEAR_BUDGET_MS = 20_000;
 
 const SYNC_NOTE =
-  `It uses the Linear API key that the person who owns the token connected in TreePM (never somebody else's), with the same permissions and rules as the TreePM screen. The key is never returned. Each call counts toward the limit of ${WRITE_LIMIT_PER_MINUTE} changes per minute of this token.`;
+  "It uses the Linear API key that the person who owns the token connected in TreePM (never somebody else's), with the same permissions and rules as the TreePM screen. The key is never returned. Each call counts toward the limit of 20 changes per minute of this token.";
 const LINEAR_READ_DESCRIPTION =
   "Whether this project is linked to a Linear team, when the last import or sync from Linear finished, and the sync run in progress (if any; only for people who can sync this project). It does not call Linear.";
 

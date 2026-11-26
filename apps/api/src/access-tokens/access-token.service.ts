@@ -17,7 +17,7 @@ import { hashToken, parseToken } from "./token.js";
 export const MEMBERSHIP_TTL_MS = 5 * 60 * 1000;
 /** `last_used_at` é regravado no máximo uma vez por este intervalo, por token. */
 export const LAST_USED_INTERVAL_MS = 5 * 60 * 1000;
-export const RATE_LIMIT_PER_WINDOW = 5000;
+export const RATE_LIMIT_PER_WINDOW = 60;
 export const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 /**
  * Prazo de cada ida ao Clerk para conferir a participação. Mesmo padrão das chamadas à IA (`callClaude`): um temporizador e
@@ -30,7 +30,7 @@ export const MEMBERSHIP_TIMEOUT_MS = 5_000;
  *   dizer qual).
  * - `disabled`: a chave "Permitir acesso por MCP" da organização está desligada (403).
  * - `not_found`: o projeto não é o do token ou a pessoa não o enxerga (404).
- * - `rate_limited`: mais de `RATE_LIMIT_PER_WINDOW` requisições por minuto no token (429).
+ * - `rate_limited`: mais de 60 requisições por minuto no token (429).
  */
 export type ResolveFailure = "invalid" | "disabled" | "not_found" | "rate_limited";
 
@@ -192,12 +192,6 @@ export class AccessTokenService {
     this.memberships.clear();
     this.inflight.clear();
     this.limiter.clear();
-    this.limiter.limit = RATE_LIMIT_PER_WINDOW;
-  }
-
-  /** Troca o teto por janela do token; só para os testes, que provam o bloqueio com um teto pequeno. `resetMemory` volta ao de produção. */
-  setRateLimit(limit: number): void {
-    this.limiter.limit = limit;
   }
 
   private reject(tokenId: string, reason: ResolveFailure): ResolveResult {

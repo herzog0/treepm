@@ -3,13 +3,13 @@ import { Logger } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mentionsPersonRaw } from "@treepm/domain";
 import { AccessTokenService } from "../src/access-tokens/access-token.service.js";
-import { McpGateway, WRITE_LIMIT_PER_MINUTE } from "../src/mcp/mcp-gateway.js";
+import { McpGateway } from "../src/mcp/mcp-gateway.js";
 import { truncateAll } from "./helpers.js";
 import { CATEGORIZE_CONFIG } from "./linear-categorize-support.js";
 import type { LinearCall, LinearReply } from "./linear-fake-fetch.js";
 import { KEY, KEY_B, TEAM_ENG, TEAM_OPS, WORKSPACE, linearImportWorld } from "./linear-support.js";
 import type { FakeIssue, FakeTeamData, LinearWorld } from "./linear-support.js";
-import { useMcpHarness, useSmallLimits } from "./mcp-support.js";
+import { useMcpHarness } from "./mcp-support.js";
 import type { ToolResponse } from "./mcp-support.js";
 import { ORG, as, seedWorld } from "./world.js";
 import type { Who } from "./world.js";
@@ -230,7 +230,7 @@ describe("as ferramentas por alcance", () => {
     expect(await runCount()).toBe(before);
   });
 
-  it("token de escrita: as três existem, as de sincronizar dizem que contam no limite de escritas por minuto do token; abandonar e categorizar não existem", async () => {
+  it("token de escrita: as três existem, as de sincronizar dizem que contam no limite de 20 por minuto; abandonar e categorizar não existem", async () => {
     const tok = await token("admin");
     const list = (await h.rpc(tok, "PRIV", "tools/list")).body.result.tools as { name: string; description: string; annotations?: Record<string, unknown> }[];
     const names = list.map((t) => t.name);
@@ -238,7 +238,7 @@ describe("as ferramentas por alcance", () => {
     for (const name of names) expect(name).not.toMatch(/abandon|categori/);
     for (const name of ["start_linear_sync", "continue_linear_sync"]) {
       const entry = list.find((t) => t.name === name);
-      expect(entry?.description).toContain(`limit of ${WRITE_LIMIT_PER_MINUTE} changes per minute`);
+      expect(entry?.description).toMatch(/20 changes per minute/);
       expect(entry?.annotations?.["readOnlyHint"]).toBe(false);
     }
     expect(list.find((t) => t.name === "get_linear_status")?.annotations?.["readOnlyHint"]).toBe(true);
@@ -555,8 +555,7 @@ describe("recusas", () => {
 });
 
 describe("limite de escritas", () => {
-  it("cada passo conta no limite de escritas por minuto do token (teto pequeno de teste, 20)", async () => {
-    useSmallLimits(h.app());
+  it("cada passo conta no limite de 20 escritas por minuto do token", async () => {
     await link(priv(), team());
     await httpRun(priv());
     const tok = await token("admin");

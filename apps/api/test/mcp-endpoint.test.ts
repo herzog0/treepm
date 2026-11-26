@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MINUTE } from "./access-token-support.js";
 import { TOKEN_PREFIX, parseToken } from "../src/access-tokens/token.js";
 import { TEST_CONFIG } from "./helpers.js";
-import { BAD_ORIGIN, MODERN, SITE_ORIGIN, rpcBody, rpcHeaders, seedProject, useMcpHarness, useSmallLimits } from "./mcp-support.js";
+import { BAD_ORIGIN, MODERN, SITE_ORIGIN, rpcBody, rpcHeaders, seedProject, useMcpHarness } from "./mcp-support.js";
 import { OTHER_ORG, as } from "./world.js";
 
 const h = useMcpHarness();
@@ -98,13 +98,7 @@ describe("cada falha do token vira um código HTTP, sem dizer o motivo no 401", 
     expect(errorOf(await h.rpc(token, "OPEN", "tools/list"))).toBe("not_found");
   });
 
-  it("com os tetos de produção, 61 requisições seguidas no mesmo token passam", async () => {
-    const { token } = await h.issue("contributor");
-    for (let i = 0; i < 61; i++) expect((await h.rpc(token, "PRIV", "tools/list")).status, `#${i}`).toBe(200);
-  });
-
-  it("acima do limite por minuto no token (teto pequeno de teste, 60): 429 com Retry-After", async () => {
-    useSmallLimits(h.app());
+  it("mais de 60 requisições por minuto no token: 429 com Retry-After", async () => {
     const { token } = await h.issue("contributor");
     // O limite por IP é maior (120): não interfere nas 61 requisições.
     for (let i = 0; i < 60; i++) expect((await h.rpc(token, "PRIV", "tools/list")).status).toBe(200);
@@ -180,8 +174,7 @@ describe("Origin, métodos, tamanho do corpo e limite por IP", () => {
     expect((await h.post(token, "PRIV", near, rpcHeaders("tools/call", { name: "search_tickets" }))).status).toBe(200);
   });
 
-  it("acima do limite por minuto no mesmo IP (teto pequeno de teste, 120): 429 com Retry-After, até para quem não tem token", async () => {
-    useSmallLimits(h.app());
+  it("mais de 120 requisições por minuto no mesmo IP: 429 com Retry-After, até para quem não tem token", async () => {
     for (let i = 0; i < 120; i++) expect((await h.rpc(null, "PRIV", "tools/list")).status).toBe(401);
     const res = await h.rpc(null, "PRIV", "tools/list");
     expect(res.status).toBe(429);

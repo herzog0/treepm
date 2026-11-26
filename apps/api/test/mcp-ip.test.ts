@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { McpGateway } from "../src/mcp/mcp-gateway.js";
 import { FakeClock } from "./access-token-support.js";
 import { TEST_CONFIG, createTestApp } from "./helpers.js";
-import { rpcBody, rpcHeaders, useSmallLimits } from "./mcp-support.js";
+import { rpcBody, rpcHeaders } from "./mcp-support.js";
 
 const apps: INestApplication[] = [];
 async function build(header?: string): Promise<INestApplication> {
@@ -30,10 +30,7 @@ describe("com CLIENT_IP_HEADER", () => {
   beforeAll(async () => {
     app = await build("Fly-Client-IP");
   });
-  beforeEach(() => {
-    app.get(McpGateway).resetMemory();
-    useSmallLimits(app);
-  });
+  beforeEach(() => app.get(McpGateway).resetMemory());
 
   it("mesmo IP de conexão, cabeçalhos diferentes: baldes separados", async () => {
     await fill(app, { "fly-client-ip": "203.0.113.1" });
@@ -64,7 +61,6 @@ describe("com CLIENT_IP_HEADER", () => {
 describe("sem CLIENT_IP_HEADER", () => {
   it("o cabeçalho é ignorado: mandar IPs diferentes não escapa do limite", async () => {
     const app = await build();
-    useSmallLimits(app);
     for (let i = 0; i < 120; i++) expect((await hit(app, { "fly-client-ip": `203.0.113.${i % 250}` })).status).toBe(401);
     expect((await hit(app, { "fly-client-ip": "198.51.100.1" })).status).toBe(429);
   });

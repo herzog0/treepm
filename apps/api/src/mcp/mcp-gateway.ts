@@ -27,12 +27,19 @@ import { LinearImportService } from "../linear/linear-import.service.js";
 import { isConnectionWaitTimeout } from "../common/connection-wait.js";
 import { createProjectServer } from "./mcp-server.js";
 import type { RunInTenant } from "./mcp-tools.js";
-import { IP_LIMIT_PER_MINUTE, WRITE_LIMIT_PER_MINUTE, WRITE_LIMIT_PER_PERSON_PER_MINUTE } from "./mcp-limits.js";
 import { WRITE_TOOL_NAMES } from "./mcp-write-tools.js";
 
 /** Teto do corpo de uma requisição (uma mensagem JSON-RPC). */
 export const MAX_BODY_BYTES = 64 * 1024;
-export { IP_LIMIT_PER_MINUTE, WRITE_LIMIT_PER_MINUTE, WRITE_LIMIT_PER_PERSON_PER_MINUTE } from "./mcp-limits.js";
+/**
+ * Requisições por minuto por endereço IP, antes de qualquer outra conferência (ADR 0038). Em MEMÓRIA do processo:
+ * a publicação prevê uma máquina só; com mais de uma, o limite efetivo passa a ser por máquina.
+ */
+export const IP_LIMIT_PER_MINUTE = 120;
+/** Escritas por minuto por token (ADR 0043), contadas à parte das leituras. */
+export const WRITE_LIMIT_PER_MINUTE = 20;
+/** Somando todos os tokens da mesma pessoa na mesma organização (TREEPM-197). */
+export const WRITE_LIMIT_PER_PERSON_PER_MINUTE = 40;
 const IP_WINDOW_MS = 60_000;
 
 /** Prazo total de uma requisição ao servidor MCP (inclui o corpo da resposta). */
@@ -129,14 +136,6 @@ export class McpGateway {
     this.ipLimiter.clear();
     this.writeLimiter.clear();
     this.personWriteLimiter.clear();
-    this.setLimits({ ip: IP_LIMIT_PER_MINUTE, write: WRITE_LIMIT_PER_MINUTE, person: WRITE_LIMIT_PER_PERSON_PER_MINUTE });
-  }
-
-  /** Troca os tetos por minuto; só para os testes, que provam o bloqueio com tetos pequenos. `resetMemory` volta aos de produção. */
-  setLimits(limits: { ip?: number; write?: number; person?: number }): void {
-    if (limits.ip !== undefined) this.ipLimiter.limit = limits.ip;
-    if (limits.write !== undefined) this.writeLimiter.limit = limits.write;
-    if (limits.person !== undefined) this.personWriteLimiter.limit = limits.person;
   }
 
   /** `rest` é o que vem depois de `/api/mcp`: deve ser `/<chave do projeto>`, com ou sem barra no fim. */

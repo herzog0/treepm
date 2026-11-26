@@ -1,6 +1,6 @@
 export { buildTreeIndex, buildSpatialIndex } from "./spatialIndex.js";
 export type { TreeNodeIdentity, TreeNodeHierarchy, TreeNode, TreeIndex, SpatialItem, SpatialTreeIndex } from "./spatialIndex.js";
-export { buildSpatialLayout, DEFAULT_SPATIAL_LAYOUT_OPTIONS } from "./spatialLayout.js";
+export { buildSpatialLayout, DEFAULT_SPATIAL_LAYOUT_OPTIONS, TARGET_CHILD_REGION_ASPECT } from "./spatialLayout.js";
 export type { SpatialBounds, SpatialLayout, SpatialLayoutNode, SpatialDimensions, SpatialNormalizationOptions, SpatialLayoutOptions } from "./spatialLayout.js";
 export { buildSpatialScene } from "./spatialScene.js";
 export type { SpatialScene, SpatialSceneNode, SpatialSceneRegion, SpatialIndicatorGroup, SpatialLod, SpatialViewport } from "./spatialScene.js";
