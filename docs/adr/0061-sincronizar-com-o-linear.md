@@ -149,3 +149,23 @@ Depois, fora desta ADR: situações novas (ADR própria e desenho), etiquetas e 
 - "Relacionado a" pode ser removido na página do ticket por quem edita o ticket; não há criação pela tela. Pelo MCP, `get_ticket` traz `relations.related`. O assistente recebe os tickets relacionados nos mesmos termos dos de "depende de" (chave, título, situação). Nenhum id do Linear sai para provedor, MCP, evento ou log.
 - Consequência a saber: dependências importadas deixam tickets "bloqueados" no mapa quando o ticket de que dependem está aberto. Na primeira sincronização isso pode mudar a cor de muitos cards de uma vez.
 - Limite conhecido: página com mais de 4 issues com mais de 20 relações cada fica com leitura incompleta em toda rodada (`TREEPM-519`).
+
+## Decisão da fatia 4: o histórico da issue (2026-11-25)
+
+A seção 7 deixou a forma do histórico para depois da medição. A decisão, da coordenação por delegação (`TREEPM-482`; no mapa dos atributos Teodoro escreveu "traz a linha do tempo tbm"):
+
+**A dor.** Quem abre um ticket importado vê uma linha do tempo que começa no dia da importação. O que aconteceu antes (quando entrou em andamento, quem passou para quem, quando voltou de revisão) ficou no Linear.
+
+**1. O histórico do Linear não vira evento do TreePM.** Os eventos daqui alimentam outras coisas (reabertura do pai, notificações, o que cada pessoa fez, a data de conclusão). Gravar neles fatos antigos, com autores que não são pessoas daqui, mudaria essas contas. O histórico importado fica numa tabela própria, só de leitura, e a linha do tempo do ticket intercala as duas fontes pela data, com o selo "do Linear" nas entradas importadas.
+
+**2. O que entra.** Só mudanças de coisas que o TreePM mostra hoje: situação (nome e tipo da coluna, de e para), responsável, prioridade, título, pai, projeto, e "descrição alterada" (sem o texto). Etiquetas, ciclo, estimativa, prazo e relações entram quando o atributo existir aqui; SLA, triagem, release e arquivamento não entram. Uma entrada do Linear que só traz coisas fora da lista é ignorada.
+
+**3. Autor.** A mesma regra dos comentários (seção 5): pessoa do TreePM quando o e-mail casa; senão o nome de exibição no Linear, que não é guardado quando tem forma de e-mail; integração entra com o nome do robô. O responsável de e para segue a mesma regra.
+
+**4. Custo.** O histórico vem aninhado na leitura das issues, numa fase própria `history`, depois das relações: 10 issues por página, com as 20 entradas mais recentes de cada uma, abaixo de metade do teto de complexidade. Issue com mais de 20 entradas é lida em páginas extras no mesmo passo, com teto de 200 entradas por issue. Na sincronização, a fase só relê as issues alteradas no Linear desde a última rodada que terminou; a primeira vez percorre o time inteiro (um time de 2.000 issues são 200 chamadas, com a espera do limite de taxa que a rodada já sabe fazer).
+
+**5. Regras de item.** Entrada do histórico não é editada nem removida aqui, e não some: o Linear não apaga histórico, então não há marca de "não encontrada". Idempotência pela unicidade do id da entrada.
+
+**6. Onde aparece e para onde vai.** Na linha do tempo da página do ticket, com a data original, antes do registro de importação. A criação no Linear (que a origem já guarda) aparece como a primeira entrada. Fora da IA e da Voyage, como todo dado de origem. Pelo MCP, `get_ticket_history` traz as entradas importadas só com o alcance de pessoas, com os nomes pelo caminho único de nomes e os textos do Linear (nome de coluna, título antigo) pelo limpador.
+
+**7. Texto legal.** A linha do Linear na Política de privacidade ganha o histórico das issues, com os nomes de quem fez cada mudança.
