@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { canCommentTicket, canEditContributions, mergeDescriptionEdits } from "@treepm/domain";
+import { canCommentTicket, canEditContributions, isValidDueDate, mergeDescriptionEdits } from "@treepm/domain";
 import type { MergedEntry } from "@treepm/domain";
 import { z } from "zod";
 import { parseOutput } from "../common/zod.js";
@@ -39,7 +39,9 @@ const READ_KINDS = [
 ];
 
 /** Ordem fixa das entradas de um `ticket.updated`, da mais antiga para a mais nova. */
-const FIELD_ORDER = ["title", "description", "status", "parentId", "priority"] as const;
+const FIELD_ORDER = ["title", "description", "status", "parentId", "priority", "dueDate"] as const;
+/** Um lado da mudança de prazo (ADR 0064): `AAAA-MM-DD` válido ou nulo; outra coisa no evento descarta a entrada. */
+const dueDateSide = z.string().refine(isValidDueDate).nullable();
 /** Ordem fixa das entradas de um `ticket.contribution_updated`, da mais antiga para a mais nova. */
 const CONTRIBUTION_FIELD_ORDER = ["text", "status"] as const;
 const contributionRef = z.object({ contributionId: z.uuid(), areaId: z.uuid() });
@@ -89,6 +91,7 @@ type Data =
   | { type: "description_changed" }
   | { type: "status_changed"; from: z.output<typeof ticketStatusSchema>; to: z.output<typeof ticketStatusSchema>; automatic: boolean; causedBy: RefDraft | null }
   | { type: "priority_changed"; from: number; to: number }
+  | { type: "due_date_changed"; from: string | null; to: string | null }
   | { type: "parent_changed"; from: RefDraft | null; to: RefDraft | null }
   | { type: "assignee_added" | "assignee_removed"; personId: string }
   | { type: "dependency_added" | "dependency_removed" | "related_removed"; ticket: RefDraft }
@@ -204,6 +207,9 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
         } else if (field === "priority") {
           const v = fromTo(z.number().int()).safeParse(p["priority"]);
           if (v.success) out.push(make(index, id, { type: "priority_changed", from: v.data.from, to: v.data.to }));
+        } else if (field === "dueDate") {
+          const v = fromTo(dueDateSide).safeParse(p["dueDate"]);
+          if (v.success && v.data.from !== v.data.to) out.push(make(index, id, { type: "due_date_changed", from: v.data.from, to: v.data.to }));
         } else {
           const v = fromTo(idOrNull).safeParse(p["parentId"]);
           if (v.success) out.push(make(index, id, { type: "parent_changed", from: refOf(v.data.from), to: refOf(v.data.to) }));
@@ -577,6 +583,8 @@ export class TicketActivityService {
         case "title_changed":
           return { ...common, type: data.type, from: data.from, to: data.to };
         case "priority_changed":
+          return { ...common, type: data.type, from: data.from, to: data.to };
+        case "due_date_changed":
           return { ...common, type: data.type, from: data.from, to: data.to };
         case "status_changed":
           return { ...common, type: data.type, from: data.from, to: data.to, automatic: data.automatic, causedBy: data.causedBy ? ticketRef(data.causedBy) : null };

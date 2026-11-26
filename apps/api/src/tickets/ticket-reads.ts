@@ -26,6 +26,7 @@ type RawRow = {
   agent_work_until: Date | null;
   agent_work_note: string | null;
   priority: number;
+  due_date: string | null;
   blocked: boolean;
 };
 
@@ -39,6 +40,7 @@ export async function readSummaryRows(tx: TenantClient, projectId: string): Prom
     tx.$queryRaw<RawRow[]>`
       select id, project_id, number, parent_id, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, idea_stage,
              agent_work_started_at, agent_work_until, agent_work_note, priority,
+             to_char(due_date, 'YYYY-MM-DD') as due_date,
              exists (
                select 1 from ticket_relations r join tickets d on d.org_id = r.org_id and d.id = r.to_ticket_id
                where r.org_id = tickets.org_id and r.from_ticket_id = tickets.id and r.kind = 'depends_on' and d.status not in ('done', 'cancelled')
@@ -69,6 +71,7 @@ export async function readSummaryRows(tx: TenantClient, projectId: string): Prom
     agentWorkUntil: row.agent_work_until,
     agentWorkNote: row.agent_work_note,
     priority: row.priority,
+    dueDate: row.due_date,
     blocked: row.blocked,
   }));
 }

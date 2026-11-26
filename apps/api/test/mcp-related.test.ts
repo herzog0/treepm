@@ -33,7 +33,7 @@ describe("get_ticket: related", () => {
     const related = two.json?.["relations"].related;
     expect(keys(related)).toEqual(["PRIV-3", "PRIV-4"]);
     expect(related.truncated).toBe(false);
-    expect(related.tickets[0]).toEqual({ key: "PRIV-3", title: "Filho B", excerpt: "Segundo filho sobre relatórios", status: "todo", parent: "PRIV-1", idea: null, agentWork: null, priority: 0, effective_priority: 0 });
+    expect(related.tickets[0]).toEqual({ key: "PRIV-3", title: "Filho B", excerpt: "Segundo filho sobre relatórios", status: "todo", parent: "PRIV-1", idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false });
     expect(keys((await h.tool(token, "PRIV", "get_ticket", { key: "PRIV-3" })).json?.["relations"].related)).toEqual(["PRIV-2"]);
     expect(keys((await h.tool(token, "PRIV", "get_ticket", { key: "PRIV-4" })).json?.["relations"].related)).toEqual(["PRIV-2"]);
     // A dependência continua separada: `related` não vira `depends_on`.

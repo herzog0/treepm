@@ -1,3 +1,4 @@
+import { parseDueDate } from "@treepm/domain";
 import { z } from "zod";
 import { LinearError } from "./ports.js";
 import type { LinearClient, LinearCommentAuthor, LinearCommentsOptions, LinearCommentsPage, LinearFailureCode, LinearIdentity, LinearHistoryIssueNode, LinearHistoryNode, LinearHistoryOptions, LinearHistoryPage, LinearHistoryUser, LinearIssueHistoryPage, LinearIssueRelationsPage, LinearIssuesOptions, LinearIssuesPage, LinearProjectsOptions, LinearProjectsPage, LinearRelationNode, LinearRelationsOptions, LinearRelationsPage, LinearTeam } from "./ports.js";
@@ -42,10 +43,10 @@ const TEAM_QUERY = "query Team($id: String!) { team(id: $id) { id key name } }";
 const COUNT_QUERY = "query TeamIssueCount($id: String!) { team(id: $id) { issueCount(includeArchived: false) } }";
 /** Projetos: resumo, conteúdo longo (some na repetição por corpo grande), prioridade e líder (o e-mail só para casar a pessoa). */
 const projectsQuery = (withContent: boolean, withEmail: boolean): string =>
-  `query TeamProjects($id: String!, $after: String, $first: Int!) { team(id: $id) { projects(first: $first, after: $after) { nodes { id name url description ${withContent ? "content " : ""}priority status { type } lead { id${withEmail ? " email" : ""} } } pageInfo { hasNextPage endCursor } } } }`;
+  `query TeamProjects($id: String!, $after: String, $first: Int!) { team(id: $id) { projects(first: $first, after: $after) { nodes { id name url description ${withContent ? "content " : ""}priority targetDate status { type } lead { id${withEmail ? " email" : ""} } } pageInfo { hasNextPage endCursor } } } }`;
 /** Mais novas primeiro (`createdAt`, o padrão do Linear, dito aqui para a repescagem poder confiar). Sem `children` nem `labels`. */
 const issuesQuery = (withDescription: boolean, withEmail: boolean): string =>
-  `query TeamIssues($id: String!, $after: String, $first: Int!) { team(id: $id) { issues(first: $first, after: $after, includeArchived: false, orderBy: createdAt) { nodes { id identifier url title ${withDescription ? "description " : ""}priority updatedAt createdAt startedAt completedAt canceledAt previousIdentifiers trashed state { type } parent { id } project { id } assignee { id${withEmail ? " email" : ""} } creator { id name${withEmail ? " email" : ""} } } pageInfo { hasNextPage endCursor } } } }`;
+  `query TeamIssues($id: String!, $after: String, $first: Int!) { team(id: $id) { issues(first: $first, after: $after, includeArchived: false, orderBy: createdAt) { nodes { id identifier url title ${withDescription ? "description " : ""}priority dueDate updatedAt createdAt startedAt completedAt canceledAt previousIdentifiers trashed state { type } parent { id } project { id } assignee { id${withEmail ? " email" : ""} } creator { id name${withEmail ? " email" : ""} } } pageInfo { hasNextPage endCursor } } } }`;
 
 /**
  * Comentários: consulta de RAIZ filtrada pelas issues do time (`TeamFilter.id` é `IDComparator`, cujo `eq` é `ID`: por isso `$id: ID!`).
@@ -119,7 +120,20 @@ const projectNodeSchema = z.object({
   content: z.string().nullable().optional().catch(null),
   priority: z.number().nullable().optional().catch(null),
   lead: z.object({ id: z.string().min(1), email: z.string().nullable().optional().catch(null) }).nullable().optional().catch(null),
+  // O prazo (ADR 0064) é lido à parte (`readDueDate`): malformado não derruba o nó nem vira nulo; vale como não lido e é contado.
+  targetDate: z.unknown().optional(),
 });
+/**
+ * O prazo como o Linear o manda (`TimelessDate`, `AAAA-MM-DD`): nulo vale nulo; uma data válida na faixa do TreePM vale o texto; chave
+ * ausente vale `undefined` ("não lido nesta rodada": quem grava não toca o prazo nem o retrato dessa chave); qualquer outra coisa
+ * (formato inválido ou data fora de 2000–2100) também vale `undefined` e é contada.
+ */
+function readDueDate(raw: unknown): { value: string | null | undefined; ignored: boolean } {
+  if (raw === undefined) return { value: undefined, ignored: false };
+  if (raw === null) return { value: null, ignored: false };
+  const value = parseDueDate(raw);
+  return value === null ? { value: undefined, ignored: true } : { value, ignored: false };
+}
 // Os nós são validados um a um (um nó ruim não derruba a página); só o envelope é exigido por inteiro.
 const projectsSchema = z.object({ data: z.object({ team: z.object({ projects: z.object({ nodes: z.array(z.unknown()), pageInfo: pageInfoSchema }) }) }) });
 const issueNodeSchema = z.object({
@@ -129,6 +143,7 @@ const issueNodeSchema = z.object({
   title: z.string(),
   description: z.string().nullable().optional(),
   priority: z.number(),
+  dueDate: z.unknown().optional(),
   updatedAt: z.string(),
   trashed: z.boolean().nullable().optional(),
   state: z.object({ type: z.string() }),
@@ -469,8 +484,9 @@ export class HttpLinearClient implements LinearClient {
     if (!parsed.success) throw new LinearError("linear_unavailable");
     const { nodes, pageInfo } = parsed.data.data.team.projects;
     const { valid, skipped } = validNodes(projectNodeSchema, nodes);
+    const dueDates = valid.map((node) => readDueDate(node.targetDate));
     return {
-      nodes: valid.map((node) => ({
+      nodes: valid.map((node, index) => ({
         id: node.id,
         name: node.name,
         url: node.url,
@@ -479,9 +495,11 @@ export class HttpLinearClient implements LinearClient {
         content: node.content ?? null,
         priority: Math.round(node.priority ?? 0),
         lead: node.lead ? { id: node.lead.id, email: node.lead.email ?? null } : null,
+        dueDate: dueDates[index]!.value,
       })),
       nextCursor: nextCursor(pageInfo),
       skippedInvalid: skipped,
+      dueDatesInvalid: dueDates.filter((entry) => entry.ignored).length,
     };
   }
 
@@ -496,8 +514,9 @@ export class HttpLinearClient implements LinearClient {
     if (!parsed.success) throw new LinearError("linear_unavailable");
     const { nodes, pageInfo } = parsed.data.data.team.issues;
     const { valid, skipped } = validNodes(issueNodeSchema, nodes);
+    const dueDates = valid.map((node) => readDueDate(node.dueDate));
     return {
-      nodes: valid.map((node) => ({
+      nodes: valid.map((node, index) => ({
         id: node.id,
         identifier: node.identifier,
         url: node.url,
@@ -516,9 +535,11 @@ export class HttpLinearClient implements LinearClient {
         canceledAt: node.canceledAt ?? null,
         previousIdentifiers: node.previousIdentifiers ?? [],
         creator: node.creator ? { id: node.creator.id, name: node.creator.name ?? "", email: node.creator.email ?? null } : null,
+        dueDate: dueDates[index]!.value,
       })),
       nextCursor: nextCursor(pageInfo),
       skippedInvalid: skipped,
+      dueDatesInvalid: dueDates.filter((entry) => entry.ignored).length,
     };
   }
 

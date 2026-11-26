@@ -8,10 +8,12 @@ export type MappedIssue = {
   description: string;
   status: TicketStatus;
   priority: number;
+  /** O prazo (ADR 0064): texto `AAAA-MM-DD` ou nulo; `undefined` = malformado ou não lido nesta rodada (não toca o prazo). */
+  dueDate: string | null | undefined;
   /** A chave atual (`ENG-12`), só com a forma de chave do Linear (`safeLinearKey`); fora dela, nulo (revisão de segurança, TREEPM-496). */
   identifier: string | null;
   /** O que veio do Linear (retrato de origem), sem controles; o e-mail do responsável nunca entra. */
-  source: { title: string; description: string | null; stateType: string; assigneeExternalId: string | null; priority: number };
+  source: { title: string; description: string | null; stateType: string; assigneeExternalId: string | null; priority: number; dueDate?: string | null };
   /** Os identificadores antigos, já limpos; e o criador sem e-mail (ADR 0061). */
   previousKeys: string[];
   creator: { id: string; name: string } | null;
@@ -25,6 +27,7 @@ export function mapLinearIssue(node: LinearIssueNode, projectKey: string): Mappe
     description: mapLinearDescription(node.description, projectKey),
     status: mapLinearStatus(node.stateType),
     priority: mapLinearPriority(node.priority),
+    dueDate: node.dueDate,
     identifier,
     previousKeys: linearPreviousKeys(node.previousIdentifiers, identifier ?? ""),
     creator: node.creator ? { id: node.creator.id, name: node.creator.name } : null,
@@ -34,6 +37,8 @@ export function mapLinearIssue(node: LinearIssueNode, projectKey: string): Mappe
       stateType: cleanLinearText(node.stateType),
       assigneeExternalId: node.assignee ? cleanLinearText(node.assignee.id) : null,
       priority: node.priority,
+      // O prazo só entra no retrato quando foi lido (malformado: a chave fica como estava).
+      ...(node.dueDate !== undefined ? { dueDate: node.dueDate } : {}),
     },
   };
 }

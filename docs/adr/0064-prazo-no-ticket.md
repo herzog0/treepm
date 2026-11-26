@@ -64,3 +64,16 @@ O campo na página do ticket e o filtro seguem os padrões que já existem e nã
 
 - O ticket ganha a primeira data escolhida por alguém; estimativa, ciclo e marco (`TREEPM-463`) vão se apoiar nela.
 - "Atrasado" passa a existir como segundo estado derivado, ao lado de "bloqueado", e todo lugar que lista tickets precisa saber mostrá-lo.
+
+## Como ficou (fatia 1, 2026-11-26)
+
+- Migration `0047_ticket_due_date`, só de acréscimo: `tickets.due_date` do tipo `date`, nula, com CHECK de faixa (2000-01-01 a 2100-12-31). A faixa recusa o erro de digitação que vira ano absurdo, que o seletor de data do navegador deixa passar; vale igual no domínio, na API, no MCP e no Linear.
+- **Sem fuso em lugar nenhum.** Na API e no domínio o prazo é o texto `AAAA-MM-DD`. Há uma única conversão para o tipo do banco, em UTC, e os testes rodam em três fusos (UTC, São Paulo e Kiritimati) sem a data andar um dia.
+- **A API não diz se está atrasado**: devolve só a data, e a tela compara com o dia do navegador. O MCP devolve `overdue` com o dia em UTC, e a descrição das ferramentas avisa que perto da meia-noite pode divergir da tela.
+- **Página do ticket:** campo "Prazo" depois de Prioridade. Só é gravado o que a pessoa mudou: a data digitada vale quando ela confirma (Enter, sair da linha, ou escolher o dia no calendário); focar e sair sem mexer não grava nada, fechar o calendário clicando fora cancela, e tirar o prazo é só pelo botão. Data fora da faixa mostra aviso e não grava. Atrasado mostra a data na cor de erro do tema e "atrasado há N dias" escrito, para a cor não ser o único sinal. A linha de base do layout da página do ticket foi regravada: entrou a linha nova e o que está abaixo desceu 34 px; nada mais mudou.
+- **Linha do tempo:** "definiu o prazo", "mudou o prazo de… para…" e "tirou o prazo". Sem notificação.
+- **Linear:** `dueDate` da issue e `targetDate` do projeto, pela regra por campo e pela do campo sem retrato, usando os retratos que já existiam (sem coluna nova). A revisão achou que um campo vazio nos dois lados nunca ganhava retrato em ticket importado antes da fatia, o que prendia o campo em "mantido daqui" para sempre; corrigido, e o mesmo defeito existia no líder do projeto (ADR 0061, fatia 1). Custa 0,1 ponto a mais por item na consulta. Valor malformado é ignorado e contado; não mexe no prazo daqui.
+- **IA:** o prazo não vai a nenhum provedor. Há teste com data sentinela em todos os caminhos (conversa do ticket, Meu chat, consulta do assistente, procura do lugar, categorização, vetor, resumo de ramo), e ele foi quebrado de propósito para provar que pega o vazamento.
+- **Ideia nunca fica atrasada.** Ticket marcado como ideia pode ter prazo, mas não aparece como atrasado: ideia não é trabalho combinado.
+- **Linear, chave ausente:** se a resposta do Linear não traz o campo, vale "não lido" e nada muda aqui; só o nulo explícito tira o prazo.
+- **Quem cria ou copia ticket não inventa prazo:** importação por lista e criação pelo assistente nascem sem; mover mantém.

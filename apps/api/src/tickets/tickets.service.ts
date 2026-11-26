@@ -18,6 +18,7 @@ import { ideaStageSchema, ticketDetailSchema, ticketStatusSchema } from "./ticke
 import type { AgentWork, EffectivePriorityView, ExternalSourceView, TicketDetail, TicketIdea, TicketPage, TicketSummary, updateTicketSchema } from "./tickets.schema.js";
 import { readContributions } from "./ticket-contributions.read.js";
 import { readBranchOf } from "./ticket-reads.js";
+import { dueDateText, dueDateValue } from "./due-date.js";
 import { touchProjectVersion } from "./project-version.js";
 import { forgetRelationOrigins, linearRelationIds } from "../linear/linear-relation-origins.js";
 
@@ -55,6 +56,8 @@ export type TicketRow = {
   agentWorkNote?: string | null;
   /** Prioridade própria (ADR 0047); ausente = 0. */
   priority?: number;
+  /** Prazo (ADR 0064), `AAAA-MM-DD`; ausente = sem prazo. A linha do Prisma passa por `dueDateText`. */
+  dueDate?: string | null;
   /** Depende de algum ticket ainda aberto; ausente = não (quem monta a linha sem a ligação, como a criação). */
   blocked?: boolean;
 };
@@ -133,11 +136,13 @@ export function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, prog
     idea,
     agentWork: toAgentWork(row, now),
     priority: row.priority ?? 0,
+    dueDate: row.dueDate ?? null,
     blocked: row.blocked ?? false,
   };
 }
 
-export type MentionedByRow = { number: number; id: string; title: string; status: string };
+/** O outro lado de uma ligação na página do ticket; `dueDate` como o Prisma lê (passa por `dueDateText`). */
+export type MentionedByRow = { number: number; id: string; title: string; status: string; dueDate?: Date | null };
 /** Uma ligação mostrada na página do ticket, com a marca de que veio do Linear (ADR 0061, fatia 3). */
 export type LinkRow = MentionedByRow & { fromLinear?: boolean };
 
@@ -152,7 +157,7 @@ export function toDetail(project: Pick<ProjectRow, "key">, row: TicketDetailRow,
   externalSource: ExternalSourceView | null = null,
   related: readonly LinkRow[] = [],
 ): TicketDetail {
-  const mention = (from: MentionedByRow) => ({ id: from.id, key: `${project.key}-${from.number}`, title: from.title, status: from.status });
+  const mention = (from: MentionedByRow) => ({ id: from.id, key: `${project.key}-${from.number}`, title: from.title, status: from.status, dueDate: dueDateText(from.dueDate) });
   const link = (from: LinkRow) => ({ ...mention(from), fromLinear: from.fromLinear === true });
   return parseOutput(ticketDetailSchema, {
     ...toSummary(project, { ...row, blocked: dependsOn.some((link) => !isFinished(statusOf(link))) }, progress, idea, now),
@@ -224,6 +229,7 @@ export class TicketsService {
       status?: string;
       parentId?: string | null;
       priority?: number;
+      dueDate?: Date | null;
     } = {};
     if (body.title !== undefined && body.title !== ticket.title) {
       data.title = body.title;
@@ -244,6 +250,12 @@ export class TicketsService {
     if (body.priority !== undefined && body.priority !== ticket.priority) {
       data.priority = body.priority;
       changes["priority"] = { from: ticket.priority, to: body.priority };
+    }
+    // Prazo (ADR 0064): como a prioridade, sem trava de estrutura. O evento guarda o texto `AAAA-MM-DD` (ou nulo), nunca a data com hora.
+    const currentDue = dueDateText(ticket.dueDate);
+    if (body.dueDate !== undefined && body.dueDate !== currentDue) {
+      data.dueDate = dueDateValue(body.dueDate);
+      changes["dueDate"] = { from: currentDue, to: body.dueDate };
     }
     const fields = Object.keys(data);
     // Versão do projeto (ADR 0046): só marca; o toque sai no fim da transação. Tudo o que muda o resumo passa por `fields`
@@ -555,22 +567,22 @@ export class TicketsService {
       readBranchOf(tx, scopeOf(project), [id]),
       tx.ticketRelation.findMany({
         where: { toTicketId: id, kind: "mentions" },
-        select: { from: { select: { id: true, number: true, title: true, status: true } } },
+        select: { from: { select: { id: true, number: true, title: true, status: true, dueDate: true } } },
       }),
       tx.ticketRelation.findMany({
         where: { kind: "depends_on", OR: [{ fromTicketId: id }, { toTicketId: id }] },
         select: {
           id: true,
           fromTicketId: true,
-          from: { select: { id: true, number: true, title: true, status: true } },
-          to: { select: { id: true, number: true, title: true, status: true } },
+          from: { select: { id: true, number: true, title: true, status: true, dueDate: true } },
+          to: { select: { id: true, number: true, title: true, status: true, dueDate: true } },
         },
       }),
       tx.ticketExternalRef.findFirst({ where: { ticketId: id }, select: { provider: true, externalKey: true, externalUrl: true, missingSince: true, externalCreatedAt: true, externalStartedAt: true, externalCompletedAt: true, externalCanceledAt: true, creatorPersonId: true, externalCreatorName: true } }),
       // "Relacionado a" (ADR 0061, fatia 3): uma linha por par, mostrada nos dois tickets; até `RELATED_PAGE_MAX` de cada lado, cortados abaixo.
       Promise.all([
-        tx.ticketRelation.findMany({ where: { kind: "related", fromTicketId: id }, orderBy: { to: { number: "asc" } }, take: RELATED_PAGE_MAX, select: { id: true, fromTicketId: true, from: { select: { id: true, number: true, title: true, status: true } }, to: { select: { id: true, number: true, title: true, status: true } } } }),
-        tx.ticketRelation.findMany({ where: { kind: "related", toTicketId: id }, orderBy: { from: { number: "asc" } }, take: RELATED_PAGE_MAX, select: { id: true, fromTicketId: true, from: { select: { id: true, number: true, title: true, status: true } }, to: { select: { id: true, number: true, title: true, status: true } } } }),
+        tx.ticketRelation.findMany({ where: { kind: "related", fromTicketId: id }, orderBy: { to: { number: "asc" } }, take: RELATED_PAGE_MAX, select: { id: true, fromTicketId: true, from: { select: { id: true, number: true, title: true, status: true, dueDate: true } }, to: { select: { id: true, number: true, title: true, status: true, dueDate: true } } } }),
+        tx.ticketRelation.findMany({ where: { kind: "related", toTicketId: id }, orderBy: { from: { number: "asc" } }, take: RELATED_PAGE_MAX, select: { id: true, fromTicketId: true, from: { select: { id: true, number: true, title: true, status: true, dueDate: true } }, to: { select: { id: true, number: true, title: true, status: true, dueDate: true } } } }),
       ]).then(([outgoing, incoming]) => [...outgoing, ...incoming].sort((a, b) => (a.fromTicketId === id ? a.to : a.from).number - (b.fromTicketId === id ? b.to : b.from).number).slice(0, RELATED_PAGE_MAX)),
     ]);
     const fromLinear = await linearRelationIds(tx, [...dependencies, ...related].map((relation) => relation.id));
@@ -606,7 +618,7 @@ export class TicketsService {
     // A prioridade que vale sai da MESMA consulta recursiva do ramo (a subida pelos ancestrais já está nela): um instantâneo só.
     const source = branches.get(id)?.prioritySource ?? null;
     const effective = source ? { value: source.value, from: { id: source.id, key: `${project.key}-${source.number}` } } : { value: 0, from: null };
-    return toDetail(project, row, progress, idea, mentionedBy, dependsOn, blocks, now, by, effective, externalSource, relatedTo);
+    return toDetail(project, { ...row, dueDate: dueDateText(row.dueDate) }, progress, idea, mentionedBy, dependsOn, blocks, now, by, effective, externalSource, relatedTo);
   }
 
   /**
@@ -816,7 +828,7 @@ export class TicketsService {
     tx: TenantClient,
     principal: Principal,
     projectId: string,
-    body: { title: string; description?: string | undefined; parentId?: string | null | undefined; status?: TicketStatus | undefined; assigneeIds?: string[] | undefined; idea?: boolean | undefined },
+    body: { title: string; description?: string | undefined; parentId?: string | null | undefined; status?: TicketStatus | undefined; assigneeIds?: string[] | undefined; idea?: boolean | undefined; dueDate?: string | null | undefined },
     extraPayload: Record<string, string> = {},
     /** Só MCP (ADR 0043): repetir com o mesmo `requestId`, do mesmo token, em até 10 minutos, devolve o ticket já criado. */
     request?: { id: string; digest: string },
@@ -849,6 +861,7 @@ export class TicketsService {
         status: body.status ?? "todo",
         assigneeIds: body.assigneeIds ?? [],
         ...(body.idea ? { idea: true } : {}),
+        ...(body.dueDate ? { dueDate: body.dueDate } : {}),
       },
       extraPayload,
     );
@@ -914,6 +927,8 @@ export class TicketsService {
       assigneeIds: string[];
       /** Registra a ideia (ADR 0042): estágio `new`, situação sempre `todo`. */
       idea?: boolean;
+      /** Prazo (ADR 0064), já validado; ausente = sem prazo. */
+      dueDate?: string;
     },
     extraPayload: Record<string, string> = {},
   ): Promise<TicketDetail> {
@@ -948,6 +963,7 @@ export class TicketsService {
         description: input.description,
         status: input.status,
         ...(input.idea ? { ideaStage: "new" } : {}),
+        ...(input.dueDate ? { dueDate: dueDateValue(input.dueDate) } : {}),
         createdByPersonId: principal.person.id,
       },
     });
@@ -968,6 +984,7 @@ export class TicketsService {
         parentId: created.parentId,
         status: created.status,
         assigneeIds: assigneeIds.sort(),
+        ...(input.dueDate ? { dueDate: input.dueDate } : {}),
         ...extraPayload,
       },
     });

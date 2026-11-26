@@ -260,6 +260,8 @@ model Ticket {
   ideaStage          String?   @map("idea_stage")
   /// Prioridade (ADR 0047): inteiro de -999 a 999 (check no banco), 0 por padrão; maior primeiro. A que vale, com herança, é calculada no domínio.
   priority           Int       @default(0)
+  /// Prazo (ADR 0064): data de calendário, sem hora e sem fuso; nulo = sem prazo. De 2000-01-01 a 2100-12-31 (check no banco). Lido como meia-noite UTC: converter só por `dueDateText`.
+  dueDate            DateTime? @map("due_date") @db.Date
   /// Marcador de trabalho pela IA (ADR 0043): os quatro andam juntos (check). Vale enquanto `agentWorkUntil` é futuro; nota vazia = sem nota.
   agentWorkStartedAt DateTime? @map("agent_work_started_at") @db.Timestamptz(3)
   agentWorkUntil     DateTime? @map("agent_work_until") @db.Timestamptz(3)

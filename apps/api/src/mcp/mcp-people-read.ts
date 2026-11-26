@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
+import { isValidDueDate } from "@treepm/domain";
 import { z } from "zod";
 import type { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
@@ -84,7 +85,7 @@ export const PEOPLE_COMMENT_TOOL_DEFINITIONS = {
   },
   get_ticket_history: {
     title: "Get the history of a ticket",
-    description: `The timeline of one ticket, from the newest to the oldest, as the ticket page shows it: what changed (title, status, priority, parent, assignees, dependencies, areas, idea stages, agent work marks), who did it and when. Comments appear only as \`comment\` entries without text; use list_comments for the text. On a ticket brought from Linear, its Linear history appears too, at the original dates: \`linear_created\` (the issue was created in Linear), \`linear_history\` (a list of \`changes\`: status with the Linear column name, assignee, priority, title, parent and project as a ticket key, "external" when the ticket is not in TreePM, and description without text) and \`history_imported\` (how many entries a sync brought); a Linear author who is not a TreePM person comes as { id: null, name: "<name> (Linear)" }. Only a fixed list of fields per kind of event is returned. Pages of up to 50 entries (default 30), shorter when the answer gets too large (about 80,000 characters), continued with \`next\`; a single entry larger than that comes cut, with \`truncated: true\`.${SCOPE_NOTE}`,
+    description: `The timeline of one ticket, from the newest to the oldest, as the ticket page shows it: what changed (title, status, priority, due date (\`due_date_changed\`, days YYYY-MM-DD), parent, assignees, dependencies, areas, idea stages, agent work marks), who did it and when. Comments appear only as \`comment\` entries without text; use list_comments for the text. On a ticket brought from Linear, its Linear history appears too, at the original dates: \`linear_created\` (the issue was created in Linear), \`linear_history\` (a list of \`changes\`: status with the Linear column name, assignee, priority, title, parent and project as a ticket key, "external" when the ticket is not in TreePM, and description without text) and \`history_imported\` (how many entries a sync brought); a Linear author who is not a TreePM person comes as { id: null, name: "<name> (Linear)" }. Only a fixed list of fields per kind of event is returned. Pages of up to 50 entries (default 30), shorter when the answer gets too large (about 80,000 characters), continued with \`next\`; a single entry larger than that comes cut, with \`truncated: true\`.${SCOPE_NOTE}`,
     inputSchema: getTicketHistoryInput,
     outputSchema: getTicketHistoryOutput,
   },
@@ -163,13 +164,16 @@ type Entry<K extends ActivityEntry["type"]> = Extract<ActivityEntry, { type: K }
 /** Chave de ticket conferida pelo formato; data ISO conferida pelo formato. */
 type TicketKey = string & { readonly __ticketKey: unique symbol };
 type IsoDate = string & { readonly __isoDate: unique symbol };
+/** Um prazo (ADR 0064): `AAAA-MM-DD` conferido por `isValidDueDate`; fora disso sai nulo. */
+type DueDay = string & { readonly __dueDay: unique symbol };
+const dueDay = (value: string | null): DueDay | null => (value !== null && isValidDueDate(value) ? (value as DueDay) : null);
 /** Os valores de formato fechado (enums) que as entradas trazem. */
 type Closed = Entry<"status_changed">["from"] | Entry<"contribution_status_changed">["from"] | Entry<"idea_stage_changed">["from"] | Entry<"summary_updated">["source"] | Entry<"agent_work_ended">["reason"] | "mcp";
 /**
  * O que um campo do histórico pode ser: texto que passou pelo limpador, chave ou data conferidas, enum, pessoa por `person-name.ts`,
  * número, booleano ou nulo. Texto cru (`string`) não cabe aqui: um campo novo de texto livre não compila sem passar pelo limpador.
  */
-export type HistoryValue = CleanText | TicketKey | IsoDate | Closed | ActivityEntry["type"] | Ref | LinearRef | LinearChangeOut[] | boolean | number | null | undefined;
+export type HistoryValue = CleanText | TicketKey | IsoDate | DueDay | Closed | ActivityEntry["type"] | Ref | LinearRef | LinearChangeOut[] | boolean | number | null | undefined;
 /** Quem fez no Linear sem ser pessoa do TreePM: sem id, o nome por `person-name.ts` com "(Linear)". */
 type LinearRef = ReturnType<typeof mcpLinearAuthorRef>;
 /** Os tipos de coluna que o Linear documenta; fora deles o tipo sai nulo. */
@@ -246,6 +250,7 @@ export const HISTORY_FIELDS: FieldsOf = {
   linear_created: (entry, c) => ({ actor: linearActor(entry, c) }),
   status_changed: (entry, c) => ({ from: entry.from, to: entry.to, automatic: entry.automatic, causedBy: c.ticket(entry.causedBy) }),
   priority_changed: (entry) => ({ from: entry.from, to: entry.to }),
+  due_date_changed: (entry) => ({ from: dueDay(entry.from), to: dueDay(entry.to) }),
   parent_changed: (entry, c) => ({ from: c.ticket(entry.from), to: c.ticket(entry.to) }),
   assignee_added: (entry, c) => ({ person: c.person(entry.person) }),
   assignee_removed: (entry, c) => ({ person: c.person(entry.person) }),

@@ -137,6 +137,7 @@
       "flattened": "Flattened",
       "skipped": "Skipped",
       "skippedInvalid": "Skipped for invalid format",
+      "dueDatesInvalid": "Due dates skipped (invalid format or outside 2000–2100)",
       "withoutDescription": "No description (too large)",
       "movedOutOfIdea": "Moved out of an idea",
       "assigneeEmailUnavailable": "Linear did not let us read the assignees' e-mails; nobody was assigned.",

@@ -1,6 +1,6 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { agentWorkIsValid, descriptionExcerpt, effectivePriorities, emptyQueueReason, searchTickets, ticketProgress, workQueue } from "@treepm/domain";
+import { agentWorkIsValid, descriptionExcerpt, effectivePriorities, emptyQueueReason, searchTickets, ticketProgress, utcToday, workQueue } from "@treepm/domain";
 import type { EmptyQueueReason, TicketStatus, WorkTicket } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { ACCESS_TOKEN_CLOCK } from "../access-tokens/clock.js";
@@ -10,6 +10,7 @@ import { parseOutput } from "../common/zod.js";
 import { readEffectivePriorities } from "../tickets/ticket-priority.read.js";
 import { EXCERPT_SOURCE_LENGTH, readProgressOf, readSummaryRows } from "../tickets/ticket-reads.js";
 import { MAX_TREE_DEPTH } from "../tickets/ticket-scope.js";
+import { dueDateText } from "../tickets/due-date.js";
 import { scopeOf } from "../tickets/ticket-scope.js";
 import type { TicketScope } from "../tickets/ticket-scope.js";
 import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
@@ -45,8 +46,9 @@ export type ListOptions = {
   assignedTo?: string;
 };
 
-type Row = { id: string; number: number; title: string; description: string; status: string; parentId: string | null; agentWorkUntil?: Date | null; priority?: number };
-const SUMMARY_SELECT = { id: true, number: true, title: true, description: true, status: true, parentId: true, agentWorkUntil: true, priority: true } as const;
+/** `dueDate`: `Date` (meia-noite UTC) quando lido pelo Prisma, `AAAA-MM-DD` quando lido em SQL cru (`to_char`); ver `dueDateText`. */
+type Row = { id: string; number: number; title: string; description: string; status: string; parentId: string | null; agentWorkUntil?: Date | null; priority?: number; dueDate?: Date | string | null };
+const SUMMARY_SELECT = { id: true, number: true, title: true, description: true, status: true, parentId: true, agentWorkUntil: true, priority: true, dueDate: true } as const;
 /** Como cada ticket do projeto aparece em relação às ideias, por id (uma consulta para o projeto todo, nunca uma por ticket). */
 type IdeaMap = ReadonlyMap<string, QueryIdea>;
 /** O que cada resumo precisa além da própria linha: a situação de ideia e a prioridade que vale (ADR 0047), ambas por id. */
@@ -112,7 +114,7 @@ export class ProjectQueryService {
     const project = await this.requireProject(tx, principal, projectId);
     const limit = clamp(options.limit, SEARCH_DEFAULT_LIMIT, SEARCH_MAX_LIMIT);
     const rows = await tx.$queryRaw<Row[]>`
-      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil", priority
+      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil", priority, to_char(due_date, 'YYYY-MM-DD') as "dueDate"
       from tickets
       where project_id = ${projectId}::uuid
         and (${options.assignedTo ?? null}::uuid is null or id in (select ticket_id from ticket_assignees where person_id = ${options.assignedTo ?? null}::uuid))
@@ -201,7 +203,7 @@ export class ProjectQueryService {
       under = start.id;
     }
     const rows = await tx.$queryRaw<Row[]>`
-      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil", priority
+      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil", priority, to_char(due_date, 'YYYY-MM-DD') as "dueDate"
       from tickets
       where project_id = ${projectId}::uuid
         and (${statuses.length > 0 ? statuses : null}::text[] is null or status = any(${statuses.length > 0 ? statuses : null}::text[]))
@@ -246,7 +248,7 @@ export class ProjectQueryService {
       )
       select status, idea_stage, inside, count(*) as n from down group by status, idea_stage, inside`;
     const top = await tx.$queryRaw<Row[]>`
-      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil", priority
+      select id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id as "parentId", agent_work_until as "agentWorkUntil", priority, to_char(due_date, 'YYYY-MM-DD') as "dueDate"
       from tickets where project_id = ${projectId}::uuid and parent_id is null order by number asc limit ${RELATED_MAX + 1}::int`;
     const byStatus: Record<TicketStatus, number> = { todo: 0, in_progress: 0, in_review: 0, done: 0, cancelled: 0 };
     const ideaCounts = { new: 0, refining: 0, ready: 0, discarded: 0 };
@@ -328,10 +330,16 @@ export class ProjectQueryService {
         agentWork: null,
         priority: row.priority ?? 0,
         effectivePriority: effective.get(id)?.value ?? 0,
+        dueDate: row.dueDate ?? null,
         path,
       };
     });
     return { tickets: queue, total: ids.length, truncated: ids.length > queue.length, emptyReason: ids.length === 0 ? emptyQueueReason(tickets, me, scope) : null };
+  }
+
+  /** O "hoje" do MCP (ADR 0064): o dia em UTC, do relógio injetável. A tela usa o dia do navegador. */
+  utcToday(): string {
+    return utcToday(this.clock.now());
   }
 
   /** Projeto inexistente, de outra organização (RLS) ou que a pessoa não enxerga: o mesmo 404 das rotas. Arquivado pode ser lido. */
@@ -346,14 +354,14 @@ export class ProjectQueryService {
     if (parentId === null) return [];
     return tx.$queryRaw<Row[]>`
       with recursive up as (
-        select org_id, project_id, id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id, priority, 1 as depth
+        select org_id, project_id, id, number, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, parent_id, priority, due_date, 1 as depth
         from tickets where org_id = ${scope.orgId} and project_id = ${scope.projectId}::uuid and id = ${parentId}::uuid
         union all
-        select t.org_id, t.project_id, t.id, t.number, t.title, left(t.description, ${EXCERPT_SOURCE_LENGTH}::int), t.status, t.parent_id, t.priority, up.depth + 1
+        select t.org_id, t.project_id, t.id, t.number, t.title, left(t.description, ${EXCERPT_SOURCE_LENGTH}::int), t.status, t.parent_id, t.priority, t.due_date, up.depth + 1
         from tickets t join up on t.org_id = up.org_id and t.project_id = up.project_id and t.id = up.parent_id
         where up.depth < ${MAX_TREE_DEPTH}::int
       )
-      select id, number, title, description, status, parent_id as "parentId", priority from up order by depth desc`;
+      select id, number, title, description, status, parent_id as "parentId", priority, to_char(due_date, 'YYYY-MM-DD') as "dueDate" from up order by depth desc`;
   }
 
   private summary(projectKey: string, row: Row, annex: Annex): QueryTicketSummary {
@@ -364,6 +372,7 @@ export class ProjectQueryService {
       agentWork: marker,
       priority: row.priority ?? 0,
       effectivePriority: annex.effective.get(row.id) ?? row.priority ?? 0,
+      dueDate: typeof row.dueDate === "string" ? row.dueDate : dueDateText(row.dueDate),
       id: row.id,
       key: `${projectKey}-${row.number}`,
       number: row.number,

@@ -1,6 +1,6 @@
 import { NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { safeLinearKey, safeLinearUrl } from "@treepm/domain";
+import { isOverdue, safeLinearKey, safeLinearUrl } from "@treepm/domain";
 import type { TicketStatus } from "@treepm/domain";
 import { z } from "zod";
 import type { Principal } from "../access/principal.js";
@@ -67,6 +67,8 @@ const summarySchema = z.strictObject({
   agentWork: agentWorkSchema,
   priority: z.number().int().describe("The ticket's own priority: an integer from -999 to 999, 0 by default. A higher number comes first; negative goes last."),
   effective_priority: z.number().int().describe("The priority that counts: `priority` when it is not 0, otherwise the one of the nearest ancestor whose priority is not 0, otherwise 0."),
+  dueDate: z.string().nullable().describe("The due date, a calendar day YYYY-MM-DD with no time and no time zone; null when the ticket has none."),
+  overdue: z.boolean().describe("True when the ticket has a due date before today and is todo, in_progress or in_review (done and cancelled are never overdue). Today is the current day in UTC."),
 });
 const listSchema = z.strictObject({
   tickets: z.array(summarySchema),
@@ -94,6 +96,8 @@ export const getTicketOutput = z.strictObject({
   agentWork: agentWorkSchema,
   priority: summarySchema.shape.priority,
   effective_priority: summarySchema.shape.effective_priority,
+  dueDate: summarySchema.shape.dueDate,
+  overdue: summarySchema.shape.overdue,
   description: z.string().describe("Full description, never cut."),
   parent: z.string().nullable().describe("Key of the parent ticket (the ticket this one is part of), or null."),
   path: z.array(summarySchema).describe("From the top-level ancestor down to the parent; empty for a top-level ticket."),
@@ -164,6 +168,7 @@ const MEANING =
   "Tickets form a tree: the parent is the ticket a ticket is part of. " +
   "An idea is not accepted work yet: `idea` says whether a ticket is the root of an idea or inside one. " +
   "Priority: `priority` is the ticket's own number (-999 to 999, 0 by default, higher comes first) and `effective_priority` the one that counts, inherited from the nearest ancestor with a non-zero priority. " +
+  "Due date: `dueDate` is a calendar day (YYYY-MM-DD, no time, no time zone) or null; `overdue` is true when that day is before today and the ticket is todo, in_progress or in_review and is not an idea (an idea is never overdue). Today is the current day in UTC, so near midnight it can differ from the TreePM screen, which uses the viewer's day. A ticket's due date is its own: it is not inherited from or imposed on its parent or children, and it does not change the order of the work queue. " +
   "Relations: `mentions` means one ticket cites the other in its text; `depends_on` means the first ticket needs the other to be finished before it; `related` means \"related to\" (comes from Linear, no rule: it neither blocks nor orders work). " +
   `Statuses: ${STATUSES}.`;
 
@@ -379,6 +384,8 @@ export class ProjectTools {
       agentWork: self.agentWork,
       priority: self.priority,
       effective_priority: self.effective_priority,
+      dueDate: self.dueDate,
+      overdue: self.overdue,
       description: ticket.description,
       parent: self.parent,
       path: ticket.path.map((entry) => this.summary(entry, keys, who)),
@@ -447,6 +454,9 @@ export class ProjectTools {
       agentWork: entry.agentWork,
       priority: entry.priority,
       effective_priority: entry.effectivePriority,
+      dueDate: entry.dueDate,
+      // "Hoje" do MCP é o dia em UTC (ADR 0064); a tela usa o do navegador.
+      overdue: isOverdue({ dueDate: entry.dueDate, category: entry.status, today: this.query.utcToday(), idea: entry.idea !== null }),
       ...(who === null ? {} : { assignees: who.get(entry.id) ?? [] }),
     };
   }

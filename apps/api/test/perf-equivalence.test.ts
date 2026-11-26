@@ -5,7 +5,7 @@ import { McpGateway } from "../src/mcp/mcp-gateway.js";
 import { AccessTokenService } from "../src/access-tokens/access-token.service.js";
 import { createTestApp, ownerPoolWithCleanup } from "./helpers.js";
 import { rpcBody, rpcHeaders } from "./mcp-support.js";
-import { expectGolden, loadPerfWorld, perfClock, perfSession } from "./perf-support.js";
+import { expectGolden, loadPerfWorld, perfClock, perfSession, readGolden, withoutDueDate } from "./perf-support.js";
 import type { PerfWorld } from "./perf-support.js";
 
 // Rede de segurança das otimizações do projeto grande (TREEPM-251): as respostas da API e do MCP, num projeto gerado com
@@ -197,6 +197,13 @@ describe("HTTP: respostas idênticas às de antes", () => {
   });
 });
 
+/** As páginas de 200 de `list_tickets` com `dueDate` e `overdue` (ADR 0064): o tamanho, o último ticket, o cursor e o corte de cada uma. */
+const ENUMERATE200_PAGES = [
+  { size: 150, last: "BG-150", after: "BG-150", truncated: true },
+  { size: 162, last: "BG-312", after: "BG-312", truncated: true },
+  { size: 88, last: "BG-400", after: null, truncated: false },
+];
+
 describe("MCP: respostas idênticas às de antes", () => {
   it("list_tickets: páginas de 50, de 120, de 200, com situação e com ramo", async () => {
     const f = world.plan.fixtures;
@@ -210,13 +217,26 @@ describe("MCP: respostas idênticas às de antes", () => {
       after = page.structured.after;
       if (after === null) break;
     }
-    out["enumerate200"] = pages;
+    // Páginas de 200 são cortadas no teto de 80.000 caracteres: com `dueDate` e `overdue` (ADR 0064) cada ticket ficou maior e cabem
+    // menos por página (na referência, 162, 171 e 67). As fronteiras e os cursores conferidos são os de agora; a sequência inteira de
+    // tickets continua a da referência, sem buraco nem repetição.
+    const flat = (list: unknown[]) => list.flatMap((page) => (page as { structured: { tickets: unknown[] } }).structured.tickets);
+    const goldenPages = (readGolden("mcp-list") as { enumerate200: unknown[] }).enumerate200;
+    expect(withoutDueDate(flat(pages))).toEqual(flat(goldenPages));
+    const boundaries = (pages as { structured: { tickets: { key: string }[]; after: string | null; truncated: boolean } }[]).map(({ structured }) => ({
+      size: structured.tickets.length,
+      last: structured.tickets.at(-1)?.key ?? null,
+      after: structured.after,
+      truncated: structured.truncated,
+    }));
+    expect(boundaries).toEqual(ENUMERATE200_PAGES);
+    for (const page of pages) expect((page as { text: string }).text.length).toBeLessThanOrEqual(80_000);
     out["done"] = await tool("list_tickets", { status: ["done"], limit: 25 });
     out["todoAndReview"] = await tool("list_tickets", { status: ["todo", "in_review"], limit: 20 });
     out["underRoot"] = await tool("list_tickets", { under: `BG-${T(f.shallow).number}`, limit: 40 });
     out["underDeep"] = await tool("list_tickets", { under: `BG-${T(f.moveTo).number}` });
     out["underIdea"] = await tool("list_tickets", { under: `BG-${T(f.idea).number}` });
-    expectGolden("mcp-list", out);
+    expectGolden("mcp-list", out, ["enumerate200"]);
   });
 
   it("get_ticket: fundo, raso, ideia, dentro de ideia, com marcador", async () => {

@@ -68,3 +68,18 @@ export function formatDateTime(language: Language, iso: string, timeZone?: strin
 export function formatClock(language: Language, iso: string, timeZone?: string): string {
   return new Intl.DateTimeFormat(language, { timeStyle: "short", ...(timeZone ? { timeZone } : {}) }).format(new Date(iso));
 }
+
+const dueDateFormats = new Map<Language, Intl.DateTimeFormat>();
+
+/**
+ * Prazo do ticket (ADR 0064): data de calendário `AAAA-MM-DD`, sem hora nem fuso. Lida como meia-noite em UTC e formatada
+ * em UTC, para não andar um dia em fuso nenhum: "1 de dezembro de 2026" · "December 1, 2026" · "1 de diciembre de 2026".
+ */
+export function formatDueDate(language: Language, dueDate: string): string {
+  let format = dueDateFormats.get(language);
+  if (!format) {
+    format = new Intl.DateTimeFormat(language, { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+    dueDateFormats.set(language, format);
+  }
+  return format.format(new Date(`${dueDate}T00:00:00Z`));
+}

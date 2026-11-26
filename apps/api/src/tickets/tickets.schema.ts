@@ -1,4 +1,4 @@
-import { CONTRIBUTION_STATUSES, CONTRIBUTION_TEXT_MAX, IDEA_STAGES, mentionsPersonRaw, PRIORITY_MAX, PRIORITY_MIN } from "@treepm/domain";
+import { CONTRIBUTION_STATUSES, CONTRIBUTION_TEXT_MAX, DUE_DATE_MAX, DUE_DATE_MIN, IDEA_STAGES, isValidDueDate, mentionsPersonRaw, PRIORITY_MAX, PRIORITY_MIN } from "@treepm/domain";
 import { z } from "zod";
 import { idSchema } from "../common/schemas.js";
 
@@ -23,6 +23,8 @@ export const MAX_TICKET_DESCRIPTION = 20_000;
 export const ticketDescriptionSchema = z.string().max(MAX_TICKET_DESCRIPTION).refine(noNullChar, "O texto não pode ter o caractere nulo.").refine((text) => !mentionsPersonRaw(text), noPersonMention);
 /** Prioridade (ADR 0047): inteiro de -999 a 999; maior primeiro. */
 export const ticketPrioritySchema = z.number().int().min(PRIORITY_MIN).max(PRIORITY_MAX);
+/** Prazo (ADR 0064): data de calendário `AAAA-MM-DD`, que existe, de 2000-01-01 a 2100-12-31; sem hora e sem fuso. */
+export const ticketDueDateSchema = z.string().refine(isValidDueDate, `Data AAAA-MM-DD que exista, de ${DUE_DATE_MIN} a ${DUE_DATE_MAX}.`);
 const titleSchema = ticketTitleSchema;
 const descriptionSchema = ticketDescriptionSchema;
 
@@ -35,6 +37,8 @@ export const createTicketSchema = z
     assigneeIds: z.array(idSchema).max(100).optional(),
     /** Cria a ideia no estágio `new` (ADR 0042); a situação de uma ideia é sempre `todo`. */
     idea: z.boolean().optional(),
+    /** Prazo (ADR 0064); nulo ou ausente = sem prazo. */
+    dueDate: ticketDueDateSchema.nullable().optional(),
   })
   .strict()
   .refine((value) => !value.idea || value.status === undefined || value.status === "todo", "Uma ideia nasce na situação todo.");
@@ -49,6 +53,8 @@ export const updateTicketSchema = z
     status: ticketStatusSchema,
     parentId: idSchema.nullable(),
     priority: ticketPrioritySchema,
+    /** Prazo (ADR 0064): a data, ou nulo para tirar. */
+    dueDate: ticketDueDateSchema.nullable(),
   })
   .partial()
   .strict()
@@ -125,6 +131,8 @@ export const ticketSummarySchema = z.object({
   agentWork: agentWorkSchema,
   /** Prioridade PRÓPRIA (ADR 0047); a que vale, com a herança, está no detalhe e é calculada pelo domínio na lista. */
   priority: ticketPrioritySchema,
+  /** Prazo (ADR 0064), `AAAA-MM-DD`, ou nulo. "Atrasado" não vem da API: depende do dia de quem olha (o navegador decide). */
+  dueDate: z.string().nullable(),
   /** Depende de algum ticket ainda aberto (ADR 0037); a fila "próximos para trabalhar" (ADR 0047) não inclui o ticket. */
   blocked: z.boolean(),
 });
@@ -143,7 +151,8 @@ export type IdeaListItem = z.output<typeof ideaListItemSchema>;
 export type TicketIdea = z.output<typeof ticketIdeaSchema>;
 
 /** Ticket que menciona outro na descrição (ADR 0037), para a seção "Mencionado em". */
-export const mentionedBySchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatusSchema });
+/** `dueDate`: o prazo (ADR 0064), como nos outros resumos de ticket. */
+export const mentionedBySchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatusSchema, dueDate: z.string().nullable() });
 
 /** Ticket do outro lado de uma ligação "depende de" (ADR 0037); mesmo formato de `mentionedBy`. */
 /** Uma ligação de dependência ou "relacionado a"; `fromLinear`: trazida pela sincronização com o Linear (ADR 0061, fatia 3). */

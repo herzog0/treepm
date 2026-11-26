@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatActivityTime, formatDate, formatDateTime, formatNumber, toUpper } from "./format.js";
+import { formatActivityTime, formatDate, formatDateTime, formatDueDate, formatNumber, toUpper } from "./format.js";
 
 describe("formatDate", () => {
   const iso = "2026-11-20T12:00:00Z";
@@ -71,5 +71,17 @@ describe("formatDateTime", () => {
     const text = formatDateTime(language, "2026-11-20T12:30:00Z", "America/Sao_Paulo");
     expect(text).toContain(date);
     expect(text).toMatch(/9[:.]30/);
+  });
+});
+
+describe("formatDueDate (ADR 0064): data de calendário AAAA-MM-DD, sem andar um dia em fuso nenhum", () => {
+  it("formata no idioma da interface", () => {
+    expect(formatDueDate("pt-BR", "2026-12-01")).toBe("1 de dezembro de 2026");
+    expect(formatDueDate("en", "2026-12-01")).toBe("December 1, 2026");
+    expect(formatDueDate("es-MX", "2026-12-01")).toBe("1 de diciembre de 2026");
+  });
+  it("primeiro e último dia do ano continuam no mesmo dia", () => {
+    expect(formatDueDate("pt-BR", "2027-01-01")).toBe("1 de janeiro de 2027");
+    expect(formatDueDate("pt-BR", "2026-12-31")).toBe("31 de dezembro de 2026");
   });
 });

@@ -68,6 +68,8 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
     causedBy: ticketRefSchema.nullable(),
   }),
   z.object({ ...base, type: z.literal("priority_changed"), from: z.number().int(), to: z.number().int() }),
+  /** Prazo (ADR 0064): `from` nulo = definiu; `to` nulo = tirou; os dois = mudou. Datas `AAAA-MM-DD`. */
+  z.object({ ...base, type: z.literal("due_date_changed"), from: z.string().nullable(), to: z.string().nullable() }),
   z.object({ ...base, type: z.literal("parent_changed"), from: ticketRefSchema.nullable(), to: ticketRefSchema.nullable() }),
   z.object({ ...base, type: z.literal("assignee_added"), person: personSchema.nullable() }),
   z.object({ ...base, type: z.literal("assignee_removed"), person: personSchema.nullable() }),

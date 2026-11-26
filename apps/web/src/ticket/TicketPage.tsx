@@ -23,7 +23,7 @@ import { ItemsSummary } from "./ItemsSummary.js";
 import { CommentPeopleProvider } from "./commentPeople.js";
 import { TicketActivity } from "./TicketActivity.js";
 import { peopleWhoSee } from "../chat/directory.js";
-import { DependsOnField, DescriptionField, FromLinearBadge, RelatedField, IdeaField, InsideIdeaValue, ParentField, PeopleField, PriorityField, StatusField, StatusValue, TitleField } from "./fields.js";
+import { DependsOnField, DescriptionField, FromLinearBadge, RelatedField, IdeaField, InsideIdeaValue, ParentField, DueDateField, PeopleField, PriorityField, StatusField, StatusValue, TitleField } from "./fields.js";
 import { ActionsMenu } from "./menu.js";
 import { ancestorsOf } from "./tree.js";
 import { ticketHref } from "../nav/navigation.js";
@@ -537,6 +537,12 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
               <dt>{t("fields.priority")}</dt>
               <dd>
                 <PriorityField client={client} detail={detail} canEdit={canEdit} onOpen={onOpenTicket} onSaved={refresh} />
+              </dd>
+            </div>
+            <div className="ticket-row">
+              <dt>{t("fields.dueDate")}</dt>
+              <dd>
+                <DueDateField client={client} detail={detail} canEdit={canEdit} onSaved={refresh} />
               </dd>
             </div>
             <div className="ticket-row">
