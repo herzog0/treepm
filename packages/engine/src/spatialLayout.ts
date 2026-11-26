@@ -43,7 +43,15 @@ export interface SpatialLayoutOptions<TNode extends TreeNode = TreeNode> {
   readonly rootGap?: number;
   readonly childGap?: number | ((node: TNode, depth: number, ownRadius: number) => number);
   readonly normalization?: false | SpatialNormalizationOptions;
+  /** Proporção alvo (largura ÷ altura) da região dos filhos; padrão `TARGET_CHILD_REGION_ASPECT` (ADR 0067). */
+  readonly childRegionAspect?: number;
 }
+
+/**
+ * Proporção alvo (largura ÷ altura) da região dos filhos de um ticket (ADR 0067): o motor escolhe quantos filhos vão por
+ * linha para chegar perto dela, preferindo largura, porque as telas são mais largas do que altas.
+ */
+export const TARGET_CHILD_REGION_ASPECT = 3;
 
 export const DEFAULT_SPATIAL_LAYOUT_OPTIONS = Object.freeze({
   dimensions: Object.freeze([250, 190, 142, 104, 76, 56, 44, 32, 24, 18].map((width, depth) => Object.freeze({ width, height: [142, 108, 82, 62, 46, 34, 28, 22, 16, 12][depth] ?? 12 }))),
@@ -79,7 +87,9 @@ function normalizeLayoutOptions<TNode extends TreeNode>(options: SpatialLayoutOp
     for (const [key, value] of Object.entries(normalization)) nonnegative(value, `normalization.${key}`);
   }
   if (typeof options.childGap === "number") nonnegative(options.childGap, "childGap");
-  return { dimensions, rootGap: nonnegative(options.rootGap ?? DEFAULT_SPATIAL_LAYOUT_OPTIONS.rootGap, "rootGap"), childGap: options.childGap, normalization };
+  const childRegionAspect = options.childRegionAspect ?? TARGET_CHILD_REGION_ASPECT;
+  if (!Number.isFinite(childRegionAspect) || childRegionAspect <= 0) throw new RangeError("childRegionAspect must be finite and positive");
+  return { childRegionAspect, dimensions, rootGap: nonnegative(options.rootGap ?? DEFAULT_SPATIAL_LAYOUT_OPTIONS.rootGap, "rootGap"), childGap: options.childGap, normalization };
 }
 
 type LayoutConfig<TNode extends TreeNode> = ReturnType<typeof normalizeLayoutOptions<TNode>>;
@@ -116,34 +126,117 @@ function scaleSubtree<TNode extends TreeNode>(node: MeasuredNode<TNode>, factor:
   };
 }
 
-function layoutChildren<TNode extends TreeNode>(children: MeasuredNode<TNode>[], width: number, height: number, gap: number): SpatialBounds {
-  const columns = Math.ceil(Math.sqrt(children.length));
-  const rows: MeasuredNode<TNode>[][] = [];
-  for (let childIndex = 0; childIndex < children.length; childIndex += columns) rows.push(children.slice(childIndex, childIndex + columns));
-  const slotWidth = Math.max(...children.map((child) => child.subtreeBounds.maxX - child.subtreeBounds.minX));
-  const slotHeight = Math.max(...children.map((child) => child.subtreeBounds.maxY - child.subtreeBounds.minY));
+interface ChildRows {
+  readonly rowCount: number;
+  readonly bounds: SpatialBounds;
+}
+
+/**
+ * Distância de uma região à proporção alvo: o erro relativo da altura em relação à altura ideal para aquela largura,
+ * |altura − largura ÷ alvo| ÷ (largura ÷ alvo). Não depende de escala e pesa mais a região alta demais (o erro cresce
+ * sem limite) do que a larga demais (o erro fica abaixo de 1), que é o "prefere largura" da ADR 0067.
+ */
+function aspectError(width: number, height: number, target: number): number {
+  return Math.abs((target * height) / width - 1);
+}
+
+/** Onde cada linha termina, com `count` filhos em `rowCount` linhas equilibradas: as primeiras levam um filho a mais. */
+function rowEnds(count: number, rowCount: number): number[] {
+  const base = Math.floor(count / rowCount);
+  const extra = count % rowCount;
+  const ends: number[] = [];
+  let end = 0;
+  for (let row = 0; row < rowCount; row += 1) {
+    end += base + (row < extra ? 1 : 0);
+    ends.push(end);
+  }
+  return ends;
+}
+
+/** Largura da linha mais larga e soma das alturas das linhas (sem alocar: roda uma vez por candidato). */
+function measureRows(widths: readonly number[], heights: readonly number[], rowCount: number, gap: number) {
+  const base = Math.floor(widths.length / rowCount);
+  const extra = widths.length % rowCount;
+  let regionWidth = 0;
+  let regionHeight = 0;
+  let start = 0;
+  for (let row = 0; row < rowCount; row += 1) {
+    const end = start + base + (row < extra ? 1 : 0);
+    let rowWidth = gap * (end - start - 1);
+    let rowHeight = 0;
+    for (let position = start; position < end; position += 1) {
+      rowWidth += widths[position]!;
+      rowHeight = Math.max(rowHeight, heights[position]!);
+    }
+    regionWidth = Math.max(regionWidth, rowWidth);
+    regionHeight += rowHeight + (row > 0 ? gap : 0);
+    start = end;
+  }
+  return { regionWidth, regionHeight };
+}
+
+/**
+ * Em quantas linhas a região fica mais perto do alvo; no empate, o arranjo mais largo. Busca exata, O(n²) no número de
+ * filhos: cerca de 13 ms num pai com 2.000 filhos, uma vez por layout (a segunda passada reaproveita a quebra).
+ */
+function chooseRowCount(widths: readonly number[], heights: readonly number[], gap: number, target: number): number {
+  let best = 1;
+  let bestError = Infinity;
+  let bestWidth = 0;
+  for (let rowCount = 1; rowCount <= widths.length; rowCount += 1) {
+    const { regionWidth, regionHeight } = measureRows(widths, heights, rowCount, gap);
+    const error = aspectError(regionWidth, regionHeight, target);
+    if (error < bestError - 1e-9 || (Math.abs(error - bestError) <= 1e-9 && regionWidth > bestWidth)) {
+      best = rowCount;
+      bestError = error;
+      bestWidth = regionWidth;
+    }
+  }
+  return best;
+}
+
+/**
+ * Põe os filhos em linhas abaixo do card do pai (ADR 0067), na ordem, em linhas equilibradas: cada filho ocupa a largura
+ * da própria subárvore, cada linha tem a altura do filho mais alto dela, as linhas ficam centralizadas sob o pai e os
+ * filhos alinhados pelo topo da linha. Sem `rowCount`, escolhe o número de linhas pela proporção alvo.
+ */
+function layoutChildren<TNode extends TreeNode>(children: MeasuredNode<TNode>[], width: number, height: number, gap: number, target: number, rowCount?: number): ChildRows {
+  const widths = children.map((child) => child.subtreeBounds.maxX - child.subtreeBounds.minX);
+  const heights = children.map((child) => child.subtreeBounds.maxY - child.subtreeBounds.minY);
+  const chosen = rowCount ?? chooseRowCount(widths, heights, gap, target);
   let regionWidth = 0;
   let maxY = height;
   let rowY = height + gap;
-  for (const row of rows) {
-    const rowWidth = slotWidth * row.length + gap * (row.length - 1);
+  let start = 0;
+  for (const end of rowEnds(children.length, chosen)) {
+    let rowWidth = gap * (end - start - 1);
+    let rowHeight = 0;
+    for (let position = start; position < end; position += 1) {
+      rowWidth += widths[position]!;
+      rowHeight = Math.max(rowHeight, heights[position]!);
+    }
     let slotLeft = -rowWidth / 2;
-    for (const child of row) {
-      const childWidth = child.subtreeBounds.maxX - child.subtreeBounds.minX;
-      child.slotBounds = { minX: slotLeft, maxX: slotLeft + slotWidth, minY: rowY, maxY: rowY + slotHeight };
-      child.x = slotLeft + (slotWidth - childWidth) / 2 - child.subtreeBounds.minX;
+    for (let position = start; position < end; position += 1) {
+      const child = children[position]!;
+      const childWidth = widths[position]!;
+      child.slotBounds = { minX: slotLeft, maxX: slotLeft + childWidth, minY: rowY, maxY: rowY + rowHeight };
+      child.x = slotLeft - child.subtreeBounds.minX;
       child.y = rowY - child.subtreeBounds.minY;
-      slotLeft += slotWidth + gap;
+      slotLeft += childWidth + gap;
     }
     regionWidth = Math.max(regionWidth, rowWidth);
-    maxY = Math.max(maxY, rowY + slotHeight);
-    rowY += slotHeight + gap;
+    maxY = Math.max(maxY, rowY + rowHeight);
+    rowY += rowHeight + gap;
+    start = end;
   }
   return {
-    minX: Math.min(-width / 2, -regionWidth / 2),
-    maxX: Math.max(width / 2, regionWidth / 2),
-    minY: 0,
-    maxY,
+    rowCount: chosen,
+    bounds: {
+      minX: Math.min(-width / 2, -regionWidth / 2),
+      maxX: Math.max(width / 2, regionWidth / 2),
+      minY: 0,
+      maxY,
+    },
   };
 }
 
@@ -164,13 +257,15 @@ function measure<TNode extends TreeNode>(item: TNode, depth: number, index: Tree
   }
 
   const gap = nonnegative(typeof config.childGap === "function" ? config.childGap(item, depth, ownRadius) : config.childGap ?? Math.max(18, ownRadius * 0.18), "childGap");
-  const rawBounds = layoutChildren(children, width, height, gap);
+  const first = layoutChildren(children, width, height, gap, config.childRegionAspect);
+  const rawBounds = first.bounds;
   const rawSubtreeRadius = Math.max(ownRadius, Math.hypot((rawBounds.maxX - rawBounds.minX) / 2, (rawBounds.maxY - rawBounds.minY) / 2));
   const settings = config.normalization;
   const heightAllowance = settings ? Math.max(0, (index.subtreeHeightById.get(item.id) ?? 0) - settings.heightStart) : 0;
   const normalization = settings ? Math.min(1, (ownRadius * (1 + heightAllowance * settings.heightFactor) + heightAllowance * settings.heightPadding) / rawSubtreeRadius) : 1;
   for (const child of children) scaleSubtree(child, normalization);
-  const subtreeBounds = layoutChildren(children, width, height, Math.max(settings ? settings.minGap : 0, gap * normalization));
+  // A segunda passada reaproveita a quebra da primeira: a escala muda, a disposição não.
+  const subtreeBounds = layoutChildren(children, width, height, Math.max(settings ? settings.minGap : 0, gap * normalization), config.childRegionAspect, first.rowCount).bounds;
   const subtreeRadius = Math.max(ownRadius, Math.hypot((subtreeBounds.maxX - subtreeBounds.minX) / 2, (subtreeBounds.maxY - subtreeBounds.minY) / 2));
   return { item, depth, x: 0, y: 0, width, height, subtreeRadius, subtreeBounds, slotBounds: subtreeBounds, children };
 }

@@ -141,7 +141,3 @@ Uma revisão independente reproduziu dois defeitos contra o código real, corrig
 **Memória.** Com o banco em uso, o processo fica perto de 200 MiB; a máquina de produção passou de 256 para 512 MB.
 
 Suítes: domain 243, db 200, api 1.524, web 1.430 e 85 na suíte de navegador.
-
-## Atualização (2026-11-26): limites por minuto
-
-A pedido de Teodoro (`TREEPM-558`), os quatro tetos por minuto do servidor MCP passam a 5.000: requisições por IP (era 120), requisições por token (era 60), escritas por token (era 20) e escritas por pessoa (era 40). Janela e mecanismo não mudam. Os valores ficam em `apps/api/src/mcp/mcp-limits.ts` e `access-token.service.ts`, e as descrições das ferramentas leem as constantes.
