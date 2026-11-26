@@ -94,6 +94,7 @@ describe("search", () => {
       priority: 0,
       effectivePriority: 0,
       dueDate: null,
+      labels: [],
     });
   });
 
@@ -511,7 +512,7 @@ describe("cost", () => {
     await grow(80);
     const large = await measure();
     expect(large).toEqual(small);
-    expect(small).toEqual([4, 12, 5, 6]); // ticket: +2, os dois lados de `related` (ADR 0061). +1 em cada: a prioridade que vale (ADR 0047) é uma consulta a mais, fixa; a visão geral passou a contar por `group by` e a calcular o progresso dos tickets do topo no banco (TREEPM-251)
+    expect(small).toEqual([5, 13, 6, 7]); // +1 em cada: as etiquetas dos tickets da resposta (ADR 0065), uma consulta fixa no anexo. ticket: +2, os dois lados de `related` (ADR 0061). +1 em cada: a prioridade que vale (ADR 0047) é uma consulta a mais, fixa; a visão geral passou a contar por `group by` e a calcular o progresso dos tickets do topo no banco (TREEPM-251)
   });
 });
 

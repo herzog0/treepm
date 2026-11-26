@@ -1,6 +1,6 @@
-import type { ApiClient, Area, Me, Person, Project, ProjectRole, Team } from "../api/client.js";
+import type { ApiClient, Area, Label, Me, Person, Project, ProjectRole, Team, TicketSummary } from "../api/client.js";
 import { makeClient, makeMe } from "../test/fakes.js";
-import type { FakeGithub } from "../test/fakes.js";
+import type { FakeGithub, FakeLabelStep } from "../test/fakes.js";
 
 export function makePerson(id: string, displayName: string, extra: Partial<Person> = {}): Person {
   return { id, displayName, email: `${id}@example.com`, avatarUrl: null, clerkRole: "member", active: true, ...extra };
@@ -24,6 +24,10 @@ interface PanelData {
   /** O `me` do cliente falso: as regras do GitHub do contrato dependem do papel. */
   me?: Me;
   github?: FakeGithub;
+  /** Tickets por projeto: as etiquetas contam quantos as usam (ADR 0065). */
+  tickets?: Record<string, TicketSummary[]>;
+  labels?: Record<string, Label[]>;
+  labelScript?: FakeLabelStep[];
 }
 
 /** Cliente falso com `listPeople` também configurado (o `makeClient` base o deixa lançando). */

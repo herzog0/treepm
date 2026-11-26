@@ -369,3 +369,14 @@ describe("ticket activity: work ended by the project being archived (TREEPM-233)
     if (result.ok) expect(result.data.entries).toEqual([entry]);
   });
 });
+
+describe("ticket activity: labels (ADR 0065)", () => {
+  it("keeps labels_changed with the names of the time and drops the project event label_deleted", async () => {
+    const changed = { id: "e1", type: "labels_changed", occurredAt: "2026-11-22T10:00:00.000Z", actor: null, automatic: true, added: [{ id: "l1", name: "Bug" }], removed: [] };
+    const deleted = { id: "e2", type: "label_deleted", occurredAt: "2026-11-22T10:00:00.000Z", actor: null, name: "Bug", tickets: 3 };
+    const { client } = setup(() => Response.json({ entries: [changed, deleted], before: null, canComment: false }));
+    const result = await client.ticketActivity(ID);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.entries).toEqual([changed]);
+  });
+});

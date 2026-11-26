@@ -44,3 +44,29 @@
   .side-panel .badge, .side-panel .panel-form, .confirm-message { font-size: 12px; }
   .side-panel .panel-form.inline { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Etiquetas do projeto (ADR 0065): pastilha que encolhe com reticências, contagem discreta e as oito cores como botões em bolinha.
+   A coluna da lista é `minmax(0, 1fr)`: sem isso o nome longo (sem quebra) alarga a lista e empurra Renomear/Apagar para fora do painel. */
+.side-panel .panel-labels .panel-list { grid-template-columns: minmax(0, 1fr); }
+.side-panel .panel-label-row .row { justify-content: flex-start; gap: 8px; }
+.side-panel .panel-label-row .row > .label-pill { flex: 0 1 auto; }
+.side-panel .panel-label-count { flex: none; margin-right: auto; color: var(--tp-text-2); font-size: 12px; white-space: nowrap; }
+.side-panel .panel-label-row .row-actions { flex: none; }
+/* Confirmando: a linha quebra e a confirmação ocupa a largura toda embaixo da pastilha. */
+.side-panel .panel-label-row .row:has(.confirm-action) { flex-wrap: wrap; padding-bottom: 4px; }
+.side-panel .panel-label-row .row-actions:has(.confirm-action) { flex: 1 0 100%; }
+/* O nome de 60 caracteres sem espaço quebra dentro da caixa na confirmação de apagar. */
+.side-panel .panel-label-row .confirm-message { min-width: 0; overflow-wrap: anywhere; }
+.side-panel .panel-label-colors { display: flex; flex-wrap: wrap; gap: 2px; margin: 4px 0 6px -2px; }
+.side-panel .panel-label-color { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.side-panel .panel-label-color:hover:not(:disabled) { border: 0; background: var(--tp-selected); }
+.side-panel .panel-label-color .label-dot { width: 12px; height: 12px; }
+/* A cor escolhida ganha um anel colado na bolinha (no botão de 44 px da tela estreita, um anel no botão ficaria longe dela). */
+.side-panel .panel-label-color[aria-pressed="true"] .label-dot { box-shadow: 0 0 0 2px var(--tp-surface), 0 0 0 4px var(--tp-text); }
+.side-panel .panel-label-color:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
+.side-panel .panel-label-color[aria-disabled="true"] { cursor: progress; }
+/* Tela estreita ou de toque: cada cor é um alvo de 44 px; as oito cabem numa linha de 414 px. */
+@media (max-width: 720px), (pointer: coarse) {
+  .side-panel .panel-label-colors { gap: 0; margin-left: -10px; }
+  .side-panel .panel-label-color { width: 44px; height: 44px; min-height: 44px; }
+}

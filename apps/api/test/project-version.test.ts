@@ -135,6 +135,13 @@ describe("leituras não mudam a versão", () => {
 type Case = { name: string; prepare?: () => Promise<any>; act: (state: any) => Promise<unknown> };
 const ticket = async (body: Record<string, unknown>, who: Who = "admin"): Promise<{ id: string; key: string }> => ok(send("post", listPath(), who, { title: "T", ...body }));
 
+/** Uma etiqueta cinza "Bug" posta no ticket 3 (para renomear, trocar a cor, tirar e apagar mudarem a lista); devolve o id. */
+const usedLabel = async (): Promise<string> => {
+  const created = await ok(send("post", `/api/projects/${P()}/labels`, "admin", { name: "Bug", color: "gray" }));
+  await ok(send("post", `/api/tickets/${await idOf(3)}/labels`, "admin", { add: [{ labelId: created.id }] }));
+  return created.id as string;
+};
+
 /** O inventário (REPORT.local.md, tabela): cada escrita que muda algo do `ticketSummarySchema`. */
 const CASES: Case[] = [
   { name: "criar ticket raiz", act: () => ok(send("post", listPath(), "admin", { title: "Novo" })) },
@@ -206,6 +213,16 @@ const CASES: Case[] = [
     prepare: async () => (await ticket({ idea: true })).id,
     act: async (idea) => ok(send("patch", `/api/tickets/${await idOf(3)}`, "admin", { parentId: idea })),
   },
+  { name: "pôr etiqueta nova pelo nome (ADR 0065)", act: async () => ok(send("post", `/api/tickets/${await idOf(3)}/labels`, "admin", { add: [{ name: "Bug" }] })) },
+  {
+    name: "pôr etiqueta existente pelo id",
+    prepare: async () => (await ok(send("post", `/api/projects/${P()}/labels`, "admin", { name: "Bug" }))).id as string,
+    act: async (labelId) => ok(send("post", `/api/tickets/${await idOf(3)}/labels`, "admin", { add: [{ labelId }] })),
+  },
+  { name: "tirar etiqueta", prepare: usedLabel, act: async (labelId) => ok(send("post", `/api/tickets/${await idOf(3)}/labels`, "admin", { remove: [labelId] })) },
+  { name: "renomear etiqueta usada", prepare: usedLabel, act: (labelId) => ok(send("patch", `/api/projects/${P()}/labels/${labelId}`, "admin", { name: "Defeito" })) },
+  { name: "trocar a cor de etiqueta usada", prepare: usedLabel, act: (labelId) => ok(send("patch", `/api/projects/${P()}/labels/${labelId}`, "admin", { color: "rose" })) },
+  { name: "apagar etiqueta usada", prepare: usedLabel, act: (labelId) => ok(send("delete", `/api/projects/${P()}/labels/${labelId}`, "admin")) },
   { name: "marcador de trabalho pela IA: ligar", act: async () => mark(await idOf(3), { working: true, note: "x" }) },
   {
     name: "marcador: renovar (muda o prazo)",

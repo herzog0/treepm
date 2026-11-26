@@ -8,6 +8,7 @@ import { ProjectRepositories } from "../github/ProjectRepositories.js";
 import { useApiResource } from "../api/useApiResource.js";
 import { LoadError } from "../LoadError.js";
 import { ConfirmAction } from "./ConfirmAction.js";
+import { LabelsSection } from "./LabelsSection.js";
 import { ROLES, VISIBILITIES } from "./labels.js";
 import { canCreateTickets } from "../import/permissions.js";
 import { TestBadge, useNameWithBadge } from "../people/TestBadge.js";
@@ -103,6 +104,8 @@ export function ProjectDetail({ client, me, project, onChanged, onBack, onImport
       {teams.state.status === "ready" && (
         <TeamsSection client={client} project={project} teams={teams.state.data} canManage={canManage} onChanged={onChanged} />
       )}
+
+      <LabelsSection client={client} project={project} canManage={canManage} />
     </section>
   );
 }

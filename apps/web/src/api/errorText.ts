@@ -16,6 +16,7 @@ const KNOWN_CODES = new Set([
   "linear_run_open", "linear_reimport_not_available", "linear_step_in_progress", "linear_not_linked", "linear_workspace_mismatch", "linear_team_not_visible",
   "linear_destination_invalid", "linear_run_finished", "step_failed", "step_too_slow",
   "linear_nothing_to_categorize", "linear_categorize_open", "linear_import_in_progress",
+  "label_limit_ticket", "label_limit_project", "label_name_taken", "label_name_invalid", "label_not_found",
 ] as const);
 type KnownCode = typeof KNOWN_CODES extends Set<infer C> ? C : never;
 

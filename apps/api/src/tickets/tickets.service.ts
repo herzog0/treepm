@@ -18,6 +18,8 @@ import { ideaStageSchema, ticketDetailSchema, ticketStatusSchema } from "./ticke
 import type { AgentWork, EffectivePriorityView, ExternalSourceView, TicketDetail, TicketIdea, TicketPage, TicketSummary, updateTicketSchema } from "./tickets.schema.js";
 import { readContributions } from "./ticket-contributions.read.js";
 import { readBranchOf } from "./ticket-reads.js";
+import { ticketLabelsOf } from "./labels.service.js";
+import type { LabelView } from "./labels.schema.js";
 import { dueDateText, dueDateValue } from "./due-date.js";
 import { touchProjectVersion } from "./project-version.js";
 import { forgetRelationOrigins, linearRelationIds } from "../linear/linear-relation-origins.js";
@@ -60,6 +62,8 @@ export type TicketRow = {
   dueDate?: string | null;
   /** Depende de algum ticket ainda aberto; ausente = não (quem monta a linha sem a ligação, como a criação). */
   blocked?: boolean;
+  /** Etiquetas (ADR 0065), já na ordem de saída; ausente = nenhuma (o ticket recém-criado ou importado nasce sem etiqueta). */
+  labels?: LabelView[];
 };
 export type TicketDetailRow = TicketRow & {
   agentWorkPersonId?: string | null;
@@ -138,6 +142,7 @@ export function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, prog
     priority: row.priority ?? 0,
     dueDate: row.dueDate ?? null,
     blocked: row.blocked ?? false,
+    labels: row.labels ?? [],
   };
 }
 
@@ -562,9 +567,10 @@ export class TicketsService {
   async detail(tx: TenantClient, project: ProjectRow, id: string): Promise<TicketDetail> {
     // Progresso e situação de ideia vêm só do ramo do ticket (descendentes e ancestrais), não do projeto inteiro.
     // Progresso e ideia vêm da MESMA consulta (`readBranchOf`): um instantâneo só, então uma escrita concorrente não faz um discordar do outro.
-    const [row, branches, mentions, dependencies, origin, related] = await Promise.all([
+    const [row, branches, labels, mentions, dependencies, origin, related] = await Promise.all([
       tx.ticket.findFirstOrThrow({ where: { id }, include: { assignees: { select: { personId: true } } } }),
       readBranchOf(tx, scopeOf(project), [id]),
+      ticketLabelsOf(tx, id),
       tx.ticketRelation.findMany({
         where: { toTicketId: id, kind: "mentions" },
         select: { from: { select: { id: true, number: true, title: true, status: true, dueDate: true } } },
@@ -618,7 +624,7 @@ export class TicketsService {
     // A prioridade que vale sai da MESMA consulta recursiva do ramo (a subida pelos ancestrais já está nela): um instantâneo só.
     const source = branches.get(id)?.prioritySource ?? null;
     const effective = source ? { value: source.value, from: { id: source.id, key: `${project.key}-${source.number}` } } : { value: 0, from: null };
-    return toDetail(project, { ...row, dueDate: dueDateText(row.dueDate) }, progress, idea, mentionedBy, dependsOn, blocks, now, by, effective, externalSource, relatedTo);
+    return toDetail(project, { ...row, dueDate: dueDateText(row.dueDate), labels }, progress, idea, mentionedBy, dependsOn, blocks, now, by, effective, externalSource, relatedTo);
   }
 
   /**

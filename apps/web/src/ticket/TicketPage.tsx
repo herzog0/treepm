@@ -25,6 +25,7 @@ import { TicketActivity } from "./TicketActivity.js";
 import { peopleWhoSee } from "../chat/directory.js";
 import { DependsOnField, DescriptionField, FromLinearBadge, RelatedField, IdeaField, InsideIdeaValue, ParentField, DueDateField, PeopleField, PriorityField, StatusField, StatusValue, TitleField } from "./fields.js";
 import { ActionsMenu } from "./menu.js";
+import { LabelsField } from "./LabelsField.js";
 import { ancestorsOf } from "./tree.js";
 import { ticketHref } from "../nav/navigation.js";
 import "./ticket.css";
@@ -543,6 +544,12 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
               <dt>{t("fields.dueDate")}</dt>
               <dd>
                 <DueDateField client={client} detail={detail} canEdit={canEdit} onSaved={refresh} />
+              </dd>
+            </div>
+            <div className="ticket-row">
+              <dt>{t("fields.labels")}</dt>
+              <dd>
+                <LabelsField key={detail.id} client={client} detail={detail} canEdit={canEdit} onSaved={refresh} />
               </dd>
             </div>
             <div className="ticket-row">

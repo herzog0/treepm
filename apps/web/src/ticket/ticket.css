@@ -265,3 +265,29 @@ button.ticket-comment-area:hover { border-color: var(--tp-border-strong, var(--t
   .ticket-due-picker { min-height: 44px; }
   .ticket-page .ticket-due-picker .ticket-due-input { height: 44px; }
 }
+
+/* Campo "Etiquetas" (ADR 0065). Uma linha tem a altura dos outros campos (30px); com muitas etiquetas quebra em linhas. O seletor
+   fica ancorado no fim da PRIMEIRA linha, que não anda quando uma pastilha entra ou sai. */
+.ticket-labels { position: relative; }
+.ticket-labels-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; box-sizing: border-box; min-height: 30px; padding: 4px 0 4px 8px; }
+.ticket-labels-row .ticket-labels-none { min-height: 22px; line-height: 22px; margin-left: -8px; padding: 0 8px; }
+.ticket-page .ticket-labels-add { display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box; height: 22px; min-height: 0; padding: 0 8px; border: 1px dashed var(--tp-border-strong); border-radius: 999px; background: transparent; color: var(--tp-text-2); font: 400 12px/1 var(--tp-font); cursor: pointer; }
+.ticket-page .ticket-labels-add::before { content: "+"; }
+.ticket-page .ticket-labels-add:hover, .ticket-page .ticket-labels-add:focus-visible, .ticket-page .ticket-labels-add[aria-expanded="true"] { border-color: var(--tp-accent); color: var(--tp-text); }
+.ticket-labels-picker {
+  position: absolute; z-index: 20; top: 30px; left: 0; box-sizing: border-box; width: min(320px, 100%); padding: 6px;
+  border: 1px solid var(--tp-border-strong); border-radius: var(--tp-radius-field); background: var(--tp-raised);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--tp-bg) 60%, transparent);
+}
+.ticket-page .ticket-labels-search { box-sizing: border-box; width: 100%; height: 30px; padding: 0 8px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-surface); color: var(--tp-text); font: 400 13px var(--tp-font); }
+.ticket-page .ticket-labels-search:focus { outline: 2px solid var(--tp-accent); outline-offset: -1px; }
+.ticket-labels-options { max-height: 240px; margin: 6px 0 0; padding: 0; overflow-y: auto; list-style: none; }
+.ticket-labels-option { display: flex; align-items: center; gap: 6px; min-width: 0; height: 30px; padding: 0 6px; border-radius: var(--tp-radius-control); color: var(--tp-text); cursor: pointer; }
+.ticket-labels-option.is-active { background: var(--tp-selected); }
+.ticket-labels-check { flex: none; width: 14px; color: var(--tp-accent); text-align: center; }
+.ticket-labels-option[aria-selected="true"] .ticket-labels-check::before { content: "✓"; }
+.ticket-labels-check.is-create::before { content: "+"; color: var(--tp-text-2); }
+.ticket-labels-create { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ticket-labels-status { margin: 6px 4px 2px; color: var(--tp-text-3); font-size: 12px; }
+.ticket-labels > .ticket-error { margin-left: 8px; }
+.ticket-labels-picker > .ticket-error { margin: 6px 4px 2px; }

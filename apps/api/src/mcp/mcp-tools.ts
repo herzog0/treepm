@@ -7,7 +7,9 @@ import type { Principal } from "../access/principal.js";
 import type { ProjectQueryService } from "../query/project-query.service.js";
 import type { QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "../query/query.schema.js";
 import type { QueueTicket } from "../query/project-query.service.js";
+import { listProjectLabels } from "../tickets/labels.service.js";
 import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
+import { labelOut } from "./mcp-text.js";
 import { PERSON_NAME_SELECT, mcpPersonRef } from "./person-name.js";
 import type { PersonNameSource } from "./person-name.js";
 
@@ -69,6 +71,7 @@ const summarySchema = z.strictObject({
   effective_priority: z.number().int().describe("The priority that counts: `priority` when it is not 0, otherwise the one of the nearest ancestor whose priority is not 0, otherwise 0."),
   dueDate: z.string().nullable().describe("The due date, a calendar day YYYY-MM-DD with no time and no time zone; null when the ticket has none."),
   overdue: z.boolean().describe("True when the ticket has a due date before today and is todo, in_progress or in_review (done and cancelled are never overdue). Today is the current day in UTC."),
+  labels: z.array(z.string()).describe("The names of the ticket's labels, in name order; empty when it has none."),
 });
 const listSchema = z.strictObject({
   tickets: z.array(summarySchema),
@@ -98,6 +101,7 @@ export const getTicketOutput = z.strictObject({
   effective_priority: summarySchema.shape.effective_priority,
   dueDate: summarySchema.shape.dueDate,
   overdue: summarySchema.shape.overdue,
+  labels: summarySchema.shape.labels,
   description: z.string().describe("Full description, never cut."),
   parent: z.string().nullable().describe("Key of the parent ticket (the ticket this one is part of), or null."),
   path: z.array(summarySchema).describe("From the top-level ancestor down to the parent; empty for a top-level ticket."),
@@ -116,6 +120,12 @@ export const getTicketOutput = z.strictObject({
     .describe("Where the ticket came from, when it was imported from Linear; null otherwise."),
 });
 export const listTicketsOutput = listSchema.extend({ after: z.string().nullable().describe("Pass as `after` to get the next page; null when there is no more.") });
+export const listLabelsInput = z.strictObject({});
+export const listLabelsOutput = z.strictObject({
+  labels: z
+    .array(z.strictObject({ name: z.string(), color: z.string().describe("One of: gray, brown, orange, olive, cyan, indigo, violet, rose."), tickets: z.number().int().describe("How many tickets have this label.") }))
+    .describe("The labels of this project, in name order."),
+});
 export const projectOverviewOutput = z.strictObject({
   project: z.string().describe("Project key."),
   total: z.number().int().describe("Number of tickets that are work (ideas are not counted)."),
@@ -170,6 +180,7 @@ const MEANING =
   "Priority: `priority` is the ticket's own number (-999 to 999, 0 by default, higher comes first) and `effective_priority` the one that counts, inherited from the nearest ancestor with a non-zero priority. " +
   "Due date: `dueDate` is a calendar day (YYYY-MM-DD, no time, no time zone) or null; `overdue` is true when that day is before today and the ticket is todo, in_progress or in_review and is not an idea (an idea is never overdue). Today is the current day in UTC, so near midnight it can differ from the TreePM screen, which uses the viewer's day. A ticket's due date is its own: it is not inherited from or imposed on its parent or children, and it does not change the order of the work queue. " +
   "Relations: `mentions` means one ticket cites the other in its text; `depends_on` means the first ticket needs the other to be finished before it; `related` means \"related to\" (comes from Linear, no rule: it neither blocks nor orders work). " +
+  "Labels: `labels` lists the names of the ticket's labels (labels belong to the project; list_labels lists them all). " +
   `Statuses: ${STATUSES}.`;
 
 const definitions = (people: boolean) => ({
@@ -202,6 +213,12 @@ const definitions = (people: boolean) => ({
     description: `Overview of the project: number of tickets in total and per status, and the top-level tickets of the tree with the progress of each. ${MEANING}`,
     inputSchema: projectOverviewInput,
     outputSchema: projectOverviewOutput,
+  },
+  list_labels: {
+    title: "List the labels of the project",
+    description: "The labels of this project, in name order: the name, the color and how many tickets have it. Use these names with addLabels and removeLabels of create_ticket and update_ticket (when the token can write). A ticket has at most 20 labels and a project at most 200.",
+    inputSchema: listLabelsInput,
+    outputSchema: listLabelsOutput,
   },
 });
 
@@ -386,6 +403,7 @@ export class ProjectTools {
       effective_priority: self.effective_priority,
       dueDate: self.dueDate,
       overdue: self.overdue,
+      labels: self.labels,
       description: ticket.description,
       parent: self.parent,
       path: ticket.path.map((entry) => this.summary(entry, keys, who)),
@@ -457,8 +475,19 @@ export class ProjectTools {
       dueDate: entry.dueDate,
       // "Hoje" do MCP é o dia em UTC (ADR 0064); a tela usa o do navegador.
       overdue: isOverdue({ dueDate: entry.dueDate, category: entry.status, today: this.query.utcToday(), idea: entry.idea !== null }),
+      // Etiquetas (ADR 0065): só os nomes, pelo limpador (podem ter vindo do Linear); nem o id daqui nem o de lá.
+      labels: entry.labels.map((label) => labelOut(label.name)),
       ...(who === null ? {} : { assignees: who.get(entry.id) ?? [] }),
     };
+  }
+
+  /** `list_labels`: as etiquetas do projeto (nome limpo, cor, contagem), sem id. Quem vê o projeto. */
+  async listLabels(): Promise<z.infer<typeof listLabelsOutput>> {
+    return this.run(this.context.principal, async (tx) => {
+      await this.query.requireProject(tx, this.context.principal, this.context.project.id);
+      const labels = await listProjectLabels(tx, this.context.project.id);
+      return { labels: labels.map((label) => ({ name: labelOut(label.name), color: label.color, tickets: label.ticketCount })) };
+    });
   }
 }
 

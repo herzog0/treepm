@@ -60,19 +60,24 @@ export async function loadPerfWorld(pool: pg.Pool, n = 400): Promise<PerfWorld> 
  * `dueDate` e `overdue` (ADR 0064, prazo) vieram depois das referências de ouro: nenhum ticket deste projeto tem prazo, então todo
  * `dueDate` é nulo e todo `overdue` é falso. Confere isso e tira só esses dois campos antes de comparar: nos objetos, as duas chaves;
  * no texto JSON das respostas do MCP, só os dois pares `"dueDate":null` e `"overdue":false` (o resto do texto fica byte a byte como
- * veio, sem reserializar). As referências não são regravadas.
+ * veio, sem reserializar). O mesmo para `labels` (ADR 0065, etiquetas), só quando é `[]`: nos objetos, a chave; no texto do MCP, o par
+ * `"labels":[]`. As referências não são regravadas.
  */
 export function withoutDueDate(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withoutDueDate);
   if (typeof value === "string") {
     expect(value, "dueDate sem prazo").not.toMatch(/"dueDate":(?!null[,}])/);
     expect(value, "overdue sem prazo").not.toMatch(/"overdue":(?!false[,}])/);
-    return value.replace(/,"dueDate":null(?=[,}])/g, "").replace(/,"overdue":false(?=[,}])/g, "");
+    expect(value, "labels sem etiqueta").not.toMatch(/"labels":(?!\[\][,}])/);
+    return value.replace(/,"dueDate":null(?=[,}])/g, "").replace(/,"overdue":false(?=[,}])/g, "").replace(/,"labels":\[\](?=[,}])/g, "");
   }
   if (value === null || typeof value !== "object") return value;
   const out: Record<string, unknown> = {};
   for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
     if (key === "dueDate") expect(inner, "dueDate sem prazo").toBeNull();
+    // Etiquetas (ADR 0065) vieram depois também: nenhum ticket deste projeto tem etiqueta, então todo `labels` é `[]` e só então sai.
+    // No texto das respostas do MCP (que passou a levar `labels`, só os nomes), o mesmo vale pelo par `"labels":[]` acima.
+    else if (key === "labels") expect(inner, "labels sem etiqueta").toEqual([]);
     else if (key === "overdue") expect(inner, "overdue sem prazo").toBe(false);
     else out[key] = withoutDueDate(inner);
   }

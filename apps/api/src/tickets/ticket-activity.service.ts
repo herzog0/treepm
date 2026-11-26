@@ -36,6 +36,7 @@ const READ_KINDS = [
   "ticket.relations_imported_from_linear",
   "ticket.history_imported_from_linear",
   "ticket.related_removed",
+  "ticket.labels_changed",
 ];
 
 /** Ordem fixa das entradas de um `ticket.updated`, da mais antiga para a mais nova. */
@@ -95,6 +96,7 @@ type Data =
   | { type: "parent_changed"; from: RefDraft | null; to: RefDraft | null }
   | { type: "assignee_added" | "assignee_removed"; personId: string }
   | { type: "dependency_added" | "dependency_removed" | "related_removed"; ticket: RefDraft }
+  | { type: "labels_changed"; added: LabelItem[]; removed: LabelItem[] }
   | { type: "summary_updated"; source: "person" | "assistant" }
   | { type: "contribution_added" | "contribution_text_changed"; areaId: string }
   | { type: "contribution_removed"; areaId: string; areaName: string | null }
@@ -121,6 +123,11 @@ const IMPORT_COUNTS: Record<string, ImportCount> = {
 const importCountOf = (kind: string): ImportCount | undefined => (Object.hasOwn(IMPORT_COUNTS, kind) ? IMPORT_COUNTS[kind] : undefined);
 
 const idOrNull = z.uuid().nullable();
+/** Uma etiqueta num `ticket.labels_changed` (ADR 0065): o id e o nome DA ÉPOCA, guardado no evento. */
+const labelItem = z.object({ id: z.uuid(), name: z.string().min(1).max(200) });
+type LabelItem = z.output<typeof labelItem>;
+/** Eventos que podem vir de um processo (`automatic: true`): a entrada leva a marca. */
+const MAY_BE_AUTOMATIC = new Set(["ticket.updated", "ticket.labels_changed"]);
 const fromTo = <T extends z.ZodType>(schema: T) => z.object({ from: schema, to: schema });
 const issueKey = /^[A-Za-z][A-Za-z0-9]*-(\d+)$/;
 const isMcp = (payload: unknown): boolean => typeof payload === "object" && payload !== null && (payload as Record<string, unknown>)["via"] === "mcp";
@@ -177,7 +184,7 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
     data,
     ...(contributionId === undefined ? {} : { contributionId }),
     ...(isMcp(row.payload) ? { via: "mcp" as const } : {}),
-    ...((row.kind === "ticket.updated" || importCountOf(row.kind) !== undefined) && isAutomatic(row.payload) ? { automatic: true as const } : {}),
+    ...((MAY_BE_AUTOMATIC.has(row.kind) || importCountOf(row.kind) !== undefined) && isAutomatic(row.payload) ? { automatic: true as const } : {}),
   });
   const payload = row.payload;
   if (row.kind === "ticket.created") return [make(0, row.id, { type: "created" })];
@@ -259,6 +266,12 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
       // "Relacionado a" tirado (ADR 0061, fatia 3): o outro ticket, como na dependência.
       const v = z.object({ relatedTicketId: z.uuid(), relatedKey: z.string().max(100).optional() }).safeParse(p);
       return v.success ? [make(0, row.id, { type: "related_removed", ticket: { id: v.data.relatedTicketId, key: v.data.relatedKey ?? null, number: null } })] : [];
+    }
+    case "ticket.labels_changed": {
+      // Etiquetas postas e tiradas num pedido (ADR 0065): UMA entrada com as duas listas; payload fora do formato ou sem mudança descarta.
+      const v = z.object({ added: z.array(labelItem).max(100), removed: z.array(labelItem).max(100) }).safeParse(p);
+      if (!v.success || v.data.added.length + v.data.removed.length === 0) return [];
+      return [make(0, row.id, { type: "labels_changed", added: v.data.added, removed: v.data.removed })];
     }
     case "ticket.idea_registered":
       return [make(0, row.id, { type: "idea_registered" })];
@@ -597,6 +610,8 @@ export class TicketActivityService {
         case "dependency_removed":
         case "related_removed":
           return { ...common, type: data.type, ticket: ticketRef(data.ticket) };
+        case "labels_changed":
+          return { ...common, type: data.type, added: data.added, removed: data.removed };
         case "summary_updated":
           return { ...common, type: data.type, source: data.source };
         case "contribution_added":

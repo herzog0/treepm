@@ -80,7 +80,7 @@ describe("HttpLinearClient.listTeamProjects", () => {
 });
 
 describe("HttpLinearClient.listTeamIssues", () => {
-  it("pede só os campos combinados, sem arquivadas, sem children nem labels, 50 por página", async () => {
+  it("pede só os campos combinados, sem arquivadas, sem children, 50 por página (as etiquetas: `linear-client-labels.test.ts`)", async () => {
     const { client: c, fake } = client([{ body: issuesBody([issue()]) }]);
     await c.listTeamIssues(KEY, "team-eng", null);
     const query = fake.calls[0]!.query.replace(/\s+/g, " ");
@@ -89,7 +89,7 @@ describe("HttpLinearClient.listTeamIssues", () => {
     for (const field of ["id", "identifier", "url", "title", "description", "priority", "updatedAt", "trashed", "state { type }", "parent { id }", "project { id }", "assignee { id email }"]) {
       expect(query).toContain(field);
     }
-    expect(query).not.toMatch(/children|labels/);
+    expect(query).not.toMatch(/children/);
   });
 
   it("traduz a issue: estado, pai, projeto e responsável; prioridade e descrição nula", async () => {
@@ -117,6 +117,8 @@ describe("HttpLinearClient.listTeamIssues", () => {
       previousIdentifiers: [],
       creator: null,
       dueDate: undefined, // a chave ausente na resposta vale "não lido" (ADR 0064)
+      labelIds: undefined, // idem para as etiquetas (ADR 0065): sem `labelIds`, nada muda no ticket
+      labels: [],
     });
     expect(page.nodes[1]).toMatchObject({ id: "iss-2", trashed: true, assignee: null, parentId: null, projectId: null });
   });

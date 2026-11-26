@@ -34,7 +34,7 @@ describe("cliente oficial do SDK contra a aplicação de teste", () => {
     const token = await setup();
     const client = await connect(token, "PRIV", "auto");
     const tools = await client.listTools();
-    expect(tools.tools.map((tool) => tool.name).sort()).toEqual(["get_project_overview", "get_ticket", "get_work_queue", "list_tickets", "search_tickets"]);
+    expect(tools.tools.map((tool) => tool.name).sort()).toEqual(["get_project_overview", "get_ticket", "get_work_queue", "list_labels", "list_tickets", "search_tickets"]);
     const result: any = await client.callTool({ name: "get_ticket", arguments: { key: "PRIV-2" } });
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent.key).toBe("PRIV-2");
@@ -48,7 +48,7 @@ describe("cliente oficial do SDK contra a aplicação de teste", () => {
     const token = await setup();
     const client = await connect(token, "PRIV", "legacy");
     const tools = await client.listTools();
-    expect(tools.tools).toHaveLength(5);
+    expect(tools.tools).toHaveLength(6);
     const result: any = await client.callTool({ name: "get_project_overview", arguments: {} });
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent.total).toBe(4);

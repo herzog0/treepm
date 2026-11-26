@@ -22,6 +22,7 @@ import { TicketActivityService } from "../tickets/ticket-activity.service.js";
 import { ConversationService } from "../assistant/conversation.service.js";
 import { withStructureTimeoutTranslation } from "../tickets/structure-lock.js";
 import { TicketsService } from "../tickets/tickets.service.js";
+import { LabelsService } from "../tickets/labels.service.js";
 import { LinearImportService } from "../linear/linear-import.service.js";
 import { isConnectionWaitTimeout } from "../common/connection-wait.js";
 import { createProjectServer } from "./mcp-server.js";
@@ -97,6 +98,7 @@ export class McpGateway {
     @Inject(TicketActivityService) private readonly ticketActivity: TicketActivityService,
     @Inject(ConversationService) private readonly conversations: ConversationService,
     @Inject(LinearImportService) private readonly linearImports: LinearImportService,
+    @Inject(LabelsService) private readonly labels: LabelsService,
   ) {
     this.ipLimiter = new RateLimiter(clock, IP_LIMIT_PER_MINUTE, IP_WINDOW_MS);
     this.writeLimiter = new RateLimiter(clock, WRITE_LIMIT_PER_MINUTE, IP_WINDOW_MS);
@@ -116,7 +118,7 @@ export class McpGateway {
       const base = { principal: resolved.principal as Principal, project: { id: resolved.project.id, key: resolved.project.key }, people: resolved.people };
       // As ferramentas de escrita só existem para token de escrita com a chave da organização ligada (ADR 0043).
       const canWrite = resolved.scope === "write" && resolved.writeEnabled;
-      const services = { tickets: this.tickets, comments: this.comments, agentWork: this.agentWork, authorization: this.authorization };
+      const services = { tickets: this.tickets, comments: this.comments, agentWork: this.agentWork, authorization: this.authorization, labels: this.labels };
       // O Linear (ADR 0062, seção 5) só existe com a ligação configurada no servidor, como as rotas (`LinearEnabledGuard`).
       const linear = linearEnabled(this.config) ? { imports: this.linearImports, authorization: this.authorization } : undefined;
       return createProjectServer(run, this.query, base, canWrite ? { services, context: { ...base, tokenId: resolved.tokenId, fresh: resolved.fresh } } : undefined, resolved.people ? { assignablePeople: (tx, projectId) => this.tickets.assignablePeople(tx, projectId) } : undefined, resolved.people ? { activity: this.ticketActivity, conversations: this.conversations, authorization: this.authorization } : undefined, linear);

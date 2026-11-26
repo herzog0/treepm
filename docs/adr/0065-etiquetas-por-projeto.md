@@ -73,3 +73,18 @@ O campo na página do ticket e a lista nas configurações seguem os padrões qu
 
 - O mapa ganha o primeiro filtro que não segue a árvore nem a situação.
 - Mais um conjunto por ticket para a sincronização do Linear acompanhar, com a mesma regra dos comentários e das relações.
+
+## Como ficou (fatia 1, 2026-11-26)
+
+- Migration `0048_ticket_labels`, só de acréscimo: `project_labels`, `ticket_labels` (a chave estrangeira composta garante que a etiqueta é do mesmo projeto do ticket) e `project_label_origins`, com RLS forçada; `external_item_refs` aceita `label`. Exige Postgres 15 ou mais.
+- **Nome único sem depender do banco.** A chave de unicidade do nome é calculada no domínio (NFKC e minúsculas sem localidade), e não por `lower()` do Postgres, que depende da localidade de cada banco. A tela usa a mesma chave para decidir quando mostrar "Criar «texto»".
+- **Nome que o banco recusaria é inválido antes de chegar lá.** Caracteres invisíveis e de direção saem do nome ("bug" com um espaço de largura zero é a mesma etiqueta "bug"), e nome cuja chave normalizada passa de 240 caracteres é recusado. A revisão achou que um nome assim, vindo do Linear, dava erro e prendia a sincronização; corrigido, com uma lista de casos conferida contra o domínio e contra o banco.
+- **Linear, até dez etiquetas por issue:** a consulta detalha dez por issue; as demais só entram se outra issue as trouxer (`TREEPM-547`).
+- **Paleta:** `gray`, `brown`, `orange`, `olive`, `cyan`, `indigo`, `violet`, `rose`, todas a uma distância perceptual mínima das cinco cores de situação, da cor de ideia e da cor de destaque.
+- **A origem da etiqueta no Linear fica em tabela própria** e sobrevive ao apagar: é o que impede a etiqueta apagada aqui de renascer na sincronização seguinte.
+- **Apagar uma etiqueta grava um evento no projeto, não um por ticket.** Na linha do tempo do ticket ficam só o pôr e o tirar, com o nome que a etiqueta tinha na época.
+- **Leituras sem consulta por ticket:** as etiquetas de uma lista vêm numa consulta só, com teste de contagem.
+- **MCP:** leituras com os nomes (pelo limpador de texto, sem identificador); `list_labels`; `update_ticket` com `addLabels` e `removeLabels` e `create_ticket` com `addLabels`. Acrescentar e tirar, em vez de mandar o conjunto: um cliente que esquece uma etiqueta não apaga nada.
+- **Linear:** as etiquetas vêm na própria leitura das issues (1.768 pontos com página de 50, contra 413 antes), sem fase nova. A issue traz o conjunto completo de identificadores, então tirar no Linear não depende de quantas etiquetas a página detalha. Etiqueta com nome igual ao de uma daqui é adotada e não muda de nome nem de cor pela sincronização.
+- **IA:** nomes de etiqueta não vão a nenhum provedor; teste com nome sentinela em todos os caminhos, quebrado de propósito duas vezes para provar que pega.
+- **Mover ticket entre projetos não existe hoje.** Se existir, a chave estrangeira recusa a mudança enquanto houver etiqueta, em vez de deixar etiqueta de outro projeto pendurada.

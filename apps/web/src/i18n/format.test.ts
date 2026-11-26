@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatActivityTime, formatDate, formatDateTime, formatDueDate, formatNumber, toUpper } from "./format.js";
+import { formatActivityTime, formatDate, formatDateTime, formatDueDate, formatList, formatNumber, toUpper } from "./format.js";
 
 describe("formatDate", () => {
   const iso = "2026-11-20T12:00:00Z";
@@ -83,5 +83,16 @@ describe("formatDueDate (ADR 0064): data de calendário AAAA-MM-DD, sem andar um
   it("primeiro e último dia do ano continuam no mesmo dia", () => {
     expect(formatDueDate("pt-BR", "2027-01-01")).toBe("1 de janeiro de 2027");
     expect(formatDueDate("pt-BR", "2026-12-31")).toBe("31 de dezembro de 2026");
+  });
+});
+
+describe("formatList", () => {
+  it.each([
+    ["pt-BR", "Bug, Front e Back"],
+    ["en", "Bug, Front, and Back"],
+    ["es-MX", "Bug, Front y Back"],
+  ] as const)("junta os nomes com a conjunção de %s", (language, expected) => {
+    expect(formatList(language, ["Bug", "Front", "Back"])).toBe(expected);
+    expect(formatList(language, ["Bug"])).toBe("Bug");
   });
 });

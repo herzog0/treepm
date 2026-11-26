@@ -117,7 +117,7 @@ describe("external_item_refs: o tipo relation", () => {
 
   it("comment continua aceito e outro tipo, não", async () => {
     expect(await ref(ORG_1, a, { externalId: "c-ok", kind: "comment" })).toHaveProperty("id");
-    expect(await failure(() => ref(ORG_1, a, { externalId: "l-1", kind: "label" }))).toMatch(/check/i);
+    expect(await failure(() => ref(ORG_1, a, { externalId: "l-1", kind: "attachment" }))).toMatch(/check/i);
   });
 
   it("único por organização (outra organização pode ter o mesmo id)", async () => {

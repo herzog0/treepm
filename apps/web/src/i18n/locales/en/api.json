@@ -77,7 +77,12 @@
       "linear_import_in_progress": "A Linear import is running in this project. Wait for it to finish before looking for the items' places.",
       "test_people_total_limit": "This organization already has 100 test people, deactivated ones included. Reactivate one instead of creating another.",
       "display_name_taken": "An active person already has that name (case and accents do not count). Pick another name.",
-      "invalid_display_name": "The name cannot contain invisible or control characters."
+      "invalid_display_name": "The name cannot contain invisible or control characters.",
+      "label_limit_ticket": "A ticket can have at most 20 labels. Remove one before adding another.",
+      "label_limit_project": "The project already has 200 labels, the maximum. Delete one in the project settings before creating another.",
+      "label_name_taken": "A label with this name already exists in this project.",
+      "label_name_invalid": "The label name can't be empty or too long.",
+      "label_not_found": "This label no longer exists. The list has been refreshed."
     },
     "kind": {
       "unauthenticated": "Your session has expired. Sign in again.",

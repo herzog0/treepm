@@ -20,7 +20,9 @@ import { dueDateText, dueDateValue } from "../tickets/due-date.js";
 import { structureKey, withStructureSlot } from "../tickets/structure-queue.js";
 import { MAX_TREE_DEPTH } from "../tickets/ticket-scope.js";
 import { AgentWorkService } from "../tickets/agent-work.service.js";
+import { LabelsService, lockLabelCreation } from "../tickets/labels.service.js";
 import { TicketsService } from "../tickets/tickets.service.js";
+import { LABEL_COUNT_KEYS, syncIssueLabels } from "./linear-label-sync.js";
 import type { ProjectRow, TicketRow } from "../tickets/tickets.service.js";
 import { LINEAR_HISTORY_EXTRA_PAGE, LINEAR_HISTORY_PAGE_SIZE, LINEAR_HISTORY_PER_ISSUE, LINEAR_TIMEOUT_MS } from "./linear-client.js";
 import { LINEAR_CLIENT, LinearError } from "./ports.js";
@@ -146,6 +148,9 @@ const COUNT_KEYS = [
   "historyIgnored",
   "historySkipped",
   "historyTruncated",
+  // Etiquetas (ADR 0065): criadas e adotadas no projeto, renomeadas/recoloridas lá, renomeação recusada (nome de outra daqui), postas e
+  // tiradas em tickets, acima do limite (20 por ticket, 200 por projeto), nome vazio, não lidas (id sem nó nem origem) e nós malformados.
+  ...LABEL_COUNT_KEYS,
 ] as const;
 /**
  * `assigneeEmailUnavailable`: o Linear recusou o e-mail dos responsáveis nesta rodada; ninguém foi atribuído.
@@ -557,6 +562,8 @@ export class LinearImportService {
     @Inject(ActivityService) private readonly activity: ActivityService,
     @Inject(TicketsService) private readonly tickets: TicketsService,
     @Inject(AgentWorkService) private readonly agentWork: AgentWorkService,
+    // Os testes que montam o serviço à mão não passam o sétimo: o núcleo das etiquetas só precisa das duas dependências acima.
+    @Inject(LabelsService) private readonly labels: LabelsService = new LabelsService(authorization, activity),
   ) {}
 
   // ---- guarda comum ----
@@ -1524,6 +1531,9 @@ export class LinearImportService {
     if (!sweeping) counts.skippedInvalid += page.skippedInvalid;
     if (!sweeping) counts.dueDatesInvalid += page.dueDatesInvalid ?? 0;
     const live = unique.filter((node) => !node.trashed);
+    // Etiquetas (ADR 0065): a trava consultiva da criação vem ANTES de qualquer escrita em ticket deste passo, na mesma ordem da tela
+    // (consultiva → linha do ticket); tomada só quando a página traz nós de etiqueta (a sincronização pode criar). Reentrante na transação.
+    if (live.some((node) => node.labelIds !== undefined && (node.labels?.length ?? 0) > 0)) await lockLabelCreation(tx, project.id);
     const existing = await this.existingRefRows(tx, "issue", live.map((node) => node.id));
     const reimport = run.mode === "reimport";
     const fresh: LinearIssueNode[] = [];
@@ -1593,6 +1603,20 @@ export class LinearImportService {
     const created = await this.createTickets(tx, principal, project, run, items, counts);
     counts.issuesCreated += created.length;
     counts.assigned += items.filter((item) => item.assigneeIds.length > 0).length;
+    // Etiquetas (ADR 0065): só os tickets processados neste passo; a repescagem só as dos tickets que ela criou (não reaplica as conhecidas).
+    if (!sweeping) counts.labelsInvalid += page.labelsInvalid ?? 0;
+    const createdIds = new Set(created.map((row) => row.id));
+    const freshRefs = createdIds.size === 0 ? [] : await tx.ticketExternalRef.findMany({ where: { projectId: project.id, kind: "issue", externalId: { in: fresh.map((node) => node.id) } }, select: { externalId: true, ticketId: true } });
+    const freshNode = new Map(fresh.map((node) => [node.id, node] as const));
+    const labelTargets = [
+      ...(sweeping ? [] : known.map(({ ref, node }) => ({ ticketId: ref.ticketId, node }))),
+      ...freshRefs.filter((row) => createdIds.has(row.ticketId)).map((row) => ({ ticketId: row.ticketId, node: freshNode.get(row.externalId) as LinearIssueNode })),
+    ].filter((item) => item.node.labelIds !== undefined);
+    if (labelTargets.length > 0) {
+      const numbers = new Map((await tx.ticket.findMany({ where: { id: { in: labelTargets.map((item) => item.ticketId) } }, select: { id: true, number: true } })).map((row) => [row.id, row.number] as const));
+      const targets = labelTargets.flatMap((item) => (numbers.has(item.ticketId) ? [{ ...item, number: numbers.get(item.ticketId) as number }] : []));
+      await syncIssueLabels(tx, this.labels, principal, project, run.id, targets, counts);
+    }
     return fresh.length;
   }
 

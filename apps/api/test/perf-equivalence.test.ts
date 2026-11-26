@@ -197,11 +197,14 @@ describe("HTTP: respostas idênticas às de antes", () => {
   });
 });
 
-/** As páginas de 200 de `list_tickets` com `dueDate` e `overdue` (ADR 0064): o tamanho, o último ticket, o cursor e o corte de cada uma. */
+/**
+ * As páginas de 200 de `list_tickets` com `dueDate` e `overdue` (ADR 0064) e `labels` (ADR 0065): o tamanho, o último ticket, o cursor e
+ * o corte de cada uma. Só com o prazo eram 150/162/88; o `"labels":[]` de cada ticket deixou cada página um pouco menor.
+ */
 const ENUMERATE200_PAGES = [
-  { size: 150, last: "BG-150", after: "BG-150", truncated: true },
-  { size: 162, last: "BG-312", after: "BG-312", truncated: true },
-  { size: 88, last: "BG-400", after: null, truncated: false },
+  { size: 144, last: "BG-144", after: "BG-144", truncated: true },
+  { size: 158, last: "BG-302", after: "BG-302", truncated: true },
+  { size: 98, last: "BG-400", after: null, truncated: false },
 ];
 
 describe("MCP: respostas idênticas às de antes", () => {
@@ -217,7 +220,7 @@ describe("MCP: respostas idênticas às de antes", () => {
       after = page.structured.after;
       if (after === null) break;
     }
-    // Páginas de 200 são cortadas no teto de 80.000 caracteres: com `dueDate` e `overdue` (ADR 0064) cada ticket ficou maior e cabem
+    // Páginas de 200 são cortadas no teto de 80.000 caracteres: com `dueDate` e `overdue` (ADR 0064) e `labels` (ADR 0065) cada ticket ficou maior e cabem
     // menos por página (na referência, 162, 171 e 67). As fronteiras e os cursores conferidos são os de agora; a sequência inteira de
     // tickets continua a da referência, sem buraco nem repetição.
     const flat = (list: unknown[]) => list.flatMap((page) => (page as { structured: { tickets: unknown[] } }).structured.tickets);

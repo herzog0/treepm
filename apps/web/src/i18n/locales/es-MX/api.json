@@ -77,7 +77,12 @@
       "linear_import_in_progress": "Hay una importación de Linear en curso en este proyecto. Espera a que termine para buscar el lugar de los elementos.",
       "test_people_total_limit": "Esta organización ya tiene 100 personas de prueba, contando las desactivadas. Reactiva una en lugar de crear otra.",
       "display_name_taken": "Ya existe una persona activa con ese nombre (mayúsculas y acentos no cuentan). Elige otro nombre.",
-      "invalid_display_name": "El nombre no puede tener caracteres invisibles ni de control."
+      "invalid_display_name": "El nombre no puede tener caracteres invisibles ni de control.",
+      "label_limit_ticket": "Un ticket puede tener como máximo 20 etiquetas. Quita una antes de poner otra.",
+      "label_limit_project": "El proyecto ya tiene 200 etiquetas, el máximo. Borra una en la configuración del proyecto antes de crear otra.",
+      "label_name_taken": "Ya existe una etiqueta con ese nombre en este proyecto.",
+      "label_name_invalid": "El nombre de la etiqueta no puede quedar vacío ni ser demasiado largo.",
+      "label_not_found": "Esa etiqueta ya no existe. La lista se actualizó."
     },
     "kind": {
       "unauthenticated": "Tu sesión expiró. Vuelve a iniciar sesión.",

@@ -2,15 +2,18 @@ import { createHash } from "node:crypto";
 import { HttpException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import { z } from "zod";
-import { DUE_DATE_MAX, DUE_DATE_MIN, isValidDueDate } from "@treepm/domain";
+import { DUE_DATE_MAX, DUE_DATE_MIN, LABELS_PER_TICKET, cleanLabelName, isValidDueDate, labelNameKey } from "@treepm/domain";
 import type { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
 import { commentBodySchema } from "../tickets/ticket-comments.schema.js";
 import type { TicketCommentsService } from "../tickets/ticket-comments.service.js";
 import type { AgentWorkService } from "../tickets/agent-work.service.js";
+import type { LabelRef } from "../tickets/labels.schema.js";
+import type { LabelsService } from "../tickets/labels.service.js";
 import { ticketDescriptionSchema, ticketPrioritySchema, ticketStatusSchema, ticketTitleSchema } from "../tickets/tickets.schema.js";
 import { structureKey, withStructureSlot } from "../tickets/structure-queue.js";
 import type { TicketsService } from "../tickets/tickets.service.js";
+import { labelOut, looseLabelKey } from "./mcp-text.js";
 import { ToolInputError } from "./mcp-tools.js";
 import type { ProjectTools, RunInTenant, ToolContext } from "./mcp-tools.js";
 
@@ -47,6 +50,12 @@ export const setTicketPriorityInput = z.strictObject({
 /** O prazo no MCP: a mesma regra da tela e da API, com a mensagem em inglês, como os outros campos do MCP. */
 const dueDateField = z.string().refine(isValidDueDate, `dueDate must be a calendar day YYYY-MM-DD that exists, from ${DUE_DATE_MIN} to ${DUE_DATE_MAX}.`);
 const requestIdField = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/, "requestId must be 8 to 64 letters, digits, - or _.");
+/** Etiquetas por NOME (ADR 0065): o domínio limpa o nome (espaços, controle, corte em 60); o que não sobra nada é recusado aqui. */
+const labelNamesField = z
+  .array(z.string().max(200, "A label name is too long.").refine((name) => cleanLabelName(name) !== null, "Label names must not be empty or too long."))
+  .max(LABELS_PER_TICKET, `At most ${LABELS_PER_TICKET} labels per list.`);
+const ADD_LABELS = "Optional names of labels to put on the ticket. A name that matches a label of this project (ignoring case, or as list_labels and the ticket reads show it) puts that label; a new name creates the label.";
+const REMOVE_LABELS = "Optional names of labels to take off the ticket (as list_labels and the ticket reads show them; case is ignored). A name that is no label of this project makes the whole call fail and nothing changes; a label the ticket does not have is ignored.";
 export const createTicketInput = z.strictObject({
   title: ticketTitleSchema.describe("Ticket title, 1 to 200 characters."),
   description: ticketDescriptionSchema.optional().describe("Optional description. Plain text or markdown; a key like PROJ-12 in it becomes a mention of that ticket."),
@@ -54,6 +63,7 @@ export const createTicketInput = z.strictObject({
   priority: ticketPrioritySchema.optional().describe("Optional own priority, -999 to 999 (default 0)."),
   idea: z.boolean().optional().describe("true to register the ticket as an idea (not accepted work yet) instead of ordinary work."),
   dueDate: dueDateField.nullable().optional().describe("Optional due date: a calendar day YYYY-MM-DD (no time, no time zone), from 2000-01-01 to 2100-12-31. Omit or null for none."),
+  addLabels: labelNamesField.optional().describe(ADD_LABELS),
   requestId: requestIdField.optional().describe("Optional. If you repeat the call with the same requestId and the same title within 10 minutes (for example after a timeout), you get the ticket already created and no second one is created."),
 });
 
@@ -62,6 +72,8 @@ export const updateTicketInput = z.strictObject({
   title: ticketTitleSchema.optional().describe("Optional new title, 1 to 200 characters."),
   description: ticketDescriptionSchema.optional().describe("Optional new description (replaces the old one). Plain text or markdown; a key like PROJ-12 in it becomes a mention of that ticket; a mention of a person is refused."),
   dueDate: dueDateField.nullable().optional().describe("Optional due date: a calendar day YYYY-MM-DD (no time, no time zone), from 2000-01-01 to 2100-12-31; null removes it."),
+  addLabels: labelNamesField.optional().describe(ADD_LABELS),
+  removeLabels: labelNamesField.optional().describe(REMOVE_LABELS),
 });
 export const moveTicketInput = z.strictObject({
   key: keyField.describe("Key of the ticket to move."),
@@ -91,11 +103,15 @@ const ticketSummaryOutput = z.strictObject({
   effective_priority: z.number().int(),
   dueDate: z.string().nullable(),
   overdue: z.boolean(),
+  labels: z.array(z.string()),
 });
 export const createTicketOutput = z.strictObject({ key: z.string(), ticket: ticketSummaryOutput });
 export const setAgentWorkOutput = z.strictObject({ key: z.string(), agentWork: agentWorkOutput });
 
 const NOTE = "This tool changes data on behalf of the person who owns the token, with the same rules as the TreePM screen.";
+/** Por que etiquetas vão por `addLabels`/`removeLabels` e não pela lista inteira (ADR 0065): um cliente que esquece uma não apaga nada. */
+const LABELS_NOTE =
+  "Labels are changed by name with addLabels and removeLabels, not by sending the whole list: a label you do not mention stays, so forgetting one never removes it. A ticket has at most 20 labels and a project at most 200; going over makes the call fail and nothing changes. Label changes notify nobody.";
 export const WRITE_TOOL_DEFINITIONS = {
   update_ticket_status: {
     title: "Update a ticket's status",
@@ -121,13 +137,13 @@ export const WRITE_TOOL_DEFINITIONS = {
   },
   create_ticket: {
     title: "Create a ticket",
-    description: `Create one ticket in this project with a title and, optionally, a description, a parent ticket, a priority, a due date (a calendar day YYYY-MM-DD) and idea: true to register it as an idea. You choose where it goes: it does not look for a place by itself, does not use any AI and does not assign people. A ticket inside an idea stays in todo. It does not move, edit or delete existing tickets. To retry safely after a timeout, repeat the call with the same requestId and the same arguments within 10 minutes: you get the same ticket, not a second one. Returns the new ticket key and its summary. Counts toward the limit of 40 changes per minute. ${NOTE}`,
+    description: `Create one ticket in this project with a title and, optionally, a description, a parent ticket, a priority, a due date (a calendar day YYYY-MM-DD), labels (addLabels, by name; missing ones are created) and idea: true to register it as an idea. You choose where it goes: it does not look for a place by itself, does not use any AI and does not assign people. A ticket inside an idea stays in todo. It does not move, edit or delete existing tickets. To retry safely after a timeout, repeat the call with the same requestId and the same arguments within 10 minutes: you get the same ticket, not a second one. Returns the new ticket key and its summary. Counts toward the limit of 40 changes per minute. ${LABELS_NOTE} ${NOTE}`,
     inputSchema: createTicketInput,
     outputSchema: createTicketOutput,
   },
   update_ticket: {
-    title: "Edit a ticket's title, description and due date",
-    description: `Change the title, the description, the due date or any of them of one ticket (at least one). The description replaces the old one; a key like PROJ-12 in it becomes a mention of that ticket, and a mention of a person is refused. The due date is a calendar day YYYY-MM-DD with no time and no time zone; null removes it. Setting a due date notifies nobody and does not change the order of the work queue. It does not change the status, priority, parent or assignees (other tools do). Repeating the same call changes nothing the second time. Returns the ticket as get_ticket does. The change shows in the ticket history as made through MCP. ${NOTE}`,
+    title: "Edit a ticket's title, description, due date and labels",
+    description: `Change the title, the description, the due date, the labels or any of them of one ticket (at least one). The description replaces the old one; a key like PROJ-12 in it becomes a mention of that ticket, and a mention of a person is refused. The due date is a calendar day YYYY-MM-DD with no time and no time zone; null removes it. Setting a due date notifies nobody and does not change the order of the work queue. It does not change the status, priority, parent or assignees (other tools do). ${LABELS_NOTE} Repeating the same call changes nothing the second time. Returns the ticket as get_ticket does. The change shows in the ticket history as made through MCP. ${NOTE}`,
     inputSchema: updateTicketInput,
   },
   move_ticket: {
@@ -159,7 +175,8 @@ export const PEOPLE_WRITE_TOOL_DEFINITIONS = {
 /** Resumo dos argumentos de uma criação (não os argumentos): a repetição só vale se tudo o que foi pedido bater. */
 function requestDigest(input: z.infer<typeof createTicketInput>, parentId: string | null): string {
   // O prazo entra no resumo só quando foi pedido: o resumo de uma criação sem prazo continua o mesmo de antes (ADR 0064).
-  const normalized = JSON.stringify([input.title, input.description ?? "", parentId, input.idea === true, input.priority ?? 0, ...(input.dueDate ? [input.dueDate] : [])]);
+  // As etiquetas também (ADR 0065): só quando foram pedidas, como o prazo.
+  const normalized = JSON.stringify([input.title, input.description ?? "", parentId, input.idea === true, input.priority ?? 0, ...(input.dueDate ? [input.dueDate] : []), ...(input.addLabels?.length ? [{ labels: input.addLabels }] : [])]);
   return createHash("sha256").update(normalized).digest("hex");
 }
 
@@ -168,6 +185,7 @@ export type WriteServices = {
   comments: TicketCommentsService;
   agentWork: AgentWorkService;
   authorization: AuthorizationService;
+  labels: LabelsService;
 };
 export type WriteContext = ToolContext & { tokenId: string; fresh: boolean };
 
@@ -184,6 +202,9 @@ const CONFLICTS: Record<string, string> = {
   dependency_self: "A ticket cannot depend on itself.",
   dependency_cycle: "That dependency would close a cycle of dependencies.",
   request_id_reused: "requestId already used with a different request. Use a new requestId for a new request.",
+  label_limit_ticket: `A ticket can have at most ${LABELS_PER_TICKET} labels. Remove one first. Nothing was changed.`,
+  label_limit_project: "This project already has the most labels it can have (200). Delete one on the TreePM screen first. Nothing was changed.",
+  label_name_taken: "A label with that name already exists in this project.",
 };
 
 /** A recusa de um serviço (exceção do Nest, em português) como frase curta em inglês; nada de detalhe interno. */
@@ -193,8 +214,8 @@ export function refusalMessage(error: unknown): string | null {
   const payload = error.getResponse();
   const code = typeof payload === "object" ? (payload as { code?: unknown }).code : undefined;
   if (status === 403) return "You do not have permission to change this ticket.";
-  if (status === 404) return code === "dependency_not_found" ? "There is no such dependency between these tickets." : "Ticket or project not found.";
-  if (status === 400) return "Invalid input.";
+  if (status === 404) return code === "dependency_not_found" ? "There is no such dependency between these tickets." : code === "label_not_found" ? "That label no longer exists in this project. Nothing was changed." : "Ticket or project not found.";
+  if (status === 400) return code === "label_name_invalid" ? "Label names must not be empty or too long." : "Invalid input.";
   if (status === 409) return (typeof code === "string" ? CONFLICTS[code] : undefined) ?? "The change conflicts with the current state of the ticket.";
   return null;
 }
@@ -258,15 +279,60 @@ export class WriteTools {
   }
 
   async updateTicket(input: z.infer<typeof updateTicketInput>) {
-    if (input.title === undefined && input.description === undefined && input.dueDate === undefined) throw new ToolInputError("Provide a title, a description, a due date or any of them.");
+    const add = input.addLabels ?? [];
+    const remove = input.removeLabels ?? [];
+    const fields = input.title !== undefined || input.description !== undefined || input.dueDate !== undefined;
+    if (!fields && add.length === 0 && remove.length === 0) throw new ToolInputError("Provide a title, a description, a due date, labels to add or remove, or any of them.");
     return this.write(input.key, async (tx, principal, id, number) => {
-      await this.services.tickets.updateTicket(tx, principal, id, {
-        ...(input.title === undefined ? {} : { title: input.title }),
-        ...(input.description === undefined ? {} : { description: input.description }),
-        ...(input.dueDate === undefined ? {} : { dueDate: input.dueDate }),
-      });
+      // As etiquetas são resolvidas ANTES de qualquer escrita: um nome recusado não deixa o título mudado (tudo numa transação, de todo modo).
+      const labels = add.length + remove.length > 0 ? await this.labelChange(tx, add, remove) : null;
+      // Só etiquetas: o ticket não é "editado" (nenhum `ticket.updated`), como na tela, que tem a rota própria das etiquetas.
+      if (fields) {
+        await this.services.tickets.updateTicket(tx, principal, id, {
+          ...(input.title === undefined ? {} : { title: input.title }),
+          ...(input.description === undefined ? {} : { description: input.description }),
+          ...(input.dueDate === undefined ? {} : { dueDate: input.dueDate }),
+        });
+      }
+      if (labels) await this.services.labels.changeTicketLabels(tx, principal, id, labels);
       return this.reader.ticketIn(tx, principal, number);
     });
+  }
+
+  /**
+   * Nomes de etiqueta → o pedido do serviço da tela (`LabelsService.changeTicketLabels`, ADR 0065). O cliente só vê o nome LIMPO
+   * (`labelOut`): a volta acha a etiqueta pela chave do nome cru (a do banco, `name_key`) e, se nenhuma casa, pela chave do nome limpo.
+   * Nome cru casa primeiro (é único no projeto); duas etiquetas que ficam iguais depois de limpas e nenhuma igual crua = ambíguo, recusado.
+   * Em `addLabels`, nome sem etiqueta vira etiqueta nova (o serviço cria, com as conferências e limites da tela). Em `removeLabels`, nome
+   * que não é etiqueta do projeto RECUSA a chamada inteira (um erro de digitação não passa como "tirei"); etiqueta do projeto que o ticket
+   * não tem não muda nada, como na tela. Uma consulta (no máximo 200 etiquetas).
+   */
+  private async labelChange(tx: TenantClient, add: readonly string[], remove: readonly string[]): Promise<{ add: LabelRef[]; remove: string[] }> {
+    const rows = await tx.projectLabel.findMany({ where: { projectId: this.context.project.id }, select: { id: true, name: true, nameKey: true } });
+    const byRaw = new Map(rows.map((row) => [row.nameKey, row]));
+    const byClean = new Map<string, (typeof rows)[number][]>();
+    for (const row of rows) {
+      const key = looseLabelKey(labelOut(row.name));
+      byClean.set(key, [...(byClean.get(key) ?? []), row]);
+    }
+    const find = (name: string): string | null => {
+      const raw = byRaw.get(labelNameKey(cleanLabelName(name) as string));
+      if (raw) return raw.id;
+      const clean = byClean.get(looseLabelKey(name)) ?? [];
+      if (clean.length > 1) throw new ToolInputError("A label name matches more than one label of this project. Rename one of them on the TreePM screen. Nothing was changed.");
+      return clean[0]?.id ?? null;
+    };
+    const adds: LabelRef[] = add.map((name) => {
+      const id = find(name);
+      return id === null ? { name } : { labelId: id };
+    });
+    const removes = remove.map((name) => {
+      const id = find(name);
+      if (id === null) throw new ToolInputError("There is no label named like that in this project (see list_labels). Nothing was changed.");
+      return id;
+    });
+    if (adds.some((ref) => "labelId" in ref && removes.includes(ref.labelId))) throw new ToolInputError("A label cannot be both added and removed in one call. Nothing was changed.");
+    return { add: adds, remove: removes };
   }
 
   /**
@@ -316,6 +382,7 @@ export class WriteTools {
     // Recusa barata antes da fila: sem a verificação fresca nada é escrito, então nem vale esperar uma vaga.
     if (!this.context.fresh) throw new ToolInputError("This change could not be verified. Try again.");
     const create = (): Promise<z.infer<typeof createTicketOutput>> => this.writeAs(async (tx, principal) => {
+      const labels = input.addLabels?.length ? await this.labelChange(tx, input.addLabels, []) : null;
       let parentId: string | null = null;
       if (parentNumber !== undefined) {
         const parent = await tx.ticket.findFirst({ where: { projectId: this.context.project.id, number: parentNumber }, select: { id: true } });
@@ -331,6 +398,8 @@ export class WriteTools {
         input.requestId === undefined ? undefined : { id: input.requestId, digest: requestDigest(input, parentId) },
       );
       if (!repeated && input.priority !== undefined && input.priority !== 0) await this.services.tickets.updateTicket(tx, principal, created.id, { priority: input.priority });
+      // Etiquetas pelo mesmo serviço da tela (um evento `ticket.labels_changed`); a repetição já as tem.
+      if (!repeated && labels) await this.services.labels.changeTicketLabels(tx, principal, created.id, labels);
       const ticket = await this.reader.summaryIn(tx, principal, created.number);
       return { key: ticket.key, ticket };
     });

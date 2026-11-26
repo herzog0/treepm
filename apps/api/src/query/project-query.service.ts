@@ -11,6 +11,8 @@ import { readEffectivePriorities } from "../tickets/ticket-priority.read.js";
 import { EXCERPT_SOURCE_LENGTH, readProgressOf, readSummaryRows } from "../tickets/ticket-reads.js";
 import { MAX_TREE_DEPTH } from "../tickets/ticket-scope.js";
 import { dueDateText } from "../tickets/due-date.js";
+import { labelsByTicket } from "../tickets/labels.service.js";
+import type { LabelView } from "../tickets/labels.schema.js";
 import { scopeOf } from "../tickets/ticket-scope.js";
 import type { TicketScope } from "../tickets/ticket-scope.js";
 import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
@@ -51,8 +53,8 @@ type Row = { id: string; number: number; title: string; description: string; sta
 const SUMMARY_SELECT = { id: true, number: true, title: true, description: true, status: true, parentId: true, agentWorkUntil: true, priority: true, dueDate: true } as const;
 /** Como cada ticket do projeto aparece em relação às ideias, por id (uma consulta para o projeto todo, nunca uma por ticket). */
 type IdeaMap = ReadonlyMap<string, QueryIdea>;
-/** O que cada resumo precisa além da própria linha: a situação de ideia e a prioridade que vale (ADR 0047), ambas por id. */
-type Annex = { ideas: IdeaMap; effective: ReadonlyMap<string, number> };
+/** O que cada resumo precisa além da própria linha: a situação de ideia, a prioridade que vale (ADR 0047) e as etiquetas (ADR 0065), por id. */
+type Annex = { ideas: IdeaMap; effective: ReadonlyMap<string, number>; labels: ReadonlyMap<string, LabelView[]> };
 const RELATED_ORDER = { number: "asc" } as const;
 
 function clamp(value: number | undefined, fallback: number, max: number): number {
@@ -82,8 +84,8 @@ export class ProjectQueryService {
    * pai. Ticket comum não entra. Não lê o projeto inteiro: o custo é a profundidade dos tickets pedidos.
    */
   private async annexOf(tx: TenantClient, scope: TicketScope, ids: readonly string[]): Promise<Annex> {
-    const [ideas, effective] = await Promise.all([this.ideasOf(tx, scope, ids), readEffectivePriorities(tx, scope, ids)]);
-    return { ideas, effective };
+    const [ideas, effective, labels] = await Promise.all([this.ideasOf(tx, scope, ids), readEffectivePriorities(tx, scope, ids), labelsByTicket(tx, { ticketIds: ids })]);
+    return { ideas, effective, labels };
   }
 
   private async ideasOf(tx: TenantClient, scope: TicketScope, ids: readonly string[]): Promise<IdeaMap> {
@@ -108,7 +110,8 @@ export class ProjectQueryService {
 
   /**
    * Busca da barra (ADR 0036) sobre os tickets do projeto. Padrão 8, máximo 50. 2 consultas além do projeto: os tickets (só o trecho da
-   * descrição, que é o que a regra de busca lê) e a situação de ideia dos que voltam, não dos 20 000.
+   * descrição, que é o que a regra de busca lê) e a situação de ideia dos que voltam, não dos 20 000. Os achados levam as etiquetas
+   * (ADR 0065) pelo mesmo anexo dos outros resumos (+1 consulta, só dos que voltam); a regra de busca (`searchTickets`) não as lê.
    */
   async search(tx: TenantClient, principal: Principal, projectId: string, text: string, options: SearchOptions = {}): Promise<QueryTicketList> {
     const project = await this.requireProject(tx, principal, projectId);
@@ -127,7 +130,7 @@ export class ProjectQueryService {
 
   /**
    * Um ticket inteiro: descrição, pai, filhos, caminho do topo até o pai e as ligações nos dois sentidos, por tipo.
-   * 12 consultas fixas (projeto, ticket, filhos, seis de ligações, ancestrais, ideias, prioridade), nenhuma por ticket. `related` (ADR 0061) é simétrica, uma
+   * 13 consultas fixas (projeto, ticket, filhos, seis de ligações, ancestrais, ideias, prioridade, etiquetas), nenhuma por ticket. `related` (ADR 0061) é simétrica, uma
    * linha por par com o menor id em `from`: os dois lados são lidos e juntados numa lista só, sem direção.
    */
   async ticket(tx: TenantClient, principal: Principal, projectId: string, number: number): Promise<QueryTicket> {
@@ -276,8 +279,8 @@ export class ProjectQueryService {
 
   /**
    * A fila "próximos para trabalhar" (ADR 0047) da pessoa do token, no projeto e, se pedido, no ramo de `under` (número). Toda a regra
-   * é do domínio (`workQueue`, `emptyQueueReason`): aqui só se monta o que elas leem. Custo: as 2 consultas de `readSummaryRows`
-   * (os tickets do projeto com 601 caracteres de descrição, e as pessoas), a mesma leitura que a lista do mapa faz; nenhuma consulta
+   * é do domínio (`workQueue`, `emptyQueueReason`): aqui só se monta o que elas leem. Custo: as 3 consultas de `readSummaryRows`
+   * (os tickets do projeto com 601 caracteres de descrição, as pessoas e as etiquetas), a mesma leitura que a lista do mapa faz; nenhuma consulta
    * por ticket e nenhuma outra. O que sai é cortado em `limit` depois de ordenado.
    */
   async workQueue(tx: TenantClient, principal: Principal, projectId: string, options: { under?: number; limit?: number } = {}): Promise<QueryWorkQueue> {
@@ -331,6 +334,7 @@ export class ProjectQueryService {
         priority: row.priority ?? 0,
         effectivePriority: effective.get(id)?.value ?? 0,
         dueDate: row.dueDate ?? null,
+        labels: row.labels ?? [],
         path,
       };
     });
@@ -373,6 +377,7 @@ export class ProjectQueryService {
       priority: row.priority ?? 0,
       effectivePriority: annex.effective.get(row.id) ?? row.priority ?? 0,
       dueDate: typeof row.dueDate === "string" ? row.dueDate : dueDateText(row.dueDate),
+      labels: annex.labels.get(row.id) ?? [],
       id: row.id,
       key: `${projectKey}-${row.number}`,
       number: row.number,

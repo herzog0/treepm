@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { labelColorSchema } from "../tickets/labels.schema.js";
 import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
 
 /**
@@ -32,6 +33,11 @@ export const querySummarySchema = z.strictObject({
   effectivePriority: z.number().int(),
   /** Prazo (ADR 0064), `AAAA-MM-DD` ou nulo. NÃO vai ao provedor de IA: o assistente só repassa os campos de `brief` (ask-executor). */
   dueDate: z.string().nullable(),
+  /**
+   * Etiquetas (ADR 0065), em ordem de nome (chave) e id; `[]` sem etiqueta. O nome é texto livre (pode ter vindo do Linear): NÃO vai ao
+   * provedor de IA (o assistente só repassa os campos de `brief`) e o MCP escolhe campo a campo (nada de espalhar este resumo).
+   */
+  labels: z.array(z.strictObject({ id: z.string(), name: z.string(), color: labelColorSchema })),
 });
 export type QueryTicketSummary = z.infer<typeof querySummarySchema>;
 

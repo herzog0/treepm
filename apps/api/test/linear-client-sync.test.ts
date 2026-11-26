@@ -116,7 +116,9 @@ describe("pontos de complexidade das consultas (teto de 5.000 por consulta)", ()
     const after = { issues50: points(issues.fake.calls[0]!.query, { first: 50 }), issues250: points(issues.fake.calls[0]!.query, { first: 250 }), projects50: points(projects.fake.calls[0]!.query, { first: 50 }) };
     const before = { issues50: points(issuesBefore, { first: 50 }), issues250: points(issuesBefore, { first: 250 }), projects50: points(projectsBefore, {}) };
     console.info(`pontos de complexidade (antes → depois): issues/50 ${before.issues50} → ${after.issues50}; issues/250 ${before.issues250} → ${after.issues250}; projetos/50 ${before.projects50} → ${after.projects50}`);
-    for (const value of Object.values(after)) expect(value).toBeLessThan(5000);
+    // Desde as etiquetas (ADR 0065; 1.768,2 pontos com 50), a página de 250 passaria do teto: a importação nunca pede mais de 50 (`FULL_PAGE`).
+    expect(after.issues50).toBeLessThan(2500);
+    expect(after.projects50).toBeLessThan(5000);
     expect(after.issues250).toBeGreaterThan(before.issues250);
     expect(LINEAR_IMPORT_PAGE_SIZE).toBe(50);
   });
@@ -191,8 +193,10 @@ describe("prazo (ADR 0064): dueDate da issue e targetDate do projeto", () => {
     console.info(`prazo, pontos de complexidade (antes → depois): issues/50 ${before.issues50} → ${after.issues50}; issues/250 ${before.issues250} → ${after.issues250}; projetos/50 ${before.projects50} → ${after.projects50}`);
     for (const [name, size] of Object.entries(sizes)) {
       const key = name as keyof typeof sizes;
-      expect(Math.round((after[key] - before[key]) * 10) / 10, name).toBe(Math.round(size * 0.1 * 10) / 10);
-      expect(after[key]).toBeLessThan(5000);
+      // O prazo custa 0,1 por item; as etiquetas (ADR 0065) somam 27,1 por issue (`labelIds` 0,1 + 10 nós de 2,6 + a conexão 1).
+      const labels = key === "projects50" ? 0 : size * 27.1;
+      expect(Math.round((after[key] - before[key] - labels) * 10) / 10, name).toBe(Math.round(size * 0.1 * 10) / 10);
+      if (key !== "issues250") expect(after[key]).toBeLessThan(5000);
     }
   });
 
