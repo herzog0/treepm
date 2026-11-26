@@ -3,11 +3,23 @@ import type pg from "pg";
 import request from "supertest";
 import { beforeEach } from "vitest";
 import type { AppConfig } from "../src/config.js";
+import type { INestApplication } from "@nestjs/common";
+import { AccessTokenService } from "../src/access-tokens/access-token.service.js";
 import { McpGateway } from "../src/mcp/mcp-gateway.js";
 import { useTokenHarness } from "./access-token-support.js";
 import type { TokenHarness } from "./access-token-support.js";
 import { ORG, OTHER_ORG, as } from "./world.js";
 import type { Who } from "./world.js";
+
+/**
+ * Tetos pequenos para os testes que provam o bloqueio: os de produção são 5000 por minuto, e chegar a eles chamada a chamada
+ * deixaria a suíte lenta. `resetMemory` (no `beforeEach` dos harnesses) volta aos de produção.
+ */
+export const SMALL_LIMITS = { ip: 120, write: 20, person: 40, token: 60 } as const;
+export function useSmallLimits(app: INestApplication): void {
+  app.get(McpGateway).setLimits({ ip: SMALL_LIMITS.ip, write: SMALL_LIMITS.write, person: SMALL_LIMITS.person });
+  app.get(AccessTokenService).setRateLimit(SMALL_LIMITS.token);
+}
 
 /** Revisão atual do protocolo (a que o SDK 2.x serve sem sessão). */
 export const MODERN = "2026-07-28";

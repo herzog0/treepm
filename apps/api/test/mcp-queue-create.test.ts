@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- inspeciona resultados JSON */
 import { describe, expect, it } from "vitest";
-import { rpcBody, rpcHeaders, seedProject, useMcpHarness } from "./mcp-support.js";
+import { WRITE_LIMIT_PER_PERSON_PER_MINUTE } from "../src/mcp/mcp-gateway.js";
+import { rpcBody, rpcHeaders, seedProject, useMcpHarness, useSmallLimits } from "./mcp-support.js";
 import type { ToolResponse } from "./mcp-support.js";
 import { ORG, as } from "./world.js";
 import type { Who } from "./world.js";
@@ -208,7 +209,8 @@ describe("set_ticket_priority", () => {
     expect(await countRows("select count(*)::int n from activity_events where kind = 'ticket.updated'")).toBe(0);
   });
 
-  it("repetir o mesmo valor não grava evento; a escrita conta no limite de 20 por minuto do token", async () => {
+  it("repetir o mesmo valor não grava evento; a escrita conta no limite por minuto do token (teto pequeno de teste, 20)", async () => {
+    useSmallLimits(h.app());
     const { token } = await setup();
     expect((await set(token, { key: "PRIV-3", priority: 0 })).isError).toBe(false);
     expect(await countRows("select count(*)::int n from activity_events where kind = 'ticket.updated'")).toBe(0);
@@ -408,6 +410,7 @@ describe("create_ticket", () => {
   });
 
   it("chamada de escrita com token de leitura ou com a chave desligada não gasta o limite de escrita da pessoa", async () => {
+    useSmallLimits(h.app());
     const write = await setup();
     const read = (await h.create("contributor", priv(), { scope: "read" })).body.token as string;
     for (let i = 0; i < 45; i += 1) await create(read, { title: `Vazado ${i}` });
@@ -420,13 +423,15 @@ describe("create_ticket", () => {
   });
 
   it("o que o limite do token já recusou não conta no limite da pessoa", async () => {
+    useSmallLimits(h.app());
     const a = await setup();
     const b = (await h.create("contributor", priv(), { scope: "write" })).body.token as string;
     for (let i = 0; i < 30; i += 1) await create(a.token, { title: `A ${i}` }); // 20 passam, 10 são recusadas pelo token
     for (let i = 0; i < 20; i += 1) expect((await create(b, { title: `B ${i}` })).status, `b#${i}`).toBe(200);
   });
 
-  it("conta no limite de escritas por minuto do token (20)", async () => {
+  it("conta no limite de escritas por minuto do token (teto pequeno de teste, 20)", async () => {
+    useSmallLimits(h.app());
     const { token } = await setup();
     for (let i = 0; i < 20; i += 1) expect((await create(token, { title: `Em lote ${i}` })).status, `#${i}`).toBe(200);
     const over = await h.post(token, "PRIV", rpcBody("tools/call", { name: "create_ticket", arguments: { title: "Passou" } }), rpcHeaders("tools/call", { name: "create_ticket" }));
@@ -453,6 +458,7 @@ describe("tools/list com as cinco ferramentas de escrita", () => {
     }
     expect(by("create_ticket")?.description).toMatch(/does not/i);
     expect(by("create_ticket")?.description).toMatch(/requestId/);
+    expect(by("create_ticket")?.description).toContain(`limit of ${WRITE_LIMIT_PER_PERSON_PER_MINUTE} changes per minute`);
     const read = (await h.create("contributor", priv(), { scope: "read" })).body.token as string;
     const names = ((await h.rpc(read, "PRIV", "tools/list")).body.result.tools as { name: string }[]).map((t) => t.name);
     expect(names).toContain("get_work_queue");

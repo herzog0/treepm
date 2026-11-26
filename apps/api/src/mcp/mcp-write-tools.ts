@@ -13,6 +13,7 @@ import type { LabelsService } from "../tickets/labels.service.js";
 import { ticketDescriptionSchema, ticketPrioritySchema, ticketStatusSchema, ticketTitleSchema } from "../tickets/tickets.schema.js";
 import { structureKey, withStructureSlot } from "../tickets/structure-queue.js";
 import type { TicketsService } from "../tickets/tickets.service.js";
+import { WRITE_LIMIT_PER_PERSON_PER_MINUTE } from "./mcp-limits.js";
 import { labelOut, looseLabelKey } from "./mcp-text.js";
 import { ToolInputError } from "./mcp-tools.js";
 import type { ProjectTools, RunInTenant, ToolContext } from "./mcp-tools.js";
@@ -137,7 +138,7 @@ export const WRITE_TOOL_DEFINITIONS = {
   },
   create_ticket: {
     title: "Create a ticket",
-    description: `Create one ticket in this project with a title and, optionally, a description, a parent ticket, a priority, a due date (a calendar day YYYY-MM-DD), labels (addLabels, by name; missing ones are created) and idea: true to register it as an idea. You choose where it goes: it does not look for a place by itself, does not use any AI and does not assign people. A ticket inside an idea stays in todo. It does not move, edit or delete existing tickets. To retry safely after a timeout, repeat the call with the same requestId and the same arguments within 10 minutes: you get the same ticket, not a second one. Returns the new ticket key and its summary. Counts toward the limit of 40 changes per minute. ${LABELS_NOTE} ${NOTE}`,
+    description: `Create one ticket in this project with a title and, optionally, a description, a parent ticket, a priority, a due date (a calendar day YYYY-MM-DD), labels (addLabels, by name; missing ones are created) and idea: true to register it as an idea. You choose where it goes: it does not look for a place by itself, does not use any AI and does not assign people. A ticket inside an idea stays in todo. It does not move, edit or delete existing tickets. To retry safely after a timeout, repeat the call with the same requestId and the same arguments within 10 minutes: you get the same ticket, not a second one. Returns the new ticket key and its summary. Counts toward the limit of ${WRITE_LIMIT_PER_PERSON_PER_MINUTE} changes per minute. ${LABELS_NOTE} ${NOTE}`,
     inputSchema: createTicketInput,
     outputSchema: createTicketOutput,
   },

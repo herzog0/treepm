@@ -253,7 +253,8 @@ describe("resolver: último uso", () => {
 });
 
 describe("resolver: limite de requisições", () => {
-  it("60 por minuto por token; a 61ª é rate_limited e depois de um minuto volta", async () => {
+  it("limite por minuto por token (teto pequeno de teste, 60); a 61ª é rate_limited e depois de um minuto volta", async () => {
+    service().setRateLimit(60);
     const a = await issue("contributor");
     const b = await issue("manager");
     for (let i = 0; i < 60; i++) expect(await failure(a.token), `chamada ${i + 1}`).toBe("ok");
@@ -265,7 +266,8 @@ describe("resolver: limite de requisições", () => {
     expect(await failure(a.token)).toBe("ok");
   });
 
-  it("chamadas dentro da janela deslizante contam, as antigas saem", async () => {
+  it("chamadas dentro da janela deslizante contam, as antigas saem (teto pequeno de teste, 60)", async () => {
+    service().setRateLimit(60);
     const { token } = await issue("contributor");
     for (let i = 0; i < 30; i++) await resolve(token);
     h.clock.advance(40_000);
