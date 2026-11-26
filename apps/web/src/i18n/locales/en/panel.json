@@ -95,6 +95,26 @@
       "team": "Team",
       "pickTeam": "Choose a team",
       "link": "Link team"
+    },
+    "labels": {
+      "title": "Labels",
+      "list": "Project labels",
+      "loading": "Loading labels…",
+      "empty": "No labels in this project. Labels are created on the ticket page.",
+      "count_one": "{{count}} ticket",
+      "count_other": "{{count}} tickets",
+      "countNone": "No tickets",
+      "rename": "Rename",
+      "renameLabel": "Rename label {{name}}",
+      "renameField": "New name for label {{name}}",
+      "save": "Save",
+      "cancel": "Cancel",
+      "colors": "Color of label {{name}}",
+      "remove": "Delete",
+      "removeLabel": "Delete label {{name}}",
+      "removeMessage_one": "Delete the label {{name}}? It will be removed from {{count}} ticket.",
+      "removeMessage_other": "Delete the label {{name}}? It will be removed from {{count}} tickets.",
+      "removeMessageUnused": "Delete the label {{name}}? No ticket uses it."
     }
   }
 }

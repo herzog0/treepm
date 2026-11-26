@@ -83,3 +83,15 @@ export function formatDueDate(language: Language, dueDate: string): string {
   }
   return format.format(new Date(`${dueDate}T00:00:00Z`));
 }
+
+const listFormats = new Map<Language, Intl.ListFormat>();
+
+/** Nomes numa lista com a conjunção do idioma: "A, B e C" · "A, B, and C" · "A, B y C". */
+export function formatList(language: Language, items: readonly string[]): string {
+  let format = listFormats.get(language);
+  if (!format) {
+    format = new Intl.ListFormat(language, { style: "long", type: "conjunction" });
+    listFormats.set(language, format);
+  }
+  return format.format(items);
+}

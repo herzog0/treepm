@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LABEL_COLORS } from "@treepm/domain";
 import { ACT_AS_HEADER, notifyActAsRejected } from "./actAs.js";
 import { closedResultSchema, conversationTreeSchema, conversationViewSchema, openedSchema, participantsResultSchema, readResultSchema, reopenedResultSchema, sendResultSchema } from "./conversations.js";
 import type { ChatWriteBody } from "./conversations.js";
@@ -79,6 +80,14 @@ const agentWorkSchema = z
   })
   .nullable()
   .optional();
+/** Cor de etiqueta (ADR 0065): uma das oito chaves da paleta; uma chave desconhecida (API mais nova) vira cinza em vez de derrubar a leitura. */
+const labelColorSchema = z.enum(LABEL_COLORS).catch("gray");
+const labelSchema = z.object({ id: z.string(), name: z.string(), color: labelColorSchema });
+/** Etiqueta na lista do projeto: com quantos tickets a usam. */
+const projectLabelSchema = labelSchema.extend({ ticketCount: z.number() });
+const ticketLabelsSchema = z.object({ labels: z.array(labelSchema) });
+const labelRemovedSchema = z.object({ ticketsAffected: z.number() });
+
 const ticketSummarySchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -106,6 +115,8 @@ const ticketSummarySchema = z.object({
   blocked: z.boolean().optional(),
   /** Prazo (ADR 0064): data de calendário `AAAA-MM-DD`, sem hora nem fuso; `null` sem prazo. A API sempre manda e não diz se está atrasado (o "hoje" é o do navegador); ausente = sem prazo. */
   dueDate: z.string().nullable().optional(),
+  /** Etiquetas do ticket (ADR 0065), por nome; a API sempre manda. Opcional só para os dados de teste literais: ausente = nenhuma (leia com `?? []`). */
+  labels: z.array(labelSchema).optional(),
 });
 const ticketLinkSchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatus });
 /** Ligação entre tickets (dependência ou "Relacionado a"); `fromLinear`: trazida do Linear por uma sincronização (ADR 0061, fatia 3), ausente numa API antiga. */
@@ -430,6 +441,8 @@ const linearChangeSchema = z.discriminatedUnion("field", [
   z.object({ field: z.literal("project"), from: activityTicketSchema.nullable(), to: activityTicketSchema.nullable() }),
   z.object({ field: z.literal("description") }),
 ]);
+/** Etiqueta citada numa entrada de atividade: o nome é o da época do evento, não o atual. */
+const activityLabelSchema = z.object({ id: z.string(), name: z.string() });
 const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("created") }),
   z.object({ ...activityBase, type: z.literal("title_changed"), from: z.string(), to: z.string() }),
@@ -441,6 +454,8 @@ const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("priority_changed"), from: z.number().int(), to: z.number().int() }),
   /** Prazo (ADR 0064), datas `AAAA-MM-DD`: `from` nulo = definiu; `to` nulo = tirou; os dois = mudou. */
   z.object({ ...activityBase, type: z.literal("due_date_changed"), from: z.string().nullable(), to: z.string().nullable() }),
+  /** Etiquetas postas e tiradas num pedido (ADR 0065), com o nome da época; ao menos um dos lados tem nome. */
+  z.object({ ...activityBase, type: z.literal("labels_changed"), added: z.array(activityLabelSchema), removed: z.array(activityLabelSchema) }),
   z.object({ ...activityBase, type: z.literal("idea_registered") }),
   z.object({ ...activityBase, type: z.literal("idea_stage_changed"), from: ideaStage, to: ideaStage }),
   z.object({ ...activityBase, type: z.literal("idea_accepted") }),
@@ -653,6 +668,16 @@ export interface CreateTicketBody {
   /** Registra o ticket como raiz de uma ideia, no estágio "Nova" (ADR 0042). */
   idea?: boolean;
 }
+export type Label = z.output<typeof labelSchema>;
+export type ProjectLabel = z.output<typeof projectLabelSchema>;
+export type LabelColorKey = Label["color"];
+/** Etiqueta a pôr no ticket: uma do projeto pelo id, ou pelo nome (reusa a de mesmo nome sem diferenciar maiúsculas, ou cria). */
+export type LabelRef = { labelId: string } | { name: string };
+export interface ChangeTicketLabelsBody {
+  add?: LabelRef[];
+  remove?: string[];
+}
+
 export interface UpdateTicketBody {
   title?: string;
   description?: string;
@@ -843,6 +868,16 @@ export function createApiClient({ getToken, fetch: fetchImpl, actAsId = null }: 
       request("PUT", `${project(projectId)}/teams/${teamId}`, projectTeamSchema),
     removeProjectTeam: (projectId: string, teamId: string) =>
       request("DELETE", `${project(projectId)}/teams/${teamId}`, null),
+
+    /** Etiquetas do projeto (ADR 0065), por nome. */
+    listProjectLabels: (projectId: string) => request("GET", `${project(projectId)}/labels`, z.array(projectLabelSchema)),
+    createProjectLabel: (projectId: string, body: { name: string; color?: LabelColorKey }) => request("POST", `${project(projectId)}/labels`, projectLabelSchema, body),
+    updateProjectLabel: (projectId: string, labelId: string, body: { name?: string; color?: LabelColorKey }) =>
+      request("PATCH", `${project(projectId)}/labels/${labelId}`, projectLabelSchema, body),
+    /** Apaga a etiqueta de todos os tickets do projeto; devolve quantos a tinham. */
+    removeProjectLabel: (projectId: string, labelId: string) => request("DELETE", `${project(projectId)}/labels/${labelId}`, labelRemovedSchema),
+    /** Põe e tira etiquetas do ticket num pedido só; devolve as etiquetas dele depois. */
+    changeTicketLabels: (id: string, body: ChangeTicketLabelsBody) => request("POST", `${ticket(id)}/labels`, ticketLabelsSchema, body),
 
     listTickets: (projectId: string) => request("GET", `${project(projectId)}/tickets`, z.array(ticketSummarySchema)),
     listTicketsIfChanged,

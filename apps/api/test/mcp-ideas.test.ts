@@ -36,7 +36,10 @@ describe("idea nas ferramentas de leitura do MCP", () => {
 
   it("a descrição das ferramentas explica o que é uma ideia", async () => {
     const token = await setup();
-    const tools = (await h.rpc(token, "PRIV", "tools/list")).body.result.tools as { description: string }[];
-    expect(tools.every((t) => /idea is not accepted work yet/i.test(t.description))).toBe(true);
+    const tools = (await h.rpc(token, "PRIV", "tools/list")).body.result.tools as { name: string; description: string }[];
+    // Toda ferramenta que devolve tickets; `list_labels` (ADR 0065) devolve só as etiquetas do projeto, sem ticket.
+    const ticketTools = tools.filter((t) => t.name !== "list_labels");
+    expect(ticketTools.map((t) => t.name).sort()).toEqual(["get_project_overview", "get_ticket", "get_work_queue", "list_tickets", "search_tickets"]);
+    expect(ticketTools.every((t) => /idea is not accepted work yet/i.test(t.description))).toBe(true);
   });
 });

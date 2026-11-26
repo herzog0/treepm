@@ -66,7 +66,7 @@ describe("tools/list", () => {
   it("token de escrita com a chave ligada vê as nove ferramentas, marcadas como de escrita; as de leitura continuam de leitura", async () => {
     const { token } = await setup();
     const tools = await names(token);
-    expect(tools.map((t) => t.name).sort()).toEqual([...WRITE_TOOLS, "get_project_overview", "get_ticket", "get_work_queue", "list_tickets", "search_tickets"].sort());
+    expect(tools.map((t) => t.name).sort()).toEqual([...WRITE_TOOLS, "get_project_overview", "get_ticket", "get_work_queue", "list_labels", "list_tickets", "search_tickets"].sort());
     for (const t of tools) expect(t.annotations.readOnlyHint, t.name).toBe(!WRITE_TOOLS.includes(t.name));
     expect(tools.find((t) => t.name === "add_comment")?.annotations.destructiveHint).toBe(false);
   });

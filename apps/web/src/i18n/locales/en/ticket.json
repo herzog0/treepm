@@ -29,7 +29,8 @@
     "related": "Related to",
     "idea": "Idea",
     "priority": "Priority",
-    "dueDate": "Due date"
+    "dueDate": "Due date",
+    "labels": "Labels"
   },
   "create": {
     "heading": "New ticket",
@@ -295,7 +296,31 @@
       "projectChanged": "moved from the project <from>{{from}}</from> to <to>{{to}}</to>",
       "projectUnknown": "changed the project on Linear",
       "description": "changed the description"
-    }
+    },
+    "labelsAdded_one": "<who>{{actor}}</who> added the label <name>{{added}}</name>",
+    "labelsAdded_other": "<who>{{actor}}</who> added the labels <name>{{added}}</name>",
+    "labelsAdded_noActor_one": "Label <name>{{added}}</name> added",
+    "labelsAdded_noActor_other": "Labels <name>{{added}}</name> added",
+    "labelsAdded_automatic_one": "Label <name>{{added}}</name> added automatically",
+    "labelsAdded_automatic_other": "Labels <name>{{added}}</name> added automatically",
+    "labelsRemoved_one": "<who>{{actor}}</who> removed the label <name>{{removed}}</name>",
+    "labelsRemoved_other": "<who>{{actor}}</who> removed the labels <name>{{removed}}</name>",
+    "labelsRemoved_noActor_one": "Label <name>{{removed}}</name> removed",
+    "labelsRemoved_noActor_other": "Labels <name>{{removed}}</name> removed",
+    "labelsRemoved_automatic_one": "Label <name>{{removed}}</name> removed automatically",
+    "labelsRemoved_automatic_other": "Labels <name>{{removed}}</name> removed automatically",
+    "labelsChangedOne_one": "<who>{{actor}}</who> added the label <name>{{added}}</name> and removed the label <name>{{removed}}</name>",
+    "labelsChangedOne_other": "<who>{{actor}}</who> added the label <name>{{added}}</name> and removed the labels <name>{{removed}}</name>",
+    "labelsChangedOne_noActor_one": "Label <name>{{added}}</name> added and label <name>{{removed}}</name> removed",
+    "labelsChangedOne_noActor_other": "Label <name>{{added}}</name> added and labels <name>{{removed}}</name> removed",
+    "labelsChangedOne_automatic_one": "Label <name>{{added}}</name> added and label <name>{{removed}}</name> removed automatically",
+    "labelsChangedOne_automatic_other": "Label <name>{{added}}</name> added and labels <name>{{removed}}</name> removed automatically",
+    "labelsChangedMany_one": "<who>{{actor}}</who> added the labels <name>{{added}}</name> and removed the label <name>{{removed}}</name>",
+    "labelsChangedMany_other": "<who>{{actor}}</who> added the labels <name>{{added}}</name> and removed the labels <name>{{removed}}</name>",
+    "labelsChangedMany_noActor_one": "Labels <name>{{added}}</name> added and label <name>{{removed}}</name> removed",
+    "labelsChangedMany_noActor_other": "Labels <name>{{added}}</name> added and labels <name>{{removed}}</name> removed",
+    "labelsChangedMany_automatic_one": "Labels <name>{{added}}</name> added and label <name>{{removed}}</name> removed automatically",
+    "labelsChangedMany_automatic_other": "Labels <name>{{added}}</name> added and labels <name>{{removed}}</name> removed automatically"
   },
   "contributions": {
     "heading": "Areas",
@@ -373,6 +398,29 @@
       "started": "Started on {{date}}",
       "completed": "Completed on {{date}}",
       "canceled": "Canceled on {{date}}"
+    }
+  },
+  "labels": {
+    "add": "Add",
+    "addLabel": "Add label",
+    "none": "No labels",
+    "search": "Search or create a label",
+    "list": "Project labels",
+    "create": "Create “{{name}}”",
+    "remove": "Remove label {{name}}",
+    "loading": "Loading labels…",
+    "loadFailed": "Couldn't load the project labels.",
+    "empty": "No labels in this project yet. Type a name to create one.",
+    "noMatch": "No label with that name.",
+    "colors": {
+      "gray": "Gray",
+      "brown": "Brown",
+      "orange": "Orange",
+      "olive": "Olive",
+      "cyan": "Cyan",
+      "indigo": "Indigo",
+      "violet": "Violet",
+      "rose": "Rose"
     }
   }
 }

@@ -1,4 +1,4 @@
-import { mentionsPersonRaw, scanPersonLinks } from "@treepm/domain";
+import { labelNameKey, mentionsPersonRaw, scanPersonLinks } from "@treepm/domain";
 import { UNNAMED_PERSON } from "./person-name.js";
 
 /**
@@ -160,4 +160,21 @@ export async function fitPage<R, O extends object>(rows: readonly R[], budget: n
   const only = kept[0];
   if (kept.length === 1 && only && sizeOf([only.out]) > budget) only.out = shrinkItem(only.out, budget - 2);
   return { kept, cut: count < rows.length };
+}
+
+// ---- etiquetas (ADR 0065) ---------------------------------------------------------------------------------------------
+
+/**
+ * O nome de uma etiqueta como sai do MCP: pelo limpador, SEM resolver o nome de pessoa (um elo `[@X](person:…)` vira `@Unnamed person`).
+ * O nome pode ter vindo do Linear, e as leituras de ticket existem sem o alcance de pessoas; por isso nenhuma ferramenta resolve o nome
+ * (nem o histórico, que tem o alcance): a mesma etiqueta sai igual em toda ferramenta, e a volta (`addLabels`/`removeLabels`) só precisa
+ * reconhecer uma forma limpa. Sem consulta.
+ */
+export function labelOut(name: string): CleanText {
+  return cleanMentions(name, () => undefined);
+}
+
+/** A chave de comparação de um nome que o cliente devolve contra a forma limpa: espaços juntados, sem corte (a forma limpa pode passar de 60). */
+export function looseLabelKey(name: string): string {
+  return labelNameKey(name.replace(/\s+/g, " ").trim());
 }

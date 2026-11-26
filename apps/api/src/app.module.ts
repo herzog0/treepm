@@ -20,6 +20,7 @@ import { QueryModule } from "./query/query.module.js";
 import { PeopleController } from "./people/people.controller.js";
 import { ProjectsController } from "./projects/projects.controller.js";
 import { TicketsModule } from "./tickets/tickets.module.js";
+import { LabelsController } from "./tickets/labels.controller.js";
 import { IdeasController } from "./tickets/ideas.controller.js";
 import { TicketCommentsController } from "./tickets/ticket-comments.controller.js";
 import { TicketContributionsController } from "./tickets/ticket-contributions.controller.js";
@@ -39,6 +40,7 @@ import { TeamsController } from "./teams/teams.controller.js";
     IdeasController,
     TicketCommentsController,
     TicketContributionsController,
+    LabelsController,
   ],
   providers: [{ provide: APP_FILTER, useClass: ErrorFilter }, MeService, ActivityService],
 })

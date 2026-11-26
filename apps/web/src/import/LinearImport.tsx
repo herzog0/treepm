@@ -427,7 +427,10 @@ function ProgressCard({ run, loop, onResume, onOpenSettings, onAbandon }: { run:
   );
 }
 
-type RowKey = "created" | "existing" | "elsewhere" | "flattened" | "skipped" | "skippedInvalid" | "dueDatesInvalid" | "withoutDescription" | "movedOutOfIdea" | "new" | "updated" | "keptTouched" | "keptMoved" | "missing";
+/** As contagens das etiquetas do Linear (ADR 0065), na ordem do resumo; cada uma só aparece maior que zero. */
+const LABEL_ROWS = ["labelsCreated", "labelsAdopted", "labelsUpdated", "labelsRenameTaken", "labelsAdded", "labelsRemoved", "labelsOverTicketLimit", "labelsOverProjectLimit", "labelsNameInvalid", "labelsUnread", "labelsInvalid"] as const;
+
+type RowKey = (typeof LABEL_ROWS)[number] | "created" | "existing" | "elsewhere" | "flattened" | "skipped" | "skippedInvalid" | "dueDatesInvalid" | "withoutDescription" | "movedOutOfIdea" | "new" | "updated" | "keptTouched" | "keptMoved" | "missing";
 
 /**
  * As linhas do resumo. A primeira importação: criados sempre, o resto só maior que zero. A reimportação: novos e atualizados
@@ -435,6 +438,7 @@ type RowKey = "created" | "existing" | "elsewhere" | "flattened" | "skipped" | "
  */
 function summaryRows(run: LinearRun): { key: RowKey; value: number }[] {
   const reimport = run.mode === "reimport";
+  const labelRows = LABEL_ROWS.map((key) => ({ key, value: count(run, key) }));
   const rows: { key: RowKey; value: number; always?: boolean }[] = reimport
     ? [
         { key: "new", value: count(run, "projectsCreated") + count(run, "issuesCreated"), always: true },
@@ -448,6 +452,7 @@ function summaryRows(run: LinearRun): { key: RowKey; value: number }[] {
         { key: "skippedInvalid", value: count(run, "skippedInvalid") },
         { key: "dueDatesInvalid", value: count(run, "dueDatesInvalid") },
         { key: "movedOutOfIdea", value: count(run, "movedOutOfIdea") },
+        ...labelRows,
       ]
     : [
         { key: "created", value: count(run, "projectsCreated") + count(run, "issuesCreated"), always: true },
@@ -460,6 +465,7 @@ function summaryRows(run: LinearRun): { key: RowKey; value: number }[] {
         { key: "dueDatesInvalid", value: count(run, "dueDatesInvalid") },
         { key: "withoutDescription", value: count(run, "withoutDescription") },
         { key: "movedOutOfIdea", value: count(run, "movedOutOfIdea") },
+        ...labelRows,
       ];
   return rows.filter((row) => row.always === true || row.value > 0).map(({ key, value }) => ({ key, value }));
 }

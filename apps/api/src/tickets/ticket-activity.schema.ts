@@ -15,6 +15,9 @@ const personSchema = z.object({ id: z.string(), displayName: z.string(), avatarU
 /** Ticket citado numa entrada: dados de hoje quando existe; `id` e `title` nulos quando não existe mais. */
 const ticketRefSchema = z.object({ id: z.string().nullable(), key: z.string().nullable(), title: z.string().nullable() });
 
+/** Etiqueta numa entrada `labels_changed`: id e nome da época. */
+const labelItemSchema = z.object({ id: z.string(), name: z.string() });
+
 /** Área de uma entrada de contribuição: o nome de hoje; o guardado no evento de remoção quando a área não existe mais; `null` sem nenhum dos dois. */
 const areaRefSchema = z.object({ id: z.string(), name: z.string() }).nullable();
 
@@ -77,6 +80,11 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("dependency_removed"), ticket: ticketRefSchema }),
   /** "Relacionado a" tirado (ADR 0061, fatia 3): o outro ticket. */
   z.object({ ...base, type: z.literal("related_removed"), ticket: ticketRefSchema }),
+  /**
+   * Etiquetas postas e tiradas num pedido (ADR 0065): UMA entrada com as duas listas, com o nome DA ÉPOCA (guardado no evento; a etiqueta
+   * renomeada ou apagada depois não muda a entrada). `automatic` quando veio da sincronização com o Linear.
+   */
+  z.object({ ...base, type: z.literal("labels_changed"), added: z.array(labelItemSchema), removed: z.array(labelItemSchema) }),
   z.object({ ...base, type: z.literal("summary_updated"), source: z.enum(["person", "assistant"]) }),
   z.object({ ...base, type: z.literal("contribution_added"), area: areaRefSchema }),
   z.object({ ...base, type: z.literal("contribution_removed"), area: areaRefSchema }),

@@ -1,0 +1,24 @@
+/* Pastilha de etiqueta (ADR 0065): reusada na página do ticket, na linha do tempo e nas configurações. Só tokens do theme.css. */
+.label-pill {
+  --label-color: var(--tp-label-gray);
+  display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; max-width: 100%; min-width: 0; height: 22px; padding: 0 8px;
+  border-radius: 999px; background: color-mix(in srgb, var(--label-color) var(--tp-label-mix), var(--tp-label-surface));
+  color: var(--tp-label-ink); font: 400 12px/22px var(--tp-font); vertical-align: middle;
+}
+.label-pill[data-color="gray"], .label-dot[data-color="gray"] { --label-color: var(--tp-label-gray); }
+.label-pill[data-color="brown"], .label-dot[data-color="brown"] { --label-color: var(--tp-label-brown); }
+.label-pill[data-color="orange"], .label-dot[data-color="orange"] { --label-color: var(--tp-label-orange); }
+.label-pill[data-color="olive"], .label-dot[data-color="olive"] { --label-color: var(--tp-label-olive); }
+.label-pill[data-color="cyan"], .label-dot[data-color="cyan"] { --label-color: var(--tp-label-cyan); }
+.label-pill[data-color="indigo"], .label-dot[data-color="indigo"] { --label-color: var(--tp-label-indigo); }
+.label-pill[data-color="violet"], .label-dot[data-color="violet"] { --label-color: var(--tp-label-violet); }
+.label-pill[data-color="rose"], .label-dot[data-color="rose"] { --label-color: var(--tp-label-rose); }
+.label-dot { --label-color: var(--tp-label-gray); flex: none; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--label-color); }
+.label-pill-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.label-pill:has(.label-pill-remove) { padding-right: 2px; }
+.label-pill .label-pill-remove {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; min-height: 0; padding: 0; margin: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--tp-label-ink); font: inherit; line-height: 1; cursor: pointer;
+}
+.label-pill .label-pill-remove:hover, .label-pill .label-pill-remove:focus-visible { background: color-mix(in srgb, var(--label-color) 40%, var(--tp-label-surface)); }
+.label-pill .label-pill-remove:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 0; }

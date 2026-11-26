@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import type { ActivityComment, ActivityEntry, ActivityTicketRef, ApiClient, ApiError, LinearAssigneeSide, LinearChange, TicketSummary } from "../api/client.js";
-import { formatActivityTime, formatDateTime, formatDueDate } from "../i18n/format.js";
+import { formatActivityTime, formatDateTime, formatDueDate, formatList } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { loadErrorText } from "../LoadError.js";
 import { useStatusText } from "../map/nodeContent.js";
@@ -200,10 +200,11 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
   const automatic = entry.type !== "status_changed" && entry.automatic === true ? "automatic" : undefined;
   const noActor = entry.actor === null ? "noActor" : undefined;
   const values: Record<string, string> = { actor: entry.actor?.displayName ?? "" };
-  const render = (key: string, extra: { context?: string | undefined; values?: Record<string, string>; components?: Record<string, ReactElement> } = {}) => (
+  const render = (key: string, extra: { context?: string | undefined; values?: Record<string, string>; components?: Record<string, ReactElement>; count?: number } = {}) => (
     <Trans
       t={t}
       i18nKey={`activity.${key}` as never}
+      count={extra.count}
       context={extra.context ?? automatic ?? noActor}
       values={{ ...values, ...extra.values }}
       components={{ who, name: <strong />, ...extra.components }}
@@ -235,6 +236,15 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
       const { from, to } = entry;
       const key = from === null ? "dueDateSet" : to === null ? "dueDateRemoved" : "dueDateChanged";
       return render(key, { values: { from: from === null ? "" : formatDueDate(language, from), to: to === null ? "" : formatDueDate(language, to) } });
+    }
+    case "labels_changed": {
+      // Plural de cada lado: o lado único usa `count`; com os dois, a chave diz o número do primeiro e `count` o do segundo.
+      const added = formatList(language, entry.added.map((label) => label.name));
+      const removed = formatList(language, entry.removed.map((label) => label.name));
+      const names = { added, removed };
+      if (entry.removed.length === 0) return render("labelsAdded", { values: names, count: entry.added.length });
+      if (entry.added.length === 0) return render("labelsRemoved", { values: names, count: entry.removed.length });
+      return render(entry.added.length === 1 ? "labelsChangedOne" : "labelsChangedMany", { values: names, count: entry.removed.length });
     }
     case "parent_changed": {
       const { from, to } = entry;

@@ -61,10 +61,43 @@
   --tp-thread-5: #5fb0ff;
   --tp-thread-6: #c4b8ff;
   --tp-thread-ink: #04211a;
+  /*
+   * Etiquetas (ADR 0065, seção 2): paleta fixa de oito, valores de LABEL_HEX do domínio. A pastilha mistura a cor ao fundo
+   * (--tp-label-mix sobre --tp-label-surface) e escreve com --tp-label-ink; o ponto leva a cor pura.
+   */
+  --tp-label-gray: #b8b0a6;
+  --tp-label-brown: #c49064;
+  --tp-label-orange: #ff9a3c;
+  --tp-label-olive: #b0cf3a;
+  --tp-label-cyan: #36cfe6;
+  --tp-label-indigo: #6366f1;
+  --tp-label-violet: #d68bff;
+  --tp-label-rose: #ff8fb8;
+  --tp-label-mix: 22%;
+  --tp-label-surface: var(--tp-card);
+  --tp-label-ink: var(--tp-text);
 
   --tp-font: "Inter Variable", system-ui, sans-serif;
   --tp-font-mono: "JetBrains Mono", ui-monospace, monospace;
   --tp-radius-control: 6px;
   --tp-radius-field: 8px;
   --tp-radius-panel: 10px;
+}
+
+/*
+ * Tema claro das etiquetas (ADR 0065: a paleta precisa ler bem nos dois temas). O app ainda não tem tema claro (nada põe
+ * data-theme; index.html e o :root são só escuros): este bloco deixa as etiquetas prontas, com tons escuros legíveis em fundo claro.
+ */
+:root[data-theme="light"] {
+  --tp-label-gray: #6b625a;
+  --tp-label-brown: #8a5a33;
+  --tp-label-orange: #b45309;
+  --tp-label-olive: #5c7a0f;
+  --tp-label-cyan: #0e7490;
+  --tp-label-indigo: #4f46e5;
+  --tp-label-violet: #9333ea;
+  --tp-label-rose: #be185d;
+  --tp-label-mix: 14%;
+  --tp-label-surface: #ffffff;
+  --tp-label-ink: #1b1e26;
 }

@@ -29,7 +29,8 @@
     "related": "Relacionado a",
     "idea": "Ideia",
     "priority": "Prioridade",
-    "dueDate": "Prazo"
+    "dueDate": "Prazo",
+    "labels": "Etiquetas"
   },
   "create": {
     "heading": "Novo ticket",
@@ -298,7 +299,43 @@
       "projectChanged": "mudou do projeto <from>{{from}}</from> para <to>{{to}}</to>",
       "projectUnknown": "mudou de projeto no Linear",
       "description": "alterou a descrição"
-    }
+    },
+    "labelsAdded_one": "<who>{{actor}}</who> adicionou a etiqueta <name>{{added}}</name>",
+    "labelsAdded_many": "<who>{{actor}}</who> adicionou as etiquetas <name>{{added}}</name>",
+    "labelsAdded_other": "<who>{{actor}}</who> adicionou as etiquetas <name>{{added}}</name>",
+    "labelsAdded_noActor_one": "Etiqueta <name>{{added}}</name> adicionada",
+    "labelsAdded_noActor_many": "Etiquetas <name>{{added}}</name> adicionadas",
+    "labelsAdded_noActor_other": "Etiquetas <name>{{added}}</name> adicionadas",
+    "labelsAdded_automatic_one": "Etiqueta <name>{{added}}</name> adicionada automaticamente",
+    "labelsAdded_automatic_many": "Etiquetas <name>{{added}}</name> adicionadas automaticamente",
+    "labelsAdded_automatic_other": "Etiquetas <name>{{added}}</name> adicionadas automaticamente",
+    "labelsRemoved_one": "<who>{{actor}}</who> tirou a etiqueta <name>{{removed}}</name>",
+    "labelsRemoved_many": "<who>{{actor}}</who> tirou as etiquetas <name>{{removed}}</name>",
+    "labelsRemoved_other": "<who>{{actor}}</who> tirou as etiquetas <name>{{removed}}</name>",
+    "labelsRemoved_noActor_one": "Etiqueta <name>{{removed}}</name> tirada",
+    "labelsRemoved_noActor_many": "Etiquetas <name>{{removed}}</name> tiradas",
+    "labelsRemoved_noActor_other": "Etiquetas <name>{{removed}}</name> tiradas",
+    "labelsRemoved_automatic_one": "Etiqueta <name>{{removed}}</name> tirada automaticamente",
+    "labelsRemoved_automatic_many": "Etiquetas <name>{{removed}}</name> tiradas automaticamente",
+    "labelsRemoved_automatic_other": "Etiquetas <name>{{removed}}</name> tiradas automaticamente",
+    "labelsChangedOne_one": "<who>{{actor}}</who> adicionou a etiqueta <name>{{added}}</name> e tirou a etiqueta <name>{{removed}}</name>",
+    "labelsChangedOne_many": "<who>{{actor}}</who> adicionou a etiqueta <name>{{added}}</name> e tirou as etiquetas <name>{{removed}}</name>",
+    "labelsChangedOne_other": "<who>{{actor}}</who> adicionou a etiqueta <name>{{added}}</name> e tirou as etiquetas <name>{{removed}}</name>",
+    "labelsChangedOne_noActor_one": "Etiqueta <name>{{added}}</name> adicionada e etiqueta <name>{{removed}}</name> tirada",
+    "labelsChangedOne_noActor_many": "Etiqueta <name>{{added}}</name> adicionada e etiquetas <name>{{removed}}</name> tiradas",
+    "labelsChangedOne_noActor_other": "Etiqueta <name>{{added}}</name> adicionada e etiquetas <name>{{removed}}</name> tiradas",
+    "labelsChangedOne_automatic_one": "Etiqueta <name>{{added}}</name> adicionada e etiqueta <name>{{removed}}</name> tirada automaticamente",
+    "labelsChangedOne_automatic_many": "Etiqueta <name>{{added}}</name> adicionada e etiquetas <name>{{removed}}</name> tiradas automaticamente",
+    "labelsChangedOne_automatic_other": "Etiqueta <name>{{added}}</name> adicionada e etiquetas <name>{{removed}}</name> tiradas automaticamente",
+    "labelsChangedMany_one": "<who>{{actor}}</who> adicionou as etiquetas <name>{{added}}</name> e tirou a etiqueta <name>{{removed}}</name>",
+    "labelsChangedMany_many": "<who>{{actor}}</who> adicionou as etiquetas <name>{{added}}</name> e tirou as etiquetas <name>{{removed}}</name>",
+    "labelsChangedMany_other": "<who>{{actor}}</who> adicionou as etiquetas <name>{{added}}</name> e tirou as etiquetas <name>{{removed}}</name>",
+    "labelsChangedMany_noActor_one": "Etiquetas <name>{{added}}</name> adicionadas e etiqueta <name>{{removed}}</name> tirada",
+    "labelsChangedMany_noActor_many": "Etiquetas <name>{{added}}</name> adicionadas e etiquetas <name>{{removed}}</name> tiradas",
+    "labelsChangedMany_noActor_other": "Etiquetas <name>{{added}}</name> adicionadas e etiquetas <name>{{removed}}</name> tiradas",
+    "labelsChangedMany_automatic_one": "Etiquetas <name>{{added}}</name> adicionadas e etiqueta <name>{{removed}}</name> tirada automaticamente",
+    "labelsChangedMany_automatic_many": "Etiquetas <name>{{added}}</name> adicionadas e etiquetas <name>{{removed}}</name> tiradas automaticamente",
+    "labelsChangedMany_automatic_other": "Etiquetas <name>{{added}}</name> adicionadas e etiquetas <name>{{removed}}</name> tiradas automaticamente"
   },
   "contributions": {
     "heading": "Áreas",
@@ -378,6 +415,29 @@
       "started": "Iniciado em {{date}}",
       "completed": "Concluído em {{date}}",
       "canceled": "Cancelado em {{date}}"
+    }
+  },
+  "labels": {
+    "add": "Adicionar",
+    "addLabel": "Adicionar etiqueta",
+    "none": "Sem etiquetas",
+    "search": "Buscar ou criar etiqueta",
+    "list": "Etiquetas do projeto",
+    "create": "Criar «{{name}}»",
+    "remove": "Tirar etiqueta {{name}}",
+    "loading": "Carregando etiquetas…",
+    "loadFailed": "Não foi possível carregar as etiquetas do projeto.",
+    "empty": "Nenhuma etiqueta neste projeto. Digite um nome para criar.",
+    "noMatch": "Nenhuma etiqueta com esse nome.",
+    "colors": {
+      "gray": "Cinza",
+      "brown": "Marrom",
+      "orange": "Laranja",
+      "olive": "Oliva",
+      "cyan": "Ciano",
+      "indigo": "Anil",
+      "violet": "Violeta",
+      "rose": "Rosa"
     }
   }
 }

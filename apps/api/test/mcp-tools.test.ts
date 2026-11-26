@@ -29,8 +29,8 @@ describe("search_tickets", () => {
     expect(res.isError).toBe(false);
     expect(res.json).toEqual({
       tickets: [
-        { key: "PRIV-2", title: "Filho A", excerpt: "Primeiro filho", status: "done", parent: "PRIV-1", idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false },
-        { key: "PRIV-3", title: "Filho B", excerpt: "Segundo filho sobre relatórios", status: "todo", parent: "PRIV-1", idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false },
+        { key: "PRIV-2", title: "Filho A", excerpt: "Primeiro filho", status: "done", parent: "PRIV-1", idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false, labels: [] },
+        { key: "PRIV-3", title: "Filho B", excerpt: "Segundo filho sobre relatórios", status: "todo", parent: "PRIV-1", idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false, labels: [] },
       ],
       truncated: false,
     });
@@ -125,14 +125,15 @@ describe("get_ticket", () => {
       effective_priority: 0,
       dueDate: null,
       overdue: false,
+      labels: [],
       parent: "PRIV-1",
-      path: [{ key: "PRIV-1", title: "Raiz do projeto", excerpt: "Descrição inteira da raiz. Ver PRIV-4.", status: "in_progress", parent: null, idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false }],
+      path: [{ key: "PRIV-1", title: "Raiz do projeto", excerpt: "Descrição inteira da raiz. Ver PRIV-4.", status: "in_progress", parent: null, idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false, labels: [] }],
       children: { tickets: [], truncated: false },
       relations: {
         mentions: { outgoing: { tickets: [], truncated: false }, incoming: { tickets: [], truncated: false } },
         depends_on: {
           outgoing: { tickets: [], truncated: false },
-          incoming: { tickets: [{ key: "PRIV-4", title: "Solto", excerpt: "Depende de PRIV-2", status: "todo", parent: null, idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false }], truncated: false },
+          incoming: { tickets: [{ key: "PRIV-4", title: "Solto", excerpt: "Depende de PRIV-2", status: "todo", parent: null, idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false, labels: [] }], truncated: false },
         },
         related: { tickets: [], truncated: false },
       },
@@ -220,8 +221,8 @@ describe("get_project_overview", () => {
       by_status: { todo: 2, in_progress: 1, in_review: 0, done: 1, cancelled: 0 },
       top: {
         tickets: [
-          { key: "PRIV-1", title: "Raiz do projeto", excerpt: "Descrição inteira da raiz. Ver PRIV-4.", status: "in_progress", parent: null, idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false, progress: { done: 1, total: 2, excluded: 0, ideas: 0 } },
-          { key: "PRIV-4", title: "Solto", excerpt: "Depende de PRIV-2", status: "todo", parent: null, idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false, progress: null },
+          { key: "PRIV-1", title: "Raiz do projeto", excerpt: "Descrição inteira da raiz. Ver PRIV-4.", status: "in_progress", parent: null, idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false, labels: [], progress: { done: 1, total: 2, excluded: 0, ideas: 0 } },
+          { key: "PRIV-4", title: "Solto", excerpt: "Depende de PRIV-2", status: "todo", parent: null, idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false, labels: [], progress: null },
         ],
         truncated: false,
       },

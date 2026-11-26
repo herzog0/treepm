@@ -1,7 +1,7 @@
 import { parseDueDate } from "@treepm/domain";
 import { z } from "zod";
 import { LinearError } from "./ports.js";
-import type { LinearClient, LinearCommentAuthor, LinearCommentsOptions, LinearCommentsPage, LinearFailureCode, LinearIdentity, LinearHistoryIssueNode, LinearHistoryNode, LinearHistoryOptions, LinearHistoryPage, LinearHistoryUser, LinearIssueHistoryPage, LinearIssueRelationsPage, LinearIssuesOptions, LinearIssuesPage, LinearProjectsOptions, LinearProjectsPage, LinearRelationNode, LinearRelationsOptions, LinearRelationsPage, LinearTeam } from "./ports.js";
+import type { LinearClient, LinearCommentAuthor, LinearCommentsOptions, LinearCommentsPage, LinearFailureCode, LinearIdentity, LinearHistoryIssueNode, LinearHistoryNode, LinearHistoryOptions, LinearHistoryPage, LinearHistoryUser, LinearIssueHistoryPage, LinearIssueRelationsPage, LinearIssuesOptions, LinearIssuesPage, LinearLabelNode, LinearProjectsOptions, LinearProjectsPage, LinearRelationNode, LinearRelationsOptions, LinearRelationsPage, LinearTeam } from "./ports.js";
 
 export { LinearError } from "./ports.js";
 
@@ -44,9 +44,16 @@ const COUNT_QUERY = "query TeamIssueCount($id: String!) { team(id: $id) { issueC
 /** Projetos: resumo, conteúdo longo (some na repetição por corpo grande), prioridade e líder (o e-mail só para casar a pessoa). */
 const projectsQuery = (withContent: boolean, withEmail: boolean): string =>
   `query TeamProjects($id: String!, $after: String, $first: Int!) { team(id: $id) { projects(first: $first, after: $after) { nodes { id name url description ${withContent ? "content " : ""}priority targetDate status { type } lead { id${withEmail ? " email" : ""} } } pageInfo { hasNextPage endCursor } } } }`;
-/** Mais novas primeiro (`createdAt`, o padrão do Linear, dito aqui para a repescagem poder confiar). Sem `children` nem `labels`. */
+/**
+ * Mais novas primeiro (`createdAt`, o padrão do Linear, dito aqui para a repescagem poder confiar). Sem `children`. As etiquetas (ADR 0065):
+ * `labelIds` é o conjunto COMPLETO (escalar, decide o que saiu) e os nós das 10 primeiras dão nome, cor e grupo (1.768,2 pontos com 50).
+ */
+/** Nós de etiqueta lidos por issue; `labelIds` traz o conjunto inteiro. */
+export const LINEAR_LABELS_PER_ISSUE = 10;
+/** O maior `first` da consulta de issues (abaixo do teto de complexidade com as etiquetas). */
+export const LINEAR_ISSUES_MAX_PAGE = 100;
 const issuesQuery = (withDescription: boolean, withEmail: boolean): string =>
-  `query TeamIssues($id: String!, $after: String, $first: Int!) { team(id: $id) { issues(first: $first, after: $after, includeArchived: false, orderBy: createdAt) { nodes { id identifier url title ${withDescription ? "description " : ""}priority dueDate updatedAt createdAt startedAt completedAt canceledAt previousIdentifiers trashed state { type } parent { id } project { id } assignee { id${withEmail ? " email" : ""} } creator { id name${withEmail ? " email" : ""} } } pageInfo { hasNextPage endCursor } } } }`;
+  `query TeamIssues($id: String!, $after: String, $first: Int!) { team(id: $id) { issues(first: $first, after: $after, includeArchived: false, orderBy: createdAt) { nodes { id identifier url title ${withDescription ? "description " : ""}priority dueDate updatedAt createdAt startedAt completedAt canceledAt previousIdentifiers trashed state { type } parent { id } project { id } assignee { id${withEmail ? " email" : ""} } creator { id name${withEmail ? " email" : ""} } labelIds labels(first: ${LINEAR_LABELS_PER_ISSUE}) { nodes { id name color isGroup parent { id name } } } } pageInfo { hasNextPage endCursor } } } }`;
 
 /**
  * Comentários: consulta de RAIZ filtrada pelas issues do time (`TeamFilter.id` é `IDComparator`, cujo `eq` é `ID`: por isso `$id: ID!`).
@@ -158,6 +165,9 @@ const issueNodeSchema = z.object({
   canceledAt: z.string().nullable().optional().catch(null),
   previousIdentifiers: z.array(z.string()).nullable().optional().catch(null),
   creator: z.object({ id: z.string().min(1), name: z.string().nullable().optional().catch(null), email: z.string().nullable().optional().catch(null) }).nullable().optional().catch(null),
+  // As etiquetas (ADR 0065) são lidas à parte (`readLabelIds`, `readLabels`): malformadas não derrubam a issue.
+  labelIds: z.unknown().optional(),
+  labels: z.unknown().optional(),
 });
 const issuesSchema = z.object({ data: z.object({ team: z.object({ issues: z.object({ nodes: z.array(z.unknown()), pageInfo: pageInfoSchema }) }) }) });
 
@@ -166,6 +176,39 @@ const issuesSchema = z.object({ data: z.object({ team: z.object({ issues: z.obje
  * dígitos, `-` e `_` (nada de controle, nulo ou espaço). Fora disso o nó é pulado e contado, em vez de derrubar o passo inteiro.
  */
 const linearId = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/);
+/**
+ * O conjunto de etiquetas da issue (ADR 0065): só vale inteiro. Ausente, não lista ou com um id malformado = `undefined` ("não lido":
+ * quem grava não mexe nas etiquetas do ticket), porque um conjunto incompleto faria tirar o que continua posto lá.
+ */
+function readLabelIds(raw: unknown): string[] | undefined {
+  const parsed = z.array(linearId).safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
+}
+// Nó de etiqueta: id e nome obrigatórios (senão é pulado e contado); cor malformada vale "" (cinza aqui); grupo malformado vale "sem grupo".
+const labelNodeSchema = z.object({
+  id: linearId,
+  name: z.string(),
+  color: z.string().catch(""),
+  isGroup: z.boolean().nullable().optional().catch(null),
+  parent: z.object({ id: linearId, name: z.string() }).nullable().optional().catch(null),
+});
+/** Os nós de etiqueta lidos (grupos fora: não se põem em issue). `labels` que não é conexão vale lista vazia, sem contar. */
+function readLabels(raw: unknown): { labels: LinearLabelNode[]; invalid: number } {
+  const nodes = z.object({ nodes: z.array(z.unknown()) }).safeParse(raw);
+  if (!nodes.success) return { labels: [], invalid: 0 };
+  const labels: LinearLabelNode[] = [];
+  let invalid = 0;
+  for (const node of nodes.data.nodes) {
+    const parsed = labelNodeSchema.safeParse(node);
+    if (!parsed.success) {
+      invalid += 1;
+      continue;
+    }
+    if (parsed.data.isGroup === true) continue;
+    labels.push({ id: parsed.data.id, name: parsed.data.name, color: parsed.data.color, parent: parsed.data.parent ?? null });
+  }
+  return { labels, invalid };
+}
 // Os nós de comentário: `id`, `issue` e o id do usuário obrigatórios e bem formados (senão o nó é pulado e contado em `commentsInvalid`);
 // o resto que vier malformado vale como ausente (o pai inválido vira "sem pai": a resposta perde só a citação).
 const commentNodeSchema = z.object({
@@ -504,7 +547,8 @@ export class HttpLinearClient implements LinearClient {
   }
 
   async listTeamIssues(apiKey: string, teamId: string, after: string | null, options: LinearIssuesOptions = {}): Promise<LinearIssuesPage> {
-    const first = Math.min(Math.max(Math.trunc(options.first ?? LINEAR_IMPORT_PAGE_SIZE), 1), 250);
+    // Teto de 100 por página desde as etiquetas (ADR 0065): 100 issues custam 3.536 pontos; 250 passariam do teto de 5.000.
+    const first = Math.min(Math.max(Math.trunc(options.first ?? LINEAR_IMPORT_PAGE_SIZE), 1), LINEAR_ISSUES_MAX_PAGE);
     const withDescription = options.withDescription !== false;
     const withEmail = options.withEmail !== false;
     // O Linear recusou o `email` (permissão da chave) → `linear_email_unavailable`: quem chama repete sem ele, contando a chamada no
@@ -515,6 +559,7 @@ export class HttpLinearClient implements LinearClient {
     const { nodes, pageInfo } = parsed.data.data.team.issues;
     const { valid, skipped } = validNodes(issueNodeSchema, nodes);
     const dueDates = valid.map((node) => readDueDate(node.dueDate));
+    const labels = valid.map((node) => readLabels(node.labels));
     return {
       nodes: valid.map((node, index) => ({
         id: node.id,
@@ -536,10 +581,13 @@ export class HttpLinearClient implements LinearClient {
         previousIdentifiers: node.previousIdentifiers ?? [],
         creator: node.creator ? { id: node.creator.id, name: node.creator.name ?? "", email: node.creator.email ?? null } : null,
         dueDate: dueDates[index]!.value,
+        labelIds: readLabelIds(node.labelIds),
+        labels: labels[index]!.labels,
       })),
       nextCursor: nextCursor(pageInfo),
       skippedInvalid: skipped,
       dueDatesInvalid: dueDates.filter((entry) => entry.ignored).length,
+      labelsInvalid: labels.reduce((sum, entry) => sum + entry.invalid, 0),
     };
   }
 

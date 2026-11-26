@@ -95,6 +95,28 @@
       "team": "Equipo",
       "pickTeam": "Elige un equipo",
       "link": "Asociar equipo"
+    },
+    "labels": {
+      "title": "Etiquetas",
+      "list": "Etiquetas del proyecto",
+      "loading": "Cargando etiquetas…",
+      "empty": "No hay etiquetas en este proyecto. Las etiquetas se crean en la página del ticket.",
+      "count_one": "{{count}} ticket",
+      "count_many": "{{count}} tickets",
+      "count_other": "{{count}} tickets",
+      "countNone": "Ningún ticket",
+      "rename": "Renombrar",
+      "renameLabel": "Renombrar etiqueta {{name}}",
+      "renameField": "Nuevo nombre de la etiqueta {{name}}",
+      "save": "Guardar",
+      "cancel": "Cancelar",
+      "colors": "Color de la etiqueta {{name}}",
+      "remove": "Borrar",
+      "removeLabel": "Borrar etiqueta {{name}}",
+      "removeMessage_one": "¿Borrar la etiqueta {{name}}? Se quitará de {{count}} ticket.",
+      "removeMessage_many": "¿Borrar la etiqueta {{name}}? Se quitará de {{count}} tickets.",
+      "removeMessage_other": "¿Borrar la etiqueta {{name}}? Se quitará de {{count}} tickets.",
+      "removeMessageUnused": "¿Borrar la etiqueta {{name}}? Ningún ticket la usa."
     }
   }
 }

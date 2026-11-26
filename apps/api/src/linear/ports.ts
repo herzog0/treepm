@@ -61,7 +61,10 @@ export type LinearProjectsPage = LinearPage<LinearProjectNode> & { dueDatesInval
 
 /** Opções da leitura de issues: `first` itens (padrão 50), sem a descrição (issue enorme), sem o e-mail do responsável (campo recusado). */
 export type LinearIssuesOptions = { first?: number; withDescription?: boolean; withEmail?: boolean };
-export type LinearIssuesPage = LinearPage<LinearIssueNode> & { dueDatesInvalid?: number };
+/** `labelsInvalid`: nós de etiqueta malformados (pulados; a issue vale). */
+export type LinearIssuesPage = LinearPage<LinearIssueNode> & { dueDatesInvalid?: number; labelsInvalid?: number };
+/** Uma etiqueta do Linear lida na issue (ADR 0065): nome cru (quem grava limpa), cor como veio (hex; "" se malformada), grupo. */
+export type LinearLabelNode = { id: string; name: string; color: string; parent: { id: string; name: string } | null };
 
 /**
  * Uma issue como a importação a lê. O e-mail do responsável só serve para casar com uma pessoa do TreePM: quem recebe não o grava
@@ -91,6 +94,10 @@ export type LinearIssueNode = {
   creator: { id: string; name: string; email: string | null } | null;
   /** O prazo da issue (ADR 0064): texto `AAAA-MM-DD`, nulo sem data; `undefined` = chave ausente, malformado ou fora da faixa: não lido (não toca o prazo). */
   dueDate?: string | null;
+  /** O conjunto COMPLETO de etiquetas da issue (ids de lá); `undefined` = ausente ou malformado: não lido (nada muda no ticket). */
+  labelIds?: string[];
+  /** Os nós das primeiras etiquetas (nome, cor, grupo); id em `labelIds` sem nó aqui resolve pela origem já gravada. */
+  labels?: LinearLabelNode[];
 };
 
 /**

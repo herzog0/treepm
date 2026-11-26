@@ -57,7 +57,16 @@ export type FakeIssue = {
   creator?: { id: string; name: string; email: string } | null;
   /** O prazo (ADR 0064): só vai no nó quando dado (ausente = o Linear não mandou a chave). */
   dueDate?: unknown;
+  /**
+   * As etiquetas (ADR 0065): `labelIds` vai com os ids de `labels` (o conjunto completo) e `labels` com os 10 primeiros nós, como o
+   * Linear. `labelIds` explícito substitui o conjunto (malformado, ou com id sem nó). Sem os dois, nenhuma das chaves vai no nó.
+   */
+  labels?: FakeLabel[];
+  labelIds?: unknown;
 };
+/** Uma etiqueta do Linear falso: cor hexadecimal (padrão vermelho), grupo opcional. */
+export type FakeLabel = { id: string; name: string; color?: string; parent?: { id: string; name: string } | null };
+export const fakeLabelNode = (label: FakeLabel) => ({ id: label.id, name: label.name, color: label.color ?? "#eb5757", isGroup: false, parent: label.parent ?? null });
 export type FakeProject = { id: string; name: string; url?: string; status?: string; description?: string; content?: string | null; priority?: number; lead?: { id: string; email: string } | null; targetDate?: unknown };
 /** O que a consulta de issues pediu (lido do texto e das variáveis da chamada). */
 export type FakeIssueAsk = { first: number; after: string | null; withDescription: boolean; withEmail: boolean };
@@ -236,6 +245,9 @@ export const fakeIssueNode = (issue: FakeIssue, index = 0) => ({
   previousIdentifiers: issue.previousIdentifiers ?? [],
   creator: issue.creator ?? null,
   ...("dueDate" in issue ? { dueDate: issue.dueDate } : {}),
+  ...(issue.labels !== undefined || "labelIds" in issue
+    ? { labelIds: "labelIds" in issue ? issue.labelIds : (issue.labels ?? []).map((label) => label.id), labels: { nodes: (issue.labels ?? []).slice(0, 10).map(fakeLabelNode) } }
+    : {}),
 });
 
 export const fakeProjectNode = (p: FakeProject, withContent: boolean, withEmail: boolean): Record<string, unknown> => {

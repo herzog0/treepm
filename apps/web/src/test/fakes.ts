@@ -1,8 +1,8 @@
-import { AI_CONSENT_VERSION } from "@treepm/domain";
+import { AI_CONSENT_VERSION, LABELS_PER_PROJECT, LABELS_PER_TICKET, cleanLabelName, defaultLabelColor, labelNameKey } from "@treepm/domain";
 import { vi } from "vitest";
 import { createFakeChat } from "./chatFakes.js";
 import type { FakeChat } from "./chatFakes.js";
-import type { CategorizeView, ToCheckItem } from "../api/client.js";
+import type { CategorizeView, Label, ProjectLabel, ToCheckItem } from "../api/client.js";
 import type { AccessToken, ActivityPage, AiConsent, AiConsentKind, ApiClient, ApiResult, Area, OrganizationAccessToken, CodeLink, CodeRefresh, ConversationDetail, ConversationDraftChild, GithubInstallation, GroupSummary, LinearConnection, LinearRun, LinearTeam, ProjectLinear, GithubRepository, Me, Person, PlacementOutcome, Project, ProjectRepository, Team, TicketCode, TicketDetail, IdeaStage, TicketListUpdate, TicketSummary } from "../api/client.js";
 
 export const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
@@ -37,7 +37,7 @@ export function makeProject(id: string, key: string, name: string, extra: Partia
 
 export function makeTicket(id: string, projectId: string, number: number, title: string, extra: Partial<TicketSummary> = {}): TicketSummary {
   const key = extra.key ?? `${projectId.toUpperCase()}-${number}`;
-  return { id, projectId, number, key, parentId: null, title, status: "todo", progress: null, assigneeIds: [], descriptionExcerpt: "", priority: 0, blocked: false, dueDate: null, ...extra };
+  return { id, projectId, number, key, parentId: null, title, status: "todo", progress: null, assigneeIds: [], descriptionExcerpt: "", priority: 0, blocked: false, dueDate: null, labels: [], ...extra };
 }
 
 /** Conversa de criação com a IA (ADR 0029): uma troca de mensagens e, por padrão, um rascunho. */
@@ -97,7 +97,17 @@ interface FakeData {
   chat?: FakeChat;
   /** Quem lê o chat (padrão: a pessoa de `me` do chat falso). */
   chatAs?: string;
+  /** Etiquetas de cada projeto, por ID do projeto (ADR 0065); `ticketCount` é recalculado a cada leitura. As do ticket vêm em `TicketSummary.labels`. */
+  labels?: Record<string, Label[]>;
+  /**
+   * Roteiro das escritas de etiqueta (criar, renomear/cor, apagar, pôr/tirar no ticket), consumido um passo por chamada; esgotado,
+   * as chamadas seguem as regras da API. O teste guarda a referência e acrescenta passos: `{ hold }` segura a resposta até a promessa
+   * resolver (gravação em voo), `{ error }` devolve o erro (`[tipo, código]`, como `["conflict", "label_limit_ticket"]`).
+   */
+  labelScript?: FakeLabelStep[];
 }
+
+export type FakeLabelStep = "ok" | { hold: Promise<void> } | { error: [Parameters<typeof failed>[0], string?] };
 
 export interface FakeAiConsent {
   /** Estado inicial; padrão: nada aceito, versão atual a constante `AI_CONSENT_VERSION`, GitHub desligado. */
@@ -1008,6 +1018,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "draftTicketDescription",
     "createTicketComment", "updateComment", "removeComment",
     "createContribution", "updateContribution", "removeContribution", "putContributionPerson", "removeContributionPerson",
+    "listProjectLabels", "createProjectLabel", "updateProjectLabel", "removeProjectLabel", "changeTicketLabels",
     "getConversationView", "getTicketConversationView", "openTicketConversation", "openGeneralConversation", "sendChatMessage", "addConversationParticipants", "markConversationRead", "clearConversationMessages",
   ] as const;
   const base = Object.fromEntries(names.map((name) => [name, unexpected(name)])) as unknown as ApiClient;
@@ -1035,6 +1046,8 @@ export function makeClient(data: FakeData = {}): ApiClient {
     ...(data.mcp ? mcpMethods(data) : {}),
     ...(data.aiConsent ? aiConsentMethods(data) : {}),
     ...(data.summaries ? summaryMethods(data) : {}),
+    // Etiquetas (ADR 0065) com as regras da API; sem `labels` no teste, o projeto não tem nenhuma.
+    ...labelMethods(data, Object.values(data.tickets ?? {}).flat()),
   });
 }
 
@@ -1210,5 +1223,119 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
       all.splice(all.findIndex((entry) => entry.id === id), 1);
       return ok(undefined);
     }),
+    ...labelMethods(data, all),
   });
+}
+
+/**
+ * Etiquetas por projeto (ADR 0065) em memória, com as regras da API: nome limpo pelo domínio e único pela chave, 200 por projeto,
+ * 20 por ticket sobre o conjunto final, pôr pelo nome reusa a de mesma chave, ordem por chave do nome e depois id.
+ */
+function labelMethods(data: FakeData, all: TicketSummary[]) {
+  const lists = new Map<string, Label[]>(Object.entries(data.labels ?? {}).map(([projectId, labels]) => [projectId, labels.map((label) => ({ ...label }))]));
+  const script = (data.labelScript ??= []);
+  let created = 0;
+  const listOf = (projectId: string): Label[] => {
+    let list = lists.get(projectId);
+    if (!list) lists.set(projectId, (list = []));
+    return list;
+  };
+  const order = (a: Label, b: Label) => labelNameKey(a.name).localeCompare(labelNameKey(b.name)) || a.id.localeCompare(b.id);
+  const counted = (projectId: string, label: Label): ProjectLabel => ({ ...label, ticketCount: all.filter((entry) => entry.projectId === projectId && (entry.labels ?? []).some((own) => own.id === label.id)).length });
+  /** O próximo passo do roteiro: segura, falha ou segue. */
+  const step = async (): Promise<ApiResult<never> | null> => {
+    const next = script.shift() ?? "ok";
+    if (next === "ok") return null;
+    if ("hold" in next) {
+      await next.hold;
+      return null;
+    }
+    return failed(...next.error);
+  };
+  const make = (projectId: string, name: string, color?: Label["color"]): Label => {
+    created += 1;
+    const label = { id: `label-${projectId}-${created}`, name, color: color ?? defaultLabelColor(name) };
+    listOf(projectId).push(label);
+    listOf(projectId).sort(order);
+    return label;
+  };
+  return {
+    listProjectLabels: vi.fn(async (projectId: string) => ok([...listOf(projectId)].sort(order).map((label) => counted(projectId, label)))),
+    createProjectLabel: vi.fn(async (projectId: string, body: { name: string; color?: Label["color"] }) => {
+      const problem = await step();
+      if (problem) return problem;
+      const name = cleanLabelName(body.name);
+      if (name === null) return failed("invalid", "label_name_invalid");
+      if (listOf(projectId).some((label) => labelNameKey(label.name) === labelNameKey(name))) return failed("conflict", "label_name_taken");
+      if (listOf(projectId).length >= LABELS_PER_PROJECT) return failed("conflict", "label_limit_project");
+      return ok(counted(projectId, make(projectId, name, body.color)));
+    }),
+    updateProjectLabel: vi.fn(async (projectId: string, labelId: string, body: { name?: string; color?: Label["color"] }) => {
+      const problem = await step();
+      if (problem) return problem;
+      const label = listOf(projectId).find((entry) => entry.id === labelId);
+      if (!label) return failed("not_found", "label_not_found");
+      if (body.name !== undefined) {
+        const name = cleanLabelName(body.name);
+        if (name === null) return failed("invalid", "label_name_invalid");
+        if (listOf(projectId).some((entry) => entry.id !== labelId && labelNameKey(entry.name) === labelNameKey(name))) return failed("conflict", "label_name_taken");
+        label.name = name;
+      }
+      if (body.color !== undefined) label.color = body.color;
+      listOf(projectId).sort(order);
+      for (const entry of all) entry.labels = (entry.labels ?? []).map((own) => (own.id === labelId ? { ...label } : own)).sort(order);
+      return ok(counted(projectId, label));
+    }),
+    removeProjectLabel: vi.fn(async (projectId: string, labelId: string) => {
+      const problem = await step();
+      if (problem) return problem;
+      const list = listOf(projectId);
+      const at = list.findIndex((entry) => entry.id === labelId);
+      if (at < 0) return failed("not_found", "label_not_found");
+      let ticketsAffected = 0;
+      for (const entry of all) {
+        if (!(entry.labels ?? []).some((own) => own.id === labelId)) continue;
+        entry.labels = (entry.labels ?? []).filter((own) => own.id !== labelId);
+        ticketsAffected += 1;
+      }
+      list.splice(at, 1);
+      return ok({ ticketsAffected });
+    }),
+    changeTicketLabels: vi.fn(async (id: string, body: { add?: ({ labelId: string } | { name: string })[]; remove?: string[] }) => {
+      const problem = await step();
+      if (problem) return problem;
+      const entry = all.find((ticket) => ticket.id === id);
+      if (!entry) return failed("not_found");
+      const list = listOf(entry.projectId);
+      const removing = new Set(body.remove ?? []);
+      if ([...removing].some((labelId) => !list.some((label) => label.id === labelId))) return failed("not_found", "label_not_found");
+      const adding: (Label | string)[] = [];
+      for (const ref of body.add ?? []) {
+        if ("labelId" in ref) {
+          const label = list.find((entry) => entry.id === ref.labelId);
+          if (!label) return failed("not_found", "label_not_found");
+          adding.push(label);
+          continue;
+        }
+        const name = cleanLabelName(ref.name);
+        if (name === null) return failed("invalid", "label_name_invalid");
+        adding.push(list.find((label) => labelNameKey(label.name) === labelNameKey(name)) ?? name);
+      }
+      const finalIds = new Set((entry.labels ?? []).map((label) => label.id).filter((labelId) => !removing.has(labelId)));
+      const newNames = new Set<string>();
+      for (const item of adding) {
+        if (typeof item === "string") newNames.add(labelNameKey(item));
+        else finalIds.add(item.id);
+      }
+      if (finalIds.size + newNames.size > LABELS_PER_TICKET) return failed("conflict", "label_limit_ticket");
+      if (list.length + newNames.size > LABELS_PER_PROJECT) return failed("conflict", "label_limit_project");
+      for (const item of adding) {
+        if (typeof item !== "string") continue;
+        const existing = list.find((label) => labelNameKey(label.name) === labelNameKey(item));
+        finalIds.add((existing ?? make(entry.projectId, item)).id);
+      }
+      entry.labels = list.filter((label) => finalIds.has(label.id)).map((label) => ({ ...label })).sort(order);
+      return ok({ labels: entry.labels.map((label) => ({ ...label })) });
+    }),
+  };
 }

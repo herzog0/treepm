@@ -142,6 +142,7 @@ describe("garantia central: sem o alcance efetivo, nenhuma resposta tem nome, id
     list_tickets: [{}, { status: ["todo"] }, { under: "PRIV-1" }],
     get_work_queue: [{}, { under: "PRIV-1" }],
     get_project_overview: [{}],
+    list_labels: [{}],
     update_ticket_status: [{ key: "PRIV-3", status: "in_progress" }, { key: "PRIV-99", status: "done" }],
     add_comment: [{ key: "PRIV-3", body: "um comentário" }],
     set_agent_work: [{ key: "PRIV-3", working: true }],

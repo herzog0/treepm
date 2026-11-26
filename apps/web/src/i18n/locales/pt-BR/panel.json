@@ -95,6 +95,28 @@
       "team": "Time",
       "pickTeam": "Escolha um time",
       "link": "Associar time"
+    },
+    "labels": {
+      "title": "Etiquetas",
+      "list": "Etiquetas do projeto",
+      "loading": "Carregando etiquetas…",
+      "empty": "Nenhuma etiqueta neste projeto. As etiquetas são criadas na página do ticket.",
+      "count_one": "{{count}} ticket",
+      "count_many": "{{count}} tickets",
+      "count_other": "{{count}} tickets",
+      "countNone": "Nenhum ticket",
+      "rename": "Renomear",
+      "renameLabel": "Renomear etiqueta {{name}}",
+      "renameField": "Novo nome da etiqueta {{name}}",
+      "save": "Salvar",
+      "cancel": "Cancelar",
+      "colors": "Cor da etiqueta {{name}}",
+      "remove": "Apagar",
+      "removeLabel": "Apagar etiqueta {{name}}",
+      "removeMessage_one": "Apagar a etiqueta {{name}}? Ela sai de {{count}} ticket.",
+      "removeMessage_many": "Apagar a etiqueta {{name}}? Ela sai de {{count}} tickets.",
+      "removeMessage_other": "Apagar a etiqueta {{name}}? Ela sai de {{count}} tickets.",
+      "removeMessageUnused": "Apagar a etiqueta {{name}}? Nenhum ticket usa ela."
     }
   }
 }

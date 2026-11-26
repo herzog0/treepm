@@ -1,6 +1,7 @@
 import type { TenantClient } from "@treepm/db";
 import type { TicketProgress } from "@treepm/domain";
 import type { IdeaStage } from "@treepm/domain";
+import { labelsByTicket } from "./labels.service.js";
 import { ideaStageSchema } from "./tickets.schema.js";
 import { MAX_TREE_DEPTH } from "./ticket-scope.js";
 import type { TicketScope } from "./ticket-scope.js";
@@ -32,11 +33,11 @@ type RawRow = {
 
 /**
  * Os tickets do projeto como a lista do mapa e o MCP os leem, em ordem de número: SEM a descrição inteira (só os 601 primeiros
- * caracteres, o bastante para `descriptionExcerpt`) e com as pessoas em UMA consulta por projeto, não um `IN` com um parâmetro por
- * ticket (que o Postgres fatia em 32 767 e planeja a 30 ms por consulta a 20 000 tickets).
+ * caracteres, o bastante para `descriptionExcerpt`) e com as pessoas e as etiquetas (ADR 0065) em UMA consulta por projeto cada, não
+ * um `IN` com um parâmetro por ticket (que o Postgres fatia em 32 767 e planeja a 30 ms por consulta a 20 000 tickets).
  */
 export async function readSummaryRows(tx: TenantClient, projectId: string): Promise<TicketRow[]> {
-  const [rows, people] = await Promise.all([
+  const [rows, people, labels] = await Promise.all([
     tx.$queryRaw<RawRow[]>`
       select id, project_id, number, parent_id, title, left(description, ${EXCERPT_SOURCE_LENGTH}::int) as description, status, idea_stage,
              agent_work_started_at, agent_work_until, agent_work_note, priority,
@@ -50,6 +51,7 @@ export async function readSummaryRows(tx: TenantClient, projectId: string): Prom
       select a.ticket_id, a.person_id from ticket_assignees a
       join tickets t on t.org_id = a.org_id and t.id = a.ticket_id
       where t.project_id = ${projectId}::uuid`,
+    labelsByTicket(tx, { projectId }),
   ]);
   const assignees = new Map<string, { personId: string }[]>();
   for (const person of people) {
@@ -73,6 +75,7 @@ export async function readSummaryRows(tx: TenantClient, projectId: string): Prom
     priority: row.priority,
     dueDate: row.due_date,
     blocked: row.blocked,
+    labels: labels.get(row.id) ?? [],
   }));
 }
 

@@ -51,6 +51,7 @@ describe("criação e leitura", () => {
       priority: 0,
       dueDate: null,
       blocked: false,
+      labels: [],
       effectivePriority: { value: 0, from: null },
       externalSource: null,
       idea: null,

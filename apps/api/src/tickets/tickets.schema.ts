@@ -1,6 +1,7 @@
 import { CONTRIBUTION_STATUSES, CONTRIBUTION_TEXT_MAX, DUE_DATE_MAX, DUE_DATE_MIN, IDEA_STAGES, isValidDueDate, mentionsPersonRaw, PRIORITY_MAX, PRIORITY_MIN } from "@treepm/domain";
 import { z } from "zod";
 import { idSchema } from "../common/schemas.js";
+import { labelSchema } from "./labels.schema.js";
 
 export const MAX_IMPORT_ITEMS = 500;
 export const MAX_IMPORT_DEPTH = 20;
@@ -135,6 +136,8 @@ export const ticketSummarySchema = z.object({
   dueDate: z.string().nullable(),
   /** Depende de algum ticket ainda aberto (ADR 0037); a fila "próximos para trabalhar" (ADR 0047) não inclui o ticket. */
   blocked: z.boolean(),
+  /** Etiquetas do ticket (ADR 0065), em ordem de nome (chave) e id; `[]` sem etiqueta. Lidas numa consulta só para a leitura inteira. */
+  labels: z.array(labelSchema),
 });
 
 /** Uma ideia da lista de ideias do projeto (ADR 0042): a raiz, o caminho (títulos dos ancestrais, do topo para baixo) e a criação. */

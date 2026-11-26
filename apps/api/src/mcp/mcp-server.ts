@@ -96,6 +96,7 @@ export function createProjectServer(
   server.registerTool("list_tickets", { ...register.list_tickets, annotations: ANNOTATIONS }, (input) => guarded("list_tickets", () => tools.listTickets(input)));
   server.registerTool("get_work_queue", { ...register.get_work_queue, annotations: ANNOTATIONS }, (input) => guarded("get_work_queue", () => tools.getWorkQueue(input)));
   server.registerTool("get_project_overview", { ...register.get_project_overview, annotations: ANNOTATIONS }, () => guarded("get_project_overview", () => tools.getProjectOverview()));
+  server.registerTool("list_labels", { ...register.list_labels, annotations: ANNOTATIONS }, () => guarded("list_labels", () => tools.listLabels()));
   if (people) server.registerTool("list_people", { ...PEOPLE_READ_TOOL_DEFINITIONS.list_people, annotations: ANNOTATIONS }, () => guarded("list_people", () => tools.listPeople()));
   // Comentários, histórico e conversas (ADR 0062, fatia 3): só leitura, só com o alcance de pessoas efetivo.
   if (people && reads) {

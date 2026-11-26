@@ -86,6 +86,9 @@ model Organization {
   externalHistoryEntries     ExternalHistoryEntry[]
   externalImportRuns         ExternalImportRun[]
   externalCategorizeItems    ExternalCategorizeItem[]
+  projectLabels              ProjectLabel[]
+  ticketLabels               TicketLabel[]
+  projectLabelOrigins        ProjectLabelOrigin[]
 
   @@map("organizations")
 }
@@ -209,6 +212,8 @@ model Project {
   accessTokens        AccessToken[]
   externalSource      ProjectExternalSource?
   externalImportRuns  ExternalImportRun[]
+  labels              ProjectLabel[]
+  labelOrigins        ProjectLabelOrigin[]
 
   @@id([orgId, id])
   @@unique([orgId, key])
@@ -293,6 +298,7 @@ model Ticket {
   externalHistoryEntries ExternalHistoryEntry[]
   importRunsAsDestination ExternalImportRun[]
   categorizeItems         ExternalCategorizeItem[]
+  labels                  TicketLabel[]
 
   @@id([orgId, id])
   @@unique([orgId, projectId, id])
@@ -337,6 +343,50 @@ model TicketAssignee {
   @@id([orgId, ticketId, personId])
   @@index([orgId, personId, ticketId])
   @@map("ticket_assignees")
+}
+
+/// Etiqueta do projeto (ADR 0065; migration 0048). Nome de 1 a 60 pontos de código, aparado e sem controle (check no banco; o domínio
+/// limpa antes com `cleanLabelName`). `nameKey` é a chave de unicidade sem diferenciar maiúsculas, PREENCHIDA PELO DOMÍNIO (`labelNameKey`).
+/// O papel da aplicação só atualiza nome, chave, cor e data (privilégio de coluna): nunca o projeto nem o id.
+model ProjectLabel {
+  orgId     String   @map("org_id")
+  id        String   @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  name      String
+  nameKey   String   @map("name_key")
+  /// gray | brown | orange | olive | cyan | indigo | violet | rose (check no banco; `LABEL_COLORS` do domínio)
+  color     String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization  @relation(fields: [orgId], references: [orgId])
+  project      Project       @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade, map: "project_labels_project_fkey")
+  tickets      TicketLabel[]
+
+  @@id([orgId, id])
+  @@unique([orgId, projectId, nameKey], map: "project_labels_name_key")
+  // Alvo das chaves estrangeiras compostas (etiqueta do mesmo projeto).
+  @@unique([orgId, projectId, id], map: "project_labels_project_id_key")
+  @@map("project_labels")
+}
+
+/// Etiqueta posta num ticket (ADR 0065; migration 0048). A chave estrangeira composta com o projeto do ticket garante que a etiqueta é do
+/// MESMO projeto. Some com o ticket e com a etiqueta. A aplicação só põe e tira (sem UPDATE).
+model TicketLabel {
+  orgId     String   @map("org_id")
+  projectId String   @map("project_id") @db.Uuid
+  ticketId  String   @map("ticket_id") @db.Uuid
+  labelId   String   @map("label_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  ticket       Ticket       @relation(fields: [orgId, projectId, ticketId], references: [orgId, projectId, id], onDelete: Cascade, map: "ticket_labels_ticket_fkey")
+  label        ProjectLabel @relation(fields: [orgId, projectId, labelId], references: [orgId, projectId, id], onDelete: Cascade, onUpdate: Restrict, map: "ticket_labels_label_fkey")
+
+  @@id([orgId, ticketId, labelId])
+  @@index([orgId, labelId], map: "ticket_labels_label_idx")
+  @@index([orgId, projectId], map: "ticket_labels_project_idx")
+  @@map("ticket_labels")
 }
 
 model ActivityEvent {
@@ -936,7 +986,7 @@ model ExternalItemRef {
   ticketId          String    @map("ticket_id") @db.Uuid
   /// linear (check no banco)
   provider          String
-  /// comment | relation (check no banco)
+  /// comment | relation | label (check no banco). Em `label` (migration 0048), `externalId` é `<issue>:<etiqueta>` do Linear e `localId` a etiqueta daqui.
   kind              String
   externalId        String    @map("external_id")
   localId           String?   @map("local_id") @db.Uuid
@@ -963,6 +1013,38 @@ model ExternalItemRef {
   // Só no SQL (migration 0045): a expressão da coluna gerada `relation_id` e o índice parcial `(org_id, relation_id) where kind = 'relation'`
   // (as formas de uma relação do Linear); o Prisma não descreve nenhum dos dois.
   @@map("external_item_refs")
+}
+
+/// A origem de uma etiqueta do projeto no provedor (ADR 0065; migration 0048): id da etiqueta de lá, nome e cor aplicados. Tabela própria
+/// porque SOBREVIVE à etiqueta: apagar a etiqueta aqui zera `labelId` (a aplicação marca `removedHereAt`) e a sincronização não a faz
+/// renascer. Única por projeto, provedor e id externo. A aplicação lê, insere e atualiza só o estado; não apaga (some com o projeto).
+model ProjectLabelOrigin {
+  orgId           String    @map("org_id")
+  id              String    @default(dbgenerated("app_uuid_v7()")) @db.Uuid
+  projectId       String    @map("project_id") @db.Uuid
+  /// linear (check no banco)
+  provider        String
+  /// 1 a 100 caracteres (check no banco)
+  externalId      String    @map("external_id")
+  /// A etiqueta daqui; nulo depois de apagada. A chave estrangeira composta (org, projeto, etiqueta) é `ON DELETE SET NULL (label_id)`
+  /// (lista de colunas do Postgres 15+), só no SQL da migration 0048: o Prisma não a expressa (o SET NULL dele zeraria também o projeto).
+  labelId         String?   @map("label_id") @db.Uuid
+  /// 1 a 60 caracteres (check no banco)
+  appliedName     String    @map("applied_name")
+  /// Uma das oito cores da paleta (check no banco)
+  appliedColor    String    @map("applied_color")
+  /// Apagada aqui; só com `labelId` nulo (check no banco).
+  removedHereAt   DateTime? @map("removed_here_at") @db.Timestamptz(3)
+  firstImportedAt DateTime  @default(now()) @map("first_imported_at") @db.Timestamptz(3)
+  lastImportedAt  DateTime  @default(now()) @map("last_imported_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [orgId], references: [orgId])
+  project      Project      @relation(fields: [orgId, projectId], references: [orgId, id], onDelete: Cascade, map: "project_label_origins_project_fkey")
+
+  @@id([orgId, id])
+  @@unique([orgId, projectId, provider, externalId], map: "project_label_origins_external_key")
+  @@index([orgId, labelId], map: "project_label_origins_label_idx")
+  @@map("project_label_origins")
 }
 
 /// Uma entrada do histórico de uma issue do Linear (ADR 0061, fatia 4; migration 0046). O item local É a linha. A aplicação lê e insere;
