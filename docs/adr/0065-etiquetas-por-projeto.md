@@ -33,7 +33,7 @@ A dor não é ter a palavra escrita no ticket: é **achar e ver junto** o que te
 ### 4. Onde aparece
 
 - **Página do ticket:** campo "Etiquetas" com as etiquetas como pastilhas coloridas e o seletor com busca e criação.
-- **Mapa** (espera aprovação, ver abaixo): filtro por etiqueta, que mantém a árvore e apaga visualmente o que não tem a etiqueta, no molde dos filtros que já existem; e as etiquetas no card nos níveis de detalhe com texto, como pontos de cor (com o nome só quando couber).
+- **Mapa** (espera aprovação, ver abaixo): **o mapa não tem filtro hoje; este é o primeiro.** Filtrar por etiqueta mantém a árvore no lugar e apaga visualmente o que não tem a etiqueta, com um resumo ("4 de 31 tickets") e um "Limpar". O mesmo filtro recebe "atrasados" ([ADR 0064](0064-prazo-no-ticket.md)). No card, nos níveis de detalhe com texto, cada etiqueta é uma pastilha escura com um ponto de cor e o nome; as que não cabem viram "+2". A cor do card continua sendo só a situação. De longe, sem texto, o card não mostra etiqueta.
 - **Busca:** por etiqueta, sozinha ou junto de texto.
 - **MCP:** as leituras de ticket trazem os nomes das etiquetas; `list_labels` lista as do projeto; `update_ticket` e `create_ticket` aceitam etiquetas pelo nome (criando as que não existem, com o alcance de escrita).
 - **Assistente:** os nomes das etiquetas **não vão ao provedor de IA** nesta ADR. É texto de configuração do projeto e ajudaria o assistente ("quais bugs estão abertos?"), mas é categoria nova de dado e uma etiqueta pode ser o nome de um cliente ou de uma pessoa. Fica perguntado a Teodoro, junto com o prazo (ADR 0064).

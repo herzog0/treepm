@@ -32,8 +32,8 @@ A dor é dupla: guardar a data combinada, e ver no mapa o que passou dela. A seg
 ### 4. Onde aparece
 
 - **Página do ticket:** campo "Prazo" junto dos outros, com seletor de data e botão de tirar. Atrasado mostra a data em destaque com "atrasado há N dias".
-- **Card do mapa** (espera aprovação, ver abaixo): nos níveis de detalhe que mostram texto, a data curta ("12 dez") ao lado dos marcadores que já existem; atrasado, a mesma data com o destaque de atraso. Nos níveis sem texto, só um sinal pequeno quando atrasado; ticket em dia não ganha nada.
-- **Busca e filtros:** "atrasados" e "com prazo até…".
+- **Card do mapa** (espera aprovação, ver abaixo): nos níveis de detalhe que mostram texto, a data curta ("12 dez") na linha da situação; atrasado, uma pastilha escura "Atrasado · 23 nov" com um "!". Nos níveis sem texto, só o selo "!" no canto de quem está atrasado; ticket em dia não ganha nada. **O atraso não usa vermelho:** no mapa, vermelho já quer dizer bloqueado, e a cor do card continua sendo só a situação.
+- **Filtro e busca:** "atrasados" e "com prazo até…". O mapa não tem filtro nenhum hoje; o filtro nasce junto com o das etiquetas ([ADR 0065](0065-etiquetas-por-projeto.md)), como uma coisa só.
 - **MCP:** as leituras de ticket trazem `dueDate` e `overdue`; `update_ticket` aceita `dueDate` (data ou nulo), com o alcance de escrita. O "hoje" do MCP é o dia em UTC.
 - **Assistente:** o prazo **não vai ao provedor de IA** nesta ADR. É dado do ticket, não de pessoa, e o assistente responderia bem "o que está atrasado?"; mas é categoria nova de dado, e mandar categoria nova a provedor é decisão de Teodoro. Fica perguntado a ele.
 
@@ -52,7 +52,7 @@ O campo na página do ticket e o filtro seguem os padrões que já existem e nã
 ## Fatias
 
 1. **Banco, API, página do ticket, linha do tempo, MCP e sincronização com o Linear.** Não toca no mapa.
-2. **Card do mapa e filtros**, depois da aprovação da tela.
+2. **Card do mapa**, depois da aprovação da tela. O filtro de atrasados vem com o filtro do mapa (ADR 0065, fatia 2).
 
 ## Em aberto
 
