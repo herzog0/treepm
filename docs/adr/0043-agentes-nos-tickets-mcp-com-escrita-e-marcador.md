@@ -145,3 +145,7 @@ Como é escrita nova por um canal de máquina, passa por revisão de segurança 
 - Token só de leitura deixou de gastar o limite de escritas da pessoa.
 - A revisão de segurança independente foi feita antes do merge e os achados, todos menores, foram corrigidos no mesmo PR.
 - Não foi exercitado com um cliente MCP de verdade: depende do token de escrita, que só Teodoro cria (`TREEPM-189`).
+
+## Atualização (2026-11-26): limites por minuto
+
+A pedido de Teodoro (`TREEPM-558`), os quatro tetos por minuto do servidor MCP passam a 5.000: requisições por IP (era 120), requisições por token (era 60), escritas por token (era 20) e escritas por pessoa (era 40). Janela e mecanismo não mudam. Os valores ficam em `apps/api/src/mcp/mcp-limits.ts` e `access-token.service.ts`, e as descrições das ferramentas leem as constantes.
