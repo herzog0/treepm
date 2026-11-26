@@ -19,7 +19,7 @@ import type * as Content from "./nodeContent.js";
 import type * as Zoom from "./zoom.js";
 
 // Quadros do mapa (TREEPM-247). Uma sequência fixa de gestos numa árvore gerada com semente; o DOM da cena depois de cada quadro tem de ser
-// o mesmo de antes das correções de custo (`FRAME_DIGESTS`, gravado com o código anterior). Os contadores abaixo medem trabalho por quadro, não relógio.
+// o gravado em `FRAME_DIGESTS` (as correções de custo não mudam a cena; desde a ADR 0067 os resumos são os do layout novo). Os contadores abaixo medem trabalho por quadro, não relógio.
 const counts = vi.hoisted(() => ({ maxScale: 0, nodeContent: 0 }));
 vi.mock("./zoom.js", async (importOriginal) => {
   const zoom = await importOriginal<typeof Zoom>();
@@ -68,42 +68,43 @@ async function dragBy(from: { x: number; y: number }, moves: number, onMove?: ()
   await frames(2);
 }
 
-// Gravado com o código de antes das correções (`746c882`); para regravar, esvazie a lista e copie a linha `FRAME_DIGESTS=` que o teste imprime.
+// Regravado com o layout da ADR 0067 (filhos no próprio tamanho, região mais larga); a gravação original era de antes das correções de custo (`746c882`).
+// Para regravar, esvazie a lista e copie a linha `FRAME_DIGESTS=` que o teste imprime.
 const FRAME_DIGESTS: string[] = [
-  "9003:50324a6e",
-  "9008:d323c134",
-  "36034:7c7b1129",
-  "19672:684b1d0a",
-  "11894:232bc9b9",
-  "5869:f592bacc",
-  "2629:da009a8c",
-  "1330:9513a0bc",
-  "1326:2eb6ad47",
-  "1330:99998265",
-  "1328:cd623f06",
-  "1330:bd371fe0",
-  "1329:d557bffd",
-  "1326:4f0e69d4",
-  "1326:70b8abff",
-  "1326:2beb28cd",
-  "1326:f053f80a",
-  "1326:b52d6bc2",
-  "1326:ee6cc3b2",
-  "1326:dc2d794b",
-  "1326:b8ef6322",
-  "1329:b6558dbb",
-  "1330:62605440",
-  "1328:cb40c32b",
-  "1330:aec6d216",
-  "1325:d5fdbb7e",
-  "1330:417690ff",
-  "2629:4b12e5bb",
-  "5869:44b3f5d4",
-  "11893:ddd18acb",
-  "19672:9dcde45e",
-  "36034:2c2cdd73",
-  "9009:8409c838",
-  "9003:7a64e816",
+  "9003:fd663391",
+  "34310:2c3960fb",
+  "32333:7b4342fd",
+  "39991:375c16da",
+  "20329:ab785798",
+  "8544:20b0af1d",
+  "5886:53e48314",
+  "1330:7a31e617",
+  "1326:c0c926e5",
+  "1330:58a8d9ba",
+  "1330:f420cb49",
+  "1329:20bed551",
+  "1326:5a95b7fa",
+  "1326:c90247e8",
+  "1326:3d1babf4",
+  "1326:4fdc490a",
+  "1326:e1b4fc5e",
+  "1326:f8c4a92",
+  "1326:9aff25db",
+  "1326:17738692",
+  "1326:31185554",
+  "1328:85556557",
+  "1329:636adac8",
+  "1330:637de102",
+  "1330:adeed8d0",
+  "1325:ac4c18cb",
+  "1330:f814229a",
+  "5886:cd967346",
+  "8544:17feac3d",
+  "23098:38fe3a20",
+  "39991:c7a96a24",
+  "32332:996c4a8a",
+  "34310:25f13cc2",
+  "9003:ae7098b6",
 ];
 
 describe("quadros do mapa em árvore gerada", () => {
@@ -111,7 +112,7 @@ describe("quadros do mapa em árvore gerada", () => {
   afterAll(async () => {
     await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
   });
-  it("o DOM da cena depois de cada quadro é o de antes das correções, e o quadro de arraste não refaz nem o conteúdo dos nós nem a escala máxima", async () => {
+  it("o DOM da cena depois de cada quadro é o gravado, e o quadro de arraste não refaz nem o conteúdo dos nós nem a escala máxima", async () => {
     await page.viewport(1440, 900);
     // Sem movimento suave o zoom da roda salta direto ao destino: a sequência não depende do relógio.
     await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
