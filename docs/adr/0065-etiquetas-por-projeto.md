@@ -1,0 +1,75 @@
+# 0065 — Etiquetas por projeto
+
+- **Data:** 2026-11-26
+- **Situação:** pedido de Teodoro em 2026-11-25 (`TREEPM-466`). No mapa dos atributos do Linear ele marcou "Etiquetas" (I-01: "etiquetas por projeto, com cor, filtro no mapa e na busca") como implementar. O desenho abaixo é da coordenação, por delegação. O que muda o mapa (filtro e etiqueta no card) **espera a aprovação dele na tela**, pelo Claude Design. Completa a [ADR 0061](0061-sincronizar-com-o-linear.md).
+
+## Contexto
+
+A árvore diz onde o ticket mora, e a situação diz em que pé ele está. Falta um jeito de marcar o que atravessa a árvore: "bug", "dívida técnica", "cliente X", "precisa de decisão". No Linear isso são as etiquetas, e quem importa de lá perde todas.
+
+A dor não é ter a palavra escrita no ticket: é **achar e ver junto** o que tem a mesma marca, espalhado pela árvore. Por isso o filtro no mapa é o centro do atributo, e a etiqueta sem filtro seria só decoração.
+
+**Etiqueta não é área.** O TreePM já tem áreas: são as disciplinas da organização (design, engenharia), valem para a organização inteira e carregam a contribuição de cada disciplina no ticket. Etiqueta é do projeto, livre, sem estado. Um time que usa no Linear etiquetas com nome de disciplina ("Frontend") vai ter as duas coisas; a importação não tenta adivinhar que uma etiqueta é uma área.
+
+## Decisão
+
+### 1. O que é
+
+- Cada **projeto** tem a própria lista de etiquetas: nome (até 60 caracteres, único no projeto sem diferenciar maiúsculas) e cor. Não há etiqueta da organização: o pedido é por projeto, e uma lista global vira depósito.
+- Um ticket tem zero ou mais etiquetas do projeto dele. Limite de 20 por ticket e de 200 por projeto, para o seletor e o filtro continuarem usáveis.
+- Etiqueta não tem hierarquia, não é herdada pelos filhos e não muda cor de card, propagação, fila nem progresso.
+
+### 2. Cor
+
+- A cor vem de uma **paleta fixa de oito**, escolhida para ler bem no tema escuro e no claro e para não se confundir com as cinco cores de situação do mapa (ADR 0051). Cor livre deixaria alguém pintar uma etiqueta com o verde de "concluído" e o mapa passaria a mentir.
+- A cor do Linear (qualquer hexadecimal) é convertida para a mais próxima da paleta na importação.
+
+### 3. Quem mexe
+
+- Quem pode editar o ticket põe e tira etiquetas, e **cria uma etiqueta nova digitando o nome** no seletor: se criar etiqueta exigir ir às configurações, ninguém cria.
+- Renomear, trocar a cor e apagar é de quem administra o projeto, numa lista nas configurações do projeto. Apagar tira a etiqueta de todos os tickets, com confirmação que diz quantos.
+- Pôr e tirar etiqueta vira evento na linha do tempo do ticket. Sem notificação.
+
+### 4. Onde aparece
+
+- **Página do ticket:** campo "Etiquetas" com as etiquetas como pastilhas coloridas e o seletor com busca e criação.
+- **Mapa** (espera aprovação, ver abaixo): filtro por etiqueta, que mantém a árvore e apaga visualmente o que não tem a etiqueta, no molde dos filtros que já existem; e as etiquetas no card nos níveis de detalhe com texto, como pontos de cor (com o nome só quando couber).
+- **Busca:** por etiqueta, sozinha ou junto de texto.
+- **MCP:** as leituras de ticket trazem os nomes das etiquetas; `list_labels` lista as do projeto; `update_ticket` e `create_ticket` aceitam etiquetas pelo nome (criando as que não existem, com o alcance de escrita).
+- **Assistente:** os nomes das etiquetas **não vão ao provedor de IA** nesta ADR. É texto de configuração do projeto e ajudaria o assistente ("quais bugs estão abertos?"), mas é categoria nova de dado e uma etiqueta pode ser o nome de um cliente ou de uma pessoa. Fica perguntado a Teodoro, junto com o prazo (ADR 0064).
+
+### 5. Linear
+
+- As etiquetas das issues importadas viram etiquetas do projeto: só as que alguma issue importada usa, não o catálogo inteiro do workspace. O vínculo é pelo identificador da etiqueta no Linear; renomear lá renomeia aqui, a menos que o nome tenha sido mudado aqui.
+- Grupo de etiquetas do Linear não existe aqui: a etiqueta entra com o próprio nome. Se duas etiquetas de grupos diferentes têm o mesmo nome, a segunda entra com o nome do grupo na frente.
+- Etiqueta do Linear com o mesmo nome de uma etiqueta que já existe no projeto é **adotada**: não nasce uma segunda.
+- No ticket, vale a regra das coisas que são muitas por ticket (ADR 0061, seção 3): etiqueta posta no Linear chega; tirada no Linear sai daqui, se não foi posta aqui; tirada aqui não volta; posta aqui fica.
+- Nada da origem (identificador da etiqueta no Linear) vai a provedor de IA nem sai pelo MCP.
+
+## Telas que passam pelo Claude Design antes da implementação
+
+1. O filtro por etiqueta no mapa.
+2. As etiquetas no card, nos níveis de detalhe com texto.
+
+O campo na página do ticket e a lista nas configurações seguem os padrões que já existem e não esperam.
+
+## Fatias
+
+1. **Banco, API, página do ticket, linha do tempo, configurações do projeto, MCP e Linear.** Não toca no mapa.
+2. **Filtro no mapa, etiqueta no card e busca**, depois da aprovação da tela.
+
+## Alternativas descartadas
+
+- **Usar as áreas como etiquetas.** Área é disciplina da organização, com contribuição e estado; misturar marcas livres ali estragaria as duas coisas.
+- **Etiquetas da organização, compartilhadas entre projetos.** Útil para quem quer ver "bug" em tudo, mas pede governança (quem cria, quem apaga) e não foi o que ele pediu. Pode vir depois, por cima desta.
+- **Cor livre.** Ver a seção 2.
+
+## Em aberto
+
+- Nomes de etiqueta no assistente (pergunta a Teodoro).
+- Filtro por etiqueta atravessando projetos, no mapa da organização.
+
+## Consequências
+
+- O mapa ganha o primeiro filtro que não segue a árvore nem a situação.
+- Mais um conjunto por ticket para a sincronização do Linear acompanhar, com a mesma regra dos comentários e das relações.
