@@ -7,14 +7,13 @@ import {
   canImportTickets,
   canRemoveTicket,
   canViewTickets,
+  deriveParentStatuses,
   descriptionExcerpt,
   isFinished,
-  isTurn,
-  openChildCount,
+  isStatusDerived,
+  parentStatusFrom,
   parentWouldCreateCycle,
   ticketProgress,
-  ticketsOfTheTurn,
-  ticketsToReopen,
 } from "./tickets.js";
 import type { TicketNode } from "./tickets.js";
 
@@ -129,79 +128,6 @@ describe("ticketProgress", () => {
   });
 });
 
-describe("openChildCount", () => {
-  it("counts only direct children that are open", () => {
-    const tickets = [
-      node("p", null),
-      node("a", "p", "todo"),
-      node("b", "p", "in_review"),
-      node("c", "p", "done"),
-      node("d", "p", "cancelled"),
-      node("e", "c", "todo"), // neto aberto não conta para p
-    ];
-    expect(openChildCount(tickets, "p")).toBe(2);
-    expect(openChildCount(tickets, "c")).toBe(1);
-    expect(openChildCount(tickets, "a")).toBe(0);
-  });
-});
-
-describe("isTurn / ticketsOfTheTurn", () => {
-  const of = (tickets: TicketNode[]) => ticketsOfTheTurn(tickets);
-
-  it("an open leaf is of the turn; a finished leaf is not", () => {
-    const turn = of([node("a", null, "todo"), node("b", null, "done"), node("c", null, "cancelled"), node("d", null, "in_review")]);
-    expect([...turn].sort()).toEqual(["a", "d"]);
-  });
-
-  it("a parent with an open descendant is not of the turn", () => {
-    const turn = of([node("p", null), node("c", "p", "done"), node("n", "c", "todo")]);
-    expect(turn.has("p")).toBe(false);
-    expect(turn.has("c")).toBe(false); // finalizado
-    expect(turn.has("n")).toBe(true);
-  });
-
-  it("a parent whose descendants are all finished (done or cancelled) is of the turn", () => {
-    const turn = of([node("p", null), node("a", "p", "done"), node("b", "p", "cancelled"), node("c", "b", "todo")]);
-    // b está cancelado mas tem neto aberto: p tem descendente aberto (c).
-    expect(turn.has("p")).toBe(false);
-    const done = of([node("p", null), node("a", "p", "done"), node("b", "p", "cancelled"), node("c", "b", "done")]);
-    expect(done.has("p")).toBe(true);
-  });
-
-  it("a finished parent is never of the turn, even with an open child", () => {
-    expect(of([node("p", null, "done"), node("c", "p", "todo")]).has("p")).toBe(false);
-  });
-
-  it("isTurn from status and progress is the same rule the web uses and agrees with the graph rule", () => {
-    const tickets = [
-      node("a", null),
-      node("a1", "a", "done"),
-      node("a2", "a", "cancelled"),
-      node("b", null),
-      node("b1", "b", "done"),
-      node("b2", "b1", "todo"),
-      node("c", null, "cancelled"),
-      node("c1", "c", "todo"),
-      node("d", null, "done"),
-      node("e", null, "in_progress"),
-      node("e1", "e", "cancelled"),
-      node("e2", "e1", "cancelled"),
-      node("f", null, "in_review"),
-      node("f1", "f", "in_progress"),
-    ];
-    const progress = ticketProgress(tickets);
-    const turn = ticketsOfTheTurn(tickets);
-    for (const ticket of tickets) {
-      expect(isTurn(ticket.status, progress.get(ticket.id) ?? null), ticket.id).toBe(turn.has(ticket.id));
-    }
-    expect(isTurn("todo", null)).toBe(true);
-    expect(isTurn("todo", { done: 1, total: 1, excluded: 3, ideas: 0 })).toBe(true);
-    expect(isTurn("todo", { done: 0, total: 0, excluded: 2, ideas: 0 })).toBe(true);
-    expect(isTurn("todo", { done: 1, total: 2, excluded: 0, ideas: 0 })).toBe(false);
-    expect(isTurn("done", null)).toBe(false);
-  });
-});
-
 describe("parentWouldCreateCycle", () => {
   const parents = new Map<string, string | null>([
     ["a", null],
@@ -282,33 +208,73 @@ describe("descriptionExcerpt", () => {
   });
 });
 
-describe("ticketsToReopen", () => {
-  const tree = (rows: [string, string | null, TicketNode["status"]][]) => ({
-    parents: new Map(rows.map(([id, parent]) => [id, parent])),
-    statuses: new Map(rows.map(([id, , status]) => [id, status])),
+describe("parentStatusFrom (ADR 0068, seção 2: a situação do pai sai dos filhos)", () => {
+  it("sem filho (sem contar ideias): não há situação calculada", () => {
+    expect(parentStatusFrom([])).toBeNull();
   });
 
-  it("pai done: reabre o pai", () => {
-    const { parents, statuses } = tree([["p", null, "done"]]);
-    expect(ticketsToReopen(parents, statuses, "p")).toEqual(["p"]);
+  it("todos cancelados: cancelado", () => {
+    expect(parentStatusFrom(["cancelled"])).toBe("cancelled");
+    expect(parentStatusFrom(["cancelled", "cancelled"])).toBe("cancelled");
   });
 
-  it("cadeia de três done: de baixo para cima", () => {
-    const { parents, statuses } = tree([["a", null, "done"], ["b", "a", "done"], ["c", "b", "done"]]);
-    expect(ticketsToReopen(parents, statuses, "c")).toEqual(["c", "b", "a"]);
+  it("todos concluídos ou cancelados, com pelo menos um concluído: concluído", () => {
+    expect(parentStatusFrom(["done"])).toBe("done");
+    expect(parentStatusFrom(["done", "cancelled", "done"])).toBe("done");
   });
 
-  it("para no primeiro ancestral que não está done: cancelled interrompe a subida", () => {
-    const { parents, statuses } = tree([["a", null, "done"], ["b", "a", "cancelled"], ["c", "b", "done"]]);
-    expect(ticketsToReopen(parents, statuses, "c")).toEqual(["c"]);
-    const open = tree([["a", null, "done"], ["b", "a", "in_progress"], ["c", "b", "done"]]);
-    expect(ticketsToReopen(open.parents, open.statuses, "c")).toEqual(["c"]);
+  it("algum em andamento, em revisão ou concluído, e ainda há filho aberto: em andamento", () => {
+    expect(parentStatusFrom(["in_progress"])).toBe("in_progress");
+    expect(parentStatusFrom(["in_review"])).toBe("in_progress");
+    expect(parentStatusFrom(["done", "todo"])).toBe("in_progress");
+    expect(parentStatusFrom(["todo", "in_review", "cancelled"])).toBe("in_progress");
   });
 
-  it("pai aberto ou cancelado: nada; sem pai (raiz): nada", () => {
-    const { parents, statuses } = tree([["a", null, "todo"], ["b", null, "cancelled"]]);
-    expect(ticketsToReopen(parents, statuses, "a")).toEqual([]);
-    expect(ticketsToReopen(parents, statuses, "b")).toEqual([]);
-    expect(ticketsToReopen(parents, statuses, null)).toEqual([]);
+  it("os demais casos: a fazer", () => {
+    expect(parentStatusFrom(["todo"])).toBe("todo");
+    expect(parentStatusFrom(["todo", "cancelled"])).toBe("todo");
+  });
+});
+
+describe("deriveParentStatuses", () => {
+  const n = (id: string, parentId: string | null, status: TicketNode["status"] = "todo", ideaStage: TicketNode["ideaStage"] = null): TicketNode => ({ id, parentId, status, ideaStage });
+
+  it("refaz de baixo para cima, cada pai com a situação já refeita dos filhos", () => {
+    const tree = [n("a", null, "todo"), n("b", "a", "todo"), n("c", "b", "done"), n("d", "a", "done")];
+    expect(deriveParentStatuses(tree, ["b", "a"])).toEqual(new Map([["b", "done"], ["a", "done"]]));
+  });
+
+  it("só devolve quem tem a situação calculada: sem filho fica de fora", () => {
+    const tree = [n("a", null, "in_review"), n("x", null, "done"), n("y", "x", "todo")];
+    expect(deriveParentStatuses(tree, ["a", "x"])).toEqual(new Map([["x", "todo"]]));
+  });
+
+  it("ideias não contam: filho raiz de ideia fica fora da conta; só ideias = sem situação calculada", () => {
+    const tree = [n("p", null, "done"), n("i", "p", "todo", "new"), n("k", "p", "done")];
+    expect(deriveParentStatuses(tree, ["p"])).toEqual(new Map([["p", "done"]]));
+    const onlyIdeas = [n("q", null, "in_review"), n("j", "q", "todo", "refining")];
+    expect(deriveParentStatuses(onlyIdeas, ["q"])).toEqual(new Map());
+  });
+
+  it("dentro de uma ideia (a raiz incluída) nada é calculado: a situação fica parada até o aceite", () => {
+    const tree = [n("r", null, "todo", "new"), n("s", "r", "todo"), n("t", "s", "cancelled")];
+    expect(deriveParentStatuses(tree, ["s", "r"])).toEqual(new Map());
+  });
+
+  it("ordem dada fora de ordem: o resultado é o mesmo (de baixo para cima pela árvore)", () => {
+    const tree = [n("a", null), n("b", "a"), n("c", "b", "cancelled")];
+    expect(deriveParentStatuses(tree, ["a", "b"])).toEqual(new Map([["b", "cancelled"], ["a", "cancelled"]]));
+  });
+});
+
+describe("isStatusDerived (pela leitura do progresso)", () => {
+  it("sem filhos, ou só ideias embaixo: marcada à mão", () => {
+    expect(isStatusDerived(null)).toBe(false);
+    expect(isStatusDerived({ done: 0, total: 0, excluded: 0, ideas: 2 })).toBe(false);
+  });
+
+  it("algum filho que não é ideia, mesmo cancelado: calculada", () => {
+    expect(isStatusDerived({ done: 0, total: 1, excluded: 0, ideas: 0 })).toBe(true);
+    expect(isStatusDerived({ done: 0, total: 0, excluded: 1, ideas: 0 })).toBe(true);
   });
 });

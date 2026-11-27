@@ -194,7 +194,7 @@ export type TicketOutput = Omit<z.infer<typeof getTicketOutput>, "path" | "child
 const MEANING_LINEAR = "`linear` says where an imported ticket came from in Linear (its identifier and address).";
 
 const MEANING =
-  "Tickets form a tree: the parent is the ticket a ticket is part of. " +
+  "Tickets form a tree: the parent is the ticket a ticket is part of. A ticket with child tickets (ideas do not count) has its status computed from them. " +
   "An idea is not accepted work yet: `idea` says whether a ticket is the root of an idea or inside one. " +
   "Priority: `priority` is the ticket's own number (-999 to 999, 0 by default, higher comes first) and `effective_priority` the one that counts, inherited from the nearest ancestor with a non-zero priority. " +
   "Due date: `dueDate` is a calendar day (YYYY-MM-DD, no time, no time zone) or null; `overdue` is true when that day is before today and the ticket is todo, in_progress or in_review and is not an idea (an idea is never overdue). Today is the current day in UTC, so near midnight it can differ from the TreePM screen, which uses the viewer's day. A ticket's due date is its own: it is not inherited from or imposed on its parent or children, and it does not change the order of the work queue. " +

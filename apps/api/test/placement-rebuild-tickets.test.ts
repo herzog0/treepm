@@ -79,8 +79,9 @@ describe("ticket-list", () => {
     const key = (await rows(project))[0]?.key.split("-")[0] as string;
     await ticketListCommand(ctx, false);
     expect(lines).toEqual([
-      `${key}-1  [todo]  Alfa  (1 de 3)`,
-      `  ${key}-2  [todo]  Beta  (1 de 1)`,
+      // A situação de quem tem filhos sai deles (ADR 0068).
+      `${key}-1  [in_progress]  Alfa  (2 de 3)`,
+      `  ${key}-2  [done]  Beta  (1 de 1)`,
       `    ${key}-3  [done]  Gama`,
       `  ${key}-5  [in_progress]  Épsilon`,
       `${key}-4  [todo]  Delta`,
@@ -94,7 +95,7 @@ describe("ticket-list", () => {
     const parsed = JSON.parse(lines[0] as string) as Record<string, unknown>[];
     const key = (await rows(project))[0]?.key.split("-")[0] as string;
     expect(parsed.map((r) => r["number"])).toEqual([1, 2, 3, 5, 4]);
-    expect(parsed[0]).toEqual({ key: `${key}-1`, number: 1, id: ids.a, parentNumber: null, status: "todo", title: "Alfa", progress: { done: 1, total: 3, excluded: 0, ideas: 0 }, idea: null });
+    expect(parsed[0]).toEqual({ key: `${key}-1`, number: 1, id: ids.a, parentNumber: null, status: "in_progress", title: "Alfa", progress: { done: 2, total: 3, excluded: 0, ideas: 0 }, idea: null });
     expect(parsed[2]).toEqual({ key: `${key}-3`, number: 3, id: ids.c, parentNumber: 2, status: "done", title: "Gama", progress: null, idea: null });
     expect(Object.keys(parsed[0] as object).sort()).toEqual(["id", "idea", "key", "number", "parentNumber", "progress", "status", "title"]);
   });
@@ -195,10 +196,10 @@ describe("ticket-update", () => {
     expect(lines.join("\n")).toMatch(/pai/);
   });
 
-  it("concluir com filho aberto mostra o código da API e falha", async () => {
+  it("mudar a situação de um pai mostra o código da API e falha (ADR 0068: a situação sai dos filhos)", async () => {
     const a = await add(project, "A");
     await add(project, "B", a);
-    await expect(ticketUpdateCommand(ctx, { number: 1, status: "done" })).rejects.toThrow(/ticket_has_open_children/);
+    await expect(ticketUpdateCommand(ctx, { number: 1, status: "done" })).rejects.toThrow(/status_is_derived/);
     expect((await detail(a)).status).toBe("todo");
   });
 
@@ -206,7 +207,7 @@ describe("ticket-update", () => {
     const a = await add(project, "A");
     await add(project, "B", a);
     const error = (await ticketUpdateCommand(ctx, { number: 1, status: "done" }).catch((e: unknown) => e)) as Error;
-    expect(error.message).toMatch(/Conclua ou cancele/);
+    expect(error.message).toMatch(/vem dos itens dele/);
     expect(error.name).toBe("TicketCommandError");
   });
 

@@ -169,3 +169,49 @@ describe("migration 0049 sobre dados da 0048", () => {
     ]);
   });
 });
+
+// O merge com a situação calculada do pai (0051): 0049 e 0051 aplicadas em ordem sobre dados da 0048 (não há 0050).
+const DB_BOTH = "treepm_migration_0049_0051";
+describe("migrations 0049 e 0051, em ordem, sobre dados da 0048", () => {
+  let admin: pg.Client;
+  let db: pg.Client;
+  beforeAll(async () => {
+    admin = new pg.Client({ connectionString: OWNER_URL });
+    await admin.connect();
+    await admin.query(`drop database if exists ${DB_BOTH} with (force)`);
+    await admin.query(`create database ${DB_BOTH}`);
+    db = new pg.Client({ connectionString: OWNER_URL.replace(/\/[^/]+$/, `/${DB_BOTH}`) });
+    await db.connect();
+    const names = readdirSync(MIGRATIONS).filter((n) => /^\d{4}_/.test(n)).sort();
+    for (const name of names.filter((n) => n < "0049")) await db.query(readFileSync(`${MIGRATIONS}${name}/migration.sql`, "utf8"));
+  });
+  afterAll(async () => {
+    await db.end();
+    await admin.query(`drop database if exists ${DB_BOTH} with (force)`);
+    await admin.end();
+  });
+
+  it("a dependência vira 'para começar', o pai passa a ter a situação dos filhos, e o gatilho do need segue valendo", async () => {
+    const one = async (sql: string, params: unknown[] = []) => ((await db.query<{ id: string }>(sql, params)).rows[0] as { id: string }).id;
+    await db.query("insert into organizations (org_id, name, slug) values ('o', 'O', 'o')");
+    const person = await one("insert into people (org_id, clerk_user_id, display_name, email, clerk_role) values ('o', 'u', 'U', 'u@x.io', 'member') returning id");
+    const project = await one("insert into projects (org_id, name, key) values ('o', 'P', 'P') returning id");
+    let n = 0;
+    const t = async (status: string, parent: string | null = null) =>
+      one("insert into tickets (org_id, project_id, number, parent_id, status, title, created_by_person_id) values ('o', $1, $2, $3, $4, 'T', $5) returning id", [project, ++n, parent, status, person]);
+    const parent = await t("todo");
+    const a = await t("done", parent);
+    await t("cancelled", parent);
+    const solo = await t("todo");
+    await db.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ('o', $1, $2, $3, 'depends_on')", [project, solo, a]);
+
+    for (const name of ["0049_dependency_need_and_impediment", "0051_parent_status_derived"]) await db.query(readFileSync(`${MIGRATIONS}${name}/migration.sql`, "utf8"));
+    const names = readdirSync(MIGRATIONS).filter((m) => /^\d{4}_/.test(m)).sort();
+    expect(names.filter((m) => m >= "0049")).toEqual(["0049_dependency_need_and_impediment", "0051_parent_status_derived"]);
+
+    expect((await db.query("select need from ticket_relations where from_ticket_id = $1", [solo])).rows).toEqual([{ need: "start" }]);
+    expect((await db.query("select status, impediment_reason from tickets where id = $1", [parent])).rows[0]).toEqual({ status: "done", impediment_reason: null });
+    await db.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ('o', $1, $2, $3, 'depends_on')", [project, parent, solo]);
+    expect((await db.query("select need from ticket_relations where from_ticket_id = $1", [parent])).rows).toEqual([{ need: "start" }]);
+  });
+});

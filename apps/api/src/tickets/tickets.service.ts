@@ -2,7 +2,7 @@ import { lockProjectStructure } from "./structure-lock.js";
 import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
 import type { z } from "zod";
-import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, createsDependencyCycle, DependencyGraph, descriptionExcerpt, relatedPair, mentionsPersonRaw, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, safeLinearKey, safeLinearUrl, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
+import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, createsDependencyCycle, DependencyGraph, deriveParentStatuses, descriptionExcerpt, relatedPair, mentionsPersonRaw, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, safeLinearKey, safeLinearUrl, statusChangeAllowed } from "@treepm/domain";
 import type { Actor, DependencyNeed, IdeaStage, QueuePlace, TicketNode, TicketStatus, ticketProgress } from "@treepm/domain";
 import { buildActor } from "../access/actor.js";
 import { AuthorizationService } from "../access/authorization.service.js";
@@ -194,6 +194,33 @@ export function toDetail(project: Pick<ProjectRow, "key">, row: TicketDetailRow,
   });
 }
 
+/** Uma linha travada por `lockTicketSet`, como o banco a devolve. */
+export type AncestorRow = { id: string; parent_id: string | null; status: string; idea_stage: string | null; number: number };
+
+/** Os ids da floresta `parents` (id → pai), do mais fundo para a raiz; na mesma profundidade, por id. */
+function deepestFirst(parents: ReadonlyMap<string, string | null>): string[] {
+  const depth = new Map<string, number>();
+  const depthOf = (id: string): number => {
+    const known = depth.get(id);
+    if (known !== undefined) return known;
+    const path: string[] = [];
+    let cursor: string | null = id;
+    let base = 0;
+    while (cursor !== null && parents.has(cursor) && !path.includes(cursor)) {
+      const cached = depth.get(cursor);
+      if (cached !== undefined) {
+        base = cached + 1;
+        break;
+      }
+      path.push(cursor);
+      cursor = parents.get(cursor) ?? null;
+    }
+    path.reverse().forEach((node, index) => depth.set(node, base + index));
+    return depth.get(id) as number;
+  };
+  return [...parents.keys()].sort((a, b) => depthOf(b) - depthOf(a) || (a < b ? -1 : a > b ? 1 : 0));
+}
+
 /** Regras de ticket compartilhadas pelo controlador de tickets e pela criação vinda da conversa com a IA (ADR 0029). */
 @Injectable()
 export class TicketsService {
@@ -212,8 +239,8 @@ export class TicketsService {
   /**
    * Alterar um ticket (título, descrição, situação, pai): o caminho ÚNICO de regras, chamado pela rota HTTP
    * (`PATCH tickets/:id`) e pelo MCP (ADR 0043). Faz tudo na ordem de sempre: visibilidade (404), permissão (403),
-   * projeto arquivado (409), pai e ciclo, ideias, reabertura dos ancestrais (de baixo para cima, antes de qualquer
-   * outro bloqueio), a regra 5 das ideias com a linha travada, concluir com filho aberto e, por fim, a gravação e o evento.
+   * projeto arquivado (409), pai e ciclo, ideias, a regra 5 das ideias com a linha travada, a situação calculada de um pai
+   * (409 `status_is_derived`, ADR 0068), a gravação e o evento e, por fim, a situação refeita dos pais (antigo e novo) até a raiz.
    * `options.event` acrescenta campos ao evento (um processo automático marca `automatic` e a origem; nunca muda as regras acima).
    */
   async updateTicket(tx: TenantClient, principal: Principal, id: string, body: UpdateTicketInput, options: { event?: Record<string, unknown> } = {}): Promise<TicketPage> {
@@ -280,19 +307,26 @@ export class TicketsService {
     }
     const fields = Object.keys(data);
     // Versão do projeto (ADR 0046): só marca; o toque sai no fim da transação. Tudo o que muda o resumo passa por `fields`
-    // (reabrir pais, encerrar marcador e limpar a subárvore só acontecem quando `data.status` ou `data.parentId` existem).
+    // (refazer a situação dos pais, encerrar marcador e limpar a subárvore só acontecem quando `data.status` ou `data.parentId` existem).
     if (fields.length > 0) await touchProjectVersion(tx, project.id);
-    const finalStatus = (data.status ?? ticket.status) as TicketStatus;
-    const finalParent = body.parentId !== undefined ? body.parentId : ticket.parentId;
+    // A situação ou o pai mudam (ADR 0068, revisão 1): antes de qualquer outra trava de linha, a ordem única (`lockTicketSet`) trava
+    // num comando só o ticket com a subida dele, a subida do pai novo e, se a mudança cruza a borda de uma ideia, a subárvore. O pai
+    // atual é o lido COM a trava: uma mudança só de situação que leu o ticket antes de um movimento confirmar sobe pelo pai novo.
+    let currentParent = ticket.parentId;
+    if (data.status !== undefined || data.parentId !== undefined) {
+      // Mudança de pai: com a trava de estrutura, as ideias em volta não mudam até o fim, então a leitura sem trava de linha vale.
+      const crossing = data.parentId !== undefined && ticket.ideaStage === null && ((await this.ideaRootFor(tx, project, data.parentId)) !== null || (await this.ideaRootFor(tx, project, ticket.parentId)) !== null);
+      const locked = await this.lockTicketSet(tx, project, { ids: [id], ancestorsOf: [id, data.parentId], subtreeOf: crossing ? [id] : [] });
+      currentParent = locked.get(id)?.parent_id ?? ticket.parentId;
+    }
+    const finalParent = body.parentId !== undefined ? body.parentId : currentParent;
     // Ideias (ADR 0042): a raiz, ou um ticket dentro de uma, está fora do processo. A posição que vale é a final: quem sai da
     // ideia no mesmo pedido já muda de situação como ticket comum, e quem entra não muda.
     const parentIdea = data.parentId !== undefined || data.status !== undefined ? await this.ideaRootFor(tx, project, finalParent) : null;
-    const outside = ticket.ideaStage !== null || parentIdea !== null;
     if (data.parentId !== undefined && parentIdea !== null) {
-      // Trabalho em andamento não vira ideia por arrasto: o ticket e os descendentes `todo` ou `cancelled`. A subárvore é
-      // travada (`for update`) antes de ler as situações: uma mudança de situação ainda não confirmada de um descendente
+      // Trabalho em andamento não vira ideia por arrasto: o ticket e os descendentes `todo` ou `cancelled`. A subárvore já está
+      // travada (`for update`, acima) antes de ler as situações: uma mudança de situação ainda não confirmada de um descendente
       // faz esta espera e, ao confirmar, é vista (risco residual da ADR 0042, fechado pela ADR 0045).
-      await this.lockSubtree(tx, project, id);
       // O próprio ticket também é relido depois da trava de linha: a situação da leitura de antes pode já não valer.
       const fresh = await tx.ticket.findFirstOrThrow({ where: { id }, select: { status: true } });
       if (!canMoveIntoIdea(fresh.status as TicketStatus, await this.descendantStatuses(tx, project, id))) {
@@ -302,11 +336,6 @@ export class TicketsService {
         });
       }
     }
-    // Reabertura (ADR 0034): ticket aberto que entra num pai (mudou de pai ou voltou a ficar aberto) reabre o pai `done`.
-    // Antes de qualquer outro bloqueio da transação, de baixo para cima. Fora do processo, nada reabre (ADR 0042).
-    if (finalParent && !outside && !isFinished(finalStatus) && (data.parentId !== undefined || data.status !== undefined)) {
-      await this.reopenAncestors(tx, principal, project, finalParent, `${project.key}-${ticket.number}`, options.event ?? {});
-    }
     if (data.status !== undefined) {
       // Regra 5 (ADR 0042). Trava a linha e confere de novo: uma transformação em ideia que acabou de confirmar vale a partir daqui.
       // O pai e a situação também vêm da linha travada: um movimento para dentro de uma ideia que acabou de confirmar vale a partir daqui.
@@ -314,8 +343,11 @@ export class TicketsService {
       const lockedParent = body.parentId !== undefined ? body.parentId : (locked[0]?.parent_id ?? null);
       const inside = locked[0]?.idea_stage != null || (await this.ideaRootFor(tx, project, lockedParent)) !== null;
       if (!statusChangeAllowed(inside, (locked[0]?.status ?? ticket.status) as TicketStatus, data.status as TicketStatus)) this.throwInIdea();
+      // ADR 0068: a situação de um pai sai dos filhos. Contados já com a linha travada: a chave estrangeira de um filho novo ainda
+      // não confirmado trava esta linha, então a mudança espera e, ao confirmar, o vê.
+      if (!inside) await this.requireNotDerived(tx, id);
     }
-    if (data.status === "done") await this.requireNoOpenChildren(tx, id);
+    // Concluir exige as dependências "para entregar" finalizadas (ADR 0068, seção 3); a trava de dependências já foi pega no começo.
     if (data.status === "done") await this.requireNoOpenDeliveryDependencies(tx, project, id);
     // O marcador de trabalho pela IA (ADR 0043) acaba ANTES da gravação da situação: o banco recusa concluído ou cancelado com marcador.
     if (data.status === "done" || data.status === "cancelled") await this.agentWork.clearTicket(tx, principal, project.key, id, "finished");
@@ -329,6 +361,13 @@ export class TicketsService {
         subjectId: id,
         payload: { key: `${project.key}-${ticket.number}`, fields, ...changes, ...(options.event ?? {}) },
       });
+    }
+    // A situação calculada (ADR 0068): o pai de agora (e o antigo, numa mudança de pai) e os ancestrais, até a raiz. Quem sai de
+    // uma ideia volta ao processo com a subárvore: os pais de dentro dela, parados até aqui, são refeitos também.
+    if (data.status !== undefined || data.parentId !== undefined) {
+      const leftIdea = data.parentId !== undefined && ticket.ideaStage === null && parentIdea === null && (await this.ideaRootFor(tx, project, currentParent)) !== null;
+      const starts = [finalParent, ...(data.parentId !== undefined ? [currentParent] : []), ...(leftIdea ? await this.subtreeParents(tx, project, id) : [])];
+      await this.deriveStatuses(tx, principal, project, starts, { causedBy: `${project.key}-${ticket.number}`, ...(options.event ?? {}) });
     }
     // Entrando numa ideia, o marcador acaba junto, com a subárvore.
     if (data.parentId !== undefined && parentIdea !== null) await this.agentWork.clearSubtree(tx, principal, project, id, "idea");
@@ -359,24 +398,12 @@ export class TicketsService {
   }
 
   /**
-   * Concluir exige todos os filhos diretos finalizados (ADR 0034): 409 `ticket_has_open_children` com a contagem em
-   * `details.openChildCount`. A conferência e a escrita acontecem na mesma transação, depois de travar a linha do
-   * ticket (`for update`), o mesmo bloqueio de que a chave estrangeira do pai precisa para gravar um filho: um filho
-   * novo ainda não confirmado faz a conclusão esperar e, ao confirmar, ser vista e recusada.
+   * Situação calculada (ADR 0068): o ticket tem pelo menos um filho que não é ideia, e então a situação dele sai dos filhos e não
+   * é marcada à mão (409 `status_is_derived`). Quem chama já travou a linha do ticket e sabe que ele não está dentro de uma ideia.
    */
-  private async requireNoOpenChildren(tx: TenantClient, id: string): Promise<void> {
-    await tx.$queryRaw`select id from tickets where id = ${id}::uuid for update`;
-    // A ideia (a raiz de ideia filha) não conta como filho aberto (ADR 0042).
-    const open = await tx.ticket.count({ where: { parentId: id, status: { notIn: ["done", "cancelled"] }, ideaStage: null } });
-    if (open > 0) {
-      throw new ConflictException({
-        code: "ticket_has_open_children",
-        message:
-          open === 1
-            ? "Conclua ou cancele o item aberto antes de concluir este ticket."
-            : `Conclua ou cancele os ${open} itens abertos antes de concluir este ticket.`,
-        details: { openChildCount: open },
-      });
+  private async requireNotDerived(tx: TenantClient, id: string): Promise<void> {
+    if ((await tx.ticket.count({ where: { parentId: id, ideaStage: null } })) > 0) {
+      throw new ConflictException({ code: "status_is_derived", message: "A situação deste ticket vem dos itens dele; mude a situação dos itens." });
     }
   }
 
@@ -408,8 +435,9 @@ export class TicketsService {
     const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
     this.authorization.editTicket(principal.actor, project.id);
     this.requireActive(project);
-    // A linha travada decide a situação: uma conclusão que acabou de confirmar vale a partir daqui.
-    const locked = await tx.$queryRaw<{ status: string; impediment_reason: string | null }[]>`select status, impediment_reason from tickets where id = ${id}::uuid for update`;
+    // A linha travada pela ordem única (`lockTicketSet`) decide a situação: uma conclusão que acabou de confirmar vale a partir daqui.
+    await this.lockTicketSet(tx, project, { ids: [id] });
+    const locked = await tx.$queryRaw<{ status: string; impediment_reason: string | null }[]>`select status, impediment_reason from tickets where id = ${id}::uuid`;
     if (isFinished(statusOf({ status: locked[0]?.status ?? ticket.status }))) {
       throw new ConflictException({ code: "ticket_finished", message: "Ticket concluído ou cancelado não recebe impedimento." });
     }
@@ -434,6 +462,8 @@ export class TicketsService {
     const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
     this.authorization.editTicket(principal.actor, project.id);
     this.requireActive(project);
+    // A linha pela ordem única (`lockTicketSet`), antes da gravação.
+    await this.lockTicketSet(tx, project, { ids: [id] });
     await this.clearImpedimentOf(tx, principal, project, ticket);
     return this.detailFor(tx, project, id, principal);
   }
@@ -479,43 +509,147 @@ export class TicketsService {
   }
 
   /**
-   * Reabertura do pai concluído (ADR 0034): `parentId` acaba de ganhar (ou vai ganhar, nesta transação) um filho direto
-   * aberto. Trava de baixo para cima (`for update`, um ancestral por vez, parando no primeiro que não está `done`) e
-   * reabre para `todo` os que a função pura `ticketsToReopen` indicar, gravando um evento por ticket reaberto com
-   * `automatic: true` e `causedBy` (a chave do ticket que causou); `extraEvent` acrescenta a origem de um processo automático. Deve rodar ANTES de gravar o filho: a chave estrangeira
-   * do pai trava a linha do pai, e travar na ordem contrária daria impasse com "concluir".
+   * A ORDEM ÚNICA das travas de linhas de tickets (ADR 0068, revisão 1): todo caminho que trava várias linhas de tickets de um
+   * projeto pega o conjunto inteiro de que precisa NUM comando só, `for update`, em ordem crescente de `id`. O conjunto é: `ids`, mais
+   * cada ticket de `ancestorsOf` com todos os ancestrais, mais cada ticket de `subtreeOf` com todos os descendentes. Como todos usam a
+   * mesma ordem, nenhum caminho trava A e depois B enquanto outro trava B e depois A.
+   *
+   * Depois da trava, os pais são relidos: se um movimento que confirmou entre a leitura e a trava deu outro pai a algum ticket da
+   * subida (a mudança só de situação não pega a trava de estrutura), o pai novo e os ancestrais dele são travados num segundo comando.
+   * Só esse passo sai da ordem; no pior caso o PostgreSQL desfaz o impasse e a API responde 409 `concurrent_update` (dá para repetir).
+   * Deve rodar antes da reserva de números (a linha do projeto fica por último, ADR 0046). Devolve as linhas, lidas já com a trava.
    */
-  async reopenAncestors(tx: TenantClient, principal: Principal, project: ProjectRow, parentId: string | null, causedBy: string, extraEvent: Record<string, unknown> = {}): Promise<void> {
-    const parents = new Map<string, string | null>();
-    const statuses = new Map<string, TicketStatus>();
-    const numbers = new Map<string, number>();
-    for (let cursor = parentId; cursor !== null && !parents.has(cursor); ) {
-      const rows = await tx.$queryRaw<{ id: string; parent_id: string | null; status: string; number: number }[]>`
-        select id, parent_id, status, number from tickets where id = ${cursor}::uuid for update`;
-      const row = rows[0];
-      if (!row) break;
-      parents.set(row.id, row.parent_id);
-      statuses.set(row.id, ticketStatusSchema.parse(row.status));
-      numbers.set(row.id, row.number);
-      if (row.status !== "done") break;
-      cursor = row.parent_id;
+  async lockTicketSet(
+    tx: TenantClient,
+    project: Pick<ProjectRow, "orgId" | "id">,
+    spec: { ids?: readonly (string | null | undefined)[]; ancestorsOf?: readonly (string | null | undefined)[]; subtreeOf?: readonly (string | null | undefined)[] },
+  ): Promise<Map<string, AncestorRow>> {
+    const clean = (list: readonly (string | null | undefined)[] | undefined): string[] => [...new Set((list ?? []).filter((id): id is string => typeof id === "string"))];
+    const up = clean(spec.ancestorsOf);
+    const locked = new Map<string, AncestorRow>();
+    const tried = new Set<string>();
+    let wanted = await this.ticketSetIds(tx, project, clean(spec.ids), up, clean(spec.subtreeOf));
+    for (;;) {
+      const fresh = wanted.filter((id) => !tried.has(id)).sort();
+      for (const id of fresh) tried.add(id);
+      if (fresh.length > 0) {
+        // `order by` com `for update`: as linhas são travadas na ordem em que saem.
+        const rows = await tx.$queryRaw<AncestorRow[]>`
+          select id, parent_id, status, idea_stage, number from tickets
+          where org_id = ${project.orgId} and project_id = ${project.id}::uuid and id = any(${fresh}::uuid[])
+          order by id for update`;
+        for (const row of rows) locked.set(row.id, row);
+      }
+      // A subida de cada ticket de `ancestorsOf` tem de estar inteira, pelos pais relidos com a trava.
+      const missing = new Set<string>();
+      for (const start of up) {
+        const seen = new Set<string>();
+        for (let cursor: string | null = start; cursor !== null && !seen.has(cursor); ) {
+          seen.add(cursor);
+          const row = locked.get(cursor);
+          if (!row) {
+            if (!tried.has(cursor)) missing.add(cursor); // pai novo, de um movimento que confirmou no meio
+            break; // tentado e não achado: o ticket foi removido
+          }
+          cursor = row.parent_id;
+        }
+      }
+      if (missing.size === 0) return locked;
+      wanted = await this.ticketSetIds(tx, project, [], [...missing], []);
     }
-    for (const id of ticketsToReopen(parents, statuses, parentId)) {
-      await tx.ticket.update({ where: { orgId_id: { orgId: project.orgId, id } }, data: { status: "todo" } });
+  }
+
+  /** Os ids do conjunto de `lockTicketSet`, lidos sem trava numa consulta só: `ids`, as subidas de `up` e as descidas de `down`. */
+  private async ticketSetIds(tx: TenantClient, project: Pick<ProjectRow, "orgId" | "id">, ids: readonly string[], up: readonly string[], down: readonly string[]): Promise<string[]> {
+    if (up.length === 0 && down.length === 0) return [...ids];
+    const rows = await tx.$queryRaw<{ id: string }[]>`
+      with recursive up as (
+        select org_id, project_id, id, parent_id, 1 as depth
+        from tickets where org_id = ${project.orgId} and project_id = ${project.id}::uuid and id = any(${[...up]}::uuid[])
+        union all
+        select t.org_id, t.project_id, t.id, t.parent_id, up.depth + 1
+        from tickets t join up on t.org_id = up.org_id and t.project_id = up.project_id and t.id = up.parent_id
+        where up.depth < ${MAX_TREE_DEPTH}::int
+      ), down as (
+        select org_id, project_id, id, 1 as depth
+        from tickets where org_id = ${project.orgId} and project_id = ${project.id}::uuid and id = any(${[...down]}::uuid[])
+        union all
+        select t.org_id, t.project_id, t.id, down.depth + 1
+        from tickets t join down on t.org_id = down.org_id and t.project_id = down.project_id and t.parent_id = down.id
+        where down.depth < ${MAX_TREE_DEPTH}::int
+      )
+      select id from up union select id from down`;
+    return [...new Set([...ids, ...rows.map((row) => row.id)])];
+  }
+
+  /**
+   * Refaz a situação calculada (ADR 0068) dos tickets `starts` e de todos os ancestrais, até a raiz, na transação de quem escreveu:
+   * trava a cadeia (`lockTicketSet`), lê os filhos DEPOIS da trava e grava, de baixo para cima, só o que mudou. Cada mudança tem o
+   * evento automático (`automatic`, `causedBy` e os campos de `event`), marca a versão do projeto e, ao concluir ou cancelar, encerra
+   * antes o marcador de trabalho pela IA (como numa conclusão à mão). Quem tem a situação marcada à mão (sem filho que não é ideia,
+   * ou dentro de uma ideia) fica como está.
+   */
+  async deriveStatuses(tx: TenantClient, principal: Principal, project: ProjectRow, starts: readonly (string | null | undefined)[], event: Record<string, unknown> = {}): Promise<void> {
+    const ids = [...new Set(starts.filter((id): id is string => typeof id === "string"))];
+    if (ids.length === 0) return;
+    // A cadeia de cada ponto de partida até a raiz, travada pela ordem única (quase sempre já travada por quem chamou).
+    const locked = await this.lockTicketSet(tx, project, { ancestorsOf: ids });
+    const links = new Map<string, string | null>();
+    for (const start of ids) {
+      for (let row = locked.get(start); row && !links.has(row.id); row = row.parent_id === null ? undefined : locked.get(row.parent_id)) links.set(row.id, row.parent_id);
+    }
+    const chain = deepestFirst(links).map((id) => locked.get(id) as AncestorRow);
+    if (chain.length === 0) return;
+    // Os filhos fora da cadeia (sem contar ideias) chegam contados por situação, não um por um: um pai largo não pesa na leitura.
+    // Os da cadeia entram pela própria linha travada, com a situação que a conta refaz de baixo para cima.
+    const chainIds = chain.map((row) => row.id);
+    const counts = await tx.$queryRaw<{ parent_id: string; status: string; n: number }[]>`
+      select parent_id, status, count(*)::int as n from tickets
+      where org_id = ${project.orgId} and project_id = ${project.id}::uuid and parent_id = any(${chainIds}::uuid[])
+        and idea_stage is null and id <> all(${chainIds}::uuid[])
+      group by parent_id, status`;
+    const others = counts.flatMap((row) => Array.from({ length: row.n }, (_, i) => ({ id: `${row.parent_id}/${row.status}/${i}`, parentId: row.parent_id, status: row.status, ideaStage: null })));
+    const nodes = toNodes([...chain.map((row) => ({ id: row.id, parentId: row.parent_id, status: row.status, ideaStage: row.idea_stage })), ...others]);
+    const derived = deriveParentStatuses(nodes, chainIds);
+    for (const row of chain) {
+      const to = derived.get(row.id);
+      if (to === undefined || to === row.status) continue;
+      await touchProjectVersion(tx, project.id);
+      if (isFinished(to)) await this.finishedByDerivation(tx, principal, project, row.id, event);
+      await tx.ticket.update({ where: { orgId_id: { orgId: project.orgId, id: row.id } }, data: { status: to } });
       await this.activity.record(tx, principal, {
         kind: "ticket.updated",
         subjectType: "ticket",
-        subjectId: id,
-        payload: {
-          key: `${project.key}-${numbers.get(id)}`,
-          fields: ["status"],
-          status: { from: "done", to: "todo" },
-          automatic: true,
-          causedBy,
-          ...extraEvent,
-        },
+        subjectId: row.id,
+        payload: { key: `${project.key}-${row.number}`, fields: ["status"], status: { from: row.status, to }, automatic: true, ...event },
       });
     }
+  }
+
+  /**
+   * O LUGAR ÚNICO dos efeitos de "este ticket acaba de ser concluído ou cancelado pela conta" (ADR 0068), chamado por
+   * `deriveStatuses` ANTES de gravar a situação, com o mesmo efeito da conclusão à mão: encerra o marcador de trabalho pela IA (o banco
+   * recusa concluído ou cancelado com marcador, ADR 0043) e limpa o impedimento (ADR 0068, seção 5), com o evento automático e a
+   * origem da conta (`event`: `causedBy` e, vindo do Linear, `source` e `runId`).
+   */
+  private async finishedByDerivation(tx: TenantClient, principal: Principal, project: ProjectRow, ticketId: string, event: Record<string, unknown> = {}): Promise<void> {
+    await this.agentWork.clearTicket(tx, principal, project.key, ticketId, "finished");
+    await this.clearImpediments(tx, principal, project, [ticketId], { ...event, automatic: true, cause: "finished" });
+  }
+
+  /** O ticket e os descendentes que têm filhos, qualquer que seja a profundidade: os que podem ter a situação calculada. */
+  async subtreeParents(tx: TenantClient, project: Pick<ProjectRow, "orgId" | "id">, id: string): Promise<string[]> {
+    const rows = await tx.$queryRaw<{ id: string }[]>`
+      with recursive down as (
+        select org_id, project_id, id, 1 as depth
+        from tickets where org_id = ${project.orgId} and project_id = ${project.id}::uuid and id = ${id}::uuid
+        union all
+        select t.org_id, t.project_id, t.id, down.depth + 1
+        from tickets t join down on t.org_id = down.org_id and t.project_id = down.project_id and t.parent_id = down.id
+        where down.depth < ${MAX_TREE_DEPTH}::int
+      )
+      select distinct d.id from down d join tickets c on c.org_id = d.org_id and c.project_id = d.project_id and c.parent_id = d.id`;
+    return rows.map((row) => row.id);
   }
 
   /** A pessoa precisa existir, estar ativa e já enxergar o projeto; atribuir nunca concede acesso. */
@@ -550,17 +684,17 @@ export class TicketsService {
 
   /**
    * ADR 0046, ordem das travas: tudo o que a criação/importação trava em linhas de tickets (o pai, os tickets mencionados e os que
-   * citam as chaves novas, pelas chaves estrangeiras de `tickets` e `ticket_relations`) é travado AQUI, `for key share` em ordem de
-   * id, ANTES da reserva de número, que segura a linha do projeto até o fim. Quem tem `for update` num desses tickets e espera a
-   * linha do projeto no toque final não cruza mais com quem cria. Os "que citam" são procurados pelos números que a reserva vai
+   * citam as chaves novas, pelas chaves estrangeiras de `tickets` e `ticket_relations`), mais a subida do pai e os `extraIds`, é
+   * travado AQUI, `for update` pela ordem única (`lockTicketSet`), ANTES da reserva de número, que segura a linha do projeto até o
+   * fim. Quem tem `for update` num desses tickets e espera a linha do projeto no toque final não cruza mais com quem cria. Os "que citam" são procurados pelos números que a reserva vai
    * devolver (lidos sem trava, `peekNextNumber`): numa corrida com uma criação sem pai (a única sem a trava de estrutura) o número
    * pode diferir e um ticket citante ficar sem a trava antecipada; o caso restante é aceito (só vira 409 `concurrent_update`
    * retentável, nunca dado errado).
    */
-  async lockLinkedTickets(tx: TenantClient, project: ProjectRow, parentId: string | null, descriptions: readonly string[], extraParentIds: readonly string[] = []): Promise<void> {
+  async lockLinkedTickets(tx: TenantClient, project: ProjectRow, parentId: string | null, descriptions: readonly string[], extraIds: readonly string[] = []): Promise<void> {
     const first = await this.peekNextNumber(tx, project);
     const fresh = new Set(descriptions.map((_d, at) => first + at));
-    const ids = new Set<string>([...(parentId === null ? [] : [parentId]), ...extraParentIds]);
+    const ids = new Set<string>([...(parentId === null ? [] : [parentId]), ...extraIds]);
     const mentioned = new Set<number>();
     for (const description of descriptions) for (const number of this.mentionedNumbers(project, { id: "", number: -1, description })) mentioned.add(number);
     if (mentioned.size > 0) {
@@ -575,16 +709,8 @@ export class TicketsService {
       select: { id: true, number: true, description: true },
     });
     for (const candidate of candidates) if (this.mentionedNumbers(project, candidate).some((number) => fresh.has(number))) ids.add(candidate.id);
-    if (ids.size > 0) await tx.$queryRaw`select id from tickets where id = any(${[...ids]}::uuid[]) order by id for key share`;
-  }
-
-  /**
-   * Trava `for key share`, em ordem de id (ADR 0046), os tickets que vão ganhar filhos: só os pais. A importação do Linear usa isto
-   * no lugar de `lockLinkedTickets`, que ainda procura nas descrições do projeto inteiro quem cita as chaves novas: o texto importado
-   * não cita ninguém, e as descrições antigas que citam números recém-criados são ligadas numa fase própria, em lotes.
-   */
-  async lockTickets(tx: TenantClient, ids: readonly string[]): Promise<void> {
-    if (ids.length > 0) await tx.$queryRaw`select id from tickets where id = any(${[...new Set(ids)]}::uuid[]) order by id for key share`;
+    // A ordem única (`lockTicketSet`): estes, mais a subida do pai (a situação dele sai dos filhos, ADR 0068), num comando só.
+    await this.lockTicketSet(tx, project, { ids: [...ids], ancestorsOf: [parentId] });
   }
 
   /** O próximo número do projeto, lido SEM trava: só para o texto de um evento escrito antes da reserva (ver `create`). */
@@ -649,22 +775,6 @@ export class TicketsService {
       )
       select status from down`;
     return rows.map((row) => ticketStatusSchema.parse(row.status));
-  }
-
-  /** Trava o ticket e todos os descendentes (`for update`) até o fim da transação: ninguém muda a situação deles no meio de uma conferência. */
-  async lockSubtree(tx: TenantClient, project: Pick<ProjectRow, "orgId" | "id">, id: string): Promise<void> {
-    await tx.$queryRaw`
-      select id from tickets where org_id = ${project.orgId} and project_id = ${project.id}::uuid and id in (
-        with recursive down as (
-          select org_id, project_id, id, 1 as depth
-          from tickets where org_id = ${project.orgId} and project_id = ${project.id}::uuid and id = ${id}::uuid
-          union all
-          select t.org_id, t.project_id, t.id, down.depth + 1
-          from tickets t join down on t.org_id = down.org_id and t.project_id = down.project_id and t.parent_id = down.id
-          where down.depth < ${MAX_TREE_DEPTH}::int
-        )
-        select id from down
-      ) order by id for update`;
   }
 
   canEditContributionsOf(actor: Actor, project: Pick<ProjectRow, "id" | "archivedAt">): boolean {
@@ -1058,7 +1168,7 @@ export class TicketsService {
       await this.lockStructure(tx, project.id); // ADR 0045: antes de conferir que o pai existe e de ler a ideia que o contém.
       await this.requireParent(tx, project.id, input.parentId);
     }
-    // Ideia, ou ticket dentro de uma: fora do processo (ADR 0042). A situação fica em `todo` e o pai concluído não é reaberto.
+    // Ideia, ou ticket dentro de uma: fora do processo (ADR 0042). A situação fica em `todo`.
     const parentIdea = await this.ideaRootFor(tx, project, input.parentId);
     const outside = input.idea === true || parentIdea !== null;
     if (outside && input.status !== "todo") {
@@ -1067,12 +1177,10 @@ export class TicketsService {
     const assigneeIds = [...new Set(input.assigneeIds)];
     for (const personId of assigneeIds) await this.requireAssignable(tx, project, personId);
 
-    // Ordem das travas (ADR 0046): as linhas de tickets (pai, mencionados, citantes, ancestrais da reabertura) antes da linha do
+    // Ordem das travas (ADR 0046): as linhas de tickets (pai, mencionados, citantes, ancestrais do pai) antes da linha do
     // projeto (reserva de números), que é a última trava das outras escritas. O número só entra no texto do evento (`peekNextNumber`).
+    // Inclui a subida do pai, cuja situação sai dos filhos (ADR 0068): tudo pela ordem única, antes da linha do projeto.
     await this.lockLinkedTickets(tx, project, input.parentId, [input.description]);
-    if (input.parentId && !isFinished(input.status) && !outside) {
-      await this.reopenAncestors(tx, principal, project, input.parentId, `${project.key}-${await this.peekNextNumber(tx, project)}`);
-    }
     const number = await this.allocateNumbers(tx, project, 1);
     const created = await tx.ticket.create({
       data: {
@@ -1095,6 +1203,7 @@ export class TicketsService {
         data: assigneeIds.map((personId) => ({ orgId: project.orgId, ticketId: created.id, personId })),
       });
     }
+    await this.deriveStatuses(tx, principal, project, [input.parentId], { causedBy: `${project.key}-${number}` });
     await this.activity.record(tx, principal, {
       kind: "ticket.created",
       subjectType: "ticket",
@@ -1342,8 +1451,9 @@ export class TicketsService {
     await this.lockStructure(tx, project.id); // ADR 0045: o lugar, os tickets e o agrupamento são conferidos já com a trava.
     await touchProjectVersion(tx, project.id); // ADR 0046: só marca (create também marca).
     if (parentId) await this.requireParent(tx, project.id, parentId);
-    // Trava os tickets até o fim da transação: ninguém os move nem os remove entre a conferência e a mudança.
-    await tx.$queryRaw`select id from tickets where id = any(${group.ticketIds}::uuid[]) order by id for update`;
+    // Trava os tickets até o fim da transação (ninguém os move nem os remove entre a conferência e a mudança), junto com o que a
+    // criação do pai novo trava, pela ordem única: a criação logo abaixo encontra tudo já travado.
+    await this.lockLinkedTickets(tx, project, parentId, [group.description], group.ticketIds);
     const found = await tx.ticket.findMany({
       where: { id: { in: group.ticketIds }, projectId: project.id, parentId },
       select: { id: true, number: true, parentId: true },
@@ -1379,6 +1489,8 @@ export class TicketsService {
         },
       });
     }
+    // O pai novo ganhou os tickets: a situação dele (e a do lugar, até a raiz) sai deles (ADR 0068).
+    await this.deriveStatuses(tx, principal, project, [created.id], { causedBy: created.key, ...origin });
     return created.id;
   }
 }

@@ -153,16 +153,15 @@ describe("M2/M3: o pai mudou entre os passos", () => {
     expect((await events(dest)).some((e) => (e["payload"] as { automatic?: boolean }).automatic === true)).toBe(true);
   });
 
-  it("o ticket do projeto do Linear foi concluído entre os passos: reabre (com evento) ao ganhar filho aberto", async () => {
+  it("o ticket do projeto do Linear foi concluído entre os passos: ao ganhar filho aberto, a situação sai dos filhos (com evento)", async () => {
     const runId = await begin(team(issues(3, () => ({ project: "lp1" }))));
     await until(runId, "issues");
     const p = (await byExt()).get("lp1")!["id"] as string;
     await h.pool.query("update tickets set status = 'done' where id = $1::uuid", [p]);
     const res = await step(runId);
-    expect(res.body.counts.reopened).toBe(1);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect((await q("select status from tickets where id = $1::uuid", [p]))[0]!["status"]).toBe("todo");
     expect((await events(p)).length).toBe(1);
-    expect((await q("select applied_snapshot->>'status' s from ticket_external_refs where ticket_id = $1::uuid", [p]))[0]!["s"]).toBe("todo");
   });
 
   it("o ticket do projeto virou ideia: os filhos a fazer nascem nela; os outros vão ao destino e contam movedOutOfIdea", async () => {
@@ -198,13 +197,13 @@ describe("M2/M3: o pai mudou entre os passos", () => {
     expect(res.body.counts.movedOutOfIdea).toBe(1);
   });
 
-  it("concluído que a rodada criou, com cadeia de concluídos e filho aberto: reabre cada um UMA vez (reopened conta certo)", async () => {
+  it("issue-mãe concluída no Linear, com cadeia de concluídas e filha aberta: a situação de cada pai sai dos filhos (ADR 0068)", async () => {
     const data = team(issues(3, (i) => ({ parent: i === 2 ? "i1" : i === 3 ? "i2" : null, state: i === 3 ? "unstarted" : "completed" })));
     const runId = await begin(data);
     const last = await finish(runId);
     const rows = await byExt();
     expect([rows.get("i1")!["status"], rows.get("i2")!["status"], rows.get("i3")!["status"]]).toEqual(["todo", "todo", "todo"]);
-    expect(last.counts!.reopened).toBe(2);
+    expect(last.counts).not.toHaveProperty("reopened");
   });
 });
 
@@ -270,7 +269,7 @@ describe("M5: endereço de origem só do Linear e curto", () => {
 });
 
 describe("situação do projeto do Linear", () => {
-  it("completed → concluído (e a fazer se tem filho aberto), canceled → cancelado, started → em andamento, o resto a fazer", async () => {
+  it("completed → concluído (com filhos, a situação sai deles), canceled → cancelado, started → em andamento, o resto a fazer", async () => {
     const data = team(issues(2, (i) => ({ project: "pc", state: i === 1 ? "unstarted" : "completed" })), {
       projects: [
         { id: "pc", name: "Concluído com filho aberto", status: "completed" },
@@ -284,6 +283,6 @@ describe("situação do projeto do Linear", () => {
     const runId = await begin(data);
     await finish(runId);
     const rows = await byExt();
-    expect(Object.fromEntries(["pc", "pd", "px", "ps", "pb", "pz"].map((id) => [id, rows.get(id)!["status"]]))).toEqual({ pc: "todo", pd: "done", px: "cancelled", ps: "in_progress", pb: "todo", pz: "todo" });
+    expect(Object.fromEntries(["pc", "pd", "px", "ps", "pb", "pz"].map((id) => [id, rows.get(id)!["status"]]))).toEqual({ pc: "in_progress", pd: "done", px: "cancelled", ps: "in_progress", pb: "todo", pz: "todo" });
   });
 });

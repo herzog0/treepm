@@ -94,6 +94,28 @@ describe("concluir ou cancelar limpa", () => {
   });
 });
 
+describe("pai concluído pela conta dos filhos (ADR 0068, seções 2 e 5)", () => {
+  it.each(["done", "cancelled"])("o último filho aberto vai a %s: o pai acaba e o impedimento sai (evento automático); reabrir o filho não traz o motivo de volta", async (status) => {
+    const parent = await add();
+    const a = await add({ parentId: parent.id });
+    const b = await add({ parentId: parent.id });
+    expect((await patch(b.id, { status })).status).toBe(200);
+    expect((await mark(parent.id, "Esperando o jurídico")).status).toBe(200);
+    expect((await patch(a.id, { status })).status).toBe(200);
+    const finished = await detail(parent.id);
+    expect(finished).toMatchObject({ status, blocked: false, impediment: null });
+    expect((await h.pool.query("select impediment_reason, impediment_person_id, impediment_at from tickets where id = $1", [parent.id])).rows[0]).toEqual({ impediment_reason: null, impediment_person_id: null, impediment_at: null });
+    const [event] = (await events("ticket.impediment_cleared")).filter((row) => row.subject_id === parent.id);
+    expect(event?.payload).toMatchObject({ key: "PRIV-1", automatic: true, cause: "finished" });
+
+    expect((await patch(a.id, { status: "todo" })).status).toBe(200);
+    const reopened = await detail(parent.id);
+    expect(reopened.status).not.toBe(status);
+    expect(reopened).toMatchObject({ blocked: false, impediment: null });
+    expect((await listed(parent.id))?.blocked).toBe(false);
+  });
+});
+
 describe("recusas", () => {
   it("motivo vazio, longo demais ou com menção a pessoa: 400 ou 422", async () => {
     const a = await add();

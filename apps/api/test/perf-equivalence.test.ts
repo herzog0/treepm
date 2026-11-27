@@ -285,7 +285,7 @@ describe("HTTP: escritas devolvem o mesmo, e a árvore resultante é a mesma", (
     const child = world.plan.tickets.find((t) => t.parent === f.shallow)!;
     await write("cycle", T(f.shallow).id, { parentId: child.id }, 409);
     await write("title", leaf.id, { title: "Outro título" });
-    await write("done-with-open-children", T(f.shallow).id, { status: "done" }, 409);
+    await write("status-of-parent", T(f.shallow).id, { status: "done" }, 409); // ADR 0068: a situação de um pai sai dos filhos
     await write("parent-not-found", leaf.id, { parentId: "00000000-0000-4000-8000-000000000001" }, 404);
     // Mover para dentro de uma ideia: recusado enquanto andamento, aceito quando é só "a fazer".
     const idea = world.plan.tickets.find((t) => t.ideaStage === "refining")!;

@@ -114,9 +114,9 @@ describe("papel dono (sem RLS), dois tenants com tickets de mesmo id: a consulta
     expect(path.map((row) => row.title)).toEqual(["A-raiz", "A-meio"]);
   });
 
-  it("trava de subárvore: trava as linhas de A e deixa as de B", async () => {
+  it("trava de subárvore (a ordem única, `lockTicketSet`): trava as linhas de A e deixa as de B", async () => {
     await owner.$transaction(async (client) => {
-      await tickets.lockSubtree(client as never, { orgId: A, id: PROJECT }, ROOT);
+      await tickets.lockTicketSet(client as never, { orgId: A, id: PROJECT }, { subtreeOf: [ROOT] });
       const probe = await pool.connect();
       try {
         await probe.query("begin");

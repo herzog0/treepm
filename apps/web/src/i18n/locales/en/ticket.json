@@ -60,8 +60,7 @@
   },
   "status": {
     "group": "Status",
-    "openItem": "Finish or cancel the open item before finishing this ticket.",
-    "openItemsMany": "Finish or cancel the {{count}} open items before finishing this ticket."
+    "derived": "Calculated from its items."
   },
   "people": {
     "nobody": "No one assigned",
@@ -78,8 +77,8 @@
     "filter": "Filter tickets"
   },
   "reopen": {
-    "warning": "“{{key}}” is done and goes back to \"To do\" when it receives this ticket.",
-    "notice": "“{{key}}” was done and went back to \"To do\"."
+    "warning": "“{{key}}” is done and stops being done when it receives this ticket: its status comes from its items.",
+    "notice": "“{{key}}” was done and no longer is: its status comes from its items."
   },
   "summary": {
     "heading": "What goes in here",

@@ -17,7 +17,7 @@ import {
 } from "@nestjs/common";
 import type { Response } from "express";
 import type { TenantClient } from "@treepm/db";
-import { isFinished, ticketProgress } from "@treepm/domain";
+import { deriveParentStatuses, ticketProgress } from "@treepm/domain";
 import type { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { CurrentPrincipal } from "../access/principal.js";
@@ -116,7 +116,7 @@ export class TicketsController {
     this.requireActive(project);
     await this.tickets.lockStructure(tx, projectId); // ADR 0045: o pai e a ideia que o contém são lidos já com a trava.
     if (body.parentId) await this.tickets.requireParent(tx, projectId, body.parentId);
-    // Importar dentro de uma ideia (ADR 0042): os itens fazem parte dela, ficam `todo` e não reabrem o pai concluído.
+    // Importar dentro de uma ideia (ADR 0042): os itens fazem parte dela e ficam `todo`.
     const parentIdea = await this.tickets.ideaRootFor(tx, project, body.parentId ?? null);
 
     // Pré-ordem: o pai antes dos filhos, irmãos na ordem recebida. Item com filhos é só um ticket com filhos.
@@ -132,18 +132,9 @@ export class TicketsController {
       throw new ConflictException({ code: "ticket_in_idea", message: "Dentro de uma ideia a situação fica em a fazer; aceite a ideia antes." });
     }
 
-    // Nenhum `done` com filho direto aberto (ADR 0034): item concluído que traz filho aberto na própria lista nasce `todo`.
-    const hasOpenChild = new Set<number>();
-    flat.forEach(({ item, parentIndex }) => {
-      if (parentIndex !== null && !isFinished(item.status ?? "todo")) hasOpenChild.add(parentIndex);
-    });
+    // Ordem das travas (ADR 0046): as linhas de tickets primeiro (o pai com a subida, cuja situação sai dos filhos, ADR 0068, os
+    // mencionados e os que citam as chaves novas, pela ordem única), a linha do projeto (reserva de números) depois.
     await this.tickets.lockLinkedTickets(tx, project, body.parentId ?? null, flat.map(({ item }) => item.description ?? ""));
-    // Ordem das travas (ADR 0046): as linhas dos pais primeiro, a linha do projeto (reserva de números) depois. O número que a
-    // reserva vai devolver entra só no texto do evento de reabertura (`causedBy`): lê-se sem trava, então numa corrida com uma
-    // criação sem pai pode diferir por um número no texto do evento; o número do ticket é sempre o da reserva.
-    if (body.parentId && !parentIdea && flat.some(({ item, parentIndex }) => parentIndex === null && !isFinished(item.status ?? "todo"))) {
-      await this.tickets.reopenAncestors(tx, principal, project, body.parentId, `${project.key}-${await this.tickets.peekNextNumber(tx, project)}`);
-    }
     const first = await this.tickets.allocateNumbers(tx, project, flat.length);
     // IDs gerados pelo banco (`app_uuid_v7()`, o mesmo padrão da coluna) em UMA consulta; com eles, pais e filhos
     // entram na mesma inserção em lote (a FK do pai é verificada no fim do comando). Total de idas ao banco
@@ -157,10 +148,16 @@ export class TicketsController {
       parentId: parentIndex === null ? (body.parentId ?? null) : (ids[parentIndex] ?? null),
       title: item.title,
       description: item.description ?? "",
-      status: item.status === "done" && hasOpenChild.has(index) ? "todo" : (item.status ?? "todo"),
+      status: item.status ?? "todo",
       ideaStage: null,
       assignees: [],
     }));
+    // Item com filhos é pai (ADR 0068): a situação que veio é ignorada e sai dos filhos, de baixo para cima, já na inserção.
+    // Dentro de uma ideia nada é calculado (tudo fica `todo`).
+    if (!parentIdea) {
+      const derived = deriveParentStatuses(toNodes(rows), rows.map((row) => row.id));
+      for (const row of rows) row.status = derived.get(row.id) ?? row.status;
+    }
     await tx.ticket.createMany({
       data: flat.map((_, index) => {
         const row = rows[index] as TicketRow;
@@ -185,6 +182,7 @@ export class TicketsController {
     });
     await this.tickets.reconcileMentions(tx, project, rows);
     await this.tickets.backfillMentionsTo(tx, project, rows);
+    await this.tickets.deriveStatuses(tx, principal, project, [body.parentId], { causedBy: `${project.key}-${first}` });
     // Dentro de uma ideia, o progresso e o `idea` dos itens são os de quem está dentro: um nó de raiz só para o cálculo.
     const nodes = toNodes(rows);
     if (parentIdea && body.parentId) nodes.push({ id: body.parentId, parentId: null, status: "todo", ideaStage: "new" });
@@ -269,7 +267,11 @@ export class TicketsController {
     this.requireActive(project);
     await this.tickets.lockStructure(tx, project.id); // ADR 0045: remover muda a estrutura; os filhos são contados já com a trava.
     await touchProjectVersion(tx, project.id); // ADR 0046
-    await this.findVisibleTicket(tx, principal.actor, id); // removido por outra requisição enquanto esperava: 404.
+    // Removido por outra requisição enquanto esperava: 404. O pai que vale é o desta leitura, já com a trava de estrutura: um
+    // movimento que confirmou durante a espera mudou o pai (ADR 0068, revisão 1).
+    const { ticket: fresh } = await this.findVisibleTicket(tx, principal.actor, id);
+    // O ticket e a subida do pai, pela ordem única, antes de remover: a situação do pai sai dos filhos que ficam.
+    await this.tickets.lockTicketSet(tx, project, { ids: [id], ancestorsOf: [fresh.parentId] });
     if (await this.hasChildren(tx, id)) {
       throw new ConflictException({ code: "ticket_has_children", message: "Remova ou mova os filhos antes." });
     }
@@ -280,6 +282,8 @@ export class TicketsController {
       subjectId: id,
       payload: { key: `${project.key}-${ticket.number}`, title: ticket.title },
     });
+    // O pai perdeu um filho (ADR 0068): a situação sai dos que ficaram; sem nenhum, ele guarda a última e volta a ser marcado à mão.
+    await this.tickets.deriveStatuses(tx, principal, project, [fresh.parentId], { causedBy: `${project.key}-${ticket.number}` });
   }
 
   @Put("tickets/:id/assignees/:personId")

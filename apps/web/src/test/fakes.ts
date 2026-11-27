@@ -1,4 +1,4 @@
-import { AI_CONSENT_VERSION, LABELS_PER_PROJECT, LABELS_PER_TICKET, cleanLabelName, defaultLabelColor, labelNameKey } from "@treepm/domain";
+import { AI_CONSENT_VERSION, LABELS_PER_PROJECT, LABELS_PER_TICKET, cleanLabelName, defaultLabelColor, deriveParentStatuses, labelNameKey } from "@treepm/domain";
 import { vi } from "vitest";
 import { createFakeChat } from "./chatFakes.js";
 import type { FakeChat } from "./chatFakes.js";
@@ -37,7 +37,8 @@ export function makeProject(id: string, key: string, name: string, extra: Partia
 
 /**
  * Resumo de ticket de teste. `place` (ADR 0068) segue a situação quando não é dito: aberto é "livre", finalizado é nulo. Pai e ideia
- * não têm lugar: quem monta uma árvore literal diz `place: null`; `makeTreeClient` calcula sozinho.
+ * não têm lugar: quem monta uma árvore literal diz `place: null`; `makeTreeClient` recalcula a cada leitura, junto da situação que ele
+ * mesmo deriva dos filhos.
  */
 export function makeTicket(id: string, projectId: string, number: number, title: string, extra: Partial<TicketSummary> = {}): TicketSummary {
   const key = extra.key ?? `${projectId.toUpperCase()}-${number}`;
@@ -1060,8 +1061,8 @@ export function makeClient(data: FakeData = {}): ApiClient {
 /**
  * Cliente falso com a árvore de tickets em memória, que respeita o contrato da ADR 0034: sem tipo; qualquer ticket é pai
  * possível (só o próprio e os descendentes dele não: 409 `ticket_cycle`); todo ticket tem situação; o progresso conta todos
- * os descendentes e é nulo sem filhos; concluir com filho direto aberto é 409 `ticket_has_open_children`; remover ticket
- * com filhos é 409 `ticket_has_children`. As chamadas continuam espiáveis (`vi.fn`).
+ * os descendentes e é nulo sem filhos; a situação de quem tem filho que não é ideia sai dos filhos (ADR 0068), e mudá-la à mão é
+ * 409 `status_is_derived`; remover ticket com filhos é 409 `ticket_has_children`. As chamadas continuam espiáveis (`vi.fn`).
  */
 export function makeTreeClient(data: FakeData = {}): ApiClient {
   const base = makeClient(data);
@@ -1070,7 +1071,6 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
   const find = (id: string) => all.find((entry) => entry.id === id);
   const childrenOf = (id: string) => all.filter((entry) => entry.parentId === id);
   const descendantsOf = (id: string): TicketSummary[] => childrenOf(id).flatMap((child) => [child, ...descendantsOf(child.id)]);
-  const open = (entry: TicketSummary) => entry.status !== "done" && entry.status !== "cancelled";
   /** A raiz de ideia em que o ticket está (ele próprio ou um ancestral), se houver (ADR 0042). */
   const ideaRootOf = (entry: TicketSummary): TicketSummary | undefined => {
     for (let at: TicketSummary | undefined = entry; at; at = at.parentId === null ? undefined : find(at.parentId)) if (at.idea?.root === true) return at;
@@ -1082,8 +1082,11 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
     // Ideias não entram na conta (ADR 0042): `ideas` conta as raízes abaixo.
     const below = descendantsOf(entry.id).filter((item) => ideaRootOf(item) === undefined);
     const ideas = descendantsOf(entry.id).filter((item) => item.idea?.root === true).length;
-    // Lugar na fila (ADR 0068), como o servidor: pai (filho que não é ideia) e ideia não têm; o resto segue o que o ticket diz.
-    const place = below.length > 0 || idea !== null ? null : entry.place;
+    // Lugar na fila (ADR 0068), da árvore e da situação de AGORA, como o servidor (a situação dos pais já vem da conta, `derive`): pai
+    // (filho que não é ideia), ideia e finalizado não têm; o resto é livre. O falso não guarda dependências: "próximo" ou "esperando"
+    // dito pelo teste fica enquanto o ticket tem lugar.
+    const finished = entry.status === "done" || entry.status === "cancelled";
+    const place = below.length > 0 || idea !== null || finished ? null : entry.place === "next" || entry.place === "waiting" ? entry.place : "free";
     if (below.length === 0 && ideas === 0) return { ...entry, idea, place, progress: null };
     const excluded = below.filter((item) => item.status === "cancelled").length;
     return { ...entry, idea, place, progress: { done: below.filter((item) => item.status === "done").length, total: below.length - excluded, excluded, ...(ideas > 0 ? { ideas } : {}) } };
@@ -1108,13 +1111,17 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
     return { value: 0, from: null };
   };
   const conflict = (code: string) => failed("conflict", code);
-  /**
-   * Reabertura (ADR 0034): quem recebe um filho direto aberto e está concluído volta para "a fazer", e a subida segue até
-   * o primeiro ancestral que não esteja concluído. Cancelado não é reaberto e interrompe a subida.
-   */
-  const reopenFrom = (parentId: string | null) => {
-    for (let at = parentId === null ? undefined : find(parentId); at && at.status === "done"; at = at.parentId === null ? undefined : find(at.parentId)) at.status = "todo";
+  /** A situação de quem tem filho que não é ideia sai dos filhos (ADR 0068): refaz os tickets dados e os ancestrais, pela regra do domínio. */
+  const derive = (...starts: (string | null | undefined)[]) => {
+    const ids = new Set<string>();
+    for (const start of starts) for (let at = start ? find(start) : undefined; at && !ids.has(at.id); at = at.parentId === null ? undefined : find(at.parentId)) ids.add(at.id);
+    const nodes = all.map((entry) => ({ id: entry.id, parentId: entry.parentId, status: entry.status, ideaStage: entry.idea?.root === true ? entry.idea.stage : null }));
+    for (const [id, status] of deriveParentStatuses(nodes, [...ids])) {
+      const entry = find(id);
+      if (entry) entry.status = status;
+    }
   };
+  const isDerived = (entry: TicketSummary) => ideaRootOf(entry) === undefined && childrenOf(entry.id).some((child) => child.idea?.root !== true);
 
   let client!: ApiClient;
   const self = () => client;
@@ -1137,7 +1144,7 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
       const entry = makeTicket(`new-${projectId}-${number}`, projectId, number, body.title, { parentId: body.parentId ?? null, status: body.status ?? "todo", ...(body.idea ? { idea: { root: true as const, stage: "new" as const } } : {}) });
       all.push(entry);
       if (body.description) descriptions.set(entry.id, body.description);
-      if (open(entry) && ideaRootOf(entry) === undefined) reopenFrom(entry.parentId);
+      derive(entry.parentId);
       return ok(detail(entry));
     }),
     createTicketFromConversation: vi.fn(async (id: string, body) => {
@@ -1161,7 +1168,7 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
       const entry = makeTicket(`new-${projectId}-${number}`, projectId, number, conversation.draft?.title ?? "Novo ticket", { parentId });
       all.push(entry);
       if (conversation.draft?.description) descriptions.set(entry.id, conversation.draft.description);
-      reopenFrom(body.parentId);
+      derive(parentId, body.parentId);
       return ok({ conversation: { ...conversation, status: "ticket_created" as const, createdTicketId: entry.id }, ticket: detail(entry), children: [], warnings: [] });
     }),
     updateTicket: vi.fn(async (id, body) => {
@@ -1171,14 +1178,15 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
         for (let at = body.parentId; at !== null; at = find(at)?.parentId ?? null) if (at === id) return conflict("ticket_cycle");
       }
       if (body.status !== undefined && ideaRootOf(entry)) return conflict("ticket_in_idea");
-      if (body.status === "done" && childrenOf(id).some((child) => open(child) && ideaRootOf(child) === undefined)) return conflict("ticket_has_open_children");
+      if (body.status !== undefined && body.status !== entry.status && isDerived(entry)) return conflict("status_is_derived");
+      const before = entry.parentId;
       if (body.title !== undefined) entry.title = body.title;
       if (body.description !== undefined) descriptions.set(id, body.description);
       if (body.parentId !== undefined) entry.parentId = body.parentId;
       if (body.status !== undefined) entry.status = body.status;
       if (body.priority !== undefined) entry.priority = body.priority;
       if (body.dueDate !== undefined) entry.dueDate = body.dueDate;
-      if ((body.status !== undefined || body.parentId !== undefined) && open(entry)) reopenFrom(entry.parentId);
+      if (body.status !== undefined || body.parentId !== undefined) derive(entry.parentId, before);
       return ok(detail(entry));
     }),
     /** A lista de ideias do projeto, calculada da árvore de agora: estágio, depois o mais antigo, como a API. */
@@ -1207,7 +1215,7 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
       if (data.canTriageIdea === false) return failed("forbidden");
       if (entry.idea?.root !== true) return conflict("ticket_not_idea");
       entry.idea = null;
-      reopenFrom(entry.parentId);
+      derive(entry.parentId, entry.id, ...descendantsOf(id).map((item) => item.id));
       return ok(detail(entry));
     }),
     discardIdea: vi.fn(async (id: string) => {
@@ -1223,12 +1231,15 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
       if (!entry) return failed("not_found");
       if ([entry, ...descendantsOf(id)].some((item) => item.status === "in_progress" || item.status === "in_review" || item.status === "done")) return conflict("ticket_has_work");
       entry.idea = { root: true, stage: "new" };
+      derive(entry.parentId);
       return ok(detail(entry));
     }),
     removeTicket: vi.fn(async (id: string) => {
       if (!find(id)) return failed("not_found");
       if (childrenOf(id).length > 0) return conflict("ticket_has_children");
+      const parentId = find(id)?.parentId ?? null;
       all.splice(all.findIndex((entry) => entry.id === id), 1);
+      derive(parentId);
       return ok(undefined);
     }),
     ...labelMethods(data, all),

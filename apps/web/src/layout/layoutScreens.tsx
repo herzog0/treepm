@@ -44,7 +44,8 @@ function ticketClient(): ApiClient {
       p1: [
         makeTicket("t1", "p1", 1, "Tela de acesso por token com um título bem comprido para quebrar linha no celular", { key: "ALFA-1", status: "in_progress" }),
         makeTicket("t2", "p1", 2, "Publicação", { key: "ALFA-2" }),
-        makeTicket("t3", "p1", 3, "Filho do primeiro", { key: "ALFA-3", parentId: "t1" }),
+        // Uma ideia: com filho comum, a situação de t1 seria calculada e sem menu (ADR 0068); as medidas são do menu de situação aberto.
+        makeTicket("t3", "p1", 3, "Filho do primeiro", { key: "ALFA-3", parentId: "t1", idea: { root: true, stage: "new" } }),
       ],
     },
     people: [makePerson("person-1", "Ana Souza"), makePerson("person-2", "Bruno Lima")],

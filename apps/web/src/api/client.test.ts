@@ -348,7 +348,7 @@ describe("describeApiError for tickets", () => {
   });
 
   it.each([
-    ["ticket_has_open_children", "itens abertos"],
+    ["status_is_derived", "vem dos itens dele"],
     ["ticket_has_no_items", "Este ticket ainda não tem itens."],
     ["ticket_cycle", "ancestral"],
     ["project_archived", "arquivado"],

@@ -123,46 +123,57 @@ describe("item 3: a espera pela trava cabe no prazo da transação", () => {
   });
 });
 
-describe("item 4: impasse entre travas de linha vira 409 concurrent_update", () => {
-  const HOLD = 7770002;
-  afterEach(async () => {
-    await h.pool.query("drop trigger if exists test_hold_reopen on tickets");
-    await h.pool.query("drop function if exists test_hold_reopen()");
-  });
+describe("item 4: a ordem única das travas de tickets (ADR 0068, revisão 1): pai com id menor que o filho, sem impasse", () => {
+  /** Sessões esperando o fim de outra transação (linha travada). */
+  const rowWaiters = async () => Number((await h.pool.query("select count(*)::int as n from pg_locks where not granted and locktype in ('transactionid', 'tuple')")).rows[0].n);
 
-  it("subárvore travada por id (filho com id menor) contra a reabertura de baixo para cima: nenhuma resposta é 500", async () => {
+  /**
+   * O arranjo perigoso: o pai X (id menor) preso por outra transação; quem chega primeiro na fila de X é `first`. Antes da ordem
+   * única, a situação do filho travava o filho D e esperava X, e a ida de X para a ideia travava X e esperava D: impasse.
+   */
+  async function stage(first: "child-status" | "move-parent") {
     const idea = await make({ idea: true });
-    const d = await make({}); // id menor
-    const x = await make({}); // id maior: o pai
-    await h.pool.query("update tickets set parent_id = $1 where id = $2", [x, d]);
-    await h.pool.query("update tickets set status = 'done' where id = $1", [x]);
-    await h.pool.query(`create function test_hold_reopen() returns trigger language plpgsql as $$
-      begin
-        if new.id = '${x}' and new.status is distinct from old.status then perform pg_advisory_xact_lock_shared(${HOLD}); end if;
-        return new;
-      end $$`);
-    await h.pool.query("create trigger test_hold_reopen before update on tickets for each row execute function test_hold_reopen()");
+    const x = await make({}); // o pai, criado antes: id menor (UUID v7)
+    const d = await make({ parentId: x }); // o filho: id maior
+    expect(x < d).toBe(true);
     const owner = await h.pool.connect();
     try {
       await owner.query("begin");
-      await owner.query(`select pg_advisory_xact_lock(${HOLD})`);
-      // A: situação do filho. Trava o pai (reabertura) e para na gravação do pai, segurando-o.
-      const a = h.call("PATCH", `/api/tickets/${d}`, as("admin"), { status: "in_progress" }).then((r) => r);
-      await until(async () => Number((await h.pool.query("select count(*)::int as n from pg_locks where not granted and locktype = 'advisory' and objid = $1", [HOLD])).rows[0].n) >= 1, "A parada na gravação do pai");
-      // B: move o pai para a ideia. Trava a subárvore por id: pega o filho e espera o pai, que A segura.
-      const b = h.call("PATCH", `/api/tickets/${x}`, as("admin"), { parentId: idea }).then((r) => r);
-      // Barreira: B parado NA LINHA do pai (espera a transação de A), não "duas esperas quaisquer": só então B já segura o filho.
-      await until(async () => Number((await h.pool.query("select count(*)::int as n from pg_locks where not granted and locktype = 'transactionid'")).rows[0].n) >= 1, "B esperando o pai");
-      await owner.query("commit"); // A segue e quer o filho, que B segura: impasse; o PostgreSQL aborta uma das duas.
+      await owner.query("select id from tickets where id = $1 for update", [x]);
+      const child = () => h.call("PATCH", `/api/tickets/${d}`, as("admin"), { status: "in_progress" }).then((r) => r);
+      const move = () => h.call("PATCH", `/api/tickets/${x}`, as("admin"), { parentId: idea }).then((r) => r);
+      const a = first === "child-status" ? child() : move();
+      await until(async () => (await rowWaiters()) >= 1, "a primeira na fila de X");
+      const b = first === "child-status" ? move() : child();
+      await until(async () => (await rowWaiters()) >= 2, "a segunda na fila de X");
+      await owner.query("commit");
       const [ra, rb] = await Promise.all([a, b]);
-      const all = [ra, rb];
-      expect(all.map((r) => r.status).filter((s) => s >= 500), JSON.stringify(all.map((r) => r.body))).toEqual([]);
-      expect(all.filter((r) => r.body?.error?.code === "concurrent_update")).toHaveLength(1);
+      return { x, d, first: ra, second: rb };
     } finally {
       owner.release();
     }
-  }, 30_000);
-});
+  }
+  const noFailure = (first: { status: number; body: { error?: { code: string } } }, second: { status: number; body: { error?: { code: string } } }) => {
+    expect([first.status, second.status].filter((s) => s >= 500), JSON.stringify([first.body, second.body])).toEqual([]);
+    expect([first, second].filter((r) => r.body?.error?.code === "concurrent_update"), JSON.stringify([first.body, second.body])).toHaveLength(0);
+  };
+
+  it("a ida do pai para a ideia na frente da fila: ela passa, e a situação do filho, agora dentro da ideia, é recusada (antes: impasse)", async () => {
+    const { d, first, second } = await stage("move-parent");
+    noFailure(first, second);
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    expect([second.status, second.body?.error?.code]).toEqual([409, "ticket_in_idea"]);
+    expect((await h.pool.query("select status from tickets where id = $1", [d])).rows[0].status).toBe("todo");
+  });
+
+  it("a situação do filho na frente da fila: ela passa (o pai segue o filho), e a ida do pai para a ideia é recusada por haver trabalho", async () => {
+    const { x, first, second } = await stage("child-status");
+    noFailure(first, second);
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    expect([second.status, second.body?.error?.code]).toEqual([409, "move_into_idea_blocked"]);
+    expect((await h.pool.query("select status from tickets where id = $1", [x])).rows[0].status).toBe("in_progress");
+  });
+}, 30_000);
 
 describe("item 4: a tradução do erro do banco", () => {
   const driver = (originalCode: string) => ({ meta: { driverAdapterError: { cause: { originalCode } } } });
