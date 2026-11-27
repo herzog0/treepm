@@ -5,7 +5,7 @@ import type { TicketStatus } from "@treepm/domain";
 import { z } from "zod";
 import type { Principal } from "../access/principal.js";
 import type { ProjectQueryService } from "../query/project-query.service.js";
-import type { QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "../query/query.schema.js";
+import type { QueryDependencyList, QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "../query/query.schema.js";
 import type { QueueTicket } from "../query/project-query.service.js";
 import { listProjectLabels } from "../tickets/labels.service.js";
 import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
@@ -87,14 +87,25 @@ export const workQueueOutput = z.strictObject({
   total: z.number().int().describe("How many tickets are in the whole queue (more than `tickets` when `truncated`)."),
   truncated: z.boolean().describe("True when the queue has more tickets than `limit`."),
   empty_reason: z
-    .enum(["all_blocked", "all_others", "none"])
+    .enum(["all_waiting", "all_others", "none"])
     .nullable()
-    .describe("Null when the queue has tickets. When it is empty: all_blocked (everything ready waits for another open ticket), all_others (everything ready is assigned to other people) or none (nothing to do here, or mixed reasons)."),
+    .describe("Null when the queue has tickets. When it is empty: all_waiting (everything else waits for another open ticket to start), all_others (everything ready is assigned to other people) or none (nothing to do here, or mixed reasons)."),
 });
+/** Uma dependência (ADR 0068): o resumo do outro ticket e o tipo. */
+const dependencyListSchema = z.strictObject({
+  tickets: z.array(summarySchema.extend({ need: z.enum(["start", "deliver"]).describe("start: the work waits for the other ticket to start; deliver: the work can start, but cannot be done before the other ticket.") })),
+  truncated: listSchema.shape.truncated,
+});
+const dependencyDirectionsSchema = z.strictObject({ outgoing: dependencyListSchema, incoming: dependencyListSchema });
 export const getTicketOutput = z.strictObject({
   key: z.string(),
   title: z.string(),
   status: ticketStatusSchema,
+  blocked: z.boolean().describe("True when someone marked an impediment on this open ticket (see mark_impediment): something is in the way and needs action. Waiting for another ticket is not blocked."),
+  place: z
+    .enum(["free", "next", "waiting"])
+    .nullable()
+    .describe("Place in the queue, for an open ticket without children that is not an idea: free (every dependency to start is finished), next (it waits only for free tickets) or waiting (it waits for tickets that wait too). Null otherwise."),
   idea: ideaSchema,
   agentWork: agentWorkSchema,
   priority: summarySchema.shape.priority,
@@ -108,7 +119,7 @@ export const getTicketOutput = z.strictObject({
   children: listSchema.describe("Tickets that are part of this one."),
   relations: z.strictObject({
     mentions: directionsSchema.describe("`outgoing`: tickets this one mentions in its text; `incoming`: tickets that mention this one."),
-    depends_on: directionsSchema.describe("`outgoing`: tickets that must be finished before this one; `incoming`: tickets waiting for this one."),
+    depends_on: dependencyDirectionsSchema.describe("`outgoing`: tickets this one depends on; `incoming`: tickets that depend on this one. Each with its need (start or deliver)."),
     related: listSchema.describe("Tickets related to this one (\"related to\", no direction). It comes from Linear and carries no rule: it does not block nor order work."),
   }),
   linear: z
@@ -157,7 +168,14 @@ const getTicketPeopleOutput = getTicketOutput.extend({
   assignees: assigneesField,
   path: z.array(summaryPeopleSchema),
   children: listPeopleSchema,
-  relations: z.strictObject({ mentions: directionsPeopleSchema, depends_on: directionsPeopleSchema, related: listPeopleSchema }),
+  relations: z.strictObject({
+    mentions: directionsPeopleSchema,
+    depends_on: z.strictObject({
+      outgoing: z.strictObject({ tickets: z.array(summaryPeopleSchema.extend({ need: dependencyListSchema.shape.tickets.element.shape.need })), truncated: listSchema.shape.truncated }),
+      incoming: z.strictObject({ tickets: z.array(summaryPeopleSchema.extend({ need: dependencyListSchema.shape.tickets.element.shape.need })), truncated: listSchema.shape.truncated }),
+    }),
+    related: listPeopleSchema,
+  }),
 });
 
 type Assignee = z.infer<typeof assigneeSchema>;
@@ -165,11 +183,12 @@ type Assignee = z.infer<typeof assigneeSchema>;
 type Summary = z.infer<typeof summarySchema> & { assignees?: Assignee[] };
 type TicketList = { tickets: Summary[]; truncated: boolean };
 type Directions = { outgoing: TicketList; incoming: TicketList };
+type DependencyList = { tickets: (Summary & { need: "start" | "deliver" })[]; truncated: boolean };
 export type TicketOutput = Omit<z.infer<typeof getTicketOutput>, "path" | "children" | "relations"> & {
   assignees?: Assignee[];
   path: Summary[];
   children: TicketList;
-  relations: { mentions: Directions; depends_on: Directions; related: TicketList };
+  relations: { mentions: Directions; depends_on: { outgoing: DependencyList; incoming: DependencyList }; related: TicketList };
 };
 
 const MEANING_LINEAR = "`linear` says where an imported ticket came from in Linear (its identifier and address).";
@@ -179,7 +198,7 @@ const MEANING =
   "An idea is not accepted work yet: `idea` says whether a ticket is the root of an idea or inside one. " +
   "Priority: `priority` is the ticket's own number (-999 to 999, 0 by default, higher comes first) and `effective_priority` the one that counts, inherited from the nearest ancestor with a non-zero priority. " +
   "Due date: `dueDate` is a calendar day (YYYY-MM-DD, no time, no time zone) or null; `overdue` is true when that day is before today and the ticket is todo, in_progress or in_review and is not an idea (an idea is never overdue). Today is the current day in UTC, so near midnight it can differ from the TreePM screen, which uses the viewer's day. A ticket's due date is its own: it is not inherited from or imposed on its parent or children, and it does not change the order of the work queue. " +
-  "Relations: `mentions` means one ticket cites the other in its text; `depends_on` means the first ticket needs the other to be finished before it; `related` means \"related to\" (comes from Linear, no rule: it neither blocks nor orders work). " +
+  "Relations: `mentions` means one ticket cites the other in its text; `depends_on` means the first ticket needs the other to be finished, to start (need start) or only to be done (need deliver); `related` means \"related to\" (comes from Linear, no rule: it neither blocks nor orders work). " +
   "Labels: `labels` lists the names of the ticket's labels (labels belong to the project; list_labels lists them all). " +
   `Statuses: ${STATUSES}.`;
 
@@ -192,7 +211,7 @@ const definitions = (people: boolean) => ({
   },
   get_ticket: {
     title: "Get a ticket",
-    description: `Read one ticket in full: complete description, status, parent, the path from the top of the tree down to the parent, children, the relations in both directions and, for a ticket imported from Linear, its Linear identifier and address. ${MEANING} ${MEANING_LINEAR} For \`mentions\`, \`outgoing\` lists tickets this one cites and \`incoming\` lists tickets that cite it. For \`depends_on\`, \`outgoing\` lists tickets that must be finished before this one and \`incoming\` lists tickets waiting for this one. \`related\` is one list without direction: the same pair shows on both tickets.`,
+    description: `Read one ticket in full: complete description, status, parent, the path from the top of the tree down to the parent, children, the relations in both directions and, for a ticket imported from Linear, its Linear identifier and address. ${MEANING} ${MEANING_LINEAR} For \`mentions\`, \`outgoing\` lists tickets this one cites and \`incoming\` lists tickets that cite it. For \`depends_on\`, \`outgoing\` lists tickets this one depends on and \`incoming\` lists tickets that depend on this one, each with its need. \`blocked\` is an impediment someone marked; \`place\` is free, next or waiting. \`related\` is one list without direction: the same pair shows on both tickets.`,
     inputSchema: getTicketInput,
     outputSchema: people ? getTicketPeopleOutput : getTicketOutput,
   },
@@ -204,7 +223,7 @@ const definitions = (people: boolean) => ({
   },
   get_work_queue: {
     title: "Get the work queue",
-    description: `The "next to work on" queue of the person who owns the token, in this project (or inside one branch with \`under\`), in working order: highest effective priority first, then tickets assigned to that person before unassigned ones, then ticket number. A ticket is in the queue when it is todo, has no open child ticket, is not an idea nor inside one, does not wait for an open ticket (depends_on), has no agent working mark, and is assigned to that person or to nobody. It is the same queue the TreePM screen shows. It is the queue of the person who owns the token, not of the whole team. Each call reads the whole project (do not call it in a loop; call it when you need to pick work, not per ticket). It does not change anything: it does not start a ticket, assign it or mark it as worked on; use update_ticket_status and set_agent_work for that. When the queue is empty, \`empty_reason\` says why. ${MEANING}`,
+    description: `The "next to work on" queue of the person who owns the token, in this project (or inside one branch with \`under\`), in working order: highest effective priority first, then tickets assigned to that person before unassigned ones, then ticket number. A ticket is in the queue when it is todo, has no child ticket, is not an idea nor inside one, is free (every dependency to start is finished; dependencies to deliver do not count), is not blocked by a marked impediment, has no agent working mark, and is assigned to that person or to nobody. It is the same queue the TreePM screen shows. It is the queue of the person who owns the token, not of the whole team. Each call reads the whole project (do not call it in a loop; call it when you need to pick work, not per ticket). It does not change anything: it does not start a ticket, assign it or mark it as worked on; use update_ticket_status and set_agent_work for that. When the queue is empty, \`empty_reason\` says why. ${MEANING}`,
     inputSchema: workQueueInput,
     outputSchema: people ? workQueuePeopleOutput : workQueueOutput,
   },
@@ -392,11 +411,15 @@ export class ProjectTools {
     const who = await this.assigneesOf(tx, [ticket, ...ticket.path, ...lists.flatMap((list) => list.tickets)]);
     const reduce = (list: QueryTicketList): TicketList => ({ tickets: list.tickets.map((entry) => this.summary(entry, keys, who)), truncated: list.truncated });
     const directions = (pair: { outgoing: QueryTicketList; incoming: QueryTicketList }) => ({ outgoing: reduce(pair.outgoing), incoming: reduce(pair.incoming) });
+    const needs = (list: QueryDependencyList): DependencyList => ({ tickets: list.tickets.map((entry) => ({ ...this.summary(entry, keys, who), need: entry.need })), truncated: list.truncated });
     const self = this.summary(ticket, keys, who);
     return {
       key: self.key,
       title: self.title,
       status: self.status,
+      // O impedimento só como fato (ADR 0068): o motivo não sai pelo MCP.
+      blocked: ticket.blocked,
+      place: ticket.place,
       idea: self.idea,
       agentWork: self.agentWork,
       priority: self.priority,
@@ -409,7 +432,7 @@ export class ProjectTools {
       path: ticket.path.map((entry) => this.summary(entry, keys, who)),
       children: reduce(ticket.children),
       // `related` (ADR 0061): só os tickets, como as outras listas; a origem no Linear (ids da relação e das issues) nunca sai daqui.
-      relations: { mentions: directions(relations.mentions), depends_on: directions(relations.dependsOn), related: reduce(relations.related) },
+      relations: { mentions: directions(relations.mentions), depends_on: { outgoing: needs(relations.dependsOn.outgoing), incoming: needs(relations.dependsOn.incoming) }, related: reduce(relations.related) },
       linear: await this.linearOrigin(tx, ticket.id),
       ...(self.assignees === undefined ? {} : { assignees: self.assignees }),
     };

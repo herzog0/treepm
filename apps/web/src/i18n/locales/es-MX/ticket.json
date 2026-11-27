@@ -30,7 +30,8 @@
     "idea": "Idea",
     "priority": "Prioridad",
     "dueDate": "Fecha límite",
-    "labels": "Etiquetas"
+    "labels": "Etiquetas",
+    "impediment": "Impedimento"
   },
   "create": {
     "heading": "Nuevo ticket",
@@ -144,13 +145,18 @@
     "pickerLabel": "Elige el ticket del que depende este",
     "filter": "Buscar ticket",
     "none": "No se encontraron tickets",
-    "cycle": "Esto cerraría un ciclo: “{{key}}” ya depende de este ticket"
+    "cycle": "Esto cerraría un ciclo: “{{key}}” ya depende de este ticket",
+    "need": {
+      "start": "Para empezar",
+      "deliver": "Para entregar"
+    },
+    "changeNeed": "Tipo de la dependencia de {{key}}: {{need}}. Cambiar a {{other}}"
   },
   "related": {
     "remove": "Quitar relación {{key}}"
   },
   "blocking": {
-    "heading": "Bloquea"
+    "heading": "Dependen de este"
   },
   "activity": {
     "heading": "Actividad",
@@ -335,7 +341,18 @@
     "labelsChangedMany_noActor_other": "Etiquetas <name>{{added}}</name> agregadas y etiquetas <name>{{removed}}</name> quitadas",
     "labelsChangedMany_automatic_one": "Etiquetas <name>{{added}}</name> agregadas y etiqueta <name>{{removed}}</name> quitada automáticamente",
     "labelsChangedMany_automatic_many": "Etiquetas <name>{{added}}</name> agregadas y etiquetas <name>{{removed}}</name> quitadas automáticamente",
-    "labelsChangedMany_automatic_other": "Etiquetas <name>{{added}}</name> agregadas y etiquetas <name>{{removed}}</name> quitadas automáticamente"
+    "labelsChangedMany_automatic_other": "Etiquetas <name>{{added}}</name> agregadas y etiquetas <name>{{removed}}</name> quitadas automáticamente",
+    "dependencyAddedStart": "<who>{{actor}}</who> marcó que depende de <ticket>{{ticket}}</ticket> para empezar",
+    "dependencyAddedStart_noActor": "Pasó a depender de <ticket>{{ticket}}</ticket> para empezar",
+    "dependencyAddedDeliver": "<who>{{actor}}</who> marcó que depende de <ticket>{{ticket}}</ticket> para entregar",
+    "dependencyAddedDeliver_noActor": "Pasó a depender de <ticket>{{ticket}}</ticket> para entregar",
+    "dependencyNeedChanged": "<who>{{actor}}</who> cambió la dependencia de <ticket>{{ticket}}</ticket> de “{{from}}” a “{{to}}”",
+    "dependencyNeedChanged_noActor": "La dependencia de <ticket>{{ticket}}</ticket> cambió de “{{from}}” a “{{to}}”",
+    "impedimentMarked": "<who>{{actor}}</who> marcó un impedimento",
+    "impedimentMarked_noActor": "Impedimento marcado",
+    "impedimentCleared": "<who>{{actor}}</who> quitó el impedimento",
+    "impedimentCleared_noActor": "Impedimento quitado",
+    "impedimentCleared_automatic": "El impedimento se quitó al terminar o cancelar el ticket"
   },
   "contributions": {
     "heading": "Áreas",
@@ -439,5 +456,13 @@
       "violet": "Violeta",
       "rose": "Rosa"
     }
+  },
+  "impediment": {
+    "mark": "Marcar impedimento",
+    "reasonLabel": "Motivo del impedimento",
+    "save": "Marcar",
+    "cancel": "Cancelar",
+    "clear": "Quitar impedimento",
+    "by": "Marcado por {{name}} el {{date}}"
   }
 }

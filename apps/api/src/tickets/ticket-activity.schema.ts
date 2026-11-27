@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { contributionStatusSchema, ideaStageSchema, ticketStatusSchema } from "./tickets.schema.js";
+import { contributionStatusSchema, dependencyNeedSchema, ideaStageSchema, ticketStatusSchema } from "./tickets.schema.js";
 
 export const ACTIVITY_DEFAULT_LIMIT = 30;
 export const ACTIVITY_MAX_LIMIT = 100;
@@ -76,7 +76,13 @@ export const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("parent_changed"), from: ticketRefSchema.nullable(), to: ticketRefSchema.nullable() }),
   z.object({ ...base, type: z.literal("assignee_added"), person: personSchema.nullable() }),
   z.object({ ...base, type: z.literal("assignee_removed"), person: personSchema.nullable() }),
-  z.object({ ...base, type: z.literal("dependency_added"), ticket: ticketRefSchema }),
+  /** `need` (ADR 0068): o tipo da dependência criada; nulo nos eventos de antes do tipo. */
+  z.object({ ...base, type: z.literal("dependency_added"), ticket: ticketRefSchema, need: dependencyNeedSchema.nullable() }),
+  /** O tipo de uma dependência trocado (ADR 0068): para começar ↔ para entregar. */
+  z.object({ ...base, type: z.literal("dependency_need_changed"), ticket: ticketRefSchema, from: dependencyNeedSchema, to: dependencyNeedSchema }),
+  /** Impedimento marcado ou limpo (ADR 0068, seção 5): só o fato; o motivo não está no histórico. Limpo ao concluir ou cancelar: `automatic`. */
+  z.object({ ...base, type: z.literal("impediment_marked") }),
+  z.object({ ...base, type: z.literal("impediment_cleared") }),
   z.object({ ...base, type: z.literal("dependency_removed"), ticket: ticketRefSchema }),
   /** "Relacionado a" tirado (ADR 0061, fatia 3): o outro ticket. */
   z.object({ ...base, type: z.literal("related_removed"), ticket: ticketRefSchema }),

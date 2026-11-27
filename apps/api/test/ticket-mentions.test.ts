@@ -85,7 +85,7 @@ describe("criar e alterar gravam a ligação menciona", () => {
     const a = await add();
     const b = await add({ description: "PRIV-1" });
     await h.pool.query(
-      "insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ('org_A', $1, $2, $3, 'depends_on')",
+      "insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind, need) values ('org_A', $1, $2, $3, 'depends_on', 'start')",
       [priv(), b.id, a.id],
     );
     await patch(b.id, { description: "sem chave" });
@@ -214,7 +214,7 @@ describe("POST projects/:projectId/tickets/mentions/rebuild", () => {
     const b = await add({ description: "PRIV-1" });
     await h.pool.query("update tickets set description = 'sem chave' where id = $1", [b.id]);
     await h.pool.query(
-      "insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ('org_A', $1, $2, $3, 'depends_on')",
+      "insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind, need) values ('org_A', $1, $2, $3, 'depends_on', 'start')",
       [priv(), b.id, a.id],
     );
     expect((await rebuild()).body).toEqual({ read: 2, created: 0, removed: 1 });

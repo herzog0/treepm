@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { ApiClient, IdeaStage, Person, TicketDetail, TicketStatus, TicketSummary, UpdateTicketBody } from "../api/client.js";
+import type { ApiClient, DependencyNeed, IdeaStage, Person, TicketDetail, TicketStatus, TicketSummary, UpdateTicketBody } from "../api/client.js";
 import { useRecentPlaces } from "../assistant/RecentPlacesContext.js";
 import { useDescribeApiError } from "../api/errorText.js";
 import { useStatusText } from "../map/nodeContent.js";
@@ -18,7 +18,7 @@ import { descendantIds } from "./tree.js";
 import { TestBadge, useNameWithBadge } from "../people/TestBadge.js";
 import { fold, searchTickets } from "../command/search.js";
 import { DUE_DATE_MAX, DUE_DATE_MIN, daysOverdue, isOverdue, isValidDueDate } from "@treepm/domain";
-import { formatDueDate } from "../i18n/format.js";
+import { formatDateTime, formatDueDate } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { useLocalToday } from "./clock.js";
 
@@ -763,7 +763,9 @@ interface DependsOnProps extends FieldBase {
 
 /**
  * "Depende de" (ADR 0037): os tickets de que este precisa, com remover e "Adicionar". O seletor só oferece tickets do mesmo
- * projeto, sem o próprio e sem os que já estão na lista. Esc fecha só o seletor; as setas percorrem busca e lista.
+ * projeto, sem o próprio e sem os que já estão na lista. Esc fecha só o seletor; as setas percorrem busca e lista. Cada ticket diz o
+ * tipo da dependência (ADR 0068): "Para começar" ou "Para entregar"; quem pode alterar troca o tipo clicando nele. Adicionar cria
+ * "Para começar".
  */
 export function DependsOnField({ client, detail, tickets, canEdit, onOpen, onSaved }: DependsOnProps) {
   const { t } = useTranslation("ticket");
@@ -795,6 +797,11 @@ export function DependsOnField({ client, detail, tickets, canEdit, onOpen, onSav
     const result = await action.run(() => client.removeTicketDependency(detail.id, id));
     if (result.ok) onSaved();
   };
+  const switchNeed = async (entry: TicketDetail["dependsOn"][number]) => {
+    setTried(entry.key);
+    const result = await action.run(() => client.addTicketDependency(detail.id, entry.id, otherNeed(entry.need ?? "start")));
+    if (result.ok) onSaved();
+  };
   const onPickerKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
       event.stopPropagation();
@@ -820,6 +827,19 @@ export function DependsOnField({ client, detail, tickets, canEdit, onOpen, onSav
               <span className="ticket-child-title">{entry.title}</span>
               {entry.fromLinear === true && <FromLinearBadge />}
             </button>
+            {canEdit ? (
+              <button
+                type="button"
+                className="ticket-dep-need"
+                aria-label={t("dependsOn.changeNeed", { key: entry.key, need: t(`dependsOn.need.${entry.need ?? "start"}`), other: t(`dependsOn.need.${otherNeed(entry.need ?? "start")}`) })}
+                disabled={action.busy}
+                onClick={() => void switchNeed(entry)}
+              >
+                {t(`dependsOn.need.${entry.need ?? "start"}`)}
+              </button>
+            ) : (
+              <span className="ticket-dep-need">{t(`dependsOn.need.${entry.need ?? "start"}`)}</span>
+            )}
             {canEdit && (
               <button type="button" className="ticket-person-remove" aria-label={t("dependsOn.remove", { key: entry.key })} disabled={action.busy} onClick={() => void remove(entry.id)}>×</button>
             )}
@@ -851,6 +871,68 @@ export function DependsOnField({ client, detail, tickets, canEdit, onOpen, onSav
       )}
       {action.error?.code === "dependency_cycle" ? <p role="alert" className="ticket-error">{t("dependsOn.cycle", { key: tried })}</p> : action.error && <p role="alert" className="ticket-error">{describeError(action.error)}</p>}
     </>
+  );
+}
+
+const otherNeed = (need: DependencyNeed): DependencyNeed => (need === "start" ? "deliver" : "start");
+
+/** Tamanho máximo do motivo do impedimento; a API confere o mesmo (ADR 0068). */
+const IMPEDIMENT_REASON_MAX = 1000;
+
+/**
+ * O impedimento (ADR 0068, seção 5): "Bloqueado" é um problema que alguém marcou, com o motivo. Com impedimento, mostra o motivo, quem
+ * marcou e quando, com "Limpar" para quem pode alterar. Sem impedimento, é o campo do motivo (a página só mostra a linha depois de
+ * "Marcar impedimento", no menu "Mais ações"); `onDone` fecha a marcação. Esc dentro da edição cancela só a edição.
+ */
+export function ImpedimentField({ client, detail, canEdit, onDone, onSaved }: FieldBase & { canEdit: boolean; onDone: () => void }) {
+  const { t, i18n } = useTranslation("ticket");
+  const [reason, setReason] = useState("");
+  const action = useAction();
+  const impediment = detail.impediment ?? null;
+  const cancel = () => {
+    setReason("");
+    action.clear();
+    onDone();
+  };
+  const save = async () => {
+    const text = reason.trim();
+    if (text === "") return;
+    const result = await action.run(() => client.markTicketImpediment(detail.id, text));
+    if (!result.ok) return;
+    cancel();
+    onSaved();
+  };
+  const clear = async () => {
+    const result = await action.run(() => client.clearTicketImpediment(detail.id));
+    if (result.ok) onSaved();
+  };
+  if (impediment) {
+    return (
+      <div className="ticket-impediment">
+        <p className="ticket-impediment-reason">{impediment.reason}</p>
+        <p className="ticket-muted">{t("impediment.by", { name: impediment.by.displayName, date: formatDateTime(i18n.language as Language, impediment.at) })}</p>
+        {canEdit && (
+          <button type="button" className="text" disabled={action.busy} onClick={() => void clear()}>
+            {t("impediment.clear")}
+          </button>
+        )}
+        <ActionError action={action} />
+      </div>
+    );
+  }
+  return (
+    <div className="ticket-impediment" onKeyDown={cancelOnEscape(cancel)}>
+      <textarea aria-label={t("impediment.reasonLabel")} autoFocus maxLength={IMPEDIMENT_REASON_MAX} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} />
+      <div className="ticket-impediment-actions">
+        <button type="button" disabled={action.busy || reason.trim() === ""} onClick={() => void save()}>
+          {t("impediment.save")}
+        </button>
+        <button type="button" className="text" disabled={action.busy} onClick={cancel}>
+          {t("impediment.cancel")}
+        </button>
+      </div>
+      <ActionError action={action} />
+    </div>
   );
 }
 

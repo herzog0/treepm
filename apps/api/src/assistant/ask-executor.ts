@@ -3,7 +3,7 @@ import type { TenantClient } from "@treepm/db";
 import type { TicketStatus } from "@treepm/domain";
 import type { TenantRunner } from "../db/own-transactions.js";
 import type { ProjectQueryService } from "../query/project-query.service.js";
-import type { QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "../query/query.schema.js";
+import type { QueryDependencyList, QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "../query/query.schema.js";
 
 /** Entrada do modelo que não vale: vira resultado de ferramenta com erro, nunca uma falha da pergunta. */
 export class ToolInputError extends Error {}
@@ -141,18 +141,23 @@ export class ProjectToolExecutor {
     const numbers = await this.numbersById(tx, [ticket, ...ticket.path, ...lists.flatMap((list) => list.tickets)]);
     const reduce = (list: QueryTicketList): BriefList => ({ tickets: list.tickets.map((summary) => this.brief(summary, numbers)), truncated: list.truncated });
     const directions = (pair: { outgoing: QueryTicketList; incoming: QueryTicketList }) => ({ outgoing: reduce(pair.outgoing), incoming: reduce(pair.incoming) });
+    // As dependências levam o tipo (ADR 0068): `start` (para começar) ou `deliver` (para entregar).
+    const needs = (list: QueryDependencyList) => ({ tickets: list.tickets.map((summary) => ({ ...this.brief(summary, numbers), need: summary.need })), truncated: list.truncated });
     const self = this.brief(ticket, numbers);
     return {
       label: self.label,
       title: self.title,
       status: self.status,
+      // Bloqueado é o fato do impedimento marcado (ADR 0068); o motivo nunca vai ao provedor (TREEPM-580). `place`: livre, próximo, esperando.
+      blocked: ticket.blocked,
+      place: ticket.place,
       idea: self.idea,
       description: ticket.description,
       parent: self.parent,
       path: ticket.path.map((summary) => this.brief(summary, numbers)),
       children: reduce(ticket.children),
       // `related` (ADR 0061): só os tickets, com rótulo neutro; a origem no Linear não é lida aqui.
-      relations: { mentions: directions(relations.mentions), depends_on: directions(relations.dependsOn), related: reduce(relations.related) },
+      relations: { mentions: directions(relations.mentions), depends_on: { outgoing: needs(relations.dependsOn.outgoing), incoming: needs(relations.dependsOn.incoming) }, related: reduce(relations.related) },
     };
   }
 

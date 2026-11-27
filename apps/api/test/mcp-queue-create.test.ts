@@ -99,18 +99,18 @@ describe("get_work_queue", () => {
     // De outra pessoa.
     await h.pool.query("insert into ticket_assignees (org_id, ticket_id, person_id) select $1, id, $3 from tickets where project_id = $2 and number = 3", [ORG, priv(), people().manager]);
     expect(keys(await queue(token))).toEqual(["PRIV-4"]);
-    // Bloqueado por ticket aberto.
-    await h.pool.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) select $1, $2, a.id, b.id, 'depends_on' from tickets a, tickets b where a.project_id = $2 and b.project_id = $2 and a.number = 4 and b.number = 1", [ORG, priv()]);
+    // Esperando um ticket aberto (dependência para começar, ADR 0068).
+    await h.pool.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind, need) select $1, $2, a.id, b.id, 'depends_on', 'start' from tickets a, tickets b where a.project_id = $2 and b.project_id = $2 and a.number = 4 and b.number = 1", [ORG, priv()]);
     expect(keys(await queue(token))).toEqual([]);
   });
 
-  it("fila vazia diz o motivo: all_blocked, all_others e none", async () => {
+  it("fila vazia diz o motivo: all_waiting, all_others e none", async () => {
     const { token } = await setup("contributor", "read");
     const block = (number: number) =>
-      h.pool.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) select $1, $2, a.id, b.id, 'depends_on' from tickets a, tickets b where a.project_id = $2 and b.project_id = $2 and a.number = $3 and b.number = 1", [ORG, priv(), number]);
+      h.pool.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind, need) select $1, $2, a.id, b.id, 'depends_on', 'start' from tickets a, tickets b where a.project_id = $2 and b.project_id = $2 and a.number = $3 and b.number = 1", [ORG, priv(), number]);
     await block(3);
     await block(4);
-    expect((await queue(token)).json).toMatchObject({ tickets: [], total: 0, truncated: false, empty_reason: "all_blocked" });
+    expect((await queue(token)).json).toMatchObject({ tickets: [], total: 0, truncated: false, empty_reason: "all_waiting" });
     await h.pool.query("delete from ticket_relations where kind = 'depends_on' and from_ticket_id in (select id from tickets where project_id = $1 and number in (3, 4))", [priv()]);
     await h.pool.query("delete from ticket_assignees where ticket_id in (select id from tickets where project_id = $1)", [priv()]);
     for (const number of [3, 4]) {

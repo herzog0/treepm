@@ -1,6 +1,6 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { TenantClient } from "@treepm/db";
-import { agentWorkIsValid, descriptionExcerpt, effectivePriorities, emptyQueueReason, searchTickets, ticketProgress, utcToday, workQueue } from "@treepm/domain";
+import { agentWorkIsValid, descriptionExcerpt, effectivePriorities, emptyQueueReason, searchTickets, utcToday, workQueue } from "@treepm/domain";
 import type { EmptyQueueReason, TicketStatus, WorkTicket } from "@treepm/domain";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { ACCESS_TOKEN_CLOCK } from "../access-tokens/clock.js";
@@ -8,15 +8,15 @@ import type { AccessTokenClock } from "../access-tokens/clock.js";
 import type { Principal } from "../access/principal.js";
 import { parseOutput } from "../common/zod.js";
 import { readEffectivePriorities } from "../tickets/ticket-priority.read.js";
-import { EXCERPT_SOURCE_LENGTH, readProgressOf, readSummaryRows } from "../tickets/ticket-reads.js";
+import { EXCERPT_SOURCE_LENGTH, readBranchOf, readProgressOf, readSummaryRows } from "../tickets/ticket-reads.js";
 import { MAX_TREE_DEPTH } from "../tickets/ticket-scope.js";
 import { dueDateText } from "../tickets/due-date.js";
 import { labelsByTicket } from "../tickets/labels.service.js";
 import type { LabelView } from "../tickets/labels.schema.js";
 import { scopeOf } from "../tickets/ticket-scope.js";
 import type { TicketScope } from "../tickets/ticket-scope.js";
-import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
-import { ideaViews, toNodes } from "../tickets/tickets.service.js";
+import { dependencyNeedSchema, ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
+import { ideaViews, isBlocked } from "../tickets/tickets.service.js";
 import { queryOverviewSchema, queryTicketPageSchema, queryTicketSchema, queryListSchema } from "./query.schema.js";
 import type { QueryIdea, QueryOverview, QueryTicket, QueryTicketList, QueryTicketPage, QueryTicketSummary } from "./query.schema.js";
 
@@ -130,12 +130,12 @@ export class ProjectQueryService {
 
   /**
    * Um ticket inteiro: descrição, pai, filhos, caminho do topo até o pai e as ligações nos dois sentidos, por tipo.
-   * 13 consultas fixas (projeto, ticket, filhos, seis de ligações, ancestrais, ideias, prioridade, etiquetas), nenhuma por ticket. `related` (ADR 0061) é simétrica, uma
+   * 14 consultas fixas (projeto, ticket, filhos, seis de ligações, ancestrais, ideias, prioridade, etiquetas, lugar na fila), nenhuma por ticket. `related` (ADR 0061) é simétrica, uma
    * linha por par com o menor id em `from`: os dois lados são lidos e juntados numa lista só, sem direção.
    */
   async ticket(tx: TenantClient, principal: Principal, projectId: string, number: number): Promise<QueryTicket> {
     const project = await this.requireProject(tx, principal, projectId);
-    const row = await tx.ticket.findFirst({ where: { projectId, number }, select: SUMMARY_SELECT });
+    const row = await tx.ticket.findFirst({ where: { projectId, number }, select: { ...SUMMARY_SELECT, impedimentReason: true } });
     if (!row) throw new NotFoundException("Ticket não encontrado.");
     const children = await tx.ticket.findMany({
       where: { projectId, parentId: row.id },
@@ -157,6 +157,16 @@ export class ProjectQueryService {
         orderBy: { from: RELATED_ORDER },
         take: RELATED_MAX + 1,
       })).map((relation) => relation.from);
+    // As dependências levam o tipo (ADR 0068), na mesma leitura da ligação.
+    type DependencyEntry = Row & { need: string | null };
+    const dependsOut = async (): Promise<DependencyEntry[]> =>
+      (await tx.ticketRelation.findMany({ where: { projectId, fromTicketId: row.id, kind: "depends_on" }, select: { need: true, to: { select: SUMMARY_SELECT } }, orderBy: { to: RELATED_ORDER }, take: RELATED_MAX + 1 })).map(
+        (relation) => ({ ...relation.to, need: relation.need }),
+      );
+    const dependsIn = async (): Promise<DependencyEntry[]> =>
+      (await tx.ticketRelation.findMany({ where: { projectId, toTicketId: row.id, kind: "depends_on" }, select: { need: true, from: { select: SUMMARY_SELECT } }, orderBy: { from: RELATED_ORDER }, take: RELATED_MAX + 1 })).map(
+        (relation) => ({ ...relation.from, need: relation.need }),
+      );
     // Cada lado já vem ordenado e com teto + 1: os primeiros da união estão entre eles, e o corte da união diz se havia mais.
     const related = [...(await outgoing("related")), ...(await incoming("related"))].sort((a, b) => a.number - b.number);
     const parts = {
@@ -164,8 +174,8 @@ export class ProjectQueryService {
       related: cut(related, RELATED_MAX),
       mentionsOut: cut(await outgoing("mentions"), RELATED_MAX),
       mentionsIn: cut(await incoming("mentions"), RELATED_MAX),
-      dependsOut: cut(await outgoing("depends_on"), RELATED_MAX),
-      dependsIn: cut(await incoming("depends_on"), RELATED_MAX),
+      dependsOut: cut(await dependsOut(), RELATED_MAX),
+      dependsIn: cut(await dependsIn(), RELATED_MAX),
     };
     const pathRows = await this.ancestors(tx, scopeOf(project), row.parentId);
     // A situação de ideia só dos tickets que a resposta mostra (o próprio, o caminho, os filhos e as ligações), numa consulta.
@@ -173,15 +183,22 @@ export class ProjectQueryService {
     const ideas = await this.annexOf(tx, scopeOf(project), shown.map((entry) => entry.id));
     const summary = (entry: Row): QueryTicketSummary => this.summary(project.key, entry, ideas);
     const list = (part: { rows: Row[]; truncated: boolean }): QueryTicketList => ({ tickets: part.rows.map(summary), truncated: part.truncated });
+    const dependencies = (part: { rows: DependencyEntry[]; truncated: boolean }) => ({
+      tickets: part.rows.map((entry) => ({ ...summary(entry), need: dependencyNeedSchema.parse(entry.need) })),
+      truncated: part.truncated,
+    });
     const relations = {
       mentions: { outgoing: list(parts.mentionsOut), incoming: list(parts.mentionsIn) },
-      dependsOn: { outgoing: list(parts.dependsOut), incoming: list(parts.dependsIn) },
+      dependsOn: { outgoing: dependencies(parts.dependsOut), incoming: dependencies(parts.dependsIn) },
       related: list(parts.related),
     };
     const path = pathRows.map(summary);
 
+    const place = ideas.ideas.has(row.id) ? null : ((await readBranchOf(tx, scopeOf(project), [row.id])).get(row.id)?.place ?? null);
     return parseOutput(queryTicketSchema, {
       ...summary(row),
+      blocked: isBlocked(row),
+      place,
       description: row.description,
       parent: path.at(-1) ?? null,
       path,
@@ -293,7 +310,6 @@ export class ProjectQueryService {
       scopeId = found.id;
     }
     const now = this.clock.now();
-    const progress = ticketProgress(toNodes(rows));
     const ideas = ideaViews(project, rows);
     const tickets: WorkTicket[] = rows.map((row) => ({
       id: row.id,
@@ -304,7 +320,8 @@ export class ProjectQueryService {
       priority: row.priority ?? 0,
       assigneeIds: row.assignees.map((assignee) => assignee.personId),
       blocked: row.blocked ?? false,
-      progress: progress.get(row.id) ?? null,
+      // Ideia não tem lugar na fila (ADR 0068): o mesmo corte de `toSummary`.
+      place: ideas.has(row.id) ? null : (row.place ?? null),
       idea: ideas.get(row.id) ?? null,
       agentWork: row.agentWorkUntil && agentWorkIsValid(row.agentWorkUntil, now) ? { until: row.agentWorkUntil.toISOString() } : null,
     }));

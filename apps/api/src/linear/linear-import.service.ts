@@ -2052,8 +2052,10 @@ export class LinearImportService {
       let inIdea: boolean | null = null;
       const insideIdea = async (): Promise<boolean> => (inIdea ??= row.ideaStage !== null || (row.parentId !== null && (await this.parentsInIdeas(tx, project, [row.parentId])).has(row.parentId)));
       const hasOpenChildren = trying && desired === "done" && (await tx.ticket.count({ where: { parentId: row.id, status: { notIn: ["done", "cancelled"] }, ideaStage: null } })) > 0;
+      // Dependência "para entregar" aberta (ADR 0068, seção 3): o concluído espera, como com filho aberto (a mesma regra de `updateTicket`).
+      const hasOpenDeliveries = trying && desired === "done" && (await tx.ticketRelation.count({ where: { fromTicketId: row.id, kind: "depends_on", need: "deliver", to: { status: { notIn: ["done", "cancelled"] } } } })) > 0;
       // `previousSource: desired`: se o Linear mudou a situação nesta rodada quem sabe é a marca da fase `issues` (o retrato de origem já avançou).
-      const decision = decideLinearStatus({ desired, previousSource: desired, current, applied: appliedStatus, insideIdea: trying ? await insideIdea() : false, hasOpenChildren });
+      const decision = decideLinearStatus({ desired, previousSource: desired, current, applied: appliedStatus, insideIdea: trying ? await insideIdea() : false, hasOpenChildren, hasOpenDeliveries });
       const key = `${project.key}-${row.number}`;
       let updated = false;
       const appliedPatch: Record<string, unknown> = {};
@@ -2062,6 +2064,8 @@ export class LinearImportService {
         if (!isFinished(decision.target) && row.parentId !== null) await this.reopenParents(tx, principal, project, [row.parentId], key, counts, run.startedAt);
         // O marcador de trabalho pela IA acaba antes: o banco recusa concluído ou cancelado com marcador.
         if (decision.target === "done" || decision.target === "cancelled") await this.agentWork.clearTicket(tx, principal, project.key, row.id, "finished");
+        // Concluir ou cancelar limpa o impedimento (ADR 0068, seção 5), como na tela: reaberto depois, o ticket não volta bloqueado.
+        if (decision.target === "done" || decision.target === "cancelled") await this.tickets.clearImpediments(tx, principal, project, [row.id], { automatic: true, cause: "finished", source: "linear_reimport", runId: run.id });
         await tx.ticket.update({ where: { orgId_id: { orgId, id: row.id } }, data: { status: decision.target } });
         await this.activity.record(tx, principal, { kind: "ticket.updated", subjectType: "ticket", subjectId: row.id, payload: { key, fields: ["status"], status: { from: row.status, to: decision.target }, automatic: true, source: "linear_reimport", runId: run.id } });
         appliedPatch["status"] = decision.target;

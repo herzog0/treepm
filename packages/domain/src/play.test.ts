@@ -7,7 +7,7 @@ const NOW = Date.parse("2026-11-22T12:00:00.000Z");
 const iso = (minutes: number) => new Date(NOW + minutes * 60_000).toISOString();
 
 function t(number: number, parentId: string | null, extra: Partial<WorkTicket> = {}): WorkTicket {
-  return { id: `t${number}`, projectId: "p1", parentId, number, status: "todo", priority: 0, assigneeIds: [], blocked: false, progress: null, idea: null, agentWork: null, ...extra };
+  return { id: `t${number}`, projectId: "p1", parentId, number, status: "todo", priority: 0, assigneeIds: [], blocked: false, place: "free", idea: null, agentWork: null, ...extra };
 }
 const people: PlayPerson[] = [
   { id: "ana", displayName: "Ana" },

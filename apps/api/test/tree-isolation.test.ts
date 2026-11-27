@@ -83,11 +83,12 @@ describe("papel dono (sem RLS), dois tenants com tickets de mesmo id: a consulta
 
   it("ramo e progresso: A conta só os tickets de A; B, só os de B", async () => {
     const a = await tx((c) => readBranchOf(c, scopeA, [ROOT, MID, LEAF]));
-    expect(a.get(ROOT)).toEqual({ progress: { done: 1, total: 3, excluded: 0, ideas: 0 }, ideaRoot: null, prioritySource: null });
-    expect(a.get(MID)).toEqual({ progress: { done: 1, total: 2, excluded: 0, ideas: 0 }, ideaRoot: null, prioritySource: null });
-    expect(a.get(LEAF)).toEqual({ progress: null, ideaRoot: null, prioritySource: null });
+    // `place` (ADR 0068): pai e ticket concluído não têm lugar na fila.
+    expect(a.get(ROOT)).toEqual({ progress: { done: 1, total: 3, excluded: 0, ideas: 0 }, ideaRoot: null, prioritySource: null, place: null });
+    expect(a.get(MID)).toEqual({ progress: { done: 1, total: 2, excluded: 0, ideas: 0 }, ideaRoot: null, prioritySource: null, place: null });
+    expect(a.get(LEAF)).toEqual({ progress: null, ideaRoot: null, prioritySource: null, place: null });
     const b = await tx((c) => readBranchOf(c, scopeB, [ROOT, MID, LEAF]));
-    expect(b.get(ROOT)).toEqual({ progress: { done: 0, total: 0, excluded: 0, ideas: 0 }, ideaRoot: { id: ROOT, number: 1, stage: "ready" }, prioritySource: null });
+    expect(b.get(ROOT)).toEqual({ progress: { done: 0, total: 0, excluded: 0, ideas: 0 }, ideaRoot: { id: ROOT, number: 1, stage: "ready" }, prioritySource: null, place: null });
     expect(b.get(MID)?.ideaRoot).toEqual({ id: ROOT, number: 1, stage: "ready" });
     expect(b.get(LEAF)?.progress).toEqual({ done: 0, total: 0, excluded: 0, ideas: 0 });
     expect([...(await tx((c) => readProgressOf(c, scopeA, [LEAF]))).keys()]).toEqual([]);

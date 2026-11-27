@@ -28,6 +28,7 @@ import { ZodPipe, parseOutput } from "../common/zod.js";
 import { Tx } from "../db/tx.decorator.js";
 import {
   addDependencySchema,
+  markImpedimentSchema,
   createTicketSchema,
   importTicketsSchema,
   ticketSummarySchema,
@@ -316,7 +317,24 @@ export class TicketsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(addDependencySchema)) body: z.output<typeof addDependencySchema>,
   ): Promise<TicketPage> {
-    return this.tickets.addDependency(tx, principal, id, body.ticketId);
+    return this.tickets.addDependency(tx, principal, id, body.ticketId, body.need);
+  }
+
+  /** Marca o impedimento do ticket (ADR 0068, seção 5): o ticket fica bloqueado com o motivo. Marcar de novo troca o motivo. */
+  @Put("tickets/:id/impediment")
+  async markImpediment(
+    @Tx() tx: TenantClient,
+    @CurrentPrincipal() principal: Principal,
+    @Param("id", new ZodPipe(idSchema)) id: string,
+    @Body(new ZodPipe(markImpedimentSchema)) body: z.output<typeof markImpedimentSchema>,
+  ): Promise<TicketPage> {
+    return this.tickets.markImpediment(tx, principal, id, body.reason);
+  }
+
+  /** Limpa o impedimento (ADR 0068, seção 5); sem impedimento, responde a página do ticket sem mudar nada. */
+  @Delete("tickets/:id/impediment")
+  async clearImpediment(@Tx() tx: TenantClient, @CurrentPrincipal() principal: Principal, @Param("id", new ZodPipe(idSchema)) id: string): Promise<TicketPage> {
+    return this.tickets.clearImpediment(tx, principal, id);
   }
 
   @Delete("tickets/:id/dependencies/:ticketId")

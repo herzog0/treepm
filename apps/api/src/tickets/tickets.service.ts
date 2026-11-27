@@ -3,7 +3,7 @@ import { ConflictException, Inject, Injectable, NotFoundException, Unprocessable
 import type { TenantClient } from "@treepm/db";
 import type { z } from "zod";
 import { agentWorkIsValid, canEditContributions, canEditTicket, canMoveIntoIdea, canTriageIdea, createsDependencyCycle, DependencyGraph, descriptionExcerpt, relatedPair, mentionsPersonRaw, ideaRootsOf, isFinished, mentionedKeys, parentWouldCreateCycle, safeLinearKey, safeLinearUrl, statusChangeAllowed, ticketsToReopen } from "@treepm/domain";
-import type { Actor, IdeaStage, TicketNode, TicketStatus, ticketProgress } from "@treepm/domain";
+import type { Actor, DependencyNeed, IdeaStage, QueuePlace, TicketNode, TicketStatus, ticketProgress } from "@treepm/domain";
 import { buildActor } from "../access/actor.js";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
@@ -14,8 +14,8 @@ import { parseOutput } from "../common/zod.js";
 import { AgentWorkService } from "./agent-work.service.js";
 import { ideaRootOfTicket } from "./idea-root.js";
 import { MAX_TREE_DEPTH, scopeOf } from "./ticket-scope.js";
-import { ideaStageSchema, ticketDetailSchema, ticketStatusSchema } from "./tickets.schema.js";
-import type { AgentWork, EffectivePriorityView, ExternalSourceView, TicketDetail, TicketIdea, TicketPage, TicketSummary, updateTicketSchema } from "./tickets.schema.js";
+import { dependencyNeedSchema, ideaStageSchema, ticketDetailSchema, ticketStatusSchema } from "./tickets.schema.js";
+import type { AgentWork, EffectivePriorityView, ExternalSourceView, ImpedimentView, TicketDetail, TicketIdea, TicketPage, TicketSummary, updateTicketSchema } from "./tickets.schema.js";
 import { readContributions } from "./ticket-contributions.read.js";
 import { readBranchOf } from "./ticket-reads.js";
 import { ticketLabelsOf } from "./labels.service.js";
@@ -60,8 +60,10 @@ export type TicketRow = {
   priority?: number;
   /** Prazo (ADR 0064), `AAAA-MM-DD`; ausente = sem prazo. A linha do Prisma passa por `dueDateText`. */
   dueDate?: string | null;
-  /** Depende de algum ticket ainda aberto; ausente = não (quem monta a linha sem a ligação, como a criação). */
+  /** Bloqueado (ADR 0068): aberto e com impedimento marcado; ausente = não (quem monta a linha sem ler o impedimento, como a criação). */
   blocked?: boolean;
+  /** Lugar na fila (ADR 0068, seção 4), lido por `readSummaryRows` ou `readBranchOf`; ausente = nulo (quem monta a linha sem ler as dependências). */
+  place?: QueuePlace | null;
   /** Etiquetas (ADR 0065), já na ordem de saída; ausente = nenhuma (o ticket recém-criado ou importado nasce sem etiqueta). */
   labels?: LabelView[];
 };
@@ -142,6 +144,8 @@ export function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, prog
     priority: row.priority ?? 0,
     dueDate: row.dueDate ?? null,
     blocked: row.blocked ?? false,
+    // Ideia (raiz ou dentro) não tem lugar na fila (ADR 0068, seção 4); o SQL (`QUEUE_PLACE_SQL`) já a tira, e aqui fica a mesma regra.
+    place: idea === null ? (row.place ?? null) : null,
     labels: row.labels ?? [],
   };
 }
@@ -150,30 +154,40 @@ export function toSummary(project: Pick<ProjectRow, "key">, row: TicketRow, prog
 export type MentionedByRow = { number: number; id: string; title: string; status: string; dueDate?: Date | null };
 /** Uma ligação mostrada na página do ticket, com a marca de que veio do Linear (ADR 0061, fatia 3). */
 export type LinkRow = MentionedByRow & { fromLinear?: boolean };
+/** Uma dependência mostrada na página do ticket, com o tipo (ADR 0068). */
+export type DependencyRow = LinkRow & { need: DependencyNeed };
+
+/** Bloqueado (ADR 0068, seção 5): o ticket aberto com impedimento marcado. Um impedimento que sobrou num ticket finalizado não conta. */
+export function isBlocked(row: { status: string; impedimentReason?: string | null }): boolean {
+  return (row.impedimentReason ?? null) !== null && !isFinished(statusOf(row));
+}
 
 export function toDetail(project: Pick<ProjectRow, "key">, row: TicketDetailRow, progress: Progress,
   idea: TicketIdea = null,
   mentionedBy: readonly MentionedByRow[] = [],
-  dependsOn: readonly LinkRow[] = [],
-  blocks: readonly LinkRow[] = [],
+  dependsOn: readonly DependencyRow[] = [],
+  blocks: readonly DependencyRow[] = [],
   now: number = Date.now(),
   agentWorkBy: { id: string; displayName: string; avatarUrl: string | null } | null = null,
   effectivePriority: EffectivePriorityView = { value: row.priority ?? 0, from: null },
   externalSource: ExternalSourceView | null = null,
   related: readonly LinkRow[] = [],
+  impediment: ImpedimentView = null,
 ): TicketDetail {
   const mention = (from: MentionedByRow) => ({ id: from.id, key: `${project.key}-${from.number}`, title: from.title, status: from.status, dueDate: dueDateText(from.dueDate) });
   const link = (from: LinkRow) => ({ ...mention(from), fromLinear: from.fromLinear === true });
+  const dependency = (from: DependencyRow) => ({ ...link(from), need: from.need });
   return parseOutput(ticketDetailSchema, {
-    ...toSummary(project, { ...row, blocked: dependsOn.some((link) => !isFinished(statusOf(link))) }, progress, idea, now),
+    ...toSummary(project, { ...row, blocked: impediment !== null }, progress, idea, now),
     effectivePriority,
     externalSource,
     agentWork: toAgentWork(row, now) && agentWorkBy ? { ...(toAgentWork(row, now) as AgentWork), by: agentWorkBy } : null,
     description: row.description,
     mentionedBy: mentionedBy.map(mention),
-    dependsOn: dependsOn.map(link),
-    blocks: blocks.map(link),
+    dependsOn: dependsOn.map(dependency),
+    blocks: blocks.map(dependency),
     related: related.map(link),
+    impediment,
     createdByPersonId: row.createdByPersonId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -215,6 +229,8 @@ export class TicketsService {
       await this.lockStructure(tx, project.id);
       ticket = (await this.findVisibleTicket(tx, principal.actor, id)).ticket;
     }
+    // Concluir confere as dependências "para entregar" (ADR 0068): a trava de dependências vem antes de qualquer trava de linha (ADR 0046).
+    if (body.status === "done" && ticket.status !== "done") await this.lockDependencies(tx, project.id);
 
     if (body.parentId !== undefined && body.parentId !== null) {
       await this.requireParent(tx, project.id, body.parentId);
@@ -300,8 +316,11 @@ export class TicketsService {
       if (!statusChangeAllowed(inside, (locked[0]?.status ?? ticket.status) as TicketStatus, data.status as TicketStatus)) this.throwInIdea();
     }
     if (data.status === "done") await this.requireNoOpenChildren(tx, id);
+    if (data.status === "done") await this.requireNoOpenDeliveryDependencies(tx, project, id);
     // O marcador de trabalho pela IA (ADR 0043) acaba ANTES da gravação da situação: o banco recusa concluído ou cancelado com marcador.
     if (data.status === "done" || data.status === "cancelled") await this.agentWork.clearTicket(tx, principal, project.key, id, "finished");
+    // Concluir ou cancelar limpa o impedimento (ADR 0068, seção 5), com o evento automático.
+    if (data.status === "done" || data.status === "cancelled") await this.clearImpedimentOf(tx, principal, project, ticket, { automatic: true, cause: "finished" });
     if (fields.length > 0) {
       await tx.ticket.update({ where: { orgId_id: { orgId: project.orgId, id } }, data });
       await this.activity.record(tx, principal, {
@@ -359,6 +378,94 @@ export class TicketsService {
         details: { openChildCount: open },
       });
     }
+  }
+
+  /**
+   * Concluir exige as dependências "para entregar" finalizadas (ADR 0068, seção 3): 409 `ticket_has_open_delivery_dependencies` com as
+   * chaves que faltam em `details.keys`, em ordem de número. Cancelar não passa por aqui. Quem chama já pegou a trava de dependências
+   * (antes das travas de linha): uma ligação nova ainda não confirmada faz a conclusão esperar.
+   */
+  private async requireNoOpenDeliveryDependencies(tx: TenantClient, project: ProjectRow, id: string): Promise<void> {
+    const open = await tx.ticketRelation.findMany({
+      where: { fromTicketId: id, kind: "depends_on", need: "deliver", to: { status: { notIn: ["done", "cancelled"] } } },
+      select: { to: { select: { number: true } } },
+    });
+    if (open.length === 0) return;
+    const keys = open.map((relation) => relation.to.number).sort((a, b) => a - b).map((number) => `${project.key}-${number}`);
+    throw new ConflictException({
+      code: "ticket_has_open_delivery_dependencies",
+      message: `Este ticket só pode ser concluído quando ${keys.join(", ")} ficar pronto.`,
+      details: { keys },
+    });
+  }
+
+  /**
+   * Marca o impedimento (ADR 0068, seção 5): o ticket fica bloqueado, com o motivo, quem marcou e quando. Mesmas conferências de editar
+   * o ticket (404, 403, projeto arquivado 409); ticket concluído ou cancelado: 409 `ticket_finished`. Marcar de novo troca o motivo.
+   * O evento não leva o motivo (texto novo da pessoa, fora do que vai à IA até o `TREEPM-580`); o detalhe o mostra.
+   */
+  async markImpediment(tx: TenantClient, principal: Principal, id: string, reason: string): Promise<TicketPage> {
+    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
+    this.authorization.editTicket(principal.actor, project.id);
+    this.requireActive(project);
+    // A linha travada decide a situação: uma conclusão que acabou de confirmar vale a partir daqui.
+    const locked = await tx.$queryRaw<{ status: string; impediment_reason: string | null }[]>`select status, impediment_reason from tickets where id = ${id}::uuid for update`;
+    if (isFinished(statusOf({ status: locked[0]?.status ?? ticket.status }))) {
+      throw new ConflictException({ code: "ticket_finished", message: "Ticket concluído ou cancelado não recebe impedimento." });
+    }
+    if (locked[0]?.impediment_reason !== reason) {
+      await touchProjectVersion(tx, project.id); // ADR 0046: `blocked` do resumo muda.
+      await tx.ticket.update({
+        where: { orgId_id: { orgId: project.orgId, id } },
+        data: { impedimentReason: reason, impedimentPersonId: principal.person.id, impedimentAt: new Date(this.clock.now()) },
+      });
+      await this.activity.record(tx, principal, {
+        kind: "ticket.impediment_marked",
+        subjectType: "ticket",
+        subjectId: id,
+        payload: { key: `${project.key}-${ticket.number}` },
+      });
+    }
+    return this.detailFor(tx, project, id, principal);
+  }
+
+  /** Limpa o impedimento (ADR 0068, seção 5): mesmas conferências de `markImpediment`; sem impedimento, nada muda (sem evento). */
+  async clearImpediment(tx: TenantClient, principal: Principal, id: string): Promise<TicketPage> {
+    const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
+    this.authorization.editTicket(principal.actor, project.id);
+    this.requireActive(project);
+    await this.clearImpedimentOf(tx, principal, project, ticket);
+    return this.detailFor(tx, project, id, principal);
+  }
+
+  /** Apaga o impedimento do ticket, se houver, com o evento (`extra` marca o automático, ao concluir ou cancelar). */
+  private async clearImpedimentOf(tx: TenantClient, principal: Principal, project: ProjectRow, ticket: { id: string; number: number }, extra: Record<string, unknown> = {}): Promise<void> {
+    await this.clearImpediments(tx, principal, project, [ticket.id], extra);
+  }
+
+  /**
+   * Limpa o impedimento (ADR 0068, seção 5) de cada ticket de `ticketIds` que tiver um, dentro da transação de quem chama, com um evento
+   * `ticket.impediment_cleared` por ticket limpo (`extra` vai no evento: quem conclui ou cancela passa `{ automatic: true, cause:
+   * "finished" }` e a origem). É o caminho ÚNICO para limpar: todo lugar que leva um ticket a concluído ou cancelado o chama (a tela,
+   * a sincronização com o Linear e a situação calculada do pai). Ticket sem impedimento não muda nem ganha evento. Devolve os ids limpos.
+   */
+  async clearImpediments(tx: TenantClient, principal: Principal, project: Pick<ProjectRow, "id" | "key">, ticketIds: readonly string[], extra: Record<string, unknown> = {}): Promise<string[]> {
+    if (ticketIds.length === 0) return [];
+    const cleared = await tx.$queryRaw<{ id: string; number: number }[]>`
+      update tickets set impediment_reason = null, impediment_person_id = null, impediment_at = null
+       where project_id = ${project.id}::uuid and id = any(${[...new Set(ticketIds)]}::uuid[]) and impediment_reason is not null
+      returning id, number`;
+    if (cleared.length === 0) return [];
+    await touchProjectVersion(tx, project.id); // ADR 0046: `blocked` do resumo muda.
+    for (const row of [...cleared].sort((a, b) => a.number - b.number)) {
+      await this.activity.record(tx, principal, {
+        kind: "ticket.impediment_cleared",
+        subjectType: "ticket",
+        subjectId: row.id,
+        payload: { key: `${project.key}-${row.number}`, ...extra },
+      });
+    }
+    return cleared.map((row) => row.id);
   }
 
   private throwInIdea(): never {
@@ -580,6 +687,7 @@ export class TicketsService {
         select: {
           id: true,
           fromTicketId: true,
+          need: true,
           from: { select: { id: true, number: true, title: true, status: true, dueDate: true } },
           to: { select: { id: true, number: true, title: true, status: true, dueDate: true } },
         },
@@ -614,8 +722,9 @@ export class TicketsService {
     const mentionedBy = mentions.map((relation) => relation.from).sort((a, b) => a.number - b.number);
     const byNumber = (a: MentionedByRow, b: MentionedByRow) => a.number - b.number;
     const marked = (relation: { id: string }, ticket: MentionedByRow): LinkRow => ({ ...ticket, fromLinear: fromLinear.has(relation.id) });
-    const dependsOn = dependencies.filter((relation) => relation.fromTicketId === id).map((relation) => marked(relation, relation.to)).sort(byNumber);
-    const blocks = dependencies.filter((relation) => relation.fromTicketId !== id).map((relation) => marked(relation, relation.from)).sort(byNumber);
+    const withNeed = (relation: { id: string; need: string | null }, ticket: MentionedByRow): DependencyRow => ({ ...marked(relation, ticket), need: dependencyNeedSchema.parse(relation.need) });
+    const dependsOn = dependencies.filter((relation) => relation.fromTicketId === id).map((relation) => withNeed(relation, relation.to)).sort(byNumber);
+    const blocks = dependencies.filter((relation) => relation.fromTicketId !== id).map((relation) => withNeed(relation, relation.from)).sort(byNumber);
     const relatedTo = related.map((relation) => marked(relation, relation.fromTicketId === id ? relation.to : relation.from)).sort(byNumber);
     const now = this.clock.now();
     const by = toAgentWork(row, now) && row.agentWorkPersonId
@@ -624,7 +733,12 @@ export class TicketsService {
     // A prioridade que vale sai da MESMA consulta recursiva do ramo (a subida pelos ancestrais já está nela): um instantâneo só.
     const source = branches.get(id)?.prioritySource ?? null;
     const effective = source ? { value: source.value, from: { id: source.id, key: `${project.key}-${source.number}` } } : { value: 0, from: null };
-    return toDetail(project, { ...row, dueDate: dueDateText(row.dueDate), labels }, progress, idea, mentionedBy, dependsOn, blocks, now, by, effective, externalSource, relatedTo);
+    const impededBy = isBlocked(row) && row.impedimentPersonId
+      ? await tx.person.findFirst({ where: { id: row.impedimentPersonId }, select: { id: true, displayName: true, avatarUrl: true } })
+      : null;
+    const impediment: ImpedimentView = impededBy && row.impedimentReason !== null && row.impedimentAt !== null ? { reason: row.impedimentReason, by: impededBy, at: row.impedimentAt.toISOString() } : null;
+    const place = branches.get(id)?.place ?? null;
+    return toDetail(project, { ...row, dueDate: dueDateText(row.dueDate), labels, place }, progress, idea, mentionedBy, dependsOn, blocks, now, by, effective, externalSource, relatedTo, impediment);
   }
 
   /**
@@ -679,8 +793,9 @@ export class TicketsService {
         const result = results[i];
         if (result?.outcome === "exists" && result.id === "") results[i] = { outcome: "exists", id: existing.get(`${from}>${to}`) as string };
       });
-      await touchProjectVersion(tx, project.id); // ADR 0046 (rev. 3): `blocked` dos dependentes muda.
-      await tx.ticketRelation.createMany({ data: toCreate.map((edge, i) => ({ id: ids[i] as string, orgId: project.orgId, projectId: project.id, fromTicketId: edge.from, toTicketId: edge.to, kind: "depends_on" })) });
+      await touchProjectVersion(tx, project.id); // ADR 0046 (rev. 3): o lugar na fila dos dependentes muda.
+      // `blocks` do Linear vira "para começar" (ADR 0068, seção 3); escolher o tipo na importação é da ADR da importação (`TREEPM-575`).
+      await tx.ticketRelation.createMany({ data: toCreate.map((edge, i) => ({ id: ids[i] as string, orgId: project.orgId, projectId: project.id, fromTicketId: edge.from, toTicketId: edge.to, kind: "depends_on", need: "start" })) });
     }
     return results;
   }
@@ -1015,9 +1130,10 @@ export class TicketsService {
   }
 
   /**
-   * "`fromId` depende de `toId`" (ADR 0037), dentro da transação de quem chama; as permissões e o projeto já foram conferidos.
-   * Serializa por projeto (trava de aviso, só entre quem altera dependências), recusa a ligação a si mesmo e o ciclo, e é
-   * idempotente (`exists`, sem novo evento). Os dois tickets são do projeto: confira antes.
+   * "`fromId` depende de `toId`" (ADR 0037), do tipo `need` (ADR 0068), dentro da transação de quem chama; as permissões e o projeto
+   * já foram conferidos. Serializa por projeto (trava de aviso, só entre quem altera dependências), recusa a ligação a si mesmo e o
+   * ciclo (os dois tipos juntos), e é idempotente (`exists`, sem novo evento). Entre dois tickets há no máximo uma dependência: o mesmo
+   * par com outro tipo troca o tipo (`changed`, com o evento da troca). Os dois tickets são do projeto: confira antes.
    */
   async linkDependency(
     tx: TenantClient,
@@ -1025,19 +1141,33 @@ export class TicketsService {
     project: ProjectRow,
     from: { id: string; number: number },
     to: { id: string; number: number },
-  ): Promise<"created" | "exists" | "cycle" | "self"> {
+    need: DependencyNeed = "start",
+  ): Promise<"created" | "changed" | "exists" | "cycle" | "self"> {
     if (from.id === to.id) return "self";
     await this.lockDependencies(tx, project.id);
-    const edges = await tx.ticketRelation.findMany({ where: { projectId: project.id, kind: "depends_on" }, select: { fromTicketId: true, toTicketId: true } });
-    if (edges.some((edge) => edge.fromTicketId === from.id && edge.toTicketId === to.id)) return "exists";
+    const edges = await tx.ticketRelation.findMany({ where: { projectId: project.id, kind: "depends_on" }, select: { id: true, fromTicketId: true, toTicketId: true, need: true } });
+    const keys = { key: `${project.key}-${from.number}`, dependsOnKey: `${project.key}-${to.number}`, dependsOnTicketId: to.id };
+    const existing = edges.find((edge) => edge.fromTicketId === from.id && edge.toTicketId === to.id);
+    if (existing) {
+      if (existing.need === need) return "exists";
+      await touchProjectVersion(tx, project.id); // ADR 0046: o lugar na fila do dependente muda com o tipo.
+      await tx.ticketRelation.update({ where: { orgId_id: { orgId: project.orgId, id: existing.id } }, data: { need } });
+      await this.activity.record(tx, principal, {
+        kind: "ticket.dependency_need_changed",
+        subjectType: "ticket",
+        subjectId: from.id,
+        payload: { ...keys, need: { from: existing.need, to: need } },
+      });
+      return "changed";
+    }
     if (createsDependencyCycle(edges.map((edge) => [edge.fromTicketId, edge.toTicketId] as const), from.id, to.id)) return "cycle";
-    await touchProjectVersion(tx, project.id); // ADR 0046 (rev. 3): `blocked` do dependente muda; decidido depois da trava e da leitura das ligações.
-    await tx.ticketRelation.create({ data: { orgId: project.orgId, projectId: project.id, fromTicketId: from.id, toTicketId: to.id, kind: "depends_on" } });
+    await touchProjectVersion(tx, project.id); // ADR 0046 (rev. 3): o lugar na fila do dependente muda; decidido depois da trava e da leitura das ligações.
+    await tx.ticketRelation.create({ data: { orgId: project.orgId, projectId: project.id, fromTicketId: from.id, toTicketId: to.id, kind: "depends_on", need } });
     await this.activity.record(tx, principal, {
       kind: "ticket.dependency_added",
       subjectType: "ticket",
       subjectId: from.id,
-      payload: { key: `${project.key}-${from.number}`, dependsOnKey: `${project.key}-${to.number}`, dependsOnTicketId: to.id },
+      payload: { ...keys, need },
     });
     return "created";
   }
@@ -1045,9 +1175,10 @@ export class TicketsService {
   /**
    * "Este ticket depende de `otherId`" (ADR 0037): o caminho ÚNICO de regras, da rota HTTP e do MCP (ADR 0062). Visibilidade (404),
    * permissão de editar (403), projeto arquivado (409), o outro ticket do MESMO projeto (404, igual a inexistente), "não depende de
-   * si mesmo" (409 `dependency_self`) e ciclo (409 `dependency_cycle`). Idempotente: ligação que já existe não gera novo evento.
+   * si mesmo" (409 `dependency_self`) e ciclo (409 `dependency_cycle`). Idempotente: ligação que já existe não gera novo evento. Com
+   * outro `need`, troca o tipo da que existe (ADR 0068).
    */
-  async addDependency(tx: TenantClient, principal: Principal, id: string, otherId: string): Promise<TicketPage> {
+  async addDependency(tx: TenantClient, principal: Principal, id: string, otherId: string, need: DependencyNeed = "start"): Promise<TicketPage> {
     const { project, ticket } = await this.findVisibleTicket(tx, principal.actor, id);
     this.authorization.editTicket(principal.actor, project.id);
     this.requireActive(project);
@@ -1055,7 +1186,7 @@ export class TicketsService {
     if (other.id === id) {
       throw new ConflictException({ code: "dependency_self", message: "Um ticket não pode depender de si mesmo." });
     }
-    const outcome = await this.linkDependency(tx, principal, project, ticket, other);
+    const outcome = await this.linkDependency(tx, principal, project, ticket, other, need);
     if (outcome === "cycle") {
       throw new ConflictException({ code: "dependency_cycle", message: "Isso fecharia um ciclo de dependências.", details: { key: `${project.key}-${other.number}` } });
     }

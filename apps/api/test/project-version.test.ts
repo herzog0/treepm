@@ -151,7 +151,7 @@ const CASES: Case[] = [
   { name: "importar", act: () => ok(send("post", `${listPath()}/import`, "admin", { items: [{ title: "A", children: [{ title: "B" }] }] })) },
   { name: "importar dentro de um pai concluído", act: async () => ok(send("post", `${listPath()}/import`, "admin", { parentId: await idOf(2), items: [{ title: "A" }] })) },
   { name: "prioridade (ADR 0047)", act: async () => ok(send("patch", `/api/tickets/${await idOf(3)}`, "admin", { priority: 2 })) },
-  { name: "criar dependência (muda `blocked` do dependente)", act: async () => ok(send("post", `/api/tickets/${await idOf(3)}/dependencies`, "admin", { ticketId: await idOf(4) })) },
+  { name: "criar dependência (muda o lugar na fila do dependente)", act: async () => ok(send("post", `/api/tickets/${await idOf(3)}/dependencies`, "admin", { ticketId: await idOf(4) })) },
   {
     name: "remover dependência",
     prepare: async () => void (await ok(send("post", `/api/tickets/${await idOf(3)}/dependencies`, "admin", { ticketId: await idOf(4) }))),

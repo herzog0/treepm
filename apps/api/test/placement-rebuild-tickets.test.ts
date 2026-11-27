@@ -362,6 +362,49 @@ describe("ticket-update --depends-on e --no-depends-on (ADR 0037)", () => {
   });
 });
 
+describe("ticket-update: tipo da dependência e impedimento (ADR 0068)", () => {
+  type Link = { key: string; need: string };
+  const dependsOn = async (id: string): Promise<Link[]> => ((await detail(id)) as unknown as { dependsOn: Link[] }).dependsOn.map((d) => ({ key: d.key, need: d.need }));
+  const keyOf = async () => (await rows(project))[0]?.key.split("-")[0] as string;
+
+  it("--depends-on cria 'para começar'; --depends-on-deliver cria ou troca para 'para entregar'; --depends-on troca de volta", async () => {
+    await add(project, "Alfa");
+    const b = await add(project, "Beta");
+    const key = await keyOf();
+    await ticketUpdateCommand(ctx, { number: 2, dependsOn: 1 });
+    expect(await dependsOn(b)).toEqual([{ key: `${key}-1`, need: "start" }]);
+    lines.length = 0;
+    await ticketUpdateCommand(ctx, { number: 2, dependsOnDeliver: 1 });
+    expect(await dependsOn(b)).toEqual([{ key: `${key}-1`, need: "deliver" }]);
+    expect(lines).toEqual([`${key}-2: depende de ${key}-1 para entregar (era para começar)`]);
+    lines.length = 0;
+    await ticketUpdateCommand(ctx, { number: 2, dependsOnDeliver: 1 });
+    expect(lines).toEqual([`${key}-2: já dependia de ${key}-1 para entregar`]);
+    lines.length = 0;
+    await ticketUpdateCommand(ctx, { number: 2, dependsOn: 1 });
+    expect(await dependsOn(b)).toEqual([{ key: `${key}-1`, need: "start" }]);
+    expect(lines).toEqual([`${key}-2: depende de ${key}-1 (era para entregar)`]);
+  });
+
+  it("--impediment marca o motivo e --no-impediment limpa; repetir não é erro", async () => {
+    const a = await add(project, "Alfa");
+    const key = await keyOf();
+    await ticketUpdateCommand(ctx, { number: 1, impediment: "Falta a chave do fornecedor" });
+    expect(await detail(a)).toMatchObject({ blocked: true, impediment: { reason: "Falta a chave do fornecedor" } });
+    await ticketUpdateCommand(ctx, { number: 1, noImpediment: true });
+    await ticketUpdateCommand(ctx, { number: 1, noImpediment: true });
+    expect(await detail(a)).toMatchObject({ blocked: false, impediment: null });
+    expect(lines).toEqual([`${key}-1: bloqueado (impedimento marcado)`, `${key}-1: impedimento limpo`, `${key}-1: já estava sem impedimento`]);
+  });
+
+  it("concluir com dependência para entregar aberta sai com o código da API", async () => {
+    await add(project, "Alfa");
+    await add(project, "Beta");
+    await ticketUpdateCommand(ctx, { number: 2, dependsOnDeliver: 1 });
+    await expect(ticketUpdateCommand(ctx, { number: 2, status: "done" })).rejects.toThrow(/ticket_has_open_delivery_dependencies/);
+  });
+});
+
 describe("ticket-show", () => {
   it("imprime o detalhe em JSON: título, situação, pai, caminho, descrição, dependências e mencionado em", async () => {
     const a = await add(project, "Alfa");

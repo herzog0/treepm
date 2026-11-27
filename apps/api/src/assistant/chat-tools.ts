@@ -61,7 +61,7 @@ export const CHAT_TOOLS = [
   {
     name: "read_ticket",
     description:
-      "Lê um ticket inteiro pela chave (como TREEPM-88): descrição completa, situação, pai, caminho do topo até o pai, filhos e ligações nos dois sentidos. `mentions.outgoing`: tickets que este cita no texto; `mentions.incoming`: tickets que citam este. `depends_on.outgoing`: tickets que precisam estar prontos antes deste; `depends_on.incoming`: tickets que esperam por este. `related`: tickets relacionados a este (\"relacionado a\", sem sentido e sem regra; vem do Linear).",
+      "Lê um ticket inteiro pela chave (como TREEPM-88): descrição completa, situação, pai, caminho do topo até o pai, filhos e ligações nos dois sentidos. `mentions.outgoing`: tickets que este cita no texto; `mentions.incoming`: tickets que citam este. `depends_on.outgoing`: tickets de que este depende; `depends_on.incoming`: tickets que dependem deste; cada um com `need` (start: para começar; deliver: para entregar). `blocked`: impedimento marcado; `place`: lugar na fila (free, next, waiting). `related`: tickets relacionados a este (\"relacionado a\", sem sentido e sem regra; vem do Linear).",
     schema: chatReadInput,
   },
   {

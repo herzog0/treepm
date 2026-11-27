@@ -56,7 +56,8 @@ export interface PlannedTicket {
   readonly createdAt: number;
   readonly assignees: readonly number[];
 }
-export interface PlannedRelation { readonly from: number; readonly to: number; readonly kind: "mentions" | "depends_on" }
+/** `need` (ADR 0068): o tipo de "depende de", só em `depends_on`; ausente = "para começar" (o gerador não sorteia o tipo). */
+export interface PlannedRelation { readonly from: number; readonly to: number; readonly kind: "mentions" | "depends_on"; readonly need?: "start" | "deliver" }
 export interface PlannedEvent { readonly id: string; readonly ticket: number; readonly kind: string; readonly actor: number; readonly at: number; readonly payload: Record<string, unknown> }
 export interface PlannedComment { readonly id: string; readonly ticket: number; readonly author: number; readonly body: string; readonly at: number; readonly contribution: string | null }
 export interface PlannedContribution {

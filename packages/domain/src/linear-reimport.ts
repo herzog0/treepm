@@ -40,9 +40,11 @@ export function decideLinearField<I, C = I>(input: { incoming: I; previousSource
  * raiz dela) a situação não muda (fica a de hoje); concluído com filho aberto também não se aplica agora (fica a de hoje; quem chama
  * guarda a pendência para a rodada seguinte, e nunca rebaixa um ticket em andamento). O resto vale como veio.
  */
-export function reimportedStatus(input: { target: TicketStatus; current: TicketStatus; insideIdea: boolean; hasOpenChildren: boolean }): TicketStatus {
+export function reimportedStatus(input: { target: TicketStatus; current: TicketStatus; insideIdea: boolean; hasOpenChildren: boolean; hasOpenDeliveries?: boolean }): TicketStatus {
   if (input.insideIdea) return input.current;
   if (input.target === "done" && input.hasOpenChildren) return input.current;
+  // Dependência "para entregar" aberta (ADR 0068, seção 3): concluir espera, como com filho aberto. Cancelar continua livre.
+  if (input.target === "done" && input.hasOpenDeliveries === true) return input.current;
   return input.target;
 }
 
@@ -53,7 +55,7 @@ export type LinearStatusDecision = {
   changedInLinear: boolean;
   /**
    * `apply`: o ticket assume `target`; `kept`: foi mexido aqui e não se toca; `blocked`: uma invariante impede (concluído com filho
-   * aberto; dentro de ideia) e o ticket fica como está, em desvio; `none`: já está como se deseja.
+   * aberto ou com dependência "para entregar" aberta; dentro de ideia) e o ticket fica como está, em desvio; `none`: já está como se deseja.
    */
   outcome: "apply" | "kept" | "blocked" | "none";
   /** A situação em que o ticket termina. */
@@ -67,12 +69,12 @@ export type LinearStatusDecision = {
  * (quem mexeu manda: não se toca). Senão o ticket assume a desejada, a menos que uma invariante impeça; então fica como está e em
  * desvio, sem ser rebaixado, até poder assumir. Não depende de o Linear ter mudado agora: é o que faz um desvio convergir.
  */
-export function decideLinearStatus(input: { desired: TicketStatus; previousSource: TicketStatus; current: TicketStatus; applied: TicketStatus; insideIdea: boolean; hasOpenChildren: boolean }): LinearStatusDecision {
+export function decideLinearStatus(input: { desired: TicketStatus; previousSource: TicketStatus; current: TicketStatus; applied: TicketStatus; insideIdea: boolean; hasOpenChildren: boolean; hasOpenDeliveries?: boolean }): LinearStatusDecision {
   const touchedHere = input.current !== input.applied;
   const changedInLinear = input.desired !== input.previousSource;
   if (touchedHere) return { touchedHere, changedInLinear, outcome: "kept", target: input.current, deviation: false };
   if (input.desired === input.current) return { touchedHere, changedInLinear, outcome: "none", target: input.current, deviation: false };
-  const target = reimportedStatus({ target: input.desired, current: input.current, insideIdea: input.insideIdea, hasOpenChildren: input.hasOpenChildren });
+  const target = reimportedStatus({ target: input.desired, current: input.current, insideIdea: input.insideIdea, hasOpenChildren: input.hasOpenChildren, hasOpenDeliveries: input.hasOpenDeliveries ?? false });
   if (target === input.current) return { touchedHere, changedInLinear, outcome: "blocked", target, deviation: true };
   return { touchedHere, changedInLinear, outcome: "apply", target, deviation: false };
 }

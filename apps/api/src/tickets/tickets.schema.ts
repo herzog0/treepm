@@ -1,4 +1,4 @@
-import { CONTRIBUTION_STATUSES, CONTRIBUTION_TEXT_MAX, DUE_DATE_MAX, DUE_DATE_MIN, IDEA_STAGES, isValidDueDate, mentionsPersonRaw, PRIORITY_MAX, PRIORITY_MIN } from "@treepm/domain";
+import { CONTRIBUTION_STATUSES, CONTRIBUTION_TEXT_MAX, DEPENDENCY_NEEDS, DUE_DATE_MAX, DUE_DATE_MIN, IDEA_STAGES, IMPEDIMENT_REASON_MAX, isValidDueDate, mentionsPersonRaw, PRIORITY_MAX, PRIORITY_MIN, QUEUE_PLACES } from "@treepm/domain";
 import { z } from "zod";
 import { idSchema } from "../common/schemas.js";
 import { labelSchema } from "./labels.schema.js";
@@ -9,6 +9,10 @@ export const MAX_IMPORT_DEPTH = 20;
 export const ticketStatusSchema = z.enum(["todo", "in_progress", "in_review", "done", "cancelled"]);
 /** Estágio de ideia (ADR 0042). */
 export const ideaStageSchema = z.enum(IDEA_STAGES);
+/** Tipo de "depende de" (ADR 0068, seção 3): `start` (para começar) ou `deliver` (para entregar). */
+export const dependencyNeedSchema = z.enum(DEPENDENCY_NEEDS);
+/** Lugar na fila (ADR 0068, seção 4). */
+export const queuePlaceSchema = z.enum(QUEUE_PLACES);
 /**
  * Nome de pessoa em formato de menção (nome + id) não vai ao provedor de IA nem às leituras do MCP (ADR 0058). Texto livre de ticket
  * (título, descrição) passa por esta conferência: o `ZodPipe` a devolve como 422 `person_mention_not_allowed`. É o ponto central;
@@ -134,8 +138,10 @@ export const ticketSummarySchema = z.object({
   priority: ticketPrioritySchema,
   /** Prazo (ADR 0064), `AAAA-MM-DD`, ou nulo. "Atrasado" não vem da API: depende do dia de quem olha (o navegador decide). */
   dueDate: z.string().nullable(),
-  /** Depende de algum ticket ainda aberto (ADR 0037); a fila "próximos para trabalhar" (ADR 0047) não inclui o ticket. */
+  /** Bloqueado (ADR 0068, seção 5): ticket aberto com impedimento marcado; a fila "próximos para trabalhar" (ADR 0047) não o inclui. */
   blocked: z.boolean(),
+  /** Lugar na fila (ADR 0068, seção 4): livre, próximo ou esperando; nulo para ticket finalizado, com filhos ou ideia. */
+  place: queuePlaceSchema.nullable(),
   /** Etiquetas do ticket (ADR 0065), em ordem de nome (chave) e id; `[]` sem etiqueta. Lidas numa consulta só para a leitura inteira. */
   labels: z.array(labelSchema),
 });
@@ -157,11 +163,32 @@ export type TicketIdea = z.output<typeof ticketIdeaSchema>;
 /** `dueDate`: o prazo (ADR 0064), como nos outros resumos de ticket. */
 export const mentionedBySchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatusSchema, dueDate: z.string().nullable() });
 
-/** Ticket do outro lado de uma ligação "depende de" (ADR 0037); mesmo formato de `mentionedBy`. */
-/** Uma ligação de dependência ou "relacionado a"; `fromLinear`: trazida pela sincronização com o Linear (ADR 0061, fatia 3). */
-export const dependencyLinkSchema = mentionedBySchema.extend({ fromLinear: z.boolean() });
+/** Uma ligação "relacionado a"; `fromLinear`: trazida pela sincronização com o Linear (ADR 0061, fatia 3). */
+export const relatedLinkSchema = mentionedBySchema.extend({ fromLinear: z.boolean() });
+/** Ticket do outro lado de uma ligação "depende de" (ADR 0037), com o tipo da dependência (ADR 0068). */
+export const dependencyLinkSchema = relatedLinkSchema.extend({ need: dependencyNeedSchema });
 
-export const addDependencySchema = z.object({ ticketId: idSchema });
+/** Sem `need`, a dependência é "para começar" (ADR 0068); pedir um par que já existe com outro tipo troca o tipo. */
+export const addDependencySchema = z.object({ ticketId: idSchema, need: dependencyNeedSchema.default("start") });
+
+/**
+ * O motivo do impedimento (ADR 0068, seção 5): texto escrito pela pessoa, aparado, de 1 a 1000 caracteres. Não vai ao provedor de IA
+ * (até a autorização do `TREEPM-580`) e passa pela mesma guarda de menção a pessoa do título e da descrição.
+ */
+export const impedimentReasonSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(IMPEDIMENT_REASON_MAX)
+  .refine(noNullChar, "O texto não pode ter o caractere nulo.")
+  .refine((text) => !mentionsPersonRaw(text), noPersonMention);
+export const markImpedimentSchema = z.object({ reason: impedimentReasonSchema }).strict();
+
+/** O impedimento como o detalhe o mostra: o motivo, quem marcou e quando. Nulo quando o ticket não está bloqueado. */
+export const impedimentSchema = z
+  .object({ reason: z.string(), by: z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() }), at: z.string() })
+  .nullable();
+export type ImpedimentView = z.output<typeof impedimentSchema>;
 
 /** A prioridade que vale (ADR 0047) e o ticket de onde veio: ele mesmo quando a própria não é 0; `from` é nulo quando a cadeia toda é 0. */
 export const effectivePrioritySchema = z.object({ value: ticketPrioritySchema, from: z.object({ id: z.string(), key: z.string() }).nullable() });
@@ -194,7 +221,9 @@ export const ticketDetailSchema = ticketSummarySchema.extend({
   /** Tickets que dependem deste, em ordem de número. */
   blocks: z.array(dependencyLinkSchema),
   /** "Relacionado a" (só vem do Linear), nos dois tickets, em ordem de número. */
-  related: z.array(dependencyLinkSchema),
+  related: z.array(relatedLinkSchema),
+  /** O impedimento marcado (ADR 0068, seção 5); nulo quando o ticket não está bloqueado. */
+  impediment: impedimentSchema,
   createdByPersonId: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),

@@ -30,7 +30,8 @@
     "idea": "Idea",
     "priority": "Priority",
     "dueDate": "Due date",
-    "labels": "Labels"
+    "labels": "Labels",
+    "impediment": "Impediment"
   },
   "create": {
     "heading": "New ticket",
@@ -144,13 +145,18 @@
     "pickerLabel": "Choose the ticket this one depends on",
     "filter": "Search tickets",
     "none": "No tickets found",
-    "cycle": "This would close a cycle: “{{key}}” already depends on this ticket"
+    "cycle": "This would close a cycle: “{{key}}” already depends on this ticket",
+    "need": {
+      "start": "To start",
+      "deliver": "To deliver"
+    },
+    "changeNeed": "Dependency on {{key}}: {{need}}. Change to {{other}}"
   },
   "related": {
     "remove": "Remove relation {{key}}"
   },
   "blocking": {
-    "heading": "Blocks"
+    "heading": "Depended on by"
   },
   "activity": {
     "heading": "Activity",
@@ -320,7 +326,18 @@
     "labelsChangedMany_noActor_one": "Labels <name>{{added}}</name> added and label <name>{{removed}}</name> removed",
     "labelsChangedMany_noActor_other": "Labels <name>{{added}}</name> added and labels <name>{{removed}}</name> removed",
     "labelsChangedMany_automatic_one": "Labels <name>{{added}}</name> added and label <name>{{removed}}</name> removed automatically",
-    "labelsChangedMany_automatic_other": "Labels <name>{{added}}</name> added and labels <name>{{removed}}</name> removed automatically"
+    "labelsChangedMany_automatic_other": "Labels <name>{{added}}</name> added and labels <name>{{removed}}</name> removed automatically",
+    "dependencyAddedStart": "<who>{{actor}}</who> marked that it depends on <ticket>{{ticket}}</ticket> to start",
+    "dependencyAddedStart_noActor": "Now depends on <ticket>{{ticket}}</ticket> to start",
+    "dependencyAddedDeliver": "<who>{{actor}}</who> marked that it depends on <ticket>{{ticket}}</ticket> to deliver",
+    "dependencyAddedDeliver_noActor": "Now depends on <ticket>{{ticket}}</ticket> to deliver",
+    "dependencyNeedChanged": "<who>{{actor}}</who> changed the dependency on <ticket>{{ticket}}</ticket> from “{{from}}” to “{{to}}”",
+    "dependencyNeedChanged_noActor": "The dependency on <ticket>{{ticket}}</ticket> changed from “{{from}}” to “{{to}}”",
+    "impedimentMarked": "<who>{{actor}}</who> marked an impediment",
+    "impedimentMarked_noActor": "Impediment marked",
+    "impedimentCleared": "<who>{{actor}}</who> cleared the impediment",
+    "impedimentCleared_noActor": "Impediment cleared",
+    "impedimentCleared_automatic": "The impediment was cleared when the ticket was done or cancelled"
   },
   "contributions": {
     "heading": "Areas",
@@ -422,5 +439,13 @@
       "violet": "Violet",
       "rose": "Rose"
     }
+  },
+  "impediment": {
+    "mark": "Mark impediment",
+    "reasonLabel": "Reason for the impediment",
+    "save": "Mark",
+    "cancel": "Cancel",
+    "clear": "Clear impediment",
+    "by": "Marked by {{name}} on {{date}}"
   }
 }

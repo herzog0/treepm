@@ -22,7 +22,7 @@ export function useStatusText(): (status: TicketStatus) => string {
   return (status) => statusText(t, status);
 }
 
-/** O ticket está bloqueado (ADR 0051): depende de ticket aberto e não está concluído nem cancelado; ideia não é pintada de bloqueado. */
+/** O ticket está bloqueado (ADR 0051, com a ADR 0068): tem impedimento marcado e não está concluído nem cancelado; ideia não é pintada de bloqueado. */
 export const isBlocked = (ticket: Pick<TicketSummary, "status" | "blocked"> & { idea?: TicketSummary["idea"] }): boolean => !ticket.idea && effectiveSituation(ticket) === "blocked";
 
 /** "Bloqueado · <estado>": o sinal escrito, para a cor não ser o único (ADR 0051). */

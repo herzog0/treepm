@@ -35,9 +35,15 @@ export function makeProject(id: string, key: string, name: string, extra: Partia
   return { id, key, name, visibility: "organization", archivedAt: null, members: [], teamIds: [], ...extra };
 }
 
+/**
+ * Resumo de ticket de teste. `place` (ADR 0068) segue a situação quando não é dito: aberto é "livre", finalizado é nulo. Pai e ideia
+ * não têm lugar: quem monta uma árvore literal diz `place: null`; `makeTreeClient` calcula sozinho.
+ */
 export function makeTicket(id: string, projectId: string, number: number, title: string, extra: Partial<TicketSummary> = {}): TicketSummary {
   const key = extra.key ?? `${projectId.toUpperCase()}-${number}`;
-  return { id, projectId, number, key, parentId: null, title, status: "todo", progress: null, assigneeIds: [], descriptionExcerpt: "", priority: 0, blocked: false, dueDate: null, labels: [], ...extra };
+  const status = extra.status ?? "todo";
+  const place = status === "done" || status === "cancelled" ? null : "free";
+  return { id, projectId, number, key, parentId: null, title, status: "todo", progress: null, assigneeIds: [], descriptionExcerpt: "", priority: 0, blocked: false, place, dueDate: null, labels: [], ...extra };
 }
 
 /** Conversa de criação com a IA (ADR 0029): uma troca de mensagens e, por padrão, um rascunho. */
@@ -1006,7 +1012,7 @@ export function makeClient(data: FakeData = {}): ApiClient {
     "createTeam", "renameTeam", "removeTeam", "putTeamMember", "removeTeamMember",
     "createArea", "renameArea", "removeArea", "getProject", "createProject", "updateProject",
     "putProjectMember", "removeProjectMember", "putProjectTeam", "removeProjectTeam",
-    "getTicket", "endAgentWork", "createTicket", "updateTicket", "removeTicket", "listIdeas", "putIdeaStage", "acceptIdea", "discardIdea", "makeIdea", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency", "removeTicketRelated",
+    "getTicket", "endAgentWork", "createTicket", "updateTicket", "removeTicket", "listIdeas", "putIdeaStage", "acceptIdea", "discardIdea", "makeIdea", "putTicketAssignee", "removeTicketAssignee", "addTicketDependency", "removeTicketDependency", "removeTicketRelated", "markTicketImpediment", "clearTicketImpediment",
     "importTickets", "openConversation", "sendConversationMessage", "updateConversationDraft", "findPlacement", "getPlacementDecision", "getElaboration",
     "createTicketFromConversation", "listConversations", "getConversation", "removeConversation", "getConversationPreview",
     ...GITHUB_NAMES,
@@ -1076,9 +1082,11 @@ export function makeTreeClient(data: FakeData = {}): ApiClient {
     // Ideias não entram na conta (ADR 0042): `ideas` conta as raízes abaixo.
     const below = descendantsOf(entry.id).filter((item) => ideaRootOf(item) === undefined);
     const ideas = descendantsOf(entry.id).filter((item) => item.idea?.root === true).length;
-    if (below.length === 0 && ideas === 0) return { ...entry, idea, progress: null };
+    // Lugar na fila (ADR 0068), como o servidor: pai (filho que não é ideia) e ideia não têm; o resto segue o que o ticket diz.
+    const place = below.length > 0 || idea !== null ? null : entry.place;
+    if (below.length === 0 && ideas === 0) return { ...entry, idea, place, progress: null };
     const excluded = below.filter((item) => item.status === "cancelled").length;
-    return { ...entry, idea, progress: { done: below.filter((item) => item.status === "done").length, total: below.length - excluded, excluded, ...(ideas > 0 ? { ideas } : {}) } };
+    return { ...entry, idea, place, progress: { done: below.filter((item) => item.status === "done").length, total: below.length - excluded, excluded, ...(ideas > 0 ? { ideas } : {}) } };
   };
   const detail = (entry: TicketSummary): TicketDetail => ({
     ...withProgress(entry),

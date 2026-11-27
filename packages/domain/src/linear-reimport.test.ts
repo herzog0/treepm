@@ -54,7 +54,7 @@ describe("reimportedStatus (invariantes)", () => {
 // L14: a situação converge. Desejada = a do Linear mapeada; mexida aqui = atual ≠ aplicada; só uma invariante a impede, e então o
 // ticket fica em desvio (aplicada ≠ desejada) e é reavaliado em toda reimportação.
 describe("decideLinearStatus (tabela)", () => {
-  type Row = { name: string; desired: TicketStatus; previousSource: TicketStatus; current: TicketStatus; applied: TicketStatus; insideIdea?: boolean; hasOpenChildren?: boolean; expected: ReturnType<typeof decideLinearStatus> };
+  type Row = { name: string; desired: TicketStatus; previousSource: TicketStatus; current: TicketStatus; applied: TicketStatus; insideIdea?: boolean; hasOpenChildren?: boolean; hasOpenDeliveries?: boolean; expected: ReturnType<typeof decideLinearStatus> };
   const cases: Row[] = [
     { name: "tudo igual: nada", desired: "todo", previousSource: "todo", current: "todo", applied: "todo", expected: { touchedHere: false, changedInLinear: false, outcome: "none", target: "todo", deviation: false } },
     { name: "Linear mudou e ninguém mexeu: aplica", desired: "done", previousSource: "todo", current: "todo", applied: "todo", expected: { touchedHere: false, changedInLinear: true, outcome: "apply", target: "done", deviation: false } },
@@ -64,11 +64,14 @@ describe("decideLinearStatus (tabela)", () => {
     { name: "desvio sem mudança no Linear, filhos fecharam: assume a desejada", desired: "done", previousSource: "done", current: "todo", applied: "todo", expected: { touchedHere: false, changedInLinear: false, outcome: "apply", target: "done", deviation: false } },
     { name: "dentro de ideia: não muda e fica em desvio", desired: "done", previousSource: "todo", current: "todo", applied: "todo", insideIdea: true, expected: { touchedHere: false, changedInLinear: true, outcome: "blocked", target: "todo", deviation: true } },
     { name: "cancelado com filho aberto: aplica (só concluído é barrado)", desired: "cancelled", previousSource: "todo", current: "todo", applied: "todo", hasOpenChildren: true, expected: { touchedHere: false, changedInLinear: true, outcome: "apply", target: "cancelled", deviation: false } },
+    // ADR 0068: dependência "para entregar" aberta barra o concluído como o filho aberto barra.
+    { name: "concluído com dependência para entregar aberta: fica como está e em desvio", desired: "done", previousSource: "todo", current: "in_progress", applied: "in_progress", hasOpenDeliveries: true, expected: { touchedHere: false, changedInLinear: true, outcome: "blocked", target: "in_progress", deviation: true } },
+    { name: "cancelado com dependência para entregar aberta: aplica (cancelar continua livre)", desired: "cancelled", previousSource: "todo", current: "todo", applied: "todo", hasOpenDeliveries: true, expected: { touchedHere: false, changedInLinear: true, outcome: "apply", target: "cancelled", deviation: false } },
     { name: "mexido aqui E em desvio: mexido vence, não é desvio por invariante", desired: "done", previousSource: "done", current: "in_progress", applied: "todo", hasOpenChildren: true, expected: { touchedHere: true, changedInLinear: false, outcome: "kept", target: "in_progress", deviation: false } },
   ];
   for (const c of cases) {
     it(c.name, () => {
-      expect(decideLinearStatus({ desired: c.desired, previousSource: c.previousSource, current: c.current, applied: c.applied, insideIdea: c.insideIdea ?? false, hasOpenChildren: c.hasOpenChildren ?? false })).toEqual(c.expected);
+      expect(decideLinearStatus({ desired: c.desired, previousSource: c.previousSource, current: c.current, applied: c.applied, insideIdea: c.insideIdea ?? false, hasOpenChildren: c.hasOpenChildren ?? false, hasOpenDeliveries: c.hasOpenDeliveries ?? false })).toEqual(c.expected);
     });
   }
 });

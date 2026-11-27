@@ -119,6 +119,9 @@ describe("get_ticket", () => {
       title: "Filho A",
       description: "Primeiro filho",
       status: "done",
+      // ADR 0068: sem impedimento; concluído não tem lugar na fila.
+      blocked: false,
+      place: null,
       idea: null,
       agentWork: null,
       priority: 0,
@@ -133,7 +136,7 @@ describe("get_ticket", () => {
         mentions: { outgoing: { tickets: [], truncated: false }, incoming: { tickets: [], truncated: false } },
         depends_on: {
           outgoing: { tickets: [], truncated: false },
-          incoming: { tickets: [{ key: "PRIV-4", title: "Solto", excerpt: "Depende de PRIV-2", status: "todo", parent: null, idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false, labels: [] }], truncated: false },
+          incoming: { tickets: [{ key: "PRIV-4", title: "Solto", excerpt: "Depende de PRIV-2", status: "todo", parent: null, idea: null, agentWork: null, priority: 0, effective_priority: 0, dueDate: null, overdue: false, labels: [], need: "start" }], truncated: false },
         },
         related: { tickets: [], truncated: false },
       },

@@ -82,7 +82,9 @@
       "label_limit_project": "O projeto já tem 200 etiquetas, o máximo. Apague uma nas configurações do projeto antes de criar outra.",
       "label_name_taken": "Já existe uma etiqueta com esse nome neste projeto.",
       "label_name_invalid": "O nome da etiqueta não pode ficar vazio nem ser longo demais.",
-      "label_not_found": "Essa etiqueta não existe mais. A lista foi atualizada."
+      "label_not_found": "Essa etiqueta não existe mais. A lista foi atualizada.",
+      "ticket_has_open_delivery_dependencies": "Este ticket só pode ser concluído quando {{keys}} ficar pronto.",
+      "ticket_finished": "Ticket concluído ou cancelado não recebe impedimento."
     },
     "kind": {
       "unauthenticated": "Sua sessão expirou. Entre novamente.",

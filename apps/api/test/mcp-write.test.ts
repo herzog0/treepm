@@ -13,7 +13,7 @@ import type { Who } from "./world.js";
 // ADR 0043, fatia 2: MCP com escrita (alcance do token, chave da organização, três ferramentas, limites, autoria).
 const h = useMcpHarness();
 const priv = () => h.world().projects.priv;
-const WRITE_TOOLS = ["update_ticket_status", "add_comment", "set_agent_work", "set_ticket_priority", "create_ticket", "update_ticket", "move_ticket", "add_dependency", "remove_dependency"];
+const WRITE_TOOLS = ["update_ticket_status", "add_comment", "set_agent_work", "set_ticket_priority", "create_ticket", "update_ticket", "move_ticket", "add_dependency", "remove_dependency", "mark_impediment", "clear_impediment"];
 
 async function writeOn(on = true, org = ORG): Promise<void> {
   await h.pool.query("update organizations set mcp_write_enabled = $2 where org_id = $1", [org, on]);
@@ -65,7 +65,7 @@ describe("alcance do token e chave de escrita", () => {
 describe("tools/list", () => {
   const names = async (token: string) => ((await h.rpc(token, "PRIV", "tools/list")).body.result.tools as { name: string; annotations: any }[]);
 
-  it("token de escrita com a chave ligada vê as nove ferramentas, marcadas como de escrita; as de leitura continuam de leitura", async () => {
+  it("token de escrita com a chave ligada vê as onze ferramentas, marcadas como de escrita; as de leitura continuam de leitura", async () => {
     const { token } = await setup();
     const tools = await names(token);
     expect(tools.map((t) => t.name).sort()).toEqual([...WRITE_TOOLS, "get_project_overview", "get_ticket", "get_work_queue", "list_labels", "list_tickets", "search_tickets"].sort());
