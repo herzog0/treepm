@@ -37,7 +37,7 @@ Um ticket com um impedimento que alguém marcou, com o motivo. É um problema qu
 _Evite_: usar "bloqueado" para um ticket que só tem dependência aberta
 
 **Livre**:
-Um ticket aberto cujas dependências **Para começar** estão todas concluídas. Pode começar agora.
+Um ticket aberto, sem **Filhos**, cujas dependências **Para começar** estão todas concluídas. Pode começar agora.
 _Evite_: desbloqueado
 
 **Próximo**:

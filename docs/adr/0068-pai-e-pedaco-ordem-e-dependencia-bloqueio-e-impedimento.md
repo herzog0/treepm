@@ -30,7 +30,7 @@ Um ticket que tem pelo menos um filho que não é ideia tem a situação calcula
 | algum em andamento, em revisão ou concluído, e ainda há filho aberto | em andamento |
 | os demais casos | a fazer |
 
-- A situação continua gravada na linha do ticket, e é refeita na mesma transação de toda escrita que pode mudá-la: situação de um filho, criar, remover, mover, aceitar ou descartar ideia, e as importações. A conta sobe pelos ancestrais até a raiz, com as linhas travadas na ordem do filho para a raiz.
+- A situação continua gravada na linha do ticket, e é refeita na mesma transação de toda escrita que pode mudá-la: situação de um filho, criar, remover, mover, aceitar ou descartar ideia, e as importações. A conta sobe pelos ancestrais até a raiz. Todo caminho que trava linhas de tickets de um projeto usa uma ordem só (o `id` crescente, num comando), para duas escritas nunca esperarem uma pela outra.
 - Mudar à mão a situação de um ticket com filhos é recusado: `409 status_is_derived`. Vale para a API, o MCP, a ferramenta da coordenação e as importações (o valor que vem de fora para um pai é ignorado).
 - Um ticket que ganha o primeiro filho passa a ter a situação calculada na hora. Um ticket que perde o último filho guarda a última situação e volta a ser marcado à mão.
 - A recusa de concluir um pai com filho aberto (`ticket_has_open_children`) e a reabertura de ancestrais deixam de existir como regras separadas: a conta cobre os dois casos.
@@ -54,7 +54,7 @@ Regras:
 Todo ticket aberto, sem filhos e que não é ideia ganha um campo calculado, o **lugar na fila**:
 
 - **livre**: todas as dependências "para começar" estão concluídas ou canceladas.
-- **próximo**: tem dependência "para começar" aberta, e todas as abertas são tickets livres.
+- **próximo**: tem dependência "para começar" aberta, e todas as abertas são tickets livres. Um alvo com filhos ou que é ideia não tem lugar na fila, então não conta como livre.
 - **esperando**: os demais.
 
 O campo `blocked` do resumo do ticket deixa de ser calculado pela dependência aberta. O resumo passa a trazer o lugar na fila.
