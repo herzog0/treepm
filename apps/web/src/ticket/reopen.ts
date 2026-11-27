@@ -1,7 +1,7 @@
 import type { TFunction } from "i18next";
 import type { TicketStatus } from "../api/client.js";
 
-/** Reabertura (ADR 0034): a API leva o ticket concluído que ganha um filho aberto de volta para "a fazer". */
+/** A situação de um pai sai dos filhos (ADR 0068): o ticket concluído que ganha um filho aberto deixa de estar concluído. */
 export const reopensOnReceiving = (parent: { status: TicketStatus } | null | undefined): boolean => parent?.status === "done";
 
 /** Aviso antes de confirmar, no idioma ativo (catálogo `ticket`). */

@@ -51,24 +51,26 @@ describe("the tree fake follows the ADR 0034 contract", () => {
     expect(code(await client.createTicket("p1", { title: "X", parentId: "g2" }))).toBeNull();
   });
 
-  it("refuses to conclude with an open direct child (409 ticket_has_open_children), but allows cancelling", async () => {
+  it("refuses to set by hand the status of a ticket with children (409 status_is_derived); a leaf changes freely", async () => {
     const client = setup();
-    expect(code(await client.updateTicket("g1", { status: "done" }))).toBe("ticket_has_open_children");
+    expect(code(await client.updateTicket("g1", { status: "done" }))).toBe("status_is_derived");
+    expect(code(await client.updateTicket("g1", { status: "cancelled" }))).toBe("status_is_derived");
     expect(code(await client.updateTicket("t3", { status: "done" }))).toBeNull();
-    expect((await client.updateTicket("g1", { status: "cancelled" })).ok).toBe(true);
   });
 
-  it("concludes a parent once its direct children are finalized, even with an open grandchild", async () => {
+  it("computes a parent from its children, up to the root (ADR 0068)", async () => {
     const client = setup();
-    await client.updateTicket("t2", { status: "cancelled" });
-    expect((await client.updateTicket("g1", { status: "done" })).ok).toBe(true);
+    await client.updateTicket("n1", { status: "done" });
+    const all = await listed(client);
+    expect(all.find((entry) => entry.id === "t2")?.status).toBe("done");
+    expect(all.find((entry) => entry.id === "g1")?.status).toBe("done");
   });
 
   it("recomputes the progress of a ticket from all its descendants", async () => {
     const client = setup();
-    await client.updateTicket("n1", { status: "done" });
+    await client.updateTicket("n1", { status: "in_review" });
     const all = await listed(client);
-    expect(all.find((entry) => entry.id === "g1")?.progress).toEqual({ done: 2, total: 3, excluded: 0 });
+    expect(all.find((entry) => entry.id === "g1")?.progress).toEqual({ done: 1, total: 3, excluded: 0 });
   });
 
   it("refuses to remove a ticket with items, and removes one without", async () => {
@@ -85,7 +87,7 @@ describe("the tree fake follows the ADR 0034 contract", () => {
   });
 });
 
-describe("the tree fake reopens a concluded parent that receives an open child (ADR 0034)", () => {
+describe("the tree fake computes the status of a parent from its children (ADR 0068)", () => {
   // d1 (concluído) > d2 (concluído) > d3 (concluído, folha); c1 (cancelado) > c2 (concluído); o1 (aberto, solto); f1 (finalizado, solto).
   const make = () =>
     makeTreeClient({
@@ -105,7 +107,7 @@ describe("the tree fake reopens a concluded parent that receives an open child (
     });
   const statusOf = async (client: ReturnType<typeof make>, id: string) => (await listed(client)).find((entry) => entry.id === id)?.status;
 
-  it("reopens the parent when an open ticket is created inside it, and climbs through concluded ancestors", async () => {
+  it("a done ticket that receives an open child follows it, and the computation climbs to the root", async () => {
     const client = make();
     await client.createTicket("p1", { title: "Novo", parentId: "d3" });
     expect(await statusOf(client, "d3")).toBe("todo");
@@ -113,7 +115,7 @@ describe("the tree fake reopens a concluded parent that receives an open child (
     expect(await statusOf(client, "d1")).toBe("todo");
   });
 
-  it("does not reopen anything when the ticket created inside is already finalized", async () => {
+  it("a finished child keeps the parent finished", async () => {
     const client = make();
     await client.createTicket("p1", { title: "Novo", parentId: "d3", status: "done" });
     await client.createTicket("p1", { title: "Outro", parentId: "d3", status: "cancelled" });
@@ -121,39 +123,32 @@ describe("the tree fake reopens a concluded parent that receives an open child (
     expect(await statusOf(client, "d1")).toBe("done");
   });
 
-  it("reopens up to the first ancestor that is not concluded, and a cancelled parent is not reopened and stops the climb", async () => {
+  it("a cancelled parent follows its children too", async () => {
     const client = make();
-    await client.updateTicket("d1", { status: "in_progress" });
-    await client.createTicket("p1", { title: "Novo", parentId: "d3" });
-    expect(await statusOf(client, "d3")).toBe("todo");
-    expect(await statusOf(client, "d2")).toBe("todo");
-    expect(await statusOf(client, "d1")).toBe("in_progress");
     await client.createTicket("p1", { title: "Dentro do cancelado", parentId: "c1" });
-    expect(await statusOf(client, "c1")).toBe("cancelled");
-    await client.createTicket("p1", { title: "Mais fundo", parentId: "c2" });
-    expect(await statusOf(client, "c2")).toBe("todo");
-    expect(await statusOf(client, "c1")).toBe("cancelled");
+    expect(await statusOf(client, "c1")).toBe("in_progress");
   });
 
-  it("reopens when an open ticket is moved inside a concluded one, but not a finalized ticket", async () => {
+  it("moving recomputes the old and the new parent", async () => {
     const client = make();
     await client.updateTicket("f1", { parentId: "r1" });
     expect(await statusOf(client, "r1")).toBe("done");
     await client.updateTicket("o1", { parentId: "r1" });
-    expect(await statusOf(client, "r1")).toBe("todo");
+    expect(await statusOf(client, "r1")).toBe("in_progress");
     await client.updateTicket("o1", { parentId: "d3" });
+    expect(await statusOf(client, "r1")).toBe("done");
     expect(await statusOf(client, "d1")).toBe("todo");
   });
 
-  it("reopens the parent and the grandparent when a finalized child is reopened", async () => {
+  it("a child that starts again moves the parent and the grandparent to in progress", async () => {
     const client = make();
     await client.updateTicket("d3", { status: "in_progress" });
     expect(await statusOf(client, "d3")).toBe("in_progress");
-    expect(await statusOf(client, "d2")).toBe("todo");
-    expect(await statusOf(client, "d1")).toBe("todo");
+    expect(await statusOf(client, "d2")).toBe("in_progress");
+    expect(await statusOf(client, "d1")).toBe("in_progress");
   });
 
-  it("reopens the destination when a ticket is created from the conversation, with or without a new parent ticket", async () => {
+  it("the destination follows a ticket created from the conversation", async () => {
     const client = make();
     const loose = await client.createTicketFromConversation("c1", { parentId: "d3", placedBy: "search" });
     expect(loose).toMatchObject({ ok: true, data: { ticket: { parentId: "d3", status: "todo" } } });
@@ -161,7 +156,7 @@ describe("the tree fake reopens a concluded parent that receives an open child (
     expect(await statusOf(client, "d1")).toBe("todo");
   });
 
-  it("reopens the destination when the proposal of a new parent ticket is confirmed, moving the chosen tickets inside it", async () => {
+  it("the destination follows the new parent ticket of a confirmed proposal, with the chosen tickets inside it", async () => {
     const client = make();
     const created = await client.createTicketFromConversation("c1", { parentId: "r1", placedBy: "search", group: { title: "Grupo novo", description: "", ticketIds: ["o1"] } });
     expect(created.ok).toBe(true);

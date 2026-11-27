@@ -33,7 +33,14 @@ const heading = async (name: string) => screen.findByRole("heading", { level: 1,
 const statusRow = () => within(page()).getByText("Situação").closest("div")!;
 const currentStatus = (name: string) => within(statusRow()).getByRole("button", { name });
 
-describe("reopening of a concluded parent, on the screen", () => {
+/** A situação calculada a partir dos itens (ADR 0068): o valor e a linha que diz de onde vem, sem menu. */
+const derivedStatus = (name: string) => {
+  expect(statusRow()).toHaveTextContent(name);
+  expect(within(statusRow()).getByText("Calculada a partir dos itens.")).toBeInTheDocument();
+  expect(within(statusRow()).queryByRole("button")).not.toBeInTheDocument();
+};
+
+describe("a concluded parent follows its children, on the screen (ADR 0068)", () => {
   it("creating a ticket from the page of a concluded parent leaves the parent at 'A fazer', without reloading the page", async () => {
     render(<Host client={client()} initial="d3" />);
     await heading("Filho concluído");
@@ -43,10 +50,10 @@ describe("reopening of a concluded parent, on the screen", () => {
     await heading("Mais um");
     await userEvent.click(within(page()).getByRole("button", { name: /ALFA-3Filho concluído/ }));
     await heading("Filho concluído");
-    await waitFor(() => expect(currentStatus("A fazer")).toHaveAttribute("aria-haspopup", "menu"));
+    await waitFor(() => derivedStatus("A fazer"));
     await userEvent.click(within(page()).getByRole("button", { name: /ALFA-2Pai concluído/ }));
     await heading("Pai concluído");
-    await waitFor(() => expect(currentStatus("A fazer")).toHaveAttribute("aria-haspopup", "menu"));
+    await waitFor(() => derivedStatus("A fazer"));
   }, 15000);
 
   it("moving an open ticket inside a concluded one turns the parent card on the map into the progress card", async () => {
@@ -60,10 +67,10 @@ describe("reopening of a concluded parent, on the screen", () => {
     expect(within(card()).getByText("2 de 3 concluídos")).toBeInTheDocument();
     await userEvent.click(within(page()).getByRole("button", { name: /ALFA-1Avô concluído/ }));
     await heading("Avô concluído");
-    await waitFor(() => expect(currentStatus("A fazer")).toHaveAttribute("aria-haspopup", "menu"));
+    await waitFor(() => derivedStatus("Em andamento"));
   }, 15000);
 
-  it("reopening a child reopens the grandparent too", async () => {
+  it("starting a child again moves the parent and the grandparent to 'Em andamento'", async () => {
     render(<Host client={client()} initial="d3" />);
     await heading("Filho concluído");
     await userEvent.click(currentStatus("Concluído"));
@@ -71,9 +78,9 @@ describe("reopening of a concluded parent, on the screen", () => {
     await waitFor(() => expect(currentStatus("Em andamento")).toHaveAttribute("aria-haspopup", "menu"));
     await userEvent.click(within(page()).getByRole("button", { name: /ALFA-2Pai concluído/ }));
     await heading("Pai concluído");
-    await waitFor(() => expect(currentStatus("A fazer")).toHaveAttribute("aria-haspopup", "menu"));
+    await waitFor(() => derivedStatus("Em andamento"));
     await userEvent.click(within(page()).getByRole("button", { name: /ALFA-1Avô concluído/ }));
     await heading("Avô concluído");
-    await waitFor(() => expect(currentStatus("A fazer")).toHaveAttribute("aria-haspopup", "menu"));
+    await waitFor(() => derivedStatus("Em andamento"));
   }, 15000);
 });

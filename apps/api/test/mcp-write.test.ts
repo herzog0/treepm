@@ -177,12 +177,12 @@ describe("a mesma tabela de recusas pelas duas portas (HTTP e MCP)", () => {
   const cases: Case[] = [
     { name: "leitor do projeto", prepare: async () => ({ who: "reader", key: "PRIV-3" }) },
     { name: "projeto arquivado", prepare: async () => { await h.pool.query("update projects set archived_at = now() where id = $1", [priv()]); return { who: "contributor", key: "PRIV-3" }; } },
-    { name: "concluir com filho aberto", prepare: async () => ({ who: "contributor", key: "PRIV-1" }) },
+    { name: "pai: a situação sai dos filhos (ADR 0068)", prepare: async () => ({ who: "contributor", key: "PRIV-1" }) },
     { name: "ticket dentro de ideia", prepare: async () => { await h.pool.query("update tickets set status = 'todo', idea_stage = 'new' where project_id = $1 and number = 1", [priv()]); return { who: "contributor", key: "PRIV-3" }; } },
     { name: "pessoa sem acesso (papel removido depois do token)", prepare: async () => { await h.pool.query("delete from project_memberships where person_id = $1", [h.world().people.contributor]); await h.pool.query("delete from project_teams where project_id = $1", [priv()]); return { who: "contributor", key: "PRIV-3" }; } },
     { name: "ticket inexistente", prepare: async () => ({ who: "contributor", key: "PRIV-99" }) },
   ];
-  const target = (c: Case) => (c.name === "concluir com filho aberto" ? "done" : "in_progress");
+  const target = (c: Case) => (c.name.startsWith("pai:") ? "done" : "in_progress");
 
   for (const c of cases) {
     it(c.name, async () => {
@@ -196,6 +196,13 @@ describe("a mesma tabela de recusas pelas duas portas (HTTP e MCP)", () => {
       if (ticket) expect((await h.rows("select status from tickets where id = $1", [ticket]))[0]?.status).not.toBe(target(c));
     });
   }
+
+  it("pai: a recusa diz, em inglês, que a situação sai dos filhos", async () => {
+    const { token } = await setup();
+    const res = await h.tool(token, "PRIV", "update_ticket_status", { key: "PRIV-1", status: "done" });
+    expect(res.isError).toBe(true);
+    expect(res.text).toMatch(/computed from its child tickets/);
+  });
 
   it("ticket de outro projeto e outra organização", async () => {
     const { token } = await setup();

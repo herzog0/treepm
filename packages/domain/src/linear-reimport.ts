@@ -4,7 +4,7 @@
  * Por campo, três valores já mapeados do mesmo jeito: o que chega agora do Linear (`incoming`), o que veio na última importação
  * (`previousSource`) e o que o TreePM tem hoje (`current`) contra o que a importação aplicou (`applied`). Só se aplica o campo que
  * mudou no Linear E não foi mexido no TreePM. Comparar com o retrato aplicado, e não com o Linear, evita o vaivém de casos em que
- * o TreePM aplicou um valor diferente do que veio (concluído com filho aberto, ideia).
+ * o TreePM aplicou um valor diferente do que veio (ideia).
  */
 import type { TicketStatus } from "./tickets.js";
 
@@ -37,13 +37,10 @@ export function decideLinearField<I, C = I>(input: { incoming: I; previousSource
 
 /**
  * A situação que a reimportação aplica de fato (as invariantes que já valem para o resto do TreePM): dentro de uma ideia (ou na
- * raiz dela) a situação não muda (fica a de hoje); concluído com filho aberto também não se aplica agora (fica a de hoje; quem chama
- * guarda a pendência para a rodada seguinte, e nunca rebaixa um ticket em andamento). O resto vale como veio.
+ * raiz dela) a situação não muda (fica a de hoje). O resto vale como veio.
  */
-export function reimportedStatus(input: { target: TicketStatus; current: TicketStatus; insideIdea: boolean; hasOpenChildren: boolean }): TicketStatus {
-  if (input.insideIdea) return input.current;
-  if (input.target === "done" && input.hasOpenChildren) return input.current;
-  return input.target;
+export function reimportedStatus(input: { target: TicketStatus; current: TicketStatus; insideIdea: boolean }): TicketStatus {
+  return input.insideIdea ? input.current : input.target;
 }
 
 export type LinearStatusDecision = {
@@ -52,10 +49,11 @@ export type LinearStatusDecision = {
   /** A situação desejada difere da do retrato de origem anterior (o Linear mudou nesta rodada). */
   changedInLinear: boolean;
   /**
-   * `apply`: o ticket assume `target`; `kept`: foi mexido aqui e não se toca; `blocked`: uma invariante impede (concluído com filho
-   * aberto; dentro de ideia) e o ticket fica como está, em desvio; `none`: já está como se deseja.
+   * `apply`: o ticket assume `target`; `kept`: foi mexido aqui e não se toca; `blocked`: uma invariante impede (dentro de ideia) e o
+   * ticket fica como está, em desvio; `none`: já está como se deseja; `derived`: o ticket é pai, a situação sai dos filhos (ADR
+   * 0068) e a do Linear não é copiada nem conta como diferença.
    */
-  outcome: "apply" | "kept" | "blocked" | "none";
+  outcome: "apply" | "kept" | "blocked" | "none" | "derived";
   /** A situação em que o ticket termina. */
   target: TicketStatus;
   /** Aplicada ≠ desejada por causa de invariante, não por decisão de pessoa: reavaliado em toda reimportação. */
@@ -67,12 +65,14 @@ export type LinearStatusDecision = {
  * (quem mexeu manda: não se toca). Senão o ticket assume a desejada, a menos que uma invariante impeça; então fica como está e em
  * desvio, sem ser rebaixado, até poder assumir. Não depende de o Linear ter mudado agora: é o que faz um desvio convergir.
  */
-export function decideLinearStatus(input: { desired: TicketStatus; previousSource: TicketStatus; current: TicketStatus; applied: TicketStatus; insideIdea: boolean; hasOpenChildren: boolean }): LinearStatusDecision {
-  const touchedHere = input.current !== input.applied;
+export function decideLinearStatus(input: { desired: TicketStatus; previousSource: TicketStatus; current: TicketStatus; applied: TicketStatus; insideIdea: boolean; derived: boolean }): LinearStatusDecision {
   const changedInLinear = input.desired !== input.previousSource;
+  // Pai (ADR 0068): a situação é calculada; "deixar o Linear vencer" (ADR 0066) não vale para este campo.
+  if (input.derived) return { touchedHere: false, changedInLinear, outcome: "derived", target: input.current, deviation: false };
+  const touchedHere = input.current !== input.applied;
   if (touchedHere) return { touchedHere, changedInLinear, outcome: "kept", target: input.current, deviation: false };
   if (input.desired === input.current) return { touchedHere, changedInLinear, outcome: "none", target: input.current, deviation: false };
-  const target = reimportedStatus({ target: input.desired, current: input.current, insideIdea: input.insideIdea, hasOpenChildren: input.hasOpenChildren });
+  const target = reimportedStatus({ target: input.desired, current: input.current, insideIdea: input.insideIdea });
   if (target === input.current) return { touchedHere, changedInLinear, outcome: "blocked", target, deviation: true };
   return { touchedHere, changedInLinear, outcome: "apply", target, deviation: false };
 }

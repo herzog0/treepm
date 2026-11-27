@@ -11,7 +11,7 @@ const CODES_PT: Record<string, string> = {
   area_name_taken: "Já existe uma área com esse nome.",
   project_key_taken: "Já existe um projeto com essa chave.",
   person_inactive: "A pessoa não está mais na organização.",
-  ticket_has_open_children: "Este ticket tem itens abertos. Conclua ou cancele os itens antes de concluí-lo.",
+  status_is_derived: "A situação deste ticket vem dos itens dele. Mude a situação dos itens.",
   ticket_cycle: "Um ticket não pode ser pai de si mesmo nem de um ancestral.",
   structure_busy: "Outra mudança na estrutura deste projeto está em andamento. Tente de novo em instantes.",
   concurrent_update: "Outra alteração aconteceu ao mesmo tempo. Tente de novo.",

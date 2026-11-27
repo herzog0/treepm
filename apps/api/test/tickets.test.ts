@@ -107,9 +107,10 @@ describe("criação e leitura", () => {
     expect(res.body.map((t: Body) => t.number)).toEqual([1, 2, 3, 4]);
     for (const t of res.body) expect(t).not.toHaveProperty("description");
     expect(res.body.map((t: Body) => t.descriptionExcerpt)).toEqual(["longa", "x", "", ""]);
+    // A situação do pai sai dos filhos (ADR 0068): um concluído, um cancelado e um em andamento.
     expect(res.body[0]).toMatchObject({
       key: "PRIV-1",
-      status: "todo",
+      status: "in_progress",
       progress: { done: 1, total: 2, excluded: 1 },
     });
     expect(res.body[1]).toMatchObject({ status: "done", progress: null, parentId: root.id });
@@ -141,7 +142,7 @@ describe("criação e leitura", () => {
     expect(res.body).toMatchObject({
       id: root.id,
       description: "detalhe",
-      status: "todo",
+      status: "done",
       progress: { done: 1, total: 1, excluded: 0 },
     });
   });

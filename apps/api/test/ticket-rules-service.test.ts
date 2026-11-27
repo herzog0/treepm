@@ -58,12 +58,12 @@ describe("mudar a situação: a rota HTTP e o serviço dão a mesma resposta", (
       return statusDoors(t.id, "in_progress");
     }, { status: 409, code: "project_archived" });
   });
-  it("concluir com filho aberto: 409 ticket_has_open_children", async () => {
+  it("mudar a situação de um pai: 409 status_is_derived (ADR 0068)", async () => {
     await both(async () => {
       const parent = await make();
       await make({ parentId: parent.id });
       return statusDoors(parent.id, "done");
-    }, { status: 409, code: "ticket_has_open_children" });
+    }, { status: 409, code: "status_is_derived" });
   });
   it("mudar a situação de ticket dentro de uma ideia: 409 ticket_in_idea", async () => {
     await both(async () => {
@@ -78,15 +78,15 @@ describe("mudar a situação: a rota HTTP e o serviço dão a mesma resposta", (
   it("ticket de outra organização: 404", async () => {
     await both(async () => statusDoors((await make()).id, "in_progress", "outsider", OTHER_ORG), { status: 404, code: "not_found" });
   });
-  it("reabre o pai concluído quando o filho volta a ficar aberto, pelas duas portas", async () => {
+  it("o pai concluído segue o filho que volta a ficar aberto, pelas duas portas (ADR 0068)", async () => {
     for (const door of ["http", "service"] as const) {
       const parent = await make();
       const child = await make({ parentId: parent.id });
       expect((await h.call("PATCH", `/api/tickets/${child.id}`, as("admin"), { status: "done" })).status).toBe(200);
-      expect((await h.call("PATCH", `/api/tickets/${parent.id}`, as("admin"), { status: "done" })).status).toBe(200);
+      expect((await h.pool.query("select status from tickets where id = $1", [parent.id])).rows[0].status, door).toBe("done");
       expect(await statusDoors(child.id, "in_progress")[door](), door).toBeNull();
       const row = await h.pool.query("select status from tickets where id = $1", [parent.id]);
-      expect(row.rows[0].status, door).toBe("todo");
+      expect(row.rows[0].status, door).toBe("in_progress");
     }
   });
 });

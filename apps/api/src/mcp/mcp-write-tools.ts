@@ -116,7 +116,7 @@ const LABELS_NOTE =
 export const WRITE_TOOL_DEFINITIONS = {
   update_ticket_status: {
     title: "Update a ticket's status",
-    description: `Change the status of one ticket (todo, in_progress, in_review, done, cancelled). A ticket can only be done when its children are done or cancelled; tickets that are an idea or inside an idea stay in todo until the idea is accepted. Returns the ticket as get_ticket does. ${NOTE}`,
+    description: `Change the status of one ticket (todo, in_progress, in_review, done, cancelled). A ticket with child tickets (ideas do not count) has its status computed from them and cannot be set by hand: change the child tickets instead. Tickets that are an idea or inside an idea stay in todo until the idea is accepted. Returns the ticket as get_ticket does. ${NOTE}`,
     inputSchema: updateStatusInput,
   },
   add_comment: {
@@ -149,7 +149,7 @@ export const WRITE_TOOL_DEFINITIONS = {
   },
   move_ticket: {
     title: "Move a ticket in the tree",
-    description: `Change the parent of one ticket: another ticket of this project, or null for the top level. It follows the rules of the screen: no cycle (not under itself or a descendant), a done parent that receives an open ticket is reopened, and a ticket that is in progress, in review or done cannot go into an idea. It cannot move a ticket to another project. A parent that is not in this project is refused. Repeating the same call changes nothing the second time. Returns the ticket as get_ticket does. ${NOTE}`,
+    description: `Change the parent of one ticket: another ticket of this project, or null for the top level. It follows the rules of the screen: no cycle (not under itself or a descendant), the status of the old and the new parent is computed again from their child tickets, and a ticket that is in progress, in review or done cannot go into an idea. It cannot move a ticket to another project. A parent that is not in this project is refused. Repeating the same call changes nothing the second time. Returns the ticket as get_ticket does. ${NOTE}`,
     inputSchema: moveTicketInput,
   },
   add_dependency: {
@@ -192,7 +192,7 @@ export type WriteContext = ToolContext & { tokenId: string; fresh: boolean };
 
 const CONFLICTS: Record<string, string> = {
   project_archived: "This project is archived and read-only.",
-  ticket_has_open_children: "Finish or cancel the open child tickets first.",
+  status_is_derived: "This ticket has child tickets, so its status is computed from its child tickets. Change the status of the child tickets instead.",
   ticket_in_idea: "Tickets inside an idea stay in todo until the idea is accepted.",
   agent_work_in_idea: "An idea is not worked on before it is accepted.",
   agent_work_finished: "A done or cancelled ticket cannot be marked as worked on.",

@@ -59,8 +59,7 @@
   },
   "status": {
     "group": "Estado",
-    "openItem": "Termina o cancela el elemento abierto antes de terminar este ticket.",
-    "openItemsMany": "Termina o cancela los {{count}} elementos abiertos antes de terminar este ticket."
+    "derived": "Calculado a partir de sus elementos."
   },
   "people": {
     "nobody": "Nadie asignado",
@@ -77,8 +76,8 @@
     "filter": "Filtrar tickets"
   },
   "reopen": {
-    "warning": "«{{key}}» está terminado y vuelve a \"Por hacer\" al recibir este ticket.",
-    "notice": "«{{key}}» estaba terminado y volvió a \"Por hacer\"."
+    "warning": "«{{key}}» está terminado y deja de estarlo al recibir este ticket: su estado sale de sus elementos.",
+    "notice": "«{{key}}» estaba terminado y dejó de estarlo: su estado sale de sus elementos."
   },
   "summary": {
     "heading": "Qué entra aquí",

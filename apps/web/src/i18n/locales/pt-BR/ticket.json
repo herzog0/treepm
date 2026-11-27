@@ -59,8 +59,7 @@
   },
   "status": {
     "group": "Situação",
-    "openItem": "Conclua ou cancele o item aberto antes de concluir este ticket.",
-    "openItemsMany": "Conclua ou cancele os {{count}} itens abertos antes de concluir este ticket."
+    "derived": "Calculada a partir dos itens."
   },
   "people": {
     "nobody": "Ninguém atribuído",
@@ -77,8 +76,8 @@
     "filter": "Filtrar tickets"
   },
   "reopen": {
-    "warning": "«{{key}}» está concluído e volta para \"A fazer\" ao receber este ticket.",
-    "notice": "«{{key}}» estava concluído e voltou para \"A fazer\"."
+    "warning": "«{{key}}» está concluído e deixa de estar ao receber este ticket: a situação dele sai dos itens.",
+    "notice": "«{{key}}» estava concluído e deixou de estar: a situação dele sai dos itens."
   },
   "summary": {
     "heading": "O que entra aqui",

@@ -1,5 +1,4 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
-import type { TFunction } from "i18next";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ApiClient, IdeaStage, Person, TicketDetail, TicketStatus, TicketSummary, UpdateTicketBody } from "../api/client.js";
@@ -17,7 +16,7 @@ import type { DraftRequest } from "./description/WriterRequest.js";
 import { descendantIds } from "./tree.js";
 import { TestBadge, useNameWithBadge } from "../people/TestBadge.js";
 import { fold, searchTickets } from "../command/search.js";
-import { DUE_DATE_MAX, DUE_DATE_MIN, daysOverdue, isOverdue, isValidDueDate } from "@treepm/domain";
+import { DUE_DATE_MAX, DUE_DATE_MIN, daysOverdue, isOverdue, isStatusDerived, isValidDueDate } from "@treepm/domain";
 import { formatDueDate } from "../i18n/format.js";
 import type { Language } from "../i18n/languages.js";
 import { useLocalToday } from "./clock.js";
@@ -226,15 +225,15 @@ export function DescriptionField({ client, detail, canEdit, assistant, tickets, 
   );
 }
 
-/** Mensagem junto da situação quando a API recusa concluir com filho direto aberto (ADR 0034), no idioma ativo. */
-// O singular não leva o número ("o item aberto"), então a regra de plural do catálogo (todas as formas com `{{count}}`) não o cobre: duas chaves.
-export const openItemsText = (t: TFunction<"ticket">, count: number): string => (count === 1 ? t("status.openItem") : t("status.openItemsMany", { count }));
-
-/** `openItems`: filhos diretos abertos, contados na lista de itens da própria página. */
-export function StatusField({ client, detail, openItems, onSaved }: FieldBase & { openItems: number }) {
+/**
+ * A situação na página do ticket. Ticket com filhos (sem contar ideias) tem a situação calculada a partir deles (ADR 0068): mostra a
+ * situação e a linha que diz de onde ela vem, sem menu. Os outros escolhem a situação no menu.
+ */
+export function StatusField({ client, detail, onSaved }: FieldBase) {
   const { t } = useTranslation("ticket");
   const statusText = useStatusText();
   const action = useAction();
+  if (isStatusDerived(detail.progress)) return <DerivedStatus detail={detail} />;
   const change = async (status: TicketStatus) => {
     if (status === detail.status || action.busy) return;
     const result = await action.run(() => client.updateTicket(detail.id, { status }));
@@ -250,7 +249,20 @@ export function StatusField({ client, detail, openItems, onSaved }: FieldBase & 
         disabled={action.busy}
         onChoose={(status) => void change(status)}
       />
-      {action.error?.code === "ticket_has_open_children" ? <p role="alert" className="ticket-error">{openItemsText(t, openItems)}</p> : <ActionError action={action} />}
+      <ActionError action={action} />
+    </>
+  );
+}
+
+/** A situação calculada a partir dos filhos (ADR 0068): o valor e a linha que diz de onde vem, sem menu, para quem edita e quem só lê. */
+export function DerivedStatus({ detail }: { detail: TicketDetail }) {
+  const { t } = useTranslation("ticket");
+  return (
+    <>
+      <span className="ticket-value">
+        <StatusValue status={detail.status} blocked={isBlocked(detail)} />
+      </span>
+      <p className="ticket-muted">{t("status.derived")}</p>
     </>
   );
 }

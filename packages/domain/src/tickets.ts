@@ -195,15 +195,6 @@ export function ticketProgress(tickets: readonly TicketNode[]): Map<string, Tick
 }
 
 /**
- * Number of open direct children of a ticket (the rule for concluding it, ADR 0034). Uma raiz de ideia, ou qualquer ticket
- * dentro de uma, não conta (ADR 0042).
- */
-export function openChildCount(tickets: readonly TicketNode[], ticketId: string): number {
-  const inIdea = ideaRootsOf(tickets);
-  return tickets.filter((ticket) => ticket.parentId === ticketId && !isFinished(ticket.status) && !inIdea.has(ticket.id)).length;
-}
-
-/**
  * "Ticket da vez" (ADR 0034) from what the web has at hand: open, and no open descendant. `progress` is the ticket's
  * `progress` field (null without children); with children, no open descendant means `done === total` (the cancelled
  * ones are in `excluded`, as ideias em `ideas`). `inIdea`: o ticket é raiz de ideia ou está dentro de uma; nunca é da vez (ADR 0042).
@@ -270,25 +261,56 @@ export function descriptionExcerpt(description: string): string {
 }
 
 /**
- * Reabertura do pai concluído (ADR 0034): `parentId` é o pai que acaba de ganhar um filho direto aberto. Devolve os ids
- * a reabrir, de baixo para cima: o pai, se estiver `done`, depois o pai dele, e assim por diante, até o primeiro
- * ancestral que não esteja `done` (cancelado também interrompe) ou a raiz. `outsideProcess`: o ticket que entra é raiz de
- * ideia ou está dentro de uma (ou o pai está), e então nada é reaberto (ADR 0042).
+ * A situação de um **Pai** a partir das situações dos filhos (ADR 0068, seção 2), sem contar ideias: todos cancelados → cancelado;
+ * todos concluídos ou cancelados, com pelo menos um concluído → concluído; algum em andamento, em revisão ou concluído com filho
+ * ainda aberto → em andamento; os demais → a fazer. Sem filho nenhum: `null` (a situação é marcada à mão).
  */
-export function ticketsToReopen(
-  parentById: ReadonlyMap<string, string | null>,
-  statusById: ReadonlyMap<string, TicketStatus>,
-  parentId: string | null,
-  outsideProcess = false,
-): string[] {
-  if (outsideProcess) return [];
-  const reopen: string[] = [];
-  const seen = new Set<string>();
-  let cursor = parentId;
-  while (cursor !== null && !seen.has(cursor) && statusById.get(cursor) === "done") {
-    seen.add(cursor);
-    reopen.push(cursor);
-    cursor = parentById.get(cursor) ?? null;
+export function parentStatusFrom(children: readonly TicketStatus[]): TicketStatus | null {
+  if (children.length === 0) return null;
+  if (children.every((status) => status === "cancelled")) return "cancelled";
+  if (children.every(isFinished)) return "done";
+  if (children.some((status) => status === "in_progress" || status === "in_review" || status === "done")) return "in_progress";
+  return "todo";
+}
+
+/**
+ * Refaz a situação calculada dos tickets `ids` (ADR 0068), do mais fundo para o mais raso pela árvore de `tickets`: cada pai usa a
+ * situação já refeita dos filhos. Devolve só quem tem a situação calculada (pelo menos um filho que não é ideia), com a situação
+ * que deve ter, mude ou não. Ideias ficam de fora como em `ticketProgress`: o filho raiz de ideia não conta, e a raiz de ideia e
+ * quem está dentro dela não são calculados (a situação ali fica parada até o aceite, ADR 0042). `tickets` traz os `ids`, os filhos
+ * deles e os ancestrais até a raiz (para saber quem está dentro de uma ideia).
+ */
+export function deriveParentStatuses(tickets: readonly TicketNode[], ids: readonly string[]): Map<string, TicketStatus> {
+  const byId = new Map(tickets.map((ticket) => [ticket.id, ticket] as const));
+  const children = childrenByParent(tickets);
+  const inIdea = ideaRootsOf(tickets);
+  const depth = (id: string): number => {
+    let level = 0;
+    const seen = new Set<string>();
+    for (let cursor = byId.get(id)?.parentId ?? null; cursor !== null && !seen.has(cursor); cursor = byId.get(cursor)?.parentId ?? null) {
+      seen.add(cursor);
+      level += 1;
+    }
+    return level;
+  };
+  const order = [...new Set(ids)].filter((id) => byId.has(id)).sort((a, b) => depth(b) - depth(a));
+  const current = new Map(tickets.map((ticket) => [ticket.id, ticket.status] as const));
+  const result = new Map<string, TicketStatus>();
+  for (const id of order) {
+    if (inIdea.has(id)) continue;
+    const kids = (children.get(id) ?? []).filter((kid) => (kid.ideaStage ?? null) === null);
+    const status = parentStatusFrom(kids.map((kid) => current.get(kid.id) ?? kid.status));
+    if (status === null) continue;
+    current.set(id, status);
+    result.set(id, status);
   }
-  return reopen;
+  return result;
+}
+
+/**
+ * A situação do ticket é calculada (ADR 0068)? Lida do progresso que a API já manda: há filho que não é ideia (contado em `total`
+ * ou, cancelado, em `excluded`). Dentro de uma ideia o progresso é todo zero, e a situação fica marcada à mão (parada).
+ */
+export function isStatusDerived(progress: Pick<TicketProgress, "total" | "excluded"> | null): boolean {
+  return progress !== null && progress.total + progress.excluded > 0;
 }

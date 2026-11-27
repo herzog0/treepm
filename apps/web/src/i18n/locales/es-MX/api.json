@@ -5,7 +5,7 @@
       "area_name_taken": "Ya existe un área con ese nombre.",
       "project_key_taken": "Ya existe un proyecto con esa clave.",
       "person_inactive": "La persona ya no está en la organización.",
-      "ticket_has_open_children": "Este ticket tiene elementos abiertos. Termina o cancela los elementos antes de terminarlo.",
+      "status_is_derived": "El estado de este ticket viene de sus elementos. Cambia el estado de los elementos.",
       "ticket_cycle": "Un ticket no puede ser el padre de sí mismo ni de uno de sus ancestros.",
       "structure_busy": "Otro cambio en la estructura de este proyecto está en curso. Inténtalo de nuevo en unos instantes.",
       "concurrent_update": "Otro cambio ocurrió al mismo tiempo. Inténtalo de nuevo.",

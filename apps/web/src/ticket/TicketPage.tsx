@@ -23,10 +23,11 @@ import { ItemsSummary } from "./ItemsSummary.js";
 import { CommentPeopleProvider } from "./commentPeople.js";
 import { TicketActivity } from "./TicketActivity.js";
 import { peopleWhoSee } from "../chat/directory.js";
-import { DependsOnField, DescriptionField, FromLinearBadge, RelatedField, IdeaField, InsideIdeaValue, ParentField, DueDateField, PeopleField, PriorityField, StatusField, StatusValue, TitleField } from "./fields.js";
+import { DependsOnField, DerivedStatus, DescriptionField, FromLinearBadge, RelatedField, IdeaField, InsideIdeaValue, ParentField, DueDateField, PeopleField, PriorityField, StatusField, StatusValue, TitleField } from "./fields.js";
 import { ActionsMenu } from "./menu.js";
 import { LabelsField } from "./LabelsField.js";
 import { ancestorsOf } from "./tree.js";
+import { isStatusDerived } from "@treepm/domain";
 import { ticketHref } from "../nav/navigation.js";
 import "./ticket.css";
 import { useDescribeApiError } from "../api/errorText.js";
@@ -428,7 +429,6 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
   };
 
   const children = list.filter((entry) => entry.parentId === detail.id);
-  const openItems = children.filter((entry) => entry.status !== "done" && entry.status !== "cancelled").length;
   const parent = detail.parentId === null ? null : list.find((entry) => entry.id === detail.parentId) ?? null;
   const path = [project?.name ?? "", ...ancestorsOf(list, detail).map((entry) => entry.title)].filter((part) => part !== "").join(" › ");
 
@@ -447,7 +447,9 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
     onRemoved();
   };
 
-  const readOnlyStatus = (
+  const readOnlyStatus = isStatusDerived(detail.progress) ? (
+    <DerivedStatus detail={detail} />
+  ) : (
     <span className="ticket-value">
       <StatusValue status={detail.status} blocked={isBlocked(detail)} />
     </span>
@@ -494,7 +496,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
                 ) : idea !== null ? (
                   <InsideIdeaValue rootId={idea.rootId} rootKey={idea.rootKey} discarded={isInDiscardedIdea({ ...detail, idea }, byId)} onOpen={onOpenTicket} />
                 ) : canEdit ? (
-                  <StatusField client={client} detail={detail} openItems={openItems} onSaved={refresh} />
+                  <StatusField client={client} detail={detail} onSaved={refresh} />
                 ) : (
                   readOnlyStatus
                 )}
