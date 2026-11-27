@@ -43,7 +43,8 @@ export function makeProject(id: string, key: string, name: string, extra: Partia
 export function makeTicket(id: string, projectId: string, number: number, title: string, extra: Partial<TicketSummary> = {}): TicketSummary {
   const key = extra.key ?? `${projectId.toUpperCase()}-${number}`;
   const status = extra.status ?? "todo";
-  const place = status === "done" || status === "cancelled" ? null : "free";
+  // O servidor só dá lugar na fila a ticket aberto e sem filhos (ADR 0068): aqui, quem traz progresso é pai.
+  const place = status === "done" || status === "cancelled" || (extra.progress ?? null) !== null ? null : "free";
   return { id, projectId, number, key, parentId: null, title, status: "todo", progress: null, assigneeIds: [], descriptionExcerpt: "", priority: 0, blocked: false, place, dueDate: null, labels: [], ...extra };
 }
 

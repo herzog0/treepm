@@ -60,11 +60,11 @@ describe("a concluded parent follows its children, on the screen (ADR 0068)", ()
     render(<Host client={client()} initial="s1" />);
     await heading("Solto aberto");
     await screen.findByRole("button", { name: /ALFA-1 · Avô concluído/ }, { timeout: SLOW });
-    await waitFor(() => expect(within(card()).getByText("Concluído")).toBeInTheDocument(), { timeout: SLOW });
+    // O card do pai traz a situação e os três números (ADR 0069).
+    await waitFor(() => expect(within(card()).getByText("Concluído · 2 tickets · 2 prontos · 0 livres")).toBeInTheDocument(), { timeout: SLOW });
     await userEvent.click(within(page()).getByRole("button", { name: "Mudar" }));
     await userEvent.click(within(screen.getByRole("group", { name: "Escolher o ticket pai" })).getByRole("button", { name: /ALFA-1Avô concluído/ }));
-    await waitFor(() => expect(within(card()).getByText(/\d de \d concluídos/)).toBeInTheDocument(), { timeout: SLOW });
-    expect(within(card()).getByText("2 de 3 concluídos")).toBeInTheDocument();
+    await waitFor(() => expect(within(card()).getByText("3 tickets · 2 prontos · 1 livre")).toBeInTheDocument(), { timeout: SLOW });
     await userEvent.click(within(page()).getByRole("button", { name: /ALFA-1Avô concluído/ }));
     await heading("Avô concluído");
     await waitFor(() => derivedStatus("Em andamento"));

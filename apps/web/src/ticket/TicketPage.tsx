@@ -471,7 +471,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
     <DerivedStatus detail={detail} />
   ) : (
     <span className="ticket-value">
-      <StatusValue status={detail.status} blocked={isBlocked(detail)} />
+      <StatusValue status={detail.status} blocked={isBlocked(detail)} place={detail.place ?? null} />
     </span>
   );
 

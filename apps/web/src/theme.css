@@ -18,6 +18,13 @@
   --tp-on-accent: #121019;
   --tp-blocked: #ff5a4a;
   --tp-todo: #70778a;
+  /* Lugar na fila de um ticket "a fazer" sem filhos (ADR 0069): livre, próximo, esperando. Cópias em map/situation.ts. */
+  --tp-free: #ffb07a;
+  --tp-next: #ffe58f;
+  --tp-waiting: #a3a9b8;
+  /* Setas da seleção no mapa (ADR 0069): o que o ticket espera (chega nele) e o que ele libera (sai dele). */
+  --tp-arrow-waits: #67e8f9;
+  --tp-arrow-unlocks: #f5f7ff;
   --tp-doing: #3b8eff;
   --tp-review: #ffd000;
   --tp-done: #2ee6b6;

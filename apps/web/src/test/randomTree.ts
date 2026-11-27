@@ -63,5 +63,5 @@ export function randomTickets(count: number, seed: number, projectId = "p", opti
       ideaCount[parent]! += ideaCount[at]!;
     }
   }
-  return raw.map((ticket, at) => (hasChildren[at] && !ticket.idea ? { ...ticket, progress: { done: done$[at]!, total: total[at]!, excluded: excluded[at]!, ideas: ideaCount[at]! } } : ticket));
+  return raw.map((ticket, at) => (hasChildren[at] && !ticket.idea ? { ...ticket, place: null, progress: { done: done$[at]!, total: total[at]!, excluded: excluded[at]!, ideas: ideaCount[at]! } } : ticket));
 }

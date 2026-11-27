@@ -93,7 +93,8 @@ export function DetailCard({ node, childCount }: { node: MapNode; childCount: nu
   const { t } = useTranslation("map");
   const { people, leaves } = useMapDetailData();
   const ticket = node.ticket;
-  const more = describeChildren(t, node, childCount);
+  // Um pai com os três números (ADR 0069) não repete "n itens": seriam dois números para a mesma pergunta.
+  const more = node.counts ? "" : describeChildren(t, node, childCount);
   const breakdown = ticket ? describeLeaves(t, leaves.get(node.id)) : "";
   const excerpt = stripMarkdown(ticket?.descriptionExcerpt ?? "");
   return (
@@ -107,9 +108,10 @@ export function DetailCard({ node, childCount }: { node: MapNode; childCount: nu
       {ticket && (
         <span className="node-detail-state">
           <TicketMark ticket={ticket} discarded={node.ideaDiscarded} />
-          <span>{cardStateText(t, ticket, { withIdeas: true })}</span>
+          <span>{cardStateText(t, ticket, { withIdeas: true, counts: node.counts })}</span>
         </span>
       )}
+      {node.enabler === true && <span className="node-enabler">{t("enabler")}</span>}
       {excerpt !== "" && <Description text={excerpt} />}
       {ticket && (ticket.assigneeIds.length > 0 || breakdown !== "") && (
         <span className="node-detail-footer">

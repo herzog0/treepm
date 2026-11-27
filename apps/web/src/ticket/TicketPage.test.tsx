@@ -124,7 +124,8 @@ describe("TicketPage content", () => {
     const list = view.getByRole("list", { name: "Itens" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(3);
     expect(within(list).getByRole("button", { name: /ALFA-3.*Revisar o texto.*Concluído/ })).toBeInTheDocument();
-    expect(within(list).getByRole("button", { name: /ALFA-6.*Subfase.*A fazer/ })).toBeInTheDocument();
+    // Folha "a fazer" com lugar na fila: o texto diz o lugar (ADR 0069).
+    expect(within(list).getByRole("button", { name: /ALFA-6.*Subfase.*Livre/ })).toBeInTheDocument();
     await userEvent.click(within(list).getByRole("button", { name: /ALFA-3.*Revisar o texto/ }));
     expect(onOpenTicket).toHaveBeenCalledWith("t3");
   });

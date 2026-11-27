@@ -10,7 +10,11 @@
   },
   "legend": {
     "title": "Statuses",
-    "hint": "A branch shows the most worrying status below it."
+    "hint": "A branch shows the most worrying status below it.",
+    "parentCounts": "Parent: tickets · done · free",
+    "waitsFor": "Incoming arrow: what it waits for",
+    "unlocks": "Outgoing arrow: what it unlocks",
+    "deliver": "Dashed: to deliver"
   },
   "breadcrumb": "Focus path",
   "panelToggle": "Areas and projects",
@@ -40,6 +44,9 @@
   },
   "status": {
     "blocked": "Blocked",
+    "free": "Free",
+    "next": "Next",
+    "waiting": "Waiting",
     "todo": "To do",
     "in_progress": "In progress",
     "in_review": "In review",
@@ -86,5 +93,14 @@
   },
   "agentWork": {
     "label": "Being worked on by AI"
-  }
+  },
+  "subtree": {
+    "tickets_one": "{{count}} ticket",
+    "tickets_other": "{{count}} tickets",
+    "done_one": "{{count}} done",
+    "done_other": "{{count}} done",
+    "free_one": "{{count}} free",
+    "free_other": "{{count}} free"
+  },
+  "enabler": "Opens its siblings"
 }

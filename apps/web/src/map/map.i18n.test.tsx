@@ -65,6 +65,7 @@ const TEXT = {
     key: "Organization",
     states: { todo: "To do", in_progress: "In progress", in_review: "In review", done: "Done", cancelled: "Canceled" },
     progress: "1 of 3 done",
+    subtree: "7 tickets · 1 done · 3 free",
     progressCanceled: (n: number) => `1 of 3 done · ${n} canceled`,
     projects: (n: number) => `${n} ${n === 1 ? "project" : "projects"}`,
     items: (n: number) => `${n} ${n === 1 ? "item" : "items"}`,
@@ -99,6 +100,7 @@ const TEXT = {
     key: "Organización",
     states: { todo: "Por hacer", in_progress: "En curso", in_review: "En revisión", done: "Terminado", cancelled: "Cancelado" },
     progress: "1 de 3 terminados",
+    subtree: "7 tickets · 1 listo · 3 libres",
     progressCanceled: (n: number) => `1 de 3 terminados · ${n} ${n === 1 ? "cancelado" : "cancelados"}`,
     projects: (n: number) => `${n} ${n === 1 ? "proyecto" : "proyectos"}`,
     items: (n: number) => `${n} ${n === 1 ? "elemento" : "elementos"}`,
@@ -199,7 +201,8 @@ describe.each(["en", "es-MX"] as const)("map in %s", (language) => {
     it("shows the status names, the progress and the counts on the card", async () => {
       await setTestLanguage(language);
       for (const status of ["todo", "in_progress", "in_review", "done", "cancelled"] as const) {
-        const container = cardContent(nodeOf("ticket", { ticket: makeTicket("n1", "alfa", 1, "Publicar", { status }) }), "full");
+        // Sem lugar na fila: o nome da situação (com lugar, o card diz o lugar; ADR 0069).
+        const container = cardContent(nodeOf("ticket", { ticket: makeTicket("n1", "alfa", 1, "Publicar", { status, place: null }) }), "full");
         expect(container).toHaveTextContent(text.states[status]);
       }
       const parent = makeTicket("n1", "alfa", 1, "Pai", { progress: { done: 1, total: 3, excluded: 0 } });
@@ -246,7 +249,9 @@ describe.each(["en", "es-MX"] as const)("map in %s", (language) => {
           {renderNodeContent({ node, label: node.label, lod: "full", aggregate: false, depth: 1, childCount: 6, descendantCount: 6 })}
         </MapDetailProvider>,
       );
-      expect(container).toHaveTextContent(text.items(6));
+      // O pai traz os três números da subárvore (ADR 0069) no lugar de "n itens".
+      expect(container).toHaveTextContent(text.subtree);
+      expect(container).not.toHaveTextContent(text.items(6));
       expect(container).toHaveTextContent(text.leaves);
       expect(screen.getByRole("img", { name: text.unknownPerson })).toHaveAttribute("title", text.unknownPerson);
       expectNoMapPortuguese(container, language);

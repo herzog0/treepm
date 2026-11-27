@@ -86,6 +86,7 @@ export * from "./mentions.js";
 export * from "./mention-cases.js";
 export * from "./dependencies.js";
 export * from "./queue-place.js";
+export * from "./sibling-order.js";
 export * from "./activity.js";
 export * from "./comments.js";
 export * from "./chat.js";

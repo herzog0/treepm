@@ -51,10 +51,10 @@ describe("map without an agent-work marker", () => {
           "full": "<span class="spatial-key">ALFA</span><strong>Alfa</strong>",
         },
         "t1": {
-          "chip": "<span class="status-mark" aria-hidden="true" data-state="progress" data-fill="0.3333333333333333" style="--fill: 0.3333333333333333;"></span><strong>Raiz com tudo</strong>",
-          "compact": "<span class="spatial-key">P-1</span><strong>Raiz com tudo</strong><span class="node-state"><span class="status-mark" aria-hidden="true" data-state="progress" data-fill="0.3333333333333333" style="--fill: 0.3333333333333333;"></span></span>",
-          "dot": "",
-          "full": "<span class="spatial-key">P-1</span><strong>Raiz com tudo</strong><span class="node-state"><span class="status-mark" aria-hidden="true" data-state="progress" data-fill="0.3333333333333333" style="--fill: 0.3333333333333333;"></span><span>2 de 6 concluídos</span></span>",
+          "chip": "<span class="status-mark" aria-hidden="true" data-state="progress" data-fill="0.3333333333333333" style="--fill: 0.3333333333333333;"></span><strong>Raiz com tudo</strong><span class="node-counts" title="6 tickets · 2 prontos · 1 livre">6 · 2 · 1</span>",
+          "compact": "<span class="node-key-row"><span class="spatial-key">P-1</span><span class="node-counts" title="6 tickets · 2 prontos · 1 livre">6 · 2 · 1</span></span><strong>Raiz com tudo</strong><span class="node-state"><span class="status-mark" aria-hidden="true" data-state="progress" data-fill="0.3333333333333333" style="--fill: 0.3333333333333333;"></span></span>",
+          "dot": "<span class="node-dot-hint" title="6 tickets · 2 prontos · 1 livre"></span>",
+          "full": "<span class="spatial-key">P-1</span><strong>Raiz com tudo</strong><span class="node-state"><span class="status-mark" aria-hidden="true" data-state="progress" data-fill="0.3333333333333333" style="--fill: 0.3333333333333333;"></span><span class="node-counts-long">6 tickets · 2 prontos · 1 livre</span></span>",
         },
         "t2": {
           "chip": "<span class="status-mark" aria-hidden="true" data-state="in_progress" data-fill="0.5" style="--fill: 0.5;"></span><strong>Filho em andamento</strong>",
@@ -69,10 +69,10 @@ describe("map without an agent-work marker", () => {
           "full": "<span class="spatial-key">P-3</span><strong>Filho concluído</strong><span class="node-state"><span class="status-mark" aria-hidden="true" data-state="done" data-fill="1" style="--fill: 1;"></span><span>Concluído</span></span>",
         },
         "t4": {
-          "chip": "<span class="status-mark" aria-hidden="true" data-state="todo" data-fill="0" style="--fill: 0;"></span><strong>Neto a fazer</strong>",
-          "compact": "<span class="spatial-key">P-4</span><strong>Neto a fazer</strong><span class="node-state"><span class="status-mark" aria-hidden="true" data-state="todo" data-fill="0" style="--fill: 0;"></span></span>",
+          "chip": "<span class="status-mark" aria-hidden="true" data-state="todo" data-fill="0" data-place="free" style="--fill: 0;"></span><strong>Neto a fazer</strong>",
+          "compact": "<span class="spatial-key">P-4</span><strong>Neto a fazer</strong><span class="node-state"><span class="status-mark" aria-hidden="true" data-state="todo" data-fill="0" data-place="free" style="--fill: 0;"></span></span>",
           "dot": "",
-          "full": "<span class="spatial-key">P-4</span><strong>Neto a fazer</strong><span class="node-state"><span class="status-mark" aria-hidden="true" data-state="todo" data-fill="0" style="--fill: 0;"></span><span>A fazer</span></span>",
+          "full": "<span class="spatial-key">P-4</span><strong>Neto a fazer</strong><span class="node-state"><span class="status-mark" aria-hidden="true" data-state="todo" data-fill="0" data-place="free" style="--fill: 0;"></span><span>Livre</span></span>",
         },
       }
     `);

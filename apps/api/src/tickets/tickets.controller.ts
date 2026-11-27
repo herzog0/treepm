@@ -18,7 +18,7 @@ import {
 import type { Response } from "express";
 import type { TenantClient } from "@treepm/db";
 import { deriveParentStatuses, ticketProgress } from "@treepm/domain";
-import type { z } from "zod";
+import { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { CurrentPrincipal } from "../access/principal.js";
 import type { Principal } from "../access/principal.js";
@@ -34,7 +34,6 @@ import {
   ticketSummarySchema,
   updateTicketSchema,
 } from "./tickets.schema.js";
-import type { ListedTicket } from "./external-keys.js";
 import type { ImportItem, TicketPage, TicketSummary } from "./tickets.schema.js";
 import { activityQuerySchema } from "./ticket-activity.schema.js";
 import type { ActivityPage } from "./ticket-activity.schema.js";
@@ -43,9 +42,14 @@ import { AgentWorkService } from "./agent-work.service.js";
 import { ifNoneMatchHits, projectEtag, touchProjectVersion } from "./project-version.js";
 import { listedTicketSchema, readLinearKeys, withLinearKeys } from "./external-keys.js";
 import { readSummaryRows } from "./ticket-reads.js";
+import { listedDependencySchema, readProjectDependencies } from "./project-dependencies.js";
 import { QueuesStructure, bodyField } from "./structure-queue.js";
 import { TicketsService, ideaViews, toNodes, toSummary } from "./tickets.service.js";
 import type { ProjectRow, TicketRow } from "./tickets.service.js";
+
+/** A linha da lista da tela: o resumo, as chaves do Linear e as dependências (ADR 0069, seção 1). */
+const projectListRowSchema = listedTicketSchema.extend({ dependencies: z.array(listedDependencySchema) });
+type ProjectListRow = z.output<typeof projectListRowSchema>;
 
 @Controller()
 export class TicketsController {
@@ -64,7 +68,7 @@ export class TicketsController {
     @Param("projectId", new ZodPipe(idSchema)) projectId: string,
     @Headers("if-none-match") ifNoneMatch: string | undefined,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<ListedTicket[] | undefined> {
+  ): Promise<ProjectListRow[] | undefined> {
     // Permissão primeiro (quem não vê recebe o 404 de sempre, nunca um 304); só então a versão (ADR 0046). A versão vem da mesma
     // linha do projeto que a conferência acabou de ler, e ANTES da lista: se uma escrita confirmar no meio, a lista pode ser mais
     // nova que o ETag (o cliente pede de novo uma vez), nunca mais velha.
@@ -78,10 +82,16 @@ export class TicketsController {
     }
     const rows = await readSummaryRows(tx, projectId); // trecho da descrição e pessoas em uma consulta por projeto
     const linearKeys = await readLinearKeys(tx, projectId); // as chaves do Linear (e antigas) dos tickets com origem: só esta lista as leva
+    const dependencies = await readProjectDependencies(tx, projectId, new Map(rows.map((row) => [row.id, row.number] as const)));
     const progress = ticketProgress(toNodes(rows));
     const ideas = ideaViews(project, rows);
     const now = this.tickets.now();
-    return rows.map((row) => parseOutput(listedTicketSchema, withLinearKeys(toSummary(project, row, progress, ideas.get(row.id) ?? null, now), linearKeys)));
+    return rows.map((row) =>
+      parseOutput(projectListRowSchema, {
+        ...withLinearKeys(toSummary(project, row, progress, ideas.get(row.id) ?? null, now), linearKeys),
+        dependencies: dependencies.get(row.id) ?? [],
+      }),
+    );
   }
 
   /** Fila de estrutura (ADR 0045, adendo 1): só quando traz pai, a mesma condição em que `createChecked` pega a trava. */

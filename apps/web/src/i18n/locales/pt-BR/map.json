@@ -10,7 +10,11 @@
   },
   "legend": {
     "title": "Situações",
-    "hint": "O ramo mostra a situação mais preocupante que há abaixo dele."
+    "hint": "O ramo mostra a situação mais preocupante que há abaixo dele.",
+    "parentCounts": "Pai: tickets · prontos · livres",
+    "waitsFor": "Seta que chega: o que ele espera",
+    "unlocks": "Seta que sai: o que ele libera",
+    "deliver": "Tracejada: para entregar"
   },
   "breadcrumb": "Caminho do foco",
   "panelToggle": "Áreas e projetos",
@@ -48,6 +52,9 @@
   },
   "status": {
     "blocked": "Bloqueado",
+    "free": "Livre",
+    "next": "Próximo",
+    "waiting": "Esperando",
     "todo": "A fazer",
     "in_progress": "Em andamento",
     "in_review": "Em revisão",
@@ -104,5 +111,20 @@
   },
   "agentWork": {
     "label": "Em trabalho pela IA"
-  }
+  },
+  "subtree": {
+    "tickets_zero": "{{count}} tickets",
+    "tickets_one": "{{count}} ticket",
+    "tickets_many": "{{count}} tickets",
+    "tickets_other": "{{count}} tickets",
+    "done_zero": "{{count}} prontos",
+    "done_one": "{{count}} pronto",
+    "done_many": "{{count}} prontos",
+    "done_other": "{{count}} prontos",
+    "free_zero": "{{count}} livres",
+    "free_one": "{{count}} livre",
+    "free_many": "{{count}} livres",
+    "free_other": "{{count}} livres"
+  },
+  "enabler": "Abre os irmãos"
 }

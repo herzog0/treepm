@@ -60,9 +60,9 @@ describe("map without ideas", () => {
             "full": "ALFAAlfa | ",
           },
           {
-            "chip": "Raiz com tudo | progress:0.3333333333333333",
-            "compact": "P-1Raiz com tudo | progress:0.3333333333333333",
-            "full": "P-1Raiz com tudo2 de 6 concluídos | progress:0.3333333333333333",
+            "chip": "Raiz com tudo6 · 2 · 1 | progress:0.3333333333333333",
+            "compact": "P-16 · 2 · 1Raiz com tudo | progress:0.3333333333333333",
+            "full": "P-1Raiz com tudo6 tickets · 2 prontos · 1 livre | progress:0.3333333333333333",
           },
           {
             "chip": "Filho em andamento | in_progress:0.5",
@@ -82,7 +82,7 @@ describe("map without ideas", () => {
           {
             "chip": "Neto a fazer | todo:0",
             "compact": "P-5Neto a fazer | todo:0",
-            "full": "P-5Neto a fazerA fazer | todo:0",
+            "full": "P-5Neto a fazerLivre | todo:0",
           },
           {
             "chip": "Neto cancelado | cancelled:0",
@@ -90,9 +90,9 @@ describe("map without ideas", () => {
             "full": "P-6Neto canceladoCancelado | cancelled:0",
           },
           {
-            "chip": "Concluído com filhos prontos | done:1",
-            "compact": "P-7Concluído com filhos prontos | done:1",
-            "full": "P-7Concluído com filhos prontosConcluído | done:1",
+            "chip": "Concluído com filhos prontos2 · 2 · 0 | done:1",
+            "compact": "P-72 · 2 · 0Concluído com filhos prontos | done:1",
+            "full": "P-7Concluído com filhos prontosConcluído · 2 tickets · 2 prontos · 0 livres | done:1",
           },
           {
             "chip": "Filho pronto | done:1",
@@ -112,7 +112,7 @@ describe("map without ideas", () => {
           {
             "chip": "Folha a fazer | todo:0",
             "compact": "P-11Folha a fazer | todo:0",
-            "full": "P-11Folha a fazerA fazer | todo:0",
+            "full": "P-11Folha a fazerLivre | todo:0",
           },
         ],
         "colors": {
@@ -120,11 +120,11 @@ describe("map without ideas", () => {
           "p": "#ffd000/1",
           "t1": "#ffd000/5",
           "t10": "#3c404c/1",
-          "t11": "#70778a/1",
+          "t11": "#ffb07a/1",
           "t2": "#ffd000/1",
           "t3": "#2ee6b6/1",
           "t4": "#ffd000/1",
-          "t5": "#70778a/1",
+          "t5": "#ffb07a/1",
           "t6": "#3c404c/1",
           "t7": "#2ee6b6/1",
           "t8": "#2ee6b6/1",

@@ -42,6 +42,22 @@ async function foreignTicket(): Promise<{ project: string; parent: string; child
   return { project, parent, child };
 }
 
+/**
+ * `dependencies` (ADR 0069, seção 1: a lista do projeto leva as dependências de cada ticket) veio depois das referências de ouro: confere
+ * que cada ticket traz a lista, com id e tipo, e a tira antes de comparar. As referências não são regravadas.
+ */
+function withoutListDependencies(list: unknown): unknown[] {
+  expect(Array.isArray(list), "a lista é um array").toBe(true);
+  return (list as Record<string, unknown>[]).map((ticket) => {
+    const dependencies = ticket["dependencies"] as Record<string, unknown>[];
+    expect(Array.isArray(dependencies), "o ticket traz dependencies").toBe(true);
+    for (const dependency of dependencies) expect(Object.keys(dependency).sort()).toEqual(["id", "need"]);
+    const rest = { ...ticket };
+    delete rest["dependencies"];
+    return rest;
+  });
+}
+
 const withoutVolatile = (page: Record<string, unknown>): Record<string, unknown> => {
   const rest = { ...page };
   delete rest["updatedAt"];
@@ -138,7 +154,7 @@ describe("HTTP: respostas idênticas às de antes", () => {
   it("lista de tickets do projeto", async () => {
     const res = await get(`/api/projects/${pid()}/tickets`);
     expect(res.status).toBe(200);
-    expectGolden("list", res.body);
+    expectGolden("list", withoutListDependencies(res.body));
   });
 
   it("trecho da descrição nos casos de borda (600 pontos, pares substitutos, compostos, quebras de linha)", async () => {
@@ -293,7 +309,7 @@ describe("HTTP: escritas devolvem o mesmo, e a árvore resultante é a mesma", (
     await write("move-out-of-idea", leaf.id, { parentId: T(f.moveFrom).id });
     expectGolden("writes", out);
     // A árvore depois das escritas, vista pela lista, pelos detalhes dos pais alterados e pela tela Ideias.
-    expectGolden("after-writes-list", (await get(`/api/projects/${pid()}/tickets`)).body);
+    expectGolden("after-writes-list", withoutListDependencies((await get(`/api/projects/${pid()}/tickets`)).body));
     const after: Record<string, unknown> = {};
     for (const index of [...f.doneChain, f.moveFrom, f.moveTo, f.shallow, idea.index]) after[String(index)] = withoutVolatile((await get(`/api/tickets/${T(index).id}`)).body);
     expectGolden("after-writes-details", after);

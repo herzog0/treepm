@@ -165,3 +165,23 @@ describe("lugar na fila no resumo e no detalhe", () => {
     expect((await detail(ideaId)).place).toBeNull();
   });
 });
+
+// ADR 0069, seção 1: a lista do projeto leva, em cada ticket, os tickets de que ele depende e o tipo; o mapa calcula o resto.
+describe("a lista do projeto leva as dependências", () => {
+  it("cada ticket traz `dependencies` (id e tipo, em ordem de número); quem não depende de ninguém traz lista vazia", async () => {
+    const a = await add();
+    const b = await add();
+    const c = await add();
+    await link(a.id, c.id, "deliver");
+    await link(a.id, b.id);
+    await link(b.id, c.id);
+    const rows = (await h.call("GET", `/api/projects/${P()}/tickets`, as("admin"))).body as { id: string; dependencies: { id: string; need: string }[] }[];
+    const of = (id: string) => rows.find((row) => row.id === id)?.dependencies;
+    expect(of(a.id)).toEqual([
+      { id: b.id, need: "start" },
+      { id: c.id, need: "deliver" },
+    ]);
+    expect(of(b.id)).toEqual([{ id: c.id, need: "start" }]);
+    expect(of(c.id)).toEqual([]);
+  });
+});

@@ -19,7 +19,7 @@ import type * as Content from "./nodeContent.js";
 import type * as Zoom from "./zoom.js";
 
 // Quadros do mapa (TREEPM-247). Uma sequência fixa de gestos numa árvore gerada com semente; o DOM da cena depois de cada quadro tem de ser
-// o gravado em `FRAME_DIGESTS` (as correções de custo não mudam a cena; desde a ADR 0067 os resumos são os do layout novo). Os contadores abaixo medem trabalho por quadro, não relógio.
+// o gravado em `FRAME_DIGESTS` (as correções de custo não mudam a cena; desde a ADR 0067 os resumos são os do layout novo; regravados na ADR 0069 pelo conteúdo novo dos cards: lugar na fila e os três números do pai, sem mudar a ordem nem as posições). Os contadores abaixo medem trabalho por quadro, não relógio.
 const counts = vi.hoisted(() => ({ maxScale: 0, nodeContent: 0 }));
 vi.mock("./zoom.js", async (importOriginal) => {
   const zoom = await importOriginal<typeof Zoom>();
@@ -70,42 +70,7 @@ async function dragBy(from: { x: number; y: number }, moves: number, onMove?: ()
 
 // Regravado com o layout da ADR 0067 (filhos no próprio tamanho, região mais larga); a gravação original era de antes das correções de custo (`746c882`).
 // Para regravar, esvazie a lista e copie a linha `FRAME_DIGESTS=` que o teste imprime.
-const FRAME_DIGESTS: string[] = [
-  "9003:fd663391",
-  "34310:2c3960fb",
-  "32333:7b4342fd",
-  "39991:375c16da",
-  "20329:ab785798",
-  "8544:20b0af1d",
-  "5886:53e48314",
-  "1330:7a31e617",
-  "1326:c0c926e5",
-  "1330:58a8d9ba",
-  "1330:f420cb49",
-  "1329:20bed551",
-  "1326:5a95b7fa",
-  "1326:c90247e8",
-  "1326:3d1babf4",
-  "1326:4fdc490a",
-  "1326:e1b4fc5e",
-  "1326:f8c4a92",
-  "1326:9aff25db",
-  "1326:17738692",
-  "1326:31185554",
-  "1328:85556557",
-  "1329:636adac8",
-  "1330:637de102",
-  "1330:adeed8d0",
-  "1325:ac4c18cb",
-  "1330:f814229a",
-  "5886:cd967346",
-  "8544:17feac3d",
-  "23098:38fe3a20",
-  "39991:c7a96a24",
-  "32332:996c4a8a",
-  "34310:25f13cc2",
-  "9003:ae7098b6",
-];
+const FRAME_DIGESTS: string[] = ["9003:fd663391", "36266:459b1fb6", "34213:6f5b2107", "42006:89b6627f", "20863:e9cff994", "8708:baa8df54", "6011:e25fbcd3", "1330:7a31e617", "1326:c0c926e5", "1330:58a8d9ba", "1330:f420cb49", "1329:20bed551", "1326:5a95b7fa", "1326:c90247e8", "1326:3d1babf4", "1326:4fdc490a", "1326:e1b4fc5e", "1326:f8c4a92", "1326:9aff25db", "1326:17738692", "1326:31185554", "1328:85556557", "1329:636adac8", "1330:637de102", "1330:adeed8d0", "1325:ac4c18cb", "1330:f814229a", "6011:cf7fbb19", "8708:a91978f4", "23810:9bc17b23", "42006:ec015e5", "34212:13feab8", "36266:20c41675", "9003:ae7098b6"];
 
 describe("quadros do mapa em árvore gerada", () => {
   // A emulação vale para o navegador inteiro (no Chromium compartilhado, também para os outros arquivos): devolve ao padrão.

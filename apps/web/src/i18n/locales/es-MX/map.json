@@ -10,7 +10,11 @@
   },
   "legend": {
     "title": "Situaciones",
-    "hint": "La rama muestra la situación más preocupante que hay debajo."
+    "hint": "La rama muestra la situación más preocupante que hay debajo.",
+    "parentCounts": "Padre: tickets · listos · libres",
+    "waitsFor": "Flecha que llega: lo que espera",
+    "unlocks": "Flecha que sale: lo que libera",
+    "deliver": "Punteada: para entregar"
   },
   "breadcrumb": "Ruta del enfoque",
   "panelToggle": "Áreas y proyectos",
@@ -44,6 +48,9 @@
   },
   "status": {
     "blocked": "Bloqueado",
+    "free": "Libre",
+    "next": "Siguiente",
+    "waiting": "En espera",
     "todo": "Por hacer",
     "in_progress": "En curso",
     "in_review": "En revisión",
@@ -95,5 +102,17 @@
   },
   "agentWork": {
     "label": "En trabajo por la IA"
-  }
+  },
+  "subtree": {
+    "tickets_one": "{{count}} ticket",
+    "tickets_many": "{{count}} tickets",
+    "tickets_other": "{{count}} tickets",
+    "done_one": "{{count}} listo",
+    "done_many": "{{count}} listos",
+    "done_other": "{{count}} listos",
+    "free_one": "{{count}} libre",
+    "free_many": "{{count}} libres",
+    "free_other": "{{count}} libres"
+  },
+  "enabler": "Abre a sus hermanos"
 }

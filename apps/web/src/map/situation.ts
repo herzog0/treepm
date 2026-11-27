@@ -9,6 +9,10 @@ export const SITUATION_COLORS = {
   blocked: "#ff5a4a",
   in_progress: "#3b8eff",
   in_review: "#ffd000",
+  /** Lugar na fila de um ticket "a fazer" sem filhos (ADR 0069, seção 3): livre, próximo, esperando. Os tons esperam o olho de Teodoro. */
+  free: "#ffb07a",
+  next: "#ffe58f",
+  waiting: "#a3a9b8",
   todo: "#70778a",
   done: "#2ee6b6",
 } as const;
@@ -36,16 +40,22 @@ export const STATUS_COLORS: Record<TicketStatus, string> = {
   cancelled: CANCELLED_COLOR,
 };
 
-/** Da situação mais preocupante à menos (ADR 0051). Cancelado e ideia não entram: não sobem. */
-export const PRECEDENCE = ["blocked", "in_progress", "in_review", "todo", "done"] as const;
+/**
+ * Da situação mais preocupante à menos (ADR 0051, com a ADR 0069): bloqueado › em andamento › em revisão › livre › próximo ›
+ * esperando / a fazer › concluído. "Esperando" e "a fazer" dividem o lugar na ADR; aqui "esperando" vem antes, para a escolha não
+ * depender da ordem dos filhos. Cancelado e ideia não entram: não sobem.
+ */
+export const PRECEDENCE = ["blocked", "in_progress", "in_review", "free", "next", "waiting", "todo", "done"] as const;
 export type Situation = (typeof PRECEDENCE)[number];
 
 /**
  * A situação que pinta o ticket: bloqueado quando o resumo traz `blocked` e o ticket não está concluído nem cancelado
- * (ADR 0051); senão, a situação gravada.
+ * (ADR 0051); um ticket "a fazer" com lugar na fila (sem filhos, fora de ideia; ADR 0068) usa o lugar: livre, próximo ou
+ * esperando (ADR 0069); senão, a situação gravada.
  */
-export function effectiveSituation(ticket: Pick<TicketSummary, "status" | "blocked">): Situation | "cancelled" {
+export function effectiveSituation(ticket: Pick<TicketSummary, "status" | "blocked" | "place">): Situation | "cancelled" {
   if (ticket.blocked === true && ticket.status !== "done" && ticket.status !== "cancelled") return "blocked";
+  if (ticket.status === "todo" && ticket.place != null) return ticket.place;
   return ticket.status === "cancelled" ? "cancelled" : ticket.status;
 }
 

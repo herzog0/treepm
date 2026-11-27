@@ -80,22 +80,22 @@ describe("card em detalhe (ADR 0027)", () => {
     expect(container.querySelector(".node-detail-breakdown")).toBeNull();
   });
 
-  it("a ticket with children shows the direct children count, progress and the leaves by status", () => {
+  it("a ticket with children shows the three numbers of ADR 0069 (not the direct children count nor 'N de M'), and the leaves by status", () => {
     const { ui } = setup(4);
     const { container } = render(ui("raiz", "full", 6));
     const card = container.querySelector(".node-detail")!;
-    expect(card).toHaveTextContent("6 itens");
-    expect(card).toHaveTextContent("2 de 5 concluídos");
+    expect(card).not.toHaveTextContent("6 itens");
+    expect(card).toHaveTextContent("5 tickets · 2 prontos · 1 livre");
     expect(card).toHaveTextContent("Texto do pai");
     expect(card.querySelector(".node-detail-breakdown")).toHaveTextContent("1 em revisão · 1 em andamento · 1 a fazer");
     expect(container.querySelector("[data-state]")).toHaveAttribute("data-state", "progress");
   });
 
-  it("a ticket without children shows its own status, no count and no breakdown (no 'vazio')", () => {
+  it("a ticket without children shows its own status (the queue place of a 'todo', ADR 0069), no count and no breakdown (no 'vazio')", () => {
     const { ui } = setup(4);
     const { container } = render(ui("vazio", "full", 0));
     const card = container.querySelector(".node-detail")!;
-    expect(card).toHaveTextContent("A fazer");
+    expect(card).toHaveTextContent("Livre");
     expect(card).not.toHaveTextContent("vazio");
     expect(card).not.toHaveTextContent("0 de 0");
     expect(card).not.toHaveTextContent(/\bitens?\b/);
@@ -120,11 +120,10 @@ describe("card em detalhe (ADR 0027)", () => {
     expect(container.querySelector("[data-state]")).toHaveAttribute("data-state", "done");
   });
 
-  it("uses the singular for one item", () => {
+  it("uses the singular for one ticket, one done", () => {
     const { ui } = setup(4);
-    const { container } = render(ui("raiz", "full", 1));
-    expect(container.querySelector(".node-detail")).toHaveTextContent("1 item");
-    expect(container.querySelector(".node-detail")).not.toHaveTextContent("1 itens");
+    const { container } = render(ui("fechado", "full", 1));
+    expect(container.querySelector(".node-detail")).toHaveTextContent("Concluído · 1 ticket · 1 pronto · 0 livres");
   });
 
   it("shows the excerpt without markdown signs (the API text stays as it is)", () => {

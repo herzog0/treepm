@@ -122,6 +122,11 @@ const ticketSummarySchema = z.object({
   dueDate: z.string().nullable().optional(),
   /** Etiquetas do ticket (ADR 0065), por nome; a API sempre manda. Opcional só para os dados de teste literais: ausente = nenhuma (leia com `?? []`). */
   labels: z.array(labelSchema).optional(),
+  /**
+   * Os tickets de que este depende, com o tipo (ADR 0069, seção 1): só a lista do projeto traz. O mapa calcula daqui a ordem dos irmãos, o
+   * habilitador e as setas. Ausente (outras rotas, API antiga, dados de teste literais): nenhuma; leia com `?? []`. Tipo desconhecido vale "para começar".
+   */
+  dependencies: z.array(z.object({ id: z.string(), need: z.enum(["start", "deliver"]).catch("start") })).optional(),
 });
 const ticketLinkSchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatus });
 /** Ligação entre tickets (dependência ou "Relacionado a"); `fromLinear`: trazida do Linear por uma sincronização (ADR 0061, fatia 3), ausente numa API antiga. */

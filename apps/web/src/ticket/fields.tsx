@@ -243,12 +243,13 @@ export function StatusField({ client, detail, onSaved }: FieldBase) {
     <>
       <OptionMenu
         label={t("status.group")}
-        trigger={<StatusValue status={detail.status} blocked={isBlocked(detail)} />}
+        trigger={<StatusValue status={detail.status} blocked={isBlocked(detail)} place={detail.place ?? null} placeTag={false} />}
         options={STATUSES.map((status) => ({ value: status, label: statusText(status), mark: <StatusMark status={status} /> }))}
         value={detail.status}
         disabled={action.busy}
         onChoose={(status) => void change(status)}
       />
+      <PlaceTag place={shownPlace(detail.status, isBlocked(detail), detail.place ?? null)} />
       <ActionError action={action} />
     </>
   );
@@ -260,7 +261,7 @@ export function DerivedStatus({ detail }: { detail: TicketDetail }) {
   return (
     <>
       <span className="ticket-value">
-        <StatusValue status={detail.status} blocked={isBlocked(detail)} />
+        <StatusValue status={detail.status} blocked={isBlocked(detail)} place={detail.place ?? null} />
       </span>
       <p className="ticket-muted">{t("status.derived")}</p>
     </>
@@ -634,17 +635,32 @@ export function InsideIdeaValue({ rootId, rootKey, discarded, onOpen }: { rootId
   );
 }
 
-/** Marcador e texto da situação: o valor da linha, com ou sem menu. */
-export function StatusValue({ status, blocked = false }: { status: TicketStatus; blocked?: boolean }) {
+/**
+ * Marcador e texto da situação: o valor da linha, com ou sem menu. Num "a fazer" com lugar na fila (ADR 0069), o marcador leva a cor
+ * do lugar e uma etiqueta o escreve (`PlaceTag`); o bloqueado vence. `placeTag={false}` deixa a etiqueta de fora: o gatilho do menu a
+ * põe ao lado do botão, para o nome do botão continuar sendo a situação.
+ */
+export function StatusValue({ status, blocked = false, place = null, placeTag = true }: { status: TicketStatus; blocked?: boolean; place?: TicketDetail["place"]; placeTag?: boolean }) {
   const statusText = useStatusText();
   const { t: tMap } = useTranslation("map");
+  const shown = shownPlace(status, blocked, place);
   return (
     <>
-      <StatusMark status={status} blocked={blocked} />
+      <StatusMark status={status} blocked={blocked} place={shown} />
       {statusText(status)}
       {blocked && <span className="ticket-blocked-tag">{tMap("status.blocked")}</span>}
+      {placeTag && <PlaceTag place={shown} />}
     </>
   );
+}
+
+/** O lugar que a página mostra: só num "a fazer" sem impedimento (ADR 0069). */
+const shownPlace = (status: TicketStatus, blocked: boolean, place: TicketDetail["place"]) => (!blocked && status === "todo" ? (place ?? null) : null);
+
+/** A etiqueta escrita do lugar na fila, na cor dele (ADR 0069); nada sem lugar. */
+function PlaceTag({ place }: { place: TicketDetail["place"] }) {
+  const { t: tMap } = useTranslation("map");
+  return place == null ? null : <span className="ticket-place-tag" data-place={place}>{tMap(`status.${place}`)}</span>;
 }
 
 export const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]!.toUpperCase()).join("");
