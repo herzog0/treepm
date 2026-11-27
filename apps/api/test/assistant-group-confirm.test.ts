@@ -53,6 +53,20 @@ describe("POST /ticket-conversations/:id/ticket com group — o caminho feliz", 
     expect(await count("tickets")).toBe(7 + 1 + 1 + 1);
   });
 
+  it("a situação do pai novo e dos lugares acima sai dos filhos (ADR 0068): movidos concluídos e o ticket novo a fazer dão em andamento", async () => {
+    const id = await start();
+    const extra = await addToSso("Parser de XML");
+    await h.pool.query("update tickets set status = 'done' where id = any($1::uuid[])", [[tree.saml, extra]]);
+    const res = await confirm(id, tree.sso, group([tree.saml, extra]));
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const status = async (ticket: string) => (await rows("select status from tickets where id = $1", [ticket]))[0].status as string;
+    const created = (await rows("select id from tickets where title = 'Entrada alternativa'"))[0].id as string;
+    expect(await status(res.body.ticket.id)).toBe("todo");
+    expect(await status(created)).toBe("in_progress"); // dois concluídos e o novo a fazer
+    expect(await status(tree.sso)).toBe("in_progress"); // só o pai novo dentro dele
+    expect(await status(tree.auth)).toBe("in_progress"); // login a fazer e SSO em andamento
+  });
+
   it("na raiz do projeto (parentId nulo) o agrupador nasce na raiz e o ticket solto vai para ele", async () => {
     const id = await start();
     const res = await confirm(id, null, group([tree.loose]));

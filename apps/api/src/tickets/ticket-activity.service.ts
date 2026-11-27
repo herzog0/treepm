@@ -8,7 +8,7 @@ import { activityPageSchema } from "./ticket-activity.schema.js";
 import type { ActivityEntry, ActivityPage, LinearChange } from "./ticket-activity.schema.js";
 import { commentRights, commentSelect, toCommentEntry } from "./ticket-comments.service.js";
 import type { Viewer } from "./ticket-comments.service.js";
-import { contributionStatusSchema, ideaStageSchema, ticketStatusSchema } from "./tickets.schema.js";
+import { contributionStatusSchema, dependencyNeedSchema, ideaStageSchema, ticketStatusSchema } from "./tickets.schema.js";
 import type { ProjectRow } from "./tickets.service.js";
 
 /** Tipos de evento que viram entradas; o resto (inclusive `ticket.comment_*`) nem é lido do banco. */
@@ -19,6 +19,9 @@ const READ_KINDS = [
   "ticket.assignee_removed",
   "ticket.dependency_added",
   "ticket.dependency_removed",
+  "ticket.dependency_need_changed",
+  "ticket.impediment_marked",
+  "ticket.impediment_cleared",
   "ticket.summary_updated",
   "ticket.contribution_added",
   "ticket.contribution_removed",
@@ -95,7 +98,10 @@ type Data =
   | { type: "due_date_changed"; from: string | null; to: string | null }
   | { type: "parent_changed"; from: RefDraft | null; to: RefDraft | null }
   | { type: "assignee_added" | "assignee_removed"; personId: string }
-  | { type: "dependency_added" | "dependency_removed" | "related_removed"; ticket: RefDraft }
+  | { type: "dependency_added"; ticket: RefDraft; need: z.output<typeof dependencyNeedSchema> | null }
+  | { type: "dependency_removed" | "related_removed"; ticket: RefDraft }
+  | { type: "dependency_need_changed"; ticket: RefDraft; from: z.output<typeof dependencyNeedSchema>; to: z.output<typeof dependencyNeedSchema> }
+  | { type: "impediment_marked" | "impediment_cleared" }
   | { type: "labels_changed"; added: LabelItem[]; removed: LabelItem[] }
   | { type: "summary_updated"; source: "person" | "assistant" }
   | { type: "contribution_added" | "contribution_text_changed"; areaId: string }
@@ -127,7 +133,7 @@ const idOrNull = z.uuid().nullable();
 const labelItem = z.object({ id: z.uuid(), name: z.string().min(1).max(200) });
 type LabelItem = z.output<typeof labelItem>;
 /** Eventos que podem vir de um processo (`automatic: true`): a entrada leva a marca. */
-const MAY_BE_AUTOMATIC = new Set(["ticket.updated", "ticket.labels_changed"]);
+const MAY_BE_AUTOMATIC = new Set(["ticket.updated", "ticket.labels_changed", "ticket.impediment_cleared"]);
 const fromTo = <T extends z.ZodType>(schema: T) => z.object({ from: schema, to: schema });
 const issueKey = /^[A-Za-z][A-Za-z0-9]*-(\d+)$/;
 const isMcp = (payload: unknown): boolean => typeof payload === "object" && payload !== null && (payload as Record<string, unknown>)["via"] === "mcp";
@@ -241,11 +247,23 @@ function draftsOf(row: { id: string; kind: string; actorPersonId: string | null;
     }
     case "ticket.dependency_added":
     case "ticket.dependency_removed": {
-      const v = z.object({ dependsOnTicketId: z.uuid(), dependsOnKey: z.string().max(100).optional() }).safeParse(p);
+      // `need` (ADR 0068) só existe nos eventos novos; os antigos ficam sem tipo (nulo).
+      const v = z.object({ dependsOnTicketId: z.uuid(), dependsOnKey: z.string().max(100).optional(), need: dependencyNeedSchema.optional() }).safeParse(p);
       if (!v.success) return [];
-      const type = row.kind === "ticket.dependency_added" ? "dependency_added" : "dependency_removed";
-      return [make(0, row.id, { type, ticket: { id: v.data.dependsOnTicketId, key: v.data.dependsOnKey ?? null, number: null } })];
+      const ticket = { id: v.data.dependsOnTicketId, key: v.data.dependsOnKey ?? null, number: null };
+      if (row.kind === "ticket.dependency_removed") return [make(0, row.id, { type: "dependency_removed", ticket })];
+      return [make(0, row.id, { type: "dependency_added", ticket, need: v.data.need ?? null })];
     }
+    case "ticket.dependency_need_changed": {
+      const v = z.object({ dependsOnTicketId: z.uuid(), dependsOnKey: z.string().max(100).optional(), need: fromTo(dependencyNeedSchema) }).safeParse(p);
+      if (!v.success) return [];
+      return [make(0, row.id, { type: "dependency_need_changed", ticket: { id: v.data.dependsOnTicketId, key: v.data.dependsOnKey ?? null, number: null }, from: v.data.need.from, to: v.data.need.to })];
+    }
+    // O impedimento (ADR 0068, seção 5): só o fato e quem fez; o motivo não está no evento.
+    case "ticket.impediment_marked":
+      return [make(0, row.id, { type: "impediment_marked" })];
+    case "ticket.impediment_cleared":
+      return [make(0, row.id, { type: "impediment_cleared" })];
     case "ticket.agent_work_started": {
       const v = z.object({ until: z.string().datetime() }).safeParse(p);
       return v.success ? [make(0, row.id, { type: "agent_work_started", until: v.data.until })] : [];
@@ -507,7 +525,7 @@ export class TicketActivityService {
       const data = d.data;
       if (data.type === "status_changed") return [data.causedBy];
       if (data.type === "parent_changed") return [data.from, data.to];
-      if (data.type === "dependency_added" || data.type === "dependency_removed" || data.type === "related_removed") return [data.ticket];
+      if (data.type === "dependency_added" || data.type === "dependency_removed" || data.type === "related_removed" || data.type === "dependency_need_changed") return [data.ticket];
       if (data.type === "linear_history") return data.changes.flatMap((change) => (change.field === "parent" || change.field === "project" ? [linearRef(change.from), linearRef(change.to)] : []));
       return [];
     };
@@ -574,6 +592,10 @@ export class TicketActivityService {
       switch (data.type) {
         case "created":
         case "description_changed":
+        case "impediment_marked":
+          return { ...common, type: data.type };
+        case "impediment_cleared":
+          return { ...common, type: data.type };
         case "idea_registered":
         case "idea_accepted":
         case "idea_discarded":
@@ -607,6 +629,9 @@ export class TicketActivityService {
         case "assignee_removed":
           return { ...common, type: data.type, person: person(data.personId) };
         case "dependency_added":
+          return { ...common, type: data.type, ticket: ticketRef(data.ticket), need: data.need };
+        case "dependency_need_changed":
+          return { ...common, type: data.type, ticket: ticketRef(data.ticket), from: data.from, to: data.to };
         case "dependency_removed":
         case "related_removed":
           return { ...common, type: data.type, ticket: ticketRef(data.ticket) };

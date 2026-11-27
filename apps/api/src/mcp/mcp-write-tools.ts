@@ -10,7 +10,7 @@ import type { TicketCommentsService } from "../tickets/ticket-comments.service.j
 import type { AgentWorkService } from "../tickets/agent-work.service.js";
 import type { LabelRef } from "../tickets/labels.schema.js";
 import type { LabelsService } from "../tickets/labels.service.js";
-import { ticketDescriptionSchema, ticketPrioritySchema, ticketStatusSchema, ticketTitleSchema } from "../tickets/tickets.schema.js";
+import { dependencyNeedSchema, impedimentReasonSchema, ticketDescriptionSchema, ticketPrioritySchema, ticketStatusSchema, ticketTitleSchema } from "../tickets/tickets.schema.js";
 import { structureKey, withStructureSlot } from "../tickets/structure-queue.js";
 import type { TicketsService } from "../tickets/tickets.service.js";
 import { WRITE_LIMIT_PER_PERSON_PER_MINUTE } from "./mcp-limits.js";
@@ -23,7 +23,7 @@ import type { ProjectTools, RunInTenant, ToolContext } from "./mcp-tools.js";
  * organização ligada. NÃO reescrevem regra: chamam os serviços de ticket, comentário e marcador, com o `Principal` da pessoa do
  * token marcado com a origem (`via: mcp`) e o id do REGISTRO do token. Tudo em inglês, como as de leitura.
  */
-export const WRITE_TOOL_NAMES = ["update_ticket_status", "add_comment", "set_agent_work", "set_ticket_priority", "create_ticket", "update_ticket", "move_ticket", "add_dependency", "remove_dependency", "set_ticket_assignees", "start_linear_sync", "continue_linear_sync"] as const;
+export const WRITE_TOOL_NAMES = ["update_ticket_status", "add_comment", "set_agent_work", "set_ticket_priority", "create_ticket", "update_ticket", "move_ticket", "add_dependency", "remove_dependency", "mark_impediment", "clear_impediment", "set_ticket_assignees", "start_linear_sync", "continue_linear_sync"] as const;
 export type WriteToolName = (typeof WRITE_TOOL_NAMES)[number];
 
 const keyField = z.string().trim().max(32, "Ticket key is too long.").regex(/^[A-Za-z][A-Za-z0-9]{1,9}-[0-9]{1,9}$/, "Ticket key must look like PROJ-123.");
@@ -84,6 +84,16 @@ export const dependencyInput = z.strictObject({
   key: keyField.describe("Key of the ticket that depends on another."),
   dependsOn: keyField.describe("Key of the ticket it depends on (it must be in this project)."),
 });
+export const addDependencyInput = dependencyInput.extend({
+  need: dependencyNeedSchema
+    .optional()
+    .describe("What the dependency holds: start (default; the work cannot start until the other ticket is finished) or deliver (the work can start now, but the ticket cannot be done until the other ticket is finished)."),
+});
+export const markImpedimentInput = z.strictObject({
+  key: keyField.describe("Ticket key of this project, for example PROJ-47."),
+  reason: impedimentReasonSchema.describe("Why the ticket is blocked: what is in the way and what would unblock it, 1 to 1000 characters. A mention of a person is refused."),
+});
+export const clearImpedimentInput = z.strictObject({ key: keyField.describe("Ticket key of this project, for example PROJ-47.") });
 
 export const setTicketAssigneesInput = z.strictObject({
   key: keyField.describe("Ticket key of this project, for example PROJ-47."),
@@ -116,7 +126,7 @@ const LABELS_NOTE =
 export const WRITE_TOOL_DEFINITIONS = {
   update_ticket_status: {
     title: "Update a ticket's status",
-    description: `Change the status of one ticket (todo, in_progress, in_review, done, cancelled). A ticket can only be done when its children are done or cancelled; tickets that are an idea or inside an idea stay in todo until the idea is accepted. Returns the ticket as get_ticket does. ${NOTE}`,
+    description: `Change the status of one ticket (todo, in_progress, in_review, done, cancelled). A ticket with child tickets (ideas do not count) has its status computed from them and cannot be set by hand: change the child tickets instead. A ticket that depends on another one to deliver cannot be done until that one is done or cancelled. Tickets that are an idea or inside an idea stay in todo until the idea is accepted. Returns the ticket as get_ticket does. ${NOTE}`,
     inputSchema: updateStatusInput,
   },
   add_comment: {
@@ -149,18 +159,28 @@ export const WRITE_TOOL_DEFINITIONS = {
   },
   move_ticket: {
     title: "Move a ticket in the tree",
-    description: `Change the parent of one ticket: another ticket of this project, or null for the top level. It follows the rules of the screen: no cycle (not under itself or a descendant), a done parent that receives an open ticket is reopened, and a ticket that is in progress, in review or done cannot go into an idea. It cannot move a ticket to another project. A parent that is not in this project is refused. Repeating the same call changes nothing the second time. Returns the ticket as get_ticket does. ${NOTE}`,
+    description: `Change the parent of one ticket: another ticket of this project, or null for the top level. It follows the rules of the screen: no cycle (not under itself or a descendant), the status of the old and the new parent is computed again from their child tickets, and a ticket that is in progress, in review or done cannot go into an idea. It cannot move a ticket to another project. A parent that is not in this project is refused. Repeating the same call changes nothing the second time. Returns the ticket as get_ticket does. ${NOTE}`,
     inputSchema: moveTicketInput,
   },
   add_dependency: {
     title: "Make a ticket depend on another",
-    description: `Record that one ticket depends on another ticket of this project. A ticket cannot depend on itself, and a dependency that would close a cycle is refused. If the dependency already exists nothing changes. It changes nothing else. Returns the ticket that depends, as get_ticket does. ${NOTE}`,
-    inputSchema: dependencyInput,
+    description: `Record that one ticket depends on another ticket of this project, to start (default: the work waits until the other ticket is finished) or to deliver (the work can start now; the ticket can only be done after the other ticket is finished). Between two tickets there is at most one dependency: calling again with the other need changes the need. A ticket cannot depend on itself, and a dependency that would close a cycle (of either need) is refused. If the same dependency already exists nothing changes. It changes nothing else. Returns the ticket that depends, as get_ticket does. ${NOTE}`,
+    inputSchema: addDependencyInput,
   },
   remove_dependency: {
     title: "Remove a dependency between two tickets",
     description: `Remove the record that one ticket depends on another ticket of this project. If there is no such dependency the call is refused, as on the screen. It changes nothing else. Returns the ticket that depended, as get_ticket does. ${NOTE}`,
     inputSchema: dependencyInput,
+  },
+  mark_impediment: {
+    title: "Mark a ticket as blocked",
+    description: `Mark an impediment on one open ticket, with the reason: something is in the way of the work and needs action. The ticket becomes blocked until someone clears the impediment or the ticket is done or cancelled. Calling again replaces the reason. It is refused on done or cancelled tickets. Waiting for another ticket is not an impediment: use add_dependency for that. It changes nothing else. Returns the ticket as get_ticket does. ${NOTE}`,
+    inputSchema: markImpedimentInput,
+  },
+  clear_impediment: {
+    title: "Clear a ticket's impediment",
+    description: `Remove the impediment of one ticket, so it is no longer blocked. If the ticket has no impediment nothing changes. It changes nothing else. Returns the ticket as get_ticket does. ${NOTE}`,
+    inputSchema: clearImpedimentInput,
   },
 } as const;
 
@@ -192,7 +212,7 @@ export type WriteContext = ToolContext & { tokenId: string; fresh: boolean };
 
 const CONFLICTS: Record<string, string> = {
   project_archived: "This project is archived and read-only.",
-  ticket_has_open_children: "Finish or cancel the open child tickets first.",
+  status_is_derived: "This ticket has child tickets, so its status is computed from its child tickets. Change the status of the child tickets instead.",
   ticket_in_idea: "Tickets inside an idea stay in todo until the idea is accepted.",
   agent_work_in_idea: "An idea is not worked on before it is accepted.",
   agent_work_finished: "A done or cancelled ticket cannot be marked as worked on.",
@@ -202,6 +222,7 @@ const CONFLICTS: Record<string, string> = {
   move_into_idea_blocked: "A ticket that is in progress, in review or done cannot go into an idea; move only what is still todo.",
   dependency_self: "A ticket cannot depend on itself.",
   dependency_cycle: "That dependency would close a cycle of dependencies.",
+  ticket_finished: "A done or cancelled ticket cannot be marked as blocked.",
   request_id_reused: "requestId already used with a different request. Use a new requestId for a new request.",
   label_limit_ticket: `A ticket can have at most ${LABELS_PER_TICKET} labels. Remove one first. Nothing was changed.`,
   label_limit_project: "This project already has the most labels it can have (200). Delete one on the TreePM screen first. Nothing was changed.",
@@ -217,6 +238,11 @@ export function refusalMessage(error: unknown): string | null {
   if (status === 403) return "You do not have permission to change this ticket.";
   if (status === 404) return code === "dependency_not_found" ? "There is no such dependency between these tickets." : code === "label_not_found" ? "That label no longer exists in this project. Nothing was changed." : "Ticket or project not found.";
   if (status === 400) return code === "label_name_invalid" ? "Label names must not be empty or too long." : "Invalid input.";
+  if (status === 409 && code === "ticket_has_open_delivery_dependencies") {
+    const keys = (payload as { details?: { keys?: unknown } }).details?.keys;
+    const list = Array.isArray(keys) ? keys.filter((key): key is string => typeof key === "string").join(", ") : "";
+    return `This ticket depends on ${list || "other tickets"} to deliver: finish or cancel ${list ? "them" : "those"} first, or change the dependency to start.`;
+  }
   if (status === 409) return (typeof code === "string" ? CONFLICTS[code] : undefined) ?? "The change conflicts with the current state of the ticket.";
   return null;
 }
@@ -360,8 +386,24 @@ export class WriteTools {
     return key === undefined ? move() : withStructureSlot(key, move);
   }
 
-  async addDependency(input: z.infer<typeof dependencyInput>) {
-    return this.dependency(input, (tx, principal, id, otherId) => this.services.tickets.addDependency(tx, principal, id, otherId));
+  async addDependency(input: z.infer<typeof addDependencyInput>) {
+    return this.dependency(input, (tx, principal, id, otherId) => this.services.tickets.addDependency(tx, principal, id, otherId, input.need ?? "start"));
+  }
+
+  /** Marca o impedimento (ADR 0068, seção 5) pelo mesmo caminho da tela. */
+  async markImpediment(input: z.infer<typeof markImpedimentInput>) {
+    return this.write(input.key, async (tx, principal, id, number) => {
+      await this.services.tickets.markImpediment(tx, principal, id, input.reason);
+      return this.reader.ticketIn(tx, principal, number);
+    });
+  }
+
+  /** Limpa o impedimento (ADR 0068, seção 5) pelo mesmo caminho da tela. */
+  async clearImpediment(input: z.infer<typeof clearImpedimentInput>) {
+    return this.write(input.key, async (tx, principal, id, number) => {
+      await this.services.tickets.clearImpediment(tx, principal, id);
+      return this.reader.ticketIn(tx, principal, number);
+    });
   }
 
   async removeDependency(input: z.infer<typeof dependencyInput>) {

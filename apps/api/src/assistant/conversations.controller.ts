@@ -588,6 +588,16 @@ export class TicketConversationsController {
     // A sugerida que cita ticket que não existe, ou que forjaria a citação do pedido, é descartada com aviso: a criação segue.
     const suggested = await this.keepSuggested(tx, project, conversation, built.unknownKeys, body.suggested, warnings);
     const origin = { origin: "assistant", conversationId: id };
+    // A ordem única das travas de tickets (ADR 0068, revisão 1): tudo o que as criações abaixo travam (o lugar com a subida, os
+    // tickets do pai novo, os mencionados e os que citam as chaves novas, os alvos das ligações) num comando só, antes da primeira
+    // reserva de número. As descrições vão na ordem em que os tickets nascem, para os números previstos baterem com a reserva.
+    const descriptions = [
+      ...(body.group ? [body.group.description] : []),
+      built.description,
+      ...built.children.map((child) => child.description),
+      ...suggested.map((task) => suggestedDescription(task.motivo, task.description)),
+    ];
+    await this.tickets.lockLinkedTickets(tx, project, body.parentId ?? null, descriptions, [...(body.group?.ticketIds ?? []), ...resolved.map((link) => link.target.id)]);
     let parentId = body.parentId;
     if (body.group) {
       this.authorization.editTicket(principal.actor, project.id);

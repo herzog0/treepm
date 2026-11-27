@@ -33,11 +33,11 @@ describe("adicionar e remover", () => {
     const b = await add();
     const res = await link(a.id, b.id);
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect((res.body as Detail).dependsOn).toEqual([{ id: b.id, key: "PRIV-2", title: "T", status: "todo", fromLinear: false, dueDate: null }]);
+    expect((res.body as Detail).dependsOn).toEqual([{ id: b.id, key: "PRIV-2", title: "T", status: "todo", fromLinear: false, dueDate: null, need: "start" }]);
     expect(await deps()).toEqual(["1>2"]);
     const [event] = await events("ticket.dependency_added");
     expect(event).toMatchObject({ subject_type: "ticket", subject_id: a.id, actor_person_id: h.world().people.admin });
-    expect(event.payload).toEqual({ key: "PRIV-1", dependsOnKey: "PRIV-2", dependsOnTicketId: b.id });
+    expect(event.payload).toEqual({ key: "PRIV-1", dependsOnKey: "PRIV-2", dependsOnTicketId: b.id, need: "start" });
     expect(await events("ticket.dependency_added")).toHaveLength(1);
   });
 
@@ -77,8 +77,8 @@ describe("adicionar e remover", () => {
     await link(b.id, a.id);
     expect((await detail(d.id)).dependsOn.map((l) => l.key)).toEqual(["PRIV-2", "PRIV-3"]);
     expect((await detail(a.id)).blocks).toEqual([
-      { id: b.id, key: "PRIV-2", title: "B", status: "todo", fromLinear: false, dueDate: null },
-      { id: c.id, key: "PRIV-3", title: "C", status: "todo", fromLinear: false, dueDate: null },
+      { id: b.id, key: "PRIV-2", title: "B", status: "todo", fromLinear: false, dueDate: null, need: "start" },
+      { id: c.id, key: "PRIV-3", title: "C", status: "todo", fromLinear: false, dueDate: null, need: "start" },
     ]);
     expect((await detail(a.id)).dependsOn).toEqual([]);
     expect((await detail(d.id)).blocks).toEqual([]);

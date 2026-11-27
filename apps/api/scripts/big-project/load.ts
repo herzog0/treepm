@@ -75,8 +75,8 @@ export async function loadBigProject(pool: pg.Pool, plan: BigProjectPlan): Promi
     await insertRows(client, "ticket_assignees", [{ name: "org_id", array: "text" }, { name: "ticket_id", array: "uuid" }, { name: "person_id", array: "uuid" }],
       tickets.flatMap((t) => t.assignees.map((a) => [org, t.id, plan.people[a]!.id])));
     await insertRows(client, "ticket_relations", [
-      { name: "org_id", array: "text" }, { name: "project_id", array: "uuid" }, { name: "from_ticket_id", array: "uuid" }, { name: "to_ticket_id", array: "uuid" }, { name: "kind", array: "text" },
-    ], plan.relations.map((r) => [org, projectId, id(r.from), id(r.to), r.kind]));
+      { name: "org_id", array: "text" }, { name: "project_id", array: "uuid" }, { name: "from_ticket_id", array: "uuid" }, { name: "to_ticket_id", array: "uuid" }, { name: "kind", array: "text" }, { name: "need", array: "text" },
+    ], plan.relations.map((r) => [org, projectId, id(r.from), id(r.to), r.kind, r.kind === "depends_on" ? (r.need ?? "start") : null]));
     await insertRows(client, "ticket_contributions", [
       { name: "org_id", array: "text" }, { name: "id", array: "uuid" }, { name: "project_id", array: "uuid" }, { name: "ticket_id", array: "uuid" }, { name: "area_id", array: "uuid" },
       { name: "text", array: "text" }, { name: "status", array: "text" }, { name: "created_at", array: "timestamptz" }, { name: "created_by_person_id", array: "uuid" },

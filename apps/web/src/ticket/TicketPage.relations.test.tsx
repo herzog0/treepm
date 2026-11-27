@@ -89,7 +89,7 @@ describe("linha “Relacionado a”", () => {
 });
 
 describe("selo «do Linear» nas ligações", () => {
-  it("aparece em “Depende de”, “Bloqueia” e “Relacionado a” só nas ligações trazidas do Linear", async () => {
+  it("aparece em “Depende de”, “Dependem deste” e “Relacionado a” só nas ligações trazidas do Linear", async () => {
     setup({
       dependsOn: [link("t2", "ALFA-2", "Banco de dados", true), link("t3", "ALFA-3", "Autenticação", false)],
       blocks: [link("t4", "ALFA-4", "Relatórios", true)],
@@ -98,7 +98,7 @@ describe("selo «do Linear» nas ligações", () => {
     const depends = (await screen.findByText("Depende de")).closest(".ticket-row") as HTMLElement;
     expect(within(depends).getAllByText("do Linear")).toHaveLength(1);
     expect(within(depends).getByText("do Linear").closest(".ticket-dep")).toHaveTextContent("ALFA-2");
-    const blocking = screen.getByRole("heading", { name: "Bloqueia" }).closest("section") as HTMLElement;
+    const blocking = screen.getByRole("heading", { name: "Dependem deste" }).closest("section") as HTMLElement;
     expect(within(blocking).getAllByText("do Linear")).toHaveLength(1);
     const related = await relatedRow();
     expect(within(related).getAllByText("do Linear")).toHaveLength(1);

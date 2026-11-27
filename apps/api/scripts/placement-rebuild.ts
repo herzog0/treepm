@@ -4,7 +4,7 @@
  *
  *   pnpm --filter @treepm/api placement:rebuild <comando> [opções]
  *
- * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update (com --idea-stage, --idea-accept, --idea-discard e --idea-make para ideias, e --depends-on e --no-depends-on para dependências), ticket-show, chat-show, test-person-create, test-person-list (lê as conversas, só leitura), relations-rebuild, summary-show, summary-regenerate, conversation-dry-run, embeddings-status, embeddings-reindex, triage-measure, case-run, doubt-curve (a curva da dúvida de uma rodada já gravada, sem provedor).
+ * Comandos: export, check, wipe, rebuild, restore-state, report, restore-original, create-project, archive-project, leave-one-out, collect, pairs, ticket-list, ticket-create, ticket-update (com --idea-stage, --idea-accept, --idea-discard e --idea-make para ideias, --depends-on, --depends-on-deliver e --no-depends-on para dependências, e --impediment e --no-impediment para o impedimento), ticket-show, chat-show, test-person-create, test-person-list (lê as conversas, só leitura), relations-rebuild, summary-show, summary-regenerate, conversation-dry-run, embeddings-status, embeddings-reindex, triage-measure, case-run, doubt-curve (a curva da dúvida de uma rodada já gravada, sem provedor).
  * Sobe a API real em processo (só a sessão é trocada), em 127.0.0.1 e porta efêmera, e fala com ela por HTTP.
  * O terminal mostra só progresso e contagens; todo texto de ticket fica nos arquivos de `--dir`.
  */
@@ -110,6 +110,9 @@ async function runTicketCommand(command: TicketRouteCommand, options: CliOptions
         ...(options.priority !== undefined ? { priority: options.priority } : {}),
         ...(options.dependsOn !== undefined ? { dependsOn: options.dependsOn } : {}),
         ...(options.noDependsOn !== undefined ? { noDependsOn: options.noDependsOn } : {}),
+        ...(options.dependsOnDeliver !== undefined ? { dependsOnDeliver: options.dependsOnDeliver } : {}),
+        ...(options.impediment !== undefined ? { impediment: options.impediment } : {}),
+        ...(options.noImpediment ? { noImpediment: true } : {}),
       });
     }
     return 0;

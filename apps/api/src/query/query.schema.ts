@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { labelColorSchema } from "../tickets/labels.schema.js";
-import { ideaStageSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
+import { dependencyNeedSchema, ideaStageSchema, queuePlaceSchema, ticketStatusSchema } from "../tickets/tickets.schema.js";
 
 /**
  * Saídas da camada de consulta do projeto (ADR 0037). Nenhum esquema tem responsável, autor, nome, e-mail ou data:
@@ -48,9 +48,20 @@ export const queryListSchema = z.strictObject({ tickets: z.array(querySummarySch
 export type QueryTicketList = z.infer<typeof queryListSchema>;
 
 const directionsSchema = z.strictObject({ outgoing: queryListSchema, incoming: queryListSchema });
+/** Uma dependência (ADR 0068): o resumo do outro ticket e o tipo (`start`: para começar; `deliver`: para entregar). */
+export const queryDependencyListSchema = z.strictObject({ tickets: z.array(querySummarySchema.extend({ need: dependencyNeedSchema })), truncated: z.boolean() });
+export type QueryDependencyList = z.infer<typeof queryDependencyListSchema>;
+const dependencyDirectionsSchema = z.strictObject({ outgoing: queryDependencyListSchema, incoming: queryDependencyListSchema });
 
 export const queryTicketSchema = querySummarySchema.extend({
   description: z.string(),
+  /**
+   * Bloqueado (ADR 0068, seção 5): aberto e com impedimento marcado. Só o fato: o motivo é texto novo da pessoa e não sai por aqui
+   * (esta leitura serve ao MCP e ao assistente; ele fica fora do que vai à IA até o `TREEPM-580`).
+   */
+  blocked: z.boolean(),
+  /** Lugar na fila (ADR 0068, seção 4); nulo para finalizado, ticket com filhos ou ideia. */
+  place: queuePlaceSchema.nullable(),
   /** O pai direto, igual ao último item de `path`; `null` no topo. */
   parent: querySummarySchema.nullable(),
   /** Do topo até o pai, sem o próprio ticket. Vazio no topo. */
@@ -59,8 +70,8 @@ export const queryTicketSchema = querySummarySchema.extend({
   relations: z.strictObject({
     /** `outgoing`: este ticket menciona; `incoming`: é mencionado por. */
     mentions: directionsSchema,
-    /** `outgoing`: este ticket depende de; `incoming`: dependem deste. */
-    dependsOn: directionsSchema,
+    /** `outgoing`: este ticket depende de; `incoming`: dependem deste. Cada um com o tipo da dependência. */
+    dependsOn: dependencyDirectionsSchema,
     /** "Relacionado a" (ADR 0061): simétrica, só vem do Linear; os dois sentidos numa lista só. */
     related: queryListSchema,
   }),

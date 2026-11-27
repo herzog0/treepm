@@ -154,7 +154,7 @@ describe("item 2: a hierarquia só age sobre origem vista nesta rodada", () => {
     await runAll();
     const final = await rowsByExt();
     expect(final.get("c")!["parent_id"]).toBe(final.get("p")!["id"]);
-    expect(final.get("p")!["status"]).toBe("todo");
+    expect(final.get("p")!["status"]).toBe("in_progress"); // o pai segue o filho em andamento (ADR 0068)
     const quiet = await runAll();
     expect(quiet.counts).toMatchObject({ updated: 0, parentsLinked: 0 });
   };

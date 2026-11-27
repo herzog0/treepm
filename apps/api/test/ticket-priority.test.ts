@@ -5,7 +5,7 @@ import { useHarness } from "./harness.js";
 import { as } from "./world.js";
 import type { Who } from "./world.js";
 
-// Prioridade do ticket (ADR 0047, TREEPM-221): campo, PATCH, histórico, herança no detalhe e `blocked` (dependência aberta) no resumo.
+// Prioridade do ticket (ADR 0047, TREEPM-221): campo, PATCH, histórico, herança no detalhe e o lugar na fila (ADR 0068) no resumo.
 const h = useHarness();
 
 type Body = Record<string, unknown>;
@@ -138,32 +138,32 @@ describe("prioridade que vale (detalhe)", () => {
   });
 });
 
-describe("blocked (dependência aberta) no resumo", () => {
+describe("lugar na fila (ADR 0068) no resumo: a dependência aberta não bloqueia, faz esperar", () => {
   const link = (from: string, to: string) => h.call("POST", `/api/tickets/${from}/dependencies`, as("admin"), { ticketId: to });
 
-  it("é verdadeiro enquanto algum ticket de que depende está aberto; falso quando todos terminaram", async () => {
+  it("é 'próximo' enquanto algum ticket de que depende está aberto; 'livre' quando todos terminaram; nunca 'bloqueado'", async () => {
     const a = await create();
     const b = await create();
     const c = await create();
     expect((await link(a.id, b.id)).status).toBe(200);
     expect((await link(a.id, c.id)).status).toBe(200);
-    const blocked = async (id: string) => (await list()).find((entry) => entry["id"] === id)?.["blocked"];
-    expect(await blocked(a.id)).toBe(true);
-    expect(await blocked(b.id)).toBe(false);
+    const summary = async (id: string) => (await list()).find((entry) => entry["id"] === id);
+    expect(await summary(a.id)).toMatchObject({ place: "next", blocked: false });
+    expect(await summary(b.id)).toMatchObject({ place: "free" });
     await patch(b.id, { status: "done" });
-    expect(await blocked(a.id)).toBe(true);
+    expect((await summary(a.id))?.["place"]).toBe("next");
     await patch(c.id, { status: "cancelled" });
-    expect(await blocked(a.id)).toBe(false);
+    expect((await summary(a.id))?.["place"]).toBe("free");
     await patch(c.id, { status: "todo" });
-    expect(await blocked(a.id)).toBe(true);
-    expect((await h.call("GET", `/api/tickets/${a.id}`, as("admin"))).body.blocked).toBe(true);
+    expect((await summary(a.id))?.["place"]).toBe("next");
+    expect((await h.call("GET", `/api/tickets/${a.id}`, as("admin"))).body).toMatchObject({ place: "next", blocked: false });
   });
 
-  it("'menciona' não bloqueia: só 'depende de'", async () => {
+  it("'menciona' não faz esperar: só 'depende de'", async () => {
     const a = await create();
     const b = await create();
     await patch(a.id, { description: `veja ${b["key"]}` });
-    expect((await list()).find((entry) => entry["id"] === a.id)?.["blocked"]).toBe(false);
+    expect((await list()).find((entry) => entry["id"] === a.id)?.["place"]).toBe("free");
   });
 });
 

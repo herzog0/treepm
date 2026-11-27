@@ -47,8 +47,8 @@ describe("custo do passo de relações num projeto muito ligado", () => {
     expect((await run()).body.phase).toBe("done");
     // 20 mil dependências feitas aqui, sem ciclo: o ticket de número maior depende dos 10 anteriores.
     await h.pool.query(
-      `insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind)
-       select a.org_id, a.project_id, a.id, b.id, 'depends_on' from tickets a join tickets b on b.project_id = a.project_id and b.number < a.number and b.number >= a.number - 10
+      `insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind, need)
+       select a.org_id, a.project_id, a.id, b.id, 'depends_on', 'start' from tickets a join tickets b on b.project_id = a.project_id and b.number < a.number and b.number >= a.number - 10
        where a.project_id = $1::uuid`,
       [open()],
     );

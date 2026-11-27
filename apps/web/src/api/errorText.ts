@@ -5,7 +5,7 @@ import type { ApiError } from "./client.js";
 
 /** Códigos de erro com frase própria no catálogo `api` (`errors.code.*`). */
 const KNOWN_CODES = new Set([
-  "team_name_taken", "area_name_taken", "project_key_taken", "person_inactive", "ticket_has_open_children", "ticket_cycle", "structure_busy", "concurrent_update", "server_busy",
+  "team_name_taken", "area_name_taken", "project_key_taken", "person_inactive", "status_is_derived", "ticket_cycle", "structure_busy", "concurrent_update", "server_busy",
   "project_archived", "comment_removed", "assistant_not_configured", "assistant_unavailable", "conversation_closed", "conversation_changed",
   "grouping_changed", "placement_stale", "draft_required", "ticket_has_no_items", "github_unavailable", "not_connected",
   "installation_unavailable", "repository_already_linked", "repository_not_found", "person_without_project_access", "assistant_consent_required", "contribution_area_taken", "area_in_use", "ticket_in_idea",
@@ -16,7 +16,7 @@ const KNOWN_CODES = new Set([
   "linear_run_open", "linear_reimport_not_available", "linear_step_in_progress", "linear_not_linked", "linear_workspace_mismatch", "linear_team_not_visible",
   "linear_destination_invalid", "linear_run_finished", "step_failed", "step_too_slow",
   "linear_nothing_to_categorize", "linear_categorize_open", "linear_import_in_progress",
-  "label_limit_ticket", "label_limit_project", "label_name_taken", "label_name_invalid", "label_not_found",
+  "label_limit_ticket", "label_limit_project", "label_name_taken", "label_name_invalid", "label_not_found", "ticket_finished",
 ] as const);
 type KnownCode = typeof KNOWN_CODES extends Set<infer C> ? C : never;
 
@@ -36,6 +36,7 @@ export function describeApiError(translate: TFunction<any>, error: ApiError, act
   const t = translate as unknown as (key: string, options?: Record<string, string>) => string;
   if (action === "remove" && error.code === "ticket_has_children") return t("api:errors.removeTicketWithItems");
   if (error.code === "unknown_ticket_keys") return t("api:errors.code.unknown_ticket_keys", { keys: (error.keys ?? []).join(", ") });
+  if (error.code === "ticket_has_open_delivery_dependencies") return t("api:errors.code.ticket_has_open_delivery_dependencies", { keys: (error.keys ?? []).join(", ") });
   if (error.code === "linear_rate_limited") return t("api:errors.code.linear_rate_limited", { seconds: String(retryAfterOf(error)) });
   if (error.code !== undefined && KNOWN_CODES.has(error.code as KnownCode)) return t(`api:errors.code.${error.code}`);
   return t(`api:errors.kind.${error.kind}`);

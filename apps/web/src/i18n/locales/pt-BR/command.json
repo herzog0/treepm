@@ -30,7 +30,7 @@
     "openChat": "Abrir o Meu chat"
   },
   "next": {
-    "all_blocked": "Tudo o que está pronto depende de outro ticket.",
+    "all_waiting": "Tudo o que está pronto espera outro ticket ficar pronto.",
     "all_others": "Tudo o que está pronto é de outra pessoa.",
     "none": "Não há ticket pronto para trabalhar nesse alcance."
   }

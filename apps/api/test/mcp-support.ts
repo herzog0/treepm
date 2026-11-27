@@ -132,7 +132,7 @@ export async function seedProject(pool: pg.Pool, projectId: string, createdBy: s
   const solto = await add(4, "Solto", "Depende de PRIV-2", null, "todo");
   await pool.query("update projects set next_ticket_number = 5 where id = $1", [projectId]);
   const rel = (from: string, to: string, kind: string) =>
-    pool.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ($1,$2,$3,$4,$5)", [ORG, projectId, from, to, kind]);
+    pool.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind, need) values ($1,$2,$3,$4,$5,case when $5 = 'depends_on' then 'start' end)", [ORG, projectId, from, to, kind]);
   await rel(solto, a, "depends_on");
   await rel(root, solto, "mentions");
   for (const ticket of [root, solto]) {

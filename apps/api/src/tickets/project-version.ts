@@ -21,11 +21,12 @@ import type { TenantClient } from "@treepm/db";
  *
  * ORDEM DAS TRAVAS (a que vale em cada caminho):
  *  - edições (situação, título, pai, pessoas, ideias, marcador, remoção): advisory (estrutura, quando o caminho a pega) → linhas de
- *    tickets (`for update`) → linha do projeto, por último, no toque do fim da transação;
- *  - criação e importação: advisory → `for key share` em ordem de id no pai, nos mencionados e nos que citam as chaves novas
- *    (`lockLinkedTickets`) → `for update` dos ancestrais da reabertura → linha do projeto (reserva de `next_ticket_number`, que
- *    a segura até o fim, como antes da ADR 0046) → inserts. Só os tickets citantes de um número que mude entre a leitura e a
- *    reserva (corrida com criação sem pai) escapam da trava antecipada: viram, no pior caso, 409 `concurrent_update` retentável;
+ *    tickets (`for update`, pela ordem única de `TicketsService.lockTicketSet`: o conjunto inteiro num comando, em ordem de id;
+ *    ADR 0068, revisão 1) → linha do projeto, por último, no toque do fim da transação;
+ *  - criação e importação: advisory → `for update`, pela mesma ordem única, no pai com a subida, nos mencionados e nos que citam
+ *    as chaves novas (`lockLinkedTickets`) → linha do projeto (reserva de `next_ticket_number`, que a segura até o fim, como antes
+ *    da ADR 0046) → inserts. Só os tickets citantes de um número que mude entre a leitura e a reserva (corrida com criação sem
+ *    pai) escapam da trava antecipada: viram, no pior caso, 409 `concurrent_update` retentável;
  *  - arquivar o projeto: tickets (marcadores, em lote) → linha do projeto.
  */
 export async function touchProjectVersion(_tx: TenantClient, projectId: string): Promise<void> {

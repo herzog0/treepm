@@ -101,21 +101,21 @@ export class IdeasService {
   }
 
   /**
-   * `POST tickets/:id/idea/accept`: tira o estágio; a subárvore passa a ser de tickets comuns. Valem as regras de sempre: o pai de
-   * fora concluído (e os ancestrais) é reaberto, com o evento automático, a menos que esta ideia esteja dentro de outra (então
-   * continua fora do processo). A reabertura vem antes de gravar a raiz, como nos outros pontos de entrada (ordem das travas).
+   * `POST tickets/:id/idea/accept`: tira o estágio; a subárvore passa a ser de tickets comuns. Valem as regras de sempre (ADR 0068):
+   * a situação dos pais de dentro dela, parada enquanto era ideia, sai dos filhos, e o pai de fora ganha um filho que conta; a conta
+   * sobe até a raiz, com o evento automático. Dentro de outra ideia, nada é calculado (continua fora do processo).
    */
   async accept(tx: TenantClient, principal: Principal, id: string): Promise<TicketPage> {
     const { project, ticket } = await this.lockedTicket(tx, principal, id, "triage");
     this.requireTriageable(ticket.ideaStage);
     const key = `${project.key}-${ticket.number}`;
-    if (ticket.parentId !== null && (await this.tickets.ideaRootFor(tx, project, ticket.parentId)) === null) {
-      await this.tickets.reopenAncestors(tx, principal, project, ticket.parentId, key);
-    }
+    // A ordem única das travas (ADR 0068, revisão 1): a raiz com a subárvore, que volta ao processo, e a subida do pai, num comando só.
+    await this.tickets.lockTicketSet(tx, project, { ancestorsOf: [ticket.parentId], subtreeOf: [id] });
     const from = await this.lockedStage(tx, id);
     this.requireTriageable(from);
     await this.setStage(tx, project, id, null);
     await this.activity.record(tx, principal, { kind: "ticket.idea_accepted", subjectType: "ticket", subjectId: id, payload: { key, from } });
+    await this.tickets.deriveStatuses(tx, principal, project, [ticket.parentId, ...(await this.tickets.subtreeParents(tx, project, id))], { causedBy: key });
     return this.tickets.detailFor(tx, project, id, principal);
   }
 
@@ -149,7 +149,8 @@ export class IdeasService {
   async transform(tx: TenantClient, principal: Principal, id: string): Promise<TicketPage> {
     const { project, ticket } = await this.lockedTicket(tx, principal, id, "refine");
     if (ticket.ideaStage !== null) throw new ConflictException({ code: "ticket_already_idea", message: "Este ticket já é a raiz de uma ideia." });
-    await this.tickets.lockSubtree(tx, project, id);
+    // A subárvore (ninguém muda uma situação no meio) e a subida do pai, que perde um filho que contava: pela ordem única, num comando só.
+    await this.tickets.lockTicketSet(tx, project, { ancestorsOf: [ticket.parentId], subtreeOf: [id] });
     const fresh = await tx.ticket.findFirstOrThrow({ where: { id }, select: { status: true, ideaStage: true } });
     if (fresh.ideaStage !== null) throw new ConflictException({ code: "ticket_already_idea", message: "Este ticket já é a raiz de uma ideia." });
     const descendants = await this.tickets.descendantStatuses(tx, project, id);
@@ -162,6 +163,8 @@ export class IdeasService {
     await this.setStage(tx, project, id, "new");
     // Uma ideia não é trabalhada antes do aceite: o marcador do ticket e dos descendentes acaba (ADR 0043).
     await this.agentWork.clearSubtree(tx, principal, project, id, "idea");
+    // O pai de fora perdeu um filho que contava (ADR 0068): a situação dele sai dos outros; sem nenhum, guarda a última.
+    await this.tickets.deriveStatuses(tx, principal, project, [ticket.parentId], { causedBy: `${project.key}-${ticket.number}` });
     await this.activity.record(tx, principal, {
       kind: "ticket.idea_registered",
       subjectType: "ticket",

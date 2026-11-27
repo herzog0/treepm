@@ -41,7 +41,7 @@ async function failure(run: () => Promise<unknown>): Promise<string | null> {
 }
 
 const relation = (from: string, to: string, kind: string) =>
-  asTenant(prisma, ORG_1, (tx) => tx.ticketRelation.create({ data: { orgId: ORG_1, projectId: a.project, fromTicketId: from, toTicketId: to, kind }, select: { id: true } }));
+  asTenant(prisma, ORG_1, (tx) => tx.ticketRelation.create({ data: { orgId: ORG_1, projectId: a.project, fromTicketId: from, toTicketId: to, kind, need: kind === "depends_on" ? "start" : null }, select: { id: true } }));
 
 describe("ticket_relations: o tipo related", () => {
   it("é aceito, uma linha por par, com o menor id primeiro", async () => {

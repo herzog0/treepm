@@ -384,6 +384,12 @@ export type CliOptions = {
   dependsOn?: number;
   /** `ticket-update`: remove a dependência deste número. */
   noDependsOn?: number;
+  /** `ticket-update`: o ticket passa a depender deste número "para entregar" (ADR 0068); `dependsOn` é "para começar". */
+  dependsOnDeliver?: number;
+  /** `ticket-update`: marca o impedimento com este motivo (ADR 0068, seção 5). */
+  impediment?: string;
+  /** `ticket-update`: limpa o impedimento. */
+  noImpediment?: boolean;
   /** `summary-regenerate`: regenera os tickets com filhos dentro deste número, das folhas para o topo. */
   subtree?: number;
   /** `summary-regenerate`: o mesmo para o projeto inteiro. */
@@ -464,7 +470,7 @@ export const TICKET_STATUSES: readonly TicketStatus[] = ["todo", "in_progress", 
 const TICKET_OPTIONS: Record<string, readonly string[]> = {
   "ticket-list": ["json"],
   "ticket-create": ["title", "descriptionFile", "parent", "status", "idea"],
-  "ticket-update": ["number", "title", "descriptionFile", "parent", "status", "root", "ideaStage", "priority", "ideaAccept", "ideaDiscard", "ideaMake", "dependsOn", "noDependsOn"],
+  "ticket-update": ["number", "title", "descriptionFile", "parent", "status", "root", "ideaStage", "priority", "ideaAccept", "ideaDiscard", "ideaMake", "dependsOn", "noDependsOn", "dependsOnDeliver", "impediment", "noImpediment"],
   "relations-rebuild": [],
   "ticket-show": ["number"],
   "test-person-create": [],
@@ -476,7 +482,7 @@ const TICKET_OPTIONS: Record<string, readonly string[]> = {
   "embeddings-status": [],
   "embeddings-reindex": ["dryRun"],
 };
-const TICKET_ONLY = ["json", "title", "descriptionFile", "parent", "status", "number", "root", "idea", "ideaStage", "priority", "ideaAccept", "ideaDiscard", "ideaMake", "dependsOn", "noDependsOn", "subtree", "all", "dryRun", "textFile", "scope", "general", "ticket", "thread"] as const;
+const TICKET_ONLY = ["json", "title", "descriptionFile", "parent", "status", "number", "root", "idea", "ideaStage", "priority", "ideaAccept", "ideaDiscard", "ideaMake", "dependsOn", "noDependsOn", "dependsOnDeliver", "impediment", "noImpediment", "subtree", "all", "dryRun", "textFile", "scope", "general", "ticket", "thread"] as const;
 const IDEA_STAGES_CLI = ["new", "refining", "ready"] as const;
 
 const FLAGS: Record<string, keyof CliOptions> = {
@@ -518,6 +524,9 @@ const FLAGS: Record<string, keyof CliOptions> = {
   "--priority": "priority",
   "--depends-on": "dependsOn",
   "--no-depends-on": "noDependsOn",
+  "--depends-on-deliver": "dependsOnDeliver",
+  "--impediment": "impediment",
+  "--no-impediment": "noImpediment",
   "--subtree": "subtree",
   "--all": "all",
   "--dry-run": "dryRun",
@@ -544,7 +553,7 @@ const usage = `Comandos: ${COMMANDS.join(", ")}.
   report --pairs --dir [--variant <nome>]
   ticket-list    --org --user --project [--json]
   ticket-create  --org --user --project --title <texto> [--description-file <caminho>] [--parent <número>] [--status <situação> | --idea]
-  ticket-update  --org --user --project --number <número> [--status <situação>] [--title <texto>] [--description-file <caminho>] [--parent <número> | --root] [--idea-stage <new|refining|ready>] [--priority <-999 a 999>] [--depends-on <número> | --no-depends-on <número>]
+  ticket-update  --org --user --project --number <número> [--status <situação>] [--title <texto>] [--description-file <caminho>] [--parent <número> | --root] [--idea-stage <new|refining|ready>] [--priority <-999 a 999>] [--depends-on <número> | --depends-on-deliver <número> | --no-depends-on <número>] [--impediment <motivo> | --no-impediment]
                  ou, sozinho no comando (uma coisa por vez): --idea-accept | --idea-discard | --idea-make
   relations-rebuild --org --user --project
   ticket-show    --org --user --project --number <número>   (detalhe em JSON)
@@ -571,7 +580,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     // No `triage-measure`, `--pairs` e `--json` levam um arquivo (nos outros comandos são sinalizadores).
     const key = command === "triage-measure" && flag === "--pairs" ? "pairsFile" : command === "triage-measure" && flag === "--json" ? "jsonFile" : FLAGS[flag];
     if (!key) return fail(`Opção desconhecida: ${flag}.`);
-    if (key === "fakeProviders" || key === "mentions" || key === "loo" || key === "collect" || key === "pairs" || key === "resume" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root" || key === "idea" || key === "ideaAccept" || key === "ideaDiscard" || key === "ideaMake" || key === "all" || key === "dryRun" || key === "general") {
+    if (key === "fakeProviders" || key === "mentions" || key === "loo" || key === "collect" || key === "pairs" || key === "resume" || key === "claudeOutline" || key === "scopeCheck" || key === "flat" || key === "json" || key === "root" || key === "idea" || key === "ideaAccept" || key === "ideaDiscard" || key === "ideaMake" || key === "noImpediment" || key === "all" || key === "dryRun" || key === "general") {
       options[key] = true;
       continue;
     }
@@ -591,7 +600,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
       const parsed = Number(value);
       if (!Number.isInteger(parsed) || parsed < 0) return fail(`${flag} deve ser um número inteiro.`);
       options[key] = parsed;
-    } else if (key === "parent" || key === "number" || key === "dependsOn" || key === "noDependsOn" || key === "subtree" || key === "scope" || key === "ticket") {
+    } else if (key === "parent" || key === "number" || key === "dependsOn" || key === "noDependsOn" || key === "dependsOnDeliver" || key === "subtree" || key === "scope" || key === "ticket") {
       const parsed = Number(value);
       if (!Number.isInteger(parsed) || parsed < 1) return fail(`${flag} deve ser o número de um ticket (inteiro maior que zero).`);
       options[key] = parsed;
@@ -661,6 +670,8 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   }
   if (options["idea"] !== undefined && options["status"] !== undefined) return fail("--idea não combina com --status: a situação de uma ideia é sempre todo.");
   if (options["dependsOn"] !== undefined && options["noDependsOn"] !== undefined) return fail("--depends-on não combina com --no-depends-on.");
+  if (options["dependsOnDeliver"] !== undefined && (options["dependsOn"] !== undefined || options["noDependsOn"] !== undefined)) return fail("--depends-on-deliver não combina com --depends-on nem com --no-depends-on.");
+  if (options["impediment"] !== undefined && options["noImpediment"] !== undefined) return fail("--impediment não combina com --no-impediment.");
   if (command === "chat-show") {
     if (["general", "ticket", "thread"].filter((key) => options[key] !== undefined).length !== 1) return fail("chat-show pede exatamente um de --general, --ticket <número> ou --thread <id>.");
     if (options["ticket"] !== undefined && options["project"] === undefined) return fail("chat-show --ticket pede também --project.");
@@ -675,13 +686,13 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     if (wide && options["dryRun"] === undefined && options["dir"] === undefined) return fail("--subtree e --all gravam o andamento em --dir (para o --resume): informe --dir.");
   }
   if (command === "ticket-update" && options["number"] !== undefined) {
-    const changes = ["status", "title", "descriptionFile", "parent", "root", "ideaStage", "priority", "dependsOn", "noDependsOn"];
+    const changes = ["status", "title", "descriptionFile", "parent", "root", "ideaStage", "priority", "dependsOn", "noDependsOn", "dependsOnDeliver", "impediment", "noImpediment"];
     const actions = ["ideaAccept", "ideaDiscard", "ideaMake"].filter((key) => options[key] !== undefined);
     if (actions.length > 0 && (actions.length > 1 || changes.some((key) => options[key] !== undefined))) {
       return fail("--idea-accept, --idea-discard e --idea-make valem sozinhos: uma coisa por comando.");
     }
     if (actions.length === 0 && !changes.some((key) => options[key] !== undefined)) {
-      return fail("ticket-update pede ao menos um de --status, --title, --description-file, --parent, --root, --idea-stage, --priority, --depends-on, --no-depends-on, --idea-accept, --idea-discard ou --idea-make.");
+      return fail("ticket-update pede ao menos um de --status, --title, --description-file, --parent, --root, --idea-stage, --priority, --depends-on, --no-depends-on, --depends-on-deliver, --impediment, --no-impediment, --idea-accept, --idea-discard ou --idea-make.");
     }
   }
   // `report --pairs` lê só os arquivos de `--dir`: o projeto vem do gabarito.

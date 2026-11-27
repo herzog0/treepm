@@ -7,7 +7,7 @@ import type { ApiClient, ApiResponse } from "./client.js";
  */
 export type TicketContext = { client: ApiClient; project: string; log: (line: string) => void };
 export type TicketCreateInput = { title: string; descriptionFile?: string; parent?: number; status?: string; idea?: boolean };
-export type TicketUpdateInput = { number: number; status?: string; title?: string; descriptionFile?: string; parent?: number; root?: boolean; ideaStage?: "new" | "refining" | "ready"; priority?: number; ideaAccept?: boolean; ideaDiscard?: boolean; ideaMake?: boolean; dependsOn?: number; noDependsOn?: number };
+export type TicketUpdateInput = { number: number; status?: string; title?: string; descriptionFile?: string; parent?: number; root?: boolean; ideaStage?: "new" | "refining" | "ready"; priority?: number; ideaAccept?: boolean; ideaDiscard?: boolean; ideaMake?: boolean; dependsOn?: number; noDependsOn?: number; dependsOnDeliver?: number; impediment?: string; noImpediment?: boolean };
 
 /** Erro esperado de um comando de ticket: a mensagem é o que o terminal mostra, sem rastro de pilha. */
 export class TicketCommandError extends Error {
@@ -161,13 +161,13 @@ export async function ticketUpdateCommand(ctx: TicketContext, input: TicketUpdat
     input.ideaDiscard ? "--idea-discard" : null,
     input.ideaMake ? "--idea-make" : null,
   ].filter((value) => value !== null);
-  const changes = [input.status, input.title, input.descriptionFile, input.parent, input.root, input.ideaStage, input.priority, input.dependsOn, input.noDependsOn];
+  const changes = [input.status, input.title, input.descriptionFile, input.parent, input.root, input.ideaStage, input.priority, input.dependsOn, input.noDependsOn, input.dependsOnDeliver, input.impediment, input.noImpediment];
   if (actions.length > 1 || (actions.length === 1 && changes.some((value) => value !== undefined))) {
     throw new TicketCommandError(`${actions.join(", ")} valem sozinhos: uma coisa por comando.`);
   }
   if (actions.length === 1) return ideaActionCommand(ctx, input);
   const hasChange = changes.some((value) => value !== undefined);
-  if (!hasChange) throw new TicketCommandError("Informe ao menos um de --status, --title, --description-file, --parent, --root, --idea-stage, --priority, --depends-on ou --no-depends-on.");
+  if (!hasChange) throw new TicketCommandError("Informe ao menos um de --status, --title, --description-file, --parent, --root, --idea-stage, --priority, --depends-on, --depends-on-deliver, --no-depends-on, --impediment ou --no-impediment.");
   if (input.parent !== undefined && input.root) throw new TicketCommandError("--parent não combina com --root.");
   const description = input.descriptionFile === undefined ? undefined : readText(input.descriptionFile);
   const before = await listRows(ctx);
@@ -195,25 +195,41 @@ export async function ticketUpdateCommand(ctx: TicketContext, input: TicketUpdat
   if (description !== undefined) ctx.log(`${ticket.key}: descrição substituída (${description.length} caracteres)`);
   if (parent) ctx.log(`${ticket.key}: pai → ${parent.key}`);
   if (input.root) ctx.log(`${ticket.key}: pai → nenhum (raiz)`);
-  if (input.dependsOn !== undefined) await dependencyCommand(ctx, before, ticket, input.dependsOn, true);
-  if (input.noDependsOn !== undefined) await dependencyCommand(ctx, before, ticket, input.noDependsOn, false);
+  if (input.dependsOn !== undefined) await dependencyCommand(ctx, before, ticket, input.dependsOn, "start");
+  if (input.dependsOnDeliver !== undefined) await dependencyCommand(ctx, before, ticket, input.dependsOnDeliver, "deliver");
+  if (input.noDependsOn !== undefined) await dependencyCommand(ctx, before, ticket, input.noDependsOn, null);
+  if (input.impediment !== undefined) {
+    await call<unknown>("marcar impedimento", ctx, "PUT", `/tickets/${ticket.id}/impediment`, { reason: input.impediment });
+    ctx.log(`${ticket.key}: bloqueado (impedimento marcado)`);
+  }
+  if (input.noImpediment) {
+    const current = await call<Detail>("ler ticket", ctx, "GET", `/tickets/${ticket.id}`);
+    if (current.impediment !== null) await call<unknown>("limpar impedimento", ctx, "DELETE", `/tickets/${ticket.id}/impediment`);
+    ctx.log(`${ticket.key}: ${current.impediment !== null ? "impedimento limpo" : "já estava sem impedimento"}`);
+  }
   reportReopened(ctx, reopened(before, await listRows(ctx), ticket.id));
 }
 
-type DependencyLink = { id: string; key: string; title: string; status: string };
-type Detail = Row & { description: string; dependsOn: DependencyLink[]; blocks: DependencyLink[]; mentionedBy: DependencyLink[] };
+type DependencyLink = { id: string; key: string; title: string; status: string; need?: "start" | "deliver" };
+type Detail = Row & { description: string; dependsOn: DependencyLink[]; blocks: DependencyLink[]; mentionedBy: DependencyLink[]; impediment: { reason: string } | null };
+const NEED_TEXT = { start: "para começar", deliver: "para entregar" } as const;
 
 /**
- * `--depends-on M` / `--no-depends-on M` (ADR 0037): "N depende de M". Idempotente: o estado atual vem do detalhe e repetir
- * só avisa que já estava assim. Ciclo e dependência de si mesmo saem com o código da API.
+ * `--depends-on M` / `--depends-on-deliver M` / `--no-depends-on M` (ADR 0037, 0068): "N depende de M", para começar (`start`) ou
+ * para entregar (`deliver`); `need` nulo remove. Idempotente: o estado atual vem do detalhe e repetir só avisa que já estava assim; o
+ * outro tipo troca o tipo da dependência que existe. Ciclo e dependência de si mesmo saem com o código da API.
  */
-async function dependencyCommand(ctx: TicketContext, rows: readonly Row[], ticket: Row, otherNumber: number, add: boolean): Promise<void> {
+async function dependencyCommand(ctx: TicketContext, rows: readonly Row[], ticket: Row, otherNumber: number, need: "start" | "deliver" | null): Promise<void> {
   const other = await resolveNumber(ctx, rows, otherNumber);
   const current = await call<Detail>("ler ticket", ctx, "GET", `/tickets/${ticket.id}`);
-  const already = current.dependsOn.some((link) => link.id === other.id);
-  if (add) {
-    if (!already) await call<unknown>("criar dependência", ctx, "POST", `/tickets/${ticket.id}/dependencies`, { ticketId: other.id });
-    ctx.log(`${ticket.key}: ${already ? "já dependia de" : "depende de"} ${other.key}`);
+  const existing = current.dependsOn.find((link) => link.id === other.id);
+  const already = existing !== undefined;
+  if (need !== null) {
+    const was = existing?.need ?? null;
+    if (was !== need) await call<unknown>("criar dependência", ctx, "POST", `/tickets/${ticket.id}/dependencies`, { ticketId: other.id, need });
+    const suffix = need === "deliver" ? ` ${NEED_TEXT.deliver}` : "";
+    const line = was === need ? `já dependia de ${other.key}${suffix}` : `depende de ${other.key}${suffix}${was === null ? "" : ` (era ${NEED_TEXT[was]})`}`;
+    ctx.log(`${ticket.key}: ${line}`);
     return;
   }
   if (already) await call<unknown>("remover dependência", ctx, "DELETE", `/tickets/${ticket.id}/dependencies/${other.id}`);
@@ -236,6 +252,7 @@ export async function ticketShowCommand(ctx: TicketContext, number: number): Pro
   const parent = ancestors.at(-1);
   const brief = (row: Row) => ({ key: row.key, number: row.number, title: row.title });
   const link = (item: DependencyLink) => ({ key: item.key, title: item.title, status: item.status });
+  const dependency = (item: DependencyLink) => ({ ...link(item), need: item.need });
   ctx.log(
     JSON.stringify({
       key: detail.key,
@@ -245,8 +262,9 @@ export async function ticketShowCommand(ctx: TicketContext, number: number): Pro
       parent: parent ? brief(parent) : null,
       path: ancestors.map((row) => ({ key: row.key, title: row.title })),
       description: detail.description,
-      dependsOn: detail.dependsOn.map(link),
-      blocks: detail.blocks.map(link),
+      dependsOn: detail.dependsOn.map(dependency),
+      blocks: detail.blocks.map(dependency),
+      blocked: detail.impediment !== null,
       mentionedBy: detail.mentionedBy.map(link),
     }),
   );

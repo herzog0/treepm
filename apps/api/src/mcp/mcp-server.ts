@@ -124,6 +124,8 @@ export function createProjectServer(
     server.registerTool("move_ticket", { ...WRITE_TOOL_DEFINITIONS.move_ticket, annotations: WRITE_ANNOTATIONS }, (input) => guarded("move_ticket", () => writer.moveTicket(input)));
     server.registerTool("add_dependency", { ...WRITE_TOOL_DEFINITIONS.add_dependency, annotations: WRITE_ANNOTATIONS }, (input) => guarded("add_dependency", () => writer.addDependency(input)));
     server.registerTool("remove_dependency", { ...WRITE_TOOL_DEFINITIONS.remove_dependency, annotations: WRITE_ANNOTATIONS }, (input) => guarded("remove_dependency", () => writer.removeDependency(input)));
+    server.registerTool("mark_impediment", { ...WRITE_TOOL_DEFINITIONS.mark_impediment, annotations: WRITE_ANNOTATIONS }, (input) => guarded("mark_impediment", () => writer.markImpediment(input)));
+    server.registerTool("clear_impediment", { ...WRITE_TOOL_DEFINITIONS.clear_impediment, annotations: WRITE_ANNOTATIONS }, (input) => guarded("clear_impediment", () => writer.clearImpediment(input)));
     if (people) server.registerTool("set_ticket_assignees", { ...PEOPLE_WRITE_TOOL_DEFINITIONS.set_ticket_assignees, annotations: { ...WRITE_ANNOTATIONS, idempotentHint: true } }, (input) => guarded("set_ticket_assignees", () => writer.setTicketAssignees(input)));
     server.registerTool("set_agent_work", { ...WRITE_TOOL_DEFINITIONS.set_agent_work, annotations: WRITE_ANNOTATIONS }, (input) => guarded("set_agent_work", () => writer.setAgentWork(input)));
     if (linearTools) {

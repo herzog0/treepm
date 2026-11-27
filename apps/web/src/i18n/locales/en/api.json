@@ -5,7 +5,7 @@
       "area_name_taken": "An area with that name already exists.",
       "project_key_taken": "A project with that key already exists.",
       "person_inactive": "This person is no longer in the organization.",
-      "ticket_has_open_children": "This ticket has open items. Finish or cancel the items before finishing it.",
+      "status_is_derived": "This ticket's status comes from its items. Change the status of the items.",
       "ticket_cycle": "A ticket cannot be its own parent or the parent of one of its ancestors.",
       "structure_busy": "Another change to this project's structure is in progress. Try again in a moment.",
       "concurrent_update": "Another change happened at the same time. Try again.",
@@ -82,7 +82,9 @@
       "label_limit_project": "The project already has 200 labels, the maximum. Delete one in the project settings before creating another.",
       "label_name_taken": "A label with this name already exists in this project.",
       "label_name_invalid": "The label name can't be empty or too long.",
-      "label_not_found": "This label no longer exists. The list has been refreshed."
+      "label_not_found": "This label no longer exists. The list has been refreshed.",
+      "ticket_has_open_delivery_dependencies": "This ticket can only be done when {{keys}} is done.",
+      "ticket_finished": "A done or cancelled ticket cannot get an impediment."
     },
     "kind": {
       "unauthenticated": "Your session has expired. Sign in again.",

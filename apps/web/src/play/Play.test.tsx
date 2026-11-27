@@ -312,11 +312,11 @@ describe("próximo ticket para trabalhar na barra de pedidos", () => {
 
   it("fila vazia: uma frase na própria barra, conforme o motivo", async () => {
     const onChange = vi.fn();
-    const blocked = base().map((entry) => ({ ...entry, blocked: true }));
-    render(<Host client={makeFull({ tickets: blocked })} onChange={onChange} />);
+    const waiting = base().map((entry) => ({ ...entry, place: entry.place === null ? null : ("waiting" as const) }));
+    render(<Host client={makeFull({ tickets: waiting })} onChange={onChange} />);
     await userEvent.click(await bar_());
     await userEvent.click(await screen.findByRole("option", { name: "Próximo ticket para trabalhar" }));
-    expect(await screen.findByText("Tudo o que está pronto depende de outro ticket.")).toBeInTheDocument();
+    expect(await screen.findByText("Tudo o que está pronto espera outro ticket ficar pronto.")).toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
   });
 });

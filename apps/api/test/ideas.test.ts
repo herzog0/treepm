@@ -140,17 +140,16 @@ describe("o caso da ADR 0042: ideia dentro de um ticket concluído", () => {
     const done = await patch(p.id, { status: "done" });
     expect(done.status, JSON.stringify(done.body)).toBe(200);
     expect(done.body.progress).toEqual({ done: 0, total: 0, excluded: 0, ideas: 1 });
-    // com um filho comum aberto ao lado da ideia, ainda recusa e conta só o comum
+    // com um filho comum ao lado da ideia, a situação passa a ser calculada (ADR 0068): só o comum conta
     const q = await add();
     await idea({ parentId: q.id });
     await add({ parentId: q.id });
     const refused = await patch(q.id, { status: "done" });
     expect(refused.status).toBe(409);
-    expect(code(refused)).toBe("ticket_has_open_children");
-    expect(refused.body.error.details).toEqual({ openChildCount: 1 });
+    expect(code(refused)).toBe("status_is_derived");
   });
 
-  it("depois de aceitar, o pai done é reaberto com o evento automático e o progresso passa a contar a subárvore", async () => {
+  it("depois de aceitar, a situação do pai done passa a sair dos filhos, com o evento automático, e o progresso conta a subárvore", async () => {
     const p = await add();
     const i = await idea({ parentId: p.id });
     const a = await add({ parentId: i.id });
@@ -350,16 +349,16 @@ describe("aceitar", () => {
     expect(await autoEvents()).toHaveLength(0);
   });
 
-  it("aceitar reabre toda a cadeia de pais done, de baixo para cima, com um evento por ticket", async () => {
+  it("aceitar refaz toda a cadeia de pais done, de baixo para cima, com um evento por ticket (ADR 0068)", async () => {
     const a = await add();
     const b = await add({ parentId: a.id });
     const i = await idea({ parentId: b.id });
-    await setStatus(b.id, "done");
-    await setStatus(a.id, "done");
+    await setStatus(b.id, "done"); // b só tem a ideia: marcada à mão; a segue b e conclui pela conta
+    expect((await get(a.id)).status).toBe("done");
     expect((await accept(i.id)).status).toBe(200);
     expect((await get(a.id)).status).toBe("todo");
     expect((await get(b.id)).status).toBe("todo");
-    expect((await autoEvents()).map((e) => e.subject_id)).toEqual([b.id, a.id]);
+    expect((await autoEvents()).map((e) => e.subject_id)).toEqual([a.id, b.id, a.id]);
   });
 
   it("ticket comum: 409 ticket_not_idea_root; ideia descartada: 409 idea_discarded", async () => {

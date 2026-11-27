@@ -182,10 +182,8 @@ export class ConversationService {
     if (wanted.length === 0) return new Map();
     const rows = await tx.$queryRaw<{ id: string; project_id: string; number: number; title: string; status: string; key: string; archived: boolean; blocked: boolean }[]>`
       select t.id, t.project_id, t.number, t.title, t.status, p.key, (p.archived_at is not null) as archived,
-             exists (
-               select 1 from ticket_relations r join tickets d on d.org_id = r.org_id and d.id = r.to_ticket_id
-               where r.org_id = t.org_id and r.from_ticket_id = t.id and r.kind = 'depends_on' and d.status not in ('done', 'cancelled')
-             ) as blocked
+             -- Bloqueado (ADR 0068, seção 5): aberto com impedimento marcado, a mesma regra de isBlocked e de readSummaryRows. Só o fato: o motivo não é lido.
+             (t.impediment_reason is not null and t.status not in ('done', 'cancelled')) as blocked
       from tickets t join projects p on p.org_id = t.org_id and p.id = t.project_id
       where t.id = any(${wanted}::uuid[])`;
     return new Map(rows.map((r) => [r.id, { id: r.id, key: `${r.key}-${r.number}`, title: r.title, projectId: r.project_id, archived: r.archived, status: r.status, blocked: r.blocked }]));

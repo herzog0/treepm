@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient, Me, Project, TicketDetail, TicketSummary } from "../api/client.js";
@@ -238,29 +238,14 @@ describe("status as a menu", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("refuses to conclude with open items next to the status row, with today's texts", async () => {
-    const updateTicket = vi.fn(async () => failed("conflict", "ticket_has_open_children"));
-    const { onChanged } = setup({ client: clientWith({ updateTicket }), ticketId: "t1" });
-    await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Em revisão" }));
-    await userEvent.click(screen.getByRole("menuitemradio", { name: "Concluído" }));
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Conclua ou cancele os 2 itens abertos antes de concluir este ticket.");
-    expect(within(page()).getByRole("button", { name: "Em revisão" }).closest("dd")).toContainElement(alert);
-    expect(onChanged).not.toHaveBeenCalled();
-    // A mensagem some no próximo sucesso.
-    updateTicket.mockImplementationOnce(async () => ok(detailOf(summaries[0]!)) as never);
-    await userEvent.click(within(page()).getByRole("button", { name: "Em revisão" }));
-    await userEvent.click(screen.getByRole("menuitemradio", { name: "A fazer" }));
-    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
-  });
-
-  it("refuses with one open item: singular message", async () => {
-    setup({ client: clientWith({ updateTicket: vi.fn(async () => failed("conflict", "ticket_has_open_children")) }), ticketId: "t7" });
-    await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "A fazer" }));
-    await userEvent.click(screen.getByRole("menuitemradio", { name: "Concluído" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Conclua ou cancele o item aberto antes de concluir este ticket.");
+  it("a ticket with items shows the status row without a menu, with the line that it comes from the items", async () => {
+    for (const ticketId of ["t1", "t7"]) {
+      setup({ client: clientWith(), ticketId });
+      await loaded();
+      const line = within(page()).getByText("Calculada a partir dos itens.");
+      expect(within(line.closest("dd") as HTMLElement).queryByRole("button")).not.toBeInTheDocument();
+      cleanup();
+    }
   });
 
   it("shows another API error next to the row", async () => {
