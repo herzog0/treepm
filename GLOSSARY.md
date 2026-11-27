@@ -40,6 +40,18 @@ _Evite_: usar "bloqueado" para um ticket que só tem dependência aberta
 Um ticket aberto cujas dependências **Para começar** estão todas concluídas. Pode começar agora.
 _Evite_: desbloqueado
 
+**Próximo**:
+Um ticket aberto que ainda tem dependência **Para começar** aberta, e todas as abertas são tickets **Livres**. Ele abre em seguida.
+_Evite_: quase livre
+
+**Esperando**:
+Um ticket aberto que não é **Livre** nem **Próximo**. Está na fila, e isso é normal.
+_Evite_: bloqueado, travado
+
+**Impedimento**:
+O problema que alguém marca num ticket, com o motivo em texto. Um ticket aberto com impedimento está **Bloqueado**.
+_Evite_: bloqueio por dependência
+
 ### Agenda
 
 **Fase**:
