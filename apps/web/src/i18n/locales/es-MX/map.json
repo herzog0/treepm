@@ -114,5 +114,19 @@
     "free_many": "{{count}} libres",
     "free_other": "{{count}} libres"
   },
-  "enabler": "Abre a sus hermanos"
+  "enabler": "Abre a sus hermanos",
+  "exploded": {
+    "switch": "Vista del proyecto",
+    "map": "Mapa",
+    "tree": "Árbol desplegado",
+    "canvas": "Árbol desplegado del proyecto",
+    "empty": "Nada que mostrar: este foco no tiene tickets sin hijos.",
+    "outside": "Fuera del foco",
+    "help": "Rueda para zoom · arrastra para mover · clic abre el ticket · C colores · Esc limpiar",
+    "parent": "Ticket con hijos",
+    "focusPath": "Foco del árbol",
+    "narrow": "Ver solo {{name}}",
+    "mapShort": "Mapa",
+    "treeShort": "Árbol"
+  }
 }

@@ -28,13 +28,16 @@ import { loadMapData, mergeMapData } from "./mapData.js";
 import type { MapData } from "./mapData.js";
 import { useAutoRefresh } from "./useAutoRefresh.js";
 import { MapDetailProvider, buildDetailData, createMapScaleStore } from "./detail.js";
-import { DRAFT_NODE_ID, buildMapItems, mixMapColors } from "./items.js";
+import { DRAFT_NODE_ID, buildMapItems, isInIdea, mixMapColors } from "./items.js";
 import type { MapDraft } from "./items.js";
 import { mapGeometry } from "./mapGeometry.js";
 import { computeMapMaxScale } from "./zoom.js";
 import type { MapNode } from "./items.js";
 import { StatusLegend } from "./StatusLegend.js";
 import { SelectionArrows } from "./SelectionArrows.js";
+import { ExplodedTree } from "../exploded/ExplodedTree.js";
+import { explodedFocus } from "../exploded/focus.js";
+import { useMapLayout } from "../exploded/viewChoice.js";
 import { selectionArrows } from "./arrows.js";
 import type { Arrow, ArrowLink } from "./arrows.js";
 import { renderNodeContent, ticketAriaLabel } from "./nodeContent.js";
@@ -185,9 +188,34 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
     }
     return { byId, dependents };
   }, [ticketsByProject]);
+  // Funções estáveis para a árvore explodida: os cards são memorizados e não se refazem a cada quadro da câmera.
+  const clearSelection = useCallback(() => selectNode(null), [selectNode]);
+  // A segunda visão do projeto (ADR 0070): o endereço guarda a escolha e o navegador lembra a última.
+  const [mapLayout, setMapLayout] = useMapLayout();
+  // O que a árvore explodida mostra sai do foco do mapa: o projeto, ou um ticket com filhos (ADR 0070, seção 2).
+  const treeFocus = useMemo(() => {
+    if (mapLayout !== "tree") return null;
+    const byId = new Map(
+      [...index.itemById].map(([id, node]) => [id, { id, parentId: node.parentId, kind: node.kind, projectId: node.kind === "project" ? node.id : (node.ticket?.projectId ?? null) }] as const),
+    );
+    const hasChildren = (id: string) => (index.childrenByParentId.get(id) ?? []).some((child) => child.ticket !== null && !isInIdea(child.ticket));
+    const projectIds = projects.filter((project) => project.archivedAt === null).map((project) => project.id);
+    return explodedFocus({ byId, hasChildren, mapFocus: focusId, openTicketId, projectIds });
+  }, [mapLayout, index, focusId, openTicketId, projects]);
+  // O caminho até o foco da árvore (o projeto e os pais) e o "Ver só <pai>" do ticket selecionado (ADR 0070, seção 2).
+  const treePath = useMemo(() => {
+    if (treeFocus === null) return [];
+    const path: { id: string; label: string }[] = [];
+    for (let node = index.itemById.get(treeFocus.ticketId ?? treeFocus.projectId); node && node.kind !== "organization"; node = node.parentId === null ? undefined : index.itemById.get(node.parentId)) {
+      path.unshift({ id: node.id, label: node.label });
+    }
+    return path;
+  }, [treeFocus, index]);
+  const narrowParent = selected?.kind === "ticket" && selected.parentId !== null ? index.itemById.get(selected.parentId) : undefined;
+  const narrowTo = treeFocus !== null && narrowParent?.kind === "ticket" && narrowParent.id !== treeFocus.ticketId ? { id: narrowParent.id, label: narrowParent.label } : null;
   // As setas do ticket selecionado, e só dele, calculadas no mesmo render que a câmera e a cena: seguem zoom e arrasto sem atraso.
   const arrows: readonly Arrow[] = (() => {
-    if (selected?.kind !== "ticket") return [];
+    if (selected?.kind !== "ticket" || mapLayout === "tree") return [];
     const ticket = dependencyIndex.byId.get(selected.id);
     if (!ticket) return [];
     const link = (other: { id: string; need: ArrowLink["need"] }): ArrowLink | null => {
@@ -572,6 +600,15 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               </span>
             ))}
           </nav>
+          <div className="map-layout-switch" role="group" aria-label={t("exploded.switch")}>
+            {(["map", "tree"] as const).map((choice) => (
+              <button key={choice} type="button" aria-pressed={mapLayout === choice} aria-label={t(`exploded.${choice}`)} onClick={() => setMapLayout(choice)}>
+                {/* Na tela estreita, o rótulo curto: o caminho e "Áreas e projetos" precisam do espaço da barra. */}
+                <span className="map-layout-long">{t(`exploded.${choice}`)}</span>
+                <span className="map-layout-short" aria-hidden="true">{t(`exploded.${choice}Short`)}</span>
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             className="map-panel-toggle"
@@ -585,6 +622,22 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
       renderOverlay={() => (
         <>
           <SelectionArrows arrows={arrows} />
+          {treeFocus !== null && (
+            <ExplodedTree
+              key={`${treeFocus.projectId}:${treeFocus.ticketId ?? ""}`}
+              tickets={ticketsByProject[treeFocus.projectId] ?? []}
+              nodes={index.itemById}
+              focus={treeFocus}
+              selectedId={selectedId}
+              filled={canvas.filled}
+              onSelect={selectNode}
+              onClearSelection={clearSelection}
+              onToggleColors={canvas.toggleFilled}
+              focusPath={treePath}
+              narrowTo={narrowTo}
+              onFocus={focusNode}
+            />
+          )}
           <CommandBar
             tickets={ticketsByProject}
             aside={pageOpen ? "ticket" : panel.open ? "areas" : "none"}

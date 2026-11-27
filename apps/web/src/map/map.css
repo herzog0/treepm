@@ -4,6 +4,14 @@
 .map-panel-toggle, .map-create-first { min-height: 28px; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-raised); color: var(--tp-text); font: 400 12px/1.2 var(--tp-font); cursor: pointer; }
 .map-panel-toggle:hover { background: var(--tp-selected); border-color: var(--tp-border-strong); }
 .map-panel-toggle { flex: 0 0 auto; }
+/* A troca entre o mapa e a árvore explodida (ADR 0070): dois botões colados, o da visão atual marcado. */
+.map-layout-switch { display: flex; flex: 0 0 auto; margin-left: auto; margin-right: 8px; overflow: hidden; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); }
+.map-layout-switch button { min-height: 28px; padding: 0 12px; border: 0; background: var(--tp-raised); color: var(--tp-text-2); font: 400 12px/1.2 var(--tp-font); cursor: pointer; }
+.map-layout-switch button + button { border-left: 1px solid var(--tp-border); }
+.map-layout-switch button:hover { background: var(--tp-selected); color: var(--tp-text); }
+.map-layout-switch button[aria-pressed="true"] { background: var(--tp-selected); color: var(--tp-text); font-weight: 600; }
+.map-layout-switch button:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: -2px; }
+.map-layout-short { display: none; }
 .map-panel-toggle:focus-visible, .map-create-first:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
 .map-create-first { position: absolute; z-index: 7; bottom: 64px; left: 50%; transform: translateX(-50%); min-height: 36px; padding: 0 16px; border-color: transparent; background: var(--tp-accent); color: var(--tp-on-accent); font-size: 14px; font-weight: 500; }
 .map-create-first:hover { background: var(--tp-accent-soft); }
@@ -139,6 +147,12 @@
   .org-map .spatial-breadcrumb { overflow-x: auto; scrollbar-width: none; }
   .org-map .spatial-breadcrumb button { min-height: 44px; padding: 0 10px; font-size: 13px; }
   .org-map .map-panel-toggle { min-height: 44px; font-size: 13px; }
+  .org-map .map-layout-switch { margin-right: 6px; }
+  .org-map .map-layout-switch button { min-height: 44px; padding: 0 10px; font-size: 13px; }
+  .org-map .map-layout-long { display: none; }
+  .org-map .map-layout-short { display: inline; }
+  /* Com a troca de visão na barra, o caminho rola de lado em vez de espremer os botões abaixo do alvo de toque. */
+  .org-map .spatial-breadcrumb > span, .org-map .spatial-breadcrumb button { flex-shrink: 0; }
   .org-map .spatial-toolbar { top: 10px; right: max(10px, env(safe-area-inset-right)); }
   .org-map .spatial-toolbar button { width: 44px; height: 44px; font-size: 20px; }
   .org-map .spatial-toolbar .spatial-color-toggle { width: auto; font-size: 13px; }

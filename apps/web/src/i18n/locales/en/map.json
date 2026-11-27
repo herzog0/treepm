@@ -102,5 +102,19 @@
     "free_one": "{{count}} free",
     "free_other": "{{count}} free"
   },
-  "enabler": "Opens its siblings"
+  "enabler": "Opens its siblings",
+  "exploded": {
+    "switch": "Project view",
+    "map": "Map",
+    "tree": "Exploded tree",
+    "canvas": "Exploded tree of the project",
+    "empty": "Nothing to show: this focus has no tickets without children.",
+    "outside": "Outside the focus",
+    "help": "Wheel to zoom · drag to move · click opens the ticket · C colors · Esc clear",
+    "parent": "Ticket with children",
+    "focusPath": "Tree focus",
+    "narrow": "Show only {{name}}",
+    "mapShort": "Map",
+    "treeShort": "Tree"
+  }
 }
