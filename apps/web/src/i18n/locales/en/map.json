@@ -110,11 +110,22 @@
     "canvas": "Exploded tree of the project",
     "empty": "Nothing to show: this focus has no tickets without children.",
     "outside": "Outside the focus",
-    "help": "Wheel to zoom · drag to move · click opens the ticket · C colors · Esc clear",
-    "parent": "Ticket with children",
+    "help": "Wheel to zoom · drag to move · click opens the ticket · ⌂ shows the whole tree · Esc clear",
     "focusPath": "Tree focus",
     "narrow": "Show only {{name}}",
     "mapShort": "Map",
-    "treeShort": "Tree"
+    "treeShort": "Tree",
+    "headline": "Pick now: {{now}} · Opens next: {{next}}",
+    "nothing": "nothing",
+    "more_one": "{{count}} more",
+    "more_other": "{{count}} more",
+    "step": "Step {{number}}",
+    "inside_one": "{{count}} item inside",
+    "inside_other": "{{count}} items inside",
+    "insideShort_one": "+{{count}}",
+    "insideShort_other": "+{{count}}",
+    "parentOf": "Inside {{name}}",
+    "toolbar": "Tree camera",
+    "fitAll": "Show the whole tree"
   }
 }

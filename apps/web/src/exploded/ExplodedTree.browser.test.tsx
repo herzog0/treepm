@@ -62,7 +62,8 @@ describe("árvore explodida em navegador real", () => {
     await settle(1200);
     const before = mapScene();
     const anchor = nearMiddle();
-    await zoomIn(anchor, 8);
+    // A primeira vista já é de perto (escala 1): dois passos bastam, e ainda sobra zoom até o máximo.
+    await zoomIn(anchor, 2);
     const shown = cards();
     expect(shown.length).toBeGreaterThan(0);
     expect(shown.length).toBeLessThan(120);

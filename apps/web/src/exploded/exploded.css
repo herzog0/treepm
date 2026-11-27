@@ -4,46 +4,59 @@
  */
 .exploded { position: absolute; z-index: 8; inset: 0; background: var(--tp-bg); }
 /* O palco começa abaixo da faixa de cima (caminho do foco, barra de pedidos, controles), para nada da árvore ficar embaixo deles. */
-.exploded-stage { position: absolute; inset: 64px 0 0 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; background: radial-gradient(ellipse at 45% 40%, var(--tp-surface) 0%, var(--tp-bg) 80%); }
+/* O palco começa abaixo da faixa de cima (caminho do foco, barra de pedidos, controles) e da manchete. */
+.exploded-stage { position: absolute; inset: 104px 0 0 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; border-top: 1px solid var(--tp-divider); background: var(--tp-bg); }
 .exploded-stage.is-dragging, .exploded-stage.is-dragging .exploded-card { cursor: grabbing; }
+/* A manchete: o que pegar agora e o que abre em seguida, numa linha. */
+.exploded-headline { position: absolute; z-index: 2; top: 66px; right: 14px; left: 14px; margin: 0; overflow: hidden; color: var(--tp-text); font: 500 14px/32px var(--tp-font); text-overflow: ellipsis; white-space: nowrap; }
+/* Os cabeçalhos "Passo N": presos no alto do palco, seguem a câmera de lado. */
+.exploded-steps { position: absolute; z-index: 3; top: 0; right: 0; left: 0; height: 24px; overflow: hidden; border-bottom: 1px solid var(--tp-divider); background: color-mix(in srgb, var(--tp-bg) 92%, transparent); pointer-events: none; }
+.exploded-steps span { position: absolute; top: 0; padding: 0 8px; overflow: hidden; border-left: 1px dashed var(--tp-divider); color: var(--tp-text-3); font: 600 11px/24px var(--tp-font); white-space: nowrap; }
 .exploded-hangs { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
-.exploded-hang { fill: none; stroke: var(--tp-text-3); stroke-width: 1.5; opacity: 0.7; }
+.exploded-hang { fill: none; stroke: var(--tp-tree-line); stroke-width: 1.25; }
+.exploded-hangs marker path { fill: var(--tp-tree-line); }
 .exploded-world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+/* O card desta visão: pequeno e denso, o código em negrito e o título numa linha. O tom vem de `data-tone`. */
 .exploded-card {
+  --tone: var(--tp-tree-waiting);
+  --ink: var(--tp-text);
   position: absolute;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
-  padding: 10px 12px;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 7px;
   overflow: hidden;
-  border: 1px solid var(--tp-border);
-  border-top: 3px solid var(--card-color);
-  border-radius: 10px;
-  background: var(--tp-card);
-  color: var(--tp-text);
-  font: 400 12px/1.25 var(--tp-font);
+  border: 1px solid color-mix(in srgb, var(--tp-border) 80%, transparent);
+  border-radius: 6px;
+  background: var(--tone);
+  color: var(--ink);
+  font: 400 11px/1.25 var(--tp-font);
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--tp-bg) 80%, transparent);
 }
-.exploded-card > strong { display: -webkit-box; overflow: hidden; font-size: 14px; font-weight: 600; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.exploded-card-top { display: flex; width: 100%; min-width: 0; justify-content: space-between; gap: 8px; font-size: 11px; opacity: 0.75; }
-.exploded-card-top .spatial-key { flex: none; font-family: var(--tp-font-mono); }
-.exploded-card-parent { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.exploded-card .node-state { display: flex; min-width: 0; max-width: 100%; align-items: center; gap: 5px; font-size: 11px; white-space: nowrap; }
-.exploded-card .node-state > span:not(.status-mark):not(.node-enabler) { overflow: hidden; text-overflow: ellipsis; }
-.exploded-card .status-mark { --mark-size: 11px; }
-.exploded-card .node-enabler { flex: none; padding: 0 4px; border: 1px solid currentColor; border-radius: 3px; font-size: 9.5px; font-weight: 700; line-height: 1.4; }
-.exploded-outside { font-size: 10px; font-weight: 700; opacity: 0.85; }
-.exploded-card[data-outside="true"] { border-style: dashed; opacity: 0.45; }
-.exploded-card[aria-pressed="true"] { outline: 3px solid var(--tp-accent); outline-offset: 2px; }
+.exploded-card[data-tone="free"] { --tone: var(--tp-free); --ink: var(--tp-on-accent); border-color: transparent; }
+.exploded-card[data-tone="next"] { --tone: var(--tp-next); --ink: var(--tp-on-accent); border-color: transparent; }
+.exploded-card[data-tone="doing"] { --tone: var(--tp-tree-doing); }
+.exploded-card[data-tone="review"] { --tone: var(--tp-tree-review); }
+.exploded-card[data-tone="done"] { --tone: var(--tp-tree-done); --ink: var(--tp-text-2); }
+.exploded-card[data-tone="cancelled"] { --tone: var(--tp-card); --ink: var(--tp-text-3); border-style: dashed; }
+.exploded-card[data-tone="blocked"] { --tone: var(--tp-tree-blocked); box-shadow: inset 3px 0 0 var(--tp-blocked); }
+.exploded-card-code { display: flex; min-width: 0; align-items: center; gap: 5px; white-space: nowrap; }
+.exploded-card-code b { flex: none; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+.exploded-card-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--tp-doing); }
+.exploded-card[data-status="in_review"] .exploded-card-dot { background: var(--tp-review); }
+.exploded-card[data-tone="free"] .exploded-card-dot, .exploded-card[data-tone="next"] .exploded-card-dot { background: currentColor; }
+.exploded-card-inside { flex: none; padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, currentColor 14%, transparent); font-size: 9.5px; font-weight: 600; }
+.exploded-card-parent { min-width: 0; margin-left: auto; overflow: hidden; padding-left: 4px; border-left: 1px solid color-mix(in srgb, currentColor 35%, transparent); opacity: 0.7; font-size: 9.5px; text-overflow: ellipsis; }
+.exploded-card-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exploded-card[data-outside="true"] { border-style: dashed; opacity: 0.4; }
+.exploded-card[aria-pressed="true"] { outline: 2px solid var(--tp-accent); outline-offset: 2px; }
 .exploded-card:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 2px; }
-/* Modo "Cores" (o C do mapa) e o zoom longe: o card é a cor inteira. */
-.exploded[data-filled="true"] .exploded-card { background: var(--card-color); color: var(--tp-on-accent); }
-.exploded[data-filled="true"] .exploded-card[data-muted="true"] { color: var(--tp-text); }
-.exploded[data-filled="true"] .exploded-card .status-mark { --mark: currentColor; }
-.exploded-card[data-level="block"] { border-color: transparent; border-radius: 14px; background: var(--card-color); box-shadow: none; }
+/* No meio: só o código, grande, para a árvore inteira ainda se ler. Com o zoom bem longe: só o retângulo com o tom. */
+.exploded-card[data-level="code"] { align-items: center; padding: 0 6px; }
+.exploded-card-big { display: block; max-width: 100%; overflow: hidden; font-size: 24px; font-weight: 700; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
+.exploded-card[data-level="block"] { padding: 0; border-color: transparent; border-radius: 4px; }
 .exploded-toolbar { z-index: 2; }
 .exploded-help { z-index: 2; }
 .exploded-empty { position: absolute; top: 45%; left: 50%; margin: 0; transform: translateX(-50%); color: var(--tp-text-2); font-size: 14px; }

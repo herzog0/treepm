@@ -1,29 +1,22 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { buildMapItems } from "../map/items.js";
-import type { MapNode } from "../map/items.js";
-import { dependencyProject, dependencyTicketId, dependencyTickets } from "../test/dependencyMap.js";
+import { dependencyTicketId, dependencyTickets } from "../test/dependencyMap.js";
 import { makeTicket } from "../test/fakes.js";
 import { ExplodedTree } from "./ExplodedTree.js";
 import type { ExplodedTreeProps } from "./ExplodedTree.js";
 
-// ADR 0070: a árvore explodida mostra os mesmos cards do mapa, uma seta por ticket, e todas as dependências do selecionado.
-const org = { orgId: "org", name: "Org", slug: "org" };
+// ADR 0070 com a revisão do dono: cards pequenos com código e título, tons de fila, cabeçalhos de passo, manchete do que pegar agora.
 const tickets = dependencyTickets();
-const nodes = new Map(buildMapItems(org, [dependencyProject], { loja: tickets }).map((node) => [node.id, node] as const)) as ReadonlyMap<string, MapNode>;
 const id = dependencyTicketId;
 
 function setup(extra: Partial<ExplodedTreeProps> = {}) {
   const props: ExplodedTreeProps = {
     tickets,
-    nodes,
     focus: { projectId: "loja", ticketId: id("Checkout") },
     selectedId: null,
-    filled: false,
     onSelect: vi.fn(),
     onClearSelection: vi.fn(),
-    onToggleColors: vi.fn(),
     focusPath: [
       { id: "loja", label: "Loja" },
       { id: id("Checkout"), label: "Checkout" },
@@ -35,17 +28,50 @@ function setup(extra: Partial<ExplodedTreeProps> = {}) {
   const view = render(<ExplodedTree {...props} />);
   return { ...view, props };
 }
-const card = (title: RegExp) => screen.getByRole("button", { name: title });
+const card = (name: RegExp) => screen.getByRole("button", { name });
 
 describe("ExplodedTree", () => {
-  it("mostra os tickets sem filhos do foco com o texto do mapa e o pai direto em texto pequeno", () => {
+  it("o card tem o código em negrito, o título numa linha e a marca do pai direto", () => {
     setup();
-    const casca = card(/Casca do checkout/);
-    expect(casca).toHaveTextContent("Livre");
-    expect(casca).toHaveTextContent("Abre os irmãos");
-    expect(within(casca).getByText("Checkout")).toHaveClass("exploded-card-parent");
-    expect(card(/Pagamento/)).toHaveTextContent("Esperando");
-    expect(screen.queryByRole("button", { name: /LOJA-1 · Checkout/ })).toBeNull();
+    const casca = card(/LOJA-2 · Casca do checkout/);
+    expect(casca.querySelector(".exploded-card-code b")).toHaveTextContent("LOJA-2");
+    expect(casca.querySelector(".exploded-card-title")).toHaveTextContent("Casca do checkout");
+    expect(casca.querySelector(".exploded-card-parent")).toHaveTextContent("LOJA-1");
+    expect(casca).toHaveAccessibleName(/Dentro de Checkout/);
+  });
+
+  it("o código entre colchetes no começo do título vira a linha 1", () => {
+    const own = [makeTicket("a", "loja", 1, "[ABC-01] Fazer a base", { key: "LOJA-1" })];
+    setup({ tickets: own, focus: { projectId: "loja", ticketId: null }, focusPath: [{ id: "loja", label: "Loja" }] });
+    const only = card(/LOJA-1/);
+    expect(only.querySelector(".exploded-card-code b")).toHaveTextContent("ABC-01");
+    expect(only.querySelector(".exploded-card-title")).toHaveTextContent("Fazer a base");
+  });
+
+  it("os tons: livre e próximo fortes, esperando calmo", () => {
+    setup();
+    expect(card(/Casca do checkout/)).toHaveAttribute("data-tone", "free");
+    expect(card(/Carrinho/)).toHaveAttribute("data-tone", "next");
+    expect(card(/Pagamento/)).toHaveAttribute("data-tone", "waiting");
+  });
+
+  it("a manchete diz o que pegar agora e o que abre em seguida, pelas chaves", () => {
+    setup();
+    expect(screen.getByText("Pegue agora: LOJA-2, LOJA-7 · Abre em seguida: LOJA-3, LOJA-4")).toBeInTheDocument();
+  });
+
+  it("um ticket com filhos que entra numa dependência é um nó, com a conta dos de dentro", () => {
+    const own = [
+      makeTicket("historia", "loja", 1, "História", { key: "LOJA-1", progress: { done: 0, total: 2, excluded: 0 } }),
+      makeTicket("s1", "loja", 2, "Sub 1", { key: "LOJA-2", parentId: "historia" }),
+      makeTicket("s2", "loja", 3, "Sub 2", { key: "LOJA-3", parentId: "historia" }),
+      makeTicket("depois", "loja", 4, "Depois", { key: "LOJA-4", dependencies: [{ id: "historia", need: "start" }] }),
+    ];
+    setup({ tickets: own, focus: { projectId: "loja", ticketId: null }, focusPath: [{ id: "loja", label: "Loja" }] });
+    const story = card(/LOJA-1 · História/);
+    expect(story.querySelector(".exploded-card-inside")).toHaveTextContent("+2");
+    expect(story).toHaveAccessibleName(/2 itens dentro/);
+    expect(screen.queryByRole("button", { name: /Sub 1/ })).toBeNull();
   });
 
   it("a dependência que aponta para fora do foco vira um card apagado", () => {
@@ -55,24 +81,10 @@ describe("ExplodedTree", () => {
     expect(outside).toHaveAccessibleName(/Fora do foco/);
   });
 
-  it("um ticket com filhos dentro do foco também vira card apagado, mas não está fora do foco", () => {
-    const own = [
-      makeTicket("pai", "loja", 1, "Fundação", { key: "LOJA-1", progress: { done: 0, total: 1, excluded: 0 } }),
-      makeTicket("f", "loja", 2, "Base", { key: "LOJA-2", parentId: "pai" }),
-      makeTicket("x", "loja", 3, "Depois da fundação", { key: "LOJA-3", dependencies: [{ id: "pai", need: "start" }] }),
-    ];
-    const ownNodes = new Map(buildMapItems(org, [dependencyProject], { loja: own }).map((node) => [node.id, node] as const));
-    setup({ tickets: own, nodes: ownNodes, focus: { projectId: "loja", ticketId: null } });
-    const parent = card(/Fundação/);
-    expect(parent).toHaveAttribute("data-outside", "true");
-    expect(parent).toHaveAccessibleName(/Ticket com filhos/);
-    expect(parent).not.toHaveAccessibleName(/Fora do foco/);
-  });
-
-  it("uma seta por ticket que pendura em outro", () => {
+  it("uma seta por ticket que pendura em outro, e os cabeçalhos de passo", () => {
     const { container } = setup();
-    // Carrinho e Cupom penduram na Casca; Pagamento no Carrinho; Resumo no Pagamento.
     expect(container.querySelectorAll(".exploded-hang")).toHaveLength(4);
+    expect(within(container.querySelector<HTMLElement>(".exploded-steps")!).getByText("Passo 0")).toBeInTheDocument();
   });
 
   it("o clique abre o ticket, como no mapa", async () => {
@@ -84,7 +96,6 @@ describe("ExplodedTree", () => {
   it("selecionar mostra todas as dependências dele, com as cores e o tracejado da ADR 0069", () => {
     const { container } = setup({ selectedId: id("Pagamento") });
     const lines = [...container.querySelectorAll<SVGLineElement>(".map-arrows line")];
-    // Espera o Carrinho; libera o Resumo e a Acessibilidade (para entregar). Endereços está fora do foco: sem card, sem seta.
     expect(lines.map((line) => `${line.dataset.kind}:${line.dataset.need}`).sort()).toEqual(["unlocks:deliver", "unlocks:start", "waits:start"]);
     expect(card(/Pagamento/)).toHaveAttribute("aria-pressed", "true");
   });
@@ -99,12 +110,12 @@ describe("ExplodedTree", () => {
     expect(screen.getByText("Nada para mostrar: este foco não tem tickets sem filhos.")).toBeInTheDocument();
   });
 
-  it("tem os controles de zoom e de cores do mapa", async () => {
-    const { props } = setup();
-    expect(screen.getByRole("button", { name: "Reduzir zoom" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ampliar zoom" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Cores" }));
-    expect(props.onToggleColors).toHaveBeenCalled();
+  it("os controles: aproximar, afastar e ver a árvore inteira", () => {
+    setup();
+    const toolbar = within(screen.getByRole("toolbar", { name: "Câmera da árvore" }));
+    expect(toolbar.getByRole("button", { name: "Reduzir zoom" })).toBeInTheDocument();
+    expect(toolbar.getByRole("button", { name: "Ver a árvore inteira" })).toBeInTheDocument();
+    expect(toolbar.getByRole("button", { name: "Ampliar zoom" })).toBeInTheDocument();
   });
 
   it("mostra o caminho do foco; cada parte leva o foco para lá", async () => {

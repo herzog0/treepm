@@ -1,12 +1,14 @@
 import type { SpatialBounds, SpatialLayout, TreeNode } from "@treepm/engine";
 
 /** Medidas da grade no mundo (ADR 0070): os cards ficam parados aqui; só a câmera move e escala. */
-export const CARD_WIDTH = 240;
-export const CARD_HEIGHT = 96;
-export const COLUMN_WIDTH = 320;
-export const ROW_HEIGHT = 124;
-/** Abaixo desta escala o card vira um retângulo com a cor (o texto já não se lê). */
-export const BLOCK_SCALE = 0.4;
+export const CARD_WIDTH = 132;
+export const CARD_HEIGHT = 38;
+export const COLUMN_WIDTH = 168;
+export const ROW_HEIGHT = 46;
+/** Abaixo desta escala o card mostra só o código, grande (o texto de 11 a 12 px ficaria abaixo de 7 px). */
+export const CODE_SCALE = 0.6;
+/** Abaixo desta escala nem o código grande se lê: o card vira um retângulo com a cor. */
+export const BLOCK_SCALE = 0.28;
 
 export interface Box {
   readonly x: number;
@@ -35,8 +37,11 @@ export function onScreen(box: Box, camera: Camera, size: Size): boolean {
   return left + box.width * camera.scale >= -margin && left <= size.width + margin && top + box.height * camera.scale >= -margin && top <= size.height + margin;
 }
 
-/** Card com texto ou só a cor, pela escala (ADR 0070, seção 7: "com o zoom longe, o card vira um retângulo com a cor"). */
-export const cardLevel = (scale: number): "card" | "block" => (scale < BLOCK_SCALE ? "block" : "card");
+/**
+ * O que o card mostra, pela escala: de perto, o código e o título; no meio (o zoom que cabe a árvore inteira numa tela), só o código,
+ * grande, para ainda se ler; bem longe, o retângulo com a cor (ADR 0070, seção 7).
+ */
+export const cardLevel = (scale: number): "card" | "code" | "block" => (scale < BLOCK_SCALE ? "block" : scale < CODE_SCALE ? "code" : "card");
 
 const toStage = (x: number, y: number, camera: Camera) => [x * camera.scale + camera.x, y * camera.scale + camera.y] as const;
 

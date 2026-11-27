@@ -67,12 +67,32 @@ describe("explodedTree", () => {
     });
   });
 
-  it("um pai dentro do foco não entra; quem depende dele mostra o pai como card apagado", () => {
-    const tickets = [t("projeto-casca"), t("pai"), t("p1", "pai"), t("solto")];
-    const tree = layout(tickets, [start("solto", "pai"), start("p1", "projeto-casca")]);
-    expect(tree["pai"]).toEqual([1, 1, null, true]);
-    expect(tree["solto"]).toEqual([2, 1, "pai", false]);
-    expect(tree["p1"]).toEqual([1, 0, "projeto-casca", false]);
+  it("um pai que entra numa dependência é um nó: os de dentro ficam dobrados nele, e as dependências deles sobem para ele", () => {
+    const tickets = [t("casca"), t("historia"), t("sub1", "historia"), t("sub2", "historia"), t("neto", "sub2"), t("solto")];
+    const tree = explodedTree(tickets, [start("solto", "historia"), start("sub1", "casca"), start("neto", "sub1")], null);
+    const of = Object.fromEntries(tree.nodes.map((node) => [node.id, node]));
+    expect(Object.keys(of).sort()).toEqual(["casca", "historia", "solto"]);
+    expect(of["historia"]).toMatchObject({ column: 1, hangOn: "casca", outside: false, inside: 3 });
+    expect(of["solto"]).toMatchObject({ column: 2, hangOn: "historia", inside: 0 });
+  });
+
+  it("um pai sem dependência é só uma caixa: não é desenhado, e os de dentro dele entram", () => {
+    const tickets = [t("fase"), t("a", "fase"), t("grupo", "fase"), t("b", "grupo")];
+    const tree = layout(tickets, [start("b", "a")]);
+    expect(tree).toEqual({ a: [0, 0, null, false], b: [1, 0, "a", false] });
+  });
+
+  it("o alvo de fora do foco sobe para o nó dele no projeto", () => {
+    const tickets = [t("foco"), t("x", "foco"), t("outra"), t("o1", "outra"), t("o2", "outra")];
+    const tree = layout(tickets, [start("x", "o1"), start("o2", "o1")], "foco");
+    expect(tree).toEqual({ o1: [0, 0, null, true], x: [1, 0, "o1", false] });
+  });
+
+  it("o lugar na fila de cada nó sai do grafo de nós: livre, próximo, esperando; finalizado não tem", () => {
+    const tickets = [t("pronto", null, { status: "done" }), t("a"), t("b"), t("c"), t("historia"), t("sub", "historia")];
+    const edges = [start("a", "pronto"), start("b", "a"), start("c", "b"), start("historia", "pronto")];
+    const places = Object.fromEntries(explodedTree(tickets, edges, null).nodes.map((node) => [node.id, node.place]));
+    expect(places).toEqual({ pronto: null, a: "free", b: "next", c: "waiting", historia: "free" });
   });
 
   it("diz o tamanho da grade: colunas e linhas", () => {

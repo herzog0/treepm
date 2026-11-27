@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LAYOUT_STORAGE_KEY } from "../exploded/viewChoice.js";
@@ -47,7 +47,7 @@ describe("a troca entre o mapa e a árvore explodida", () => {
     expect(onOpenTicketChange).toHaveBeenCalledWith(dependencyTicketId("Pagamento"));
   });
 
-  it("os atalhos do mapa valem na árvore: Esc tira a seleção, C troca as cores", async () => {
+  it("o atalho do mapa vale na árvore: Esc tira a seleção", async () => {
     window.history.replaceState(null, "", "/?layout=tree");
     setup();
     const tree = await screen.findByRole("region", { name: "Árvore explodida do projeto" });
@@ -56,16 +56,15 @@ describe("a troca entre o mapa e a árvore explodida", () => {
     expect(within(tree).getByRole("button", { name: /Carrinho/ })).toHaveAttribute("aria-pressed", "true");
     await userEvent.keyboard("{Escape}");
     expect(within(tree).getByRole("button", { name: /Carrinho/ })).toHaveAttribute("aria-pressed", "false");
-    expect(document.querySelector(".exploded")).toHaveAttribute("data-filled", "false");
-    await userEvent.keyboard("c");
-    expect(document.querySelector(".exploded")).toHaveAttribute("data-filled", "true");
   });
 
   it("ver só o pai do ticket selecionado leva o foco para ele; o caminho volta ao projeto", async () => {
     window.history.replaceState(null, "", "/?layout=tree");
     setup();
     const tree = await screen.findByRole("region", { name: "Árvore explodida do projeto" });
-    expect(within(tree).getByRole("button", { name: /Etiquetas/ })).toBeInTheDocument();
+    // A primeira vista é de perto; o ⌂ mostra a árvore inteira.
+    await userEvent.click(screen.getByRole("button", { name: "Ver a árvore inteira" }));
+    await waitFor(() => expect(within(tree).getByRole("button", { name: /Etiquetas/ })).toBeInTheDocument());
     await userEvent.click(within(tree).getByRole("button", { name: /Carrinho/ }));
     await userEvent.click(screen.getByRole("button", { name: "Ver só Checkout" }));
     const narrowed = await screen.findByRole("region", { name: "Árvore explodida do projeto" });
@@ -74,6 +73,7 @@ describe("a troca entre o mapa e a árvore explodida", () => {
     const path = within(screen.getByRole("navigation", { name: "Foco da árvore" }));
     expect(path.getByRole("button", { name: "Checkout" })).toHaveAttribute("aria-current", "location");
     await userEvent.click(path.getByRole("button", { name: "Loja" }));
-    expect(within(await screen.findByRole("region", { name: "Árvore explodida do projeto" })).getByRole("button", { name: /Etiquetas/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Ver a árvore inteira" }));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Árvore explodida do projeto" })).getByRole("button", { name: /Etiquetas/ })).toBeInTheDocument());
   });
 });

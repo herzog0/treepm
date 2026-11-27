@@ -11,13 +11,16 @@ describe("geometry", () => {
     const camera = { x: -1000, y: 0, scale: 0.5 };
     const size = { width: 800, height: 600 };
     expect(onScreen(cardBox({ column: 0, row: 0 }), camera, size)).toBe(false);
-    expect(onScreen(cardBox({ column: 8, row: 0 }), camera, size)).toBe(true);
-    expect(onScreen(cardBox({ column: 8, row: 40 }), camera, size)).toBe(false);
+    expect(onScreen(cardBox({ column: 14, row: 0 }), camera, size)).toBe(true);
+    expect(onScreen(cardBox({ column: 14, row: 40 }), camera, size)).toBe(false);
   });
 
-  it("com o zoom longe o card vira um retângulo com a cor; de perto, o card com texto", () => {
-    expect(cardLevel(0.2)).toBe("block");
+  it("de perto, o card com código e título; no meio, só o código, grande; com o zoom bem longe, o retângulo com a cor", () => {
+    expect(cardLevel(1)).toBe("card");
     expect(cardLevel(0.6)).toBe("card");
+    expect(cardLevel(0.4)).toBe("code");
+    expect(cardLevel(0.3)).toBe("code");
+    expect(cardLevel(0.2)).toBe("block");
   });
 
   it("a seta sai da borda direita de quem vem antes e chega na borda esquerda de quem vem depois, no palco", () => {

@@ -626,13 +626,10 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
             <ExplodedTree
               key={`${treeFocus.projectId}:${treeFocus.ticketId ?? ""}`}
               tickets={ticketsByProject[treeFocus.projectId] ?? []}
-              nodes={index.itemById}
               focus={treeFocus}
               selectedId={selectedId}
-              filled={canvas.filled}
               onSelect={selectNode}
               onClearSelection={clearSelection}
-              onToggleColors={canvas.toggleFilled}
               focusPath={treePath}
               narrowTo={narrowTo}
               onFocus={focusNode}
