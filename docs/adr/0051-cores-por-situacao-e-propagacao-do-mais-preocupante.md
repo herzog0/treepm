@@ -1,5 +1,7 @@
 # ADR 0051 — Cores por situação: contrastantes, e o pai mostra o item mais preocupante
 
+> **Alterada pela [ADR 0068](0068-pai-e-pedaco-ordem-e-dependencia-bloqueio-e-impedimento.md) em 2026-11-27:** "bloqueado" deixa de ser derivado da dependência aberta e passa a ser um impedimento marcado pela pessoa.
+
 - **Data:** 2026-11-23
 - **Estado:** aprovada por Teodoro em 2026-11-23 ("Pode implementar."), depois de ver a proposta [Cores por situação](https://claude.ai/artifact/Jb7zbXfDy21SZkXn1QunW4) (privada). Substitui, na [ADR 0025](0025-base-visual-constelacao-e-tema-do-mapa.md), a mistura de cores no ticket com filhos e os tons das situações. Implementação em `TREEPM-298`.
 
