@@ -50,7 +50,7 @@ describe("Sobrescrever com o Linear › caixa e confirmação", () => {
     await userEvent.click(screen.getByRole("button", { name: "Sincronizar agora" }));
     const dialog = await screen.findByRole("dialog", { name: "Sobrescrever com o Linear?" });
     const text = dialog.textContent ?? "";
-    for (const part of ["título, descrição, situação, prioridade, responsável, prazo, etiquetas", "pai das issues que têm pai no Linear", "comentários, conversas, tickets criados aqui", "issues sem pai e sem projeto no Linear ficam onde estão", "“Em revisão” volta para “Em andamento”", "O que foi escrito aqui nesses campos é substituído.", "A descrição escrita aqui não pode ser recuperada depois.", "Os outros valores anteriores ficam no histórico do ticket."]) expect(text).toContain(part);
+    for (const part of ["título, descrição, situação, prioridade, responsável, prazo, etiquetas", "pai das issues que têm pai no Linear", "A situação de ticket com filhos é calculada pelos filhos e não é sobrescrita.", "comentários, conversas, tickets criados aqui", "issues sem pai e sem projeto no Linear ficam onde estão", "“Em revisão” volta para “Em andamento”", "O que foi escrito aqui nesses campos é substituído.", "A descrição escrita aqui não pode ser recuperada depois.", "Os outros valores anteriores ficam no histórico do ticket."]) expect(text).toContain(part);
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect(client.openLinearRun).not.toHaveBeenCalled();
   });

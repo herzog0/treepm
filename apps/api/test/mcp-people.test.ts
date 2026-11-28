@@ -152,6 +152,8 @@ describe("garantia central: sem o alcance efetivo, nenhuma resposta tem nome, id
     move_ticket: [{ key: "PRIV-3", parent: "PRIV-4" }],
     add_dependency: [{ key: "PRIV-3", dependsOn: "PRIV-2" }],
     remove_dependency: [{ key: "PRIV-3", dependsOn: "PRIV-2" }],
+    mark_impediment: [{ key: "PRIV-3", reason: "Falta a chave" }],
+    clear_impediment: [{ key: "PRIV-3" }],
     // Ferramentas do alcance: pedidas sem ele, a resposta é "não existe" e nada mais.
     list_people: [{}],
     set_ticket_assignees: [{ key: "PRIV-3", personIds: [] }],
@@ -555,6 +557,8 @@ const CALLS_FOR_SWEEP: Record<string, Record<string, unknown>[]> = {
   move_ticket: [{ key: "PRIV-3", parent: "PRIV-4" }],
   add_dependency: [{ key: "PRIV-3", dependsOn: "PRIV-2" }],
   remove_dependency: [{ key: "PRIV-3", dependsOn: "PRIV-2" }],
+  mark_impediment: [{ key: "PRIV-3", reason: "Falta a chave" }],
+  clear_impediment: [{ key: "PRIV-3" }],
   set_ticket_assignees: [{ key: "PRIV-3", personIds: [] }],
   list_comments: [{ key: "PRIV-3" }],
   get_ticket_history: [{ key: "PRIV-3" }],

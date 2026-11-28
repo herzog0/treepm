@@ -10,6 +10,10 @@
   background: linear-gradient(to top, var(--mark) calc(var(--fill, 0) * 100%), transparent calc(var(--fill, 0) * 100%));
 }
 .status-mark[data-state="in_progress"] { --mark: var(--tp-doing); }
+/* Lugar na fila de um "a fazer" sem filhos (ADR 0069): a mesma cor do card no mapa. */
+.status-mark[data-place="free"] { --mark: var(--tp-free); }
+.status-mark[data-place="next"] { --mark: var(--tp-next); }
+.status-mark[data-place="waiting"] { --mark: var(--tp-waiting); }
 .status-mark[data-state="in_review"] { --mark: var(--tp-review); }
 .status-mark[data-state="done"], .status-mark[data-state="progress"] { --mark: var(--tp-done); }
 .status-mark[data-state="cancelled"] { --mark: var(--tp-cancelled); border-style: dashed; background: none; }

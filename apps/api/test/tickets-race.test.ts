@@ -76,16 +76,15 @@ describe("corrida na regra do pai: sem 500 e sem vazar o banco", () => {
 });
 
 describe("concluir × criar filho aberto, ao mesmo tempo", () => {
-  it("o filho aberto é criado (e ainda não confirmado) quando o pai é concluído: a conclusão espera e é recusada", async () => {
+  it("o filho é criado (e ainda não confirmado) quando o pai é concluído: a conclusão espera e é recusada, porque o pai passou a ter a situação calculada (ADR 0068)", async () => {
     const parent = await make({});
     const res = await race([childInsert(parent, 902)], () => h.call("PATCH", `/api/tickets/${parent}`, as("admin"), { status: "done" }));
     expect(res.status).toBe(409);
-    expect(res.body.error?.code).toBe("ticket_has_open_children");
-    expect(res.body.error?.details).toEqual({ openChildCount: 1 });
+    expect(res.body.error?.code).toBe("status_is_derived");
     expect((await h.call("GET", `/api/tickets/${parent}`, as("admin"))).body.status).toBe("todo");
   });
 
-  it("o pai é concluído primeiro (transação aberta): o filho aberto criado depois entra e o pai é reaberto (ADR 0034, J1b)", async () => {
+  it("o pai é concluído primeiro (transação aberta): o filho aberto criado depois entra e o pai segue o filho (ADR 0068)", async () => {
     const parent = await make({});
     const client = await h.pool.connect();
     try {

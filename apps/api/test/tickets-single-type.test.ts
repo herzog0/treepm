@@ -29,23 +29,23 @@ describe("um só tipo: respostas", () => {
     for (const row of list.body) expect(row).not.toHaveProperty("kind");
   });
 
-  it("ticket com filhos mostra a situação guardada e progress objeto; sem filhos, progress null", async () => {
+  it("ticket com filhos mostra a situação calculada (ADR 0068) e progress objeto; sem filhos, progress null", async () => {
     const parent = await made({ status: "in_review" });
     await made({ parentId: parent.id, status: "done" });
     await made({ parentId: parent.id, status: "cancelled" });
     await made({ parentId: parent.id });
-    expect(await get(parent.id)).toMatchObject({ status: "in_review", progress: { done: 1, total: 2, excluded: 1 } });
+    expect(await get(parent.id)).toMatchObject({ status: "in_progress", progress: { done: 1, total: 2, excluded: 1 } });
     const list = await h.call("GET", `/api/projects/${P()}/tickets`, as("admin"));
-    expect(list.body[0]).toMatchObject({ status: "in_review", progress: { done: 1, total: 2, excluded: 1 } });
+    expect(list.body[0]).toMatchObject({ status: "in_progress", progress: { done: 1, total: 2, excluded: 1 } });
     expect(list.body[1]).toMatchObject({ progress: null });
   });
 
-  it("ticket com filhos e situação guardada mostra a situação guardada", async () => {
+  it("ticket que ganha o primeiro filho passa a mostrar a situação calculada", async () => {
     const before = await made({});
     await h.pool.query("update tickets set status = 'in_progress' where id = $1", [before.id]);
     await made({ parentId: before.id });
     const detail = await get(before.id);
-    expect(detail).toMatchObject({ status: "in_progress", progress: { done: 0, total: 1, excluded: 0 } });
+    expect(detail).toMatchObject({ status: "todo", progress: { done: 0, total: 1, excluded: 0 } });
     expect(detail).not.toHaveProperty("kind");
   });
 
@@ -56,8 +56,9 @@ describe("um só tipo: respostas", () => {
     await made({ parentId: mid.id, status: "cancelled" });
     const list = await h.call("GET", `/api/projects/${P()}/tickets`, as("admin"));
     const byId = Object.fromEntries(list.body.map((t: Body) => [t.id, t]));
-    expect(byId[root.id as string]).toMatchObject({ progress: { done: 1, total: 2, excluded: 1 } });
-    expect(byId[mid.id as string]).toMatchObject({ progress: { done: 1, total: 1, excluded: 1 } });
+    // mid conclui pela conta (ADR 0068): um filho concluído e um cancelado; no topo ele conta como concluído.
+    expect(byId[root.id as string]).toMatchObject({ status: "done", progress: { done: 2, total: 2, excluded: 1 } });
+    expect(byId[mid.id as string]).toMatchObject({ status: "done", progress: { done: 1, total: 1, excluded: 1 } });
   });
 });
 
@@ -116,33 +117,34 @@ describe("pai: qualquer ticket do projeto fora da própria subárvore", () => {
     const res = await create({ title: "filho", parentId: t.id });
     expect(res.status).toBe(201);
     const withStatus = await patch(t.id, { status: "done" });
-    // t tem um filho aberto: o erro agora é outro, e não é group_has_no_status.
-    expect(withStatus.body.error.code).toBe("ticket_has_open_children");
+    // t tem um filho: a situação é calculada (ADR 0068), e o erro não é group_has_no_status.
+    expect(withStatus.body.error.code).toBe("status_is_derived");
   });
 });
 
-describe("concluir com filho direto aberto", () => {
-  it("recusa com um filho aberto: 409 ticket_has_open_children e a contagem no corpo; nada muda", async () => {
+describe("pai: a situação sai dos filhos (ADR 0068)", () => {
+  it("mudar à mão é recusado com um filho aberto: 409 status_is_derived; nada muda", async () => {
     const p = await made({});
     await made({ parentId: p.id });
     const res = await patch(p.id, { status: "done" });
     expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe("ticket_has_open_children");
-    expect(res.body.error.details).toEqual({ openChildCount: 1 });
+    expect(res.body.error.code).toBe("status_is_derived");
     expect((await get(p.id)).status).toBe("todo");
   });
 
-  it("recusa com vários filhos abertos (todo, em andamento, em revisão), contando só os diretos abertos", async () => {
+  it("com vários filhos (a fazer, em andamento, em revisão, concluído, cancelado) o pai fica em andamento e não é concluído à mão", async () => {
     const p = await made({});
     await made({ parentId: p.id, status: "todo" });
     await made({ parentId: p.id, status: "in_progress" });
     const review = await made({ parentId: p.id, status: "in_review" });
     await made({ parentId: p.id, status: "done" });
     await made({ parentId: p.id, status: "cancelled" });
-    await made({ parentId: review.id }); // neto aberto não entra na contagem do avô
+    await made({ parentId: review.id }); // o neto a fazer leva o filho para a fazer
+    expect((await get(review.id)).status).toBe("todo");
+    expect((await get(p.id)).status).toBe("in_progress");
     const res = await patch(p.id, { status: "done" });
     expect(res.status).toBe(409);
-    expect(res.body.error.details).toEqual({ openChildCount: 3 });
+    expect(res.body.error.code).toBe("status_is_derived");
   });
 
   it("recusa também no mesmo PATCH que muda o título", async () => {
@@ -152,71 +154,75 @@ describe("concluir com filho direto aberto", () => {
     expect((await get(p.id)).title).toBe("Nó");
   });
 
-  it("aceita com todos os filhos diretos finalizados, ou sem filhos", async () => {
+  it("filhos todos finalizados concluem o pai; sem filhos, a situação é marcada à mão", async () => {
     const p = await made({});
     await made({ parentId: p.id, status: "done" });
     await made({ parentId: p.id, status: "cancelled" });
-    expect((await patch(p.id, { status: "done" })).body.status).toBe("done");
+    expect((await get(p.id)).status).toBe("done");
     const leaf = await made({});
     expect((await patch(leaf.id, { status: "done" })).body.status).toBe("done");
   });
 
-  it("aceita com filho finalizado que tem neto aberto (só os filhos diretos contam)", async () => {
+  it("a conta vale em todos os níveis: um neto aberto deixa o filho e o avô abertos", async () => {
     const p = await made({});
     const kid = await made({ parentId: p.id, status: "done" });
-    await made({ parentId: kid.id, status: "todo" }); // reabre o kid (J1b); o estado "done com neto aberto" vem do banco
-    await h.pool.query("update tickets set status = 'done' where id = $1", [kid.id]);
-    expect((await patch(p.id, { status: "done" })).status).toBe(200);
+    expect((await get(p.id)).status).toBe("done");
+    await made({ parentId: kid.id, status: "todo" });
+    expect((await get(kid.id)).status).toBe("todo");
+    expect((await get(p.id)).status).toBe("todo");
   });
 
-  it("cancelar um pai com filhos abertos é aceito e não mexe nos filhos", async () => {
+  it("cancelar um pai à mão é recusado e não mexe nos filhos (cancela-se pelos filhos)", async () => {
     const p = await made({});
     const kid = await made({ parentId: p.id });
     const res = await patch(p.id, { status: "cancelled" });
-    expect(res.status).toBe(200);
-    expect(res.body.status).toBe("cancelled");
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("status_is_derived");
     expect((await get(kid.id)).status).toBe("todo");
+    await patch(kid.id, { status: "cancelled" });
+    expect((await get(p.id)).status).toBe("cancelled");
   });
 
-  it("nenhuma situação muda sozinha: finalizar o último filho não mexe no pai", async () => {
+  it("finalizar o último filho conclui o pai", async () => {
     const p = await made({ status: "in_progress" });
     const kid = await made({ parentId: p.id });
+    expect((await get(p.id)).status).toBe("todo");
     await patch(kid.id, { status: "done" });
-    expect((await get(p.id)).status).toBe("in_progress");
+    expect((await get(p.id)).status).toBe("done");
   });
 
-  it("criar filho aberto em pai concluído é aceito e reabre o pai (J1b); mover para dentro também", async () => {
+  it("criar filho aberto em pai concluído o deixa aberto; mover para dentro também", async () => {
     const p = await made({});
     await patch(p.id, { status: "done" });
     const kid = await made({ parentId: p.id });
     expect(kid.status).toBe("todo");
     expect((await get(p.id)).status).toBe("todo");
     await patch(kid.id, { status: "done" });
-    await patch(p.id, { status: "done" });
+    expect((await get(p.id)).status).toBe("done");
     const other = await made({});
     expect((await patch(other.id, { parentId: p.id })).status).toBe(200);
-    expect((await get(p.id)).status).toBe("todo");
+    expect((await get(p.id)).status).toBe("in_progress");
   });
 
-  it("reabrir um filho de pai concluído é aceito e reabre o pai (J1b)", async () => {
+  it("reabrir um filho de pai concluído reabre o pai", async () => {
     const p = await made({});
     const kid = await made({ parentId: p.id, status: "done" });
-    await patch(p.id, { status: "done" });
+    expect((await get(p.id)).status).toBe("done");
     expect((await patch(kid.id, { status: "todo" })).status).toBe(200);
     expect((await get(p.id)).status).toBe("todo");
   });
 
-  it("sequencial nos dois sentidos: filho criado antes impede concluir; concluir antes deixa criar", async () => {
+  it("sequencial nos dois sentidos: com filho, o pai não é concluído à mão; sem filho, conclui e depois segue o filho novo", async () => {
     const a = await made({});
     await made({ parentId: a.id });
     expect((await patch(a.id, { status: "done" })).status).toBe(409);
     const b = await made({});
     expect((await patch(b.id, { status: "done" })).status).toBe(200);
     expect((await create({ title: "depois", parentId: b.id })).status).toBe(201);
-    expect((await get(b.id)).status).toBe("todo"); // reaberto (J1b)
+    expect((await get(b.id)).status).toBe("todo");
   });
 
-  it("concluir de novo um pai que foi reaberto por um filho aberto é recusado", async () => {
+  it("concluir à mão um pai que ganhou um filho aberto é recusado", async () => {
     const p = await made({});
     await patch(p.id, { status: "done" });
     await made({ parentId: p.id });
@@ -248,9 +254,9 @@ describe("remoção", () => {
 });
 
 describe("importação", () => {
-  it("item com filhos é só um ticket com filhos: situação própria e progresso", async () => {
+  it("item com filhos é só um ticket com filhos: situação calculada (a que veio é ignorada) e progresso", async () => {
     const res = await importTo({
-      items: [{ title: "Fase", status: "in_progress", children: [{ title: "a", status: "done" }, { title: "b" }] }, { title: "solto" }],
+      items: [{ title: "Fase", status: "cancelled", children: [{ title: "a", status: "done" }, { title: "b" }] }, { title: "solto" }],
     });
     expect(res.status).toBe(201);
     const byTitle = Object.fromEntries(res.body.map((t: Body) => [t.title, t]));

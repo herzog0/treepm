@@ -1,0 +1,70 @@
+/*
+ * Árvore explodida (ADR 0070): uma camada do tamanho do palco do mapa, por cima dele (abaixo da barra de pedidos e da legenda). Os cards
+ * ficam parados no mundo (`.exploded-world`, que só move e escala); as setas são desenhadas no palco, em coordenadas de tela.
+ */
+.exploded { position: absolute; z-index: 8; inset: 0; background: var(--tp-bg); }
+/* O palco começa abaixo da faixa de cima (caminho do foco, barra de pedidos, controles), para nada da árvore ficar embaixo deles. */
+/* O palco começa abaixo da faixa de cima (caminho do foco, barra de pedidos, controles) e da manchete. */
+.exploded-stage { position: absolute; inset: 104px 0 0 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; border-top: 1px solid var(--tp-divider); background: var(--tp-bg); }
+.exploded-stage.is-dragging, .exploded-stage.is-dragging .exploded-card { cursor: grabbing; }
+/* A manchete: o que pegar agora e o que abre em seguida, numa linha. */
+.exploded-headline { position: absolute; z-index: 2; top: 66px; right: 14px; left: 14px; margin: 0; overflow: hidden; color: var(--tp-text); font: 500 14px/32px var(--tp-font); text-overflow: ellipsis; white-space: nowrap; }
+/* Os cabeçalhos "Passo N": presos no alto do palco, seguem a câmera de lado. */
+.exploded-steps { position: absolute; z-index: 3; top: 0; right: 0; left: 0; height: 24px; overflow: hidden; border-bottom: 1px solid var(--tp-divider); background: color-mix(in srgb, var(--tp-bg) 92%, transparent); pointer-events: none; }
+.exploded-steps span { position: absolute; top: 0; padding: 0 8px; overflow: hidden; border-left: 1px dashed var(--tp-divider); color: var(--tp-text-3); font: 600 11px/24px var(--tp-font); white-space: nowrap; }
+.exploded-hangs { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.exploded-hang { fill: none; stroke: var(--tp-tree-line); stroke-width: 1.25; }
+.exploded-hangs marker path { fill: var(--tp-tree-line); }
+.exploded-world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+/* O card desta visão: pequeno e denso, o código em negrito e o título numa linha. O tom vem de `data-tone`. */
+.exploded-card {
+  --tone: var(--tp-tree-waiting);
+  --ink: var(--tp-text);
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 7px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--tp-border) 80%, transparent);
+  border-radius: 6px;
+  background: var(--tone);
+  color: var(--ink);
+  font: 400 11px/1.25 var(--tp-font);
+  text-align: left;
+  cursor: pointer;
+}
+.exploded-card[data-tone="free"] { --tone: var(--tp-free); --ink: var(--tp-on-accent); border-color: transparent; }
+.exploded-card[data-tone="next"] { --tone: var(--tp-next); --ink: var(--tp-on-accent); border-color: transparent; }
+.exploded-card[data-tone="doing"] { --tone: var(--tp-tree-doing); }
+.exploded-card[data-tone="review"] { --tone: var(--tp-tree-review); }
+.exploded-card[data-tone="done"] { --tone: var(--tp-tree-done); --ink: var(--tp-text-2); }
+.exploded-card[data-tone="cancelled"] { --tone: var(--tp-card); --ink: var(--tp-text-3); border-style: dashed; }
+.exploded-card[data-tone="blocked"] { --tone: var(--tp-tree-blocked); box-shadow: inset 3px 0 0 var(--tp-blocked); }
+.exploded-card-code { display: flex; min-width: 0; align-items: center; gap: 5px; white-space: nowrap; }
+.exploded-card-code b { flex: none; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+.exploded-card-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--tp-doing); }
+.exploded-card[data-status="in_review"] .exploded-card-dot { background: var(--tp-review); }
+.exploded-card[data-tone="free"] .exploded-card-dot, .exploded-card[data-tone="next"] .exploded-card-dot { background: currentColor; }
+.exploded-card-inside { flex: none; padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, currentColor 14%, transparent); font-size: 9.5px; font-weight: 600; }
+.exploded-card-parent { min-width: 0; margin-left: auto; overflow: hidden; padding-left: 4px; border-left: 1px solid color-mix(in srgb, currentColor 35%, transparent); opacity: 0.7; font-size: 9.5px; text-overflow: ellipsis; }
+.exploded-card-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exploded-card[data-outside="true"] { border-style: dashed; opacity: 0.4; }
+.exploded-card[aria-pressed="true"] { outline: 2px solid var(--tp-accent); outline-offset: 2px; }
+.exploded-card:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 2px; }
+/* No meio: só o código, grande, para a árvore inteira ainda se ler. Com o zoom bem longe: só o retângulo com o tom. */
+.exploded-card[data-level="code"] { align-items: center; padding: 0 6px; }
+.exploded-card-big { display: block; max-width: 100%; overflow: hidden; font-size: 24px; font-weight: 700; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
+.exploded-card[data-level="block"] { padding: 0; border-color: transparent; border-radius: 4px; }
+.exploded-toolbar { z-index: 2; }
+.exploded-help { z-index: 2; }
+.exploded-empty { position: absolute; top: 45%; left: 50%; margin: 0; transform: translateX(-50%); color: var(--tp-text-2); font-size: 14px; }
+/* O caminho do foco e o "Ver só <pai>" (ADR 0070, seção 2), no canto de cima, à esquerda. */
+.exploded-focus { position: absolute; z-index: 2; top: 14px; left: 14px; display: flex; max-width: calc(100% - 28px); flex-wrap: wrap; align-items: center; gap: 8px; }
+.exploded-focus nav { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 3px 6px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-bar); }
+.exploded-focus nav i { color: var(--tp-text-3); font-style: normal; }
+.exploded-focus button { padding: 4px 6px; border: 0; border-radius: var(--tp-radius-control); background: transparent; color: var(--tp-text-2); font: 400 12px/1.2 var(--tp-font); cursor: pointer; }
+.exploded-focus button:hover, .exploded-focus button[aria-current="location"] { background: var(--tp-raised); color: var(--tp-text); }
+.exploded-focus .exploded-narrow { border: 1px solid var(--tp-border); background: var(--tp-bar); color: var(--tp-text); }
+.exploded-focus button:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }

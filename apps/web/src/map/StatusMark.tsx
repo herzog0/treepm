@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { TicketStatus } from "../api/client.js";
+import type { TicketStatus, TicketSummary } from "../api/client.js";
 
 export interface Progress {
   readonly done: number;
@@ -22,7 +22,7 @@ export interface IdeaMark {
 }
 
 export type StatusMarkProps =
-  | { readonly status: TicketStatus; readonly blocked?: boolean }
+  | { readonly status: TicketStatus; readonly blocked?: boolean; /** Lugar na fila (ADR 0069): num "a fazer", dá a cor. */ readonly place?: TicketSummary["place"] }
   | { readonly progress: Progress; readonly blocked?: boolean }
   | { readonly idea: IdeaMark };
 
@@ -40,5 +40,16 @@ export function StatusMark(props: StatusMarkProps) {
   const style = { "--fill": String(fill) } as CSSProperties;
   // Bloqueado (ADR 0051): o marcador fica vermelho e mantém o enchimento da situação gravada.
   const blocked = !("idea" in props) && props.blocked === true;
-  return <span className="status-mark" aria-hidden="true" data-state={state} data-fill={String(fill)} {...(blocked ? { "data-blocked": "true" } : {})} style={style} />;
+  const place = "status" in props && props.status === "todo" ? (props.place ?? null) : null;
+  return (
+    <span
+      className="status-mark"
+      aria-hidden="true"
+      data-state={state}
+      data-fill={String(fill)}
+      {...(place !== null ? { "data-place": place } : {})}
+      {...(blocked ? { "data-blocked": "true" } : {})}
+      style={style}
+    />
+  );
 }

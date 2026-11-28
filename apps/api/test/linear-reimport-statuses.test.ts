@@ -57,7 +57,7 @@ const appliedStatus = (rows: Map<string, Row>, id: string) => (rows.get(id)!["ap
 async function expectQuiet(): Promise<void> {
   const before = await eventCount();
   const snapshots = JSON.stringify((await q("select external_id, source_snapshot, applied_snapshot from ticket_external_refs order by external_id")));
-  for (let i = 0; i < 2; i += 1) expect((await runAll()).counts).toMatchObject({ updated: 0, keptTouched: 0, issuesCreated: 0, reopened: 0 });
+  for (let i = 0; i < 2; i += 1) expect((await runAll()).counts).toMatchObject({ updated: 0, keptTouched: 0, issuesCreated: 0 });
   expect(await eventCount()).toBe(before);
   expect(JSON.stringify(await q("select external_id, source_snapshot, applied_snapshot from ticket_external_refs order by external_id"))).toBe(snapshots);
   // Pode sobrar ticket em desvio (status_pending: uma invariante o impede); a marca da hierarquia, não.
@@ -65,7 +65,7 @@ async function expectQuiet(): Promise<void> {
 }
 
 describe("item 1: a situação é decidida na fase statuses, com a árvore já no lugar", () => {
-  it("o projeto do Linear e as issues dele concluídos juntos: tudo conclui (nada é rebaixado no meio)", async () => {
+  it("o projeto do Linear e as issues dele concluídos juntos: tudo conclui (nada é rebaixado no meio); o projeto conclui pela conta (ADR 0068)", async () => {
     const w = world([
       { id: "x", identifier: "ENG-1", title: "X", state: "started", project: "lp1" },
       { id: "y", identifier: "ENG-2", title: "Y", state: "started", project: "lp1" },
@@ -82,7 +82,8 @@ describe("item 1: a situação é decidida na fase statuses, com a árvore já n
       expect(appliedStatus(rows, id), id).toBe("done");
       expect(((rows.get(id)!["source_snapshot"] as Row)["pendingStatus"]), id).toBeUndefined();
     }
-    expect(second.counts).toMatchObject({ updated: 3 });
+    // As duas issues são aplicadas do Linear; o ticket do projeto tem filhos e conclui pela conta, sem copiar a situação do Linear.
+    expect(second.counts).toMatchObject({ updated: 2 });
     // um evento de situação por ticket, e nenhum "a fazer" no meio do caminho
     const moves = (await eventsOf()).filter((e) => (e["payload"] as Row)["runId"] === second.id).map((e) => (e["payload"] as { status?: { to: string } }).status?.to);
     expect(moves.sort()).toEqual(["done", "done", "done"]);
@@ -107,14 +108,14 @@ describe("item 1: a situação é decidida na fase statuses, com a árvore já n
     expect(status(rows, "c")).toBe("done");
     expect(appliedStatus(rows, "p")).toBe("done");
     expect(appliedStatus(rows, "c")).toBe("done");
-    expect(second.counts).toMatchObject({ updated: 2 });
+    expect(second.counts).toMatchObject({ updated: 1 }); // só a filha: o pai conclui pela conta
     await expectQuiet();
   });
 
   it.each([
     ["filho antes do pai", ["c", "p"]],
     ["pai antes do filho", ["p", "c"]],
-  ])("filho reaberto com pai concluído, %s na lista: o pai reabre com evento e retrato; depois o Linear cancela o pai e aplica", async (_label, order) => {
+  ])("filho reaberto com pai concluído, %s na lista: o pai segue o filho, com evento e retrato; depois o Linear cancela o pai e nada muda (ADR 0068)", async (_label, order) => {
     const all: Record<string, FakeIssue> = {
       p: { id: "p", identifier: "ENG-1", title: "Pai", state: "completed" },
       c: { id: "c", identifier: "ENG-2", title: "Filho", state: "completed", parent: "p" },
@@ -126,66 +127,67 @@ describe("item 1: a situação é decidida na fase statuses, com a árvore já n
     const second = await runAll();
     let rows = await byExt();
     expect(status(rows, "c")).toBe("in_progress");
-    expect(status(rows, "p")).toBe("todo");
-    expect(appliedStatus(rows, "p")).toBe("todo");
+    expect(status(rows, "p")).toBe("in_progress");
     expect(appliedStatus(rows, "c")).toBe("in_progress");
-    // o pai reaberto tem UM evento automático de situação e o filho outro; nenhum outro
+    // o pai tem UM evento automático de situação e o filho outro; nenhum outro
     const pEvents = (await eventsOf()).filter((e) => e["subject_id"] === rows.get("p")!["id"] && (e["payload"] as Row)["automatic"] === true);
     expect(pEvents).toHaveLength(1);
-    expect(second.counts).toMatchObject({ updated: 1, reopened: 1, keptTouched: 0 });
+    expect(second.counts).toMatchObject({ updated: 1, keptTouched: 0 });
     await expectQuiet();
-    // o Linear cancela o pai: nada mexeu nele aqui (a reabertura foi anotada no retrato), então aplica
+    // o Linear cancela o pai: a situação de um pai sai dos filhos, e a do Linear não é copiada nem conta como diferença
     issue(w, "p").state = "canceled";
     const third = await runAll();
     rows = await byExt();
-    expect(status(rows, "p")).toBe("cancelled");
-    expect(third.counts).toMatchObject({ updated: 1, keptTouched: 0 });
+    expect(status(rows, "p")).toBe("in_progress");
+    expect(rows.get("p")!["status_pending"]).toBe(false);
+    expect(third.counts).toMatchObject({ updated: 0, keptTouched: 0 });
     await expectQuiet();
   });
 
-  it("a pessoa conclui o pai à mão e o Linear muda o pai: fica o da pessoa (keptTouched), e a pendência acaba", async () => {
+  it("pai: a pessoa não marca a situação à mão, e o Linear mudar o pai não é aplicado nem conta como mexido aqui; a pendência acaba", async () => {
     const w = world([
       { id: "p", identifier: "ENG-1", title: "Pai", state: "unstarted" },
       { id: "c", identifier: "ENG-2", title: "Filho", state: "completed", parent: "p" },
     ]);
     await firstImport(w);
     const before = await byExt();
-    expect((await patch(before.get("p")!["id"], { status: "done" })).status).toBe(200);
+    expect(status(before, "p")).toBe("done"); // sai do filho concluído, não do "unstarted" do Linear
+    expect((await patch(before.get("p")!["id"], { status: "in_progress" })).status).toBe(409);
     issue(w, "p").state = "started";
     const second = await runAll();
     const rows = await byExt();
     expect(status(rows, "p")).toBe("done");
-    expect(second.counts).toMatchObject({ keptTouched: 1, updated: 0 });
+    expect(second.counts).toMatchObject({ keptTouched: 0, updated: 0 });
     expect((rows.get("p")!["source_snapshot"] as Row)["stateType"]).toBe("started");
     expect(rows.get("p")!["status_pending"]).toBe(false);
     await expectQuiet();
   });
 
-  it("concluído com filho aberto não é aplicável agora: o ticket mantém a situação (em andamento NÃO vira a fazer), a pendência fica e a rodada seguinte tenta de novo sem contar como mexido aqui", async () => {
+  it("pai concluído no Linear com filho aberto: a situação sai do filho, sem pendência nem contagem; quando o filho conclui, o pai conclui pela conta", async () => {
     const w = world([
       { id: "p", identifier: "ENG-1", title: "Pai", state: "started" },
       { id: "c", identifier: "ENG-2", title: "Filho", state: "unstarted", parent: "p" },
     ]);
     await firstImport(w);
-    expect(status(await byExt(), "p")).toBe("in_progress");
+    expect(status(await byExt(), "p")).toBe("todo");
     issue(w, "p").state = "completed";
     const second = await runAll();
     let rows = await byExt();
-    expect(status(rows, "p")).toBe("in_progress");
-    expect(rows.get("p")!["status_pending"]).toBe(true);
+    expect(status(rows, "p")).toBe("todo");
+    expect(rows.get("p")!["status_pending"]).toBe(false);
     expect(second.counts).toMatchObject({ updated: 0, keptTouched: 0 });
     // sem mudança no Linear, a pendência segue sem evento nem contagem
     const events = await eventCount();
     expect((await runAll()).counts).toMatchObject({ updated: 0, keptTouched: 0 });
     expect(await eventCount()).toBe(events);
-    // o filho termina no Linear: a rodada seguinte aplica o concluído do pai
+    // o filho termina no Linear: o pai conclui pela conta
     issue(w, "c").state = "completed";
     const fourth = await runAll();
     rows = await byExt();
     expect(status(rows, "c")).toBe("done");
     expect(status(rows, "p")).toBe("done");
     expect(rows.get("p")!["status_pending"]).toBe(false);
-    expect(fourth.counts).toMatchObject({ updated: 2, keptTouched: 0 });
+    expect(fourth.counts).toMatchObject({ updated: 1, keptTouched: 0 });
     await expectQuiet();
   });
 

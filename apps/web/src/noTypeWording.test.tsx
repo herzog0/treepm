@@ -42,7 +42,7 @@ function pageClient(): ApiClient {
   const client = makeClient({ me: { ...makePanelMe("admin"), assistant: { enabled: true } }, projects: [alfa], people, tickets: { p1: tickets }, summaries: { texts: {} } });
   Object.assign(client, {
     getTicket: vi.fn(async (id: string) => ok(detailOf(tickets.find((entry) => entry.id === id)!))),
-    updateTicket: vi.fn(async () => failed("conflict", "ticket_has_open_children")),
+    updateTicket: vi.fn(async () => failed("conflict", "status_is_derived")),
     removeTicket: vi.fn(async () => failed("conflict", "ticket_has_children")),
     createTicket: vi.fn(async () => failed("conflict", "project_archived")),
   });
@@ -55,15 +55,11 @@ function showPage(ticketId: string | null, creating: { projectId: string; parent
 }
 
 describe("no screen says 'agrupador' (ADR 0034)", () => {
-  it("ticket page with children, including the open-items refusal, the parent picker and the removal error", async () => {
+  it("ticket page with children, including the derived status line, the parent picker and the removal error", async () => {
     showPage("t1");
     await screen.findByRole("heading", { level: 1, name: "Acesso" });
     await screen.findByRole("region", { name: "O que entra aqui" });
-    expectNoWord();
-    await userEvent.click(screen.getByRole("button", { name: "A fazer" }));
-    expectNoWord();
-    await userEvent.click(screen.getByRole("menuitemradio", { name: "Concluído" }));
-    await screen.findByRole("alert");
+    expect(screen.getByText("Calculada a partir dos itens.")).toBeInTheDocument();
     expectNoWord();
     await userEvent.click(screen.getByRole("button", { name: "Mudar" }));
     expectNoWord();

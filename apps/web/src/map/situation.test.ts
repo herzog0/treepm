@@ -36,8 +36,8 @@ function lab(hex: string, matrix: number[][]): [number, number, number] {
 const distance = (a: string, b: string, matrix: number[][]) => Math.hypot(...lab(a, matrix).map((value, at) => value - lab(b, matrix)[at]!) as [number, number, number]);
 
 describe("the status palette (ADR 0051)", () => {
-  it("has the six agreed colors in one place", () => {
-    expect(SITUATION_COLORS).toEqual({ blocked: "#ff5a4a", in_progress: "#3b8eff", in_review: "#ffd000", todo: "#70778a", done: "#2ee6b6" });
+  it("has the agreed colors in one place, with the three queue tones of ADR 0069", () => {
+    expect(SITUATION_COLORS).toEqual({ blocked: "#ff5a4a", in_progress: "#3b8eff", in_review: "#ffd000", free: "#ffb07a", next: "#ffe58f", waiting: "#a3a9b8", todo: "#70778a", done: "#2ee6b6" });
     expect(IDEA_COLOR).toBe("#f472d0");
     expect(ACCENT_COLOR).toBe("#a99bff");
   });
@@ -48,8 +48,8 @@ describe("the status palette (ADR 0051)", () => {
     expect(IDEA_DISCARDED_COLOR).not.toBe(IDEA_COLOR);
   });
 
-  it("lists the precedence from the most worrying to the least", () => {
-    expect(PRECEDENCE).toEqual(["blocked", "in_progress", "in_review", "todo", "done"]);
+  it("lists the precedence from the most worrying to the least, with the queue places between review and done (ADR 0069)", () => {
+    expect(PRECEDENCE).toEqual(["blocked", "in_progress", "in_review", "free", "next", "waiting", "todo", "done"]);
   });
 
   for (const [name, matrix] of Object.entries(SIMULATIONS)) {
@@ -70,7 +70,33 @@ describe("the status palette (ADR 0051)", () => {
   });
 });
 
+// ADR 0069, seção 3: os tons de fila esperam o olho de Teodoro; a regra dos 30 em CIELAB fica para as cinco situações da ADR 0051.
+const QUEUE = ["free", "next", "waiting"] as const;
+describe("the queue tones (ADR 0069)", () => {
+  it.each(QUEUE)("%s reads against the map background and the card, and the dark card text reads on it", (place) => {
+    expect(contrast(SITUATION_COLORS[place], BACKGROUND)).toBeGreaterThanOrEqual(3);
+    expect(contrast(SITUATION_COLORS[place], CARD)).toBeGreaterThanOrEqual(3);
+    expect(contrast(ON_COLOR, SITUATION_COLORS[place])).toBeGreaterThanOrEqual(4);
+  });
+  it("waiting is a muted neutral, lighter than 'todo'", () => {
+    const lightness = (hex: string) => lab(hex, SIMULATIONS.none!)[0];
+    const chroma = (hex: string) => Math.hypot(lab(hex, SIMULATIONS.none!)[1], lab(hex, SIMULATIONS.none!)[2]);
+    expect(lightness(SITUATION_COLORS.waiting)).toBeGreaterThan(lightness(SITUATION_COLORS.todo));
+    expect(chroma(SITUATION_COLORS.waiting)).toBeLessThan(10);
+  });
+});
+
 describe("effectiveSituation", () => {
+  it("is the queue place for a 'todo' ticket that has one (ADR 0069)", () => {
+    expect(effectiveSituation({ status: "todo", place: "free" })).toBe("free");
+    expect(effectiveSituation({ status: "todo", place: "next" })).toBe("next");
+    expect(effectiveSituation({ status: "todo", place: "waiting" })).toBe("waiting");
+    expect(effectiveSituation({ status: "todo", place: null })).toBe("todo");
+  });
+  it("keeps the other situations and the blocked red over the place", () => {
+    expect(effectiveSituation({ status: "in_progress", place: "free" })).toBe("in_progress");
+    expect(effectiveSituation({ status: "todo", place: "free", blocked: true })).toBe("blocked");
+  });
   it("is blocked when the summary says so and the ticket is still open", () => {
     expect(effectiveSituation({ status: "todo", blocked: true })).toBe("blocked");
     expect(effectiveSituation({ status: "in_progress", blocked: true })).toBe("blocked");
@@ -94,6 +120,12 @@ describe("mostWorryingColor", () => {
     expect(mostWorryingColor([c.done, c.todo, c.in_review])).toBe(c.in_review);
     expect(mostWorryingColor([c.done, c.todo, c.done])).toBe(c.todo);
     expect(mostWorryingColor([c.done, c.done])).toBe(c.done);
+  });
+  it("puts free › next › waiting between review and done (ADR 0069)", () => {
+    expect(mostWorryingColor([c.waiting, c.next, c.free, c.done])).toBe(c.free);
+    expect(mostWorryingColor([c.waiting, c.next, c.todo])).toBe(c.next);
+    expect(mostWorryingColor([c.done, c.todo, c.waiting])).toBe(c.waiting);
+    expect(mostWorryingColor([c.free, c.in_review])).toBe(c.in_review);
   });
   it("lets the situations win over the accent, the idea and the cancelled, which never rise", () => {
     expect(mostWorryingColor([ACCENT_COLOR, c.done])).toBe(c.done);

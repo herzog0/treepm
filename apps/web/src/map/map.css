@@ -4,6 +4,14 @@
 .map-panel-toggle, .map-create-first { min-height: 28px; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); background: var(--tp-raised); color: var(--tp-text); font: 400 12px/1.2 var(--tp-font); cursor: pointer; }
 .map-panel-toggle:hover { background: var(--tp-selected); border-color: var(--tp-border-strong); }
 .map-panel-toggle { flex: 0 0 auto; }
+/* A troca entre o mapa e a árvore explodida (ADR 0070): dois botões colados, o da visão atual marcado. */
+.map-layout-switch { display: flex; flex: 0 0 auto; margin-left: auto; margin-right: 8px; overflow: hidden; border: 1px solid var(--tp-border); border-radius: var(--tp-radius-control); }
+.map-layout-switch button { min-height: 28px; padding: 0 12px; border: 0; background: var(--tp-raised); color: var(--tp-text-2); font: 400 12px/1.2 var(--tp-font); cursor: pointer; }
+.map-layout-switch button + button { border-left: 1px solid var(--tp-border); }
+.map-layout-switch button:hover { background: var(--tp-selected); color: var(--tp-text); }
+.map-layout-switch button[aria-pressed="true"] { background: var(--tp-selected); color: var(--tp-text); font-weight: 600; }
+.map-layout-switch button:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: -2px; }
+.map-layout-short { display: none; }
 .map-panel-toggle:focus-visible, .map-create-first:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 1px; }
 .map-create-first { position: absolute; z-index: 7; bottom: 64px; left: 50%; transform: translateX(-50%); min-height: 36px; padding: 0 16px; border-color: transparent; background: var(--tp-accent); color: var(--tp-on-accent); font-size: 14px; font-weight: 500; }
 .map-create-first:hover { background: var(--tp-accent-soft); }
@@ -58,6 +66,20 @@
 .org-map .spatial-lod-full .node-state .status-mark { --mark-size: 11px; }
 .org-map .spatial-lod-chip .status-mark { --mark-size: 6px; }
 .org-map .spatial-lod-compact .status-mark { --mark-size: 7px; }
+
+/* Os três números do pai (ADR 0069, seção 4): forma curta no compacto e no chip; no ponto, só a dica do ponteiro, numa camada transparente. */
+.org-map .node-counts { flex: none; font-size: 8px; font-variant-numeric: tabular-nums; line-height: 1.2; opacity: 0.85; white-space: nowrap; }
+.org-map .spatial-lod-chip .node-counts { margin-left: auto; font-size: 7.5px; }
+.org-map .node-key-row { display: flex; width: 100%; min-width: 0; align-items: baseline; justify-content: space-between; gap: 4px; }
+.org-map .node-key-row .spatial-key { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.org-map .node-state > span.node-counts-long { overflow: visible; white-space: normal; }
+.org-map .spatial-lod-dot .spatial-lod-content:has(> .node-dot-hint) { display: block; position: absolute; inset: 0; }
+.org-map .node-dot-hint { position: absolute; inset: 0; }
+/* O habilitador (ADR 0069, seção 2): "Abre os irmãos" numa etiqueta de contorno; no chip, um ponto com a frase na dica. */
+.org-map .node-enabler { flex: none; align-self: flex-start; width: max-content; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; border: 1px solid currentColor; border-radius: 3px; font-size: 8px; font-weight: 700; line-height: 1.4; white-space: nowrap; }
+.org-map .spatial-lod-full .node-enabler, .org-map .node-detail .node-enabler { font-size: 10.5px; }
+.org-map .node-state .node-enabler { align-self: center; font-size: 7px; }
+.org-map .node-enabler:empty { width: 5px; height: 5px; padding: 0; border: 0; border-radius: 50%; background: currentColor; }
 
 /* Palco focável por teclado: anel de foco do tema, só com :focus-visible (o padrão do navegador é azul). */
 .org-map .spatial-stage:focus { outline: none; }
@@ -125,6 +147,12 @@
   .org-map .spatial-breadcrumb { overflow-x: auto; scrollbar-width: none; }
   .org-map .spatial-breadcrumb button { min-height: 44px; padding: 0 10px; font-size: 13px; }
   .org-map .map-panel-toggle { min-height: 44px; font-size: 13px; }
+  .org-map .map-layout-switch { margin-right: 6px; }
+  .org-map .map-layout-switch button { min-height: 44px; padding: 0 10px; font-size: 13px; }
+  .org-map .map-layout-long { display: none; }
+  .org-map .map-layout-short { display: inline; }
+  /* Com a troca de visão na barra, o caminho rola de lado em vez de espremer os botões abaixo do alvo de toque. */
+  .org-map .spatial-breadcrumb > span, .org-map .spatial-breadcrumb button { flex-shrink: 0; }
   .org-map .spatial-toolbar { top: 10px; right: max(10px, env(safe-area-inset-right)); }
   .org-map .spatial-toolbar button { width: 44px; height: 44px; font-size: 20px; }
   .org-map .spatial-toolbar .spatial-color-toggle { width: auto; font-size: 13px; }
@@ -146,8 +174,27 @@
 .org-map .map-legend-body li { display: flex; align-items: center; gap: 8px; }
 .org-map .map-legend-body p { margin: 0; color: var(--tp-text-2); font-size: 11px; line-height: 1.35; }
 .org-map .map-legend-swatch { flex: none; width: 12px; height: 12px; border-radius: 2px; }
+.org-map .map-legend-body p + p { margin-top: 6px; }
+.org-map .map-legend-arrow { display: flex; align-items: center; gap: 8px; }
+.org-map .map-legend-arrow svg { flex: none; stroke-width: 2; }
+.org-map .map-legend-arrow[data-arrow="waitsFor"] svg { stroke: var(--tp-arrow-waits); }
+.org-map .map-legend-arrow[data-arrow="unlocks"] svg { stroke: var(--tp-arrow-unlocks); }
+.org-map .map-legend-arrow[data-arrow="deliver"] svg { stroke: var(--tp-text-2); stroke-dasharray: 4 3; }
 /* Celular: embaixo ficam a folha de seleção e os pedidos; a legenda vai para o alto, à esquerda dos controles de zoom, e abre por cima do que houver. */
 @media (max-width: 720px), (pointer: coarse) {
   .org-map .map-legend { top: 62px; bottom: auto; left: max(10px, env(safe-area-inset-left)); }
   .org-map .map-legend-toggle { min-height: 44px; }
 }
+
+/*
+ * Setas da seleção (ADR 0069, seção 5): uma camada do tamanho do palco, sobre a cena, que nunca pega o ponteiro. Uma cor para o que o
+ * ticket espera, outra para o que ele libera; "para entregar" tracejada; a dependência já terminada, apagada.
+ */
+.org-map .map-arrows { position: absolute; z-index: 2; top: 0; left: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; filter: drop-shadow(0 0 1.5px var(--tp-bg)); }
+.org-map .map-arrow { fill: none; stroke-width: 2; stroke-linecap: round; }
+.org-map .map-arrow[data-kind="waits"] { stroke: var(--tp-arrow-waits); }
+.org-map .map-arrow[data-kind="unlocks"] { stroke: var(--tp-arrow-unlocks); }
+.org-map .map-arrow[data-need="deliver"] { stroke-dasharray: 6 5; }
+.org-map .map-arrow[data-finished="true"] { opacity: 0.45; }
+.org-map .map-arrow-head.is-waits path { fill: var(--tp-arrow-waits); }
+.org-map .map-arrow-head.is-unlocks path { fill: var(--tp-arrow-unlocks); }

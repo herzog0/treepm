@@ -8,7 +8,6 @@ import { makePanelMe, makePerson } from "../panel/testing.js";
 import { failed, makeClient, makeProject, makeTicket, ok } from "../test/fakes.js";
 import { setTestLanguage } from "../test/i18n.js";
 import { CreateTicket } from "./CreateTicket.js";
-import { openItemsText } from "./fields.js";
 import { reopenedNoticeText, reopenWarningText } from "./reopen.js";
 import { TicketPage } from "./TicketPage.js";
 
@@ -55,7 +54,7 @@ describe.each([
     page: "Ticket page", close: "Close and go back to the map", status: "Status", progress: "1 of 3 done · 1 canceled", chip: "In review", people: "People", parent: "Parent ticket", root: "Project root",
     editTitle: "Edit title", invite: "Click to write the description.", description: "Description", add: "Add", remove: "Remove Ana", summary: "What goes in here", summaryMeta: "Written by the AI on November 20, 2026",
     items: "Items", newHere: "New ticket inside", removeTicket: "Remove ticket", itemState: "To do", doneButton: "Done",
-    openItems: "Finish or cancel the open item before finishing this ticket.",
+    derived: "Calculated from its items.", refusedDerived: "This ticket's status comes from its items. Change the status of the items.",
     archived: "This project is archived: this page is read-only.", reader: "You have read-only access to this project.",
     empty: "No tickets inside.", noDescription: "No description.", noOne: "No one assigned",
     pick: "Choose the parent ticket", filter: "Filter tickets",
@@ -66,7 +65,7 @@ describe.each([
     page: "Página del ticket", close: "Cerrar y volver al mapa", status: "Estado", progress: "1 de 3 terminados · 1 cancelado", chip: "En revisión", people: "Personas", parent: "Ticket padre", root: "Raíz del proyecto",
     editTitle: "Editar título", invite: "Haz clic para escribir la descripción.", description: "Descripción", add: "Agregar", remove: "Quitar a Ana", summary: "Qué entra aquí", summaryMeta: "Escrito por la IA el 20 de noviembre de 2026",
     items: "Elementos", newHere: "Nuevo ticket aquí dentro", removeTicket: "Eliminar ticket", itemState: "Por hacer", doneButton: "Terminado",
-    openItems: "Termina o cancela el elemento abierto antes de terminar este ticket.",
+    derived: "Calculado a partir de sus elementos.", refusedDerived: "El estado de este ticket viene de sus elementos. Cambia el estado de los elementos.",
     archived: "Este proyecto está archivado: esta página es de solo lectura.", reader: "Tienes acceso de solo lectura a este proyecto.",
     empty: "Ningún ticket aquí dentro.", noDescription: "Sin descripción.", noOne: "Nadie asignado",
     pick: "Elige el ticket padre", filter: "Filtrar tickets",
@@ -83,7 +82,8 @@ describe.each([
     expect(within(page).getByRole("button", { name: expected.close })).toBeInTheDocument();
     for (const term of [expected.status, expected.people, expected.parent, expected.root]) expect(page).toHaveTextContent(term);
     expect(page).toHaveTextContent(expected.progress);
-    expect(within(page).getByRole("button", { name: expected.chip })).toHaveAttribute("aria-haspopup", "menu");
+    expect(within(page).getByText(expected.derived).closest("dd")).toHaveTextContent(expected.chip);
+    expect(within(page).queryByRole("button", { name: expected.chip })).not.toBeInTheDocument();
     expect(within(page).getByRole("button", { name: expected.editTitle })).toBeInTheDocument();
     expect(within(page).getByRole("group", { name: expected.description })).toBeInTheDocument();
     expect(within(page).getByRole("heading", { level: 2, name: expected.description })).toBeInTheDocument();
@@ -120,14 +120,14 @@ describe.each([
     expect(screen.getByRole("complementary")).toHaveTextContent(expected.reader);
   });
 
-  it("refuses to conclude with open items, in the language", async () => {
+  it("refuses a status that became derived, in the language", async () => {
     await setTestLanguage(language);
-    const updateTicket = vi.fn(async () => failed("conflict", "ticket_has_open_children"));
-    setup({ override: { updateTicket } });
-    await screen.findByRole("heading", { level: 1, name: "Planejar a fase" });
-    await userEvent.click(screen.getByRole("button", { name: expected.chip }));
+    const updateTicket = vi.fn(async () => failed("conflict", "status_is_derived"));
+    setup({ override: { updateTicket }, ticketId: "t4" });
+    await screen.findByRole("heading", { level: 1, name: "Fase vazia" });
+    await userEvent.click(screen.getByRole("button", { name: expected.itemState }));
     await userEvent.click(screen.getByRole("menuitemradio", { name: expected.doneButton }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(expected.openItems);
+    expect(await screen.findByRole("alert")).toHaveTextContent(expected.refusedDerived);
   });
 
   it("opens the parent picker with its labels in the language", async () => {
@@ -143,13 +143,14 @@ describe.each([
   it("names the header buttons, the status menu and the copy notices in the language", async () => {
     await setTestLanguage(language);
     const user = userEvent.setup();
-    const { view } = setup();
+    // Um ticket sem filhos: o de com filhos não tem menu de situação (ADR 0068).
+    const { view } = setup({ ticketId: "t4" });
     const page = await screen.findByRole("complementary", { name: expected.page });
-    await screen.findByRole("heading", { level: 1, name: "Planejar a fase" });
+    await screen.findByRole("heading", { level: 1, name: "Fase vazia" });
     for (const name of [expected.viewOnMap, expected.copyLink, expected.more, expected.close]) expect(within(page).getByRole("button", { name })).toBeInTheDocument();
     await user.click(within(page).getByRole("button", { name: expected.copyLink }));
     expect(await within(page).findByRole("status")).toHaveTextContent(expected.linkCopied);
-    await user.click(within(page).getByRole("button", { name: expected.chip }));
+    await user.click(within(page).getByRole("button", { name: expected.itemState }));
     expect(within(screen.getByRole("menu", { name: expected.status })).getAllByRole("menuitemradio")).toHaveLength(5);
     expectNoPortuguese(view.container);
   });
@@ -192,8 +193,8 @@ describe("create ticket in the language", () => {
     render(<CreateTicket client={makeClient()} project={project} request={request} onChanged={vi.fn()} onCreated={vi.fn()} onCancel={vi.fn()} />);
 
   it.each([
-    { language: "en" as const, heading: "New ticket", inside: "In Projeto Alfa, inside the open ticket.", root: "In Projeto Alfa, at the project root.", title: "Title", description: "Description", create: "Create", cancel: "Cancel", warning: "“ALFA-5” is done and goes back to \"To do\" when it receives this ticket." },
-    { language: "es-MX" as const, heading: "Nuevo ticket", inside: "En Projeto Alfa, dentro del ticket abierto.", root: "En Projeto Alfa, en la raíz del proyecto.", title: "Título", description: "Descripción", create: "Crear", cancel: "Cancelar", warning: "«ALFA-5» está terminado y vuelve a \"Por hacer\" al recibir este ticket." },
+    { language: "en" as const, heading: "New ticket", inside: "In Projeto Alfa, inside the open ticket.", root: "In Projeto Alfa, at the project root.", title: "Title", description: "Description", create: "Create", cancel: "Cancel", warning: "“ALFA-5” is done and stops being done when it receives this ticket: its status comes from its items." },
+    { language: "es-MX" as const, heading: "Nuevo ticket", inside: "En Projeto Alfa, dentro del ticket abierto.", root: "En Projeto Alfa, en la raíz del proyecto.", title: "Título", description: "Descripción", create: "Crear", cancel: "Cancelar", warning: "«ALFA-5» está terminado y deja de estarlo al recibir este ticket: su estado sale de sus elementos." },
   ])("shows the form in $language, with the reopen warning", async (expected) => {
     await setTestLanguage(expected.language);
     const { unmount } = show({ projectId: "p1", parentId: "t5", parent: { key: "ALFA-5", status: "done" } });
@@ -210,16 +211,15 @@ describe("create ticket in the language", () => {
   });
 });
 
-describe("reopen texts and the open-items message by count", () => {
+describe("texts for a done ticket that receives an open one (ADR 0068: the status comes from the items)", () => {
   const cases = [
-    { language: "pt-BR" as const, zero: "Conclua ou cancele os 0 itens abertos antes de concluir este ticket.", one: "Conclua ou cancele o item aberto antes de concluir este ticket.", two: "Conclua ou cancele os 2 itens abertos antes de concluir este ticket.", warning: "«K-1» está concluído e volta para \"A fazer\" ao receber este ticket.", notice: "«K-1» estava concluído e voltou para \"A fazer\"." },
-    { language: "en" as const, zero: "Finish or cancel the 0 open items before finishing this ticket.", one: "Finish or cancel the open item before finishing this ticket.", two: "Finish or cancel the 2 open items before finishing this ticket.", warning: "“K-1” is done and goes back to \"To do\" when it receives this ticket.", notice: "“K-1” was done and went back to \"To do\"." },
-    { language: "es-MX" as const, zero: "Termina o cancela los 0 elementos abiertos antes de terminar este ticket.", one: "Termina o cancela el elemento abierto antes de terminar este ticket.", two: "Termina o cancela los 2 elementos abiertos antes de terminar este ticket.", warning: "«K-1» está terminado y vuelve a \"Por hacer\" al recibir este ticket.", notice: "«K-1» estaba terminado y volvió a \"Por hacer\"." },
+    { language: "pt-BR" as const, warning: "«K-1» está concluído e deixa de estar ao receber este ticket: a situação dele sai dos itens.", notice: "«K-1» estava concluído e deixou de estar: a situação dele sai dos itens." },
+    { language: "en" as const, warning: "“K-1” is done and stops being done when it receives this ticket: its status comes from its items.", notice: "“K-1” was done and no longer is: its status comes from its items." },
+    { language: "es-MX" as const, warning: "«K-1» está terminado y deja de estarlo al recibir este ticket: su estado sale de sus elementos.", notice: "«K-1» estaba terminado y dejó de estarlo: su estado sale de sus elementos." },
   ];
-  it.each(cases)("in $language", async ({ language, zero, one, two, warning, notice }) => {
+  it.each(cases)("in $language", async ({ language, warning, notice }) => {
     await setTestLanguage(language as Language);
     const t = i18n.getFixedT(language, "ticket");
-    expect([openItemsText(t, 0), openItemsText(t, 1), openItemsText(t, 2)]).toEqual([zero, one, two]);
     expect(reopenWarningText(t, "K-1")).toBe(warning);
     expect(reopenedNoticeText(t, "K-1")).toBe(notice);
   });

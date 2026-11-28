@@ -3,7 +3,10 @@ import { useHarness } from "./harness.js";
 import { as } from "./world.js";
 import type { Who } from "./world.js";
 
-/** ADR 0034, J1b: o pai concluído que ganha um filho aberto é reaberto (`todo`), subindo até o primeiro que não está `done`. */
+/**
+ * Antes ADR 0034, J1b (reabrir o pai concluído); desde a ADR 0068 a situação do pai sai dos filhos, e estes casos conferem que a
+ * conta cobre o que a reabertura cobria: o concluído que ganha um filho aberto deixa de estar concluído, subindo até a raiz.
+ */
 const h = useHarness();
 type Body = Record<string, unknown>;
 const P = () => h.world().projects.priv;
@@ -27,7 +30,7 @@ const violations = async () =>
 const autoEvents = async () =>
   (await h.pool.query("select subject_id, payload from activity_events where kind = 'ticket.updated' and payload->>'automatic' = 'true' order by occurred_at, id")).rows;
 
-describe("pontos de entrada que reabrem o pai concluído", () => {
+describe("pontos de entrada que refazem o pai concluído", () => {
   it("criar ticket aberto dentro de um done reabre o pai, com um evento automático", async () => {
     const p = await done();
     const kid = await made({ parentId: p.id });
@@ -40,7 +43,7 @@ describe("pontos de entrada que reabrem o pai concluído", () => {
     expect(events[0].payload.causedBy).toBeTruthy();
   });
 
-  it("a subida por dois níveis, e para no cancelado", async () => {
+  it("a subida por dois níveis, e o cancelado também segue os filhos", async () => {
     const a = await done();
     const b = await made({ parentId: a.id, status: "done" });
     await h.pool.query("update tickets set status = 'done' where id = $1", [a.id]);
@@ -54,15 +57,15 @@ describe("pontos de entrada que reabrem o pai concluído", () => {
     await h.pool.query("update tickets set status = 'done' where id = $1", [x.id]);
     await made({ parentId: z.id });
     expect(await status(z.id)).toBe("todo");
-    expect(await status(y.id)).toBe("cancelled");
-    expect(await status(x.id)).toBe("done");
+    expect(await status(y.id)).toBe("todo");
+    expect(await status(x.id)).toBe("todo");
   });
 
-  it("pai cancelado não é reaberto", async () => {
+  it("pai cancelado que ganha um filho aberto segue o filho", async () => {
     const p = await made({ status: "cancelled" });
     await made({ parentId: p.id });
-    expect(await status(p.id)).toBe("cancelled");
-    expect(await autoEvents()).toHaveLength(0);
+    expect(await status(p.id)).toBe("todo");
+    expect(await autoEvents()).toHaveLength(1);
   });
 
   it("mover um ticket aberto para dentro de um done reabre; o PATCH que muda pai e situação vale a situação final", async () => {
@@ -80,23 +83,23 @@ describe("pontos de entrada que reabrem o pai concluído", () => {
     expect(await status(r.id)).toBe("done");
   });
 
-  it("reabrir um filho (de done ou cancelled) cujo pai está done reabre o pai", async () => {
+  it("reabrir um filho (de done ou cancelled) leva o pai finalizado para em andamento", async () => {
     for (const closed of ["done", "cancelled"]) {
       const p = await made({});
       const kid = await made({ parentId: p.id, status: closed });
-      await patch(p.id, { status: "done" });
+      expect(await status(p.id)).toBe(closed);
       expect((await patch(kid.id, { status: "in_progress" })).status).toBe(200);
-      expect(await status(p.id)).toBe("todo");
+      expect(await status(p.id)).toBe("in_progress");
     }
   });
 
-  it("importação com pai existente done: item aberto reabre; item finalizado não", async () => {
+  it("importação com pai existente done: item aberto o deixa aberto; item finalizado não", async () => {
     const p = await done();
     const res = await h.call("POST", `/api/projects/${P()}/tickets/import`, as("admin"), { parentId: p.id, items: [{ title: "x", status: "done" }] });
     expect(res.status).toBe(201);
     expect(await status(p.id)).toBe("done");
     expect((await h.call("POST", `/api/projects/${P()}/tickets/import`, as("admin"), { parentId: p.id, items: [{ title: "y" }] })).status).toBe(201);
-    expect(await status(p.id)).toBe("todo");
+    expect(await status(p.id)).toBe("in_progress");
   });
 
   it("importação: item done com filho aberto na própria lista nasce todo", async () => {
@@ -106,21 +109,19 @@ describe("pontos de entrada que reabrem o pai concluído", () => {
     expect(await violations()).toBe(0);
   });
 
-  it("a proposta de pai novo dentro de um destino done reabre o destino", async () => {
+  it("a proposta de pai novo dentro de um destino done deixa o destino aberto", async () => {
     const dest = await made({});
     const a = await made({ parentId: dest.id });
     await patch(a.id, { status: "done" });
-    await patch(dest.id, { status: "done" });
-    const events = await h.pool.query("select 1");
-    expect(events.rows).toHaveLength(1);
+    expect(await status(dest.id)).toBe("done");
     // o pai criado nasce todo dentro do destino: usa o mesmo caminho de criação
     const novo = await made({ parentId: dest.id, title: "Pai novo" });
     expect(novo.status).toBe("todo");
-    expect(await status(dest.id)).toBe("todo");
+    expect(await status(dest.id)).toBe("in_progress");
   });
 });
 
-describe("o que não reabre", () => {
+describe("o que não abre o pai", () => {
   it("criar ou mover um ticket finalizado para dentro de um done", async () => {
     const p = await done();
     await made({ parentId: p.id, status: "done" });
@@ -131,16 +132,16 @@ describe("o que não reabre", () => {
     expect(await autoEvents()).toHaveLength(0);
   });
 
-  it("finalizar o último filho não muda o pai", async () => {
+  it("finalizar o último filho conclui o pai (ADR 0068)", async () => {
     const p = await made({ status: "in_progress" });
     const kid = await made({ parentId: p.id });
     await patch(kid.id, { status: "done" });
-    expect(await status(p.id)).toBe("in_progress");
+    expect(await status(p.id)).toBe("done");
   });
 });
 
 describe("permissões e corrida", () => {
-  it("quem pode criar o filho causa a reabertura, sem outra permissão", async () => {
+  it("quem pode criar o filho causa a mudança do pai, sem outra permissão", async () => {
     const p = await done();
     expect((await create({ parentId: p.id }, "contributor")).status).toBe(201);
     expect(await status(p.id)).toBe("todo");

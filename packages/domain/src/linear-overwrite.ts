@@ -8,7 +8,6 @@ import { decideLinearTicketLabels } from "./linear-labels.js";
 import type { LinearTicketLabelRef, LinearTicketLabelsDecision, LinearTicketLabelsInput } from "./linear-labels.js";
 import { decideLinearStatus, sameLinearValue } from "./linear-reimport.js";
 import type { LinearStatusDecision } from "./linear-reimport.js";
-import type { TicketStatus } from "./tickets.js";
 import { planLinearParents } from "./linear-import.js";
 import type { LinearParentMove } from "./linear-import.js";
 
@@ -21,9 +20,11 @@ export function decideLinearOverwrite<I, C = I>(input: { overwrite: boolean; inc
 
 /**
  * A situação com a opção: o ticket mexido aqui é avaliado como se não tivesse sido (assume a do Linear), mas as regras da árvore
- * continuam valendo (concluído com filho aberto, dentro de ideia): aí fica como está, em desvio, como o não mexido.
+ * continuam valendo (dentro de ideia; concluído com dependência "para entregar" aberta): aí fica como está, em desvio, como o não
+ * mexido. O pai (ADR 0068) tem a situação calculada pelos filhos: a opção não se aplica a ela.
  */
-export function decideLinearStatusOverwrite(input: { desired: TicketStatus; previousSource: TicketStatus; current: TicketStatus; applied: TicketStatus; insideIdea: boolean; hasOpenChildren: boolean }): LinearStatusDecision & { overwritten: boolean } {
+export function decideLinearStatusOverwrite(input: Parameters<typeof decideLinearStatus>[0]): LinearStatusDecision & { overwritten: boolean } {
+  if (input.derived) return { ...decideLinearStatus(input), overwritten: false };
   const touchedHere = input.current !== input.applied;
   if (!touchedHere) return { ...decideLinearStatus(input), overwritten: false };
   const decision = decideLinearStatus({ ...input, applied: input.current });

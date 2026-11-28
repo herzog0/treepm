@@ -20,6 +20,13 @@ describe("StatusMark", () => {
     expect(element).toHaveAttribute("data-fill", fill);
   });
 
+  it("carries the queue place of a 'todo' ticket, which gives the color (ADR 0069); other statuses ignore it", () => {
+    expect(mark({ status: "todo", place: "free" })).toHaveAttribute("data-place", "free");
+    expect(mark({ status: "todo", place: "waiting" })).toHaveAttribute("data-place", "waiting");
+    expect(mark({ status: "todo", place: null })).not.toHaveAttribute("data-place");
+    expect(mark({ status: "in_progress", place: "free" })).not.toHaveAttribute("data-place");
+  });
+
   it("is decorative: hidden from assistive technology and without text", () => {
     const element = mark({ status: "done" });
     expect(element).toHaveAttribute("aria-hidden", "true");

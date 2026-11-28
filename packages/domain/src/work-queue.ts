@@ -1,6 +1,6 @@
 import { effectivePriorities } from "./priority.js";
-import { isTurn } from "./tickets.js";
-import type { TicketProgress, TicketStatus } from "./tickets.js";
+import type { QueuePlace } from "./queue-place.js";
+import type { TicketStatus } from "./tickets.js";
 
 /**
  * A fila "próximos para trabalhar" (ADR 0047) e a base dos modelos do modo play (ADR 0048). Funções puras, sobre o resumo de ticket
@@ -9,7 +9,7 @@ import type { TicketProgress, TicketStatus } from "./tickets.js";
 
 /**
  * O que a fila precisa saber de um ticket; é um subconjunto do resumo que a API devolve (`TicketSummary`), então a web passa os
- * resumos como estão. `blocked` vem calculado do servidor: o ticket depende de algum ticket ainda aberto (ADR 0037).
+ * resumos como estão. `place` e `blocked` vêm do servidor (ADR 0068): o lugar na fila e o impedimento marcado.
  */
 export interface WorkTicket {
   readonly id: string;
@@ -21,9 +21,10 @@ export interface WorkTicket {
   /** A prioridade PRÓPRIA (a que vale é calculada aqui, com a herança). */
   readonly priority: number;
   readonly assigneeIds: readonly string[];
-  /** Depende de algum ticket ainda aberto (nem concluído nem cancelado). */
+  /** Bloqueado (ADR 0068, seção 5): aberto e com impedimento marcado. */
   readonly blocked: boolean;
-  readonly progress: TicketProgress | null;
+  /** Lugar na fila (ADR 0068, seção 4); nulo quando o ticket está finalizado, tem filhos ou é ideia. */
+  readonly place: QueuePlace | null;
   /** Não nulo: o ticket é raiz de ideia ou está dentro de uma (ADR 0042). */
   readonly idea: unknown;
   /** Marcador de trabalho pela IA (ADR 0043); `until` em ISO. Nulo quando não há marcador. */
@@ -37,7 +38,7 @@ export interface WorkScope {
 }
 
 /** Por que a fila está vazia, quando há um motivo único (ADR 0047); "none" é "nenhum motivo único". */
-export type EmptyQueueReason = "all_blocked" | "all_others" | "none";
+export type EmptyQueueReason = "all_waiting" | "all_others" | "none";
 
 /** Os tickets dentro do alcance (o ramo de um ticket inclui o próprio; o projeto filtra por `projectId`). */
 export function ticketsInScope<T extends Pick<WorkTicket, "id" | "parentId" | "projectId">>(tickets: readonly T[], scope: WorkScope): T[] {
@@ -72,21 +73,22 @@ function effectiveOf(tickets: readonly WorkTicket[]): Map<string, number> {
   return new Map(tickets.map((ticket) => [ticket.id, all.get(ticket.id)?.value ?? 0] as const));
 }
 
-/** Pode ser trabalhado agora, sem olhar dono, dependência nem marcador: a fazer, ticket da vez, fora de ideia. */
-function isReady(ticket: WorkTicket): boolean {
-  return ticket.status === "todo" && isTurn(ticket.status, ticket.progress, ticket.idea !== null);
+/** Candidato à fila, sem olhar lugar, dono, impedimento nem marcador: a fazer, com lugar na fila (sem filhos e fora de ideia). */
+function isCandidate(ticket: WorkTicket): boolean {
+  return ticket.status === "todo" && ticket.place !== null;
 }
 
 const isOfOthersOnly = (ticket: WorkTicket, me: string): boolean => ticket.assigneeIds.length > 0 && !ticket.assigneeIds.includes(me);
 
 /**
- * Os ids da fila de `me` no `scope`, na ordem de trabalho (ADR 0047). Entra o ticket que: está a fazer; é o ticket da vez (sem
- * filho aberto); não é ideia nem está dentro de uma; não depende de ticket aberto; não tem o marcador de trabalho pela IA; e é da
- * pessoa ou de ninguém. Ordem: prioridade que vale (maior primeiro), os da pessoa antes dos sem responsável, o número.
+ * Os ids da fila de `me` no `scope`, na ordem de trabalho (ADR 0047, com a ADR 0068). Entra o ticket que: está a fazer; não tem
+ * filhos; não é ideia nem está dentro de uma; está livre (as dependências para começar finalizadas); não tem impedimento; não tem o
+ * marcador de trabalho pela IA; e é da pessoa ou de ninguém. Ordem: prioridade que vale (maior primeiro), os da pessoa antes dos sem
+ * responsável, o número.
  */
 export function workQueue(tickets: readonly WorkTicket[], me: string, scope: WorkScope = {}): string[] {
   const eff = effectiveOf(tickets);
-  const queue = ticketsInScope(tickets, scope).filter((ticket) => isReady(ticket) && !ticket.blocked && ticket.agentWork === null && !isOfOthersOnly(ticket, me));
+  const queue = ticketsInScope(tickets, scope).filter((ticket) => isCandidate(ticket) && ticket.place === "free" && !ticket.blocked && ticket.agentWork === null && !isOfOthersOnly(ticket, me));
   const priorityOf = (ticket: WorkTicket): number => eff.get(ticket.id) ?? 0;
   queue.sort(
     (a, b) =>
@@ -99,15 +101,15 @@ export function workQueue(tickets: readonly WorkTicket[], me: string, scope: Wor
 }
 
 /**
- * Quando a fila está vazia, o motivo único se houver (ADR 0047): `null` com a fila cheia; `"all_blocked"` quando tudo o que estaria
- * pronto depende de outro ticket; `"all_others"` quando é tudo de outra pessoa; `"none"` quando não há nada a fazer no alcance ou
- * os motivos se misturam.
+ * Quando a fila está vazia, o motivo único se houver (ADR 0047, com a ADR 0068): `null` com a fila cheia; `"all_waiting"` quando tudo
+ * o que estaria pronto espera outro ticket (próximo ou esperando); `"all_others"` quando é tudo de outra pessoa; `"none"` quando não
+ * há nada a fazer no alcance ou os motivos se misturam.
  */
 export function emptyQueueReason(tickets: readonly WorkTicket[], me: string, scope: WorkScope = {}): EmptyQueueReason | null {
   if (workQueue(tickets, me, scope).length > 0) return null;
-  const candidates = ticketsInScope(tickets, scope).filter(isReady);
+  const candidates = ticketsInScope(tickets, scope).filter(isCandidate);
   if (candidates.length === 0) return "none";
-  if (candidates.every((ticket) => ticket.blocked)) return "all_blocked";
+  if (candidates.every((ticket) => ticket.place !== "free")) return "all_waiting";
   if (candidates.every((ticket) => isOfOthersOnly(ticket, me))) return "all_others";
   return "none";
 }

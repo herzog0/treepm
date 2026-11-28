@@ -1,5 +1,7 @@
 # ADR 0047 — Prioridade do ticket e o próximo ticket para trabalhar
 
+> **Alterada pela [ADR 0068](0068-pai-e-pedaco-ordem-e-dependencia-bloqueio-e-impedimento.md) em 2026-11-27:** a fila lista só tickets sem filhos, livres e sem impedimento.
+
 - **Data:** 2026-11-23
 - **Estado:** decisão da coordenação, por delegação de Teodoro em 2026-11-23 ("você toma as decisões por mim baseado nos melhores critérios de usabilidade e design"); reversível. Implementação em `TREEPM-220`.
 

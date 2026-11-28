@@ -11,7 +11,8 @@ export function toWorkTickets(byProject: Readonly<Record<string, readonly Ticket
       blocked: ticket.blocked ?? false,
       agentWork: ticket.agentWork ?? null,
       idea: ticket.idea ?? null,
-      progress: ticket.progress === null ? null : { ...ticket.progress, ideas: ticket.progress.ideas ?? 0 },
+      // Lugar na fila (ADR 0068): a API sempre manda; ausente vale nulo (fora da fila).
+      place: ticket.place ?? null,
     }));
 }
 

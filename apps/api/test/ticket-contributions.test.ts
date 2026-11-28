@@ -325,11 +325,11 @@ describe("leitura: GET tickets/:id", () => {
     expect(created.body).toMatchObject({ contributions: [], canEditContributions: true });
   });
 
-  it("a lista de tickets não muda: nenhuma chave nova", async () => {
+  it("a lista de tickets não ganha chave de contribuição (as dependências são da ADR 0069)", async () => {
     const t = await add();
     await made(t.id);
     const list = await h.call("GET", `/api/projects/${priv()}/tickets`, as("admin"));
-    expect(Object.keys((list.body as Body[])[0] as Body).sort()).toEqual(["agentWork", "assigneeIds", "blocked", "descriptionExcerpt", "dueDate", "id", "idea", "key", "labels", "number", "parentId", "priority", "progress", "projectId", "status", "title"]);
+    expect(Object.keys((list.body as Body[])[0] as Body).sort()).toEqual(["agentWork", "assigneeIds", "blocked", "dependencies", "descriptionExcerpt", "dueDate", "id", "idea", "key", "labels", "number", "parentId", "place", "priority", "progress", "projectId", "status", "title"]);
     expect(JSON.stringify(list.body)).not.toMatch(/contribution/i);
   });
 

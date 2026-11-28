@@ -278,8 +278,16 @@ function Sentence({ entry, onOpenTicket }: { entry: ActivityEntry; onOpenTicket:
     case "assignee_removed":
       return render(entry.type === "assignee_added" ? "assigneeAdded" : "assigneeRemoved", { values: { person: entry.person?.displayName ?? t("people.removed") } });
     case "dependency_added":
+      // Com o tipo (ADR 0068) quando o evento o traz; os antigos ficam com a frase de sempre.
+      return render(entry.need === "deliver" ? "dependencyAddedDeliver" : entry.need === "start" ? "dependencyAddedStart" : "dependencyAdded", { values: { ticket: ticketText(entry.ticket) }, components: { ticket: ref(entry.ticket) } });
     case "dependency_removed":
-      return render(entry.type === "dependency_added" ? "dependencyAdded" : "dependencyRemoved", { values: { ticket: ticketText(entry.ticket) }, components: { ticket: ref(entry.ticket) } });
+      return render("dependencyRemoved", { values: { ticket: ticketText(entry.ticket) }, components: { ticket: ref(entry.ticket) } });
+    case "dependency_need_changed":
+      return render("dependencyNeedChanged", { values: { ticket: ticketText(entry.ticket), from: t(`dependsOn.need.${entry.from}`), to: t(`dependsOn.need.${entry.to}`) }, components: { ticket: ref(entry.ticket) } });
+    case "impediment_marked":
+      return render("impedimentMarked");
+    case "impediment_cleared":
+      return render("impedimentCleared");
     case "related_removed":
       return render("relatedRemoved", { values: { ticket: ticketText(entry.ticket) }, components: { ticket: ref(entry.ticket) } });
     case "summary_updated":

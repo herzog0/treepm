@@ -4,7 +4,8 @@ import { PrismaClient } from "./generated/client.js";
 import type { Prisma } from "./generated/client.js";
 
 export { PrismaClient } from "./generated/client.js";
-export type { Prisma } from "./generated/client.js";
+// `Prisma` também como valor: `Prisma.sql` monta pedaços de SQL com parâmetros (um mesmo trecho usado por mais de uma consulta).
+export { Prisma } from "./generated/client.js";
 export * from "./generated/enums.js";
 
 export type TenantContext = {

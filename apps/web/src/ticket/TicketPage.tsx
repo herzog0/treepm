@@ -23,10 +23,11 @@ import { ItemsSummary } from "./ItemsSummary.js";
 import { CommentPeopleProvider } from "./commentPeople.js";
 import { TicketActivity } from "./TicketActivity.js";
 import { peopleWhoSee } from "../chat/directory.js";
-import { DependsOnField, DescriptionField, FromLinearBadge, RelatedField, IdeaField, InsideIdeaValue, ParentField, DueDateField, PeopleField, PriorityField, StatusField, StatusValue, TitleField } from "./fields.js";
+import { DependsOnField, DerivedStatus, DescriptionField, FromLinearBadge, ImpedimentField, RelatedField, IdeaField, InsideIdeaValue, ParentField, DueDateField, PeopleField, PriorityField, StatusField, StatusValue, TitleField } from "./fields.js";
 import { ActionsMenu } from "./menu.js";
 import { LabelsField } from "./LabelsField.js";
 import { ancestorsOf } from "./tree.js";
+import { isStatusDerived } from "@treepm/domain";
 import { ticketHref } from "../nav/navigation.js";
 import "./ticket.css";
 import { useDescribeApiError } from "../api/errorText.js";
@@ -90,6 +91,8 @@ interface HeaderActions {
   linear?: { key: string | null; url: string | null; missingSince: string | null };
   /** Só para quem edita um ticket comum (ADR 0042); `error` é a recusa da API, mostrada junto do menu. */
   makeIdea?: { busy: boolean; error: string | null; onClick: () => void };
+  /** Só para quem edita um ticket comum aberto sem impedimento (ADR 0068): abre a linha "Impedimento" pedindo o motivo. */
+  markImpediment?: { onClick: () => void };
 }
 
 type CopyState = "idle" | "copied" | "failed";
@@ -164,7 +167,7 @@ function Header({ projectKey, keyText, path, onClose, actions }: { projectKey: s
             <button type="button" className="ticket-icon-button" aria-label={t("header.copyLink")} onClick={() => void copyLink(actions.ticketId)}>
               <Icon><path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.8.8" /><path d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0L3.3 9a2.6 2.6 0 0 0 3.7 3.7l.8-.8" /></Icon>
             </button>
-            {(actions.remove || actions.makeIdea) && (
+            {(actions.remove || actions.makeIdea || actions.markImpediment) && (
               <ActionsMenu label={t("header.more")} trigger={<Icon fill><circle cx="3.5" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="12.5" cy="8" r="1.3" /></Icon>}>
                 {(close) => (
                   <>
@@ -178,6 +181,17 @@ function Header({ projectKey, keyText, path, onClose, actions }: { projectKey: s
                         }}
                       >
                         {t("idea.make")}
+                      </button>
+                    )}
+                    {actions.markImpediment && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          close();
+                          actions.markImpediment!.onClick();
+                        }}
+                      >
+                        {t("impediment.mark")}
                       </button>
                     )}
                     {actions.remove && (
@@ -376,6 +390,8 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
   const title = useRef<HTMLHeadingElement>(null);
   const removal = useAction();
   const ideaMaking = useAction();
+  // O ticket em que a pessoa está marcando um impedimento (ADR 0068); trocar de ticket fecha a marcação.
+  const [markingFor, setMarkingFor] = useState<string | null>(null);
   const agentEnding = useAction();
   // Cada alteração feita nesta página pede a atividade de novo (ADR 0040).
   const [activityVersion, setActivityVersion] = useState(0);
@@ -428,7 +444,6 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
   };
 
   const children = list.filter((entry) => entry.parentId === detail.id);
-  const openItems = children.filter((entry) => entry.status !== "done" && entry.status !== "cancelled").length;
   const parent = detail.parentId === null ? null : list.find((entry) => entry.id === detail.parentId) ?? null;
   const path = [project?.name ?? "", ...ancestorsOf(list, detail).map((entry) => entry.title)].filter((part) => part !== "").join(" › ");
 
@@ -440,6 +455,11 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
   };
   const makeIdeaError = ideaMaking.error === null ? null : ideaMaking.error.kind === "conflict" ? t("idea.makeRefused") : describeError(ideaMaking.error);
 
+  // Impedimento (ADR 0068): marcar fica no menu "Mais ações" (a página sem impedimento não muda); a linha aparece marcando ou com impedimento.
+  const impediment = detail.impediment ?? null;
+  const markingImpediment = markingFor === detail.id && impediment === null;
+  const canMarkImpediment = canEdit && idea === null && impediment === null && detail.status !== "done" && detail.status !== "cancelled";
+
   const remove = async () => {
     const result = await removal.run(() => client.removeTicket(detail.id));
     if (!result.ok) return;
@@ -447,9 +467,11 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
     onRemoved();
   };
 
-  const readOnlyStatus = (
+  const readOnlyStatus = isStatusDerived(detail.progress) ? (
+    <DerivedStatus detail={detail} />
+  ) : (
     <span className="ticket-value">
-      <StatusValue status={detail.status} blocked={isBlocked(detail)} />
+      <StatusValue status={detail.status} blocked={isBlocked(detail)} place={detail.place ?? null} />
     </span>
   );
 
@@ -472,6 +494,7 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
           remove: canRemove ? { busy: removal.busy, onConfirm: () => void remove() } : undefined,
           linear: linearAction(detail),
           makeIdea: canEdit && idea === null ? { busy: ideaMaking.busy, error: makeIdeaError, onClick: () => void makeIdea() } : undefined,
+          markImpediment: canMarkImpediment ? { onClick: () => setMarkingFor(detail.id) } : undefined,
         }}
       />
       <div className="ticket-body">
@@ -494,13 +517,22 @@ function ReadyTicket({ client, me, projects, detail, list, people, teams, reload
                 ) : idea !== null ? (
                   <InsideIdeaValue rootId={idea.rootId} rootKey={idea.rootKey} discarded={isInDiscardedIdea({ ...detail, idea }, byId)} onOpen={onOpenTicket} />
                 ) : canEdit ? (
-                  <StatusField client={client} detail={detail} openItems={openItems} onSaved={refresh} />
+                  <StatusField client={client} detail={detail} onSaved={refresh} />
                 ) : (
                   readOnlyStatus
                 )}
               </dd>
             </div>
             <AgentWorkRow detail={detail} onEnd={detail.canEndAgentWork === true ? () => void endAgentWork() : null} busy={agentEnding.busy} />
+            {/* Impedimento (ADR 0068): aparece com impedimento marcado, ou enquanto a pessoa escreve o motivo. */}
+            {(impediment !== null || markingImpediment) && (
+              <div className="ticket-row">
+                <dt>{t("fields.impediment")}</dt>
+                <dd>
+                  <ImpedimentField key={detail.id} client={client} detail={detail} canEdit={canEdit} onDone={() => setMarkingFor(null)} onSaved={refresh} />
+                </dd>
+              </div>
+            )}
             {detail.progress && (
               <div className="ticket-row">
                 <dt>{t("fields.progress")}</dt>

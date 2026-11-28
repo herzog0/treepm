@@ -1,3 +1,5 @@
+import { enablers, inSiblingOrder } from "@treepm/domain";
+import type { DependencyEdge } from "@treepm/domain";
 import type { TreeNode } from "@treepm/engine";
 import type { TFunction } from "i18next";
 import i18n from "../i18n/index.js";
@@ -21,6 +23,68 @@ export interface MapNode extends TreeNode {
   readonly leafCount: number;
   /** O ticket está numa ideia descartada (a raiz ou algo dentro dela): o nó usa a cor de ideia apagada (ADR 0042). */
   readonly ideaDiscarded?: boolean;
+  /** O habilitador (ADR 0069, seção 2): um irmão depende dele para começar e ele não depende de nenhum irmão. O card diz "abre os irmãos". */
+  readonly enabler?: boolean;
+  /** Os três números de um ticket com filhos (ADR 0069, seção 4), da subárvore inteira; ausente sem ticket que conte abaixo. */
+  readonly counts?: SubtreeCounts;
+}
+
+/** Quantos tickets, quantos prontos e quantos livres há abaixo de um pai (ADR 0069, seção 4). Ideias e cancelados ficam fora. */
+export interface SubtreeCounts {
+  readonly tickets: number;
+  readonly done: number;
+  readonly free: number;
+}
+
+/** Livre para começar agora: "a fazer", sem filhos, com o lugar "livre" e sem impedimento (a mesma regra da fila de trabalho, ADR 0068). */
+const isFreeToStart = (ticket: TicketSummary): boolean => ticket.status === "todo" && ticket.place === "free" && ticket.blocked !== true && !isInIdea(ticket);
+
+/**
+ * Os três números de cada ticket com filhos de um projeto: tickets e prontos saem do progresso que a API manda (sem ideias nem
+ * cancelados), livres são contados aqui, subindo de cada ticket livre até a raiz.
+ */
+function subtreeCounts(tickets: readonly TicketSummary[]): Map<string, SubtreeCounts> {
+  const byId = new Map(tickets.map((ticket) => [ticket.id, ticket] as const));
+  const free = new Map<string, number>();
+  for (const ticket of tickets) {
+    if (!isFreeToStart(ticket)) continue;
+    const seen = new Set<string>();
+    for (let up = ticket.parentId; up !== null && !seen.has(up); up = byId.get(up)?.parentId ?? null) {
+      seen.add(up);
+      free.set(up, (free.get(up) ?? 0) + 1);
+    }
+  }
+  const counts = new Map<string, SubtreeCounts>();
+  for (const ticket of tickets) {
+    const progress = ticket.progress;
+    if (progress === null || progress.total === 0 || isInIdea(ticket)) continue;
+    counts.set(ticket.id, { tickets: progress.total, done: progress.done, free: free.get(ticket.id) ?? 0 });
+  }
+  return counts;
+}
+
+/** As dependências da lista de um projeto, como arestas: `from` depende de `to` (ADR 0069, seção 1). */
+export function dependencyEdges(tickets: readonly TicketSummary[]): DependencyEdge[] {
+  return tickets.flatMap((ticket) => (ticket.dependencies ?? []).map((dependency) => ({ from: ticket.id, to: dependency.id, need: dependency.need })));
+}
+
+/**
+ * A lista de um projeto na ordem dos irmãos (ADR 0069, seção 2: passo, prioridade efetiva, número) e os habilitadores. A ordem de entrada
+ * é a ordem dos irmãos no motor, que continua genérico.
+ */
+function orderProject(tickets: readonly TicketSummary[]): { ordered: TicketSummary[]; enablerIds: ReadonlySet<string> } {
+  const edges = dependencyEdges(tickets);
+  if (edges.length === 0) return { ordered: [...tickets], enablerIds: new Set() };
+  const nodes = tickets.map((ticket) => ({
+    id: ticket.id,
+    parentId: ticket.parentId,
+    status: ticket.status,
+    ideaStage: ticket.idea?.root === true ? ticket.idea.stage : null,
+    number: ticket.number,
+    priority: ticket.priority ?? 0,
+    ticket,
+  }));
+  return { ordered: inSiblingOrder(nodes, edges).map((node) => node.ticket), enablerIds: enablers(nodes, edges) };
 }
 
 /** O ticket é a raiz de uma ideia ou está dentro de uma (ADR 0042). */
@@ -42,15 +106,15 @@ export interface MapDraft {
  */
 export const mixMapColors: MixColors<MapNode> = (colors) => mostWorryingColor(colors.map((entry) => entry.color));
 
-/** Cor própria do ticket, antes de os ramos serem pintados: a situação, ou vermelho quando bloqueado (ADR 0051). */
+/** Cor própria do ticket, antes de os ramos serem pintados: a situação, vermelho quando bloqueado (ADR 0051), o lugar na fila num "a fazer" sem filhos (ADR 0069). */
 function ticketColor(ticket: TicketSummary): string {
   const situation = effectiveSituation(ticket);
-  return situation === "blocked" ? SITUATION_COLORS.blocked : STATUS_COLORS[situation];
+  return situation === "cancelled" ? CANCELLED_COLOR : SITUATION_COLORS[situation];
 }
 
 /**
  * Organização na raiz, projetos abaixo dela e tickets abaixo do pai (ou do projeto, na raiz).
- * `ticketsByProject` traz a listagem de cada projeto na ordem da API (por `number`), que é a ordem dos irmãos.
+ * `ticketsByProject` traz a listagem de cada projeto na ordem da API (por `number`); os irmãos saem na ordem das dependências (ADR 0069).
  */
 export function buildMapItems(
   organization: Me["organization"],
@@ -83,7 +147,9 @@ export function buildMapItems(
   const tickets = visible.flatMap((project) => {
     const listed = ticketsByProject[project.id] ?? [];
     const byId = new Map(listed.map((ticket) => [ticket.id, ticket]));
-    return listed.map<MapNode>((ticket) => {
+    const { ordered, enablerIds } = orderProject(listed);
+    const counts = subtreeCounts(listed);
+    return ordered.map<MapNode>((ticket) => {
       const idea = isInIdea(ticket);
       const muted = idea && isInDiscardedIdea(ticket, byId);
       return {
@@ -96,6 +162,8 @@ export function buildMapItems(
         ticket,
         leafCount: 1,
         ...(muted ? { ideaDiscarded: true } : {}),
+        ...(enablerIds.has(ticket.id) ? { enabler: true } : {}),
+        ...(counts.has(ticket.id) ? { counts: counts.get(ticket.id)! } : {}),
       };
     });
   });
@@ -123,7 +191,7 @@ const ONLY_CANCELLED = PRECEDENCE.length;
 
 /**
  * Pinta os ramos (ADR 0051): todo nó com tickets abaixo (ticket com filhos, projeto, organização) ganha a cor da primeira
- * situação da precedência (bloqueado › em andamento › em revisão › a fazer › concluído) entre os tickets que contam
+ * situação da precedência (bloqueado › em andamento › em revisão › livre › próximo › esperando › a fazer › concluído, ADR 0069) entre os tickets que contam
  * abaixo dele: as folhas, mais qualquer ticket bloqueado no caminho. Cancelado e ideia não sobem; só cancelados dá o
  * cinza apagado; sem ticket abaixo, a cor própria do nó fica. Nenhuma cor é misturada.
  *

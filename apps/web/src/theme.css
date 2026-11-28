@@ -18,6 +18,23 @@
   --tp-on-accent: #121019;
   --tp-blocked: #ff5a4a;
   --tp-todo: #70778a;
+  /* Lugar na fila de um ticket "a fazer" sem filhos (ADR 0069): livre, próximo, esperando. Cópias em map/situation.ts. */
+  --tp-free: #ffb07a;
+  --tp-next: #ffe58f;
+  --tp-waiting: #a3a9b8;
+  /*
+   * Tons calmos da árvore explodida (revisão do dono, 2026-11-27): ali só livre e próximo falam alto; esperando é um neutro calmo, e em
+   * andamento, em revisão, concluído e bloqueado guardam o sentido num fundo misturado ao card. Derivados dos tokens acima.
+   */
+  --tp-tree-waiting: color-mix(in srgb, var(--tp-waiting) 13%, var(--tp-card));
+  --tp-tree-doing: color-mix(in srgb, var(--tp-doing) 24%, var(--tp-card));
+  --tp-tree-review: color-mix(in srgb, var(--tp-review) 18%, var(--tp-card));
+  --tp-tree-done: color-mix(in srgb, var(--tp-done) 18%, var(--tp-card));
+  --tp-tree-blocked: color-mix(in srgb, var(--tp-blocked) 24%, var(--tp-card));
+  --tp-tree-line: color-mix(in srgb, var(--tp-text-3) 70%, var(--tp-card));
+  /* Setas da seleção no mapa (ADR 0069): o que o ticket espera (chega nele) e o que ele libera (sai dele). */
+  --tp-arrow-waits: #67e8f9;
+  --tp-arrow-unlocks: #f5f7ff;
   --tp-doing: #3b8eff;
   --tp-review: #ffd000;
   --tp-done: #2ee6b6;

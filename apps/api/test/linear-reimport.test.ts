@@ -298,22 +298,21 @@ describe("item 5 e 6: não encontradas, detalhe, contagem e dados da tela", () =
 });
 
 describe("item 2: invariantes e retratos ilegíveis", () => {
-  it("concluído com filho aberto fica a fazer e três rodadas sem mudança não oscilam (zero atualizações)", async () => {
+  it("pai: a situação do Linear não é copiada (sai do filho aberto) e três rodadas sem mudança não oscilam (zero atualizações)", async () => {
     const { world } = await firstImport();
-    // p1 tem o filho aberto H e está em andamento (aqui e no Linear): o Linear o conclui, mas ele não pode concluir.
+    // p1 tem o filho aberto H: a situação de p1 sai dele (ADR 0068), qualquer que seja a do Linear.
     issue(world, "p1").state = "started";
     const started = await runAll();
-    expect(started.counts).toMatchObject({ updated: 1 });
-    expect((await byExt()).get("p1")!["status"]).toBe("in_progress");
+    expect(started.counts).toMatchObject({ updated: 0, keptTouched: 0 });
+    expect((await byExt()).get("p1")!["status"]).toBe("todo");
     issue(world, "p1").state = "completed";
     const second = await runAll();
     const rows = await byExt();
-    // não rebaixa a "a fazer": mantém a situação de hoje, e o retrato aplicado também
-    expect(rows.get("p1")!["status"]).toBe("in_progress");
-    expect((rows.get("p1")!["applied_snapshot"] as Row)["status"]).toBe("in_progress");
+    expect(rows.get("p1")!["status"]).toBe("todo");
+    expect((rows.get("p1")!["applied_snapshot"] as Row)["status"]).toBe("todo");
     expect(second.counts).toMatchObject({ updated: 0, keptTouched: 0 });
     for (let i = 0; i < 2; i += 1) expect((await runAll()).counts).toMatchObject({ updated: 0, keptTouched: 0 });
-    expect((await byExt()).get("p1")!["status"]).toBe("in_progress");
+    expect((await byExt()).get("p1")!["status"]).toBe("todo");
   });
 
   it("situação dentro de uma ideia não muda e a próxima rodada não insiste", async () => {
@@ -341,7 +340,7 @@ describe("item 2: invariantes e retratos ilegíveis", () => {
     expect((await byExt()).get("h")!["status"]).toBe("done");
   });
 
-  it("voltar a fazer um filho de pai concluído reabre o pai (evento automático) e o retrato acompanha", async () => {
+  it("voltar a fazer um filho de pai concluído leva o pai para em andamento (evento automático)", async () => {
     const world = base();
     world.list.push({ id: "k", identifier: "ENG-20", title: "Filho K", parent: "p2", state: "completed" });
     await firstImport(world);
@@ -351,9 +350,10 @@ describe("item 2: invariantes e retratos ilegíveis", () => {
     const second = await runAll();
     const after = await byExt();
     expect(after.get("k")!["status"]).toBe("in_progress");
-    expect(after.get("p2")!["status"]).toBe("todo");
-    expect(second.counts).toMatchObject({ updated: 1, reopened: 1 });
-    const reopen = (await events()).filter((event) => event["subject_id"] === rows.get("p2")!["id"] && (event["payload"] as Row)["automatic"] === true);
+    expect(after.get("p2")!["status"]).toBe("in_progress");
+    expect(second.counts).toMatchObject({ updated: 1 });
+    // um evento automático de situação no pai nesta rodada (o outro, da primeira importação, é a conta do filho concluído)
+    const reopen = (await events()).filter((event) => event["subject_id"] === rows.get("p2")!["id"] && (event["payload"] as Row)["automatic"] === true && (event["payload"] as Row)["runId"] === second.id);
     expect(reopen).toHaveLength(1);
     // nenhuma outra tabela de aviso recebeu linha: só atividade
     expect(JSON.stringify((await q("select distinct kind from activity_events where occurred_at > now() - interval '1 minute' order by kind")).map((r) => r["kind"]))).not.toMatch(/notif/);

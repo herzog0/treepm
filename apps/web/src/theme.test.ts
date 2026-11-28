@@ -49,6 +49,11 @@ describe("theme.css", () => {
     expect(tokenValue(name)).toBe(value);
   });
 
+  it("colors the status mark of each queue place with its token (ADR 0069)", () => {
+    const marks = readFileSync(resolve(SRC, "map/status-mark.css"), "utf8");
+    for (const place of ["free", "next", "waiting"]) expect(marks).toContain(`.status-mark[data-place="${place}"] { --mark: var(--tp-${place}); }`);
+  });
+
   it("declares the tokens inside :root", () => {
     expect(theme).toMatch(/:root\s*{/);
   });
@@ -64,6 +69,8 @@ describe("theme.css", () => {
       cancelled: TOKENS["--tp-cancelled"],
     });
     expect(SITUATION_COLORS.blocked).toBe(TOKENS["--tp-blocked"]);
+    // ADR 0069: os tons de fila, com o mesmo token no mapa, no marcador e na página do ticket.
+    expect([SITUATION_COLORS.free, SITUATION_COLORS.next, SITUATION_COLORS.waiting]).toEqual([tokenValue("--tp-free"), tokenValue("--tp-next"), tokenValue("--tp-waiting")]);
     expect(CANCELLED_COLOR).toBe(TOKENS["--tp-cancelled"]);
   });
 });

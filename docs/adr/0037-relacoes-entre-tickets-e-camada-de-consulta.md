@@ -1,5 +1,7 @@
 # ADR 0037 — Relações entre tickets e camada de consulta do projeto
 
+> **Alterada pela [ADR 0068](0068-pai-e-pedaco-ordem-e-dependencia-bloqueio-e-impedimento.md) em 2026-11-27:** "depende de" ganha dois tipos, "para começar" e "para entregar".
+
 **Status:** Aceita por Teodoro em 2026-11-21 quanto à direção ("Segue a sua recomendação pras coisas em aberto"). A coordenação tinha recomendado a tabela de relações, a camada de consulta e gravar a ligação "menciona"; o restante desta ADR está marcado como escolha da coordenação e vale até ele dizer o contrário. A tabela, a ligação "menciona" e a camada de consulta foram implementadas em 2026-11-21 (PRs #100, #104 e #106); "depende de" também (PR #111); a pergunta sobre o projeto também, com a API (PR #109) e a barra (PR #114). As cinco fatias estão no `main`. Nada foi testado com sessão real e nenhuma chamada a provedor real foi feita. **Data:** 2026-11-21.
 
 Muda, na [ADR 0036](0036-barra-de-pedidos-e-pagina-do-ticket-em-blocos.md), a regra de que a menção é guardada só como a chave no texto (a chave continua, e passa a existir também uma ligação gravada) e a forma de responder a pergunta sobre o projeto (a IA consulta, em vez de receber todos os tickets). Não muda a árvore, o significado de "filho" nem a procura do lugar do ticket novo ([ADR 0034](0034-um-so-tipo-de-ticket-das-folhas-para-o-topo.md)).

@@ -51,7 +51,7 @@ export async function seedChatTickets(pool: pg.Pool, world: World): Promise<Chat
   const blocker = await add(7, "Bloqueado por este", null);
   const grandchild = await add(8, SENTINEL.grandchild, child1);
   await pool.query("update projects set next_ticket_number = 9 where id = $1", [project]);
-  await pool.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ('org_A',$1,$2,$3,'depends_on'), ('org_A',$1,$4,$2,'depends_on')", [project, ticket, dependsOn, blocker]);
+  await pool.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind, need) values ('org_A',$1,$2,$3,'depends_on','start'), ('org_A',$1,$4,$2,'depends_on','start')", [project, ticket, dependsOn, blocker]);
   await pool.query("insert into ticket_assignees (org_id, ticket_id, person_id) values ('org_A',$1,$2)", [ticket, manager]);
   await pool.query("insert into ticket_comments (org_id, project_id, ticket_id, author_person_id, body) values ('org_A',$1,$2,$3,$4)", [project, ticket, manager, SENTINEL.comment]);
   await pool.query("insert into activity_events (org_id, actor_person_id, kind, subject_type, subject_id, payload) values ('org_A',$1,'ticket.updated','ticket',$2,$3)", [manager, ticket, JSON.stringify({ note: SENTINEL.history })]);

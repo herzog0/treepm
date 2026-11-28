@@ -396,27 +396,116 @@ describe("item 6: pai", () => {
   });
 });
 
-describe("item 7: concluído no Linear com filho aberto aqui", () => {
-  it("a regra da árvore vence, sem vaivém em rodadas seguidas", async () => {
+// ADR 0068 × ADR 0066: a situação de um ticket com filhos sai dos filhos; "deixar o Linear vencer" não se aplica a ela. A regra antiga
+// "concluído com filho aberto" (o item 7 de antes) virou esta: o pai nunca recebe a situação do Linear, com ou sem a opção.
+/** Depois de uma rodada com a opção, outra com a opção converge: zero mudanças, zero eventos, zero sobrescritos. */
+async function expectQuietOverwrite(): Promise<void> {
+  const before = await eventCount();
+  const again = await overwrite();
+  expect(again.counts).toMatchObject({ updated: 0, keptTouched: 0, keptMoved: 0, overwritten: 0, labelsAdded: 0, labelsRemoved: 0, parentsLinked: 0 });
+  expect(await updatedEvents(before)).toEqual([]);
+}
+/** A rodada passo a passo, conferindo depois de CADA passo que a situação de cada pai dado é a calculada pelos filhos (a mesma transação). */
+async function overwriteCheckingParents(parents: string[]): Promise<RunBody> {
+  const run = await begin({ overwrite: true });
+  for (let i = 0; i < 200; i += 1) {
+    const res = await post(`/${run.id}/step`);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    for (const id of parents) {
+      const [row] = await q(
+        `select p.status, case when bool_and(c.status = 'cancelled') then 'cancelled' when bool_and(c.status in ('done', 'cancelled')) then 'done'
+                when bool_or(c.status in ('in_progress', 'in_review', 'done')) then 'in_progress' else 'todo' end as derived
+           from tickets p join tickets c on c.parent_id = p.id and c.idea_stage is null where p.id = $1::uuid group by p.status`,
+        [id],
+      );
+      expect(row, `passo ${i}, pai ${id}`).toMatchObject({ status: row?.["derived"] });
+    }
+    if (res.body.done) return res.body;
+  }
+  throw new Error("não terminou");
+}
+
+describe("pai com situação calculada (ADR 0068) numa rodada com a opção", () => {
+  it("a opção nunca tenta gravar a situação do pai: sem erro, sem rodada presa, sem contar sobrescrita, e converge", async () => {
     const world = await firstImport();
     const s = await ticketOf("s");
     const child = (await h.call("POST", `/api/projects/${open()}/tickets`, as("admin"), { title: "Filho daqui", parentId: s })).body.id as string;
+    // O filho "a fazer" faz o pai passar a "a fazer"; à mão o pai não muda (409 `status_is_derived`).
+    expect((await ticket("s"))["status"]).toBe("todo");
+    expect((await h.call("PATCH", `/api/tickets/${s}`, as("admin"), { status: "in_review" })).status).toBe(409);
+    issue(world, "s").state = "completed";
+    const run = await overwrite();
+    expect(run).toMatchObject({ phase: "done", errorStreak: 0 });
+    expect(run.counts).toMatchObject({ overwritten: 0 });
+    expect(await ticket("s")).toMatchObject({ status: "todo", status_pending: false });
+    await expectQuietOverwrite();
+    await expectQuietNormalSync();
+    expect((await ticket("s"))["status"]).toBe("todo");
+    // O filho fecha: o pai conclui pela conta, não pelo Linear.
+    await patch(child, { status: "done" });
+    expect((await ticket("s"))["status"]).toBe("done");
+    await expectQuietOverwrite();
+  });
+
+  it("a situação do filho sobrescrita pela opção refaz a do pai na mesma transação", async () => {
+    await firstImport();
+    const p1 = await ticketOf("p1");
+    // `par` (filho de `p1` no Linear, "a fazer" lá) é posto em andamento aqui: o pai acompanha.
+    await patch(await ticketOf("par"), { status: "in_progress" });
+    expect((await ticket("p1"))["status"]).toBe("in_progress");
+    const run = await overwriteCheckingParents([p1]);
+    expect(run.counts).toMatchObject({ overwritten: 1 });
+    expect((await ticket("par"))["status"]).toBe("todo");
+    expect((await ticket("p1"))["status"]).toBe("todo");
+    await expectQuietOverwrite();
+    await expectQuietNormalSync();
+  });
+
+  it("o pai sobrescrito pela opção refaz a situação do pai antigo e do novo", async () => {
+    const world = await firstImport();
+    issue(world, "par").state = "started";
+    await sync();
+    const [p1, p2, par] = [await ticketOf("p1"), await ticketOf("p2"), await ticketOf("par")];
+    const mine = async (parentId: string) => {
+      const res = await h.call("POST", `/api/projects/${open()}/tickets`, as("admin"), { title: "Daqui", parentId });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+    };
+    await mine(p1);
+    await mine(p2);
+    expect((await ticket("p1"))["status"]).toBe("in_progress");
+    expect((await ticket("p2"))["status"]).toBe("todo");
+    // Movido aqui para `p2`: o antigo fica "a fazer" e o novo "em andamento".
+    await patch(par, { parentId: p2 });
+    expect((await ticket("p1"))["status"]).toBe("todo");
+    expect((await ticket("p2"))["status"]).toBe("in_progress");
+    const run = await overwriteCheckingParents([p1, p2]);
+    expect(run.counts).toMatchObject({ overwritten: 1 });
+    expect(await ticket("par")).toMatchObject({ parent_id: p1, status: "in_progress" });
+    expect((await ticket("p1"))["status"]).toBe("in_progress");
+    expect((await ticket("p2"))["status"]).toBe("todo");
+    await expectQuietOverwrite();
+    await expectQuietNormalSync();
+  });
+});
+
+describe("concluído no Linear com dependência \"para entregar\" aberta (ADR 0068, seção 3)", () => {
+  it("mexido aqui: a opção não conclui, fica em desvio sem vaivém; fechada a dependência, a rodada seguinte conclui", async () => {
+    const world = await firstImport();
+    const [s, other] = [await ticketOf("s"), await ticketOf("p")];
+    expect((await h.call("POST", `/api/tickets/${s}/dependencies`, as("admin"), { ticketId: other, need: "deliver" })).status).toBe(200);
     await patch(s, { status: "in_review" });
     issue(world, "s").state = "completed";
     const run = await overwrite();
-    expect((await ticket("s"))["status"]).toBe("in_review");
     expect(run.counts).toMatchObject({ overwritten: 0 });
+    expect(await ticket("s")).toMatchObject({ status: "in_review", status_pending: true });
     const before = await eventCount();
-    for (let i = 0; i < 2; i += 1) {
-      const again = await sync();
-      expect(again.counts).toMatchObject({ updated: 0, keptTouched: 0 });
-    }
+    await overwrite();
+    for (let i = 0; i < 2; i += 1) expect((await sync()).counts).toMatchObject({ updated: 0, keptTouched: 0, overwritten: 0 });
     expect(await updatedEvents(before)).toEqual([]);
     expect((await ticket("s"))["status"]).toBe("in_review");
-    // O filho fecha: a próxima sincronização normal conclui (o ticket deixou de ser "mexido aqui").
-    await patch(child, { status: "done" });
+    await patch(other, { status: "done" });
     await sync();
-    expect((await ticket("s"))["status"]).toBe("done");
+    expect(await ticket("s")).toMatchObject({ status: "done", status_pending: false });
   });
 });
 

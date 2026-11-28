@@ -273,6 +273,7 @@
     "overwrite": {
       "title": "Overwrite with Linear?",
       "back": "These go back to Linear's: title, description, status, priority, assignee, due date, labels, and the parent of issues that have a parent in Linear.",
+      "derived": "The status of a ticket with children is calculated from its children and is not overwritten.",
       "same": "These don't change: comments, conversations, tickets created here; issues without a parent or a project in Linear stay where they are.",
       "review": "“In review” goes back to “In progress”.",
       "lost": "What was written here in these fields is replaced.",

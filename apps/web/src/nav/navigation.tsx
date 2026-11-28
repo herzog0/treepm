@@ -66,6 +66,8 @@ export function viewHref(view: View, href: string = window.location.href, projec
   url.searchParams.delete("project");
   url.searchParams.delete("ticket");
   url.searchParams.delete("focus");
+  // A visão do projeto (ADR 0070, `layout`) é do mapa: não vai para as outras seções; ao voltar, vale a última escolha.
+  if (view !== "map") url.searchParams.delete("layout");
   if (view === "map") url.searchParams.delete("view");
   else url.searchParams.set("view", view);
   if (view === "import" && projectId !== null) url.searchParams.set("project", projectId);

@@ -115,7 +115,7 @@ describe("TicketPage content", () => {
     const view = within(page());
     expect(view.queryByText("Agrupador")).not.toBeInTheDocument();
     expect(view.getByText("Situação")).toBeInTheDocument();
-    expect(view.getByRole("button", { name: "Em revisão" })).toHaveAttribute("aria-haspopup", "menu");
+    expect(view.getByText("Calculada a partir dos itens.").closest("dd")).toHaveTextContent("Em revisão");
     expect(view.getByText("Progresso")).toBeInTheDocument();
     expect(view.getByText("1 de 3 concluídos")).toBeInTheDocument();
     expect(view.getByText("Raiz do projeto")).toBeInTheDocument();
@@ -124,7 +124,8 @@ describe("TicketPage content", () => {
     const list = view.getByRole("list", { name: "Itens" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(3);
     expect(within(list).getByRole("button", { name: /ALFA-3.*Revisar o texto.*Concluído/ })).toBeInTheDocument();
-    expect(within(list).getByRole("button", { name: /ALFA-6.*Subfase.*A fazer/ })).toBeInTheDocument();
+    // Folha "a fazer" com lugar na fila: o texto diz o lugar (ADR 0069).
+    expect(within(list).getByRole("button", { name: /ALFA-6.*Subfase.*Livre/ })).toBeInTheDocument();
     await userEvent.click(within(list).getByRole("button", { name: /ALFA-3.*Revisar o texto/ }));
     expect(onOpenTicket).toHaveBeenCalledWith("t3");
   });
@@ -176,7 +177,7 @@ describe("TicketPage content", () => {
     await loaded();
     const view = within(page());
     expect(view.getByText("2 de 2 concluídos · 1 cancelado")).toBeInTheDocument();
-    expect(view.getByRole("button", { name: "Em andamento" })).toHaveAttribute("aria-haspopup", "menu");
+    expect(view.getByText("Calculada a partir dos itens.").closest("dd")).toHaveTextContent("Em andamento");
   });
 
   it("opens the parent when the parent is clicked", async () => {
@@ -228,49 +229,36 @@ describe("TicketPage editing", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 
-  it("changes the status of a ticket that has items too", async () => {
+  it("a ticket with items shows its status and where it comes from, with no menu (ADR 0068)", async () => {
     const client = clientWith();
     setup({ client, ticketId: "t1" });
     await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Em revisão" }));
-    await userEvent.click(screen.getByRole("menuitemradio", { name: "A fazer" }));
-    expect(client.updateTicket).toHaveBeenCalledWith("t1", { status: "todo" });
+    const row = within(page()).getByText("Calculada a partir dos itens.").closest("dd") as HTMLElement;
+    expect(row).toHaveTextContent("Em revisão");
+    expect(within(row).queryByRole("button")).not.toBeInTheDocument();
+    expect(client.updateTicket).not.toHaveBeenCalled();
   });
 
-  it("refuses to conclude with open items: plural message with the open direct items, and the status goes back", async () => {
-    const updateTicket = vi.fn(async () => failed("conflict", "ticket_has_open_children"));
-    const { onChanged } = setup({ client: clientWith({ updateTicket }), ticketId: "t1" });
+  it("a ticket without items keeps the status menu and no derived line", async () => {
+    const client = clientWith();
+    setup({ client, ticketId: "t2" });
     await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Em revisão" }));
+    expect(within(page()).queryByText("Calculada a partir dos itens.")).not.toBeInTheDocument();
+    await userEvent.click(within(page()).getByRole("button", { name: "Em andamento" }));
     await userEvent.click(screen.getByRole("menuitemradio", { name: "Concluído" }));
-    expect(updateTicket).toHaveBeenCalledWith("t1", { status: "done" });
-    expect(await screen.findByRole("alert")).toHaveTextContent("Conclua ou cancele os 2 itens abertos antes de concluir este ticket.");
-    // A situação volta ao que era: o botão ainda mostra "Em revisão".
-    expect(within(page()).getByRole("button", { name: "Em revisão" })).toHaveAttribute("aria-haspopup", "menu");
-    expect(within(page()).queryByRole("button", { name: "Concluído" })).not.toBeInTheDocument();
-    expect(onChanged).not.toHaveBeenCalled();
+    expect(client.updateTicket).toHaveBeenCalledWith("t2", { status: "done" });
   });
 
-  it("refuses to conclude with one open item: singular message", async () => {
-    setup({ client: clientWith({ updateTicket: vi.fn(async () => failed("conflict", "ticket_has_open_children")) }), ticketId: "t7" });
+  it("the API refusing a status that became derived shows its phrase next to the status, and the status goes back", async () => {
+    const updateTicket = vi.fn(async () => failed("conflict", "status_is_derived"));
+    const { onChanged } = setup({ client: clientWith({ updateTicket }), ticketId: "t2" });
     await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "A fazer" }));
-    await userEvent.click(screen.getByRole("menuitemradio", { name: "Concluído" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Conclua ou cancele o item aberto antes de concluir este ticket.");
-    expect(within(page()).getByRole("button", { name: "A fazer" })).toHaveAttribute("aria-haspopup", "menu");
-  });
-
-  it("the open-items message sits next to the status control and goes away after the next success", async () => {
-    const updateTicket = vi.fn().mockResolvedValueOnce(failed("conflict", "ticket_has_open_children")).mockImplementation(async () => ok(detailOf(summaries[0]!)));
-    setup({ client: clientWith({ updateTicket }), ticketId: "t1" });
-    await loaded();
-    await userEvent.click(within(page()).getByRole("button", { name: "Em revisão" }));
+    await userEvent.click(within(page()).getByRole("button", { name: "Em andamento" }));
     await userEvent.click(screen.getByRole("menuitemradio", { name: "Concluído" }));
     const alert = await screen.findByRole("alert");
-    expect(within(page()).getByRole("button", { name: "Em revisão" }).closest("dd")).toContainElement(alert);
-    await userEvent.click(within(page()).getByRole("button", { name: "Em revisão" }));
-    await userEvent.click(screen.getByRole("menuitemradio", { name: "A fazer" }));
-    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(alert).toHaveTextContent("A situação deste ticket vem dos itens dele. Mude a situação dos itens.");
+    expect(within(page()).getByRole("button", { name: "Em andamento" }).closest("dd")).toContainElement(alert);
+    expect(onChanged).not.toHaveBeenCalled();
   });
 
   it("edits the title and sends only the changed field; Cancelar discards", async () => {
@@ -540,7 +528,7 @@ describe("TicketPage creation", () => {
   });
 });
 
-describe("reopening warnings (ADR 0034)", () => {
+describe("warnings for a concluded parent that receives an open ticket (ADR 0068)", () => {
   // t20 concluído (com filho t21 concluído); t22 aberto, solto; t23 concluído, solto; t24 em andamento, com filho.
   const reopening: TicketSummary[] = [
     makeTicket("t20", "p1", 20, "Pai concluído", { key: "ALFA-20", status: "done", progress: { done: 1, total: 1, excluded: 0 } }),
@@ -564,7 +552,7 @@ describe("reopening warnings (ADR 0034)", () => {
     await userEvent.click(within(page()).getByRole("button", { name: "Mudar" }));
     await userEvent.click(within(screen.getByRole("group", { name: "Escolher o ticket pai" })).getByRole("button", { name: parent }));
   };
-  const notice = (key: string) => `«${key}» estava concluído e voltou para "A fazer".`;
+  const notice = (key: string) => `«${key}» estava concluído e deixou de estar: a situação dele sai dos itens.`;
 
   it("hands the concluded ticket to the create form, so it can warn, from Novo ticket aqui dentro", async () => {
     const { onStartCreate } = setup({ client: clientFor(), ticketId: "t20" });
@@ -573,7 +561,7 @@ describe("reopening warnings (ADR 0034)", () => {
     expect(onStartCreate).toHaveBeenCalledWith({ projectId: "p1", parentId: "t20", parent: { key: "ALFA-20", status: "done" } });
   });
 
-  it("after moving an open ticket under a concluded parent, tells that the parent was reopened", async () => {
+  it("after moving an open ticket under a concluded parent, tells that the parent is no longer concluded", async () => {
     await move("t22", /ALFA-20/);
     expect(await within(page()).findByText(notice("ALFA-20"))).toBeInTheDocument();
   });

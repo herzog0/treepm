@@ -71,7 +71,7 @@ async function expectQuiet(): Promise<void> {
   const before = await eventCount();
   const snaps = await snapshots();
   const tickets = await ticketState();
-  for (let i = 0; i < 2; i += 1) expect((await runAll()).counts).toMatchObject({ updated: 0, keptTouched: 0, issuesCreated: 0, reopened: 0, keptMoved: 0 });
+  for (let i = 0; i < 2; i += 1) expect((await runAll()).counts).toMatchObject({ updated: 0, keptTouched: 0, issuesCreated: 0, keptMoved: 0 });
   expect(await eventCount()).toBe(before);
   expect(await snapshots()).toBe(snaps);
   expect(await ticketState()).toBe(tickets);
@@ -91,24 +91,24 @@ describe("item 1: a hierarquia só move; a situação é da fase statuses", () =
     expect(status(rows, "p")).toBe("done");
     expect(status(rows, "c")).toBe("done");
     expect(appliedStatus(rows, "p")).toBe("done");
-    expect(second.counts).toMatchObject({ updated: 1, reopened: 0 });
+    expect(second.counts).toMatchObject({ updated: 1 });
     await expectQuiet();
   });
 
-  it("filho aberto movido para baixo de um pai concluído (sem mudar de situação): a fase statuses reabre o pai", async () => {
+  it("filho aberto movido para baixo de um pai concluído (sem mudar de situação): o pai segue o filho (ADR 0068)", async () => {
     const w = world([one("p", "completed"), one("c", "started")]);
     await firstImport(w);
     issue(w, "c").parent = "p";
     const second = await runAll();
     const rows = await byExt();
     expect(status(rows, "c")).toBe("in_progress");
-    expect(status(rows, "p")).toBe("todo");
-    expect(appliedStatus(rows, "p")).toBe("todo");
-    expect(second.counts).toMatchObject({ reopened: 1 });
+    expect(status(rows, "p")).toBe("in_progress");
+    expect(appliedStatus(rows, "p")).toBe("in_progress");
+    expect(second.counts).toMatchObject({ updated: 0, keptTouched: 0 });
     await expectQuiet();
   });
 
-  it("rodada abandonada entre hierarchy e statuses: as marcas sobrevivem e a seguinte reabre o pai e aplica a situação", async () => {
+  it("rodada abandonada entre hierarchy e statuses: as marcas sobrevivem e a seguinte aplica a situação do filho, e o pai o segue", async () => {
     const w = world([one("p", "completed"), one("c", "completed")]);
     await firstImport(w);
     issue(w, "c").parent = "p";
@@ -123,20 +123,20 @@ describe("item 1: a hierarquia só move; a situação é da fase statuses", () =
     await runAll();
     const rows = await byExt();
     expect(status(rows, "c")).toBe("in_progress");
-    expect(status(rows, "p")).toBe("todo");
+    expect(status(rows, "p")).toBe("in_progress");
     await expectQuiet();
   });
 });
 
 describe("itens 2 e 4: convergência", () => {
-  it("P e C concluídos; C reabre (P reabre); C conclui de novo: P volta a concluído na mesma rodada", async () => {
+  it("P e C concluídos; C reabre (P segue C); C conclui de novo: P volta a concluído na mesma rodada", async () => {
     const w = world([one("p", "completed"), one("c", "completed", { parent: "p" })]);
     await firstImport(w);
     issue(w, "c").state = "started";
     await runAll();
     let rows = await byExt();
-    expect(status(rows, "p")).toBe("todo");
-    expect(rows.get("p")!["status_pending"]).toBe(true); // em desvio: aplicada todo ≠ desejada done
+    expect(status(rows, "p")).toBe("in_progress");
+    expect(rows.get("p")!["status_pending"]).toBe(false); // pai: a situação sai dos filhos, não há desvio (ADR 0068)
     await expectQuiet();
     issue(w, "c").state = "completed";
     const third = await runAll();
@@ -145,7 +145,7 @@ describe("itens 2 e 4: convergência", () => {
     expect(status(rows, "p")).toBe("done");
     expect(appliedStatus(rows, "p")).toBe("done");
     expect(rows.get("p")!["status_pending"]).toBe(false);
-    expect(third.counts).toMatchObject({ updated: 2 });
+    expect(third.counts).toMatchObject({ updated: 1 }); // só C: P conclui pela conta
     await expectQuiet();
   });
 
@@ -184,45 +184,46 @@ describe("itens 2 e 4: convergência", () => {
     await expectQuiet();
   });
 
-  it("cadeia de três níveis, todos concluídos no Linear numa rodada só: os três concluem nessa rodada", async () => {
+  it("cadeia de três níveis, todos concluídos no Linear numa rodada só: os três concluem nessa rodada (a folha pelo Linear, os pais pela conta)", async () => {
     const w = world([one("a", "started"), one("b", "started", { parent: "a" }), one("c", "started", { parent: "b" })]);
     await firstImport(w);
     for (const id of ["a", "b", "c"]) issue(w, id).state = "completed";
     const second = await runAll();
     const rows = await byExt();
     for (const id of ["a", "b", "c"]) expect(status(rows, id), id).toBe("done");
-    expect(second.counts).toMatchObject({ updated: 3 });
+    expect(second.counts).toMatchObject({ updated: 1 });
     await expectQuiet();
   });
 
-  it("ticket em desvio fica aberto como está (não é rebaixado) e continua quieto nas rodadas seguintes", async () => {
+  it("pai concluído no Linear com filho aberto: a situação sai do filho, sem desvio, e continua quieto nas rodadas seguintes", async () => {
     const w = world([one("p", "started"), one("c", "unstarted", { parent: "p" })]);
     await firstImport(w);
+    expect(status(await byExt(), "p")).toBe("todo");
     issue(w, "p").state = "completed";
     await runAll();
     const rows = await byExt();
-    expect(status(rows, "p")).toBe("in_progress");
-    expect(rows.get("p")!["status_pending"]).toBe(true);
+    expect(status(rows, "p")).toBe("todo");
+    expect(rows.get("p")!["status_pending"]).toBe(false);
     await expectQuiet();
   });
 });
 
-describe("item 3: a reabertura forçada não apaga a marca de mexido aqui", () => {
-  it("a pessoa conclui P à mão e o Linear cancela P e reabre o filho: P reabre pela invariante, o aplicado fica como estava e a edição da pessoa vale", async () => {
+describe("item 3: a situação de um pai não é marcada à mão nem copiada do Linear", () => {
+  it("pai: a pessoa não marca P à mão, e o Linear cancelar P e reabrir o filho deixa P seguindo o filho (ADR 0068)", async () => {
     const w = world([one("p", "started"), one("c", "completed", { parent: "p" })]);
     await firstImport(w);
     const before = await byExt();
-    expect((await patch(before.get("p")!["id"], { status: "done" })).status).toBe(200);
+    expect(status(before, "p")).toBe("done"); // sai do filho concluído
+    expect((await patch(before.get("p")!["id"], { status: "in_progress" })).status).toBe(409);
     issue(w, "p").state = "canceled";
     issue(w, "c").state = "started";
     const second = await runAll();
     const rows = await byExt();
     expect(status(rows, "c")).toBe("in_progress");
-    expect(status(rows, "p")).toBe("todo"); // a invariante mandou; não foi cancelado por cima da edição
-    expect(appliedStatus(rows, "p")).toBe("in_progress"); // o aplicado não acompanhou a reabertura
-    expect(second.counts).toMatchObject({ keptTouched: 1 });
+    expect(status(rows, "p")).toBe("in_progress"); // o cancelado do Linear não é copiado para o pai
+    expect(second.counts).toMatchObject({ updated: 1, keptTouched: 0 });
     await expectQuiet();
-    expect(status(await byExt(), "p")).toBe("todo");
+    expect(status(await byExt(), "p")).toBe("in_progress");
   });
 });
 

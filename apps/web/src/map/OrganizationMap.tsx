@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ApiClient, Me, Person, Project, TicketSummary } from "../api/client.js";
 import { useTranslation } from "react-i18next";
 import { useApiResource } from "../api/useApiResource.js";
-import { emptyQueueReason, playTemplate, playTemplates, workQueue } from "@treepm/domain";
+import { emptyQueueReason, isFinished, playTemplate, playTemplates, workQueue } from "@treepm/domain";
 import type { PlayInput, PlayTemplateId, WorkScope } from "@treepm/domain";
 import { CommandBar } from "../command/CommandBar.js";
 import { PlayBar } from "../play/PlayBar.js";
@@ -28,13 +28,19 @@ import { loadMapData, mergeMapData } from "./mapData.js";
 import type { MapData } from "./mapData.js";
 import { useAutoRefresh } from "./useAutoRefresh.js";
 import { MapDetailProvider, buildDetailData, createMapScaleStore } from "./detail.js";
-import { DRAFT_NODE_ID, buildMapItems, mixMapColors } from "./items.js";
+import { DRAFT_NODE_ID, buildMapItems, isInIdea, mixMapColors } from "./items.js";
 import type { MapDraft } from "./items.js";
 import { mapGeometry } from "./mapGeometry.js";
 import { computeMapMaxScale } from "./zoom.js";
 import type { MapNode } from "./items.js";
 import { StatusLegend } from "./StatusLegend.js";
-import { renderNodeContent } from "./nodeContent.js";
+import { SelectionArrows } from "./SelectionArrows.js";
+import { ExplodedTree } from "../exploded/ExplodedTree.js";
+import { explodedFocus } from "../exploded/focus.js";
+import { useMapLayout } from "../exploded/viewChoice.js";
+import { selectionArrows } from "./arrows.js";
+import type { Arrow, ArrowLink } from "./arrows.js";
+import { renderNodeContent, ticketAriaLabel } from "./nodeContent.js";
 import "@treepm/react/styles.css";
 import "../demo/Demo.css";
 import "./map.css";
@@ -82,7 +88,7 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
       node.kind === "organization"
         ? t("node.organization", { label: node.label, count: childCount })
         : node.kind === "ticket"
-          ? t(isAgentWorkActive(node.ticket?.agentWork, clock) ? "node.ticketWorking" : "node.ticket", { label: describeNode(node) })
+          ? ticketAriaLabel(t, node, isAgentWorkActive(node.ticket?.agentWork, clock))
           : node.kind === "draft"
             ? t("node.draft", { label: node.label })
             : t("node.project", { label: describeNode(node) }),
@@ -165,6 +171,75 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
   useLayoutEffect(() => scaleStore.notify(), [scaleStore, canvas.camera.scale, layout]);
   const canvasRef = useRef(canvas);
   canvasRef.current = canvas;
+  // As dependências de todos os projetos, nos dois sentidos (ADR 0069, seção 5): de quem cada ticket depende e quem depende dele.
+  const dependencyIndex = useMemo(() => {
+    const byId = new Map<string, TicketSummary>();
+    const dependents = new Map<string, { id: string; need: ArrowLink["need"] }[]>();
+    for (const list of Object.values(ticketsByProject)) {
+      for (const ticket of list) {
+        byId.set(ticket.id, ticket);
+        for (const dependency of ticket.dependencies ?? []) {
+          const entry = { id: ticket.id, need: dependency.need };
+          const known = dependents.get(dependency.id);
+          if (known) known.push(entry);
+          else dependents.set(dependency.id, [entry]);
+        }
+      }
+    }
+    return { byId, dependents };
+  }, [ticketsByProject]);
+  // Funções estáveis para a árvore explodida: os cards são memorizados e não se refazem a cada quadro da câmera.
+  const clearSelection = useCallback(() => selectNode(null), [selectNode]);
+  // A segunda visão do projeto (ADR 0070): o endereço guarda a escolha e o navegador lembra a última.
+  const [mapLayout, setMapLayout] = useMapLayout();
+  // O que a árvore explodida mostra sai do foco do mapa: o projeto, ou um ticket com filhos (ADR 0070, seção 2).
+  const treeFocus = useMemo(() => {
+    if (mapLayout !== "tree") return null;
+    const byId = new Map(
+      [...index.itemById].map(([id, node]) => [id, { id, parentId: node.parentId, kind: node.kind, projectId: node.kind === "project" ? node.id : (node.ticket?.projectId ?? null) }] as const),
+    );
+    const hasChildren = (id: string) => (index.childrenByParentId.get(id) ?? []).some((child) => child.ticket !== null && !isInIdea(child.ticket));
+    const projectIds = projects.filter((project) => project.archivedAt === null).map((project) => project.id);
+    return explodedFocus({ byId, hasChildren, mapFocus: focusId, openTicketId, projectIds });
+  }, [mapLayout, index, focusId, openTicketId, projects]);
+  // O caminho até o foco da árvore (o projeto e os pais) e o "Ver só <pai>" do ticket selecionado (ADR 0070, seção 2).
+  const treePath = useMemo(() => {
+    if (treeFocus === null) return [];
+    const path: { id: string; label: string }[] = [];
+    for (let node = index.itemById.get(treeFocus.ticketId ?? treeFocus.projectId); node && node.kind !== "organization"; node = node.parentId === null ? undefined : index.itemById.get(node.parentId)) {
+      path.unshift({ id: node.id, label: node.label });
+    }
+    return path;
+  }, [treeFocus, index]);
+  const narrowParent = selected?.kind === "ticket" && selected.parentId !== null ? index.itemById.get(selected.parentId) : undefined;
+  const narrowTo = treeFocus !== null && narrowParent?.kind === "ticket" && narrowParent.id !== treeFocus.ticketId ? { id: narrowParent.id, label: narrowParent.label } : null;
+  // As setas do ticket selecionado, e só dele, calculadas no mesmo render que a câmera e a cena: seguem zoom e arrasto sem atraso.
+  const arrows: readonly Arrow[] = (() => {
+    if (selected?.kind !== "ticket" || mapLayout === "tree") return [];
+    const ticket = dependencyIndex.byId.get(selected.id);
+    if (!ticket) return [];
+    const link = (other: { id: string; need: ArrowLink["need"] }): ArrowLink | null => {
+      const target = dependencyIndex.byId.get(other.id);
+      return target ? { id: other.id, need: other.need, finished: isFinished(target.status) } : null;
+    };
+    const waitsFor = (ticket.dependencies ?? []).map(link).filter((entry) => entry !== null);
+    const unlocks = (dependencyIndex.dependents.get(ticket.id) ?? []).map(link).filter((entry) => entry !== null);
+    if (waitsFor.length === 0 && unlocks.length === 0) return [];
+    const scale = canvas.camera.scale;
+    return selectionArrows({
+      selectedId: ticket.id,
+      waitsFor,
+      unlocks,
+      parentOf: (id) => index.itemById.get(id)?.parentId ?? null,
+      scene: canvas.scene,
+      layoutPoint: (id) => {
+        const node = layout.nodeById.get(id);
+        return node ? { x: node.x * scale, y: (node.y + node.height / 2) * scale } : null;
+      },
+      camera: canvas.camera,
+      viewport: canvas.size,
+    });
+  })();
   live.current = { selectedId, selected, pageOpen, openTicketId, creating, panelOpen: panel.open, play };
   const hasOpenNode = openTicketId !== null && index.itemById.has(openTicketId);
 
@@ -525,6 +600,15 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
               </span>
             ))}
           </nav>
+          <div className="map-layout-switch" role="group" aria-label={t("exploded.switch")}>
+            {(["map", "tree"] as const).map((choice) => (
+              <button key={choice} type="button" aria-pressed={mapLayout === choice} aria-label={t(`exploded.${choice}`)} onClick={() => setMapLayout(choice)}>
+                {/* Na tela estreita, o rótulo curto: o caminho e "Áreas e projetos" precisam do espaço da barra. */}
+                <span className="map-layout-long">{t(`exploded.${choice}`)}</span>
+                <span className="map-layout-short" aria-hidden="true">{t(`exploded.${choice}Short`)}</span>
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             className="map-panel-toggle"
@@ -537,6 +621,20 @@ function MapView({ client, me, projects, people, ticketsByProject, onChanged, on
       )}
       renderOverlay={() => (
         <>
+          <SelectionArrows arrows={arrows} />
+          {treeFocus !== null && (
+            <ExplodedTree
+              key={`${treeFocus.projectId}:${treeFocus.ticketId ?? ""}`}
+              tickets={ticketsByProject[treeFocus.projectId] ?? []}
+              focus={treeFocus}
+              selectedId={selectedId}
+              onSelect={selectNode}
+              onClearSelection={clearSelection}
+              focusPath={treePath}
+              narrowTo={narrowTo}
+              onFocus={focusNode}
+            />
+          )}
           <CommandBar
             tickets={ticketsByProject}
             aside={pageOpen ? "ticket" : panel.open ? "areas" : "none"}

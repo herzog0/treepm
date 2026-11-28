@@ -111,16 +111,32 @@ const ticketSummarySchema = z.object({
    * de teste literais compilarem sem mudança (ausente = 0). Quem monta a interface pode apertar para obrigatório.
    */
   priority: z.number().int().optional(),
-  /** Depende de ticket ainda aberto (ADR 0037); a fila "próximos para trabalhar" deixa o ticket de fora. A API sempre manda; ausente = não. */
+  /** Bloqueado (ADR 0068, seção 5): aberto com impedimento marcado; a fila "próximos para trabalhar" deixa o ticket de fora. A API sempre manda; ausente = não. */
   blocked: z.boolean().optional(),
+  /**
+   * Lugar na fila (ADR 0068, seção 4): livre, próximo ou esperando; nulo para ticket finalizado, com filhos ou ideia. A API sempre manda;
+   * opcional só para os dados de teste literais (ausente = nulo). Um valor desconhecido (API mais nova) vale nulo.
+   */
+  place: z.enum(["free", "next", "waiting"]).nullable().catch(null).optional(),
   /** Prazo (ADR 0064): data de calendário `AAAA-MM-DD`, sem hora nem fuso; `null` sem prazo. A API sempre manda e não diz se está atrasado (o "hoje" é o do navegador); ausente = sem prazo. */
   dueDate: z.string().nullable().optional(),
   /** Etiquetas do ticket (ADR 0065), por nome; a API sempre manda. Opcional só para os dados de teste literais: ausente = nenhuma (leia com `?? []`). */
   labels: z.array(labelSchema).optional(),
+  /**
+   * Os tickets de que este depende, com o tipo (ADR 0069, seção 1): só a lista do projeto traz. O mapa calcula daqui a ordem dos irmãos, o
+   * habilitador e as setas. Ausente (outras rotas, API antiga, dados de teste literais): nenhuma; leia com `?? []`. Tipo desconhecido vale "para começar".
+   */
+  dependencies: z.array(z.object({ id: z.string(), need: z.enum(["start", "deliver"]).catch("start") })).optional(),
 });
 const ticketLinkSchema = z.object({ id: z.string(), key: z.string(), title: z.string(), status: ticketStatus });
 /** Ligação entre tickets (dependência ou "Relacionado a"); `fromLinear`: trazida do Linear por uma sincronização (ADR 0061, fatia 3), ausente numa API antiga. */
 const relationLinkSchema = ticketLinkSchema.extend({ fromLinear: z.boolean().optional() });
+/** Tipo de "depende de" (ADR 0068): `start` (para começar) ou `deliver` (para entregar). */
+export type DependencyNeed = "start" | "deliver";
+/** Uma dependência, com o tipo; ausente (API antiga, dados de teste literais) vale "para começar": leia com `?? "start"`. */
+const dependencyLinkSchema = relationLinkSchema.extend({ need: z.enum(["start", "deliver"]).optional() });
+/** O impedimento marcado (ADR 0068, seção 5): o motivo, quem marcou e quando. */
+const impedimentSchema = z.object({ reason: z.string(), by: z.object({ id: z.string(), displayName: z.string(), avatarUrl: z.string().nullable() }), at: z.string() });
 const contributionStatus = z.enum(["todo", "in_progress", "done"]);
 const contributionSchema = z.object({
   id: z.string(),
@@ -161,9 +177,11 @@ const ticketDetailSchema = ticketSummarySchema.extend({
   canTriageIdea: z.boolean().optional(),
   /** Os tickets do projeto que mencionam este na descrição, em ordem de número (ADR 0037). */
   mentionedBy: z.array(ticketLinkSchema),
-  /** Os tickets de que este depende e os que dependem deste, em ordem de número (ADR 0037). */
-  dependsOn: z.array(relationLinkSchema),
-  blocks: z.array(relationLinkSchema),
+  /** Os tickets de que este depende e os que dependem deste, em ordem de número (ADR 0037), cada um com o tipo (ADR 0068). */
+  dependsOn: z.array(dependencyLinkSchema),
+  blocks: z.array(dependencyLinkSchema),
+  /** O impedimento marcado (ADR 0068, seção 5); nulo sem impedimento. Ausente (API antiga, dados de teste literais): nenhum; leia com `?? null`. */
+  impediment: impedimentSchema.nullable().optional(),
   /** "Relacionado a" (ADR 0061, fatia 3): simétrica, aparece nos dois tickets; só vem do Linear. Um servidor antigo não manda (vale vazia). */
   related: z.array(relationLinkSchema).default([]),
   createdByPersonId: z.string(),
@@ -465,7 +483,12 @@ const activityEntrySchema = z.discriminatedUnion("type", [
   z.object({ ...activityBase, type: z.literal("idea_reopened") }),
   z.object({ ...activityBase, type: z.literal("assignee_added"), person: activityPersonSchema.nullable() }),
   z.object({ ...activityBase, type: z.literal("assignee_removed"), person: activityPersonSchema.nullable() }),
-  z.object({ ...activityBase, type: z.literal("dependency_added"), ticket: activityTicketSchema }),
+  /** `need` (ADR 0068): o tipo da dependência criada; nulo nos eventos antigos (e ausente numa API antiga). */
+  z.object({ ...activityBase, type: z.literal("dependency_added"), ticket: activityTicketSchema, need: z.enum(["start", "deliver"]).nullable().optional() }),
+  z.object({ ...activityBase, type: z.literal("dependency_need_changed"), ticket: activityTicketSchema, from: z.enum(["start", "deliver"]), to: z.enum(["start", "deliver"]) }),
+  /** Impedimento marcado e limpo (ADR 0068, seção 5): só o fato; limpo ao concluir ou cancelar vem `automatic`. */
+  z.object({ ...activityBase, type: z.literal("impediment_marked") }),
+  z.object({ ...activityBase, type: z.literal("impediment_cleared") }),
   z.object({ ...activityBase, type: z.literal("dependency_removed"), ticket: activityTicketSchema }),
   /** "Relacionado a" removida aqui (ADR 0061, fatia 3); a relação só é criada pelo Linear. */
   z.object({ ...activityBase, type: z.literal("related_removed"), ticket: activityTicketSchema }),
@@ -755,9 +778,9 @@ function chatDetailsOf(code: string, details: unknown): Record<string, unknown> 
   return CHAT_DETAIL_CODES.has(code) && typeof details === "object" && details !== null && !Array.isArray(details) ? (details as Record<string, unknown>) : undefined;
 }
 
-/** `details.keys` do erro `unknown_ticket_keys`: só a lista de textos conta, o resto é ignorado. */
+/** `details.keys` dos erros `unknown_ticket_keys` e `ticket_has_open_delivery_dependencies` (ADR 0068): só a lista de textos conta, o resto é ignorado. */
 function unknownKeysOf(code: string, details: unknown): string[] | undefined {
-  if (code !== "unknown_ticket_keys" || typeof details !== "object" || details === null) return undefined;
+  if ((code !== "unknown_ticket_keys" && code !== "ticket_has_open_delivery_dependencies") || typeof details !== "object" || details === null) return undefined;
   const keys = (details as { keys?: unknown }).keys;
   return Array.isArray(keys) && keys.every((key) => typeof key === "string") ? (keys as string[]) : undefined;
 }
@@ -908,9 +931,16 @@ export function createApiClient({ getToken, fetch: fetchImpl, actAsId = null }: 
     removeContribution: (id: string) => request("DELETE", `/api/contributions/${id}`, null),
     putContributionPerson: (id: string, personId: string) => request("PUT", `/api/contributions/${id}/people/${personId}`, contributionSchema),
     removeContributionPerson: (id: string, personId: string) => request("DELETE", `/api/contributions/${id}/people/${personId}`, null),
-    /** "Este ticket depende de `ticketId`" (ADR 0037); repetir é sucesso. */
-    addTicketDependency: (id: string, ticketId: string) =>
-      request("POST", `${ticket(id)}/dependencies`, ticketDetailSchema, { ticketId }),
+    /**
+     * "Este ticket depende de `ticketId`" (ADR 0037); repetir é sucesso. Sem `need`, a API cria "para começar"; com `need`, cria desse
+     * tipo ou troca o tipo da que existe (ADR 0068).
+     */
+    addTicketDependency: (id: string, ticketId: string, need?: DependencyNeed) =>
+      request("POST", `${ticket(id)}/dependencies`, ticketDetailSchema, need === undefined ? { ticketId } : { ticketId, need }),
+    /** Marca o impedimento com o motivo (ADR 0068, seção 5); marcar de novo troca o motivo. */
+    markTicketImpediment: (id: string, reason: string) => request("PUT", `${ticket(id)}/impediment`, ticketDetailSchema, { reason }),
+    /** Limpa o impedimento; sem impedimento, nada muda. */
+    clearTicketImpediment: (id: string) => request("DELETE", `${ticket(id)}/impediment`, ticketDetailSchema),
     removeTicketDependency: (id: string, ticketId: string) =>
       request("DELETE", `${ticket(id)}/dependencies/${ticketId}`, null),
     /** Tira a relação "Relacionado a" entre os dois tickets (ADR 0061, fatia 3); `related_not_found` se ela não existe. */

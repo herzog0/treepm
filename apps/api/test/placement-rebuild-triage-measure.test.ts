@@ -45,7 +45,7 @@ const ticket = async (title: string, description = "", extra: { parent?: string;
       [ORG, world.projects.priv, ++n, title, description, extra.status ?? "todo", extra.parent ?? null, world.people.admin],
     )
   ).rows[0]!.id;
-const dependsOn = (from: string, to: string) => pool.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ($1,$2,$3,$4,'depends_on')", [ORG, world.projects.priv, from, to]);
+const dependsOn = (from: string, to: string) => pool.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind, need) values ($1,$2,$3,$4,'depends_on','start')", [ORG, world.projects.priv, from, to]);
 const measure = (provider: FakeEmbeddingProvider, over: Partial<Parameters<typeof measureTriage>[0]> = {}) => measureTriage({ store, projectId: world.projects.priv, provider, kind: "query", extra: [], log, ...over });
 
 describe("triage-measure", () => {

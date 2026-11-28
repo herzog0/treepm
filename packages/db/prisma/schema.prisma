@@ -114,6 +114,7 @@ model Person {
   projectMemberships     ProjectMembership[]
   createdTickets         Ticket[]                   @relation("TicketCreatedBy")
   ticketsAgentWork       Ticket[]                   @relation("TicketAgentWorkPerson")
+  ticketsImpeded         Ticket[]                   @relation("TicketImpedimentPerson")
   ticketAssignees        TicketAssignee[]
   activityEvents         ActivityEvent[]
   ticketConversations    TicketConversation[]
@@ -272,6 +273,10 @@ model Ticket {
   agentWorkUntil     DateTime? @map("agent_work_until") @db.Timestamptz(3)
   agentWorkPersonId  String?   @map("agent_work_person_id") @db.Uuid
   agentWorkNote      String?   @map("agent_work_note")
+  /// Impedimento marcado (ADR 0068, seção 5): os três andam juntos (check). "Bloqueado" é o ticket aberto com impedimento. O motivo não vai para a IA.
+  impedimentReason   String?   @map("impediment_reason")
+  impedimentPersonId String?   @map("impediment_person_id") @db.Uuid
+  impedimentAt       DateTime? @map("impediment_at") @db.Timestamptz(3)
   createdByPersonId  String    @map("created_by_person_id") @db.Uuid
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -282,6 +287,7 @@ model Ticket {
   children             Ticket[]             @relation("TicketTree")
   createdBy            Person               @relation("TicketCreatedBy", fields: [orgId, createdByPersonId], references: [orgId, id])
   agentWorkPerson      Person?              @relation("TicketAgentWorkPerson", fields: [orgId, agentWorkPersonId], references: [orgId, id])
+  impedimentPerson     Person?              @relation("TicketImpedimentPerson", fields: [orgId, impedimentPersonId], references: [orgId, id])
   assignees            TicketAssignee[]
   conversationsCreated TicketConversation[]
   branchSummaries      BranchSummary[]
@@ -316,6 +322,8 @@ model TicketRelation {
   toTicketId   String   @map("to_ticket_id") @db.Uuid
   /// mentions | depends_on | related (check no banco; related: uma linha por par, menor id primeiro)
   kind         String
+  /// Tipo de "depende de" (ADR 0068): start | deliver em depends_on, nulo nos outros tipos (check no banco).
+  need         String?
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 

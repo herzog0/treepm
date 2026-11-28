@@ -1027,7 +1027,7 @@ describe("the AI is not ready yet (ADR 0033)", () => {
   });
 });
 
-describe("reopening warning on the path card (ADR 0034)", () => {
+describe("warning on the path card for a concluded destination (ADR 0068)", () => {
   const withDone = {
     p1: [
       makeTicket("t1", "p1", 1, "Acesso", { key: "ALFA-1", status: "done", progress: { done: 1, total: 1, excluded: 0 } }),
@@ -1046,7 +1046,7 @@ describe("reopening warning on the path card (ADR 0034)", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Procurar o lugar" }));
     return screen.findByRole("region", { name: "Caminho encontrado" });
   };
-  const warning = (key: string) => `«${key}» está concluído e volta para "A fazer" ao receber este ticket.`;
+  const warning = (key: string) => `«${key}» está concluído e deixa de estar ao receber este ticket: a situação dele sai dos itens.`;
 
   it("warns, naming the destination, when it is a concluded ticket", async () => {
     setup(resumed(makePlacement({ destination: at("t1", "t2") })), { tickets: withDone });
@@ -1055,23 +1055,23 @@ describe("reopening warning on the path card (ADR 0034)", () => {
 
   it.each([["in progress", "t3"], ["cancelled", "t4"]])("does not warn when the destination is %s", async (_label, id) => {
     setup(resumed(makePlacement({ destination: at(id!) })), { tickets: withDone });
-    expect(within(await search()).queryByText(/volta para/)).not.toBeInTheDocument();
+    expect(within(await search()).queryByText(/deixa de estar/)).not.toBeInTheDocument();
   });
 
   it("does not warn at the root of the project", async () => {
     setup(resumed(makePlacement({ destination: { parentId: null, path: [] } })), { tickets: withDone });
-    expect(within(await search()).queryByText(/volta para/)).not.toBeInTheDocument();
+    expect(within(await search()).queryByText(/deixa de estar/)).not.toBeInTheDocument();
   });
 
   it("follows the destination: it appears when the person picks a concluded alternative and goes away when they go up to an open one", async () => {
     const withOpenParent = { p1: [{ ...withDone.p1[0]!, status: "in_progress" as const }, ...withDone.p1.slice(1)] };
     setup(resumed(makePlacement({ destination: at("t3"), alternatives: [at("t1", "t2")] })), { tickets: withOpenParent });
     const card = await search();
-    expect(within(card).queryByText(/volta para/)).not.toBeInTheDocument();
+    expect(within(card).queryByText(/deixa de estar/)).not.toBeInTheDocument();
     await userEvent.click(within(card).getByRole("button", { name: /Usar:/ }));
     expect(within(card).getByText(warning("ALFA-2"))).toBeInTheDocument();
     await userEvent.click(within(card).getByRole("button", { name: "Um nível acima" }));
-    expect(within(card).queryByText(/volta para/)).not.toBeInTheDocument();
+    expect(within(card).queryByText(/deixa de estar/)).not.toBeInTheDocument();
   });
 
   it("also warns beside the proposal of a new parent ticket, because the new ticket goes into the same concluded destination", async () => {

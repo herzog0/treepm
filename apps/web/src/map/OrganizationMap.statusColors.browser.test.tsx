@@ -82,14 +82,14 @@ describe("cores por situação no mapa (ADR 0051)", () => {
     }
   });
 
-  it("a legenda abre, lista as cinco situações e cabe na janela", async () => {
+  it("a legenda abre, lista as cinco situações e os três lugares na fila (ADR 0069) e cabe na janela", async () => {
     await page.viewport(390, 844);
     restore = async () => page.viewport(1280, 720);
     const screen = await render(<Harness />);
     await settle(300);
     await screen.getByRole("button", { name: "Situações" }).click();
     const body = document.querySelector<HTMLElement>(".map-legend-body")!;
-    expect(body.querySelectorAll("li")).toHaveLength(5);
+    expect(body.querySelectorAll("li")).toHaveLength(8);
     const box = body.getBoundingClientRect();
     expect(box.left).toBeGreaterThanOrEqual(0);
     expect(box.right).toBeLessThanOrEqual(390);

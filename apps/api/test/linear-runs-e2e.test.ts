@@ -105,7 +105,7 @@ describe("importação completa do time (120 issues, 3 projetos, 3 páginas)", (
     const t = await byExt();
     const s = (ext: string) => t.get(ext)?.status;
     expect([s("i1"), s("i30"), s("i31"), s("i32"), s("i33")]).toEqual(["todo", "in_progress", "cancelled", "cancelled", "todo"]);
-    expect(s("i10")).toBe("todo"); // concluída com filha aberta nasce a fazer
+    expect(s("i10")).toBe("in_progress"); // com filhas, a situação sai delas (uma aberta, uma concluída), não do Linear (ADR 0068)
     expect(s("i12")).toBe("done");
     expect([20, 21, 22, 23].map((n) => t.get(`i${n}`)?.priority)).toEqual([400, 300, 200, 100]);
     expect(t.get("i1")?.priority).toBe(0);
@@ -134,12 +134,11 @@ describe("importação completa do time (120 issues, 3 projetos, 3 páginas)", (
     expect(proj).toEqual([{ kind: "project", external_key: null }]);
   });
 
-  it("applied_snapshot acompanha o que a hierarquia e a reabertura aplicaram (pai e situação)", async () => {
+  it("applied_snapshot acompanha o pai que a hierarquia aplicou", async () => {
     await importAll();
     const t = await byExt();
     const snap = async (ext: string) => (await q("select applied_snapshot s from ticket_external_refs where external_id = $1", [ext]))[0]?.s as Record<string, unknown>;
     expect((await snap("i3"))["parentId"]).toBe(t.get("i110")?.id);
-    expect((await snap("i10"))["status"]).toBe("todo");
     expect((await snap("i4"))["parentId"]).toBe(t.get("i3")?.id);
   });
 

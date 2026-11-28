@@ -52,8 +52,8 @@ describe("CreateTicket has no type (ADR 0034)", () => {
   });
 });
 
-describe("CreateTicket warns that a concluded parent is reopened (ADR 0034)", () => {
-  const warning = "«ALFA-7» está concluído e volta para \"A fazer\" ao receber este ticket.";
+describe("CreateTicket warns that a concluded parent stops being concluded (ADR 0068)", () => {
+  const warning = "«ALFA-7» está concluído e deixa de estar ao receber este ticket: a situação dele sai dos itens.";
 
   it("warns, naming the parent, when the new ticket goes inside a concluded ticket", () => {
     show({ projectId: "p1", parentId: "t7", parent: { key: "ALFA-7", status: "done" } });

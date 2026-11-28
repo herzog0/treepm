@@ -13,7 +13,7 @@ import type { Who } from "./world.js";
 // ADR 0043, fatia 2: MCP com escrita (alcance do token, chave da organização, três ferramentas, limites, autoria).
 const h = useMcpHarness();
 const priv = () => h.world().projects.priv;
-const WRITE_TOOLS = ["update_ticket_status", "add_comment", "set_agent_work", "set_ticket_priority", "create_ticket", "update_ticket", "move_ticket", "add_dependency", "remove_dependency"];
+const WRITE_TOOLS = ["update_ticket_status", "add_comment", "set_agent_work", "set_ticket_priority", "create_ticket", "update_ticket", "move_ticket", "add_dependency", "remove_dependency", "mark_impediment", "clear_impediment"];
 
 async function writeOn(on = true, org = ORG): Promise<void> {
   await h.pool.query("update organizations set mcp_write_enabled = $2 where org_id = $1", [org, on]);
@@ -65,7 +65,7 @@ describe("alcance do token e chave de escrita", () => {
 describe("tools/list", () => {
   const names = async (token: string) => ((await h.rpc(token, "PRIV", "tools/list")).body.result.tools as { name: string; annotations: any }[]);
 
-  it("token de escrita com a chave ligada vê as nove ferramentas, marcadas como de escrita; as de leitura continuam de leitura", async () => {
+  it("token de escrita com a chave ligada vê as onze ferramentas, marcadas como de escrita; as de leitura continuam de leitura", async () => {
     const { token } = await setup();
     const tools = await names(token);
     expect(tools.map((t) => t.name).sort()).toEqual([...WRITE_TOOLS, "get_project_overview", "get_ticket", "get_work_queue", "list_labels", "list_tickets", "search_tickets"].sort());
@@ -177,12 +177,12 @@ describe("a mesma tabela de recusas pelas duas portas (HTTP e MCP)", () => {
   const cases: Case[] = [
     { name: "leitor do projeto", prepare: async () => ({ who: "reader", key: "PRIV-3" }) },
     { name: "projeto arquivado", prepare: async () => { await h.pool.query("update projects set archived_at = now() where id = $1", [priv()]); return { who: "contributor", key: "PRIV-3" }; } },
-    { name: "concluir com filho aberto", prepare: async () => ({ who: "contributor", key: "PRIV-1" }) },
+    { name: "pai: a situação sai dos filhos (ADR 0068)", prepare: async () => ({ who: "contributor", key: "PRIV-1" }) },
     { name: "ticket dentro de ideia", prepare: async () => { await h.pool.query("update tickets set status = 'todo', idea_stage = 'new' where project_id = $1 and number = 1", [priv()]); return { who: "contributor", key: "PRIV-3" }; } },
     { name: "pessoa sem acesso (papel removido depois do token)", prepare: async () => { await h.pool.query("delete from project_memberships where person_id = $1", [h.world().people.contributor]); await h.pool.query("delete from project_teams where project_id = $1", [priv()]); return { who: "contributor", key: "PRIV-3" }; } },
     { name: "ticket inexistente", prepare: async () => ({ who: "contributor", key: "PRIV-99" }) },
   ];
-  const target = (c: Case) => (c.name === "concluir com filho aberto" ? "done" : "in_progress");
+  const target = (c: Case) => (c.name.startsWith("pai:") ? "done" : "in_progress");
 
   for (const c of cases) {
     it(c.name, async () => {
@@ -196,6 +196,13 @@ describe("a mesma tabela de recusas pelas duas portas (HTTP e MCP)", () => {
       if (ticket) expect((await h.rows("select status from tickets where id = $1", [ticket]))[0]?.status).not.toBe(target(c));
     });
   }
+
+  it("pai: a recusa diz, em inglês, que a situação sai dos filhos", async () => {
+    const { token } = await setup();
+    const res = await h.tool(token, "PRIV", "update_ticket_status", { key: "PRIV-1", status: "done" });
+    expect(res.isError).toBe(true);
+    expect(res.text).toMatch(/computed from its child tickets/);
+  });
 
   it("ticket de outro projeto e outra organização", async () => {
     const { token } = await setup();

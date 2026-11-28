@@ -1,5 +1,7 @@
 # ADR 0034 — Um só tipo de ticket, resolvido das folhas para o topo
 
+> **Alterada pela [ADR 0068](0068-pai-e-pedaco-ordem-e-dependencia-bloqueio-e-impedimento.md) em 2026-11-27:** o pai deixa de ter trabalho próprio (ele vira um filho, o habilitador) e a situação do pai passa a ser calculada pelos filhos.
+
 **Status:** Aceita por Teodoro em 2026-11-21. A estrutura (primeira fatia) foi implementada no mesmo dia (PR #78, migration `0009_single_ticket_type`), ainda sem teste com sessão real. A procura por tickets sem filhos (segunda fatia) foi medida em 2026-11-21 e nenhuma regra foi adotada: a procura não muda, e a fatia fica parada até existirem mais tickets colocados à mão dentro de tickets sem filhos. As colunas do tipo antigo saíram do banco (PR #84, migration `0010_drop_ticket_kind`). Substitui a primeira versão desta ADR, que propunha manter os agrupadores. **Data:** 2026-11-21.
 
 Substitui, na [ADR 0031](0031-agrupadores.md), o tipo declarado, a regra "só agrupador tem filhos" e as transformações entre tipos; na [ADR 0024](0024-tickets-primeiro-recorte-e-importacao-por-lista.md), a regra de que o ticket com filhos não tem situação própria; e ajusta, na [ADR 0033](0033-descricao-antes-da-procura-e-texto-fixo-do-agrupador.md), a quem se aplica o texto "O que entra aqui".

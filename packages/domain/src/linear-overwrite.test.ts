@@ -24,7 +24,7 @@ describe("decideLinearOverwrite", () => {
 });
 
 describe("decideLinearStatusOverwrite", () => {
-  const base = { insideIdea: false, hasOpenChildren: false };
+  const base = { insideIdea: false, derived: false };
   it("mexido aqui: assume a do Linear e conta como sobrescrito", () => {
     const out = decideLinearStatusOverwrite({ ...base, desired: "in_progress", previousSource: "in_progress", current: "in_review", applied: "in_progress" });
     expect(out).toMatchObject({ outcome: "apply", target: "in_progress", touchedHere: true, overwritten: true, deviation: false });
@@ -37,12 +37,16 @@ describe("decideLinearStatusOverwrite", () => {
     const out = decideLinearStatusOverwrite({ ...base, desired: "done", previousSource: "todo", current: "todo", applied: "todo" });
     expect(out).toMatchObject({ outcome: "apply", target: "done", touchedHere: false, overwritten: false });
   });
-  it("mexido aqui, mas concluído com filho aberto: a árvore vence (fica e em desvio)", () => {
-    const out = decideLinearStatusOverwrite({ desired: "done", previousSource: "done", current: "in_progress", applied: "todo", insideIdea: false, hasOpenChildren: true });
+  it("pai (ADR 0068): a situação sai dos filhos; a opção não se aplica, mesmo mexido aqui", () => {
+    const out = decideLinearStatusOverwrite({ desired: "done", previousSource: "done", current: "in_progress", applied: "todo", insideIdea: false, derived: true });
+    expect(out).toEqual({ outcome: "derived", target: "in_progress", touchedHere: false, changedInLinear: false, deviation: false, overwritten: false });
+  });
+  it("mexido aqui, concluído com dependência \"para entregar\" aberta: fica, em desvio", () => {
+    const out = decideLinearStatusOverwrite({ ...base, desired: "done", previousSource: "done", current: "in_progress", applied: "todo", hasOpenDeliveries: true });
     expect(out).toMatchObject({ outcome: "blocked", target: "in_progress", deviation: true, overwritten: false });
   });
   it("mexido aqui, dentro de ideia: fica", () => {
-    const out = decideLinearStatusOverwrite({ desired: "in_progress", previousSource: "in_progress", current: "todo", applied: "done", insideIdea: true, hasOpenChildren: false });
+    const out = decideLinearStatusOverwrite({ desired: "in_progress", previousSource: "in_progress", current: "todo", applied: "done", insideIdea: true, derived: false });
     expect(out).toMatchObject({ outcome: "blocked", target: "todo", overwritten: false });
   });
 });

@@ -5,7 +5,7 @@ import { canImportTickets, decideLinearOverwrite, decideLinearStatusOverwrite, p
 import type { TicketStatus } from "@treepm/domain";
 import type { LinearParentMove } from "@treepm/domain";
 import type { LinearHistoryAuthor, LinearHistoryChange, LinearHistoryResolver } from "@treepm/domain";
-import { cleanLinearText, linearHistoryActor, linearHistoryAuthor, linearHistoryChanges, linearRelationApplied, linearRelationKey, mapLinearRelation, removalCarriesOver, sameRelationEnds, decideLinearField, linearCommentAuthor, linearCommentAuthorName, linearCommentQuote, mapLinearComment, decideLinearLateField, decideLinearStatus, heldFieldsAfter, isFinished, linearCreatorColumns, linearInitialParent, mapLinearDescription, mapLinearPriority, mapLinearProjectStatus, mapLinearStatus, mapLinearTitle, matchLinearAssignee, planLinearParents, safeLinearUrl, sameLinearValue } from "@treepm/domain";
+import { cleanLinearText, linearHistoryActor, linearHistoryAuthor, linearHistoryChanges, linearRelationApplied, linearRelationKey, mapLinearRelation, removalCarriesOver, sameRelationEnds, decideLinearField, linearCommentAuthor, linearCommentAuthorName, linearCommentQuote, mapLinearComment, decideLinearLateField, decideLinearStatus, heldFieldsAfter, linearCreatorColumns, linearInitialParent, mapLinearDescription, mapLinearPriority, mapLinearProjectStatus, mapLinearStatus, mapLinearTitle, matchLinearAssignee, planLinearParents, safeLinearUrl, sameLinearValue } from "@treepm/domain";
 import { refuseWhileActingAs } from "../access/act-as.js";
 import { AuthorizationService } from "../access/authorization.service.js";
 import type { Principal } from "../access/principal.js";
@@ -106,7 +106,6 @@ const COUNT_KEYS = [
   "parentsLinked",
   "flattened",
   "skipped",
-  "reopened",
   "skippedInvalid",
   "withoutDescription",
   "movedOutOfIdea",
@@ -1665,16 +1664,16 @@ export class LinearImportService {
   /**
    * Cria os tickets e as origens como a importação por lista cria (travas, números), mas SEM menções: o texto importado não cita
    * ninguém (ver `neutralizeOwnTicketKey`) e as descrições antigas que citam os números novos são ligadas na fase `mentions`. Antes
-   * de gravar, confere cada pai que vai ganhar filho (M2/M3): concluído reabre; ideia, ou dentro de ideia, só recebe filho a
-   * fazer (os outros vão para o destino da rodada).
+   * de gravar, confere cada pai que vai ganhar filho (M3): ideia, ou dentro de ideia, só recebe filho a fazer (os outros vão para o
+   * destino da rodada). Depois, a situação de cada pai sai dos filhos (ADR 0068), até a raiz.
    */
   private async createTickets(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, wanted: NewTicket[], counts: Counts): Promise<TicketRow[]> {
     if (wanted.length === 0) return [];
     const items = await this.keepOutOfIdeas(tx, project, run, wanted, counts);
     const parents = [...new Set(items.flatMap((item) => (item.parentId === null ? [] : [item.parentId])))].sort();
-    await this.tickets.lockTickets(tx, parents);
-    const needReopen = parents.filter((parent) => items.some((item) => item.parentId === parent && !isFinished(item.status as TicketStatus)));
-    if (needReopen.length > 0) await this.reopenParents(tx, principal, project, needReopen, `${project.key}-${await this.tickets.peekNextNumber(tx, project)}`, counts, run.startedAt);
+    // Os pais com a subida (a situação deles sai dos filhos, ADR 0068), pela ordem única das travas, num comando só, antes da linha
+    // do projeto (reserva de números, ADR 0046).
+    await this.tickets.lockTicketSet(tx, project, { ancestorsOf: parents });
     const first = await this.tickets.allocateNumbers(tx, project, items.length);
     const generated = await tx.$queryRaw<{ id: string }[]>`select app_uuid_v7() as id from generate_series(1, ${items.length}::int)`;
     const rows: TicketRow[] = items.map((item, index) => ({
@@ -1736,6 +1735,7 @@ export class LinearImportService {
     if (run.mode === "reimport" && newIssueIds.length > 0) {
       await tx.$executeRaw`update ticket_external_refs set hierarchy_pending = true where org_id = ${project.orgId} and project_id = ${project.id}::uuid and provider = ${PROVIDER} and kind = 'issue' and not hierarchy_pending and external_parent_id = any(${newIssueIds}::text[])`;
     }
+    await this.tickets.deriveStatuses(tx, principal, project, parents, { causedBy: `${project.key}-${first}`, source: run.mode === "reimport" ? "linear_reimport" : "linear_import", runId: run.id });
     return rows;
   }
 
@@ -1762,59 +1762,6 @@ export class LinearImportService {
     return found;
   }
 
-  /**
-   * "Concluído com filho aberto nasce a fazer" (ADR 0034) quando o pai já existe e vai ganhar um filho aberto: o pai (e a cadeia de
-   * concluídos acima dele) volta a `todo`, ANTES de o filho ser gravado (a ordem de `reopenAncestors`). O que a própria rodada criou
-   * já concluído muda em silêncio (nasceu assim); o que alguém concluiu no TreePM é reaberto pelo caminho de sempre, com evento
-   * automático. O retrato aplicado acompanha, para a reimportação não ler isso como edição de quem usa o TreePM.
-   */
-  private async reopenParents(tx: TenantClient, principal: Principal, project: ProjectRow, parentIds: readonly string[], causedBy: string, counts: Counts, since: Date, movingTo: ReadonlyMap<string, string> = new Map()): Promise<void> {
-    for (const start of parentIds) {
-      // A cadeia de concluídos de baixo para cima, já como ficará depois das descidas do plano (`movingTo`: ticket → pai novo).
-      const chain: { id: string; number: number }[] = [];
-      for (let cursor: string | null = start; cursor !== null && chain.length < MAX_TREE_DEPTH; ) {
-        // A situação é lida JÁ com a trava de linha (pais antes de filhos, de baixo para cima): ler e só depois travar deixaria outra transação concluir/reabrir no meio.
-        const row: { id: string; number: number; parentId: string | null; status: string } | undefined = (
-          await tx.$queryRaw<{ id: string; number: number; parentId: string | null; status: string }[]>`select id, number, parent_id as "parentId", status from tickets where org_id = ${project.orgId} and project_id = ${project.id}::uuid and id = ${cursor}::uuid for update`
-        )[0];
-        if (!row || row.status !== "done") break;
-        chain.push({ id: row.id, number: row.number });
-        cursor = movingTo.get(row.id) ?? row.parentId;
-      }
-      if (chain.length === 0) continue;
-      // Só o que a PRÓPRIA rodada criou concluído (e ninguém mexeu depois) muda em silêncio; qualquer outro ticket (com ou sem origem) tem evento.
-      const bornHere = new Set(
-        (await tx.ticketExternalRef.findMany({ where: { ticketId: { in: chain.map((item) => item.id) }, firstImportedAt: { gte: since } }, select: { ticketId: true, appliedSnapshot: true } }))
-          // ...e ainda concluído como nasceu: se alguém o concluiu depois, o evento é devido.
-          .filter((row) => (row.appliedSnapshot as { status?: unknown } | null)?.status === "done")
-          .map((row) => row.ticketId),
-      );
-      for (const item of chain) {
-        await tx.ticket.update({ where: { orgId_id: { orgId: project.orgId, id: item.id } }, data: { status: "todo" } });
-        if (!bornHere.has(item.id)) {
-          await this.activity.record(tx, principal, {
-            kind: "ticket.updated",
-            subjectType: "ticket",
-            subjectId: item.id,
-            payload: { key: `${project.key}-${item.number}`, fields: ["status"], status: { from: "done", to: "todo" }, automatic: true, causedBy },
-          });
-        }
-        await this.markTodo(tx, project, [item.id]);
-        counts.reopened += 1;
-      }
-    }
-  }
-
-  /**
-   * O retrato aplicado acompanha uma reabertura por invariante SÓ para quem não tinha sido mexido (aplicada = concluído = atual antes da
-   * reabertura): quem foi concluído à mão tem aplicada diferente de concluído, e ela fica como estava, para a reimportação continuar
-   * lendo a edição da pessoa. Quem acompanha passa a estar em desvio (aplicada ≠ desejada): a fase `statuses` o reavalia.
-   */
-  private async markTodo(tx: TenantClient, project: ProjectRow, ids: string[]): Promise<void> {
-    await tx.$executeRaw`update ticket_external_refs set applied_snapshot = jsonb_set(applied_snapshot, '{status}', '"todo"'), status_pending = true
-      where org_id = ${project.orgId} and ticket_id = any(${ids}::uuid[]) and applied_snapshot->>'status' = 'done'`;
-  }
-
   /** As origens já guardadas (com os retratos) para os ids externos dados, em toda a organização (RLS): id externo → linha. */
   private async existingRefRows(tx: TenantClient, kind: "issue" | "project", externalIds: string[]): Promise<Map<string, RefRow>> {
     if (externalIds.length === 0) return new Map();
@@ -1832,7 +1779,7 @@ export class LinearImportService {
    * A decisão é tomada DENTRO da transação, com os tickets da página travados em ordem de id (uma edição simultânea não é
    * sobrescrita). A origem vista nesta rodada não é revista (a repescagem relê páginas): conta uma vez só.
    *
-   * A SITUAÇÃO não é aplicada aqui (a árvore ainda não está no lugar e a regra "concluído com filho aberto" olha os filhos): o retrato
+   * A SITUAÇÃO não é aplicada aqui (a árvore ainda não está no lugar, e a situação de um pai sai dos filhos, ADR 0068): o retrato
    * de origem avança já (é o que o Linear diz) e a origem fica `status_pending` quando o Linear mudou a situação, quando já está em
    * desvio (aplicada ≠ desejada sem que ninguém tenha mexido) ou quando já estava pendente; só a fase `statuses` aplica e desliga a
    * marca. Por isso uma rodada abandonada, ou um ticket da fatia 2, converge sem preenchimento. Os retratos são gravados por MESCLA
@@ -2117,14 +2064,15 @@ export class LinearImportService {
 
   /**
    * A situação dos tickets que já existiam, DEPOIS de a árvore estar no lugar, como UMA regra (`decideLinearStatus`): a desejada é a
-   * do Linear mapeada (o retrato de origem já avançou); quem foi mexido aqui (atual ≠ aplicada) não se toca; os outros assumem a
-   * desejada, a menos que uma invariante impeça (concluído com filho aberto; dentro de ideia), e então ficam como estão e EM DESVIO,
+   * do Linear mapeada (o retrato de origem já avançou); o pai (ADR 0068) tem a situação calculada e não copia a do Linear; quem foi
+   * mexido aqui (atual ≠ aplicada) não se toca; os outros assumem a desejada, a menos que uma invariante impeça (dentro de ideia), e
+   * então ficam como estão e EM DESVIO,
    * avaliados de novo em toda reimportação, até poderem assumir. A lista de trabalho é: origens vistas nesta rodada (quem sumiu do
    * Linear não é tocado), marcadas `status_pending` (o Linear mudou, desvio, ou a hierarquia tocou) e ainda não avaliadas nesta
    * rodada, do mais fundo para o mais raso, e é RECALCULADA a cada passo (sem cursor de profundidade: um ticket que muda de nível
    * entre dois passos não é pulado). Para cada uma lê o ticket e o retrato DE AGORA e grava, na mesma transação, a situação, o retrato
-   * aplicado, o evento e a marca. Terminando aberto, o ticket reabre os ancestrais concluídos (mesmo sem ter mudado: um ticket aberto
-   * que desceu para baixo de um concluído). O cursor só conta os passos (o passo repetido por resposta perdida não grava de novo).
+   * aplicado, o evento e a marca; a situação do pai e dos ancestrais é refeita na mesma transação. O cursor só conta os passos (o
+   * passo repetido por resposta perdida não grava de novo).
    */
   private async applyStatuses(tx: TenantClient, principal: Principal, project: ProjectRow, run: RunRow, counts: Counts): Promise<string | null> {
     const orgId = project.orgId;
@@ -2142,7 +2090,9 @@ export class LinearImportService {
       ), depths as (select origin as "ticketId", (count(*) filter (where pid is not null))::int as depth from up group by origin)
       select "ticketId", depth from depths order by depth desc, "ticketId" asc limit ${size}::int`;
     if (batch.length === 0) return null;
-    await tx.$queryRaw`select id from tickets where org_id = ${orgId} and id = any(${batch.map((item) => item.ticketId).sort()}::uuid[]) order by id for update`;
+    // O lote com a subida de cada um (a conta dos pais vem logo depois de cada situação), pela ordem única, num comando só.
+    const batchIds = batch.map((item) => item.ticketId);
+    await this.tickets.lockTicketSet(tx, project, { ids: batchIds, ancestorsOf: batchIds });
     let touched = false;
     for (const { ticketId } of batch) {
       // Lido AGORA (as reaberturas dos itens anteriores deste lote já mudaram retratos e situações).
@@ -2157,23 +2107,26 @@ export class LinearImportService {
       const desired = mapRawStatus(ref.kind, source[statusKeyOf(ref.kind)]);
       const current = row.status as TicketStatus;
       const appliedStatus = ((applied["status"] as string | undefined) ?? row.status) as TicketStatus;
-      // Só quem vai de fato tentar assumir a desejada precisa saber de ideia e de filho aberto.
-      // ADR 0066: com a opção, o mexido aqui também tenta assumir a do Linear.
-      const trying = (run.overwrite || current === appliedStatus) && desired !== current;
       let inIdea: boolean | null = null;
       const insideIdea = async (): Promise<boolean> => (inIdea ??= row.ideaStage !== null || (row.parentId !== null && (await this.parentsInIdeas(tx, project, [row.parentId])).has(row.parentId)));
-      const hasOpenChildren = trying && desired === "done" && (await tx.ticket.count({ where: { parentId: row.id, status: { notIn: ["done", "cancelled"] }, ideaStage: null } })) > 0;
+      // Pai (ADR 0068): algum filho que não é ideia, fora de ideia. A situação sai dos filhos; a da issue-mãe não é copiada.
+      const derived = (await tx.ticket.count({ where: { parentId: row.id, ideaStage: null } })) > 0 && !(await insideIdea());
+      // Só quem vai de fato tentar assumir a desejada precisa saber de ideia. ADR 0066: com a opção, o mexido aqui também tenta assumir
+      // a do Linear; o pai nunca (a situação dele sai dos filhos, e a opção não se aplica a ela).
+      const trying = !derived && (run.overwrite || current === appliedStatus) && desired !== current;
+      // Dependência "para entregar" aberta (ADR 0068, seção 3): o concluído espera, em desvio (a mesma regra de `updateTicket`).
+      const hasOpenDeliveries = trying && desired === "done" && (await tx.ticketRelation.count({ where: { fromTicketId: row.id, kind: "depends_on", need: "deliver", to: { status: { notIn: ["done", "cancelled"] } } } })) > 0;
       // `previousSource: desired`: se o Linear mudou a situação nesta rodada quem sabe é a marca da fase `issues` (o retrato de origem já avançou).
-      const statusInput = { desired, previousSource: desired, current, applied: appliedStatus, insideIdea: trying ? await insideIdea() : false, hasOpenChildren };
+      const statusInput = { desired, previousSource: desired, current, applied: appliedStatus, insideIdea: trying ? await insideIdea() : false, derived, hasOpenDeliveries };
       const decision = run.overwrite ? decideLinearStatusOverwrite(statusInput) : { ...decideLinearStatus(statusInput), overwritten: false };
       const key = `${project.key}-${row.number}`;
       let updated = false;
       const appliedPatch: Record<string, unknown> = {};
       if (decision.outcome === "apply") {
-        // Ticket que volta a ficar aberto reabre o pai concluído (ADR 0034); fora do processo (ideia) nada reabre.
-        if (!isFinished(decision.target) && row.parentId !== null) await this.reopenParents(tx, principal, project, [row.parentId], key, counts, run.startedAt);
         // O marcador de trabalho pela IA acaba antes: o banco recusa concluído ou cancelado com marcador.
         if (decision.target === "done" || decision.target === "cancelled") await this.agentWork.clearTicket(tx, principal, project.key, row.id, "finished");
+        // Concluir ou cancelar limpa o impedimento (ADR 0068, seção 5), como na tela: reaberto depois, o ticket não volta bloqueado.
+        if (decision.target === "done" || decision.target === "cancelled") await this.tickets.clearImpediments(tx, principal, project, [row.id], { automatic: true, cause: "finished", source: "linear_reimport", runId: run.id });
         await tx.ticket.update({ where: { orgId_id: { orgId, id: row.id } }, data: { status: decision.target } });
         await this.activity.record(tx, principal, { kind: "ticket.updated", subjectType: "ticket", subjectId: row.id, payload: { key, fields: ["status"], status: { from: row.status, to: decision.target }, automatic: true, source: "linear_reimport", runId: run.id } });
         appliedPatch["status"] = decision.target;
@@ -2183,9 +2136,10 @@ export class LinearImportService {
           counts.overwritten += await this.markOverwritten(tx, orgId, run.id, [row.id]);
           flags |= FLAG_OVERWRITTEN;
         }
-      } else if (!isFinished(current) && row.parentId !== null && !(await insideIdea())) {
-        // O ticket aberto que a hierarquia pôs embaixo de um concluído (ou que já estava): a invariante manda reabrir os ancestrais.
-        await this.reopenParents(tx, principal, project, [row.parentId], key, counts, run.startedAt);
+        await this.tickets.deriveStatuses(tx, principal, project, [row.parentId], { causedBy: key, source: "linear_reimport", runId: run.id });
+      } else if (decision.outcome === "derived" && appliedStatus !== current) {
+        // O retrato aplicado acompanha a situação calculada: se o pai perder todos os filhos, ela não parece mexida aqui.
+        appliedPatch["status"] = current;
       }
       // A marca acaba, salvo o desvio: aplicada ≠ desejada por invariante, avaliada de novo na rodada seguinte.
       const stillPending = decision.outcome === "blocked";
@@ -2264,19 +2218,22 @@ export class LinearImportService {
     const overwriting = new Set<string>();
     /** Os que precisavam do destino apagado: contam em `skipped` e a marca de hierarquia deles NÃO é limpa (uma rodada com destino válido os decide). */
     const stuck = new Set<string>();
-    /** A hierarquia da reimportação só MOVE: a situação (reabrir ancestrais, concluir quem estava em desvio) é da fase `statuses`; aqui se marcam os tocados. */
+    /** A hierarquia só MOVE (e refaz a situação dos pais, ADR 0068): a situação de cada issue é da fase `statuses`; aqui se marcam os tocados. */
     const touchedByMoves = new Set<string>();
     const toRoot: string[] = [];
     const inSync: string[] = [];
     /** Os que já existiam antes desta rodada e vão mudar de pai: cada um ganha o evento automático e o fim do marcador da IA, como numa edição. */
     const existed = new Set<string>();
     const fromParent = new Map<string, string | null>();
+    /** Os movidos que saem de dentro de uma ideia: a subárvore deles volta ao processo e os pais de dentro são refeitos. */
+    const leftIdea: string[] = [];
+    let currentParent = new Map<string, string | null>();
     if (wanted.length > 0) {
       // A floresta inteira do projeto: a profundidade e o ciclo contam a partir da raiz de verdade, não do destino.
       const rows = await tx.$queryRaw<{ id: string; parent_id: string | null; status: string; number: number }[]>`select id, parent_id, status, number from tickets where org_id = ${orgId} and project_id = ${project.id}::uuid`;
       // O que alguém arrumou à mão fica (ADR 0060, seção 5): só desce o ticket criado NESTA rodada, ou cujo pai atual ainda é o que a
       // importação deu a ele (`applied_snapshot.parentId`). Ticket movido no TreePM fica onde está e conta em `keptMoved`.
-      const currentParent = new Map(rows.map((row) => [row.id, row.parent_id]));
+      currentParent = new Map(rows.map((row) => [row.id, row.parent_id]));
       const requests = wanted.flatMap(({ row, parentId, needsDestination, linearPlace }) => {
         const appliedParent = (row.appliedSnapshot as { parentId?: unknown } | null)?.parentId ?? null;
         const createdNow = row.firstImportedAt.getTime() >= run.startedAt.getTime();
@@ -2328,12 +2285,22 @@ export class LinearImportService {
       }
       counts.movedOutOfIdea += outOfIdea.size;
       if (moves.length > 0) {
-        // Os pais concluídos que vão ganhar filho aberto reabrem ANTES de o filho descer (ordem de `reopenAncestors`).
-        // Os pais são travados em ordem de id (a mesma ordem da criação), antes de qualquer reabertura.
-        await this.tickets.lockTickets(tx, [...new Set(moves.map((move) => move.parentId))].sort());
-        const open = moves.filter((move) => !isFinished((info.get(move.id)?.status ?? "todo") as TicketStatus));
-        const needReopen = reimport ? [] : [...new Set(open.map((move) => move.parentId))].sort();
-        if (needReopen.length > 0) await this.reopenParents(tx, principal, project, needReopen, `${project.key}-${info.get((open[0] as { id: string }).id)?.number}`, counts, run.startedAt, new Map(moves.map((move) => [move.id, move.parentId])));
+        // Quem estava dentro de uma ideia e sai dela volta ao processo com a subárvore: os pais de dentro são refeitos depois.
+        const olds = moves.map((move) => currentParent.get(move.id) ?? null);
+        const leavingFrom = await this.parentsInIdeas(tx, project, [...new Set(olds.flatMap((from) => (from === null ? [] : [from])))]);
+        for (const move of moves) {
+          const from = currentParent.get(move.id) ?? null;
+          if (from !== null && leavingFrom.has(from)) leftIdea.push(move.id);
+        }
+        const entering = await this.parentsInIdeas(tx, project, [...new Set(moves.map((move) => move.parentId))]);
+        const crossing = moves.filter((move) => leftIdea.includes(move.id) || entering.has(move.parentId)).map((move) => move.id);
+        // A ordem única das travas (ADR 0068, revisão 1), num comando só: os movidos e os que vão à raiz, as subidas dos pais antigos
+        // e novos (a situação deles sai dos filhos) e as subárvores que cruzam a borda de uma ideia.
+        await this.tickets.lockTicketSet(tx, project, {
+          ids: [...moves.map((move) => move.id), ...toRoot],
+          ancestorsOf: [...moves.map((move) => move.parentId), ...olds, ...toRoot.map((id) => currentParent.get(id) ?? null)],
+          subtreeOf: crossing,
+        });
         const applied = await applyParentMoves(tx, orgId, moves);
         // O gatilho de ciclo do banco recusou o item sozinho: ele fica onde está e conta em `skipped`; o passo segue.
         const stayed = new Set(applied.skipped);
@@ -2357,6 +2324,8 @@ export class LinearImportService {
       } else counts.skipped += plan.skipped.length;
     }
     if (toRoot.length > 0) {
+      // Já travados com os movidos, quando há movidos; senão, aqui, pela mesma ordem única.
+      await this.tickets.lockTicketSet(tx, project, { ids: toRoot, ancestorsOf: toRoot.map((id) => currentParent.get(id) ?? null) });
       await tx.$executeRaw`update tickets set parent_id = null, updated_at = now() where org_id = ${orgId} and id = any(${toRoot}::uuid[])`;
       const numbers = new Map((await tx.ticket.findMany({ where: { id: { in: toRoot } }, select: { id: true, number: true } })).map((row) => [row.id, row.number] as const));
       counts.overwritten += await this.markOverwritten(tx, orgId, run.id, toRoot.filter((id) => overwriting.has(id)));
@@ -2366,6 +2335,11 @@ export class LinearImportService {
       }
       counts.parentsLinked += toRoot.length;
       await touchProjectVersion(tx, project.id);
+    }
+    // A situação dos pais (ADR 0068): o antigo e o novo de cada movido, até a raiz; mais os pais de dentro de quem saiu de uma ideia.
+    if (touchedByMoves.size > 0) {
+      const inside = (await Promise.all(leftIdea.map((id) => this.tickets.subtreeParents(tx, project, id)))).flat();
+      await this.tickets.deriveStatuses(tx, principal, project, [...touchedByMoves, ...inside], { source: run.mode === "reimport" ? "linear_reimport" : "linear_import", runId: run.id });
     }
     // O retrato aplicado acompanha o pai de hoje dos que foram à raiz ou já estavam onde o Linear pede.
     const synced = [...toRoot, ...inSync];

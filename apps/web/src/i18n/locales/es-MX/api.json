@@ -5,7 +5,7 @@
       "area_name_taken": "Ya existe un área con ese nombre.",
       "project_key_taken": "Ya existe un proyecto con esa clave.",
       "person_inactive": "La persona ya no está en la organización.",
-      "ticket_has_open_children": "Este ticket tiene elementos abiertos. Termina o cancela los elementos antes de terminarlo.",
+      "status_is_derived": "El estado de este ticket viene de sus elementos. Cambia el estado de los elementos.",
       "ticket_cycle": "Un ticket no puede ser el padre de sí mismo ni de uno de sus ancestros.",
       "structure_busy": "Otro cambio en la estructura de este proyecto está en curso. Inténtalo de nuevo en unos instantes.",
       "concurrent_update": "Otro cambio ocurrió al mismo tiempo. Inténtalo de nuevo.",
@@ -84,7 +84,9 @@
       "label_limit_project": "El proyecto ya tiene 200 etiquetas, el máximo. Borra una en la configuración del proyecto antes de crear otra.",
       "label_name_taken": "Ya existe una etiqueta con ese nombre en este proyecto.",
       "label_name_invalid": "El nombre de la etiqueta no puede quedar vacío ni ser demasiado largo.",
-      "label_not_found": "Esa etiqueta ya no existe. La lista se actualizó."
+      "label_not_found": "Esa etiqueta ya no existe. La lista se actualizó.",
+      "ticket_has_open_delivery_dependencies": "Este ticket solo se puede terminar cuando {{keys}} esté terminado.",
+      "ticket_finished": "Un ticket terminado o cancelado no recibe impedimento."
     },
     "kind": {
       "unauthenticated": "Tu sesión expiró. Vuelve a iniciar sesión.",

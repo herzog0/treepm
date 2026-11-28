@@ -41,7 +41,7 @@ function unpainted(tickets: TicketSummary[]): MapNode[] {
     if (!node.ticket) return { ...node, color: ACCENT_COLOR };
     if (isInIdea(node.ticket)) return { ...node };
     const own = effectiveSituation(node.ticket);
-    return { ...node, color: own === "blocked" ? SITUATION_COLORS.blocked : STATUS_COLORS[own] };
+    return { ...node, color: own === "cancelled" ? STATUS_COLORS.cancelled : SITUATION_COLORS[own] };
   });
 }
 function withProgress(tickets: TicketSummary[]): MapNode[] {

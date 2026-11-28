@@ -53,6 +53,11 @@
 .ticket-fields dd > .ticket-error, .ticket-fields dd > .ticket-notice { margin-left: 8px; }
 /* Valor de uma linha: sem borda em repouso, fundo ao passar o mouse e no foco. */
 /* Bloqueado (ADR 0051): o texto acompanha a cor vermelha do marcador, para a cor não ser o único sinal. */
+/* Lugar na fila (ADR 0069): a mesma cor do card no mapa e do marcador. */
+.ticket-place-tag { --place: var(--tp-todo); padding: 1px 6px; border: 1px solid var(--place); border-radius: var(--tp-radius-control); color: var(--place); font-size: 12px; font-weight: 600; line-height: 1.4; }
+.ticket-place-tag[data-place="free"] { --place: var(--tp-free); }
+.ticket-place-tag[data-place="next"] { --place: var(--tp-next); }
+.ticket-place-tag[data-place="waiting"] { --place: var(--tp-waiting); }
 .ticket-blocked-tag { padding: 1px 6px; border: 1px solid var(--tp-blocked); border-radius: var(--tp-radius-control); color: var(--tp-blocked); font-size: 12px; font-weight: 600; line-height: 1.4; }
 .ticket-value { display: inline-flex; align-items: center; gap: 10px; max-width: 100%; min-height: 30px; padding: 0 8px; color: var(--tp-text); }
 .ticket-page .ticket-value-button, .ticket-page .ticket-fields dd button.text, .ticket-page .ticket-dashed, .ticket-page .ticket-chip-button { display: inline-flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px; border: 0; border-radius: var(--tp-radius-control); background: transparent; color: var(--tp-text); font-weight: 400; }

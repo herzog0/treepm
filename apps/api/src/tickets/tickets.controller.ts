@@ -17,8 +17,8 @@ import {
 } from "@nestjs/common";
 import type { Response } from "express";
 import type { TenantClient } from "@treepm/db";
-import { isFinished, ticketProgress } from "@treepm/domain";
-import type { z } from "zod";
+import { deriveParentStatuses, ticketProgress } from "@treepm/domain";
+import { z } from "zod";
 import { AuthorizationService } from "../access/authorization.service.js";
 import { CurrentPrincipal } from "../access/principal.js";
 import type { Principal } from "../access/principal.js";
@@ -28,12 +28,12 @@ import { ZodPipe, parseOutput } from "../common/zod.js";
 import { Tx } from "../db/tx.decorator.js";
 import {
   addDependencySchema,
+  markImpedimentSchema,
   createTicketSchema,
   importTicketsSchema,
   ticketSummarySchema,
   updateTicketSchema,
 } from "./tickets.schema.js";
-import type { ListedTicket } from "./external-keys.js";
 import type { ImportItem, TicketPage, TicketSummary } from "./tickets.schema.js";
 import { activityQuerySchema } from "./ticket-activity.schema.js";
 import type { ActivityPage } from "./ticket-activity.schema.js";
@@ -42,9 +42,14 @@ import { AgentWorkService } from "./agent-work.service.js";
 import { ifNoneMatchHits, projectEtag, touchProjectVersion } from "./project-version.js";
 import { listedTicketSchema, readLinearKeys, withLinearKeys } from "./external-keys.js";
 import { readSummaryRows } from "./ticket-reads.js";
+import { listedDependencySchema, readProjectDependencies } from "./project-dependencies.js";
 import { QueuesStructure, bodyField } from "./structure-queue.js";
 import { TicketsService, ideaViews, toNodes, toSummary } from "./tickets.service.js";
 import type { ProjectRow, TicketRow } from "./tickets.service.js";
+
+/** A linha da lista da tela: o resumo, as chaves do Linear e as dependências (ADR 0069, seção 1). */
+const projectListRowSchema = listedTicketSchema.extend({ dependencies: z.array(listedDependencySchema) });
+type ProjectListRow = z.output<typeof projectListRowSchema>;
 
 @Controller()
 export class TicketsController {
@@ -63,7 +68,7 @@ export class TicketsController {
     @Param("projectId", new ZodPipe(idSchema)) projectId: string,
     @Headers("if-none-match") ifNoneMatch: string | undefined,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<ListedTicket[] | undefined> {
+  ): Promise<ProjectListRow[] | undefined> {
     // Permissão primeiro (quem não vê recebe o 404 de sempre, nunca um 304); só então a versão (ADR 0046). A versão vem da mesma
     // linha do projeto que a conferência acabou de ler, e ANTES da lista: se uma escrita confirmar no meio, a lista pode ser mais
     // nova que o ETag (o cliente pede de novo uma vez), nunca mais velha.
@@ -77,10 +82,16 @@ export class TicketsController {
     }
     const rows = await readSummaryRows(tx, projectId); // trecho da descrição e pessoas em uma consulta por projeto
     const linearKeys = await readLinearKeys(tx, projectId); // as chaves do Linear (e antigas) dos tickets com origem: só esta lista as leva
+    const dependencies = await readProjectDependencies(tx, projectId, new Map(rows.map((row) => [row.id, row.number] as const)));
     const progress = ticketProgress(toNodes(rows));
     const ideas = ideaViews(project, rows);
     const now = this.tickets.now();
-    return rows.map((row) => parseOutput(listedTicketSchema, withLinearKeys(toSummary(project, row, progress, ideas.get(row.id) ?? null, now), linearKeys)));
+    return rows.map((row) =>
+      parseOutput(projectListRowSchema, {
+        ...withLinearKeys(toSummary(project, row, progress, ideas.get(row.id) ?? null, now), linearKeys),
+        dependencies: dependencies.get(row.id) ?? [],
+      }),
+    );
   }
 
   /** Fila de estrutura (ADR 0045, adendo 1): só quando traz pai, a mesma condição em que `createChecked` pega a trava. */
@@ -115,7 +126,7 @@ export class TicketsController {
     this.requireActive(project);
     await this.tickets.lockStructure(tx, projectId); // ADR 0045: o pai e a ideia que o contém são lidos já com a trava.
     if (body.parentId) await this.tickets.requireParent(tx, projectId, body.parentId);
-    // Importar dentro de uma ideia (ADR 0042): os itens fazem parte dela, ficam `todo` e não reabrem o pai concluído.
+    // Importar dentro de uma ideia (ADR 0042): os itens fazem parte dela e ficam `todo`.
     const parentIdea = await this.tickets.ideaRootFor(tx, project, body.parentId ?? null);
 
     // Pré-ordem: o pai antes dos filhos, irmãos na ordem recebida. Item com filhos é só um ticket com filhos.
@@ -131,18 +142,9 @@ export class TicketsController {
       throw new ConflictException({ code: "ticket_in_idea", message: "Dentro de uma ideia a situação fica em a fazer; aceite a ideia antes." });
     }
 
-    // Nenhum `done` com filho direto aberto (ADR 0034): item concluído que traz filho aberto na própria lista nasce `todo`.
-    const hasOpenChild = new Set<number>();
-    flat.forEach(({ item, parentIndex }) => {
-      if (parentIndex !== null && !isFinished(item.status ?? "todo")) hasOpenChild.add(parentIndex);
-    });
+    // Ordem das travas (ADR 0046): as linhas de tickets primeiro (o pai com a subida, cuja situação sai dos filhos, ADR 0068, os
+    // mencionados e os que citam as chaves novas, pela ordem única), a linha do projeto (reserva de números) depois.
     await this.tickets.lockLinkedTickets(tx, project, body.parentId ?? null, flat.map(({ item }) => item.description ?? ""));
-    // Ordem das travas (ADR 0046): as linhas dos pais primeiro, a linha do projeto (reserva de números) depois. O número que a
-    // reserva vai devolver entra só no texto do evento de reabertura (`causedBy`): lê-se sem trava, então numa corrida com uma
-    // criação sem pai pode diferir por um número no texto do evento; o número do ticket é sempre o da reserva.
-    if (body.parentId && !parentIdea && flat.some(({ item, parentIndex }) => parentIndex === null && !isFinished(item.status ?? "todo"))) {
-      await this.tickets.reopenAncestors(tx, principal, project, body.parentId, `${project.key}-${await this.tickets.peekNextNumber(tx, project)}`);
-    }
     const first = await this.tickets.allocateNumbers(tx, project, flat.length);
     // IDs gerados pelo banco (`app_uuid_v7()`, o mesmo padrão da coluna) em UMA consulta; com eles, pais e filhos
     // entram na mesma inserção em lote (a FK do pai é verificada no fim do comando). Total de idas ao banco
@@ -156,10 +158,16 @@ export class TicketsController {
       parentId: parentIndex === null ? (body.parentId ?? null) : (ids[parentIndex] ?? null),
       title: item.title,
       description: item.description ?? "",
-      status: item.status === "done" && hasOpenChild.has(index) ? "todo" : (item.status ?? "todo"),
+      status: item.status ?? "todo",
       ideaStage: null,
       assignees: [],
     }));
+    // Item com filhos é pai (ADR 0068): a situação que veio é ignorada e sai dos filhos, de baixo para cima, já na inserção.
+    // Dentro de uma ideia nada é calculado (tudo fica `todo`).
+    if (!parentIdea) {
+      const derived = deriveParentStatuses(toNodes(rows), rows.map((row) => row.id));
+      for (const row of rows) row.status = derived.get(row.id) ?? row.status;
+    }
     await tx.ticket.createMany({
       data: flat.map((_, index) => {
         const row = rows[index] as TicketRow;
@@ -184,6 +192,7 @@ export class TicketsController {
     });
     await this.tickets.reconcileMentions(tx, project, rows);
     await this.tickets.backfillMentionsTo(tx, project, rows);
+    await this.tickets.deriveStatuses(tx, principal, project, [body.parentId], { causedBy: `${project.key}-${first}` });
     // Dentro de uma ideia, o progresso e o `idea` dos itens são os de quem está dentro: um nó de raiz só para o cálculo.
     const nodes = toNodes(rows);
     if (parentIdea && body.parentId) nodes.push({ id: body.parentId, parentId: null, status: "todo", ideaStage: "new" });
@@ -268,7 +277,11 @@ export class TicketsController {
     this.requireActive(project);
     await this.tickets.lockStructure(tx, project.id); // ADR 0045: remover muda a estrutura; os filhos são contados já com a trava.
     await touchProjectVersion(tx, project.id); // ADR 0046
-    await this.findVisibleTicket(tx, principal.actor, id); // removido por outra requisição enquanto esperava: 404.
+    // Removido por outra requisição enquanto esperava: 404. O pai que vale é o desta leitura, já com a trava de estrutura: um
+    // movimento que confirmou durante a espera mudou o pai (ADR 0068, revisão 1).
+    const { ticket: fresh } = await this.findVisibleTicket(tx, principal.actor, id);
+    // O ticket e a subida do pai, pela ordem única, antes de remover: a situação do pai sai dos filhos que ficam.
+    await this.tickets.lockTicketSet(tx, project, { ids: [id], ancestorsOf: [fresh.parentId] });
     if (await this.hasChildren(tx, id)) {
       throw new ConflictException({ code: "ticket_has_children", message: "Remova ou mova os filhos antes." });
     }
@@ -279,6 +292,8 @@ export class TicketsController {
       subjectId: id,
       payload: { key: `${project.key}-${ticket.number}`, title: ticket.title },
     });
+    // O pai perdeu um filho (ADR 0068): a situação sai dos que ficaram; sem nenhum, ele guarda a última e volta a ser marcado à mão.
+    await this.tickets.deriveStatuses(tx, principal, project, [fresh.parentId], { causedBy: `${project.key}-${ticket.number}` });
   }
 
   @Put("tickets/:id/assignees/:personId")
@@ -316,7 +331,24 @@ export class TicketsController {
     @Param("id", new ZodPipe(idSchema)) id: string,
     @Body(new ZodPipe(addDependencySchema)) body: z.output<typeof addDependencySchema>,
   ): Promise<TicketPage> {
-    return this.tickets.addDependency(tx, principal, id, body.ticketId);
+    return this.tickets.addDependency(tx, principal, id, body.ticketId, body.need);
+  }
+
+  /** Marca o impedimento do ticket (ADR 0068, seção 5): o ticket fica bloqueado com o motivo. Marcar de novo troca o motivo. */
+  @Put("tickets/:id/impediment")
+  async markImpediment(
+    @Tx() tx: TenantClient,
+    @CurrentPrincipal() principal: Principal,
+    @Param("id", new ZodPipe(idSchema)) id: string,
+    @Body(new ZodPipe(markImpedimentSchema)) body: z.output<typeof markImpedimentSchema>,
+  ): Promise<TicketPage> {
+    return this.tickets.markImpediment(tx, principal, id, body.reason);
+  }
+
+  /** Limpa o impedimento (ADR 0068, seção 5); sem impedimento, responde a página do ticket sem mudar nada. */
+  @Delete("tickets/:id/impediment")
+  async clearImpediment(@Tx() tx: TenantClient, @CurrentPrincipal() principal: Principal, @Param("id", new ZodPipe(idSchema)) id: string): Promise<TicketPage> {
+    return this.tickets.clearImpediment(tx, principal, id);
   }
 
   @Delete("tickets/:id/dependencies/:ticketId")

@@ -92,10 +92,13 @@ describe("a sincronização traz as relações", () => {
     expect(await relationEvents()).toEqual({ n: 12, total: 29 });
     // Sem evento por ligação, como na tela.
     expect((await q("select count(*)::int n from activity_events where kind = 'ticket.dependency_added'"))[0]).toEqual({ n: 1 });
-    // "Bloqueado" olha só depende de: b, c, j e l (j já estava, pela ligação feita à mão).
+    // `blocks` do Linear vira "depende de" para começar (ADR 0068): b, c, j e l esperam outro ticket (j já esperava, pela ligação feita à
+    // mão). Esperar não é bloqueado: nenhum ticket importado fica bloqueado.
     const tickets = (await h.call("GET", `/api/projects/${open()}/tickets`, as("admin"))).body as { tickets?: Row[] } | Row[];
     const list = (Array.isArray(tickets) ? tickets : (tickets.tickets ?? [])) as Row[];
-    expect(list.filter((ticket) => ticket["blocked"] === true)).toHaveLength(4);
+    expect(list.filter((ticket) => ticket["place"] === "next" || ticket["place"] === "waiting")).toHaveLength(4);
+    expect(list.filter((ticket) => ticket["blocked"] === true)).toHaveLength(0);
+    expect((await q("select count(*)::int n from ticket_relations where kind = 'depends_on' and need <> 'start'"))[0]).toEqual({ n: 0 });
   });
 
   it("a página do ticket mostra Depende de, Bloqueia e Relacionado a nos dois tickets, com a marca do Linear só nas importadas", async () => {

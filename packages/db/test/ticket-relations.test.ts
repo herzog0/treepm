@@ -41,8 +41,8 @@ async function ticketIn(orgId: string, projectId: string, personId: string): Pro
 const relate = (orgId: string, projectId: string, from: string, to: string, kind: string) =>
   asTenant(prisma, orgId, (tx) =>
     tx.$queryRaw<{ id: string }[]>`
-      insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind)
-      values (${orgId}, ${projectId}::uuid, ${from}::uuid, ${to}::uuid, ${kind}) returning id`,
+      insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind, need)
+      values (${orgId}, ${projectId}::uuid, ${from}::uuid, ${to}::uuid, ${kind}, ${kind === "depends_on" ? "start" : null}) returning id`,
   );
 
 const count = async (from: string): Promise<number> => {
@@ -107,7 +107,7 @@ describe("ticket_relations: o que o banco recusa", () => {
     const a = await ticketIn(ORG_R1, r1.project, r1.person);
     const b = await ticketIn(ORG_R1, r1.project, r1.person);
     await relate(ORG_R1, r1.project, a, b, "depends_on");
-    await expect(owner.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ($1, $2, $3, $4, 'depends_on')", [ORG_R1, r1.project, a, b])).rejects.toMatchObject({ code: "23505" });
+    await expect(owner.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind, need) values ($1, $2, $3, $4, 'depends_on', 'start')", [ORG_R1, r1.project, a, b])).rejects.toMatchObject({ code: "23505" });
   });
 
   it("ponta de outro projeto da mesma organização, em qualquer das duas pontas (23503)", async () => {

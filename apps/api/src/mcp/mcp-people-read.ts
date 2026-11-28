@@ -168,7 +168,7 @@ type IsoDate = string & { readonly __isoDate: unique symbol };
 type DueDay = string & { readonly __dueDay: unique symbol };
 const dueDay = (value: string | null): DueDay | null => (value !== null && isValidDueDate(value) ? (value as DueDay) : null);
 /** Os valores de formato fechado (enums) que as entradas trazem. */
-type Closed = Entry<"status_changed">["from"] | Entry<"contribution_status_changed">["from"] | Entry<"idea_stage_changed">["from"] | Entry<"summary_updated">["source"] | Entry<"agent_work_ended">["reason"] | "mcp";
+type Closed = Entry<"status_changed">["from"] | Entry<"contribution_status_changed">["from"] | Entry<"idea_stage_changed">["from"] | Entry<"summary_updated">["source"] | Entry<"agent_work_ended">["reason"] | Entry<"dependency_need_changed">["from"] | "mcp";
 /**
  * O que um campo do histórico pode ser: texto que passou pelo limpador, chave ou data conferidas, enum, pessoa por `person-name.ts`,
  * número, booleano ou nulo. Texto cru (`string`) não cabe aqui: um campo novo de texto livre não compila sem passar pelo limpador.
@@ -257,7 +257,11 @@ export const HISTORY_FIELDS: FieldsOf = {
   parent_changed: (entry, c) => ({ from: c.ticket(entry.from), to: c.ticket(entry.to) }),
   assignee_added: (entry, c) => ({ person: c.person(entry.person) }),
   assignee_removed: (entry, c) => ({ person: c.person(entry.person) }),
-  dependency_added: (entry, c) => ({ ticket: c.ticket(entry.ticket) }),
+  dependency_added: (entry, c) => ({ ticket: c.ticket(entry.ticket), need: entry.need }),
+  dependency_need_changed: (entry, c) => ({ ticket: c.ticket(entry.ticket), from: entry.from, to: entry.to }),
+  // O impedimento (ADR 0068): só o fato e se foi automático; o motivo não está no histórico.
+  impediment_marked: () => ({}),
+  impediment_cleared: (entry) => ({ automatic: entry.automatic === true }),
   dependency_removed: (entry, c) => ({ ticket: c.ticket(entry.ticket) }),
   related_removed: (entry, c) => ({ ticket: c.ticket(entry.ticket) }),
   summary_updated: (entry) => ({ source: entry.source }),

@@ -25,7 +25,7 @@ import { ORG, OTHER_ORG, as } from "./world.js";
 // e da mesma organização); qualquer falha é 403 `act_as_not_allowed` com o mesmo corpo, e a requisição NÃO é atendida como o administrador.
 const h = useHarness({ ...GITHUB_CONFIG, CREDENTIALS_ENCRYPTION_KEY: LINEAR_KEY_BASE64, ANTHROPIC_API_KEY: AI_CONFIG.ANTHROPIC_API_KEY, TYPESAFE_API_KEY: AI_CONFIG.TYPESAFE_API_KEY });
 /** Rotas autenticadas da API hoje; muda junto com os controladores. */
-const EXPECTED_ROUTES = 119; // +5 das etiquetas (ADR 0065): GET/POST projects/:id/labels, PATCH/DELETE projects/:id/labels/:labelId, POST tickets/:id/labels
+const EXPECTED_ROUTES = 121; // +5 das etiquetas (ADR 0065): GET/POST projects/:id/labels, PATCH/DELETE projects/:id/labels/:labelId, POST tickets/:id/labels; +2 do impedimento (ADR 0068): PUT/DELETE tickets/:id/impediment
 const UUID = "0190c0de-0000-7000-8000-000000000001";
 
 /** Todas as rotas autenticadas de todos os controladores da aplicação (método e caminho com os parâmetros trocados por um uuid). */

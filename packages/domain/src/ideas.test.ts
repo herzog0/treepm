@@ -7,14 +7,11 @@ import {
   canRefineIdea,
   canRegisterIdea,
   canTriageIdea,
+  deriveParentStatuses,
   ideaRootOf,
   ideaRootsOf,
-  isTurn,
-  openChildCount,
   statusChangeAllowed,
   ticketProgress,
-  ticketsOfTheTurn,
-  ticketsToReopen,
 } from "./tickets.js";
 import type { IdeaStage, TicketNode, TicketStatus } from "./tickets.js";
 
@@ -74,25 +71,25 @@ describe("ideaRootOf / ideaRootsOf", () => {
   });
 });
 
-describe("regra 1: não reabre o pai concluído", () => {
-  const { parents, statuses } = maps([n("p", null, "done")]);
-  it("fora do processo: nada a reabrir", () => {
-    expect(ticketsToReopen(parents, statuses, "p", true)).toEqual([]);
+describe("regra 1: a ideia não mexe na situação do pai (ADR 0068)", () => {
+  it("filho que é ideia não entra na conta; o pai concluído continua concluído", () => {
+    const tree = [n("p", null, "done"), n("k", "p", "done"), n("i", "p", "todo", "new")];
+    expect(deriveParentStatuses(tree, ["p"])).toEqual(new Map([["p", "done"]]));
   });
-  it("comum: reabre como antes", () => {
-    expect(ticketsToReopen(parents, statuses, "p", false)).toEqual(["p"]);
-    expect(ticketsToReopen(parents, statuses, "p")).toEqual(["p"]);
+  it("ticket dentro de uma ideia, com filhos, não tem a situação calculada", () => {
+    const tree = [n("r", null, "todo", "refining"), n("s", "r"), n("t", "s", "cancelled")];
+    expect(deriveParentStatuses(tree, ["s"])).toEqual(new Map());
   });
 });
 
 describe("regra 2: não conta como filho aberto", () => {
   it("filho que é raiz de ideia não conta; filho comum aberto conta", () => {
-    const tree = [n("p", null), n("i", "p", "todo", "new"), n("k", "p")];
-    expect(openChildCount(tree, "p")).toBe(1);
-    expect(openChildCount([n("p", null), n("i", "p", "todo", "ready")], "p")).toBe(0);
+    const tree = [n("p", null), n("i", "p", "todo", "new"), n("k", "p", "in_progress")];
+    expect(deriveParentStatuses(tree, ["p"])).toEqual(new Map([["p", "in_progress"]]));
+    expect(deriveParentStatuses([n("p", null), n("i", "p", "todo", "ready")], ["p"])).toEqual(new Map());
   });
   it("sem estágio nenhum nos nós, é a regra de sempre", () => {
-    expect(openChildCount([{ id: "p", parentId: null, status: "todo" }, { id: "k", parentId: "p", status: "todo" }], "p")).toBe(1);
+    expect(deriveParentStatuses([{ id: "p", parentId: null, status: "done" }, { id: "k", parentId: "p", status: "todo" }], ["p"])).toEqual(new Map([["p", "todo"]]));
   });
 });
 
@@ -114,23 +111,6 @@ describe("regra 3: fora do progresso, com `ideas`", () => {
   });
   it("sem ideia nenhuma, ideas é 0 e o resto não muda", () => {
     expect(ticketProgress([n("p", null), n("a", "p", "done"), n("b", "p", "cancelled")]).get("p")).toEqual({ done: 1, total: 1, excluded: 1, ideas: 0 });
-  });
-});
-
-describe("regra 4: nunca é o ticket da vez", () => {
-  it("ideia e o que está dentro não são da vez; o pai com só ideia aberta dentro é", () => {
-    const tree = [n("p", null), n("i", "p", "todo", "new"), n("x", "i")];
-    expect([...ticketsOfTheTurn(tree)]).toEqual(["p"]);
-  });
-  it("o filho aberto comum ainda segura o pai", () => {
-    const tree = [n("p", null), n("i", "p", "todo", "new"), n("k", "p")];
-    expect([...ticketsOfTheTurn(tree)]).toEqual(["k"]);
-  });
-  it("isTurn recusa quem está dentro de ideia", () => {
-    expect(isTurn("todo", null, true)).toBe(false);
-    expect(isTurn("todo", null, false)).toBe(true);
-    expect(isTurn("todo", null)).toBe(true);
-    expect(isTurn("todo", { done: 0, total: 0, excluded: 0, ideas: 1 })).toBe(true);
   });
 });
 

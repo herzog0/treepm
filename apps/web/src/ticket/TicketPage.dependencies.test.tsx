@@ -19,12 +19,12 @@ const summaries: TicketSummary[] = [
   makeTicket("t5", "p1", 5, "Painel", { key: "ALFA-5" }),
 ];
 type Link = TicketDetail["dependsOn"][number];
-const link = (id: string, key: string, title: string, status: Link["status"] = "todo"): Link => ({ id, key, title, status });
+const link = (id: string, key: string, title: string, status: Link["status"] = "todo", need: Link["need"] = "start"): Link => ({ id, key, title, status, need });
 const T2 = link("t2", "ALFA-2", "Banco de dados", "in_progress");
 const T3 = link("t3", "ALFA-3", "Autenticação", "done");
 
 type Lists = { dependsOn?: Link[]; blocks?: Link[] };
-function setup(lists: Lists = {}, options: { role?: "admin" | "reader"; archived?: boolean; add?: ApiClient["addTicketDependency"]; remove?: ApiClient["removeTicketDependency"] } = {}) {
+function setup(lists: Lists = {}, options: { role?: "admin" | "reader"; archived?: boolean; add?: ApiClient["addTicketDependency"]; remove?: ApiClient["removeTicketDependency"]; update?: ApiClient["updateTicket"] } = {}) {
   const state = { dependsOn: lists.dependsOn ?? [], blocks: lists.blocks ?? [] };
   const detailOf = (id: string): TicketDetail => ({
     ...summaries.find((entry) => entry.id === id)!, description: "Texto", createdByPersonId: "person-1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
@@ -34,11 +34,12 @@ function setup(lists: Lists = {}, options: { role?: "admin" | "reader"; archived
   const client = makeClient({ projects: [shown, other], people: [makePerson("person-1", "Ana")], tickets: { p1: summaries } });
   Object.assign(client, {
     getTicket: vi.fn(async (id: string) => ok(detailOf(id))),
-    addTicketDependency: options.add ?? vi.fn(async (_id: string, ticketId: string) => {
+    addTicketDependency: options.add ?? vi.fn(async (_id: string, ticketId: string, need: Link["need"] = "start") => {
       const found = summaries.find((entry) => entry.id === ticketId)!;
-      state.dependsOn = [...state.dependsOn, link(found.id, found.key, found.title, found.status)].sort((a, b) => a.key.localeCompare(b.key));
+      state.dependsOn = [...state.dependsOn.filter((entry) => entry.id !== ticketId), link(found.id, found.key, found.title, found.status, need)].sort((a, b) => a.key.localeCompare(b.key));
       return ok(detailOf("t1"));
     }),
+    ...(options.update ? { updateTicket: options.update } : {}),
     removeTicketDependency: options.remove ?? vi.fn(async (_id: string, ticketId: string) => {
       state.dependsOn = state.dependsOn.filter((entry) => entry.id !== ticketId);
       return ok(undefined);
@@ -186,17 +187,58 @@ describe("seletor de ticket", () => {
   });
 });
 
-describe("lista “Bloqueia”", () => {
+describe("tipo de cada dependência (ADR 0068)", () => {
+  it("cada ticket da linha diz se é para começar ou para entregar", async () => {
+    setup({ dependsOn: [T2, link("t3", "ALFA-3", "Autenticação", "done", "deliver")] });
+    const line = within(await row());
+    expect(line.getByRole("button", { name: "Tipo da dependência de ALFA-2: Para começar. Mudar para Para entregar" })).toHaveTextContent("Para começar");
+    expect(line.getByRole("button", { name: "Tipo da dependência de ALFA-3: Para entregar. Mudar para Para começar" })).toHaveTextContent("Para entregar");
+  });
+
+  it("clicar no tipo troca o tipo pela API e mostra o novo", async () => {
+    const { client } = setup({ dependsOn: [T2] });
+    const line = within(await row());
+    await userEvent.click(line.getByRole("button", { name: /Tipo da dependência de ALFA-2/ }));
+    expect(client.addTicketDependency).toHaveBeenCalledWith("t1", "t2", "deliver");
+    expect(await within(await row()).findByRole("button", { name: /ALFA-2: Para entregar/ })).toBeInTheDocument();
+  });
+
+  it("adicionar cria 'para começar' (sem dizer o tipo)", async () => {
+    const { client } = setup({});
+    await userEvent.click(within(await row()).getByRole("button", { name: "Adicionar dependência" }));
+    await userEvent.click(within(screen.getByRole("group", { name: "Escolha o ticket de que este depende" })).getByRole("button", { name: /ALFA-4/ }));
+    expect(client.addTicketDependency).toHaveBeenCalledWith("t1", "t4");
+    expect(await within(await row()).findByRole("button", { name: /ALFA-4: Para começar/ })).toBeInTheDocument();
+  });
+
+  it("quem só lê vê o tipo escrito, sem botão para trocar", async () => {
+    setup({ dependsOn: [link("t2", "ALFA-2", "Banco de dados", "in_progress", "deliver")] }, { role: "reader" });
+    const line = within(await row());
+    expect(line.getByText("Para entregar")).toBeInTheDocument();
+    expect(line.queryByRole("button", { name: /Tipo da dependência/ })).toBeNull();
+  });
+
+  it("concluir com dependência para entregar aberta mostra as chaves que faltam", async () => {
+    const update = vi.fn(async () => failed("conflict", "ticket_has_open_delivery_dependencies", ["ALFA-2"]));
+    setup({ dependsOn: [link("t2", "ALFA-2", "Banco de dados", "in_progress", "deliver")] }, { update: update as unknown as ApiClient["updateTicket"] });
+    const status = (await screen.findByText("Situação", { selector: "dt" })).closest(".ticket-row") as HTMLElement;
+    await userEvent.click(within(status).getByRole("button"));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: /Concluído/ }));
+    expect(await within(status).findByRole("alert")).toHaveTextContent("ALFA-2");
+  });
+});
+
+describe("lista “Dependem deste”", () => {
   it("lista quem depende deste, abaixo da descrição; clicar abre o ticket", async () => {
     const { onOpenTicket } = setup({ blocks: [T2, T3] });
-    const region = await screen.findByRole("region", { name: "Bloqueia" });
+    const region = await screen.findByRole("region", { name: "Dependem deste" });
     const items = within(region).getAllByRole("button");
     expect(items[0]).toHaveTextContent("ALFA-2");
     expect(items[0]).toHaveTextContent("Banco de dados");
     expect(items[0]).toHaveTextContent("Em andamento");
     expect(items[1]).toHaveTextContent("Concluído");
     const text = screen.getByRole("complementary").textContent ?? "";
-    expect(text.indexOf("Descrição")).toBeLessThan(text.indexOf("Bloqueia"));
+    expect(text.indexOf("Descrição")).toBeLessThan(text.indexOf("Dependem deste"));
     await userEvent.click(items[0]!);
     expect(onOpenTicket).toHaveBeenCalledWith("t2");
   });
@@ -204,13 +246,13 @@ describe("lista “Bloqueia”", () => {
   it("some quando vazia", async () => {
     setup({});
     await screen.findByRole("heading", { level: 1 });
-    expect(screen.queryByRole("region", { name: "Bloqueia" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Dependem deste" })).toBeNull();
   });
 });
 
 describe("idiomas", () => {
   it("o texto novo existe nos três idiomas", async () => {
-    const keys = ["fields.dependsOn", "dependsOn.add", "dependsOn.addLabel", "dependsOn.remove", "dependsOn.pickerLabel", "dependsOn.filter", "dependsOn.cycle", "blocking.heading"];
+    const keys = ["fields.dependsOn", "dependsOn.add", "dependsOn.addLabel", "dependsOn.remove", "dependsOn.pickerLabel", "dependsOn.filter", "dependsOn.cycle", "blocking.heading", "dependsOn.need.start", "dependsOn.need.deliver", "dependsOn.changeNeed"];
     const seen: Record<string, string[]> = {};
     for (const language of ["pt-BR", "en", "es-MX"] as const) {
       await setTestLanguage(language);
@@ -220,7 +262,9 @@ describe("idiomas", () => {
         (seen[key] ??= []).push(text);
       }
     }
-    expect(seen["blocking.heading"]).toEqual(["Bloqueia", "Blocks", "Bloquea"]);
+    expect(seen["blocking.heading"]).toEqual(["Dependem deste", "Depended on by", "Dependen de este"]);
+    expect(seen["dependsOn.need.start"]).toEqual(["Para começar", "To start", "Para empezar"]);
+    expect(seen["dependsOn.need.deliver"]).toEqual(["Para entregar", "To deliver", "Para entregar"]);
     expect(seen["fields.dependsOn"]).toEqual(["Depende de", "Depends on", "Depende de"]);
     expect(i18n.t("ticket:dependsOn.cycle", { key: "X-1" } as never)).toContain("X-1");
   });
