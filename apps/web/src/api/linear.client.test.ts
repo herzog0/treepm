@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import i18n from "../i18n/index.js";
-import { createApiClient } from "./client.js";
+import { createApiClient, linearRunSchema as linearRunSchemaForTest } from "./client.js";
 import { describeApiError } from "./errorText.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -79,7 +79,7 @@ describe("rotas do Linear (ADR 0060)", () => {
 });
 
 const runView = {
-  id: ID, projectId: ID, mode: "first", phase: "issues", done: false, categorize: false, categorizeAvailable: false,
+  id: ID, projectId: ID, mode: "first", phase: "issues", done: false, categorize: false, overwrite: false, categorizeAvailable: false,
   errorStreak: 0, pageSize: 50, counts: { issuesCreated: 10, issuesSeen: 10 }, totalExpected: 412, waitUntil: null, lastErrorCode: null, destinationTicketId: null,
   startedBy: { id: ID }, startedAt: "2026-11-24T10:00:00.000Z", updatedAt: "2026-11-24T10:01:00.000Z", finishedAt: null,
 };
@@ -238,5 +238,14 @@ describe("procurar o lugar dos itens importados (ADR 0060, seção 6)", () => {
     expect(await setup({ error: { code: "linear_nothing_to_categorize", message: "x" } }, 409).client.openLinearCategorize(ID)).toEqual({ ok: false, error: { kind: "conflict", code: "linear_nothing_to_categorize" } });
     expect(await setup({ error: { code: "assistant_consent_required", message: "x" } }, 403).client.stepLinearCategorize(ID, ID)).toMatchObject({ ok: false, error: { code: "assistant_consent_required" } });
     expect(await setup({ error: { code: "assistant_not_configured", message: "x" } }, 503).client.stepLinearCategorize(ID, ID)).toMatchObject({ ok: false, error: { kind: "unavailable", code: "assistant_not_configured" } });
+  });
+});
+
+describe("rodada do servidor antigo (deploy em andamento, ADR 0066)", () => {
+  it("resposta sem `overwrite` vale `overwrite: false`", async () => {
+    const { overwrite: _omit, ...old } = runView;
+    void _omit;
+    const parsed = linearRunSchemaForTest.safeParse(old);
+    expect(parsed.success && parsed.data.overwrite).toBe(false);
   });
 });

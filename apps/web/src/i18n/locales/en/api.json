@@ -63,6 +63,8 @@
       "linear_team_in_use": "This team is already linked to another project.",
       "linear_team_not_found": "Your key cannot see this team in Linear.",
       "linear_run_open": "A Linear import is already in progress for this project. Open the import screen to continue it.",
+      "linear_run_open_other_mode": "A sync is already open. Finish or abandon it before opening another.",
+      "linear_overwrite_first_import": "Overwriting with Linear only applies to a sync, after the first import.",
       "linear_reimport_not_available": "This project has already been imported from Linear. Importing again is not available yet.",
       "linear_step_in_progress": "Another tab or person is moving this import forward right now. Wait a moment.",
       "linear_not_linked": "This project is not linked to a Linear team yet.",

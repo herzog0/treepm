@@ -199,7 +199,10 @@
       "historyCreated_many": "{{count}} registros do histórico trazidos do Linear",
       "historyTruncated_one": "{{count}} issue tinha mais histórico do que o limite de 200 registros; os mais antigos ficaram de fora.",
       "historyTruncated_other": "{{count}} issues tinham mais histórico do que o limite de 200 registros; os mais antigos ficaram de fora.",
-      "historyTruncated_many": "{{count}} issues tinham mais histórico do que o limite de 200 registros; os mais antigos ficaram de fora."
+      "historyTruncated_many": "{{count}} issues tinham mais histórico do que o limite de 200 registros; os mais antigos ficaram de fora.",
+      "overwritten_one": "{{count}} ticket sobrescrito com o Linear",
+      "overwritten_many": "{{count}} tickets sobrescritos com o Linear",
+      "overwritten_other": "{{count}} tickets sobrescritos com o Linear"
     },
     "abandon": {
       "button": "Abandonar importação",
@@ -225,7 +228,8 @@
       "reimport": "Sincronizar agora",
       "changeDestination": "Mudar destino das issues novas",
       "destination": "Destino das issues novas",
-      "titleUndated": "Última importação"
+      "titleUndated": "Última importação",
+      "overwrite": "Sobrescrever com o Linear o que foi mudado aqui"
     },
     "categorize": {
       "title": "Arrumar na árvore",
@@ -291,6 +295,18 @@
         "abandoned": "Procura abandonada.",
         "waiting": "A IA pediu para esperar."
       }
-    }
+    },
+    "overwrite": {
+      "title": "Sobrescrever com o Linear?",
+      "back": "Voltam a ser os do Linear: título, descrição, situação, prioridade, responsável, prazo, etiquetas e o pai das issues que têm pai no Linear.",
+      "same": "Não mudam: comentários, conversas, tickets criados aqui; as issues sem pai e sem projeto no Linear ficam onde estão.",
+      "review": "“Em revisão” volta para “Em andamento”.",
+      "lost": "O que foi escrito aqui nesses campos é substituído.",
+      "cancel": "Cancelar",
+      "confirm": "Sobrescrever",
+      "descriptionLost": "A descrição escrita aqui não pode ser recuperada depois.",
+      "history": "Os outros valores anteriores ficam no histórico do ticket."
+    },
+    "reimportingOverwrite": "Sincronizando e sobrescrevendo com o Linear…"
   }
 }

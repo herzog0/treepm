@@ -358,6 +358,7 @@ export const makeLinearRun = (extra: Partial<LinearRun> = {}): LinearRun => ({
   phase: "projects",
   done: false,
   categorize: false,
+  overwrite: false,
   categorizeAvailable: false,
   counts: {},
   errorStreak: 0,
@@ -645,7 +646,7 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
       return ok({ issueCount: preview === undefined ? total : preview });
     }),
     // Como o servidor: sem ligação 409 `linear_not_linked`; com rodada aberta 409 `linear_run_open`; depois de concluída, `linear_reimport_not_available`.
-    openLinearRun: vi.fn(async (projectId: string, body: { destinationTicketId?: string | null }) => {
+    openLinearRun: vi.fn(async (projectId: string, body: { destinationTicketId?: string | null; overwrite?: boolean }) => {
       const problem = refuse();
       if (problem) return problem;
       if (openError) {
@@ -660,7 +661,7 @@ function linearMethods(data: FakeData): Partial<ApiClient> {
       if (searching && !searching.finished) return failed("conflict", "linear_categorize_open");
       // Depois de uma importação concluída, abrir é reimportar; sem destino no corpo ele é herdado da primeira rodada concluída.
       const done = finishedRuns.get(projectId) ?? (last && last.phase === "done" ? last : null);
-      const created = makeLinearRun({ projectId, id: `run-${runs.size + 1}`, mode: done ? "reimport" : "first", totalExpected: total, destinationTicketId: body.destinationTicketId === undefined ? (done?.destinationTicketId ?? null) : body.destinationTicketId, startedBy: { id: me.person.id }, startedAt: stamp(), updatedAt: stamp() });
+      const created = makeLinearRun({ projectId, id: `run-${runs.size + 1}`, mode: done ? "reimport" : "first", overwrite: body.overwrite === true, totalExpected: total, destinationTicketId: body.destinationTicketId === undefined ? (done?.destinationTicketId ?? null) : body.destinationTicketId, startedBy: { id: me.person.id }, startedAt: stamp(), updatedAt: stamp() });
       runs.set(projectId, created);
       return ok<LinearRun>({ ...created, counts: { ...created.counts } });
     }),

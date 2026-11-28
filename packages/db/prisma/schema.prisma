@@ -1122,6 +1122,8 @@ model ExternalImportRun {
   /// A fase `history` terminou sem truncamento por erro (só então a marca d'água avança). A marca d'água de um projeto é o maior
   /// `startedAt` entre as rodadas com `historyComplete`.
   historyComplete    Boolean   @default(false) @map("history_complete")
+  /// "Sobrescrever com o Linear" (ADR 0066, migration 0049): escolhida ao abrir, só em `reimport`, vale para todos os passos.
+  overwrite          Boolean   @default(false)
   startedAt          DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   finishedAt         DateTime? @map("finished_at") @db.Timestamptz(3)

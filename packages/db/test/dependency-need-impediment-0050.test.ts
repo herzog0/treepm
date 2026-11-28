@@ -7,7 +7,7 @@ import type { Ids } from "./helpers.js";
 import { OWNER_URL } from "./env.js";
 import type { PrismaClient } from "../src/index.js";
 
-// Migration 0049 (ADR 0068, seções 3 e 5): o tipo de "depende de" (`need`: start | deliver) e o impedimento marcado no ticket.
+// Migration 0050 (ADR 0068, seções 3 e 5): o tipo de "depende de" (`need`: start | deliver) e o impedimento marcado no ticket.
 const ORG = "org_NEED";
 let owner: pg.Pool;
 let prisma: PrismaClient;
@@ -40,7 +40,7 @@ const relate = (from: string, to: string, kind: string, need: string | null) =>
       values (${ORG}, ${ids.project}::uuid, ${from}::uuid, ${to}::uuid, ${kind}, ${need}) returning id`,
   );
 
-describe("ticket_relations.need (migration 0049)", () => {
+describe("ticket_relations.need (migration 0050)", () => {
   it.each(["start", "deliver"])("depends_on aceita %s, e o papel da aplicação troca o tipo", async (need) => {
     const [a, b] = [await ticket(), await ticket()];
     const [row] = await relate(a, b, "depends_on", need);
@@ -54,7 +54,7 @@ describe("ticket_relations.need (migration 0049)", () => {
     await expect(relate(a, b, "depends_on", "later")).rejects.toThrow(/ticket_relations_need_check/);
   });
 
-  // A API de antes da 0049 grava "depende de" sem `need` (a janela entre a migração e a API nova no ar): o gatilho completa "para começar".
+  // A API de antes da 0050 grava "depende de" sem `need` (a janela entre a migração e a API nova no ar): o gatilho completa "para começar".
   it("depends_on gravado sem a coluna need (como a API antiga) vale 'para começar'; com need nulo explícito também", async () => {
     const [a, b, c] = [await ticket(), await ticket(), await ticket()];
     const [old] = await asTenant(prisma, ORG, (tx) =>
@@ -88,7 +88,7 @@ describe("ticket_relations.need (migration 0049)", () => {
   });
 });
 
-describe("impedimento no ticket (migration 0049)", () => {
+describe("impedimento no ticket (migration 0050)", () => {
   const mark = (id: string, reason: string | null, person: string | null, at: string | null) =>
     asTenant(prisma, ORG, (tx) =>
       tx.$executeRaw`update tickets set impediment_reason = ${reason}, impediment_person_id = ${person}::uuid, impediment_at = ${at}::timestamptz where id = ${id}::uuid`,
@@ -127,10 +127,11 @@ describe("impedimento no ticket (migration 0049)", () => {
   });
 });
 
-// Migration 0049 sobre dados da 0048: toda dependência existente vira "para começar".
+// Migration 0050 sobre dados da 0048: toda dependência existente vira "para começar". Sem a 0049_linear_overwrite antes: a 0050 não
+// depende dela (um banco que recebeu esta migration com o nome antigo, 0049_dependency_need_and_impediment, não tem a outra).
 const MIGRATIONS = fileURLToPath(new URL("../prisma/migrations/", import.meta.url));
-const DB_NAME = "treepm_migration_0049";
-describe("migration 0049 sobre dados da 0048", () => {
+const DB_NAME = "treepm_migration_0050";
+describe("migration 0050 sobre dados da 0048", () => {
   let admin: pg.Client;
   let db: pg.Client;
   beforeAll(async () => {
@@ -160,7 +161,7 @@ describe("migration 0049 sobre dados da 0048", () => {
     for (const [from, to, kind] of [[a, b, "depends_on"], [a, b, "mentions"], [low, high, "related"]]) {
       await db.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ('o', $1, $2, $3, $4)", [project, from, to, kind]);
     }
-    await db.query(readFileSync(`${MIGRATIONS}0049_dependency_need_and_impediment/migration.sql`, "utf8"));
+    await db.query(readFileSync(`${MIGRATIONS}0050_dependency_need_and_impediment/migration.sql`, "utf8"));
     const rows = (await db.query<{ kind: string; need: string | null }>("select kind, need from ticket_relations order by kind")).rows;
     expect(rows).toEqual([
       { kind: "depends_on", need: "start" },
@@ -170,9 +171,9 @@ describe("migration 0049 sobre dados da 0048", () => {
   });
 });
 
-// O merge com a situação calculada do pai (0051): 0049 e 0051 aplicadas em ordem sobre dados da 0048 (não há 0050).
+// O merge com o `main` (ADR 0066, já em produção) e com a situação calculada do pai: 0049, 0050 e 0051 aplicadas em ordem sobre dados da 0048.
 const DB_BOTH = "treepm_migration_0049_0051";
-describe("migrations 0049 e 0051, em ordem, sobre dados da 0048", () => {
+describe("migrations 0049, 0050 e 0051, em ordem, sobre dados da 0048", () => {
   let admin: pg.Client;
   let db: pg.Client;
   beforeAll(async () => {
@@ -205,9 +206,9 @@ describe("migrations 0049 e 0051, em ordem, sobre dados da 0048", () => {
     const solo = await t("todo");
     await db.query("insert into ticket_relations (org_id, project_id, from_ticket_id, to_ticket_id, kind) values ('o', $1, $2, $3, 'depends_on')", [project, solo, a]);
 
-    for (const name of ["0049_dependency_need_and_impediment", "0051_parent_status_derived"]) await db.query(readFileSync(`${MIGRATIONS}${name}/migration.sql`, "utf8"));
     const names = readdirSync(MIGRATIONS).filter((m) => /^\d{4}_/.test(m)).sort();
-    expect(names.filter((m) => m >= "0049")).toEqual(["0049_dependency_need_and_impediment", "0051_parent_status_derived"]);
+    expect(names.filter((m) => m >= "0049")).toEqual(["0049_linear_overwrite", "0050_dependency_need_and_impediment", "0051_parent_status_derived"]);
+    for (const name of names.filter((m) => m >= "0049")) await db.query(readFileSync(`${MIGRATIONS}${name}/migration.sql`, "utf8"));
 
     expect((await db.query("select need from ticket_relations where from_ticket_id = $1", [solo])).rows).toEqual([{ need: "start" }]);
     expect((await db.query("select status, impediment_reason from tickets where id = $1", [parent])).rows[0]).toEqual({ status: "done", impediment_reason: null });

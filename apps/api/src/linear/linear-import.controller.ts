@@ -45,7 +45,8 @@ export class LinearImportController {
     @Param("projectId", new ZodPipe(idSchema)) projectId: string,
     @Body(new ZodPipe(openRunBodySchema)) body: z.output<typeof openRunBodySchema>,
   ): Promise<RunView> {
-    return this.service.open(tenant, principal, projectId, body);
+    // A tela sempre diz qual rodada quer: sem a opção é a sincronização normal (o MCP não passa a opção e recebe a rodada aberta, ADR 0066).
+    return this.service.open(tenant, principal, projectId, { ...body, overwrite: body.overwrite ?? false });
   }
 
   /** A rodada aberta ou, se não há, a última; `{ run: null }` quando o projeto nunca importou. */

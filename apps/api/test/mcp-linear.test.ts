@@ -350,10 +350,10 @@ describe("ponta a ponta: a sincronização pelo MCP é a da tela", () => {
     await httpRun(priv());
     const tok = await token("admin");
     const started = await write(tok, "start_linear_sync");
-    expect(Object.keys(started.data ?? {}).sort()).toEqual(["counts", "done", "id", "nextAction", "phase", "waitUntil"]);
+    expect(Object.keys(started.data ?? {}).sort()).toEqual(["counts", "done", "id", "nextAction", "overwrite", "phase", "waitUntil"]);
     expect(started.data?.nextAction).toMatch(/continue_linear_sync/);
     const next = await write(tok, "continue_linear_sync", { runId: started.data?.id });
-    expect(Object.keys(next.data ?? {}).sort()).toEqual(["counts", "done", "id", "nextAction", "phase", "waitUntil"]);
+    expect(Object.keys(next.data ?? {}).sort()).toEqual(["counts", "done", "id", "nextAction", "overwrite", "phase", "waitUntil"]);
     for (const res of [started, next]) for (const id of [h.world().people.admin, priv()]) expect(JSON.stringify(res.raw)).not.toContain(id);
   });
 
@@ -1021,7 +1021,7 @@ describe("comentários do Linear pela sincronização do MCP (TREEPM-477)", () =
     // A fase `comments` passou pelo MCP, e nenhuma resposta das duas ferramentas leva corpo, nome de autor nem e-mail.
     expect(responses.some((res) => res.data?.phase === "comments")).toBe(true);
     for (const res of responses) {
-      expect(Object.keys(res.data ?? {}).sort()).toEqual(["counts", "done", "id", "nextAction", "phase", "waitUntil"]);
+      expect(Object.keys(res.data ?? {}).sort()).toEqual(["counts", "done", "id", "nextAction", "overwrite", "phase", "waitUntil"]);
       expectNoCommentData(res.raw);
     }
   });

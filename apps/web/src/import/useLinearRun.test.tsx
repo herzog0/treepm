@@ -184,6 +184,15 @@ describe("useLinearRun: o laço de passos", () => {
     expect(client.getCurrentLinearRun).toHaveBeenCalledTimes(2);
   });
 
+  it("abrir com a opção contrária à da rodada aberta (`linear_run_open_other_mode`) devolve o próprio erro e relê a atual", async () => {
+    const { client, hook } = setup({ existing: { phase: "done", done: true }, openError: ["conflict", "linear_run_open_other_mode"] }, { enabled: false });
+    await flush();
+    const result = await act(async () => hook.result.current.open({ overwrite: true }));
+    expect(result).toEqual(failed("conflict", "linear_run_open_other_mode"));
+    await flush();
+    expect(client.getCurrentLinearRun).toHaveBeenCalledTimes(2);
+  });
+
   it("erro ao ler a rodada atual aparece como erro de carga e pode tentar de novo", async () => {
     const client = makeClient({ linear: { connection: makeLinearConnection() } });
     client.getCurrentLinearRun = vi.fn().mockResolvedValueOnce(failed("unavailable", "linear_unavailable")).mockResolvedValue(ok({ run: makeLinearRun({ phase: "done", done: true }) }));

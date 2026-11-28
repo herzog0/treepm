@@ -63,6 +63,8 @@
       "linear_team_in_use": "Este equipo ya está ligado a otro proyecto.",
       "linear_team_not_found": "Tu clave no ve este equipo en Linear.",
       "linear_run_open": "Ya hay una importación de Linear en curso en este proyecto. Abre la pantalla de importación para continuar.",
+      "linear_run_open_other_mode": "Ya hay una sincronización abierta. Termínala o abandónala antes de abrir otra.",
+      "linear_overwrite_first_import": "Sobrescribir con Linear solo aplica a una sincronización, después de la primera importación.",
       "linear_reimport_not_available": "Este proyecto ya se importó desde Linear. Importar de nuevo aún no está disponible.",
       "linear_step_in_progress": "Otra pestaña u otra persona está avanzando esta importación ahora. Espera un momento.",
       "linear_not_linked": "Este proyecto aún no está ligado a un equipo de Linear.",

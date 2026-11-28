@@ -140,3 +140,4 @@ export * from "./ticket-embedding-text.js";
 export * from "./labels.js";
 export * from "./label-name-cases.js";
 export * from "./linear-labels.js";
+export * from "./linear-overwrite.js";
