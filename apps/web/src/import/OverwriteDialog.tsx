@@ -44,6 +44,7 @@ export function OverwriteDialog({ onCancel, onConfirm }: { onCancel: () => void;
       <div ref={boxRef} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-lost`} tabIndex={-1} className="linear-dialog-box" onKeyDown={onKeyDown}>
         <h2 id={`${id}-title`}>{t("linear.overwrite.title")}</h2>
         <p className="linear-dialog-note">{t("linear.overwrite.back")}</p>
+        <p className="linear-dialog-note">{t("linear.overwrite.derived")}</p>
         <p className="linear-dialog-note">{t("linear.overwrite.same")}</p>
         <p className="linear-dialog-note">{t("linear.overwrite.review")}</p>
         <p id={`${id}-lost`} className="linear-dialog-note">

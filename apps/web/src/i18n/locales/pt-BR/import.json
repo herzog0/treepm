@@ -299,6 +299,7 @@
     "overwrite": {
       "title": "Sobrescrever com o Linear?",
       "back": "Voltam a ser os do Linear: título, descrição, situação, prioridade, responsável, prazo, etiquetas e o pai das issues que têm pai no Linear.",
+      "derived": "A situação de ticket com filhos é calculada pelos filhos e não é sobrescrita.",
       "same": "Não mudam: comentários, conversas, tickets criados aqui; as issues sem pai e sem projeto no Linear ficam onde estão.",
       "review": "“Em revisão” volta para “Em andamento”.",
       "lost": "O que foi escrito aqui nesses campos é substituído.",
