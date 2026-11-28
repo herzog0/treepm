@@ -488,6 +488,27 @@ describe("pai com situação calculada (ADR 0068) numa rodada com a opção", ()
   });
 });
 
+describe("concluído no Linear com dependência \"para entregar\" aberta (ADR 0068, seção 3)", () => {
+  it("mexido aqui: a opção não conclui, fica em desvio sem vaivém; fechada a dependência, a rodada seguinte conclui", async () => {
+    const world = await firstImport();
+    const [s, other] = [await ticketOf("s"), await ticketOf("p")];
+    expect((await h.call("POST", `/api/tickets/${s}/dependencies`, as("admin"), { ticketId: other, need: "deliver" })).status).toBe(200);
+    await patch(s, { status: "in_review" });
+    issue(world, "s").state = "completed";
+    const run = await overwrite();
+    expect(run.counts).toMatchObject({ overwritten: 0 });
+    expect(await ticket("s")).toMatchObject({ status: "in_review", status_pending: true });
+    const before = await eventCount();
+    await overwrite();
+    for (let i = 0; i < 2; i += 1) expect((await sync()).counts).toMatchObject({ updated: 0, keptTouched: 0, overwritten: 0 });
+    expect(await updatedEvents(before)).toEqual([]);
+    expect((await ticket("s"))["status"]).toBe("in_review");
+    await patch(other, { status: "done" });
+    await sync();
+    expect(await ticket("s")).toMatchObject({ status: "done", status_pending: false });
+  });
+});
+
 describe("item 8: o que a opção não toca", () => {
   it("ticket criado aqui, comentário editado aqui, relação removida aqui e origem `missing` ficam como estão", async () => {
     const world = await firstImport();
